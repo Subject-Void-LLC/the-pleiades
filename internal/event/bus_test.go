@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/customerx/pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 )
 
 // mockBus implements event.Bus

@@ -3,7 +3,7 @@ package inventory_test
 import (
 	"testing"
 
-	"github.com/customerx/pleiades/internal/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 )
 
 // mockDevice implements inventory.InventoryItem

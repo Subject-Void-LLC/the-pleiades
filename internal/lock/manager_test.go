@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/customerx/pleiades/internal/lock"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 )
 
 // mockLease implements lock.Lease
