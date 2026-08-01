@@ -1,0 +1,14 @@
+# Ignore files and directories starting with a dot followed by uppercase letters
+.[A-Z]*
+
+# Standard Go ignores
+bin/
+obj/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
