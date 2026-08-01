@@ -3,8 +3,12 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrLockHeld is returned when a device is already locked by another process.
+var ErrLockHeld = errors.New("lock already held")
 
 // Manager prevents simultaneous execution against a single InventoryItem.
 type Manager interface {
