@@ -3,19 +3,15 @@ package event
 
 import "context"
 
-// Message represents a single event payload traversing the mesh.
-type Message struct {
-	ID      string
-	Topic   string
-	Payload []byte
-}
-
 // Bus defines the contract for the high-durability event mesh.
+// It adheres to the Dependency Inversion principle by ensuring the core
+// execution engine never imports the NATS library directly.
 type Bus interface {
-	// Publish fires an event to a specific topic without waiting for a response.
+	// Publish fires a CloudEvent to a specific topic without waiting for a response.
+	// The payload is expected to be a marshaled JSON string of the Event struct.
 	Publish(ctx context.Context, topic string, payload []byte) error
 
-	// Subscribe registers a handler function to process incoming messages
+	// Subscribe registers a handler function to process incoming events
 	// for a specific topic.
-	Subscribe(ctx context.Context, topic string, handler func(msg Message)) error
+	Subscribe(ctx context.Context, topic string, handler func(event Event)) error
 }

@@ -3,33 +3,40 @@ package event_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 )
 
 // mockBus implements event.Bus
 type mockBus struct {
-	published []event.Message
+	published [][]byte
+	topics    []string
 }
 
 func (m *mockBus) Publish(ctx context.Context, topic string, payload []byte) error {
-	m.published = append(m.published, event.Message{
-		ID:      "test-1",
-		Topic:   topic,
-		Payload: payload,
-	})
+	m.published = append(m.published, payload)
+	m.topics = append(m.topics, topic)
 	return nil
 }
 
-func (m *mockBus) Subscribe(ctx context.Context, topic string, handler func(msg event.Message)) error {
+func (m *mockBus) Subscribe(ctx context.Context, topic string, handler func(evt event.Event)) error {
 	return nil
 }
 
 func TestEventBusCompliance(t *testing.T) {
 	// If mockBus does not implement event.Bus, the compiler will fail.
 	var bus event.Bus = &mockBus{}
-	
-	err := bus.Publish(context.Background(), "device.state_changed", []byte(`{"status":"ok"}`))
+
+	// Wrap a payload in the DRY envelope
+	mockPayload := map[string]string{"status": "ok"}
+	evt, err := event.WrapPayload("test-1", "device.state_changed", mockPayload)
+	if err != nil {
+		t.Fatalf("failed to wrap payload: %v", err)
+	}
+
+	// In a real scenario we'd json.Marshal(evt), but for the mock we'll just simulate it
+	err = bus.Publish(context.Background(), "pleiades.events.device.state_changed", []byte(`{"id":"test-1"}`))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +50,18 @@ func TestEventBusCompliance(t *testing.T) {
 		t.Fatalf("expected 1 published message, got %d", len(mock.published))
 	}
 
-	if mock.published[0].Topic != "device.state_changed" {
-		t.Errorf("expected topic 'device.state_changed', got '%s'", mock.published[0].Topic)
+	if mock.topics[0] != "pleiades.events.device.state_changed" {
+		t.Errorf("expected topic 'pleiades.events.device.state_changed', got '%s'", mock.topics[0])
+	}
+	
+	// Test the WrapPayload helper behavior
+	if evt.ID != "test-1" {
+		t.Errorf("expected ID test-1, got %s", evt.ID)
+	}
+	if evt.Type != "device.state_changed" {
+		t.Errorf("expected Type device.state_changed, got %s", evt.Type)
+	}
+	if evt.Timestamp.After(time.Now()) {
+		t.Errorf("timestamp is in the future")
 	}
 }
