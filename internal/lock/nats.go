@@ -13,6 +13,7 @@ import (
 const bucketName = "Pleiades_Locks"
 
 type natsLockManager struct {
+	nc *nats.Conn
 	kv jetstream.KeyValue
 }
 
@@ -37,7 +38,12 @@ func NewNatsLockManager(ctx context.Context, url string) (Manager, error) {
 		return nil, fmt.Errorf("failed to init lock bucket: %w", err)
 	}
 
-	return &natsLockManager{kv: kv}, nil
+	return &natsLockManager{nc: nc, kv: kv}, nil
+}
+
+func (m *natsLockManager) Close() error {
+	m.nc.Close()
+	return nil
 }
 
 // Acquire implements the atomic Compare-And-Swap lock acquisition using JetStream KV Create.

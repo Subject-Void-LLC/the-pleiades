@@ -15,6 +15,9 @@ type Manager interface {
 	// Acquire attempts to lock a specific InventoryItem.
 	// It returns an error if the device is already locked by another runner.
 	Acquire(ctx context.Context, itemID string, ttl time.Duration) (Lease, error)
+	
+	// Close releases any underlying connections to the distributed lock store.
+	Close() error
 }
 
 // Lease represents an active, exclusive hold on a device.
