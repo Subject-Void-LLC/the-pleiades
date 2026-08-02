@@ -79,17 +79,17 @@ const identityKey contextKey = "identity"
 
 // AuthMiddleware wraps the route to ensure a valid JWT token is provided.
 func AuthMiddleware(evaluator interface{
-ValidateToken(tokenStr string) (*auth.Identity, error)
+	ValidateToken(ctx context.Context, tokenStr string) (*auth.Identity, error)
 }) func(http.Handler) http.Handler {
-return func(next http.Handler) http.Handler {
-return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-authHeader := r.Header.Get("Authorization")
-if authHeader == "" || len(authHeader) < 8 || authHeader[:7] != "Bearer " {
-http.Error(w, "Unauthorized", http.StatusUnauthorized)
-return
-}
-tokenStr := authHeader[7:]
-identity, err := evaluator.ValidateToken(tokenStr)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || len(authHeader) < 8 || authHeader[:7] != "Bearer " {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			tokenStr := authHeader[7:]
+			identity, err := evaluator.ValidateToken(r.Context(), tokenStr)
 if err != nil {
 http.Error(w, "Unauthorized", http.StatusUnauthorized)
 return

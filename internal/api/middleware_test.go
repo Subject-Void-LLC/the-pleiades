@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ type MockEvaluator struct {
 	ValidToken string
 }
 
-func (m *MockEvaluator) ValidateToken(tokenStr string) (*auth.Identity, error) {
+func (m *MockEvaluator) ValidateToken(ctx context.Context, tokenStr string) (*auth.Identity, error) {
 	if tokenStr == m.ValidToken {
 		return &auth.Identity{Subject: "test-user"}, nil
 	}
