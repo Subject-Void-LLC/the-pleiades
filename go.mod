@@ -4,10 +4,12 @@ go 1.25.0
 
 require (
 	entgo.io/ent v0.14.6
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/nats-io/nats.go v1.52.0
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/nats v0.43.0
+	go.uber.org/goleak v1.3.0
 )
 
 require (
@@ -70,7 +72,6 @@ require (
 	go.opentelemetry.io/otel v1.41.0 // indirect
 	go.opentelemetry.io/otel/metric v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
-	go.uber.org/goleak v1.3.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
