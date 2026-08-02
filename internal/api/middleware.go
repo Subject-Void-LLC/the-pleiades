@@ -99,3 +99,6 @@ next.ServeHTTP(w, r.WithContext(ctx))
 })
 }
 }
+
+// IdentityKeyForTest exposes the internal key for testing.
+const IdentityKeyForTest = identityKey
