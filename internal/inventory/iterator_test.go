@@ -24,23 +24,17 @@ func TestIteratorMemoryFlatline(t *testing.T) {
 
 	// 1. Bulk insert 50,000 devices
 	const numDevices = 50000
-	batchSize := 5000
 
-	for i := 0; i < numDevices; i += batchSize {
-		builders := make([]*ent.DeviceCreate, batchSize)
-		for j := 0; j < batchSize; j++ {
-			id := i + j
-			builders[j] = client.Device.Create().
-				SetName(fmt.Sprintf("router-%d", id)).
-				SetProperties(map[string]interface{}{
-					"type": "cisco_router",
-					"host": "10.0.0.1",
-				})
-		}
-		if err := client.Device.CreateBulk(builders...).Exec(ctx); err != nil {
-			t.Fatalf("failed to insert batch: %v", err)
-		}
+	builders := make([]*ent.DeviceCreate, numDevices)
+	for i := 0; i < numDevices; i++ {
+		builders[i] = client.Device.Create().
+			SetName(fmt.Sprintf("router-%d", i)).
+			SetType("cisco_router").
+			SetProperties(map[string]interface{}{
+				"host": "10.0.0.1",
+			})
 	}
+	bulkCreateDevices(t, ctx, client, builders)
 
 	factory := inventory.NewItemFactory()
 	repo := inventory.NewEntRepository(client, factory)
@@ -85,6 +79,6 @@ func TestIteratorMemoryFlatline(t *testing.T) {
 	if diffMB > 5.0 {
 		t.Fatalf("Memory allocation is NOT flat! Grew by %.2f MB during iteration", diffMB)
 	}
-	
+
 	t.Logf("Iterator processed %d devices with memory growth of %.2f MB", count, diffMB)
 }

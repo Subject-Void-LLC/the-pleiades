@@ -34,13 +34,11 @@ func FuzzIteratorPagination(f *testing.F) {
 		for j := uint(0); j < dbRows; j++ {
 			deviceBuilders[j] = client.Device.Create().
 				SetName(fmt.Sprintf("fuzz-%d", j)).
-				SetProperties(map[string]interface{}{"type": "linux_server"})
+				SetType("linux_server")
 		}
-		
+
 		if dbRows > 0 {
-			if err := client.Device.CreateBulk(deviceBuilders...).Exec(ctx); err != nil {
-				t.Fatalf("failed bulk insert: %v", err)
-			}
+			bulkCreateDevices(t, ctx, client, deviceBuilders)
 		}
 
 		factory := inventory.NewItemFactory()

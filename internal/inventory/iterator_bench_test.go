@@ -22,14 +22,12 @@ func BenchmarkIterator(b *testing.B) {
 	for i := 0; i < numDevices; i++ {
 		builders[i] = client.Device.Create().
 			SetName(fmt.Sprintf("bench-router-%d", i)).
+			SetType("cisco_router").
 			SetProperties(map[string]interface{}{
-				"type": "cisco_router",
 				"host": "10.0.0.1",
 			})
 	}
-	if err := client.Device.CreateBulk(builders...).Exec(ctx); err != nil {
-		b.Fatalf("failed to insert batch: %v", err)
-	}
+	bulkCreateDevices(b, ctx, client, builders)
 
 	factory := inventory.NewItemFactory()
 	repo := inventory.NewEntRepository(client, factory)
@@ -51,7 +49,7 @@ func BenchmarkIterator(b *testing.B) {
 		if err := iter.Error(); err != nil {
 			b.Fatalf("iterator error: %v", err)
 		}
-		
+
 		iter.Close()
 
 		if count != numDevices {
