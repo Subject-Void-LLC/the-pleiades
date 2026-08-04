@@ -2,7 +2,6 @@ package event_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,14 +11,17 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func TestNatsJetStreamBus(t *testing.T) {
+// startNatsContainer boots an ephemeral NATS container with JetStream
+// enabled and returns its connection URL. It is shared by every
+// container-backed test in this package rather than each test hand-rolling
+// its own container-start boilerplate.
+func startNatsContainer(t *testing.T) string {
+	t.Helper()
 	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+		t.Skip("skipping integration test in short mode")
 	}
 
 	ctx := context.Background()
-
-	// 1. Spin up an ephemeral NATS container with JetStream enabled
 	natsContainer, err := nats.RunContainer(ctx,
 		testcontainers.WithImage("nats:2.10"),
 		testcontainers.WithCmd("-js"),
@@ -28,49 +30,51 @@ func TestNatsJetStreamBus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start container: %v", err)
 	}
-	defer natsContainer.Terminate(ctx)
+	t.Cleanup(func() { natsContainer.Terminate(context.Background()) })
 
-	// Get the mapped connection URL
 	url, err := natsContainer.ConnectionString(ctx)
 	if err != nil {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
+	return url
+}
 
-	// 2. Initialize our NATS adapter (which creates the Pleiades_Events stream)
+func TestNatsJetStreamBus(t *testing.T) {
+	url := startNatsContainer(t)
+	ctx := context.Background()
+
+	// Initialize our NATS adapter (which ensures the Pleiades stream via
+	// topology.EnsureStream).
 	bus, err := event.NewNatsBus(ctx, url)
 	if err != nil {
 		t.Fatalf("failed to init nats bus: %v", err)
 	}
 
-	// 3. Set up the Subscriber
-	// We use a channel to sync between the subscriber goroutine and the main test thread
+	// Set up the Subscriber. We use a channel to sync between the
+	// subscriber goroutine and the main test thread.
 	received := make(chan event.Event, 1)
-	
-	err = bus.Subscribe(ctx, "pleiades.events.device.created", func(evt event.Event) {
+
+	err = bus.Subscribe(ctx, "pleiades.events.device.created", func(evt event.Event) error {
 		received <- evt
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to subscribe: %v", err)
 	}
 
-	// 4. Wrap a payload in the DRY envelope and Publish it
+	// Wrap a payload in the DRY envelope and Publish it.
 	mockData := map[string]string{"ip": "10.0.0.5"}
 	evt, err := event.WrapPayload("uuid-123", "device.created", mockData)
 	if err != nil {
 		t.Fatalf("failed to wrap payload: %v", err)
 	}
 
-	payloadBytes, err := json.Marshal(evt)
-	if err != nil {
-		t.Fatalf("failed to marshal event: %v", err)
-	}
-
-	err = bus.Publish(ctx, "pleiades.events.device.created", payloadBytes)
+	err = bus.Publish(ctx, "pleiades.events.device.created", *evt)
 	if err != nil {
 		t.Fatalf("failed to publish: %v", err)
 	}
 
-	// 5. Wait for the event to be delivered (Release Gate)
+	// Wait for the event to be delivered (Release Gate).
 	select {
 	case result := <-received:
 		if result.ID != "uuid-123" {
@@ -79,8 +83,53 @@ func TestNatsJetStreamBus(t *testing.T) {
 		if result.Type != "device.created" {
 			t.Errorf("expected type device.created, got %s", result.Type)
 		}
+		if result.CorrelationID == "" {
+			t.Error("expected Publish to stamp a non-empty CorrelationID")
+		}
+		if result.IdempotencyKey == "" {
+			t.Error("expected Publish to stamp a non-empty IdempotencyKey")
+		}
 		t.Log("Event successfully published, persisted to JetStream, and consumed!")
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for event delivery")
+	}
+}
+
+// TestNatsBusConformance runs the shared adapter conformance suite
+// (conformance_test.go) against a real natsBus backed by an ephemeral NATS
+// container, proving the NATS adapter honors the same substitutable Bus
+// contract as the in-process one (TestInProcessBusConformance).
+func TestNatsBusConformance(t *testing.T) {
+	url := startNatsContainer(t)
+	ctx := context.Background()
+
+	bus, err := event.NewNatsBus(ctx, url)
+	if err != nil {
+		t.Fatalf("failed to init nats bus: %v", err)
+	}
+
+	// The same already-connected bus is handed back on every call. Each
+	// conformance subtest uses a topic unique to itself, so sharing one bus
+	// (and thus one underlying JetStream stream) across subtests is safe.
+	runBusConformance(t, func() event.Bus {
+		return bus
+	})
+}
+
+// TestNatsBus_Close proves Close actually drains the real connection
+// without erroring under normal conditions, and that the returned error
+// (previously discarded entirely by a bare b.nc.Drain() call) is real
+// and propagated.
+func TestNatsBus_Close(t *testing.T) {
+	url := startNatsContainer(t)
+	ctx := context.Background()
+
+	bus, err := event.NewNatsBus(ctx, url)
+	if err != nil {
+		t.Fatalf("failed to init nats bus: %v", err)
+	}
+
+	if err := bus.Close(); err != nil {
+		t.Fatalf("Close() returned an unexpected error: %v", err)
 	}
 }

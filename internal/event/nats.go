@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -14,7 +16,8 @@ type natsBus struct {
 	js jetstream.JetStream
 }
 
-// NewNatsBus connects to an external NATS broker and initializes the Pleiades stream.
+// NewNatsBus connects to an external NATS broker and ensures the single
+// Pleiades stream (topology.EnsureStream) exists.
 // It adheres to the Liskov Substitution Principle by perfectly substituting the event.Bus interface.
 func NewNatsBus(ctx context.Context, url string) (Bus, error) {
 	nc, err := nats.Connect(url)
@@ -27,14 +30,8 @@ func NewNatsBus(ctx context.Context, url string) (Bus, error) {
 		return nil, fmt.Errorf("failed to initialize jetstream: %w", err)
 	}
 
-	// Ensure the core Pleiades event stream exists
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     "Pleiades_Events",
-		Subjects: []string{"pleiades.events.>"},
-		Storage:  jetstream.FileStorage, // Durable
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stream: %w", err)
+	if _, err := topology.EnsureStream(ctx, js); err != nil {
+		return nil, err
 	}
 
 	return &natsBus{
@@ -43,49 +40,76 @@ func NewNatsBus(ctx context.Context, url string) (Bus, error) {
 	}, nil
 }
 
-// Publish fires a JSON payload into the NATS mesh.
-func (b *natsBus) Publish(ctx context.Context, topic string, payload []byte) error {
-	// NATS JetStream Publish takes a context and the subject/payload
-	_, err := b.js.Publish(ctx, topic, payload)
+// Publish stamps evt's envelope fields from ctx, then fires it into the
+// NATS mesh as JSON.
+//
+// CorrelationID gets a fresh UUID if ctx did not carry one, making this
+// publish the root of a new causal chain; CausationID, ChainDepth, Actor,
+// and TraceID come from ctx if present and stay zero-value otherwise (see
+// WithCorrelationID and its siblings, and Chained for continuing an
+// existing chain).
+//
+// IdempotencyKey comes from ctx if the caller set one (see
+// WithIdempotencyKey), otherwise it defaults to evt.ID (see
+// DefaultIdempotencyKeyDerivation) so a caller-side retry that resends the
+// same already-built Event is recognizable even without explicit opt-in,
+// while two distinct events never collide merely for sharing the same
+// content. The key is both stored on the envelope (for the Idempotent
+// Consumer decorator, NewIdempotentBus) and passed as jetstream.WithMsgID,
+// engaging JetStream's own producer-side dedup window: the two mechanisms
+// catch different failure modes (a duplicate publish vs. a duplicate
+// delivery of one already-accepted publish).
+func (b *natsBus) Publish(ctx context.Context, topic string, evt Event) error {
+	stampEnvelope(ctx, &evt)
+
+	data, err := json.Marshal(evt)
 	if err != nil {
+		return fmt.Errorf("failed to marshal event for %s: %w", topic, err)
+	}
+
+	if _, err := b.js.Publish(ctx, topic, data, jetstream.WithMsgID(evt.IdempotencyKey)); err != nil {
 		return fmt.Errorf("failed to publish to %s: %w", topic, err)
 	}
 	return nil
 }
 
-// Subscribe listens for incoming JetStream messages, decodes the DRY Event envelope,
-// and passes it to the handler.
-func (b *natsBus) Subscribe(ctx context.Context, topic string, handler func(event Event)) error {
-	// We use an ephemeral consumer for this simple pub/sub interface mapping
-	consumer, err := b.js.CreateOrUpdateConsumer(ctx, "Pleiades_Events", jetstream.ConsumerConfig{
-		FilterSubject: topic,
-		DeliverPolicy: jetstream.DeliverNewPolicy,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create consumer for %s: %w", topic, err)
+// stampEnvelope fills in evt's envelope fields from ctx in place, applying
+// Publish's own documented defaulting rules. It is a free function, not a
+// natsBus method, because inProcessBus.Publish needs the identical logic
+// and there is exactly one implementation of it, per PLAN.md Section 25's
+// Build-Once rule.
+func stampEnvelope(ctx context.Context, evt *Event) {
+	if correlationID, ok := CorrelationIDFromContext(ctx); ok && correlationID != "" {
+		evt.CorrelationID = correlationID
+	} else {
+		evt.CorrelationID = uuid.New().String()
+	}
+	if causationID, ok := CausationIDFromContext(ctx); ok {
+		evt.CausationID = causationID
+	}
+	if depth, ok := ChainDepthFromContext(ctx); ok {
+		evt.ChainDepth = depth
+	}
+	if actor, ok := ActorFromContext(ctx); ok {
+		evt.Actor = actor
+	}
+	if traceID, ok := TraceIDFromContext(ctx); ok {
+		evt.TraceID = traceID
 	}
 
-	// Consume messages infinitely in the background until context is canceled
-	_, err = consumer.Consume(func(msg jetstream.Msg) {
-		var e Event
-		if err := json.Unmarshal(msg.Data(), &e); err != nil {
-			// In a real implementation we would log this structured error using slog
-			// But for now, we drop malformed messages.
-			msg.Nak()
-			return
-		}
-		
-		handler(e)
-		msg.Ack()
-	})
-	
-	if err != nil {
-		return fmt.Errorf("failed to start consumer for %s: %w", topic, err)
+	if key, ok := IdempotencyKeyFromContext(ctx); ok && key != "" {
+		evt.IdempotencyKey = key
+	} else {
+		evt.IdempotencyKey = DefaultIdempotencyKeyDerivation(*evt)
 	}
-	return nil
 }
 
-// Close gracefully drains the NATS connection.
-func (b *natsBus) Close() {
-	b.nc.Drain()
+// Close gracefully drains the NATS connection: already-received messages
+// finish processing and already-queued publishes flush before the
+// connection actually closes, rather than dropping them (PATTERNS.md's
+// Graceful Shutdown entry). The error is returned, not swallowed, so a
+// caller's own shutdown path can log a drain that failed to complete
+// cleanly instead of silently proceeding as if it had.
+func (b *natsBus) Close() error {
+	return b.nc.Drain()
 }

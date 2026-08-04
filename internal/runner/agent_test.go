@@ -1,0 +1,276 @@
+package runner_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
+	"github.com/nats-io/nats.go/jetstream"
+)
+
+// wireWrapDispatchPayload builds the wire-format bytes handleMessage
+// actually decodes: an Event envelope (internal/event) whose Data field
+// holds the marshaled DispatchPayload JSON. Every real publish in this
+// codebase now goes through Bus.Publish, which wraps a domain payload this
+// same way -- a bare, unwrapped DispatchPayload is not what ever appears
+// on the wire, so tests must not construct one either.
+//
+// Takes no testing handle (usable from *testing.F's top-level f.Add calls,
+// which run before any *testing.T exists) and panics on a marshal
+// failure, which a fixed json.RawMessage literal cannot realistically
+// produce.
+func wireWrapDispatchPayload(payloadJSON string) []byte {
+	evt := event.Event{Data: json.RawMessage(payloadJSON)}
+	data, err := json.Marshal(evt)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+type MockConsumer struct {
+	jetstream.Consumer
+	PayloadMsgs []jetstream.Msg
+	Calls       int
+}
+
+func (m *MockConsumer) FetchNoWait(batch int) (jetstream.MessageBatch, error) {
+	m.Calls++
+	if len(m.PayloadMsgs) == 0 {
+		return nil, errors.New("no messages")
+	}
+
+	msgs := m.PayloadMsgs
+	m.PayloadMsgs = nil // clear so next fetch gets error and we can see backoff
+
+	mb := &MockMessageBatch{msgs: msgs}
+	return mb, nil
+}
+
+type MockMessageBatch struct {
+	msgs []jetstream.Msg
+}
+
+func (m *MockMessageBatch) Messages() <-chan jetstream.Msg {
+	ch := make(chan jetstream.Msg, len(m.msgs))
+	for _, msg := range m.msgs {
+		ch <- msg
+	}
+	close(ch)
+	return ch
+}
+
+func (m *MockMessageBatch) Error() error {
+	return nil
+}
+
+type MockMsg struct {
+	jetstream.Msg
+	data    []byte
+	ack     bool
+	term    bool
+	ackErr  error
+	termErr error
+}
+
+func (m *MockMsg) Data() []byte {
+	return m.data
+}
+
+func (m *MockMsg) Ack() error {
+	m.ack = true
+	return m.ackErr
+}
+
+func (m *MockMsg) Term() error {
+	m.term = true
+	return m.termErr
+}
+
+// Metadata, Subject, and NakWithDelay back handleMessage's DLQ-routing
+// branch (event.HandleDeliveryFailure), which needs enough of a real
+// jetstream.Msg to compute a redelivery decision: NumDelivered fixed
+// below any reasonable maxDeliver keeps that decision on the
+// NakWithDelay path, so tests using these do not also need to fake
+// jetstream.JetStream.Publish for the dead-letter-republish path (already
+// proven against a real broker by agent_nats_test.go).
+func (m *MockMsg) Metadata() (*jetstream.MsgMetadata, error) {
+	return &jetstream.MsgMetadata{NumDelivered: 1}, nil
+}
+
+func (m *MockMsg) Subject() string { return "pleiades.jobs.dispatch" }
+
+func (m *MockMsg) NakWithDelay(delay time.Duration) error { return nil }
+
+func TestAgent_ReleaseGate(t *testing.T) {
+	// Release Gate: A mock Runner agent spins up, binds to a JetStream, pulls a batch of jobs, and logs acknowledgment.
+	// For testing, we mock 10,000 jobs.
+	var msgs []jetstream.Msg
+	mockMsgs := make([]*MockMsg, 10000)
+
+	for i := 0; i < 10000; i++ {
+		mockMsgs[i] = &MockMsg{data: wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)}
+		msgs = append(msgs, mockMsgs[i])
+	}
+
+	consumer := &MockConsumer{PayloadMsgs: msgs}
+	logger := slog.Default()
+	// js is nil: MockAdapter never returns an error, so handleMessage's
+	// DLQ path (the only code that touches js) is never reached here.
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		// Wait enough time for agent to process the batch, then cancel
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := agent.Run(ctx)
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	// Verify all 10,000 messages were ACKed
+	ackCount := 0
+	for _, m := range mockMsgs {
+		if m.ack {
+			ackCount++
+		}
+	}
+
+	if ackCount != 10000 {
+		t.Errorf("expected 10000 messages to be acked, got %d", ackCount)
+	}
+}
+
+// MockAdapter is the shared runner.ExecutionAdapter stub for this package's
+// tests and benchmarks. It used to be declared a second, identical time in
+// agent_bench_test.go, which is the actual go vet failure this session found
+// pre-existing (see FAILURE_PATTERNS.md #14); that duplicate is removed, not
+// deferred, since the fix is mechanical and does not touch Phase 15's real
+// scope (the Runner Agent Scaffold, .SPECIFICATION/IMPLEMENTATION.md), which
+// still owns building a real adapter, not this no-op stand-in.
+type MockAdapter struct{}
+
+func (m *MockAdapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+	return nil
+}
+
+// erroringAdapter is a runner.ExecutionAdapter that always fails, so
+// tests can exercise handleMessage's own DLQ-routing branch
+// (event.HandleDeliveryFailure) without needing a real broker for every
+// scenario; TestAgent_FailedExecutionEventuallyDeadLetters
+// (agent_nats_test.go) is the real-broker proof this unit-level test
+// complements, not replaces.
+type erroringAdapter struct{}
+
+func (erroringAdapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+	return errors.New("deliberate execution failure")
+}
+
+func TestNewAgent_DefaultsNilLoggerToSlogDefault(t *testing.T) {
+	consumer := &MockConsumer{}
+	// Must not panic on a nil logger; NewAgent substitutes slog.Default().
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := agent.Run(ctx); err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestAgent_HandleMessage_ToleratesAckFailure(t *testing.T) {
+	msg := &MockMsg{
+		data:   wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`),
+		ackErr: errors.New("deliberate ack failure"),
+	}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	// Must not panic even though Ack itself fails.
+	if err := agent.Run(ctx); err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if !msg.ack {
+		t.Error("expected Ack to have been attempted")
+	}
+}
+
+func TestAgent_HandleMessage_ToleratesTermFailureOnMalformedMessage(t *testing.T) {
+	msg := &MockMsg{
+		data:    []byte("this is not a valid envelope"),
+		termErr: errors.New("deliberate term failure"),
+	}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	// Must not panic even though Term itself fails.
+	if err := agent.Run(ctx); err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if !msg.term {
+		t.Error("expected Term to have been attempted")
+	}
+}
+
+func TestAgent_HandleMessage_AdapterFailureRoutesThroughDeadLetterHandling(t *testing.T) {
+	msg := &MockMsg{data: wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	// js is nil: msg.Metadata() reports NumDelivered=1 against maxDeliver=5,
+	// so HandleDeliveryFailure takes the NakWithDelay branch (also
+	// overridden on MockMsg), never the dead-letter-republish branch that
+	// would need a working js.Publish.
+	agent := runner.NewAgent(consumer, erroringAdapter{}, nil, 5, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if err := agent.Run(ctx); err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if msg.ack {
+		t.Error("expected the message not to be acked after an adapter failure")
+	}
+}
+
+func TestAgent_HandleMessage_MalformedDispatchPayloadInsideValidEnvelope(t *testing.T) {
+	// A syntactically valid Event envelope whose Data is not a valid
+	// DispatchPayload: handleMessage's second unmarshal step (evt.Data ->
+	// DispatchPayload) is what should reject this, not the first (raw
+	// bytes -> Event).
+	msg := &MockMsg{data: []byte(`{"id":"e1","data":"not an object"}`)}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if err := agent.Run(ctx); err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if !msg.term {
+		t.Error("expected the message to be terminated, not acked, for a malformed inner payload")
+	}
+}

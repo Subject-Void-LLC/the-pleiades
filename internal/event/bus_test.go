@@ -10,17 +10,21 @@ import (
 
 // mockBus implements event.Bus
 type mockBus struct {
-	published [][]byte
+	published []event.Event
 	topics    []string
 }
 
-func (m *mockBus) Publish(ctx context.Context, topic string, payload []byte) error {
-	m.published = append(m.published, payload)
+func (m *mockBus) Publish(ctx context.Context, topic string, evt event.Event) error {
+	m.published = append(m.published, evt)
 	m.topics = append(m.topics, topic)
 	return nil
 }
 
-func (m *mockBus) Subscribe(ctx context.Context, topic string, handler func(evt event.Event)) error {
+func (m *mockBus) Subscribe(ctx context.Context, topic string, handler func(evt event.Event) error) error {
+	return nil
+}
+
+func (m *mockBus) Close() error {
 	return nil
 }
 
@@ -35,8 +39,7 @@ func TestEventBusCompliance(t *testing.T) {
 		t.Fatalf("failed to wrap payload: %v", err)
 	}
 
-	// In a real scenario we'd json.Marshal(evt), but for the mock we'll just simulate it
-	err = bus.Publish(context.Background(), "pleiades.events.device.state_changed", []byte(`{"id":"test-1"}`))
+	err = bus.Publish(context.Background(), "pleiades.events.device.state_changed", *evt)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +56,11 @@ func TestEventBusCompliance(t *testing.T) {
 	if mock.topics[0] != "pleiades.events.device.state_changed" {
 		t.Errorf("expected topic 'pleiades.events.device.state_changed', got '%s'", mock.topics[0])
 	}
-	
+
+	if mock.published[0].ID != "test-1" {
+		t.Errorf("expected published event ID test-1, got %s", mock.published[0].ID)
+	}
+
 	// Test the WrapPayload helper behavior
 	if evt.ID != "test-1" {
 		t.Errorf("expected ID test-1, got %s", evt.ID)

@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 )
 
 type contextKey string
@@ -36,10 +36,10 @@ func TraceIDMiddleware(next http.Handler) http.Handler {
 		if traceID == "" {
 			traceID = uuid.New().String()
 		}
-		
+
 		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
 		w.Header().Set("X-Trace-ID", traceID)
-		
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -48,7 +48,7 @@ func TraceIDMiddleware(next http.Handler) http.Handler {
 func StructuredLoggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		traceID, _ := r.Context().Value(traceIDKey).(string)
-		
+
 		logger.Info("request started",
 			slog.String("trace_id", traceID),
 			slog.String("method", r.Method),
@@ -56,7 +56,7 @@ func StructuredLoggerMiddleware(next http.Handler) http.Handler {
 		)
 
 		start := time.Now()
-		
+
 		// Wrap ResponseWriter to capture status code in a real system (simplified here)
 		next.ServeHTTP(w, r)
 
@@ -78,7 +78,7 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 const identityKey contextKey = "identity"
 
 // AuthMiddleware wraps the route to ensure a valid JWT token is provided.
-func AuthMiddleware(evaluator interface{
+func AuthMiddleware(evaluator interface {
 	ValidateToken(ctx context.Context, tokenStr string) (*auth.Identity, error)
 }) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -90,15 +90,18 @@ func AuthMiddleware(evaluator interface{
 			}
 			tokenStr := authHeader[7:]
 			identity, err := evaluator.ValidateToken(r.Context(), tokenStr)
-if err != nil {
-http.Error(w, "Unauthorized", http.StatusUnauthorized)
-return
-}
-ctx := context.WithValue(r.Context(), identityKey, identity)
-next.ServeHTTP(w, r.WithContext(ctx))
-})
-}
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), identityKey, identity)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // IdentityKeyForTest exposes the internal key for testing.
 const IdentityKeyForTest = identityKey
+
+// TraceIDKeyForTest exposes the internal key for testing.
+const TraceIDKeyForTest = traceIDKey
