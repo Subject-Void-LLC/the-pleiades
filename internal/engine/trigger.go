@@ -10,10 +10,3 @@ type WorkflowContext interface {
 	// Read generates the JSON structure required by the CEL evaluator.
 	Read() (map[string]interface{}, error)
 }
-
-// Evaluator parses and resolves Common Expression Language (CEL) strings.
-type Evaluator interface {
-	// Evaluate takes a CEL boolean expression and the current workflow context,
-	// returning true or false to determine DAG routing.
-	Evaluate(expression string, ctx WorkflowContext) (bool, error)
-}

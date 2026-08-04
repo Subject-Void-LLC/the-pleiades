@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # gopls is part of AGENTS.md's own required tooling for anyone
+      # editing this repository, but is not something CI itself invokes;
+      # gosec and govulncheck are the two CI actually runs (Makefile's
+      # `ci` target), so only those two are installed here.
+      - name: Install gosec and govulncheck
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      # internal/lock, internal/event, and internal/transport/ssh's own
+      # conformance/container tests dial real, ephemeral Docker containers
+      # (NATS, sshd); ubuntu-latest ships Docker already, so this is not a
+      # separate setup step, just a note that `make ci` genuinely needs it.
+      - name: ci
+        run: make ci

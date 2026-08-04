@@ -1,0 +1,67 @@
+// Package cisco holds the concrete device type implementations for Cisco
+// gear (currently IOS/IOS-XE routers). This package's init registers
+// NewRouter into the shared record.Types registry under "cisco_router";
+// internal/inventory/factory.go's NewItemFactory draws its
+// batteries-included set from that registry rather than importing this
+// package by name (internal/inventory/builtins.go blank-imports it purely
+// to trigger this init). This package itself never imports
+// internal/inventory, only the leaf internal/inventory/record package plus
+// pkg/inventory and pkg/capability, so internal/inventory can depend on
+// this package (via the blank import) without a cycle back.
+package cisco
+
+import (
+	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+)
+
+func init() {
+	record.RegisterType("cisco_router", NewRouter)
+}
+
+// Router implements InventoryItem plus, structurally,
+// capability.SSHTransportCapable and capability.CiscoIOSCapable.
+type Router struct {
+	*record.Base
+}
+
+// NewRouter builds a Router from rec. It matches the
+// func(record.Record) (inventory.InventoryItem, error) shape ItemFactory's
+// registry expects.
+func NewRouter(rec record.Record) (inventory.InventoryItem, error) {
+	base := record.NewBase(rec, []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS})
+	return &Router{Base: base}, nil
+}
+
+// HasCapability checks the declared classification AND the structural
+// registry assertion, so a true result is a guarantee, not a hope.
+func (c *Router) HasCapability(name capability.Name) bool {
+	return c.Declares(name) && capability.Implements(c, name)
+}
+
+// SSHHost returns the configured management host for this router.
+func (c *Router) SSHHost() string {
+	host, _ := c.Properties().String("host")
+	return host
+}
+
+// SSHPort returns the configured SSH port, defaulting to 22.
+func (c *Router) SSHPort() int {
+	if port, ok := c.Properties().Int("port"); ok && port != 0 {
+		return port
+	}
+	return 22
+}
+
+// IOSVersion returns the detected or configured IOS firmware version.
+func (c *Router) IOSVersion() string {
+	v, _ := c.Properties().String("ios_version")
+	return v
+}
+
+// SupportsNETCONF reports whether NETCONF/YANG is enabled on this router.
+func (c *Router) SupportsNETCONF() bool {
+	v, _ := c.Properties().Bool("netconf_enabled")
+	return v
+}

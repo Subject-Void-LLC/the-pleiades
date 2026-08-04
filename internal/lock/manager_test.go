@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/customerx/pleiades/internal/lock"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 )
 
 // mockLease implements lock.Lease
@@ -28,15 +28,21 @@ func (m *mockLease) Release(ctx context.Context) error {
 // mockManager implements lock.Manager
 type mockManager struct{}
 
-func (m *mockManager) Acquire(ctx context.Context, itemID string, ttl time.Duration) (lock.Lease, error) {
+func (m *mockManager) Acquire(ctx context.Context, itemID string, ttl time.Duration, opts lock.AcquireOptions) (lock.Lease, error) {
 	return &mockLease{id: "lock-1"}, nil
+}
+
+// Close satisfies lock.Manager. This mock holds no underlying connection,
+// so there is nothing to release.
+func (m *mockManager) Close() error {
+	return nil
 }
 
 func TestLockManagerCompliance(t *testing.T) {
 	// If mockManager does not implement lock.Manager, the compiler will fail.
 	var mgr lock.Manager = &mockManager{}
-	
-	lease, err := mgr.Acquire(context.Background(), "device-1", 10*time.Second)
+
+	lease, err := mgr.Acquire(context.Background(), "device-1", 10*time.Second, lock.AcquireOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

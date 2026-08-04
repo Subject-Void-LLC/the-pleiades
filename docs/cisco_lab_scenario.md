@@ -1,6 +1,6 @@
 # Imaginary Deployment Scenario: Cisco Lab Upgrade
 
-**The Scenario:** Customer X has just installed Auto-Roboto. They want to upgrade the firmware on 10 Cisco Catalyst switches in their "Lab" environment. 
+**The Scenario:** Customer X has just installed Pleiades. They want to upgrade the firmware on 10 Cisco Catalyst switches in their "Lab" environment. 
 
 Here is how the entire platform architecture (Sections 1 through 16) works together to execute this request safely and at scale.
 
@@ -16,7 +16,7 @@ Customer X configures a Sync Plugin (e.g., NetBox or a simple CSV plugin).
 ### Step 2: Authoring the Runbook (Section 1, 14)
 Customer X writes their first runbook, `upgrade_cisco_ios.yaml`.
 1. In the runbook header, they specify `requires: [CiscoIOSCapable]`. This immediately guarantees the runbook can never be accidentally run against a Linux server or Juniper router. 
-2. The runbook references a pre-built Collection: `auto-roboto/cisco-ios-utils`.
+2. The runbook references a pre-built Collection: `pleiades/cisco-ios-utils`.
 3. The steps are defined: `backup_config()`, `scp_image()`, `set_boot_var()`, `reload()`.
 
 ```yaml
@@ -26,7 +26,7 @@ requires:
   - CiscoIOSCapable
   - SSHTransportCapable
 
-collection: auto-roboto/cisco-ios-utils@v1.2.0
+collection: pleiades/cisco-ios-utils@v1.2.0
 
 steps:
   - name: "Backup running config"
@@ -48,14 +48,14 @@ steps:
 ```
 
 ### Step 3: CI/CD Governance (Section 10)
-Auto-Roboto doesn't allow editing production runbooks in a Web UI. 
+Pleiades doesn't allow editing production runbooks in a Web UI. 
 1. Customer X commits `upgrade_cisco_ios.yaml` to their internal `platform-config` Git repository.
 2. The commit triggers the platform's CI/CD pipeline.
 3. The linter validates the YAML, ensures the referenced Go collection exists, and verifies that `group:lab` actually contains devices with `CiscoIOSCapable`. Type-safety moves left.
 4. The PR is approved and merged. The Controller automatically ingests the new runbook.
 
 ### Step 4: Dispatch & RBAC (Sections 15, 16, 18)
-Customer X logs into the Web UI via Okta (SAML). Because they are in the Okta `NetworkAdmins` group, Auto-Roboto grants them the `Executor` role scoped strictly to `group:lab`.
+Customer X logs into the Web UI via Okta (SAML). Because they are in the Okta `NetworkAdmins` group, Pleiades grants them the `Executor` role scoped strictly to `group:lab`.
 1. Customer X clicks "Run" on the upgrade playbook.
 2. The **Trigger Engine** receives the manual event.
 3. It expands `group:lab` into 10 distinct device targets, verifies Customer X's RBAC scope allows this action on all 10 devices, and generates 10 task payloads.
@@ -71,7 +71,7 @@ The system doesn't blast all 10 switches at once.
 ### Step 6: Data Plane Execution & Secrets (Sections 14, 16, 17)
 Two Runners sitting in the customer's on-prem DMZ are polling the Controller via mTLS-secured gRPC.
 1. Runner A and Runner B see the tasks for `switch-1` and `switch-2`.
-2. They ask the Controller's Module Registry for the `auto-roboto/cisco-ios-utils` binary. 
+2. They ask the Controller's Module Registry for the `pleiades/cisco-ios-utils` binary. 
 3. The Runners pull the 10MB compiled Go binary, cache it locally, and execute it in milliseconds.
 4. **Just-In-Time Secrets:** The Controller fetches the Cisco SSH passwords from the encrypted State Store (or HashiCorp Vault) and attaches them to the payload. The Runner never writes these to disk. It injects the secret securely into the Go binary via `stdin` or unix socket, and the Go binary zeroes-out that memory slice the moment authentication completes.
 5. The binary utilizes the **Transport Abstraction** using the injected credentials to proxy the SSH commands to the switch.
@@ -90,7 +90,7 @@ While `switch-1` is in the middle of transferring the 500MB firmware image, the 
 3. The Lock Manager releases the locks.
 4. The next 2 switches in the queue (`switch-3`, `switch-4`) are granted locks and the process continues until all 10 are upgraded.
 5. Every single action is permanently recorded in the Postgres State Store as an idempotent audit trail.
-6. The entire lifecycle—from the Okta login, to the Trigger Engine, to the Lock Manager, to the Runner execution—is stitched together via the OTEL Trace ID into a single, comprehensive APM dashboard in Apache E-charts for Customer X to review.
+6. The entire lifecycle (from the Okta login, to the Trigger Engine, to the Lock Manager, to the Runner execution) is stitched together via the OTEL Trace ID into a single, comprehensive APM dashboard in Apache E-charts for Customer X to review.
 
 ```json
 {

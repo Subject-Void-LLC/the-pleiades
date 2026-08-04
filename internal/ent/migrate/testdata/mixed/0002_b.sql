@@ -1,0 +1,2 @@
+-- b
+CREATE TABLE b (id INTEGER PRIMARY KEY);

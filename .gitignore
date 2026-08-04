@@ -12,3 +12,16 @@ obj/
 *.test
 *.out
 vendor/
+*.log
+
+# Walk-tier per-project secrets (internal/credential): the AES-256-GCM
+# master key and the credentials file it encrypts. Never commit either,
+# even though the credentials file itself holds only ciphertext.
+.pleiades/
+
+# Manually built binaries from local `go build -o <name> ./cmd/<name>`
+# verification runs (each cmd/ subdirectory's own name). Not *.exe-style
+# extensions, so the Standard Go ignores above miss them.
+/controller
+/runner
+/pleiades
