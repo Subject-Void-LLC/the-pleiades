@@ -1,0 +1,312 @@
+// Command controller is the Control Plane composition root PLAN.md
+// Section 16 names: the API Gateway, backed by the embedded state store
+// and the real NATS-backed event.Bus, dispatching Runbooks that
+// cmd/runner's Agents pick up.
+//
+// This is Section 25's own named deadline: "Composition root (cmd/controller,
+// cmd/runner) | Every driver construction in the system | Build by Phase 2 |
+// Every other primitive is advisory until something assembles them." Every
+// port this phase's checklist touches (event.Bus, and through it
+// api.Dispatcher and api.LogStreamer) gets its first real, running,
+// non-test caller here.
+//
+// Deliberately out of scope: a Postgres-backed store. PLAN.md Section 16
+// names PostgreSQL as the v1 default, but no ent Postgres migration path
+// exists anywhere in this repository yet (internal/ent/embedded.go only
+// has a SQLite embedded-migration path), and adding one is not a Phase 2
+// checklist item; this composition root uses the same embedded SQLite
+// path cmd/pleiades (the Walk-tier CLI) already does.
+//
+// This is also Phase 4's own composition root: exactly one running
+// controller replica must hold the "pleiades-scheduler-leader" lease at
+// a time (PATTERNS.md's "Leader Election (The Scheduler Pattern)"
+// entry), via a lock.NewNatsLockManager constructed here and an
+// internal/election.LeaderElector run in the background alongside the
+// HTTP server. This phase wires the election *primitive* only: nothing
+// in this binary yet gates real work behind elector.IsLeader() (Phase 23,
+// The RRULE Scheduler, is what will), so lock.NewNatsLockManager's own
+// per-device counterpart (engine.Executor's runtime locking) still has no
+// caller here either, unchanged from before this phase -- that remains
+// cmd/runner's concern.
+//
+// This is also Phase 5's own composition root: internal/crypto's DEK/KEK
+// envelope encryption (PLAN.md Section 17) is registered on the Device
+// entity here, its first real, running, non-test caller anywhere in this
+// repository -- previously it was wired only inside its own package test.
+// MASTER_ENCRYPTION_KEY is required and read directly, deliberately not
+// through internal/crypto.ResolveKey's file-fallback tiers: those are
+// right for cmd/pleiades (a single local operator owns the whole
+// machine), but wrong for a network-facing server, where a
+// redeployed/fresh-filesystem container silently generating and saving a
+// new key next to the database would permanently orphan every row
+// already encrypted under the old one. Fail closed at startup instead,
+// the same shape this file already uses for JWT_SECRET.
+package main
+
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"log"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/election"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+)
+
+// schedulerLeaseKey is the well-known key every controller replica
+// contends for to become the one holder of the scheduler lease. It lives
+// here, at the one real call site that cares about it, rather than
+// inside internal/election itself: election.LeaderElector takes a key
+// from its caller precisely so no key is hardcoded into the reusable
+// primitive (PLAN.md Section 25's "Leader elector" Build-Once Contract).
+const schedulerLeaseKey = "pleiades-scheduler-leader"
+
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// decodeEnvelopeKey base64-decodes the value of envVar and requires it to
+// decode to exactly 32 bytes, matching crypto.NewAESService's own AES-256
+// requirement. Unlike internal/crypto.ResolveKey, there is no file
+// fallback here: see this file's own doc comment for why a server
+// composition root must fail closed on a missing key rather than
+// silently generate and persist one.
+func decodeEnvelopeKey(envVar string) ([]byte, error) {
+	raw := os.Getenv(envVar)
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil || len(key) != 32 {
+		return nil, fmt.Errorf("%s must be base64-encoded and decode to exactly 32 bytes", envVar)
+	}
+	return key, nil
+}
+
+// loadEnvelopeService builds the DEK/KEK envelope encryption service
+// (internal/crypto.EnvelopeService) from environment configuration.
+// MASTER_ENCRYPTION_KEY is required. MASTER_ENCRYPTION_KEY_VERSION is
+// optional (defaults to "v1", PLAN.md Section 17.2's own example tag).
+// MASTER_ENCRYPTION_KEY_PREVIOUS and MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION
+// are optional but must be set together: during a key rotation window an
+// operator moves the old current key and its version tag into these two,
+// so Decrypt can still open rows written under it while every new write
+// uses the new current key (PLAN.md Section 17.2's "loads a secondary
+// key, decrypts... with the old, re-encrypts... with the new").
+func loadEnvelopeService() (*crypto.EnvelopeService, error) {
+	if os.Getenv("MASTER_ENCRYPTION_KEY") == "" {
+		return nil, fmt.Errorf("MASTER_ENCRYPTION_KEY is required")
+	}
+	currentKey, err := decodeEnvelopeKey("MASTER_ENCRYPTION_KEY")
+	if err != nil {
+		return nil, err
+	}
+	currentVersion := getenv("MASTER_ENCRYPTION_KEY_VERSION", "v1")
+
+	havePreviousKey := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS") != ""
+	havePreviousVersion := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION") != ""
+	if havePreviousKey != havePreviousVersion {
+		return nil, fmt.Errorf("MASTER_ENCRYPTION_KEY_PREVIOUS and MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION must be set together, or not at all")
+	}
+	if !havePreviousKey {
+		return crypto.NewEnvelopeService(currentKey, currentVersion, nil, "")
+	}
+
+	previousKey, err := decodeEnvelopeKey("MASTER_ENCRYPTION_KEY_PREVIOUS")
+	if err != nil {
+		return nil, err
+	}
+	previousVersion := os.Getenv("MASTER_ENCRYPTION_KEY_PREVIOUS_VERSION")
+	return crypto.NewEnvelopeService(currentKey, currentVersion, previousKey, previousVersion)
+}
+
+// Known, deliberate residual risk (confirmed by an adversarial review of
+// this phase, not fixed here): every log.Fatal/log.Fatalf below calls
+// os.Exit directly, which skips Go's deferred-function cleanup. A startup
+// failure after client, bus, or lockMgr are constructed (several of
+// which this phase's own envelope-service/rotation wiring added) exits
+// without running the same graceful client.Close()/bus.Close()/
+// lockMgr.Close() the SIGINT/SIGTERM path below performs explicitly.
+// Impact is bounded, not a persistent cross-restart leak: nothing has
+// flowed through bus/lockMgr yet at any of these points, and the OS
+// reclaims open sockets and SQLite file locks immediately on process
+// exit. This is a pre-existing pattern in this file predating this
+// phase (only two of its call sites are new here), not something Phase
+// 5's own scope owns; a real fix means reworking every startup error
+// path in this file to return through one shared cleanup sequence
+// instead of exiting immediately, out of scope for "Envelope
+// Encryption."
+func main() {
+	natsURL := getenv("NATS_URL", nats.DefaultURL)
+	dbPath := getenv("DB_PATH", "controller.db")
+	listenAddr := getenv("LISTEN_ADDR", ":8080")
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, err := ent.OpenEmbedded(ctx, dbPath)
+	if err != nil {
+		log.Fatalf("failed to open embedded store: %v", err)
+	}
+	defer client.Close()
+
+	// Envelope encryption is installed before the client is used for
+	// anything else, so no Device write or read anywhere in this process
+	// can bypass it. See this file's own doc comment for why
+	// MASTER_ENCRYPTION_KEY has no file fallback here.
+	envelopeSvc, err := loadEnvelopeService()
+	if err != nil {
+		log.Fatalf("failed to init envelope encryption: %v", err)
+	}
+	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
+	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
+
+	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
+
+	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
+	evaluator := auth.NewJWTEvaluator([]byte(jwtSecret))
+
+	bus, err := event.NewNatsBus(ctx, natsURL)
+	if err != nil {
+		log.Fatalf("failed to connect event bus: %v", err)
+	}
+
+	// lockMgr backs the scheduler leader election below. Like the
+	// LogStreamer connection just below, this is a distinct NATS
+	// connection from event.NewNatsBus's own internal one: lock.Manager
+	// and event.Bus are separate ports with no shared adapter today.
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL)
+	if err != nil {
+		log.Fatalf("failed to init lock manager: %v", err)
+	}
+
+	elector := election.NewLeaderElector(lockMgr, schedulerLeaseKey,
+		election.WithOnAcquired(func() {
+			slog.Info("Acquired Scheduler Lease", slog.String("key", schedulerLeaseKey))
+		}),
+	)
+	electorDone := make(chan struct{})
+	go func() {
+		defer close(electorDone)
+		elector.Run(ctx)
+	}()
+
+	// LogStreamer needs a raw jetstream.JetStream handle for its own
+	// per-request ephemeral consumers (PLAN.md Section 26.4's deliberate
+	// exception to going through Bus.Subscribe: every log viewer must see
+	// every line, which a shared durable consumer group cannot give). A
+	// second, independent NATS connection backs it -- the same documented
+	// tradeoff cmd/demo/main.go already accepts, not an oversight.
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		log.Fatalf("failed to connect to nats: %v", err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		log.Fatalf("failed to get jetstream: %v", err)
+	}
+
+	dispatcher := api.NewDispatcher(repo, evaluator, bus)
+	streamer := api.NewLogStreamer(js)
+
+	r := api.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(api.AuthMiddleware(evaluator))
+		r.Post("/api/v1/jobs/dispatch", dispatcher.DispatchRunbook)
+		r.Get("/api/v1/jobs/{id}/logs", streamer.StreamLogs)
+	})
+
+	srv := &http.Server{
+		Addr:    listenAddr,
+		Handler: r,
+		// ReadHeaderTimeout bounds how long a client can trickle in
+		// request headers before the server gives up, which is what
+		// prevents a Slowloris-style attack from exhausting the
+		// connection pool with connections that never finish sending
+		// their headers.
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		slog.Info("controller listening", slog.String("addr", listenAddr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server failed: %v", err)
+		}
+	}()
+
+	// Runs concurrently with, never before, the HTTP server above: an
+	// adversarial review of this phase found that running this
+	// synchronously before ListenAndServe (its first shape) left nothing
+	// bound to listenAddr, including the liveness/readiness probe this
+	// binary's own Helm chart configures, until every device finished
+	// rotating. On a large fleet or under ordinary DB latency that
+	// window can exceed a default Kubernetes liveness probe's failure
+	// threshold, killing the pod before rotation -- or the server --
+	// ever completes, and restarting into the same blocking rotation
+	// again. A failure here is logged, not fatal: a partially rotated
+	// fleet is a degraded-but-fully-functional state (every row not yet
+	// rotated still decrypts correctly through envelopeSvc's previous-key
+	// slot), not a reason to tear down an already-serving process.
+	if rotateKeys {
+		go func() {
+			rotated, err := crypto.RotateDeviceProperties(ctx, client, envelopeSvc)
+			if err != nil {
+				slog.Error("key rotation failed", slog.String("error", err.Error()))
+				return
+			}
+			slog.Info("rotated device properties encryption", slog.Int("rotated", rotated))
+		}()
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+
+	slog.Info("shutting down")
+
+	// Cancel immediately (not only via the deferred cancel() above, which
+	// only fires when main returns) so elector.Run begins its own
+	// graceful lease release concurrently with the HTTP drain below,
+	// instead of waiting for the drain to finish first.
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("graceful shutdown failed", slog.String("error", err.Error()))
+	}
+
+	// Wait for the elector's own bounded release (internal/election's own
+	// releaseTimeout) to finish before closing lockMgr: closing the
+	// underlying NATS connection while that release call is still in
+	// flight would make it fail.
+	<-electorDone
+	if err := lockMgr.Close(); err != nil {
+		slog.Error("lock manager close failed", slog.String("error", err.Error()))
+	}
+
+	if err := bus.Close(); err != nil {
+		slog.Error("event bus drain failed", slog.String("error", err.Error()))
+	}
+}
