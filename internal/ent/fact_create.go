@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
@@ -18,6 +19,34 @@ type FactCreate struct {
 	config
 	mutation *FactMutation
 	hooks    []Hook
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (_c *FactCreate) SetCreatedAt(v time.Time) *FactCreate {
+	_c.mutation.SetCreatedAt(v)
+	return _c
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (_c *FactCreate) SetNillableCreatedAt(v *time.Time) *FactCreate {
+	if v != nil {
+		_c.SetCreatedAt(*v)
+	}
+	return _c
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (_c *FactCreate) SetUpdatedAt(v time.Time) *FactCreate {
+	_c.mutation.SetUpdatedAt(v)
+	return _c
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (_c *FactCreate) SetNillableUpdatedAt(v *time.Time) *FactCreate {
+	if v != nil {
+		_c.SetUpdatedAt(*v)
+	}
+	return _c
 }
 
 // SetPayload sets the "payload" field.
@@ -50,6 +79,7 @@ func (_c *FactCreate) Mutation() *FactMutation {
 
 // Save creates the Fact in the database.
 func (_c *FactCreate) Save(ctx context.Context) (*Fact, error) {
+	_c.defaults()
 	return withHooks(ctx, _c.sqlSave, _c.mutation, _c.hooks)
 }
 
@@ -75,8 +105,26 @@ func (_c *FactCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_c *FactCreate) defaults() {
+	if _, ok := _c.mutation.CreatedAt(); !ok {
+		v := fact.DefaultCreatedAt()
+		_c.mutation.SetCreatedAt(v)
+	}
+	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		v := fact.DefaultUpdatedAt()
+		_c.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_c *FactCreate) check() error {
+	if _, ok := _c.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Fact.created_at"`)}
+	}
+	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Fact.updated_at"`)}
+	}
 	if _, ok := _c.mutation.Payload(); !ok {
 		return &ValidationError{Name: "payload", err: errors.New(`ent: missing required field "Fact.payload"`)}
 	}
@@ -117,6 +165,14 @@ func (_c *FactCreate) createSpec() (*Fact, *sqlgraph.CreateSpec) {
 		_node = &Fact{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(fact.Table, sqlgraph.NewFieldSpec(fact.FieldID, field.TypeInt))
 	)
+	if value, ok := _c.mutation.CreatedAt(); ok {
+		_spec.SetField(fact.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := _c.mutation.UpdatedAt(); ok {
+		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
 	if value, ok := _c.mutation.Payload(); ok {
 		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
 		_node.Payload = value
@@ -163,6 +219,7 @@ func (_c *FactCreateBulk) Save(ctx context.Context) ([]*Fact, error) {
 	for i := range _c.builders {
 		func(i int, root context.Context) {
 			builder := _c.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*FactMutation)
 				if !ok {

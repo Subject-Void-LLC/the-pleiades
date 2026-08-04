@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 )
 
 // Device is the model entity for the Device schema.
@@ -17,15 +19,34 @@ type Device struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// CreatedAt holds the value of the "created_at" field.
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// UpdatedAt holds the value of the "updated_at" field.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// DeviceID holds the value of the "device_id" field.
+	DeviceID string `json:"device_id,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
+	// Type holds the value of the "type" field.
+	Type string `json:"type,omitempty"`
 	// Properties holds the value of the "properties" field.
 	Properties map[string]interface{} `json:"properties,omitempty"`
+	// Version holds the value of the "version" field.
+	Version uint64 `json:"version,omitempty"`
+	// State holds the value of the "state" field.
+	State string `json:"state,omitempty"`
+	// Source holds the value of the "source" field.
+	Source string `json:"source,omitempty"`
+	// SourceSyncedAt holds the value of the "source_synced_at" field.
+	SourceSyncedAt *time.Time `json:"source_synced_at,omitempty"`
+	// Tags holds the value of the "tags" field.
+	Tags []string `json:"tags,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the DeviceQuery when eager-loading is set.
-	Edges           DeviceEdges `json:"edges"`
-	device_children *int
-	selectValues    sql.SelectValues
+	Edges                DeviceEdges `json:"edges"`
+	device_children      *int
+	organization_devices *int
+	selectValues         sql.SelectValues
 }
 
 // DeviceEdges holds the relations/edges for other nodes in the graph.
@@ -36,9 +57,15 @@ type DeviceEdges struct {
 	Children []*Device `json:"children,omitempty"`
 	// Facts holds the value of the facts edge.
 	Facts []*Fact `json:"facts,omitempty"`
+	// Revisions holds the value of the revisions edge.
+	Revisions []*Revision `json:"revisions,omitempty"`
+	// Groups holds the value of the groups edge.
+	Groups []*Group `json:"groups,omitempty"`
+	// Organization holds the value of the organization edge.
+	Organization *Organization `json:"organization,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [6]bool
 }
 
 // ParentOrErr returns the Parent value or an error if the edge
@@ -70,18 +97,51 @@ func (e DeviceEdges) FactsOrErr() ([]*Fact, error) {
 	return nil, &NotLoadedError{edge: "facts"}
 }
 
+// RevisionsOrErr returns the Revisions value or an error if the edge
+// was not loaded in eager-loading.
+func (e DeviceEdges) RevisionsOrErr() ([]*Revision, error) {
+	if e.loadedTypes[3] {
+		return e.Revisions, nil
+	}
+	return nil, &NotLoadedError{edge: "revisions"}
+}
+
+// GroupsOrErr returns the Groups value or an error if the edge
+// was not loaded in eager-loading.
+func (e DeviceEdges) GroupsOrErr() ([]*Group, error) {
+	if e.loadedTypes[4] {
+		return e.Groups, nil
+	}
+	return nil, &NotLoadedError{edge: "groups"}
+}
+
+// OrganizationOrErr returns the Organization value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e DeviceEdges) OrganizationOrErr() (*Organization, error) {
+	if e.Organization != nil {
+		return e.Organization, nil
+	} else if e.loadedTypes[5] {
+		return nil, &NotFoundError{label: organization.Label}
+	}
+	return nil, &NotLoadedError{edge: "organization"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Device) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case device.FieldProperties:
+		case device.FieldProperties, device.FieldTags:
 			values[i] = new([]byte)
-		case device.FieldID:
+		case device.FieldID, device.FieldVersion:
 			values[i] = new(sql.NullInt64)
-		case device.FieldName:
+		case device.FieldDeviceID, device.FieldName, device.FieldType, device.FieldState, device.FieldSource:
 			values[i] = new(sql.NullString)
+		case device.FieldCreatedAt, device.FieldUpdatedAt, device.FieldSourceSyncedAt:
+			values[i] = new(sql.NullTime)
 		case device.ForeignKeys[0]: // device_children
+			values[i] = new(sql.NullInt64)
+		case device.ForeignKeys[1]: // organization_devices
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -104,11 +164,35 @@ func (_m *Device) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case device.FieldCreatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field created_at", values[i])
+			} else if value.Valid {
+				_m.CreatedAt = value.Time
+			}
+		case device.FieldUpdatedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at", values[i])
+			} else if value.Valid {
+				_m.UpdatedAt = value.Time
+			}
+		case device.FieldDeviceID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field device_id", values[i])
+			} else if value.Valid {
+				_m.DeviceID = value.String
+			}
 		case device.FieldName:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field name", values[i])
 			} else if value.Valid {
 				_m.Name = value.String
+			}
+		case device.FieldType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field type", values[i])
+			} else if value.Valid {
+				_m.Type = value.String
 			}
 		case device.FieldProperties:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -118,12 +202,52 @@ func (_m *Device) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field properties: %w", err)
 				}
 			}
+		case device.FieldVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field version", values[i])
+			} else if value.Valid {
+				_m.Version = uint64(value.Int64)
+			}
+		case device.FieldState:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field state", values[i])
+			} else if value.Valid {
+				_m.State = value.String
+			}
+		case device.FieldSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field source", values[i])
+			} else if value.Valid {
+				_m.Source = value.String
+			}
+		case device.FieldSourceSyncedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field source_synced_at", values[i])
+			} else if value.Valid {
+				_m.SourceSyncedAt = new(time.Time)
+				*_m.SourceSyncedAt = value.Time
+			}
+		case device.FieldTags:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field tags", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Tags); err != nil {
+					return fmt.Errorf("unmarshal field tags: %w", err)
+				}
+			}
 		case device.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field device_children", value)
 			} else if value.Valid {
 				_m.device_children = new(int)
 				*_m.device_children = int(value.Int64)
+			}
+		case device.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field organization_devices", value)
+			} else if value.Valid {
+				_m.organization_devices = new(int)
+				*_m.organization_devices = int(value.Int64)
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -153,6 +277,21 @@ func (_m *Device) QueryFacts() *FactQuery {
 	return NewDeviceClient(_m.config).QueryFacts(_m)
 }
 
+// QueryRevisions queries the "revisions" edge of the Device entity.
+func (_m *Device) QueryRevisions() *RevisionQuery {
+	return NewDeviceClient(_m.config).QueryRevisions(_m)
+}
+
+// QueryGroups queries the "groups" edge of the Device entity.
+func (_m *Device) QueryGroups() *GroupQuery {
+	return NewDeviceClient(_m.config).QueryGroups(_m)
+}
+
+// QueryOrganization queries the "organization" edge of the Device entity.
+func (_m *Device) QueryOrganization() *OrganizationQuery {
+	return NewDeviceClient(_m.config).QueryOrganization(_m)
+}
+
 // Update returns a builder for updating this Device.
 // Note that you need to call Device.Unwrap() before calling this method if this Device
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -176,11 +315,40 @@ func (_m *Device) String() string {
 	var builder strings.Builder
 	builder.WriteString("Device(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("created_at=")
+	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at=")
+	builder.WriteString(_m.UpdatedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("device_id=")
+	builder.WriteString(_m.DeviceID)
+	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
 	builder.WriteString(", ")
+	builder.WriteString("type=")
+	builder.WriteString(_m.Type)
+	builder.WriteString(", ")
 	builder.WriteString("properties=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Properties))
+	builder.WriteString(", ")
+	builder.WriteString("version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Version))
+	builder.WriteString(", ")
+	builder.WriteString("state=")
+	builder.WriteString(_m.State)
+	builder.WriteString(", ")
+	builder.WriteString("source=")
+	builder.WriteString(_m.Source)
+	builder.WriteString(", ")
+	if v := _m.SourceSyncedAt; v != nil {
+		builder.WriteString("source_synced_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("tags=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Tags))
 	builder.WriteByte(')')
 	return builder.String()
 }

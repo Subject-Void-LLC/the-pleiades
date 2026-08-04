@@ -2,24 +2,62 @@ package ent_test
 
 import (
 	"context"
+	stdsql "database/sql"
+	"fmt"
 	"testing"
+
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
+	entmigrate "github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate"
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// openMigratedTestClient opens an in-memory SQLite database through the
+// real production path this repository actually ships (raw driver, then
+// internal/ent/migrate.Apply's committed migration files, then the ent
+// client wrapping that same connection), instead of enttest.Open's
+// auto-migration shortcut. Per this project's own RULE 0 ("a green unit
+// test only counts when it runs the SAME config the platform runs"), any
+// test whose own purpose is to prove the platform's real mechanism works
+// -- this Release Gate included -- must exercise that mechanism, not a
+// shortcut that happens to produce an equivalent schema.
+func openMigratedTestClient(t *testing.T) *ent.Client {
+	t.Helper()
+
+	// A unique shared-cache name per test keeps parallel subtests from
+	// colliding on one in-memory database.
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())
+
+	db, err := stdsql.Open(dialect.SQLite, dsn)
+	if err != nil {
+		t.Fatalf("opening raw sqlite connection: %v", err)
+	}
+
+	if err := entmigrate.Apply(context.Background(), dialect.SQLite, db); err != nil {
+		_ = db.Close()
+		t.Fatalf("applying versioned migrations: %v", err)
+	}
+
+	drv := entsql.OpenDB(dialect.SQLite, db)
+	client := ent.NewClient(ent.Driver(drv))
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
 func TestGraphTraversal(t *testing.T) {
-	// Spin up an in-memory SQLite database for the Release Gate
-	client := enttest.Open(t, "sqlite3", "file:ent?mode=memory&cache=shared&_fk=1")
-	defer client.Close()
+	// Spin up an in-memory SQLite database, migrated through the real
+	// production path (openMigratedTestClient), for the Release Gate.
+	client := openMigratedTestClient(t)
 
 	ctx := context.Background()
 
 	// 1. Create a parent (e.g. Core Switch)
 	coreSwitch, err := client.Device.Create().
 		SetName("core-sw-01").
+		SetType("network_device").
 		SetProperties(map[string]interface{}{"ip": "10.0.0.1", "role": "core"}).
 		Save(ctx)
 	if err != nil {
@@ -29,6 +67,7 @@ func TestGraphTraversal(t *testing.T) {
 	// 2. Create a child (e.g. Access Switch) and attach it to the parent
 	accessSwitch, err := client.Device.Create().
 		SetName("access-sw-01").
+		SetType("network_device").
 		SetProperties(map[string]interface{}{"ip": "10.0.1.1", "role": "access"}).
 		SetParent(coreSwitch).
 		Save(ctx)

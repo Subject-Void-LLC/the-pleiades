@@ -16,6 +16,12 @@ type Tx struct {
 	Device *DeviceClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
+	// Group is the client for interacting with the Group builders.
+	Group *GroupClient
+	// Organization is the client for interacting with the Organization builders.
+	Organization *OrganizationClient
+	// Revision is the client for interacting with the Revision builders.
+	Revision *RevisionClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
 
@@ -151,6 +157,9 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
+	tx.Group = NewGroupClient(tx.config)
+	tx.Organization = NewOrganizationClient(tx.config)
+	tx.Revision = NewRevisionClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }
 

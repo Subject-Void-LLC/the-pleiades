@@ -14,20 +14,26 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 )
 
 // DeviceQuery is the builder for querying Device entities.
 type DeviceQuery struct {
 	config
-	ctx          *QueryContext
-	order        []device.OrderOption
-	inters       []Interceptor
-	predicates   []predicate.Device
-	withParent   *DeviceQuery
-	withChildren *DeviceQuery
-	withFacts    *FactQuery
-	withFKs      bool
+	ctx              *QueryContext
+	order            []device.OrderOption
+	inters           []Interceptor
+	predicates       []predicate.Device
+	withParent       *DeviceQuery
+	withChildren     *DeviceQuery
+	withFacts        *FactQuery
+	withRevisions    *RevisionQuery
+	withGroups       *GroupQuery
+	withOrganization *OrganizationQuery
+	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -123,6 +129,72 @@ func (_q *DeviceQuery) QueryFacts() *FactQuery {
 			sqlgraph.From(device.Table, device.FieldID, selector),
 			sqlgraph.To(fact.Table, fact.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, device.FactsTable, device.FactsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryRevisions chains the current query on the "revisions" edge.
+func (_q *DeviceQuery) QueryRevisions() *RevisionQuery {
+	query := (&RevisionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(revision.Table, revision.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, device.RevisionsTable, device.RevisionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryGroups chains the current query on the "groups" edge.
+func (_q *DeviceQuery) QueryGroups() *GroupQuery {
+	query := (&GroupClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, device.GroupsTable, device.GroupsPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOrganization chains the current query on the "organization" edge.
+func (_q *DeviceQuery) QueryOrganization() *OrganizationQuery {
+	query := (&OrganizationClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(organization.Table, organization.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, device.OrganizationTable, device.OrganizationColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -317,14 +389,17 @@ func (_q *DeviceQuery) Clone() *DeviceQuery {
 		return nil
 	}
 	return &DeviceQuery{
-		config:       _q.config,
-		ctx:          _q.ctx.Clone(),
-		order:        append([]device.OrderOption{}, _q.order...),
-		inters:       append([]Interceptor{}, _q.inters...),
-		predicates:   append([]predicate.Device{}, _q.predicates...),
-		withParent:   _q.withParent.Clone(),
-		withChildren: _q.withChildren.Clone(),
-		withFacts:    _q.withFacts.Clone(),
+		config:           _q.config,
+		ctx:              _q.ctx.Clone(),
+		order:            append([]device.OrderOption{}, _q.order...),
+		inters:           append([]Interceptor{}, _q.inters...),
+		predicates:       append([]predicate.Device{}, _q.predicates...),
+		withParent:       _q.withParent.Clone(),
+		withChildren:     _q.withChildren.Clone(),
+		withFacts:        _q.withFacts.Clone(),
+		withRevisions:    _q.withRevisions.Clone(),
+		withGroups:       _q.withGroups.Clone(),
+		withOrganization: _q.withOrganization.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -364,18 +439,51 @@ func (_q *DeviceQuery) WithFacts(opts ...func(*FactQuery)) *DeviceQuery {
 	return _q
 }
 
+// WithRevisions tells the query-builder to eager-load the nodes that are connected to
+// the "revisions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithRevisions(opts ...func(*RevisionQuery)) *DeviceQuery {
+	query := (&RevisionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withRevisions = query
+	return _q
+}
+
+// WithGroups tells the query-builder to eager-load the nodes that are connected to
+// the "groups" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithGroups(opts ...func(*GroupQuery)) *DeviceQuery {
+	query := (&GroupClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withGroups = query
+	return _q
+}
+
+// WithOrganization tells the query-builder to eager-load the nodes that are connected to
+// the "organization" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithOrganization(opts ...func(*OrganizationQuery)) *DeviceQuery {
+	query := (&OrganizationClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOrganization = query
+	return _q
+}
+
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
 //
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		CreatedAt time.Time `json:"created_at,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Device.Query().
-//		GroupBy(device.FieldName).
+//		GroupBy(device.FieldCreatedAt).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *DeviceQuery) GroupBy(field string, fields ...string) *DeviceGroupBy {
@@ -393,11 +501,11 @@ func (_q *DeviceQuery) GroupBy(field string, fields ...string) *DeviceGroupBy {
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		CreatedAt time.Time `json:"created_at,omitempty"`
 //	}
 //
 //	client.Device.Query().
-//		Select(device.FieldName).
+//		Select(device.FieldCreatedAt).
 //		Scan(ctx, &v)
 func (_q *DeviceQuery) Select(fields ...string) *DeviceSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -443,13 +551,16 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 		nodes       = []*Device{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [6]bool{
 			_q.withParent != nil,
 			_q.withChildren != nil,
 			_q.withFacts != nil,
+			_q.withRevisions != nil,
+			_q.withGroups != nil,
+			_q.withOrganization != nil,
 		}
 	)
-	if _q.withParent != nil {
+	if _q.withParent != nil || _q.withOrganization != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -490,6 +601,26 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 		if err := _q.loadFacts(ctx, query, nodes,
 			func(n *Device) { n.Edges.Facts = []*Fact{} },
 			func(n *Device, e *Fact) { n.Edges.Facts = append(n.Edges.Facts, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withRevisions; query != nil {
+		if err := _q.loadRevisions(ctx, query, nodes,
+			func(n *Device) { n.Edges.Revisions = []*Revision{} },
+			func(n *Device, e *Revision) { n.Edges.Revisions = append(n.Edges.Revisions, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withGroups; query != nil {
+		if err := _q.loadGroups(ctx, query, nodes,
+			func(n *Device) { n.Edges.Groups = []*Group{} },
+			func(n *Device, e *Group) { n.Edges.Groups = append(n.Edges.Groups, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOrganization; query != nil {
+		if err := _q.loadOrganization(ctx, query, nodes, nil,
+			func(n *Device, e *Organization) { n.Edges.Organization = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -587,6 +718,130 @@ func (_q *DeviceQuery) loadFacts(ctx context.Context, query *FactQuery, nodes []
 			return fmt.Errorf(`unexpected referenced foreign-key "device_facts" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadRevisions(ctx context.Context, query *RevisionQuery, nodes []*Device, init func(*Device), assign func(*Device, *Revision)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Device)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Revision(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(device.RevisionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.device_revisions
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "device_revisions" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "device_revisions" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadGroups(ctx context.Context, query *GroupQuery, nodes []*Device, init func(*Device), assign func(*Device, *Group)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int]*Device)
+	nids := make(map[int]map[*Device]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(device.GroupsTable)
+		s.Join(joinT).On(s.C(group.FieldID), joinT.C(device.GroupsPrimaryKey[0]))
+		s.Where(sql.InValues(joinT.C(device.GroupsPrimaryKey[1]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(device.GroupsPrimaryKey[1]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := int(values[0].(*sql.NullInt64).Int64)
+				inValue := int(values[1].(*sql.NullInt64).Int64)
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Device]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*Group](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "groups" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
+		}
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadOrganization(ctx context.Context, query *OrganizationQuery, nodes []*Device, init func(*Device), assign func(*Device, *Organization)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Device)
+	for i := range nodes {
+		if nodes[i].organization_devices == nil {
+			continue
+		}
+		fk := *nodes[i].organization_devices
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(organization.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "organization_devices" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
 	}
 	return nil
 }

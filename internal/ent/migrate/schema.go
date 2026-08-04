@@ -11,9 +11,19 @@ var (
 	// DevicesColumns holds the columns for the "devices" table.
 	DevicesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "device_id", Type: field.TypeString, Unique: true},
 		{Name: "name", Type: field.TypeString, Unique: true},
+		{Name: "type", Type: field.TypeString},
 		{Name: "properties", Type: field.TypeJSON, Nullable: true},
+		{Name: "version", Type: field.TypeUint64, Default: 0},
+		{Name: "state", Type: field.TypeString, Default: "active"},
+		{Name: "source", Type: field.TypeString, Nullable: true},
+		{Name: "source_synced_at", Type: field.TypeTime, Nullable: true},
+		{Name: "tags", Type: field.TypeJSON, Nullable: true},
 		{Name: "device_children", Type: field.TypeInt, Nullable: true},
+		{Name: "organization_devices", Type: field.TypeInt, Nullable: true},
 	}
 	// DevicesTable holds the schema information for the "devices" table.
 	DevicesTable = &schema.Table{
@@ -23,15 +33,30 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "devices_devices_children",
-				Columns:    []*schema.Column{DevicesColumns[3]},
+				Columns:    []*schema.Column{DevicesColumns[12]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "devices_organizations_devices",
+				Columns:    []*schema.Column{DevicesColumns[13]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "device_device_id",
+				Unique:  false,
+				Columns: []*schema.Column{DevicesColumns[3]},
 			},
 		},
 	}
 	// FactsColumns holds the columns for the "facts" table.
 	FactsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "payload", Type: field.TypeJSON},
 		{Name: "hash", Type: field.TypeString},
 		{Name: "device_facts", Type: field.TypeInt},
@@ -44,15 +69,81 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "facts_devices_facts",
-				Columns:    []*schema.Column{FactsColumns[3]},
+				Columns:    []*schema.Column{FactsColumns[5]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// GroupsColumns holds the columns for the "groups" table.
+	GroupsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString, Unique: true},
+	}
+	// GroupsTable holds the schema information for the "groups" table.
+	GroupsTable = &schema.Table{
+		Name:       "groups",
+		Columns:    GroupsColumns,
+		PrimaryKey: []*schema.Column{GroupsColumns[0]},
+	}
+	// OrganizationsColumns holds the columns for the "organizations" table.
+	OrganizationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString, Unique: true},
+	}
+	// OrganizationsTable holds the schema information for the "organizations" table.
+	OrganizationsTable = &schema.Table{
+		Name:       "organizations",
+		Columns:    OrganizationsColumns,
+		PrimaryKey: []*schema.Column{OrganizationsColumns[0]},
+	}
+	// RevisionsColumns holds the columns for the "revisions" table.
+	RevisionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "version", Type: field.TypeUint64},
+		{Name: "changed_at", Type: field.TypeTime},
+		{Name: "field_name", Type: field.TypeString},
+		{Name: "old_value", Type: field.TypeJSON, Nullable: true},
+		{Name: "new_value", Type: field.TypeJSON, Nullable: true},
+		{Name: "device_revisions", Type: field.TypeInt},
+	}
+	// RevisionsTable holds the schema information for the "revisions" table.
+	RevisionsTable = &schema.Table{
+		Name:       "revisions",
+		Columns:    RevisionsColumns,
+		PrimaryKey: []*schema.Column{RevisionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "revisions_devices_revisions",
+				Columns:    []*schema.Column{RevisionsColumns[8]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "revision_version_device_revisions",
+				Unique:  false,
+				Columns: []*schema.Column{RevisionsColumns[3], RevisionsColumns[8]},
+			},
+			{
+				Name:    "revision_field_name",
+				Unique:  false,
+				Columns: []*schema.Column{RevisionsColumns[5]},
 			},
 		},
 	}
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "email", Type: field.TypeString, Unique: true},
 		{Name: "role", Type: field.TypeString, Default: "viewer"},
 	}
@@ -62,15 +153,76 @@ var (
 		Columns:    UsersColumns,
 		PrimaryKey: []*schema.Column{UsersColumns[0]},
 	}
+	// GroupDevicesColumns holds the columns for the "group_devices" table.
+	GroupDevicesColumns = []*schema.Column{
+		{Name: "group_id", Type: field.TypeInt},
+		{Name: "device_id", Type: field.TypeInt},
+	}
+	// GroupDevicesTable holds the schema information for the "group_devices" table.
+	GroupDevicesTable = &schema.Table{
+		Name:       "group_devices",
+		Columns:    GroupDevicesColumns,
+		PrimaryKey: []*schema.Column{GroupDevicesColumns[0], GroupDevicesColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "group_devices_group_id",
+				Columns:    []*schema.Column{GroupDevicesColumns[0]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "group_devices_device_id",
+				Columns:    []*schema.Column{GroupDevicesColumns[1]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
+	// GroupChildrenColumns holds the columns for the "group_children" table.
+	GroupChildrenColumns = []*schema.Column{
+		{Name: "group_id", Type: field.TypeInt},
+		{Name: "parent_id", Type: field.TypeInt},
+	}
+	// GroupChildrenTable holds the schema information for the "group_children" table.
+	GroupChildrenTable = &schema.Table{
+		Name:       "group_children",
+		Columns:    GroupChildrenColumns,
+		PrimaryKey: []*schema.Column{GroupChildrenColumns[0], GroupChildrenColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "group_children_group_id",
+				Columns:    []*schema.Column{GroupChildrenColumns[0]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "group_children_parent_id",
+				Columns:    []*schema.Column{GroupChildrenColumns[1]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		DevicesTable,
 		FactsTable,
+		GroupsTable,
+		OrganizationsTable,
+		RevisionsTable,
 		UsersTable,
+		GroupDevicesTable,
+		GroupChildrenTable,
 	}
 )
 
 func init() {
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
+	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
+	GroupDevicesTable.ForeignKeys[0].RefTable = GroupsTable
+	GroupDevicesTable.ForeignKeys[1].RefTable = DevicesTable
+	GroupChildrenTable.ForeignKeys[0].RefTable = GroupsTable
+	GroupChildrenTable.ForeignKeys[1].RefTable = GroupsTable
 }

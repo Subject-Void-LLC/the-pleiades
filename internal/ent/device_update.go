@@ -6,13 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 )
 
 // DeviceUpdate is the builder for updating Device entities.
@@ -25,6 +30,12 @@ type DeviceUpdate struct {
 // Where appends a list predicates to the DeviceUpdate builder.
 func (_u *DeviceUpdate) Where(ps ...predicate.Device) *DeviceUpdate {
 	_u.mutation.Where(ps...)
+	return _u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (_u *DeviceUpdate) SetUpdatedAt(v time.Time) *DeviceUpdate {
+	_u.mutation.SetUpdatedAt(v)
 	return _u
 }
 
@@ -51,6 +62,99 @@ func (_u *DeviceUpdate) SetProperties(v map[string]interface{}) *DeviceUpdate {
 // ClearProperties clears the value of the "properties" field.
 func (_u *DeviceUpdate) ClearProperties() *DeviceUpdate {
 	_u.mutation.ClearProperties()
+	return _u
+}
+
+// SetVersion sets the "version" field.
+func (_u *DeviceUpdate) SetVersion(v uint64) *DeviceUpdate {
+	_u.mutation.ResetVersion()
+	_u.mutation.SetVersion(v)
+	return _u
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableVersion(v *uint64) *DeviceUpdate {
+	if v != nil {
+		_u.SetVersion(*v)
+	}
+	return _u
+}
+
+// AddVersion adds value to the "version" field.
+func (_u *DeviceUpdate) AddVersion(v int64) *DeviceUpdate {
+	_u.mutation.AddVersion(v)
+	return _u
+}
+
+// SetState sets the "state" field.
+func (_u *DeviceUpdate) SetState(v string) *DeviceUpdate {
+	_u.mutation.SetState(v)
+	return _u
+}
+
+// SetNillableState sets the "state" field if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableState(v *string) *DeviceUpdate {
+	if v != nil {
+		_u.SetState(*v)
+	}
+	return _u
+}
+
+// SetSource sets the "source" field.
+func (_u *DeviceUpdate) SetSource(v string) *DeviceUpdate {
+	_u.mutation.SetSource(v)
+	return _u
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableSource(v *string) *DeviceUpdate {
+	if v != nil {
+		_u.SetSource(*v)
+	}
+	return _u
+}
+
+// ClearSource clears the value of the "source" field.
+func (_u *DeviceUpdate) ClearSource() *DeviceUpdate {
+	_u.mutation.ClearSource()
+	return _u
+}
+
+// SetSourceSyncedAt sets the "source_synced_at" field.
+func (_u *DeviceUpdate) SetSourceSyncedAt(v time.Time) *DeviceUpdate {
+	_u.mutation.SetSourceSyncedAt(v)
+	return _u
+}
+
+// SetNillableSourceSyncedAt sets the "source_synced_at" field if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableSourceSyncedAt(v *time.Time) *DeviceUpdate {
+	if v != nil {
+		_u.SetSourceSyncedAt(*v)
+	}
+	return _u
+}
+
+// ClearSourceSyncedAt clears the value of the "source_synced_at" field.
+func (_u *DeviceUpdate) ClearSourceSyncedAt() *DeviceUpdate {
+	_u.mutation.ClearSourceSyncedAt()
+	return _u
+}
+
+// SetTags sets the "tags" field.
+func (_u *DeviceUpdate) SetTags(v []string) *DeviceUpdate {
+	_u.mutation.SetTags(v)
+	return _u
+}
+
+// AppendTags appends value to the "tags" field.
+func (_u *DeviceUpdate) AppendTags(v []string) *DeviceUpdate {
+	_u.mutation.AppendTags(v)
+	return _u
+}
+
+// ClearTags clears the value of the "tags" field.
+func (_u *DeviceUpdate) ClearTags() *DeviceUpdate {
+	_u.mutation.ClearTags()
 	return _u
 }
 
@@ -101,6 +205,55 @@ func (_u *DeviceUpdate) AddFacts(v ...*Fact) *DeviceUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddFactIDs(ids...)
+}
+
+// AddRevisionIDs adds the "revisions" edge to the Revision entity by IDs.
+func (_u *DeviceUpdate) AddRevisionIDs(ids ...int) *DeviceUpdate {
+	_u.mutation.AddRevisionIDs(ids...)
+	return _u
+}
+
+// AddRevisions adds the "revisions" edges to the Revision entity.
+func (_u *DeviceUpdate) AddRevisions(v ...*Revision) *DeviceUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRevisionIDs(ids...)
+}
+
+// AddGroupIDs adds the "groups" edge to the Group entity by IDs.
+func (_u *DeviceUpdate) AddGroupIDs(ids ...int) *DeviceUpdate {
+	_u.mutation.AddGroupIDs(ids...)
+	return _u
+}
+
+// AddGroups adds the "groups" edges to the Group entity.
+func (_u *DeviceUpdate) AddGroups(v ...*Group) *DeviceUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddGroupIDs(ids...)
+}
+
+// SetOrganizationID sets the "organization" edge to the Organization entity by ID.
+func (_u *DeviceUpdate) SetOrganizationID(id int) *DeviceUpdate {
+	_u.mutation.SetOrganizationID(id)
+	return _u
+}
+
+// SetNillableOrganizationID sets the "organization" edge to the Organization entity by ID if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableOrganizationID(id *int) *DeviceUpdate {
+	if id != nil {
+		_u = _u.SetOrganizationID(*id)
+	}
+	return _u
+}
+
+// SetOrganization sets the "organization" edge to the Organization entity.
+func (_u *DeviceUpdate) SetOrganization(v *Organization) *DeviceUpdate {
+	return _u.SetOrganizationID(v.ID)
 }
 
 // Mutation returns the DeviceMutation object of the builder.
@@ -156,8 +309,57 @@ func (_u *DeviceUpdate) RemoveFacts(v ...*Fact) *DeviceUpdate {
 	return _u.RemoveFactIDs(ids...)
 }
 
+// ClearRevisions clears all "revisions" edges to the Revision entity.
+func (_u *DeviceUpdate) ClearRevisions() *DeviceUpdate {
+	_u.mutation.ClearRevisions()
+	return _u
+}
+
+// RemoveRevisionIDs removes the "revisions" edge to Revision entities by IDs.
+func (_u *DeviceUpdate) RemoveRevisionIDs(ids ...int) *DeviceUpdate {
+	_u.mutation.RemoveRevisionIDs(ids...)
+	return _u
+}
+
+// RemoveRevisions removes "revisions" edges to Revision entities.
+func (_u *DeviceUpdate) RemoveRevisions(v ...*Revision) *DeviceUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRevisionIDs(ids...)
+}
+
+// ClearGroups clears all "groups" edges to the Group entity.
+func (_u *DeviceUpdate) ClearGroups() *DeviceUpdate {
+	_u.mutation.ClearGroups()
+	return _u
+}
+
+// RemoveGroupIDs removes the "groups" edge to Group entities by IDs.
+func (_u *DeviceUpdate) RemoveGroupIDs(ids ...int) *DeviceUpdate {
+	_u.mutation.RemoveGroupIDs(ids...)
+	return _u
+}
+
+// RemoveGroups removes "groups" edges to Group entities.
+func (_u *DeviceUpdate) RemoveGroups(v ...*Group) *DeviceUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveGroupIDs(ids...)
+}
+
+// ClearOrganization clears the "organization" edge to the Organization entity.
+func (_u *DeviceUpdate) ClearOrganization() *DeviceUpdate {
+	_u.mutation.ClearOrganization()
+	return _u
+}
+
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *DeviceUpdate) Save(ctx context.Context) (int, error) {
+	_u.defaults()
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -183,11 +385,24 @@ func (_u *DeviceUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_u *DeviceUpdate) defaults() {
+	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		v := device.UpdateDefaultUpdatedAt()
+		_u.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_u *DeviceUpdate) check() error {
 	if v, ok := _u.mutation.Name(); ok {
 		if err := device.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Device.name": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.State(); ok {
+		if err := device.StateValidator(v); err != nil {
+			return &ValidationError{Name: "state", err: fmt.Errorf(`ent: validator failed for field "Device.state": %w`, err)}
 		}
 	}
 	return nil
@@ -205,6 +420,9 @@ func (_u *DeviceUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			}
 		}
 	}
+	if value, ok := _u.mutation.UpdatedAt(); ok {
+		_spec.SetField(device.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(device.FieldName, field.TypeString, value)
 	}
@@ -213,6 +431,38 @@ func (_u *DeviceUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(device.FieldProperties, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Version(); ok {
+		_spec.SetField(device.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedVersion(); ok {
+		_spec.AddField(device.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.State(); ok {
+		_spec.SetField(device.FieldState, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Source(); ok {
+		_spec.SetField(device.FieldSource, field.TypeString, value)
+	}
+	if _u.mutation.SourceCleared() {
+		_spec.ClearField(device.FieldSource, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourceSyncedAt(); ok {
+		_spec.SetField(device.FieldSourceSyncedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SourceSyncedAtCleared() {
+		_spec.ClearField(device.FieldSourceSyncedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.Tags(); ok {
+		_spec.SetField(device.FieldTags, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedTags(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, device.FieldTags, value)
+		})
+	}
+	if _u.mutation.TagsCleared() {
+		_spec.ClearField(device.FieldTags, field.TypeJSON)
 	}
 	if _u.mutation.ParentCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -333,6 +583,125 @@ func (_u *DeviceUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRevisionsIDs(); len(nodes) > 0 && !_u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.GroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedGroupsIDs(); len(nodes) > 0 && !_u.mutation.GroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OrganizationCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   device.OrganizationTable,
+			Columns: []string{device.OrganizationColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OrganizationIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   device.OrganizationTable,
+			Columns: []string{device.OrganizationColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{device.Label}
@@ -351,6 +720,12 @@ type DeviceUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *DeviceMutation
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (_u *DeviceUpdateOne) SetUpdatedAt(v time.Time) *DeviceUpdateOne {
+	_u.mutation.SetUpdatedAt(v)
+	return _u
 }
 
 // SetName sets the "name" field.
@@ -376,6 +751,99 @@ func (_u *DeviceUpdateOne) SetProperties(v map[string]interface{}) *DeviceUpdate
 // ClearProperties clears the value of the "properties" field.
 func (_u *DeviceUpdateOne) ClearProperties() *DeviceUpdateOne {
 	_u.mutation.ClearProperties()
+	return _u
+}
+
+// SetVersion sets the "version" field.
+func (_u *DeviceUpdateOne) SetVersion(v uint64) *DeviceUpdateOne {
+	_u.mutation.ResetVersion()
+	_u.mutation.SetVersion(v)
+	return _u
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableVersion(v *uint64) *DeviceUpdateOne {
+	if v != nil {
+		_u.SetVersion(*v)
+	}
+	return _u
+}
+
+// AddVersion adds value to the "version" field.
+func (_u *DeviceUpdateOne) AddVersion(v int64) *DeviceUpdateOne {
+	_u.mutation.AddVersion(v)
+	return _u
+}
+
+// SetState sets the "state" field.
+func (_u *DeviceUpdateOne) SetState(v string) *DeviceUpdateOne {
+	_u.mutation.SetState(v)
+	return _u
+}
+
+// SetNillableState sets the "state" field if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableState(v *string) *DeviceUpdateOne {
+	if v != nil {
+		_u.SetState(*v)
+	}
+	return _u
+}
+
+// SetSource sets the "source" field.
+func (_u *DeviceUpdateOne) SetSource(v string) *DeviceUpdateOne {
+	_u.mutation.SetSource(v)
+	return _u
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableSource(v *string) *DeviceUpdateOne {
+	if v != nil {
+		_u.SetSource(*v)
+	}
+	return _u
+}
+
+// ClearSource clears the value of the "source" field.
+func (_u *DeviceUpdateOne) ClearSource() *DeviceUpdateOne {
+	_u.mutation.ClearSource()
+	return _u
+}
+
+// SetSourceSyncedAt sets the "source_synced_at" field.
+func (_u *DeviceUpdateOne) SetSourceSyncedAt(v time.Time) *DeviceUpdateOne {
+	_u.mutation.SetSourceSyncedAt(v)
+	return _u
+}
+
+// SetNillableSourceSyncedAt sets the "source_synced_at" field if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableSourceSyncedAt(v *time.Time) *DeviceUpdateOne {
+	if v != nil {
+		_u.SetSourceSyncedAt(*v)
+	}
+	return _u
+}
+
+// ClearSourceSyncedAt clears the value of the "source_synced_at" field.
+func (_u *DeviceUpdateOne) ClearSourceSyncedAt() *DeviceUpdateOne {
+	_u.mutation.ClearSourceSyncedAt()
+	return _u
+}
+
+// SetTags sets the "tags" field.
+func (_u *DeviceUpdateOne) SetTags(v []string) *DeviceUpdateOne {
+	_u.mutation.SetTags(v)
+	return _u
+}
+
+// AppendTags appends value to the "tags" field.
+func (_u *DeviceUpdateOne) AppendTags(v []string) *DeviceUpdateOne {
+	_u.mutation.AppendTags(v)
+	return _u
+}
+
+// ClearTags clears the value of the "tags" field.
+func (_u *DeviceUpdateOne) ClearTags() *DeviceUpdateOne {
+	_u.mutation.ClearTags()
 	return _u
 }
 
@@ -426,6 +894,55 @@ func (_u *DeviceUpdateOne) AddFacts(v ...*Fact) *DeviceUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddFactIDs(ids...)
+}
+
+// AddRevisionIDs adds the "revisions" edge to the Revision entity by IDs.
+func (_u *DeviceUpdateOne) AddRevisionIDs(ids ...int) *DeviceUpdateOne {
+	_u.mutation.AddRevisionIDs(ids...)
+	return _u
+}
+
+// AddRevisions adds the "revisions" edges to the Revision entity.
+func (_u *DeviceUpdateOne) AddRevisions(v ...*Revision) *DeviceUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddRevisionIDs(ids...)
+}
+
+// AddGroupIDs adds the "groups" edge to the Group entity by IDs.
+func (_u *DeviceUpdateOne) AddGroupIDs(ids ...int) *DeviceUpdateOne {
+	_u.mutation.AddGroupIDs(ids...)
+	return _u
+}
+
+// AddGroups adds the "groups" edges to the Group entity.
+func (_u *DeviceUpdateOne) AddGroups(v ...*Group) *DeviceUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddGroupIDs(ids...)
+}
+
+// SetOrganizationID sets the "organization" edge to the Organization entity by ID.
+func (_u *DeviceUpdateOne) SetOrganizationID(id int) *DeviceUpdateOne {
+	_u.mutation.SetOrganizationID(id)
+	return _u
+}
+
+// SetNillableOrganizationID sets the "organization" edge to the Organization entity by ID if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableOrganizationID(id *int) *DeviceUpdateOne {
+	if id != nil {
+		_u = _u.SetOrganizationID(*id)
+	}
+	return _u
+}
+
+// SetOrganization sets the "organization" edge to the Organization entity.
+func (_u *DeviceUpdateOne) SetOrganization(v *Organization) *DeviceUpdateOne {
+	return _u.SetOrganizationID(v.ID)
 }
 
 // Mutation returns the DeviceMutation object of the builder.
@@ -481,6 +998,54 @@ func (_u *DeviceUpdateOne) RemoveFacts(v ...*Fact) *DeviceUpdateOne {
 	return _u.RemoveFactIDs(ids...)
 }
 
+// ClearRevisions clears all "revisions" edges to the Revision entity.
+func (_u *DeviceUpdateOne) ClearRevisions() *DeviceUpdateOne {
+	_u.mutation.ClearRevisions()
+	return _u
+}
+
+// RemoveRevisionIDs removes the "revisions" edge to Revision entities by IDs.
+func (_u *DeviceUpdateOne) RemoveRevisionIDs(ids ...int) *DeviceUpdateOne {
+	_u.mutation.RemoveRevisionIDs(ids...)
+	return _u
+}
+
+// RemoveRevisions removes "revisions" edges to Revision entities.
+func (_u *DeviceUpdateOne) RemoveRevisions(v ...*Revision) *DeviceUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveRevisionIDs(ids...)
+}
+
+// ClearGroups clears all "groups" edges to the Group entity.
+func (_u *DeviceUpdateOne) ClearGroups() *DeviceUpdateOne {
+	_u.mutation.ClearGroups()
+	return _u
+}
+
+// RemoveGroupIDs removes the "groups" edge to Group entities by IDs.
+func (_u *DeviceUpdateOne) RemoveGroupIDs(ids ...int) *DeviceUpdateOne {
+	_u.mutation.RemoveGroupIDs(ids...)
+	return _u
+}
+
+// RemoveGroups removes "groups" edges to Group entities.
+func (_u *DeviceUpdateOne) RemoveGroups(v ...*Group) *DeviceUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveGroupIDs(ids...)
+}
+
+// ClearOrganization clears the "organization" edge to the Organization entity.
+func (_u *DeviceUpdateOne) ClearOrganization() *DeviceUpdateOne {
+	_u.mutation.ClearOrganization()
+	return _u
+}
+
 // Where appends a list predicates to the DeviceUpdate builder.
 func (_u *DeviceUpdateOne) Where(ps ...predicate.Device) *DeviceUpdateOne {
 	_u.mutation.Where(ps...)
@@ -496,6 +1061,7 @@ func (_u *DeviceUpdateOne) Select(field string, fields ...string) *DeviceUpdateO
 
 // Save executes the query and returns the updated Device entity.
 func (_u *DeviceUpdateOne) Save(ctx context.Context) (*Device, error) {
+	_u.defaults()
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -521,11 +1087,24 @@ func (_u *DeviceUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_u *DeviceUpdateOne) defaults() {
+	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		v := device.UpdateDefaultUpdatedAt()
+		_u.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_u *DeviceUpdateOne) check() error {
 	if v, ok := _u.mutation.Name(); ok {
 		if err := device.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Device.name": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.State(); ok {
+		if err := device.StateValidator(v); err != nil {
+			return &ValidationError{Name: "state", err: fmt.Errorf(`ent: validator failed for field "Device.state": %w`, err)}
 		}
 	}
 	return nil
@@ -560,6 +1139,9 @@ func (_u *DeviceUpdateOne) sqlSave(ctx context.Context) (_node *Device, err erro
 			}
 		}
 	}
+	if value, ok := _u.mutation.UpdatedAt(); ok {
+		_spec.SetField(device.FieldUpdatedAt, field.TypeTime, value)
+	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(device.FieldName, field.TypeString, value)
 	}
@@ -568,6 +1150,38 @@ func (_u *DeviceUpdateOne) sqlSave(ctx context.Context) (_node *Device, err erro
 	}
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(device.FieldProperties, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Version(); ok {
+		_spec.SetField(device.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.AddedVersion(); ok {
+		_spec.AddField(device.FieldVersion, field.TypeUint64, value)
+	}
+	if value, ok := _u.mutation.State(); ok {
+		_spec.SetField(device.FieldState, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Source(); ok {
+		_spec.SetField(device.FieldSource, field.TypeString, value)
+	}
+	if _u.mutation.SourceCleared() {
+		_spec.ClearField(device.FieldSource, field.TypeString)
+	}
+	if value, ok := _u.mutation.SourceSyncedAt(); ok {
+		_spec.SetField(device.FieldSourceSyncedAt, field.TypeTime, value)
+	}
+	if _u.mutation.SourceSyncedAtCleared() {
+		_spec.ClearField(device.FieldSourceSyncedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.Tags(); ok {
+		_spec.SetField(device.FieldTags, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedTags(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, device.FieldTags, value)
+		})
+	}
+	if _u.mutation.TagsCleared() {
+		_spec.ClearField(device.FieldTags, field.TypeJSON)
 	}
 	if _u.mutation.ParentCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -681,6 +1295,125 @@ func (_u *DeviceUpdateOne) sqlSave(ctx context.Context) (_node *Device, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(fact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedRevisionsIDs(); len(nodes) > 0 && !_u.mutation.RevisionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.GroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedGroupsIDs(); len(nodes) > 0 && !_u.mutation.GroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OrganizationCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   device.OrganizationTable,
+			Columns: []string{device.OrganizationColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OrganizationIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   device.OrganizationTable,
+			Columns: []string{device.OrganizationColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

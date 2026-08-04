@@ -10,6 +10,11 @@ type User struct {
 	ent.Schema
 }
 
+// Mixin of the User.
+func (User) Mixin() []ent.Mixin {
+	return []ent.Mixin{TimestampMixin{}}
+}
+
 // Fields of the User.
 func (User) Fields() []ent.Field {
 	return []ent.Field{

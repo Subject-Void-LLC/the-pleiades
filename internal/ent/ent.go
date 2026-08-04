@@ -14,6 +14,9 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
 )
 
@@ -75,9 +78,12 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			device.Table: device.ValidColumn,
-			fact.Table:   fact.ValidColumn,
-			user.Table:   user.ValidColumn,
+			device.Table:       device.ValidColumn,
+			fact.Table:         fact.ValidColumn,
+			group.Table:        group.ValidColumn,
+			organization.Table: organization.ValidColumn,
+			revision.Table:     revision.ValidColumn,
+			user.Table:         user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

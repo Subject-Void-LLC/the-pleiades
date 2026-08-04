@@ -299,12 +299,12 @@ func (_q *FactQuery) WithDevice(opts ...func(*DeviceQuery)) *FactQuery {
 // Example:
 //
 //	var v []struct {
-//		Payload map[string]interface {} `json:"payload,omitempty"`
+//		CreatedAt time.Time `json:"created_at,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Fact.Query().
-//		GroupBy(fact.FieldPayload).
+//		GroupBy(fact.FieldCreatedAt).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *FactQuery) GroupBy(field string, fields ...string) *FactGroupBy {
@@ -322,11 +322,11 @@ func (_q *FactQuery) GroupBy(field string, fields ...string) *FactGroupBy {
 // Example:
 //
 //	var v []struct {
-//		Payload map[string]interface {} `json:"payload,omitempty"`
+//		CreatedAt time.Time `json:"created_at,omitempty"`
 //	}
 //
 //	client.Fact.Query().
-//		Select(fact.FieldPayload).
+//		Select(fact.FieldCreatedAt).
 //		Scan(ctx, &v)
 func (_q *FactQuery) Select(fields ...string) *FactSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)

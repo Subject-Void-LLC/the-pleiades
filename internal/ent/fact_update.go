@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
@@ -28,23 +29,9 @@ func (_u *FactUpdate) Where(ps ...predicate.Fact) *FactUpdate {
 	return _u
 }
 
-// SetPayload sets the "payload" field.
-func (_u *FactUpdate) SetPayload(v map[string]interface{}) *FactUpdate {
-	_u.mutation.SetPayload(v)
-	return _u
-}
-
-// SetHash sets the "hash" field.
-func (_u *FactUpdate) SetHash(v string) *FactUpdate {
-	_u.mutation.SetHash(v)
-	return _u
-}
-
-// SetNillableHash sets the "hash" field if the given value is not nil.
-func (_u *FactUpdate) SetNillableHash(v *string) *FactUpdate {
-	if v != nil {
-		_u.SetHash(*v)
-	}
+// SetUpdatedAt sets the "updated_at" field.
+func (_u *FactUpdate) SetUpdatedAt(v time.Time) *FactUpdate {
+	_u.mutation.SetUpdatedAt(v)
 	return _u
 }
 
@@ -72,6 +59,7 @@ func (_u *FactUpdate) ClearDevice() *FactUpdate {
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *FactUpdate) Save(ctx context.Context) (int, error) {
+	_u.defaults()
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -97,13 +85,16 @@ func (_u *FactUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_u *FactUpdate) defaults() {
+	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		v := fact.UpdateDefaultUpdatedAt()
+		_u.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_u *FactUpdate) check() error {
-	if v, ok := _u.mutation.Hash(); ok {
-		if err := fact.HashValidator(v); err != nil {
-			return &ValidationError{Name: "hash", err: fmt.Errorf(`ent: validator failed for field "Fact.hash": %w`, err)}
-		}
-	}
 	if _u.mutation.DeviceCleared() && len(_u.mutation.DeviceIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Fact.device"`)
 	}
@@ -122,11 +113,8 @@ func (_u *FactUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			}
 		}
 	}
-	if value, ok := _u.mutation.Payload(); ok {
-		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
-	}
-	if value, ok := _u.mutation.Hash(); ok {
-		_spec.SetField(fact.FieldHash, field.TypeString, value)
+	if value, ok := _u.mutation.UpdatedAt(); ok {
+		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -177,23 +165,9 @@ type FactUpdateOne struct {
 	mutation *FactMutation
 }
 
-// SetPayload sets the "payload" field.
-func (_u *FactUpdateOne) SetPayload(v map[string]interface{}) *FactUpdateOne {
-	_u.mutation.SetPayload(v)
-	return _u
-}
-
-// SetHash sets the "hash" field.
-func (_u *FactUpdateOne) SetHash(v string) *FactUpdateOne {
-	_u.mutation.SetHash(v)
-	return _u
-}
-
-// SetNillableHash sets the "hash" field if the given value is not nil.
-func (_u *FactUpdateOne) SetNillableHash(v *string) *FactUpdateOne {
-	if v != nil {
-		_u.SetHash(*v)
-	}
+// SetUpdatedAt sets the "updated_at" field.
+func (_u *FactUpdateOne) SetUpdatedAt(v time.Time) *FactUpdateOne {
+	_u.mutation.SetUpdatedAt(v)
 	return _u
 }
 
@@ -234,6 +208,7 @@ func (_u *FactUpdateOne) Select(field string, fields ...string) *FactUpdateOne {
 
 // Save executes the query and returns the updated Fact entity.
 func (_u *FactUpdateOne) Save(ctx context.Context) (*Fact, error) {
+	_u.defaults()
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -259,13 +234,16 @@ func (_u *FactUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_u *FactUpdateOne) defaults() {
+	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		v := fact.UpdateDefaultUpdatedAt()
+		_u.mutation.SetUpdatedAt(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_u *FactUpdateOne) check() error {
-	if v, ok := _u.mutation.Hash(); ok {
-		if err := fact.HashValidator(v); err != nil {
-			return &ValidationError{Name: "hash", err: fmt.Errorf(`ent: validator failed for field "Fact.hash": %w`, err)}
-		}
-	}
 	if _u.mutation.DeviceCleared() && len(_u.mutation.DeviceIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "Fact.device"`)
 	}
@@ -301,11 +279,8 @@ func (_u *FactUpdateOne) sqlSave(ctx context.Context) (_node *Fact, err error) {
 			}
 		}
 	}
-	if value, ok := _u.mutation.Payload(); ok {
-		_spec.SetField(fact.FieldPayload, field.TypeJSON, value)
-	}
-	if value, ok := _u.mutation.Hash(); ok {
-		_spec.SetField(fact.FieldHash, field.TypeString, value)
+	if value, ok := _u.mutation.UpdatedAt(); ok {
+		_spec.SetField(fact.FieldUpdatedAt, field.TypeTime, value)
 	}
 	if _u.mutation.DeviceCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -12,5 +12,14 @@ type Device func(*sql.Selector)
 // Fact is the predicate function for fact builders.
 type Fact func(*sql.Selector)
 
+// Group is the predicate function for group builders.
+type Group func(*sql.Selector)
+
+// Organization is the predicate function for organization builders.
+type Organization func(*sql.Selector)
+
+// Revision is the predicate function for revision builders.
+type Revision func(*sql.Selector)
+
 // User is the predicate function for user builders.
 type User func(*sql.Selector)

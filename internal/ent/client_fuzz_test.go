@@ -25,7 +25,7 @@ func FuzzDeviceCreation(f *testing.F) {
 		defer client.Close()
 
 		ctx := context.Background()
-		
+
 		var props map[string]interface{}
 		if err := json.Unmarshal([]byte(rawProperties), &props); err != nil {
 			return // Ignore malformed JSON inputs for this fuzz run
@@ -35,6 +35,7 @@ func FuzzDeviceCreation(f *testing.F) {
 		// We expect errors for constraint violations, but we NEVER expect a panic.
 		_, err := client.Device.Create().
 			SetName(name).
+			SetType("fuzz").
 			SetProperties(props).
 			Save(ctx)
 

@@ -1,0 +1,18 @@
+PRAGMA foreign_keys = off;
+CREATE TABLE `devices` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `device_id` text NOT NULL, `name` text NOT NULL, `properties` json NULL, `version` integer NOT NULL DEFAULT (0), `state` text NOT NULL DEFAULT ('active'), `source` text NULL, `source_synced_at` datetime NULL, `tags` json NULL, `device_children` integer NULL, `organization_devices` integer NULL, CONSTRAINT `devices_devices_children` FOREIGN KEY (`device_children`) REFERENCES `devices` (`id`) ON DELETE SET NULL, CONSTRAINT `devices_organizations_devices` FOREIGN KEY (`organization_devices`) REFERENCES `organizations` (`id`) ON DELETE SET NULL);
+CREATE UNIQUE INDEX `devices_device_id_key` ON `devices` (`device_id`);
+CREATE UNIQUE INDEX `devices_name_key` ON `devices` (`name`);
+CREATE INDEX `device_device_id` ON `devices` (`device_id`);
+CREATE TABLE `facts` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `payload` json NOT NULL, `hash` text NOT NULL, `device_facts` integer NOT NULL, CONSTRAINT `facts_devices_facts` FOREIGN KEY (`device_facts`) REFERENCES `devices` (`id`) ON DELETE NO ACTION);
+CREATE TABLE `groups` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL);
+CREATE UNIQUE INDEX `groups_name_key` ON `groups` (`name`);
+CREATE TABLE `organizations` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL);
+CREATE UNIQUE INDEX `organizations_name_key` ON `organizations` (`name`);
+CREATE TABLE `revisions` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `version` integer NOT NULL, `changed_at` datetime NOT NULL, `field_name` text NOT NULL, `old_value` json NULL, `new_value` json NULL, `device_revisions` integer NOT NULL, CONSTRAINT `revisions_devices_revisions` FOREIGN KEY (`device_revisions`) REFERENCES `devices` (`id`) ON DELETE NO ACTION);
+CREATE INDEX `revision_version_device_revisions` ON `revisions` (`version`, `device_revisions`);
+CREATE INDEX `revision_field_name` ON `revisions` (`field_name`);
+CREATE TABLE `users` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `email` text NOT NULL, `role` text NOT NULL DEFAULT ('viewer'));
+CREATE UNIQUE INDEX `users_email_key` ON `users` (`email`);
+CREATE TABLE `group_devices` (`group_id` integer NOT NULL, `device_id` integer NOT NULL, PRIMARY KEY (`group_id`, `device_id`), CONSTRAINT `group_devices_group_id` FOREIGN KEY (`group_id`) REFERENCES `groups` (`id`) ON DELETE CASCADE, CONSTRAINT `group_devices_device_id` FOREIGN KEY (`device_id`) REFERENCES `devices` (`id`) ON DELETE CASCADE);
+CREATE TABLE `group_children` (`group_id` integer NOT NULL, `parent_id` integer NOT NULL, PRIMARY KEY (`group_id`, `parent_id`), CONSTRAINT `group_children_group_id` FOREIGN KEY (`group_id`) REFERENCES `groups` (`id`) ON DELETE CASCADE, CONSTRAINT `group_children_parent_id` FOREIGN KEY (`parent_id`) REFERENCES `groups` (`id`) ON DELETE CASCADE);
+PRAGMA foreign_keys = on;

@@ -22,11 +22,12 @@ func BenchmarkDeviceQuery(b *testing.B) {
 
 	// Stress Test Setup: Pre-load 10,000 devices
 	const numDevices = 10000
-	
+
 	startSetup := time.Now()
 	for i := 0; i < numDevices; i++ {
 		_, err := client.Device.Create().
 			SetName(fmt.Sprintf("bench-router-%d", i)).
+			SetType("network_device").
 			SetProperties(map[string]interface{}{"vendor": "arista", "role": "leaf"}).
 			Save(ctx)
 		if err != nil {
@@ -41,17 +42,17 @@ func BenchmarkDeviceQuery(b *testing.B) {
 	// Benchmark the retrieval
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
-		
+
 		devices, err := client.Device.Query().All(ctx)
 		if err != nil {
 			b.Fatalf("failed query: %v", err)
 		}
-		
+
 		duration := time.Since(start)
 		if len(devices) != numDevices {
 			b.Fatalf("expected %d devices, got %d", numDevices, len(devices))
 		}
-		
+
 		// We log on the first iteration to get a human-readable baseline output
 		if i == 0 {
 			b.Logf("[BENCHMARK RESULT] Retrieved 10,000 fully-typed ent.Device objects in: %v", duration)

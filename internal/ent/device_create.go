@@ -6,11 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 )
 
 // DeviceCreate is the builder for creating a Device entity.
@@ -20,15 +24,125 @@ type DeviceCreate struct {
 	hooks    []Hook
 }
 
+// SetCreatedAt sets the "created_at" field.
+func (_c *DeviceCreate) SetCreatedAt(v time.Time) *DeviceCreate {
+	_c.mutation.SetCreatedAt(v)
+	return _c
+}
+
+// SetNillableCreatedAt sets the "created_at" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableCreatedAt(v *time.Time) *DeviceCreate {
+	if v != nil {
+		_c.SetCreatedAt(*v)
+	}
+	return _c
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (_c *DeviceCreate) SetUpdatedAt(v time.Time) *DeviceCreate {
+	_c.mutation.SetUpdatedAt(v)
+	return _c
+}
+
+// SetNillableUpdatedAt sets the "updated_at" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableUpdatedAt(v *time.Time) *DeviceCreate {
+	if v != nil {
+		_c.SetUpdatedAt(*v)
+	}
+	return _c
+}
+
+// SetDeviceID sets the "device_id" field.
+func (_c *DeviceCreate) SetDeviceID(v string) *DeviceCreate {
+	_c.mutation.SetDeviceID(v)
+	return _c
+}
+
+// SetNillableDeviceID sets the "device_id" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableDeviceID(v *string) *DeviceCreate {
+	if v != nil {
+		_c.SetDeviceID(*v)
+	}
+	return _c
+}
+
 // SetName sets the "name" field.
 func (_c *DeviceCreate) SetName(v string) *DeviceCreate {
 	_c.mutation.SetName(v)
 	return _c
 }
 
+// SetType sets the "type" field.
+func (_c *DeviceCreate) SetType(v string) *DeviceCreate {
+	_c.mutation.SetType(v)
+	return _c
+}
+
 // SetProperties sets the "properties" field.
 func (_c *DeviceCreate) SetProperties(v map[string]interface{}) *DeviceCreate {
 	_c.mutation.SetProperties(v)
+	return _c
+}
+
+// SetVersion sets the "version" field.
+func (_c *DeviceCreate) SetVersion(v uint64) *DeviceCreate {
+	_c.mutation.SetVersion(v)
+	return _c
+}
+
+// SetNillableVersion sets the "version" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableVersion(v *uint64) *DeviceCreate {
+	if v != nil {
+		_c.SetVersion(*v)
+	}
+	return _c
+}
+
+// SetState sets the "state" field.
+func (_c *DeviceCreate) SetState(v string) *DeviceCreate {
+	_c.mutation.SetState(v)
+	return _c
+}
+
+// SetNillableState sets the "state" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableState(v *string) *DeviceCreate {
+	if v != nil {
+		_c.SetState(*v)
+	}
+	return _c
+}
+
+// SetSource sets the "source" field.
+func (_c *DeviceCreate) SetSource(v string) *DeviceCreate {
+	_c.mutation.SetSource(v)
+	return _c
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableSource(v *string) *DeviceCreate {
+	if v != nil {
+		_c.SetSource(*v)
+	}
+	return _c
+}
+
+// SetSourceSyncedAt sets the "source_synced_at" field.
+func (_c *DeviceCreate) SetSourceSyncedAt(v time.Time) *DeviceCreate {
+	_c.mutation.SetSourceSyncedAt(v)
+	return _c
+}
+
+// SetNillableSourceSyncedAt sets the "source_synced_at" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableSourceSyncedAt(v *time.Time) *DeviceCreate {
+	if v != nil {
+		_c.SetSourceSyncedAt(*v)
+	}
+	return _c
+}
+
+// SetTags sets the "tags" field.
+func (_c *DeviceCreate) SetTags(v []string) *DeviceCreate {
+	_c.mutation.SetTags(v)
 	return _c
 }
 
@@ -81,6 +195,55 @@ func (_c *DeviceCreate) AddFacts(v ...*Fact) *DeviceCreate {
 	return _c.AddFactIDs(ids...)
 }
 
+// AddRevisionIDs adds the "revisions" edge to the Revision entity by IDs.
+func (_c *DeviceCreate) AddRevisionIDs(ids ...int) *DeviceCreate {
+	_c.mutation.AddRevisionIDs(ids...)
+	return _c
+}
+
+// AddRevisions adds the "revisions" edges to the Revision entity.
+func (_c *DeviceCreate) AddRevisions(v ...*Revision) *DeviceCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddRevisionIDs(ids...)
+}
+
+// AddGroupIDs adds the "groups" edge to the Group entity by IDs.
+func (_c *DeviceCreate) AddGroupIDs(ids ...int) *DeviceCreate {
+	_c.mutation.AddGroupIDs(ids...)
+	return _c
+}
+
+// AddGroups adds the "groups" edges to the Group entity.
+func (_c *DeviceCreate) AddGroups(v ...*Group) *DeviceCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddGroupIDs(ids...)
+}
+
+// SetOrganizationID sets the "organization" edge to the Organization entity by ID.
+func (_c *DeviceCreate) SetOrganizationID(id int) *DeviceCreate {
+	_c.mutation.SetOrganizationID(id)
+	return _c
+}
+
+// SetNillableOrganizationID sets the "organization" edge to the Organization entity by ID if the given value is not nil.
+func (_c *DeviceCreate) SetNillableOrganizationID(id *int) *DeviceCreate {
+	if id != nil {
+		_c = _c.SetOrganizationID(*id)
+	}
+	return _c
+}
+
+// SetOrganization sets the "organization" edge to the Organization entity.
+func (_c *DeviceCreate) SetOrganization(v *Organization) *DeviceCreate {
+	return _c.SetOrganizationID(v.ID)
+}
+
 // Mutation returns the DeviceMutation object of the builder.
 func (_c *DeviceCreate) Mutation() *DeviceMutation {
 	return _c.mutation
@@ -88,6 +251,7 @@ func (_c *DeviceCreate) Mutation() *DeviceMutation {
 
 // Save creates the Device in the database.
 func (_c *DeviceCreate) Save(ctx context.Context) (*Device, error) {
+	_c.defaults()
 	return withHooks(ctx, _c.sqlSave, _c.mutation, _c.hooks)
 }
 
@@ -113,14 +277,71 @@ func (_c *DeviceCreate) ExecX(ctx context.Context) {
 	}
 }
 
+// defaults sets the default values of the builder before save.
+func (_c *DeviceCreate) defaults() {
+	if _, ok := _c.mutation.CreatedAt(); !ok {
+		v := device.DefaultCreatedAt()
+		_c.mutation.SetCreatedAt(v)
+	}
+	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		v := device.DefaultUpdatedAt()
+		_c.mutation.SetUpdatedAt(v)
+	}
+	if _, ok := _c.mutation.DeviceID(); !ok {
+		v := device.DefaultDeviceID()
+		_c.mutation.SetDeviceID(v)
+	}
+	if _, ok := _c.mutation.Version(); !ok {
+		v := device.DefaultVersion
+		_c.mutation.SetVersion(v)
+	}
+	if _, ok := _c.mutation.State(); !ok {
+		v := device.DefaultState
+		_c.mutation.SetState(v)
+	}
+}
+
 // check runs all checks and user-defined validators on the builder.
 func (_c *DeviceCreate) check() error {
+	if _, ok := _c.mutation.CreatedAt(); !ok {
+		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Device.created_at"`)}
+	}
+	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Device.updated_at"`)}
+	}
+	if _, ok := _c.mutation.DeviceID(); !ok {
+		return &ValidationError{Name: "device_id", err: errors.New(`ent: missing required field "Device.device_id"`)}
+	}
+	if v, ok := _c.mutation.DeviceID(); ok {
+		if err := device.DeviceIDValidator(v); err != nil {
+			return &ValidationError{Name: "device_id", err: fmt.Errorf(`ent: validator failed for field "Device.device_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Device.name"`)}
 	}
 	if v, ok := _c.mutation.Name(); ok {
 		if err := device.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Device.name": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.GetType(); !ok {
+		return &ValidationError{Name: "type", err: errors.New(`ent: missing required field "Device.type"`)}
+	}
+	if v, ok := _c.mutation.GetType(); ok {
+		if err := device.TypeValidator(v); err != nil {
+			return &ValidationError{Name: "type", err: fmt.Errorf(`ent: validator failed for field "Device.type": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Version(); !ok {
+		return &ValidationError{Name: "version", err: errors.New(`ent: missing required field "Device.version"`)}
+	}
+	if _, ok := _c.mutation.State(); !ok {
+		return &ValidationError{Name: "state", err: errors.New(`ent: missing required field "Device.state"`)}
+	}
+	if v, ok := _c.mutation.State(); ok {
+		if err := device.StateValidator(v); err != nil {
+			return &ValidationError{Name: "state", err: fmt.Errorf(`ent: validator failed for field "Device.state": %w`, err)}
 		}
 	}
 	return nil
@@ -149,13 +370,49 @@ func (_c *DeviceCreate) createSpec() (*Device, *sqlgraph.CreateSpec) {
 		_node = &Device{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(device.Table, sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt))
 	)
+	if value, ok := _c.mutation.CreatedAt(); ok {
+		_spec.SetField(device.FieldCreatedAt, field.TypeTime, value)
+		_node.CreatedAt = value
+	}
+	if value, ok := _c.mutation.UpdatedAt(); ok {
+		_spec.SetField(device.FieldUpdatedAt, field.TypeTime, value)
+		_node.UpdatedAt = value
+	}
+	if value, ok := _c.mutation.DeviceID(); ok {
+		_spec.SetField(device.FieldDeviceID, field.TypeString, value)
+		_node.DeviceID = value
+	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(device.FieldName, field.TypeString, value)
 		_node.Name = value
 	}
+	if value, ok := _c.mutation.GetType(); ok {
+		_spec.SetField(device.FieldType, field.TypeString, value)
+		_node.Type = value
+	}
 	if value, ok := _c.mutation.Properties(); ok {
 		_spec.SetField(device.FieldProperties, field.TypeJSON, value)
 		_node.Properties = value
+	}
+	if value, ok := _c.mutation.Version(); ok {
+		_spec.SetField(device.FieldVersion, field.TypeUint64, value)
+		_node.Version = value
+	}
+	if value, ok := _c.mutation.State(); ok {
+		_spec.SetField(device.FieldState, field.TypeString, value)
+		_node.State = value
+	}
+	if value, ok := _c.mutation.Source(); ok {
+		_spec.SetField(device.FieldSource, field.TypeString, value)
+		_node.Source = value
+	}
+	if value, ok := _c.mutation.SourceSyncedAt(); ok {
+		_spec.SetField(device.FieldSourceSyncedAt, field.TypeTime, value)
+		_node.SourceSyncedAt = &value
+	}
+	if value, ok := _c.mutation.Tags(); ok {
+		_spec.SetField(device.FieldTags, field.TypeJSON, value)
+		_node.Tags = value
 	}
 	if nodes := _c.mutation.ParentIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -206,6 +463,55 @@ func (_c *DeviceCreate) createSpec() (*Device, *sqlgraph.CreateSpec) {
 		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.RevisionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   device.RevisionsTable,
+			Columns: []string{device.RevisionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(revision.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.GroupsTable,
+			Columns: device.GroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OrganizationIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   device.OrganizationTable,
+			Columns: []string{device.OrganizationColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.organization_devices = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -227,6 +533,7 @@ func (_c *DeviceCreateBulk) Save(ctx context.Context) ([]*Device, error) {
 	for i := range _c.builders {
 		func(i int, root context.Context) {
 			builder := _c.builders[i]
+			builder.defaults()
 			var mut Mutator = MutateFunc(func(ctx context.Context, m Mutation) (Value, error) {
 				mutation, ok := m.(*DeviceMutation)
 				if !ok {
