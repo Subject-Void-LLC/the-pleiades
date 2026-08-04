@@ -6,20 +6,22 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
 )
 
+// BenchmarkDAGBuilder exercises a representative tasks-shaped runbook: a
+// handful of leaf tasks, one gated behind a "when" condition, so the
+// benchmark still measures real CEL condition compilation rather than a
+// build path that never invokes it.
 func BenchmarkDAGBuilder(b *testing.B) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
 	payload := []byte(`{
-		"id": "bench-playbook",
-		"nodes": [
-			{"id": "N1"}, {"id": "N2"}, {"id": "N3"}, {"id": "N4"}, {"id": "N5"}
-		],
-		"edges": [
-			{"from": "N1", "to": "N2", "condition": "stat.a > 1"},
-			{"from": "N2", "to": "N3"},
-			{"from": "N3", "to": "N4", "condition": "stat.b == true"},
-			{"from": "N4", "to": "N5"}
+		"id": "bench-runbook",
+		"tasks": [
+			{"name": "start", "fqcn": "noop"},
+			{"name": "gather facts", "fqcn": "ssh_exec", "when": "stat.a > 1"},
+			{"name": "apply config", "fqcn": "ios_backup"},
+			{"name": "verify", "fqcn": "ssh_exec", "when": "stat.b == true"},
+			{"name": "finish", "fqcn": "noop"}
 		]
 	}`)
 

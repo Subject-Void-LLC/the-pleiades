@@ -2,6 +2,7 @@ package lock_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,7 +23,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 
 	// 1. Spin up ephemeral NATS container
 	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithImage("nats:2.11"),
 		testcontainers.WithCmd("-js"),
 		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
 	)
@@ -47,7 +48,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 	numRoutines := 100
 	var wg sync.WaitGroup
 	wg.Add(numRoutines)
-	
+
 	// WaitGroup to hold them at the starting gate so they fire simultaneously
 	var startingGate sync.WaitGroup
 	startingGate.Add(1)
@@ -64,15 +65,15 @@ func TestThunderingHerdLocking(t *testing.T) {
 			startingGate.Wait() // Block until the starting gun fires
 
 			// Attempt lock
-			lease, err := mgr.Acquire(context.Background(), targetDevice, 5*time.Second)
-			
+			lease, err := mgr.Acquire(context.Background(), targetDevice, 5*time.Second, lock.AcquireOptions{})
+
 			if err == nil {
 				// We won the race!
 				atomic.AddInt32(&successCount, 1)
-				
+
 				// Keep the lock for a moment to ensure no one else gets it
 				time.Sleep(50 * time.Millisecond)
-				
+
 				// Release it (cleanup)
 				if err := lease.Release(context.Background()); err != nil {
 					t.Errorf("failed to release lock: %v", err)
@@ -108,4 +109,132 @@ func TestThunderingHerdLocking(t *testing.T) {
 	}
 
 	t.Log("Thundering Herd Test Passed! Lock exclusivity is perfectly maintained under massive concurrency.")
+}
+
+// TestNewNatsLockManagerConnectError asserts that NewNatsLockManager
+// surfaces a wrapped error instead of panicking or hanging when the
+// underlying nats.Connect call cannot even parse the given URL. This
+// exercises the constructor's connect-failure branch without needing a
+// live NATS server or Docker, since a malformed URL fails address
+// resolution near-instantly.
+func TestNewNatsLockManagerConnectError(t *testing.T) {
+	_, err := lock.NewNatsLockManager(context.Background(), "not-a-valid-url::::")
+	if err == nil {
+		t.Fatal("expected an error from a malformed nats URL, got nil")
+	}
+}
+
+// TestNewNatsLockManagerRejectsOldServer asserts that NewNatsLockManager
+// fails closed, with a clear wrapped error, against a real nats-server too
+// old to support LimitMarkerTTL (this package's own real minimum version
+// requirement, see nats.go's own doc comment and LESSONS_LEARNED.md),
+// rather than silently constructing a Manager that can never honor a
+// positive ttl. Confirmed empirically while designing this phase that
+// nats:2.10 specifically rejects this bucket config; that exact version is
+// used here deliberately, not a placeholder "old" tag.
+func TestNewNatsLockManagerRejectsOldServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	natsContainer, err := nats.RunContainer(ctx,
+		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithCmd("-js"),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+	)
+	if err != nil {
+		t.Fatalf("failed to start container: %v", err)
+	}
+	defer natsContainer.Terminate(ctx)
+
+	url, err := natsContainer.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
+	_, err = lock.NewNatsLockManager(ctx, url)
+	if err == nil {
+		t.Fatal("expected NewNatsLockManager to fail against a pre-2.11 nats-server, got nil error")
+	}
+}
+
+// TestNatsLockManagerAcquireContextAlreadyCanceled asserts that Acquire
+// returns ctx's own error immediately, with no network call, when given an
+// already-canceled context: tryAcquireOnce's retry loop checks ctx.Err()
+// at the top of every attempt, including the first.
+func TestNatsLockManagerAcquireContextAlreadyCanceled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	natsContainer, err := nats.RunContainer(ctx,
+		testcontainers.WithImage("nats:2.11"),
+		testcontainers.WithCmd("-js"),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+	)
+	if err != nil {
+		t.Fatalf("failed to start container: %v", err)
+	}
+	defer natsContainer.Terminate(ctx)
+
+	url, err := natsContainer.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
+	mgr, err := lock.NewNatsLockManager(ctx, url)
+	if err != nil {
+		t.Fatalf("failed to init nats lock manager: %v", err)
+	}
+	defer mgr.Close()
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	if _, err := mgr.Acquire(canceledCtx, "already-canceled", 5*time.Second, lock.AcquireOptions{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+// TestNatsManagerConformance runs the shared adapter conformance suite
+// (internal/lock/conformance_test.go) against a real natsLockManager
+// backed by an ephemeral NATS container, proving the NATS adapter honors
+// the same substitutable Manager contract as inProcessManager.
+func TestNatsManagerConformance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	natsContainer, err := nats.RunContainer(ctx,
+		testcontainers.WithImage("nats:2.11"),
+		testcontainers.WithCmd("-js"),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+	)
+	if err != nil {
+		t.Fatalf("failed to start container: %v", err)
+	}
+	defer natsContainer.Terminate(ctx)
+
+	url, err := natsContainer.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
+	mgr, err := lock.NewNatsLockManager(ctx, url)
+	if err != nil {
+		t.Fatalf("failed to init nats lock manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// The same already-connected manager is handed back on every call.
+	// Each conformance subtest uses itemIDs unique to itself, so sharing
+	// one manager (and thus one underlying KV bucket) across subtests is
+	// safe.
+	runManagerConformance(t, func() lock.Manager {
+		return mgr
+	})
 }
