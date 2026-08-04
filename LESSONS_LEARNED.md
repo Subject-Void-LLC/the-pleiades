@@ -573,3 +573,20 @@ story, per `.AGENTS/AGENTS.md`.
     was the correct behavior and the doc comment's broader "nil or empty" claim was the actual defect.
     Treat "the code and its own doc comment disagree" as two candidate fixes, not one: fix whichever side
     is actually wrong, verified against the real invariant, not whichever side is easier to edit.
+
+51. **A nested command dispatcher needs a shared sentinel error to keep its own "unknown subcommand"
+    failure the same shape as the outer dispatcher's, because a plain `error` return type erases that
+    distinction on the way up.** `cmd/pleiades/main.go`'s top-level `run()` special-cases an unrecognized
+    command name before ever calling a handler, so it can return its own exit code (2) directly. Once a
+    handler is itself a nested dispatcher (`forge.go`'s `runForge`), its "no match" case can only report
+    back through the same `error` a handler's own business failure uses, and without a shared signal the
+    two become indistinguishable to the caller: both surface as an ordinary handler error (exit 1),
+    silently losing the "this name doesn't exist" distinction the top level treats as a different, more
+    specific failure. The fix is one unexported sentinel (`errUnknownCommand`) returned by both the
+    top-level and every nested "no match" branch, checked with `errors.Is` at the one place that decides
+    exit codes. This is a one-time, generic addition made by the phase that introduces the first nested
+    dispatcher, not a special case bolted on for that one dispatcher: any future nested dispatcher reuses
+    the same sentinel for free. Any dispatch layer added over a plain-`error`-returning handler contract
+    should ask this question before assuming a status code will simply propagate: does anything about
+    *how* this failed matter to a caller above me, and if so, does my return type still carry that
+    information, or did I just flatten it back into "an error happened"?

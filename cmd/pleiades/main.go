@@ -7,6 +7,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -24,7 +25,16 @@ var commands = map[string]commandFunc{
 	"add-credential": runAddCredential,
 	"validate":       runValidate,
 	"run":            runRunbook,
+	"forge":          runForge,
 }
+
+// errUnknownCommand signals that a dispatch table (this file's own
+// commands, or a nested one like forge.go's forgeCommands) found no entry
+// for the requested name. A nested dispatcher that returns it gets mapped
+// to the same exit code as this file's own top-level unknown-command
+// case, so an unrecognized name reports the same shape everywhere it can
+// occur, not just at the outermost dispatch.
+var errUnknownCommand = errors.New("unknown command")
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -52,6 +62,13 @@ func run(args []string) int {
 	}
 
 	if err := cmd(args[1:]); err != nil {
+		// A nested dispatcher (e.g. forge.go) has already printed its own
+		// unknown-command message and usage block; do not print a second,
+		// redundant error line for it, and report the same exit code this
+		// file's own unknown-command case above uses.
+		if errors.Is(err, errUnknownCommand) {
+			return 2
+		}
 		fmt.Fprintf(os.Stderr, "pleiades: %v\n", err)
 		return 1
 	}
@@ -67,6 +84,7 @@ commands:
   add-credential  store an encrypted SSH credential for a device
   validate        check a runbook against the inventory
   run             build, validate, and print the plan for a runbook
+  forge           authoring and migration tooling (see 'pleiades forge --help')
 
 Walk tier: no server, no database, no broker. See PLAN.md Section 7.`)
 }

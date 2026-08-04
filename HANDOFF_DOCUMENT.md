@@ -4,51 +4,134 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session implemented Phase 6: Inventory Factory & Hydration in full**, per the explicit prompt to
-begin it. Most Phase 6 checklist items were already `[x]` from Part 0/the chain audit; what remained was
-the Pattern Entry Gate, the Registry item, the shared hierarchical policy resolver (and its first real
-consumer), the Fuzz/Stress/Adversarial Pattern Justification/Schema/Injection Hardening gates, and the
-Release Gate itself, all now `[x]`. A Plan-agent-reviewed design preceded any code (cross-cutting
-surface: two new `pkg/` primitives meant to be reused by many future phases, an import-cycle-sensitive
-registry placement decision, and a wiring decision spanning three files plus a CLI flag); the review
-caught and settled several real design questions before code was written, most importantly: where the
-device-type registry must physically live to avoid reintroducing the exact import cycle
-`internal/inventory/record`'s own doc comment says it exists to prevent, and that `HostSpec.Classify`
-must resolve to a concrete `Type` eagerly at `add-host` write time (not lazily on every load), since
-`internal/ent/schema/device.go`'s `type` column is immutable with no generated update setter at all,
-making eager resolution not merely cleaner but the only structurally possible timing for a future
-ent-backed create path.
+**This session implemented Phase 30: The Forge Command Namespace in full**, the first phase of Part
+VII (The Forge of Hephaestus), per the explicit prompt to begin it after a Plan-mode design review
+(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`). All seven checklist items are now
+`[x]`. Both real dependencies were verified closed against the actual checklist text before starting,
+not assumed from prior session prose: Phase 6 (Inventory Factory & Hydration, its one open item
+explicitly reassigned to Phase 32, not blocking) and Phase W1 (The Local Composition Root, fully
+`[x]`, whose dispatch pattern this phase reuses).
 
-Per a mid-session user request, Phase 5's own Release Gate ("a secret saved via the API is completely
-unreadable ciphertext when queried directly via `psql`") was independently re-verified against the
-current code before any Phase 6 handoff text was written: both blockers its own note cites still hold
-today (`internal/api/router.go` still mounts only `/healthz`/`/metrics`; `internal/ent/migrate/apply.go`'s
-own comment confirms no Postgres composition root exists anywhere in the repository), and its
-closest-honest-equivalent tests still pass. No edit was needed there; its unchecked status and reasoning
-are current, not stale.
+**What was built:** `cmd/pleiades/main.go` gained one `commands` map entry (`"forge": runForge`) and
+one small, generic addition: an unexported `errUnknownCommand` sentinel plus an `errors.Is` check in
+`run()`, so a nested dispatcher's own "unknown subcommand" case reports the same exit code (2) as
+this file's own top-level unknown-command case, rather than falling through to the generic exit-1
+path every other `commandFunc` error takes. New `cmd/pleiades/forge.go` (56 lines): an empty
+`forgeCommands` map, `runForge` (mirrors `run()`'s own help-interception/lookup/dispatch structure
+exactly), and `printForgeUsage`. Zero business logic, zero `internal/*` imports, by design: Phases
+31-37 populate `forgeCommands` one subcommand at a time, each a new file plus one map entry, never an
+edit to `forge.go` itself. `docs/hephaestus.md` (548 lines, written in an earlier documentation-only
+session) already satisfied this phase's own documentation checklist item in full; only a one-sentence
+cross-reference to the now-real `forge.go` was added, not a rewrite.
 
-After the core implementation passed its own tests, two independent adversarial reviews (one
-correctness/concurrency-focused, one injection/architecture-focused) were run against every new or
-changed file before considering this phase's own Adversarial Pattern Justification and Schema/Injection
-Hardening items closed. Both surfaced one real, verified finding each, neither accepted at face value:
-`pkg/policy.IntersectSlices`'s own doc comment claimed a nil-or-empty accumulator both meant "no
-constraint yet," but only nil was actually special-cased; tracing the fold-sequence invariant by hand
-before applying the reviewer's own suggested fix (matching `len(acc) == 0` instead of `acc == nil`) found
-that "fix" would have been a real regression, breaking the non-widening guarantee the function exists to
-provide, so the doc comment was corrected instead of the code (`LESSONS_LEARNED.md` #50). Separately,
-`internal/classification.Classify`'s first draft rebuilt its dotted lookup key from scratch on every path
-prefix, an O(n^2) cost in path length with no upper bound anywhere on that length; benchmarked directly
-against the real function at ~40s for a 100,000-segment path, and reachable from two real, new,
-user-controlled input boundaries this same phase introduced (`HostSpec.Classify` in a hand-edited
-`inventory.yaml`, and `add-host --classify`'s comma-split CLI value). Fixed with two independent changes:
-an incremental `strings.Builder`-based key (O(n) total) and a new `maxPathSegments` (64) bounding path
-length regardless of the algorithm (`FAILURE_PATTERNS.md` #48, `LESSONS_LEARNED.md` #49). Docker became
-available partway through this session (initially unreachable in the sandbox, then the user started it);
-once the required container images (`nats:2.10`, `nats:2.11`, `nats:latest`, `postgres:15-alpine`, an
-OpenSSH server image) were pulled through some real network flakiness on the pull itself, `go test
-./... -race -count=1` and `make ci` both passed cleanly end to end across the entire repository, not just
-the packages this phase touched. See "The Phase 6 session" immediately below for full detail. Everything
-from "The Phase 5 session" onward describes earlier sessions and is unchanged.
+A design question the checklist left open was resolved via `AskUserQuestion` during planning: whether
+`pleiades forge bogus` matching "the same shape as an unknown top-level command" should mean message
+text alone, or message text and exit code both. The user chose exit-code parity, which is what the
+`errUnknownCommand` sentinel above exists to provide (`LESSONS_LEARNED.md` #51: a nested dispatcher
+needs a shared sentinel to keep this distinction from being erased by a plain `error` return type).
+
+**Adversarial Pattern Justification**, run the same way Phase W1 ran it on `main.go`: `forge.go`'s
+import block was read directly (only `fmt`/`os`). `gopls references`, run only after a control query
+(`printForgeUsage`, 3 real call sites) confirmed the tool was aimed correctly, found `forgeCommands`
+at exactly 3 reference sites (one real lookup, two test-only register/cleanup sites) and
+`errUnknownCommand` at exactly 5 (two real returns, one real check, two test assertions) — no
+reference from any `internal/*` package, confirming no business logic leaked in.
+
+**Schema/Injection Hardening:** no new boundary. `forge.go` performs one
+`map[string]commandFunc` lookup against an `os.Args`-derived string, the same class Phase 39 already
+audited for `main.go` itself with no live vulnerability found. No `FAILURE_PATTERNS.md` entry; there
+was no real finding to record this session.
+
+**Fuzz/Stress:** `FuzzCommandDispatch` (`cli_fuzz_test.go`) gained four `forge`-token seeds; a 15s run
+completed 11,592 executions (1431/sec) with zero panics, in line with Phase W1's own recorded scale.
+One verified, non-defect detail: the harness's hardcoded `--dir <tmpdir>` insertion after the
+top-level command token means `runForge`'s own `args[0]` is always the literal `"--dir"` under this
+harness, a safe "unknown subcommand" case, not a gap (`forge` has no real subcommands yet to fuzz
+argument parsing for).
+
+**Release Gate**, verified against the real built binary, never a mock: `TestCLI_ForgeHelp` and
+`TestCLI_ForgeUnknownSubcommand` (new, `cmd/pleiades/e2e_test.go`, package `main_test`, real
+subprocess) assert `forge --help` prints its own honest (currently empty) usage block, and that
+`pleiades bogus` and `pleiades forge bogus` share the same message shape and exit code (2), asserted
+by direct comparison rather than two independently hardcoded strings. Confirmed again by hand against
+a freshly built binary. `go test ./... -race -count=1` (whole repository) passed with zero `FAIL`
+lines; `gofmt -l`, `go build ./...`, `go vet ./...`, `make gosec` (7 pre-existing findings, all
+individually waived, none new), `make govulncheck` (0 called vulnerabilities), and `make coverage` (43
+packages measured, none below floor) all passed; `make ci` passed end to end.
+`cmd/pleiades`'s own coverage rose from 29.7% to a measured 33.5%; floor raised to 33.0 in
+`coverage-floor.json`, the only such file changed this session.
+
+**Files changed:** `cmd/pleiades/main.go` (`forge` map entry, `errUnknownCommand` sentinel,
+`errors.Is` check, usage line), `cmd/pleiades/forge.go` (new), `cmd/pleiades/forge_test.go` (new),
+`cmd/pleiades/cli_fuzz_test.go` (four new seeds), `cmd/pleiades/e2e_test.go` (two new Release Gate
+tests, `errors` import), `docs/hephaestus.md` (one cross-reference sentence),
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 30 checked off in full), `coverage-floor.json`
+(`cmd/pleiades` 29.7 -> 33.0), `LESSONS_LEARNED.md` (#51 new). See "The Phase 30 session" immediately
+below for full detail. Everything from "The Phase 6 session" onward describes earlier sessions and is
+unchanged.
+
+### The Phase 30 session
+
+**Scope: Phase 30 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the first phase of Part VII (The
+Forge of Hephaestus). This phase deliberately ships zero forge subcommands: Part VII's own ordering
+note is "tooling first, catalog second," and Phases 31 through 37 (Collection Registry, Capability
+Vocabulary, Scaffolds, Catalog generation, Playbook/Galaxy migration, IDE plugin) populate
+`forgeCommands` later, each one file plus one map entry, never an edit to `forge.go` itself. Phase 31
+and Phase 32 were explicitly kept out of scope for this session, per the prompt that began it, even
+though Part VII's own notes say they are independent of each other and could theoretically start
+anytime.
+
+A Plan-mode design review preceded any code
+(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`): three Explore-equivalent research
+passes (reading `.AGENTS/AGENTS.md` in full, verifying Phase 6/Phase W1 closure and `main.go`'s real
+dispatch shape via `gopls`, and checking `docs/hephaestus.md` against the literal checklist wording)
+preceded a single `AskUserQuestion` on the one genuine design fork the checklist left open (see
+"Current Status" above), then a written plan the user approved before implementation began.
+
+**What was built:** see "Current Status" above for the full file-by-file summary; this section adds
+detail beyond it.
+
+- `errUnknownCommand` was placed in `main.go`, not `forge.go`, deliberately: it is the generic,
+  reusable half of the exit-code-parity mechanism (any future nested dispatcher can reuse it for
+  free), while `forge.go` only ever *returns* it, keeping the sentinel's ownership at the same level
+  as the exit-code decision that consumes it (`run()`'s own `errors.Is` check).
+- `runForge`'s bare-args case (`len(args) == 0`) prints usage and returns `errUnknownCommand`, a
+  deliberate difference from a namespace that might otherwise treat "no subcommand" as a silent
+  no-op: `forge` is a namespace, not a runnable default action, so `pleiades forge` alone fails the
+  same way `pleiades` alone does.
+- `printForgeUsage`'s command list currently reads "(none registered yet; see docs/hephaestus.md...
+  and .SPECIFICATION/IMPLEMENTATION.md Part VII...)" rather than an empty block or a placeholder
+  subcommand invented for this phase alone. This matches the project's own established "declared is
+  not implemented" convention (`docs/hephaestus.md`'s own guardrails for the catalog: a stub returns
+  an explicit error, never silent success) applied to the command surface itself: the Release Gate's
+  "lists its subcommands" is satisfied honestly, not by pretending Phase 31-37 work already landed.
+
+**Fuzz/Stress, Adversarial Pattern Justification, Schema/Injection Hardening, Release Gate:** see
+"Current Status" above for the full detail; all four are unusually clean for this phase specifically
+because `forge.go` has zero subcommands and zero `internal/*` imports yet, a property of this phase's
+narrow scope rather than evidence any of the four checks were skipped or shortened.
+
+**No defects found.** Unlike the Phase 5 and Phase 6 sessions above, no adversarial review in this
+session surfaced a real bug; the codebase is small enough (56 new lines, two edited lines beyond that
+in `main.go`) that the two `gopls references` audits above serve as the adversarial check itself. One
+real design decision was resolved by asking the user directly rather than by unilateral judgment (the
+exit-code-parity question) since it changed the concrete file diff shape and the user was available to
+decide it; that decision itself is `LESSONS_LEARNED.md` #51.
+
+**Coverage.** `cmd/pleiades`: 33.5% (up from 29.7%), floor raised to 33.0 in `coverage-floor.json`.
+`make coverage` reports 43 packages measured, none below floor (`cmd/runner` remains unrecorded,
+pre-existing, untouched by this phase, out of its scope).
+
+**Verified, not assumed.** `gofmt -l`, `go build ./...`, and `go vet ./...` are clean across the
+entire repository. `go test ./... -race -count=1` passes with zero `FAIL` lines, run against the full
+repository (not just `cmd/pleiades`), including every container-backed package
+(`internal/lock` at 50.8s was the slowest, matching its own historical real-container cost). `make
+gosec` (7 pre-existing findings, all individually waived, none new) and `make govulncheck` (0 called
+vulnerabilities) both pass. `make ci` passes end to end. The Release Gate was additionally confirmed
+by hand against a freshly built binary (see "Current Status" above), not solely through the automated
+test suite.
+
+**Files changed:** see "Current Status" above for the complete list.
 
 ### The Phase 6 session
 

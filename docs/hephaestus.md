@@ -367,6 +367,10 @@ Two existing surfaces are branded as part of the Forge but do not move:
 methods, for exactly the same collision and discoverability reasons. The Forge should not contradict
 the principle its own `new-collection` scaffold teaches.
 
+The dispatcher itself is `cmd/pleiades/forge.go` (Phase 30): a `forgeCommands` map mirroring
+`main.go`'s own top-level dispatch, empty until the phases above populate it one subcommand at a
+time.
+
 ## The workflows in detail
 
 ### Write a native runbook

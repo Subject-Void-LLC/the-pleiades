@@ -5,6 +5,7 @@
 package main_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -332,5 +333,74 @@ func TestCLI_RunMasksSecretFields(t *testing.T) {
 	}
 	if !strings.Contains(out, "********") {
 		t.Errorf("expected the mask placeholder to appear in CLI output, got:\n%s", out)
+	}
+}
+
+// exitCode extracts a subprocess's real exit code from the error
+// CombinedOutput returns, failing the test if the process never ran at
+// all (as opposed to running and exiting non-zero, which is not an error
+// here).
+func exitCode(t *testing.T, err error) int {
+	t.Helper()
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	t.Fatalf("pleiades failed to run at all: %v", err)
+	return -1
+}
+
+// TestCLI_ForgeHelp is Phase 30's own Release Gate: "pleiades forge --help
+// lists its subcommands." forge has no real subcommands yet (Phases 31-37
+// add them), so the honest assertion is that the usage block exists and
+// says so, rather than pretending a subcommand catalog is already there.
+func TestCLI_ForgeHelp(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runPleiades(t, dir, "forge", "--help")
+	if err != nil {
+		t.Fatalf("forge --help should succeed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "usage: pleiades forge") {
+		t.Errorf("expected forge --help to print its own usage block, got:\n%s", out)
+	}
+	if !strings.Contains(out, "none registered yet") {
+		t.Errorf("expected forge --help to say honestly that no subcommands exist yet, got:\n%s", out)
+	}
+}
+
+// TestCLI_ForgeUnknownSubcommand is the other half of Phase 30's Release
+// Gate: "pleiades forge bogus fails with the same shape as an unknown
+// top-level command," verified against the real built binary, not a
+// mock. Compares directly against the real top-level "pleiades bogus"
+// case rather than asserting a hardcoded string twice, so a future change
+// to one shape without the other would fail this test.
+func TestCLI_ForgeUnknownSubcommand(t *testing.T) {
+	dir := t.TempDir()
+
+	topOut, topErr := runPleiades(t, dir, "bogus")
+	topCode := exitCode(t, topErr)
+	if !strings.Contains(topOut, `unknown command "bogus"`) {
+		t.Fatalf("expected top-level unknown command message, got:\n%s", topOut)
+	}
+	if !strings.Contains(topOut, "usage: pleiades") {
+		t.Fatalf("expected top-level unknown command to print usage, got:\n%s", topOut)
+	}
+
+	forgeOut, forgeErr := runPleiades(t, dir, "forge", "bogus")
+	forgeCode := exitCode(t, forgeErr)
+	if !strings.Contains(forgeOut, `unknown command "bogus"`) {
+		t.Errorf("expected forge unknown command message, got:\n%s", forgeOut)
+	}
+	if !strings.Contains(forgeOut, "usage: pleiades forge") {
+		t.Errorf("expected forge unknown command to print its own usage, got:\n%s", forgeOut)
+	}
+	if forgeCode != topCode {
+		t.Errorf("pleiades forge bogus exited %d, want the same shape as pleiades bogus (%d)", forgeCode, topCode)
+	}
+	if forgeCode != 2 {
+		t.Errorf("pleiades forge bogus exited %d, want 2 (matching an unknown top-level command)", forgeCode)
 	}
 }
