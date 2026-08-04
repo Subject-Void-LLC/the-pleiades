@@ -10,5 +10,3 @@ type WorkflowContext interface {
 	// Read generates the JSON structure required by the CEL evaluator.
 	Read() (map[string]interface{}, error)
 }
-
-

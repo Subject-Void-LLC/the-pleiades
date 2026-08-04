@@ -34,7 +34,7 @@ func HATEOASMiddleware(generator auth.HATEOASGenerator) func(http.Handler) http.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip for non-GET requests or non-API endpoints if needed, but we'll run for all for now.
-			
+
 			rec := &hateoasRecorder{
 				ResponseWriter: w,
 				body:           &bytes.Buffer{},

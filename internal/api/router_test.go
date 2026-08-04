@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"testing"
 	"strings"
+	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,16 +59,16 @@ func TestAPIGateway_ReleaseGate(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if !found {
 		t.Errorf("expected http_requests_total metric for /healthz to be >= 1")
 	}
-	
+
 	// Also test the /metrics endpoint directly
 	metricsReq := httptest.NewRequest("GET", "/metrics", nil)
 	metricsRr := httptest.NewRecorder()
 	router.ServeHTTP(metricsRr, metricsReq)
-	
+
 	if !strings.Contains(metricsRr.Body.String(), `http_requests_total`) {
 		t.Errorf("expected /metrics endpoint to expose http_requests_total")
 	}
