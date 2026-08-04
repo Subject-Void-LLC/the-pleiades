@@ -24,6 +24,7 @@
     "github.com/SubjectVoidLLC/the-pleiades/internal/transport/ssh": 95.7,
     "github.com/SubjectVoidLLC/the-pleiades/internal/validate": 100.0,
     "github.com/SubjectVoidLLC/the-pleiades/pkg/capability": 100.0,
+    "github.com/SubjectVoidLLC/the-pleiades/pkg/collection": 100.0,
     "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory": 97.7,
     "github.com/SubjectVoidLLC/the-pleiades/pkg/policy": 100.0,
     "github.com/SubjectVoidLLC/the-pleiades/pkg/registry": 100.0,

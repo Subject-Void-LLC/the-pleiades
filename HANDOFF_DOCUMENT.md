@@ -4,71 +4,159 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session implemented Phase 30: The Forge Command Namespace in full**, the first phase of Part
-VII (The Forge of Hephaestus), per the explicit prompt to begin it after a Plan-mode design review
-(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`). All seven checklist items are now
-`[x]`. Both real dependencies were verified closed against the actual checklist text before starting,
-not assumed from prior session prose: Phase 6 (Inventory Factory & Hydration, its one open item
-explicitly reassigned to Phase 32, not blocking) and Phase W1 (The Local Composition Root, fully
-`[x]`, whose dispatch pattern this phase reuses).
+**This session reconciled a stale checklist premise and implemented Phase 31: The Collection Registry
+& Manifest in full**, the second phase of Part VII (The Forge of Hephaestus) to close, after a
+Plan-mode design review (`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`, reused across
+both phases' planning sessions). All fourteen checklist items are now `[x]`.
 
-**What was built:** `cmd/pleiades/main.go` gained one `commands` map entry (`"forge": runForge`) and
-one small, generic addition: an unexported `errUnknownCommand` sentinel plus an `errors.Is` check in
-`run()`, so a nested dispatcher's own "unknown subcommand" case reports the same exit code (2) as
-this file's own top-level unknown-command case, rather than falling through to the generic exit-1
-path every other `commandFunc` error takes. New `cmd/pleiades/forge.go` (56 lines): an empty
-`forgeCommands` map, `runForge` (mirrors `run()`'s own help-interception/lookup/dispatch structure
-exactly), and `printForgeUsage`. Zero business logic, zero `internal/*` imports, by design: Phases
-31-37 populate `forgeCommands` one subcommand at a time, each a new file plus one map entry, never an
-edit to `forge.go` itself. `docs/hephaestus.md` (548 lines, written in an earlier documentation-only
-session) already satisfied this phase's own documentation checklist item in full; only a one-sentence
-cross-reference to the now-real `forge.go` was added, not a rewrite.
+**The reconciliation, done first:** Phase 31's own checklist text (`IMPLEMENTATION.md`'s Pattern Entry
+Gate and a standalone build item) asserted "`pkg/registry` does not exist" and told the implementer to
+build it, first, as `pkg/collection`'s foundation, with a two-type-parameter signature
+(`Registry[K comparable, V any]`). Both claims were stale: Phase 6 already built
+`pkg/registry.Registry[T]` (single type parameter, string-keyed), already consumed by `pkg/capability`
+and `internal/inventory/record`. `PLAN.md` Section 25's own build-once table already carried two dated
+corrections (2026-08-03, 2026-08-04) catching this exact class of drift for other primitives; this was
+a third instance, just never corrected because Phase 31 hadn't been picked up yet. Building the
+two-type-parameter version as literally specified would have been Section 25's own named defect: "a
+second implementation is a defect, not a variation." Corrected in place, dated the same way, in
+`IMPLEMENTATION.md` (Phase 31's own checklist text), `docs/hephaestus.md` ("Create a Collection"), and
+`.SPECIFICATION/PATTERNS.md` (the Registry entry's consumer list) — see `LESSONS_LEARNED.md`'s new
+entry for the general lesson.
 
-A design question the checklist left open was resolved via `AskUserQuestion` during planning: whether
-`pleiades forge bogus` matching "the same shape as an unknown top-level command" should mean message
-text alone, or message text and exit code both. The user chose exit-code parity, which is what the
-`errUnknownCommand` sentinel above exists to provide (`LESSONS_LEARNED.md` #51: a nested dispatcher
-needs a shared sentinel to keep this distinction from being erased by a plain `error` return type).
+**What was built:** new package `pkg/collection` (`manifest.go`, `collection.go`), consuming
+`pkg/registry.Registry[Descriptor]` directly as this primitive's third consumer, not a fourth
+hand-rolled map. `Manifest{SupportedTransports []string, RequiredCapabilities []capability.Name,
+ExecutionContext, PlatformTargets []PlatformTarget, EngineVersion string, Status Status}`, with
+`Status` = `StatusDeclared`/`StatusImplemented` and full `json` struct tags (the stable serialized form
+Phase 42 later embeds as an OCI config layer). `Descriptor{Name string, Manifest Manifest}` plus
+package-level `Register`/`MustRegister`/`Lookup`, mirroring `pkg/capability`'s naming exactly.
+`Register` structurally enforces `PLAN.md` Section 2 (rejects a bare name, an empty namespace, or an
+empty method segment, citing "Section 2" in the error) and rejects any `RequiredCapabilities` entry
+`pkg/capability` doesn't recognize — safe against init-order races, since any package importing
+`pkg/collection` transitively imports `pkg/capability` first, per normal Go import-init ordering.
+Duplicate names are always rejected, never resolved by first-write-wins or last-write-wins (inherited
+free from `pkg/registry.Registry`'s own semantics; the decision itself is recorded in `collection.go`'s
+doc comment, since Part X's Phase 44 later notes namespace collision becomes a routine outcome once
+Collections can arrive from outside this binary).
 
-**Adversarial Pattern Justification**, run the same way Phase W1 ran it on `main.go`: `forge.go`'s
-import block was read directly (only `fmt`/`os`). `gopls references`, run only after a control query
-(`printForgeUsage`, 3 real call sites) confirmed the tool was aimed correctly, found `forgeCommands`
-at exactly 3 reference sites (one real lookup, two test-only register/cleanup sites) and
-`errUnknownCommand` at exactly 5 (two real returns, one real check, two test assertions) — no
-reference from any `internal/*` package, confirming no business logic leaked in.
+**A gap in Section 25's own enforcement was closed, not just documented:** `PLAN.md` Section 25 names
+an architecture test proving single-Registry-implementation as something that should exist but didn't.
+New `internal/archtest/registry_test.go` adds `TestKnownRegistryConsumersImportPkgRegistry` and
+`TestRegistryConsumerAllowlistHasNoStaleEntries`, so a future regression back to a hand-rolled map is a
+CI failure, not a silent drift — mirroring the existing `adapterAllowlist` pattern in
+`internal/archtest/layering_test.go`.
 
-**Schema/Injection Hardening:** no new boundary. `forge.go` performs one
-`map[string]commandFunc` lookup against an `os.Args`-derived string, the same class Phase 39 already
-audited for `main.go` itself with no live vulnerability found. No `FAILURE_PATTERNS.md` entry; there
-was no real finding to record this session.
+**Adversarial Pattern Justification:** a grep control (`registry.New\[` across the tree, excluding
+tests) found exactly 3 non-test call sites (`pkg/capability`, `internal/inventory/record`,
+`pkg/collection`); `gopls references` on `registry.New` and `registry.Registry`, run after that
+control, agreed exactly. This audit is honest about its own limit: import-graph analysis proves the
+three known vocabularies stay wired to the shared `Registry`; it cannot structurally prove no
+unrelated fourth hand-rolled map exists anywhere else, which stays a code-review-time convention.
 
-**Fuzz/Stress:** `FuzzCommandDispatch` (`cli_fuzz_test.go`) gained four `forge`-token seeds; a 15s run
-completed 11,592 executions (1431/sec) with zero panics, in line with Phase W1's own recorded scale.
-One verified, non-defect detail: the harness's hardcoded `--dir <tmpdir>` insertion after the
-top-level command token means `runForge`'s own `args[0]` is always the literal `"--dir"` under this
-harness, a safe "unknown subcommand" case, not a gap (`forge` has no real subcommands yet to fuzz
-argument parsing for).
+**Schema/Injection Hardening:** not a clean "no new boundary" result, unlike Phase 30. `Manifest`
+gains a real deserialization-shaped boundary (its JSON marshal/unmarshal capability) — recorded
+explicitly as inert today (no code path before Part X's Phase 42 feeds it externally-sourced bytes,
+only this phase's own round-trip test does) rather than silently claimed clean. `Register`'s
+namespace/capability validation touches no filesystem, network, SQL, CEL, or NATS subject, the same
+class of argument already made for `main.go`'s argv handling in Phase 30. No `FAILURE_PATTERNS.md`
+entry; there is no live vulnerability to record, only an inert boundary honestly noted for later.
 
-**Release Gate**, verified against the real built binary, never a mock: `TestCLI_ForgeHelp` and
-`TestCLI_ForgeUnknownSubcommand` (new, `cmd/pleiades/e2e_test.go`, package `main_test`, real
-subprocess) assert `forge --help` prints its own honest (currently empty) usage block, and that
-`pleiades bogus` and `pleiades forge bogus` share the same message shape and exit code (2), asserted
-by direct comparison rather than two independently hardcoded strings. Confirmed again by hand against
-a freshly built binary. `go test ./... -race -count=1` (whole repository) passed with zero `FAIL`
-lines; `gofmt -l`, `go build ./...`, `go vet ./...`, `make gosec` (7 pre-existing findings, all
-individually waived, none new), `make govulncheck` (0 called vulnerabilities), and `make coverage` (43
-packages measured, none below floor) all passed; `make ci` passed end to end.
-`cmd/pleiades`'s own coverage rose from 29.7% to a measured 33.5%; floor raised to 33.0 in
-`coverage-floor.json`, the only such file changed this session.
+**Fuzz/Stress:** `FuzzRegister` (15s, `execs: 2305176`, ~177k/sec, zero failures) covers empty
+namespaces, bare names, and duplicate registration, distinguishing a genuine cross-iteration duplicate
+(the shared package-level registry persists for the life of the test binary) from a malformed-name
+rejection by recomputing `Register`'s own namespace/method split inside the test.
+`FuzzRegisterRequiredCapability` (15s, `execs: 1740379`, ~135k/sec, zero failures) covers capability
+names absent from `pkg/capability`, registering each iteration under a fresh, atomically-counted name
+so an unknown capability is always the sole possible rejection reason.
 
-**Files changed:** `cmd/pleiades/main.go` (`forge` map entry, `errUnknownCommand` sentinel,
-`errors.Is` check, usage line), `cmd/pleiades/forge.go` (new), `cmd/pleiades/forge_test.go` (new),
-`cmd/pleiades/cli_fuzz_test.go` (four new seeds), `cmd/pleiades/e2e_test.go` (two new Release Gate
-tests, `errors` import), `docs/hephaestus.md` (one cross-reference sentence),
-`.SPECIFICATION/IMPLEMENTATION.md` (Phase 30 checked off in full), `coverage-floor.json`
-(`cmd/pleiades` 29.7 -> 33.0), `LESSONS_LEARNED.md` (#51 new). See "The Phase 30 session" immediately
-below for full detail. Everything from "The Phase 6 session" onward describes earlier sessions and is
-unchanged.
+**Release Gate:** `TestManifest_RoundTrip` (a fully populated `Manifest`) and
+`TestManifest_RoundTripZeroValue` (an empty one) both round-trip through JSON to a `reflect.DeepEqual`
+match; `TestRegister_RejectsBareName` asserts the returned error cites "Section 2" literally. These are
+ordinary in-package tests (`package collection_test`), not subprocess/e2e tests — this phase adds no
+CLI behavior, so RULE 0's real-binary requirement does not apply the way it did for Phase 30.
+`go test ./... -race -count=1` (whole repository) passed with zero `FAIL` lines; `gofmt -l`,
+`go build ./...`, `go vet ./...`, `make gosec` (7 pre-existing findings, all individually waived, none
+new), `make govulncheck` (0 called vulnerabilities), and `make coverage` (44 packages measured, none
+below floor) all passed; `make ci` passed end to end. `pkg/collection` measured 100.0% coverage; floor
+recorded at 100.0 in `coverage-floor.json`.
+
+**Files changed:** `pkg/collection/manifest.go` (new), `pkg/collection/collection.go` (new),
+`pkg/collection/manifest_test.go` (new), `pkg/collection/collection_test.go` (new),
+`pkg/collection/collection_fuzz_test.go` (new), `internal/archtest/registry_test.go` (new),
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 31 checked off in full, including the reconciliation
+corrections), `docs/hephaestus.md` ("Create a Collection" corrected), `.SPECIFICATION/PATTERNS.md`
+(Registry entry's consumer list extended), `.SPECIFICATION/PLAN.md` (Section 25's "Typed generic
+Registry" row call-site list extended), `coverage-floor.json` (`pkg/collection` 100.0, new entry),
+`LESSONS_LEARNED.md` (new entry). See "The Phase 31 session" immediately below for full detail.
+Everything from "The Phase 30 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 31 session
+
+**Scope: reconciliation, then Phase 31 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the second
+phase of Part VII (The Forge of Hephaestus) to close, following directly from Phase 30's own
+namespace. Part VII's own intro says Phase 31 and Phase 32 are independent of each other, so either
+was a valid next step; this session took Phase 31.
+
+A Plan-mode design review preceded any code (the plan file above, rewritten for this task from the
+Phase 30 planning session): three parallel Explore-agent research passes (the real `pkg/registry`
+implementation and its consumers, Phase 31/32/33's exact checklist text, and the collection-manifest
+shape `pkg/capability` was named as the mirror for) fed a single written plan, approved before
+implementation began.
+
+**Why the reconciliation came first, not after:** Phase 31's own Pattern Entry Gate read
+"`pkg/registry` does not exist... Build `pkg/registry` first and make `pkg/collection` its first
+consumer," and a separate item asked to implement `pkg/registry/registry.go` as a generic
+`Registry[K comparable, V any]`. Both were checked against the real repo, not trusted: `pkg/registry`
+already existed (Phase 6), as `Registry[T any]` — one type parameter, string-keyed — with two real
+consumers already wired to it. Treating the checklist's stale premise as current would have meant
+building a second Registry implementation with a different signature, which `PLAN.md` Section 25
+itself names as a defect the moment it exists, not a variation worth having. The correction was
+written in place, dated `2026-08-04` to match the style `PLAN.md` Section 25's own table already used
+twice for this identical class of drift (both times reassigning the same primitive's builder from
+Phase 21 to Phase 6).
+
+**What was built:** see "Current Status" above for the full file-by-file summary; this section adds
+detail beyond it.
+
+- `pkg/collection`'s `Register` validates `RequiredCapabilities` against `pkg/capability.Lookup`
+  before delegating to the shared registry. This is safe against import-order races specifically
+  because `pkg/collection` imports `pkg/capability` for its `Name` type: any package that imports
+  `pkg/collection` (to call `MustRegister` from its own `init()`) transitively imports
+  `pkg/capability` too, and Go guarantees a package's imports are fully initialized, `init()` included,
+  before its own `init()` runs. There is no call site where the capability vocabulary could still be
+  empty when this check runs.
+- `PlatformTarget` and `EngineVersion` are both deliberately inert this phase: `PlatformTarget` is
+  plain string data (vendor/model/version-range/deployment-context), matched against nothing yet,
+  since no phase before this one builds the plan-time resolution logic to call it from; `EngineVersion`
+  is an unparsed string, with no semver library added, since nothing enforces it yet either. Both
+  match the checklist's own reasoning ("adding a field to a manifest that nothing has published yet is
+  free") rather than gold-plating ahead of a real caller.
+- `SupportedTransports` is `[]string`, not a reference to `internal/transport.Transport`. Only one
+  transport (`ssh`) exists in this codebase today; binding this field to a concrete internal type
+  ahead of a second transport existing would be premature structure this project avoids elsewhere.
+- The two new architecture tests in `internal/archtest/registry_test.go` mirror
+  `layering_test.go`'s existing `adapterAllowlist`/`TestAdapterAllowlistHasNoStaleEntries` shape
+  exactly (a required-consumer list plus a stale-entry check), rather than inventing a new
+  verification idiom for a very similar problem.
+
+**No defects found** in the new code itself; the one real finding of this session was the stale
+checklist premise above, caught by verifying against the actual repo state rather than trusting
+`IMPLEMENTATION.md`'s own prose, the same discipline `.AGENTS/AGENTS.md` asks for before starting any
+phase. `LESSONS_LEARNED.md`'s new entry generalizes this: a roadmap phase's own checklist can go stale
+relative to a shared primitive an earlier-numbered phase already built, when phases execute out of
+their originally-drafted order — verify the primitive's real existence in code before trusting what a
+phase's own Pattern Entry Gate says about it.
+
+**Coverage.** `pkg/collection`: 100.0%, new floor recorded at 100.0 in `coverage-floor.json`. `make
+coverage` reports 44 packages measured, none below floor (`cmd/runner` remains unrecorded,
+pre-existing, untouched by this phase, out of its scope).
+
+**Verified, not assumed.** `gofmt -l`, `go build ./...`, and `go vet ./...` are clean across the
+entire repository. `go test ./... -race -count=1` passes with zero `FAIL` lines, run against the full
+repository. `make gosec` (7 pre-existing findings, all individually waived, none new) and
+`make govulncheck` (0 called vulnerabilities) both pass. `make ci` passes end to end.
+
+**Files changed:** see "Current Status" above for the complete list.
 
 ### The Phase 30 session
 

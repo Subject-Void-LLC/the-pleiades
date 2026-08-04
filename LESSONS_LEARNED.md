@@ -590,3 +590,23 @@ story, per `.AGENTS/AGENTS.md`.
     should ask this question before assuming a status code will simply propagate: does anything about
     *how* this failed matter to a caller above me, and if so, does my return type still carry that
     information, or did I just flatten it back into "an error happened"?
+
+52. **A roadmap phase's own checklist prose can go stale relative to a shared primitive an
+    earlier-numbered phase already built, when phases execute out of their originally-drafted order --
+    verify the primitive's real existence in code before trusting what a phase's own Pattern Entry Gate
+    says about it.** Phase 31's checklist (`.SPECIFICATION/IMPLEMENTATION.md`) asserted "`pkg/registry`
+    does not exist" and instructed building it there, first, as a two-type-parameter
+    `Registry[K comparable, V any]`. Phase 6 had already built it, as `Registry[T any]` (one type
+    parameter, string-keyed), with two real consumers already wired to it by the time Phase 31 was
+    picked up. `PLAN.md` Section 25's own build-once table had already hit and corrected this identical
+    class of drift twice, both times for the same primitive (reassigning its builder from Phase 21 to
+    Phase 6) -- this was a third instance of the same failure mode, just against a different phase's
+    checklist text, never corrected because that phase hadn't been implemented yet. Treating the stale
+    premise as current would not have been a harmless redundancy: building the two-type-parameter
+    version as literally specified would have been Section 25's own named defect ("a second
+    implementation is a defect, not a variation"), shipped in service of a checklist item that was wrong
+    about the codebase's starting state. A phase number is a position in a drafting order, not a
+    guarantee about what has or hasn't been built by the time someone actually starts it; a checklist's
+    own "X does not exist yet" claim is a claim about the repo at drafting time, and needs the same
+    direct verification (`grep`, `gopls references`, reading the actual package) as any other assumed
+    fact before code is written to satisfy it.

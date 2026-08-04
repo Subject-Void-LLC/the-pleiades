@@ -410,10 +410,10 @@ the catalog.
 Not built. There is no Collection interface, registry, or manifest in the codebase today. The word
 appears throughout `PLAN.md` and once in `pkg/sdk/context.go`, but no code implements it.
 
-Phase 31 builds the target format. It also builds `pkg/registry`, the generic registry primitive
-`CODE_SCAFFOLD.md` names as planned but which does not exist. Both `pkg/capability` and
-`ItemFactory` currently hand roll their own map, so `pkg/collection` becomes the first consumer of a
-shared primitive rather than the third copy.
+Phase 31 builds the target format: `pkg/collection`'s `Manifest` and `Descriptor`/`Register`/`Lookup`,
+mirroring `pkg/capability`'s naming. It does not build `pkg/registry`; that primitive already exists
+(Phase 6), already backs `pkg/capability`'s own capability vocabulary and `ItemFactory`'s device-type
+table, and `pkg/collection` becomes its third consumer, not its first.
 
 Phase 33 adds the generator.
 
