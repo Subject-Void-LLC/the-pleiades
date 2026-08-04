@@ -1,0 +1,1 @@
+Use .AGENTS/AGENTS.md

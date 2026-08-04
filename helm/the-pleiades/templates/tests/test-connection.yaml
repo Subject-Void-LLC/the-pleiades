@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "the-pleiades.fullname" . }}-test-connection"
+  labels:
+    {{- include "the-pleiades.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "the-pleiades.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never
