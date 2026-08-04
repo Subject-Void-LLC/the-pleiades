@@ -15,7 +15,7 @@ const (
 type Identity struct {
 	Subject string
 	Role    Role
-	Scopes  []string // e.g. "inventory:read", "inventory:write", "playbook:execute"
+	Scopes  []string // e.g. "inventory:read", "inventory:write", "runbook:execute"
 }
 
 // HasScope checks if the identity possesses a required scope.
@@ -36,7 +36,7 @@ func (id *Identity) HasScope(required string) bool {
 type Evaluator interface {
 	// ValidateToken parses a raw string token and extracts the verified Identity.
 	ValidateToken(ctx context.Context, rawToken string) (*Identity, error)
-	
+
 	// CheckAccess enforces that the provided identity meets the required scopes.
 	CheckAccess(ctx context.Context, id *Identity, requiredScopes ...string) error
 }

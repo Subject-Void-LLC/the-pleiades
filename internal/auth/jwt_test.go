@@ -58,7 +58,7 @@ func TestJWTEvaluator_AdminBypass(t *testing.T) {
 	id, _ := eval.ValidateToken(ctx, adminToken)
 
 	// Admin should bypass scope check
-	if err := eval.CheckAccess(ctx, id, "playbook:execute"); err != nil {
-		t.Errorf("admin was incorrectly rejected for playbook:execute: %v", err)
+	if err := eval.CheckAccess(ctx, id, "runbook:execute"); err != nil {
+		t.Errorf("admin was incorrectly rejected for runbook:execute: %v", err)
 	}
 }

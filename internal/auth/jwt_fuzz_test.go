@@ -10,11 +10,11 @@ import (
 
 func FuzzJWTParsing(f *testing.F) {
 	secret := []byte("fuzz-secret")
-	
+
 	// Add valid seed
 	validToken := generateTestToken(secret, "viewer", []string{}, time.Hour)
 	f.Add(validToken)
-	
+
 	// Add invalid seeds
 	f.Add("Bearer " + validToken)
 	f.Add("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.signature")
