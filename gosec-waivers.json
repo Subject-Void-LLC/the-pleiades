@@ -1,0 +1,47 @@
+{
+  "_comment": "Per-finding gosec waivers for code outside Phase 0/Part 0 (W1-W6)/Phase 1 scope, per the Phase 0 CI harness item's pre-existing-findings policy (.SPECIFICATION/IMPLEMENTATION.md). Every entry names one exact (file, line, rule) finding gosec currently reports and a reason; it is not a blanket rule or directory exclusion. A finding that stops matching (because the surrounding code moved) must be re-reviewed, not silently re-added: that is deliberate, not a maintenance burden to route around. Every entry's backstop is AGENTS.md's own rule: gosec must be validated (zero remaining waivers) prior to Phase 20 production packaging.",
+  "waivers": [
+    {
+      "file": "internal/api/router.go",
+      "line": "29-31",
+      "rule_id": "G104",
+      "reason": "Owned by Phase 11 (API Gateway), outside Part 0/Phase 1 scope. json.Encode error ignored in the healthz handler."
+    },
+    {
+      "file": "internal/api/hateoas.go",
+      "line": "49",
+      "rule_id": "G104",
+      "reason": "Owned by Phase 13 (HATEOAS Generator), outside Part 0/Phase 1 scope. http.ResponseWriter.Write error ignored, a standard, low-severity Go pattern this phase has not yet audited."
+    },
+    {
+      "file": "internal/api/hateoas.go",
+      "line": "58",
+      "rule_id": "G104",
+      "reason": "Same as line 49: another http.ResponseWriter.Write in Phase 13's own response-rewriting middleware."
+    },
+    {
+      "file": "internal/api/hateoas.go",
+      "line": "85",
+      "rule_id": "G104",
+      "reason": "Same as line 49: another http.ResponseWriter.Write in Phase 13's own response-rewriting middleware."
+    },
+    {
+      "file": "internal/api/hateoas.go",
+      "line": "92",
+      "rule_id": "G104",
+      "reason": "Same as line 49: another http.ResponseWriter.Write in Phase 13's own response-rewriting middleware."
+    },
+    {
+      "file": "internal/api/logs.go",
+      "line": "107",
+      "rule_id": "G705",
+      "reason": "Owned by Phase 11 (API Gateway & Telemetry) / Phase 14 (Dispatcher) / Phase 39 (Schema & Injection Hardening), not this phase's (Phase 2, Event Bus) own checklist. jobID (a chi URL param) is written into the initial SSE comment line unescaped. Phase 2 touched this file to fix a real, different bug (the consumer was not actually scoped per job ID) but did not undertake a general HTTP-response injection audit of the whole API surface, which is Phase 39's named job. Revisit there."
+    },
+    {
+      "file": "internal/api/dispatcher.go",
+      "line": "145-150",
+      "rule_id": "G104",
+      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in router.go and hateoas.go above. Phase 2 rewired this handler to publish through event.Bus (a real, different fix) but did not undertake a general response-encoding-error audit."
+    }
+  ]
+}
