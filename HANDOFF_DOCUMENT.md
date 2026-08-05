@@ -4,118 +4,181 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session implemented Phase 32: The Capability Vocabulary & Hierarchy in full**, the third phase
-of Part VII (The Forge of Hephaestus) to close, after a Plan-mode design review
-(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`, reused across all three phases'
-planning sessions). All thirteen checklist items are now `[x]`. This is Part VII's largest single
-checklist so far: ~23 new capability interfaces, a hierarchy resolution mechanism, a naming
-reconciliation, and an end-to-end wiring of classification-derived, data-driven device capabilities.
+**This session implemented Phase 33: The Scaffolds in full**, the fourth phase of Part VII (The Forge
+of Hephaestus) to close, after a Plan-mode design review (three parallel Explore-agent research passes
+plus one Plan-agent design validation, both driven from this session directly rather than a saved plan
+file reused from an earlier phase). All nine checklist items are now `[x]`. This phase builds the two
+generators Phase 34 will invoke ~27+ times to dogfood-generate the actual module catalog:
+`internal/inventory/devicescaffold` and `internal/forge/collectionscaffold`, plus their `pleiades forge
+new-device`/`new-collection` CLI wiring.
 
-**Reconciliation, done first (Pattern Entry Gate item):** the three-way `SSHCapable` vs
-`SSHTransportCapable` naming drift the checklist itself named. `PLAN.md` (4 occurrences, including its
-Section 14 transports table) and `CODE_SCAFFOLD.md` (1 occurrence, plus a pseudocode method set
-matching neither the real code nor `PLAN.md`) both said `SSHCapable`; the real code has always said
-`SSHTransportCapable`. Both spec documents corrected to match the code, dated 2026-08-04.
-`docs/hephaestus.md`'s own "naming drift" section (which had already documented this exact drift as
-unresolved, in an earlier session) updated to past tense.
+**Two real, verified gaps in the checklist's own premises, corrected in place rather than built
+around:** the checklist named `ItemFactory.Register` as the device registration mechanism in three
+places; that method was retired during the Phase 6 registry retrofit and does not exist. The real
+mechanism, unchanged by this phase, is `record.RegisterType`, reachable only via
+`internal/inventory/builtins.go`'s blank-import list — `NewItemFactory()` itself hardcodes nothing, it
+builds from `record.AllTypes()`. Separately, `pkg/collection` (Phase 31) turned out to be pure
+planning-time metadata with no execution-side consumer anywhere in this codebase: no dispatcher calls a
+registered Collection method's real implementation, so a generated collection stub, while real,
+buildable, and testable Go code, is not reachable from any execution path yet. Both gaps are corrected
+with dated notes in `IMPLEMENTATION.md`, `docs/hephaestus.md`, and `CODE_SCAFFOLD.md`, and the second
+one is additionally documented in every generated collection package's own header, the same "must say
+so, not pretend" duty the checklist's device-scaffold bullet already named.
 
-**What was built:** ~23 new `*Capable` interfaces in `pkg/capability`, split across 7 new files by
-domain (`capabilities_exec.go`, `capabilities_package.go`, `capabilities_service.go`,
-`capabilities_posix.go`, `capabilities_network.go`, `capabilities_windows.go`,
-`capabilities_cloud.go`), each with a real accessor method and a `Register(Descriptor{Name, Parent,
-Assert})` call, exactly mirroring the 3 pre-existing capabilities' shape. Child interfaces Go-embed
-their parent's method set (`AptCapable` embeds `PackageManagerCapable`, `FirewalldCapable` embeds
-`SystemdCapable` embeds `ServiceManagerCapable` three levels deep, etc.), so `capability.Implements`
-resolves the broader capability for free via structural typing. The one genuinely new mechanism is
-`capability.Resolves`/`isAncestor`, which closes the data-side gap: it walks `Descriptor.Parent`
-(cycle-guarded) so a device that only *declared* a narrower capability is still found to declare the
-broader one it descends from. `record.Base.Declares` is its sole production call site, now a one-line
-delegation; neither `Router` nor `Server`'s own `HasCapability` needed to change.
+**What was built:** `internal/forge/genutil` (new, shared by both scaffolds): `ValidateSegment`
+(`^[a-z][a-z0-9_]*$`, stricter than `internal/classification`'s own `^[a-z0-9_]+$` because a segment
+here becomes a Go identifier, not just a map key — a leading digit is legal for one and not the other),
+`go/token.IsKeyword`-based keyword rejection, a segment-count and per-segment-length bound, and
+`ToExportedIdent` (snake_case to PascalCase). `internal/inventory/devicescaffold` and
+`internal/forge/collectionscaffold` (new, mirrored shape): a `Config` type with a `Validate()` using
+`genutil` plus `capability.Lookup`, `text/template` sources reproducing the hand-written
+`devices/cisco/router.go` pattern and the `pkg/collection`/`pkg/sdk.RunbookContext` pattern respectively
+(this is the first in-repo code generator; no `text/template` usage existed anywhere before this
+phase), and a pure `Generate(cfg) ([]GeneratedFile, error)` doing no filesystem I/O, formatting output
+via `go/format.Source` rather than a shelled-out `gofmt` binary. The device template adds the `var _
+inventory.InventoryItem = (*T)(nil)` compile-time assertion neither hand-written package has today. New
+directory `internal/catalog/`, added to `CODE_SCAFFOLD.md`'s own tree with a justifying comment (per
+`.AGENTS/AGENTS.md`'s Map Verification protocol), is where `collectionscaffold` writes, nested by
+namespace segment (`pkg.apt.install` → `internal/catalog/pkg/apt/install.go`).
 
-**The capability granularity decision (already recorded 2026-08-03) was implemented, bounded to what
-the real hydration pipeline can carry end to end:** `record.Record` and `classification.Rule` both
-gained a `Capabilities []capability.Name` field, the latter folded via `policy.UnionSlices` in
-`combineRule` (mixing Union with the field's existing per-field Override semantics on one `Rule`
-type — `PLAN.md` Section 25's own anticipated shape). `DefaultRuleSet()` now grants real capabilities
-matching `Router`/`Server`'s hardcoded baseline, plus a new `linux_server.debian_family` sub-rule
-granting `AptCapable` — the checklist's own worked example, made real. A new
-`ResolveHostCapabilities` mirrors `ResolveHostType` exactly, including its "Type short-circuits an
-unresolvable Classify" invariant; both `HydrateHosts` and `buildRecord` call it. `Router`/`Server`'s
-constructors union their hardcoded baseline with `rec.Capabilities` rather than replacing it outright
-— an explicit-`Type` host (still the common case) keeps exactly its old baseline, while a
-`Classify`-only host gains real additional capabilities no inventory file could vary before this
-phase.
+**A real, previously-unnoticed CLI bug was found and fixed while wiring `forge new-collection`, not
+worked around:** `cmd/pleiades/addhost.go`'s shared `splitPositional` (used by `add-host`,
+`add-credential`, and now both new `forge new-*` subcommands) assumed every flag takes a following
+value, which silently swallowed a real flag as a bare boolean flag's "value" the moment a caller had one
+followed by another flag — `forge new-collection --requires-elevation --engine-version ">=1.0.0"` was
+the case that surfaced it. Fixed with a `boolFlags map[string]bool` parameter; `add-credential`'s
+pre-existing `--passphrase` bool flag had the identical latent bug, closed as a byproduct rather than
+left in place once the general fix was made. See `FAILURE_PATTERNS.md` #50, `LESSONS_LEARNED.md` #54.
 
-**A real documentation/checklist conflation was found and corrected, not silently worked around:**
-the checklist's own dependency note for the granularity decision claimed this same capability field
-needed `pkg/policy`'s *intersection*-mode call site. Two other pre-existing doc comments
-(`pkg/policy.go`'s and `internal/classification/rule.go`'s own, written before this phase touched
-either file) already said the opposite: this field is Union. The intersection-mode
-"manifest narrowed by runbook" example the checklist cited is real, but it is Section 25's *other*
-Phase-32-adjacent call site (a Collection manifest requirement narrowed by a runbook/task
-requirement), which needs a runbook-level narrowing field that does not exist anywhere yet — correctly
-left unbuilt, deferred to whichever later phase adds it. Corrected in place, dated 2026-08-04, in
-`IMPLEMENTATION.md`. See `LESSONS_LEARNED.md`'s new entry for the general lesson.
+**Adversarial Pattern Justification:** both scaffolds' `Generate` functions only ever return paths under
+their own fixed base directory (`internal/inventory/devices/`, `internal/catalog/`), proven for
+arbitrary input by fuzzing, never touching `internal/inventory/factory.go`, `builtins.go`, or any
+existing `pkg/collection` entry. `internal/inventory/devicescaffold/release_gate_test.go` proves this
+positively: it generates into a real temporary sibling package inside the actual checkout, then builds
+and runs a *second*, independent temporary harness package that blank-imports only the generated
+package (the one real composition-root edit) and resolves it through
+`inventory.NewItemFactoryWithConstructors(record.AllTypes())`.
 
-**A second real gap was found and fixed while implementing the checklist's own worked example:**
-`docs/hephaestus.md` already documented `net.cli.config` (requiring `NetworkCLICapable`) resolving
-down to `net.ios.config` (`CiscoIOSCapable`) — which required retrofitting `Parent: NameNetworkCLI`
-onto the pre-existing `CiscoIOSCapable` (this phase's own plan had said no pre-existing capability's
-`Parent` would be touched, corrected once the doc's own worked example was found to need exactly
-that) and adding `Router.CLIPrompt()` so the structural side resolves too, proven against the real
-device type, not a synthetic one.
+**Schema/Injection Hardening:** the one new boundary class is generated-source injection (user strings
+embedded into real `.go` files this phase's generators write). Closed at two layers: every segment that
+becomes a path component or Go identifier is `genutil`-validated before any template executes (so `..`,
+`/`, quote, and backtick characters are unreachable, not merely escaped), and every string embedded as a
+Go string literal rather than an identifier goes through `strconv.Quote` as defense in depth. No
+deserialization, CEL, SQL, NATS subject, or auth/token boundary is introduced. `make gosec` found no new
+finding (7 pre-existing, all individually waived, matching every prior phase).
 
-**Adversarial Pattern Justification:** every new capability's `Assert` rejects an empty struct (no
-trivial always-true capability). Both halves of "neither side is trusted alone" are proven directly
-(declared-without-structural-backing and structural-without-declared are both unsatisfied), at both
-the synthetic-type layer (`pkg/capability`, `record`) and the real-device-type layer
-(`Router`/`Server`). The cycle guard is proven to actually terminate, not just trusted by inspection,
-against a deliberately cyclic pair of test-only capabilities.
+**Fuzz/Stress:** `FuzzValidateSegment` (`internal/forge/genutil`, 1.5M+ execs/15s, zero failures);
+`FuzzGenerate` in both `devicescaffold` (710K+ execs/15s) and `collectionscaffold` (748K+ execs/15s),
+each proving accepted input never escapes its base directory and always parses as valid Go via
+`go/parser`; `FuzzRunForgeNewDevice`/`FuzzRunForgeNewCollection` (new, `cmd/pleiades`) calling the
+subcommand functions directly rather than through `run()`/`runForge`, since `cli_fuzz_test.go`'s
+existing generic harness splices `--dir <tmp>` in at a position that makes any `forge`-prefixed seed hit
+the unknown-subcommand path before reaching real flag parsing — both ran clean (11.7K and 5.1K execs
+respectively; slower per-exec since each iteration performs real filesystem writes into a `t.TempDir()`).
 
-**Schema/Injection Hardening:** clean, no new externally-facing boundary — `Rule.Capabilities` is
-populated only from compiled-in Go literals; the only user-controlled input in this pipeline (the
-classification path) was already bounded before this phase and is unchanged.
+**Release Gate:** proven at two independent layers, both against the real `go` toolchain and the real
+repository tree, never in-process alone. Library layer: both scaffold packages' own
+`release_gate_test.go` generate into a real temporary package, `go build`/`go test` it as a subprocess,
+and clean up via `t.Cleanup` (confirmed via `git status` showing no leftover paths after a run). CLI
+layer: `cmd/pleiades/e2e_test.go`'s new `TestCLI_ForgeNewDevice_EndToEnd` and
+`TestCLI_ForgeNewCollection_EndToEnd` drive the actual built `pleiades` binary against the real
+repository root, then `go build`/`go test` the generated package as a subprocess. `make ci` (build,
+vet, fmt, `test-race`, `gosec`, `govulncheck`, `coverage`) passed clean end to end, run twice to rule
+out a transient failure seen once from a standalone `make coverage` invocation (not reproduced inside
+`make ci` itself, and not related to any file this phase touched). Coverage: `internal/forge/genutil`
+96.0%, `internal/forge/collectionscaffold` 90.2%, `internal/inventory/devicescaffold` 88.6% (both
+scaffold packages' only uncovered lines are `format.Source`/`template.Execute` error-wrapping branches,
+unreachable through the public `Generate` API once `Config.Validate()` already guarantees safe,
+template-compatible input — an honestly recorded gap, not forced to 90% with a contrived test, matching
+this project's own established precedent for a defensively unreachable branch). `cmd/pleiades` rose
+from 33.5% to 43.9%, floor raised to 43.0.
 
-**Fuzz/Stress:** `FuzzResolves` (15s, ~2.2M execs, zero failures) fuzzes hierarchy resolution against
-random subsets of the real vocabulary, cross-checked against an independently written reference
-implementation. `FuzzClassifyCapabilitiesUnion` (15s, ~2.0M execs, zero failures) fuzzes the
-Union-fold itself across arbitrary layer counts, asserting a true, deduplicated set union.
+**Files changed:** `internal/forge/genutil/` (new: `identifiers.go`, `identifiers_test.go`,
+`identifiers_fuzz_test.go`), `internal/inventory/devicescaffold/` (new: `devicescaffold.go`,
+`config.go`, `templates.go`, `generate.go`, `generate_test.go`, `generate_fuzz_test.go`,
+`release_gate_test.go`), `internal/forge/collectionscaffold/` (new: same seven-file shape),
+`cmd/pleiades/forge_new_device.go`, `forge_new_device_test.go`, `forge_new_device_fuzz_test.go` (all
+new), `cmd/pleiades/forge_new_collection.go`, `forge_new_collection_test.go`,
+`forge_new_collection_fuzz_test.go` (all new), `cmd/pleiades/forge_scaffold_io.go` (new, shared
+file-write/`--capabilities`-parsing helpers), `cmd/pleiades/forge.go` (two `forgeCommands` entries,
+`printForgeUsage` updated), `cmd/pleiades/addhost.go` (`splitPositional` gained `boolFlags`, doc comment
+generalized), `cmd/pleiades/addcredential.go` (`splitPositional` call site updated, closing its own
+latent bug), `cmd/pleiades/addhost_test.go` (new `TestSplitPositional_BoolFlagTakesNoFollowingValue`),
+`cmd/pleiades/e2e_test.go` (`TestCLI_ForgeHelp` updated for real subcommands, two new release-gate
+tests), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 33 checked off in full, including the
+`ItemFactory.Register` correction), `docs/hephaestus.md` (status line, workflow table, command surface,
+"Create a Collection"/"Create an inventory device type" sections all updated), `.SPECIFICATION/CODE_SCAFFOLD.md`
+(`internal/forge/`/`internal/catalog/` tree entries, `internal/adapters/native/` annotation corrected,
+`RunbookContext` Section G corrected), `coverage-floor.json` (four new/changed floors),
+`FAILURE_PATTERNS.md` (#50 new), `LESSONS_LEARNED.md` (#54 new). See "The Phase 33 session" immediately
+below for full detail. Everything from "The Phase 32 session" onward describes earlier sessions and is
+unchanged.
 
-**Release Gate:** downward resolution proven end to end against the real `Router` type
-(`TestNewRouter_ResolvesBroadNetworkCLICapable`), not only a synthetic one. The plain-language,
-both-sides-named plan-time error is the pre-existing `internal/validate.CapabilityRule` message,
-unchanged and still passing — this phase added no new error-reporting code, only proved the new
-hierarchy-aware `HasCapability` still feeds it correctly. `make ci` (build, vet, fmt, `test-race`,
-`gosec`, `govulncheck`, `coverage`) passed clean end to end. Coverage moved meaningfully:
-`pkg/capability` stayed at 100%, `internal/classification` rose from 93.0% to 97.6%,
-`internal/inventory/record` rose from 4.0% to 30.0% (its first-ever direct test file), and
-`internal/inventory/devices/{cisco,linux}` moved from `coverage-floor.json`'s `excluded` list (a
-documented, honest 0%-coverage gap) to a real recorded floor (100.0% each), now that both have real,
-direct tests for the first time.
+### The Phase 33 session
 
-**Files changed:** 7 new `pkg/capability/capabilities_*.go` files, `pkg/capability/capabilities.go`
-(new `Resolves`/`isAncestor`/`All`, `CiscoIOSCapable`'s `Parent` retrofitted),
-`pkg/capability/hierarchy_test.go` (new), `pkg/capability/hierarchy_fuzz_test.go` (new),
-`internal/inventory/record/record.go` (`Capabilities` field, `Declares` delegates to
-`capability.Resolves`), `internal/inventory/record/record_test.go` (new),
-`internal/classification/rule.go` (`Rule.Capabilities`, `combineRule`'s Union fold),
-`internal/classification/default_ruleset.go` (real `Capabilities`, new `debian_family` sub-rule),
-`internal/classification/rule_test.go` and `rule_fuzz_test.go` (extended),
-`internal/inventory/host_classify.go` (new `ResolveHostCapabilities`),
-`internal/inventory/host_classify_test.go` (new), `internal/inventory/yaml_plugin.go` and
-`file_repository.go` (wire `ResolveHostCapabilities` in), `internal/inventory/yaml_plugin_test.go`
-(extended), `internal/inventory/devices/cisco/router.go` (`NewRouter` unions capabilities,
-`CLIPrompt()`), `internal/inventory/devices/cisco/router_test.go` (new),
-`internal/inventory/devices/linux/server.go` (`NewServer` unions capabilities),
-`internal/inventory/devices/linux/server_test.go` (new), `.SPECIFICATION/PLAN.md` (`SSHCapable` ->
-`SSHTransportCapable`, dated corrections), `.SPECIFICATION/CODE_SCAFFOLD.md` (same, plus method set
-fix), `docs/hephaestus.md` (naming drift and hierarchy sections updated past-tense),
-`.SPECIFICATION/PATTERNS.md` (Interface Segregation and Hierarchical Policy Resolver entries
-extended), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 32 checked off in full, including the
-Union/Intersection correction), `coverage-floor.json` (three floors raised, two `excluded` entries
-promoted to real floors), `LESSONS_LEARNED.md` (new entry). See "The Phase 32 session" immediately
-below for full detail. Everything from "The Phase 31 session" onward describes earlier sessions and
-is unchanged.
+**Scope: Phase 33 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the fourth phase of Part VII (The
+Forge of Hephaestus) to close. See "Current Status" above for the complete summary; this heading exists
+so future sessions can find this session's detail without re-reading the whole file.
+
+**Research and design, before any code:** three parallel Explore agents (the hand-written device-type
+pattern in full, the collection registry/`pkg/sdk` pattern and what real consumers exist, and the forge
+CLI dispatch pattern plus every cross-phase reference to "Phase 33" elsewhere in `IMPLEMENTATION.md`)
+fed a synthesized design, which one Plan agent then pressure-tested against the real repo before any
+plan file was written. The Plan agent's review caught several things worth recording: (1) the
+`ItemFactory.Register` retirement is documented, not just inferred — `HANDOFF_DOCUMENT.md`'s own Phase
+6 session notes say it outright; (2) `forge new-collection`'s positional name must accept two segments,
+not require three, since `docs/hephaestus.md`'s own catalog table lists real two-segment names
+(`exec.command`, `pkg.install`) Phase 34 must generate; (3) a segment that becomes a Go identifier needs
+a leading-letter rule, not `internal/classification`'s leading-digit-permissive one; (4)
+`cli_fuzz_test.go`'s pre-committed `forge new-device` fuzz seed is real but structurally can't reach
+this phase's flag parsing, because the harness splices `--dir` in at a position that hits the
+unknown-subcommand path first; (5) `internal/inventory/project.go`'s `Scaffold`/`writeIfAbsent` is the
+right precedent for "don't clobber an existing file" even though this phase deliberately diverges from
+its silent-skip behavior. All five were verified against the real files before being trusted, not taken
+on the agent's word alone (`internal/classification/rule.go`'s `segmentPattern`, `cmd/pleiades/cli_fuzz_test.go`'s
+literal seed, `docs/hephaestus.md`'s literal CLI example line, and `internal/inventory/project.go`'s
+literal `Scaffold` function were all read directly).
+
+**What was built:** see "Current Status" above for the complete file-by-file summary; this section adds
+detail beyond it.
+
+- `internal/forge/genutil.ValidateSegment` closes both halves of the checklist's Fuzz/Stress ask in one
+  function: `^[a-z][a-z0-9_]*$` (no `.`, `/`, `\`, or leading digit is even expressible) plus
+  `go/token.IsKeyword` (not a hand-maintained keyword list). `ToExportedIdent` is a plain
+  underscore-split-and-titlecase helper with no dependency on the validation having already run — its
+  own doc comment says so explicitly, since a caller skipping `ValidateSegment` first would get a
+  PascalCase string built from invalid characters, not a panic.
+- Both scaffolds' templates use a `quote` `text/template.FuncMap` entry (`strconv.Quote`) rather than
+  passing `capability.Name` values (or any other named string type) directly into it: `templateData`
+  converts every such value to a plain `string` in Go code before `Execute` ever runs, sidestepping
+  `reflect.Value.Call`'s assignability rules entirely rather than relying on `capability.Name` happening
+  to be `AssignableTo(string)` at the reflection layer (it is not, without an explicit conversion, the
+  same rule that blocks it at compile time).
+- The device template's `Kind()` derivation (`Config.Kind()`, `internal/inventory/devicescaffold/config.go`)
+  splits `TypeKey` on its *last* underscore, not its first, and does not try to strip a vendor prefix at
+  all: `docs/hephaestus.md`'s own worked example (vendor `juniper`, type key `junos_router`) has a
+  vendor and a type-key prefix that don't match, so "last segment becomes the struct name" is the one
+  rule that reproduces both real examples (`cisco_router`→`Router`, `linux_server`→`Server`) and the
+  doc's mismatched one with no special-casing.
+- The generated device starter test asserts on `Capabilities()` (the data layer), never `HasCapability()`
+  (which also requires structural satisfaction): a freshly generated type has no capability-specific
+  accessor methods, so `HasCapability` correctly stays `false` for every declared capability until a
+  human adds them, and a starter test asserting the opposite would fail immediately out of the box,
+  which would itself violate the Release Gate's "whose generated tests pass" wording. This was decided
+  during design, not discovered as a test failure, but is exactly the kind of gap the design review
+  exists to catch before it becomes one.
+- `internal/catalog/` has no prior claimant anywhere in `PLAN.md`, `PATTERNS.md`, or Part X; the closest
+  existing tree annotation (`internal/adapters/native/`, labelled "Native Go collections" in
+  `CODE_SCAFFOLD.md`) turned out to describe something unrelated (Phase 16's still-stubbed
+  `ExecutionAdapter`, which will eventually *dispatch to* a catalog entry, not *contain* one) once its
+  real code was read directly rather than trusted from the tree comment alone.
+
+**No defects found in the generated output itself** by the adversarial pass; the one real defect this
+session found (`splitPositional`'s boolean-flag bug) was caught by the CLI's own unit test failing for
+real during normal test-writing, the same "a test failing for real" discovery shape several earlier
+phases' own defects were found by, not a separate adversarial review step.
+
+**Files changed:** see "Current Status" above for the complete list.
 
 ### The Phase 32 session
 

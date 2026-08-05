@@ -70,23 +70,38 @@ func parsePropertyValue(raw string) interface{} {
 	return raw
 }
 
-// splitPositional pulls the single positional argument (the host name)
-// out of args, wherever the user placed it, and returns the remaining
-// tokens for flag.FlagSet to parse. The stdlib flag package stops parsing
-// flags at the first non-flag token, which would otherwise reject
-// PLAN.md Section 7's own documented usage, `add-host webserver1 --type
-// linux`, where the name comes first. Every flag add-host defines takes a
-// value, so distinguishing a flag's value from the positional argument
-// only requires knowing that much.
-func splitPositional(args []string) (positional string, rest []string, err error) {
+// splitPositional pulls a command's single positional argument (add-host's
+// host name, and, since Phase 33, forge new-device's vendor and forge
+// new-collection's namespaced name) out of args, wherever the user placed
+// it, and returns the remaining tokens for flag.FlagSet to parse. The
+// stdlib flag package stops parsing flags at the first non-flag token,
+// which would otherwise reject PLAN.md Section 7's own documented usage,
+// `add-host webserver1 --type linux`, where the name comes first.
+//
+// boolFlags names every flag (with or without its leading dashes) that
+// takes no following value in its bare form, matching the stdlib flag
+// package's own bool-flag convention (`-flag` means true; `-flag=value` is
+// also accepted, but `-flag value` is two separate arguments, the second
+// of which is NOT the flag's value). Every other "-"-prefixed token is
+// assumed to consume the next token as its value, so boolFlags is the only
+// thing standing between a bare boolean flag and a token that follows it
+// being wrongly swallowed as that flag's value -- or, worse, being missed
+// entirely and misread as a second, disallowed positional argument. Pass
+// nil when a command defines no boolean flags (every flag add-host itself
+// defines takes a value).
+func splitPositional(args []string, boolFlags map[string]bool) (positional string, rest []string, err error) {
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
 			rest = append(rest, a)
 			// "--flag=value" carries its value in the same token; a bare
-			// "--flag value" does not, so the next token belongs to it.
-			if !strings.Contains(a, "=") && i+1 < len(args) {
+			// "--flag value" does not, so the next token belongs to it --
+			// unless flag is itself boolean, which takes no following
+			// value in its bare form.
+			hasInlineValue := strings.Contains(a, "=")
+			flagName := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
+			if !hasInlineValue && !boolFlags[flagName] && i+1 < len(args) {
 				i++
 				rest = append(rest, args[i])
 			}
@@ -98,7 +113,7 @@ func splitPositional(args []string) (positional string, rest []string, err error
 		positional = a
 	}
 	if positional == "" {
-		return "", nil, fmt.Errorf("missing host name")
+		return "", nil, fmt.Errorf("missing positional argument")
 	}
 	return positional, rest, nil
 }
@@ -117,7 +132,7 @@ func splitPositional(args []string) (positional string, rest []string, err error
 // Classify survives only as provenance and is never re-consulted once
 // Type is present (see ResolveHostType's doc comment).
 func runAddHost(args []string) error {
-	name, rest, err := splitPositional(args)
+	name, rest, err := splitPositional(args, nil)
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-host <name> (--type <type> | --classify a,b,c) [--set key=value ...] [--tags a,b]: %w", err)
 	}

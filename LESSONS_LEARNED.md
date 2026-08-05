@@ -637,3 +637,18 @@ story, per `.AGENTS/AGENTS.md`.
     named -- two real, correctly-built call sites of the same shared primitive can require opposite
     merge semantics, and a checklist written before either was implemented can attribute one's
     evidence to the other.
+
+54. **A shared helper's implicit precondition survives unnoticed until a caller finally violates it --
+    audit what a function silently assumes about every past caller, not just what its signature says,
+    before adding a new caller that differs from all of them in one respect.** `splitPositional`'s doc
+    comment named its true premise honestly ("every flag ... takes a value"), but nothing enforced it:
+    the function had three call sites (`add-host`, `add-credential`, later `forge new-device`/`forge
+    new-collection`), and the premise happened to hold for the first, by coincidence, and silently did
+    not for `add-credential`'s pre-existing `--passphrase` bool flag, because no existing test ever put
+    another flag immediately after it. `forge new-collection`'s own new `--requires-elevation` bool
+    flag was the first caller exercised with a flag following it, which is what surfaced both the new
+    bug and the pre-existing, unnoticed one in the same fix (FAILURE_PATTERNS.md #50). The general
+    lesson: when reusing an existing shared function for a new caller, check its stated assumptions
+    against the new caller's actual shape, not just against whether the new caller's *inputs* look
+    superficially similar to prior callers' -- a precondition that has never been violated is not the
+    same as a precondition that has been verified.

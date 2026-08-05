@@ -1,9 +1,11 @@
 # The Forge of Hephaestus (Design Note)
 
-**Status: partly real.** Writing a runbook and linting one already work today. The device type
-pattern works but has no generator. Playbook migration, collection migration, the Collection
-registry, and the IDE plugin are not built. This document specifies all of it, and
-`.SPECIFICATION/IMPLEMENTATION.md` Part VII (Phases 30 through 38) builds it.
+**Status: partly real.** Writing a runbook and linting one already work today. The Collection registry
+(`pkg/collection`), the capability vocabulary and its hierarchy (`pkg/capability`), and generators for
+both the device type pattern and the Collection method pattern are built (Phases 30 through 33).
+Playbook migration, collection migration, the actual module catalog, and the IDE plugin are not built.
+This document specifies all of it, and `.SPECIFICATION/IMPLEMENTATION.md` Part VII (Phases 30 through
+38) builds it.
 
 ## What this is
 
@@ -24,8 +26,8 @@ boundaries statable.
 | 2 | Migrate an Ansible playbook file | Not built. Only a rejection message exists | `pleiades forge migrate-playbook` |
 | 3 | Lint a runbook | Works. Rule registry in `internal/validate` | `pleiades validate` |
 | 4 | Use an IDE plugin | Not built. No language server code anywhere | `pleiades-lsp` |
-| 5 | Create a namespaced Collection | Not built. No registry or manifest exists | `pleiades forge new-collection` |
-| 6 | Create an inventory device type | Pattern works, generator missing | `pleiades forge new-device` |
+| 5 | Create a namespaced Collection | Registry, manifest, and generator all built (Phases 31, 33); no real Collection registered yet | `pleiades forge new-collection` |
+| 6 | Create an inventory device type | Pattern and generator both built (Phase 33) | `pleiades forge new-device` |
 | 7 | Migrate an Ansible Galaxy collection | Not built | `pleiades forge migrate-collection` |
 
 ## What the Forge is not
@@ -359,9 +361,19 @@ Four new verbs live under `pleiades forge`:
 ```bash
 pleiades forge migrate-playbook   playbook.yml
 pleiades forge migrate-collection ./my_galaxy_collection
-pleiades forge new-collection     pkg.apt
-pleiades forge new-device         juniper --device-type junos_router
+pleiades forge new-collection     pkg.apt.install --capabilities AptCapable
+pleiades forge new-device         juniper --type junos_router
 ```
+
+**Correction (2026-08-05):** the flag was `--device-type` in an earlier revision of this document.
+The real flag, and the pre-committed fuzz corpus seed in `cmd/pleiades/cli_fuzz_test.go` that predates
+Phase 33's implementation, both say `--type`, matching `add-host --type`'s own established naming.
+Code and its own committed test fixture win over prose; this line is corrected to match, the same
+resolution `SSHCapable` vs `SSHTransportCapable` used. Also corrected: `new-collection`'s example is now
+a real, three-segment namespaced method name (`pkg.apt.install`), not the two-segment `pkg.apt` shown
+before Phase 33 existed to generate one for real — `pkg.apt` alone remains a legal registration (PLAN.md
+Section 2 allows a bare-domain namespace), but a worked example should show the shape Phase 34 will
+actually generate two dozen more of.
 
 Two existing surfaces are branded as part of the Forge but do not move:
 
@@ -417,26 +429,47 @@ the catalog.
 
 ### Create a Collection
 
-Not built. There is no Collection interface, registry, or manifest in the codebase today. The word
-appears throughout `PLAN.md` and once in `pkg/sdk/context.go`, but no code implements it.
+Built. `pkg/collection`'s `Manifest` and `Descriptor`/`Register`/`Lookup` (Phase 31), mirroring
+`pkg/capability`'s naming and built on `pkg/registry`'s existing generic Registry (Phase 6), already
+backing `pkg/capability`'s own capability vocabulary and `internal/inventory/record`'s device-type
+table -- `pkg/collection` is that primitive's third consumer, not its first. `internal/forge/collectionscaffold`
+(Phase 33) generates a new namespaced method package: a registration in `init()`, a stub built on
+`pkg/sdk.RunbookContext`, and a starter table-driven test, driven by `pleiades forge new-collection`.
 
-Phase 31 builds the target format: `pkg/collection`'s `Manifest` and `Descriptor`/`Register`/`Lookup`,
-mirroring `pkg/capability`'s naming. It does not build `pkg/registry`; that primitive already exists
-(Phase 6), already backs `pkg/capability`'s own capability vocabulary and `ItemFactory`'s device-type
-table, and `pkg/collection` becomes its third consumer, not its first.
-
-Phase 33 adds the generator.
+**A second honest limitation, alongside the device type one below.** `pkg/collection` is planning-time
+metadata only. No dispatcher anywhere in this codebase yet consumes it, or `pkg/sdk.RunbookContext`, to
+actually call a registered method's real implementation: `internal/engine/action.go`, the only real
+action executor today, dispatches on a hardcoded switch over bare `task.FQCN` strings and touches
+neither package. A generated stub is real, buildable, testable Go code, immediately registered and
+resolvable through `collection.Lookup`, but it is not reachable from any execution path until a later
+phase builds that dispatcher.
 
 ### Create an inventory device type
 
 The pattern works today. `internal/inventory/devices/cisco` and `devices/linux` build on
-`record.Base` and register through `ItemFactory.Register`. Phase 33 adds a generator for it.
+`record.Base` and self-register via `record.RegisterType` in their own `init()`, triggered by
+`internal/inventory/builtins.go`'s blank-import list. `internal/inventory/devicescaffold` (Phase 33)
+generates a new vendor package mirroring this pattern, driven by `pleiades forge new-device`.
 
-**One honest limitation.** `NewItemFactory()` in `internal/inventory/factory.go` hardcodes exactly
-two device types, and `cmd/pleiades/load.go` calls that constructor directly. So a generated device
-type is not reachable from the stock binary without a small composition root change.
-`ItemFactory.Register` itself is genuinely open. The closed part is the built in default set, not
-the mechanism.
+**One honest limitation.** `internal/inventory/builtins.go` blank-imports exactly two device packages
+(`cisco`, `linux`), and that list, not `NewItemFactory()` itself, is what is closed:
+`NewItemFactory()` (`internal/inventory/factory.go`) builds its constructor set from
+`record.AllTypes()`, and `cmd/pleiades/load.go` calls that constructor directly. So a generated device
+type is not reachable from the stock binary until a human adds a blank import of it to
+`builtins.go` (or their own composition root) -- the one composition-root change this document's
+earlier revisions described as needed against a different, now-retired API
+(`ItemFactory.Register`, retired during the Phase 6 registry retrofit; the real registration call is
+`record.RegisterType`). `record.RegisterType` itself is genuinely open. The closed part is the
+built-in default set, not the mechanism.
+
+**A second scope limitation, specific to the generator.** `pkg/capability.Descriptor`'s `Assert` is an
+opaque function with no reflectable method-set metadata, so `devicescaffold` cannot mechanically know
+that, say, `JunosCapable` implies a `JunosVersion() string` accessor, or what to name it. A generated
+device type is therefore a structural skeleton (a `record.Base` embed, a capability-baseline
+constructor, `HasCapability`, and a `var _ inventory.InventoryItem = (*T)(nil)` compile-time
+assertion the hand-written packages lack) with no capability-specific accessor methods: immediately
+after generation, `HasCapability` correctly returns `false` for every declared capability until a
+human adds real accessor methods matching each one's interface.
 
 ### Migrate a Galaxy collection
 

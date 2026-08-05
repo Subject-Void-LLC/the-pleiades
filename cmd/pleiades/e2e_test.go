@@ -354,9 +354,10 @@ func exitCode(t *testing.T, err error) int {
 }
 
 // TestCLI_ForgeHelp is Phase 30's own Release Gate: "pleiades forge --help
-// lists its subcommands." forge has no real subcommands yet (Phases 31-37
-// add them), so the honest assertion is that the usage block exists and
-// says so, rather than pretending a subcommand catalog is already there.
+// lists its subcommands." Phase 33 adds the first two real subcommands
+// (new-device, new-collection), so the assertion moved from "the usage
+// block honestly says nothing is registered yet" to "the usage block
+// actually lists what is now registered."
 func TestCLI_ForgeHelp(t *testing.T) {
 	dir := t.TempDir()
 	out, err := runPleiades(t, dir, "forge", "--help")
@@ -366,8 +367,10 @@ func TestCLI_ForgeHelp(t *testing.T) {
 	if !strings.Contains(out, "usage: pleiades forge") {
 		t.Errorf("expected forge --help to print its own usage block, got:\n%s", out)
 	}
-	if !strings.Contains(out, "none registered yet") {
-		t.Errorf("expected forge --help to say honestly that no subcommands exist yet, got:\n%s", out)
+	for _, want := range []string{"new-device", "new-collection"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected forge --help to list %q, got:\n%s", want, out)
+		}
 	}
 }
 
@@ -403,4 +406,102 @@ func TestCLI_ForgeUnknownSubcommand(t *testing.T) {
 	if forgeCode != 2 {
 		t.Errorf("pleiades forge bogus exited %d, want 2 (matching an unknown top-level command)", forgeCode)
 	}
+}
+
+// repoRoot locates the module root from this test file's own package
+// directory (cmd/pleiades), so the forge new-* release gate tests below
+// can point the real binary's --dir default (".") at the actual
+// repository checkout: a generated package imports internal/ paths, so
+// unlike TestCLI_EndToEnd's throwaway t.TempDir() project, it can only
+// go build/go test successfully from inside this module.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	return filepath.Clean(filepath.Join(wd, "..", ".."))
+}
+
+func runGoBuildAndTest(t *testing.T, dir, pkgImportPath string) {
+	t.Helper()
+	for _, subcmd := range []string{"build", "test"} {
+		cmd := exec.Command("go", subcmd, pkgImportPath)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go %s %s failed: %v\n%s", subcmd, pkgImportPath, err, out)
+		}
+	}
+}
+
+// TestCLI_ForgeNewDevice_EndToEnd is Phase 33's Release Gate, driven
+// through the actual built binary rather than devicescaffold's own
+// in-process tests: "pleiades forge new-device" writes a package that go
+// builds and whose generated test passes. (End-to-end registration
+// through record.RegisterType is separately proven, in more depth, by
+// internal/inventory/devicescaffold's own release_gate_test.go; this test
+// exists to prove the real CLI surface, not just the library it calls.)
+func TestCLI_ForgeNewDevice_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping release gate test in -short mode")
+	}
+
+	root := repoRoot(t)
+	vendor := fmt.Sprintf("e2egate%d", os.Getpid())
+	typeKey := vendor + "_widget"
+
+	t.Cleanup(func() {
+		_ = os.RemoveAll(filepath.Join(root, "internal", "inventory", "devices", vendor))
+	})
+
+	out, err := runPleiades(t, root, "forge", "new-device", vendor,
+		"--type", typeKey, "--capabilities", "SSHTransportCapable")
+	if err != nil {
+		t.Fatalf("forge new-device failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "not yet reachable from the stock binary") {
+		t.Errorf("expected the composition-root honesty note in output, got:\n%s", out)
+	}
+
+	sourcePath := filepath.Join(root, "internal", "inventory", "devices", vendor, "widget.go")
+	if _, statErr := os.Stat(sourcePath); statErr != nil {
+		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
+	}
+
+	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/" + vendor
+	runGoBuildAndTest(t, root, pkgImportPath)
+}
+
+// TestCLI_ForgeNewCollection_EndToEnd is TestCLI_ForgeNewDevice_EndToEnd's
+// counterpart for "pleiades forge new-collection", proving the real CLI
+// surface produces a package that go builds and whose generated test
+// (including its own collection.Lookup registration check) passes.
+func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping release gate test in -short mode")
+	}
+
+	root := repoRoot(t)
+	name := fmt.Sprintf("test.e2egate%d.check", os.Getpid())
+
+	t.Cleanup(func() {
+		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test"))
+	})
+
+	out, err := runPleiades(t, root, "forge", "new-collection", name,
+		"--capabilities", "SSHTransportCapable", "--transports", "ssh")
+	if err != nil {
+		t.Fatalf("forge new-collection failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "planning-time metadata only") {
+		t.Errorf("expected the reachability honesty note in output, got:\n%s", out)
+	}
+
+	sourcePath := filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid()), "check.go")
+	if _, statErr := os.Stat(sourcePath); statErr != nil {
+		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
+	}
+
+	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
+	runGoBuildAndTest(t, root, pkgImportPath)
 }

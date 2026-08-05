@@ -1198,3 +1198,33 @@ neither the existing benchmark (a fixed 3-segment path) nor the existing fuzz co
 segments) had exposed this before the adversarial review measured it directly.
 
 **Lesson:** LESSONS_LEARNED.md #49.
+
+## 50. A shared CLI positional-argument parser silently swallowed a real flag as a bare boolean flag's value
+
+**Symptom:** `runForgeNewCollection([]string{"pkg.apt.install", "--capabilities", "AptCapable",
+"--transports", "ssh", "--requires-elevation", "--engine-version", ">=1.0.0"})` failed with `unexpected
+extra argument: ">=1.0.0"`, even though every flag was spelled correctly and `--engine-version` was
+given a value.
+
+**Root cause:** `cmd/pleiades/addhost.go`'s `splitPositional` (shared by `add-host`, `add-credential`,
+and, as of Phase 33, `forge new-device`/`forge new-collection`) assumed every `"-"`-prefixed token
+without an inline `=value` consumes the next token as its value, a premise true of every flag `add-host`
+itself defines (all string-valued) but false for a bare boolean flag in its short form (`--flag`, no
+following token, matching the stdlib `flag` package's own bool-flag convention). `forge new-collection`
+introduced the first caller with a boolean flag (`--requires-elevation`) reachable through this shared
+function: `splitPositional` treated `--engine-version` (the token immediately after
+`--requires-elevation`) as that flag's "value," which pushed `>=1.0.0` into the position `splitPositional`
+reads as a second positional argument. The same defect was already live, unnoticed, for
+`add-credential --passphrase` (`cmd/pleiades/addcredential.go`), a pre-existing boolean flag that just
+happened never to be exercised with another flag following it in any existing test.
+
+**Fix:** applied. `splitPositional` gained a `boolFlags map[string]bool` parameter naming every flag (by
+name, without its leading dashes) that takes no following value in its bare form; only a flag in that set
+is exempted from the "next token is this flag's value" rule, and inline `--flag=value` continues to work
+unconditionally either way. Every call site was updated: `add-host` and `forge new-device` (which define
+no boolean flags) pass `nil`; `add-credential` now passes `map[string]bool{"passphrase": true}`, closing
+the pre-existing latent bug; `forge new-collection` passes `map[string]bool{"requires-elevation": true}`.
+`cmd/pleiades/addhost_test.go`'s `TestSplitPositional_BoolFlagTakesNoFollowingValue` is the regression
+test, including a case proving the bug reproduces when `boolFlags` is omitted for a command that needs it.
+
+**Lesson:** LESSONS_LEARNED.md #54.

@@ -24,7 +24,7 @@ import (
 // process's argument list to any other user on the same machine for as
 // long as the process runs, which a prompt avoids.
 func runAddCredential(args []string) error {
-	name, rest, err := splitPositional(args)
+	name, rest, err := splitPositional(args, map[string]bool{"passphrase": true})
 	if err != nil {
 		return fmt.Errorf("usage: pleiades add-credential <device> --username <user> [--password <password> | --key <path> [--passphrase]]: %w", err)
 	}

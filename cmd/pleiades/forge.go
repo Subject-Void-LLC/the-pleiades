@@ -12,10 +12,13 @@ import (
 )
 
 // forgeCommands maps each forge subcommand name to its handler, the same
-// Command-pattern shape main.go's own commands map uses. It is empty
-// today: Phases 31 through 37 populate it, each with one new file plus
-// one entry here, never an edit to this file's own dispatch logic.
-var forgeCommands = map[string]commandFunc{}
+// Command-pattern shape main.go's own commands map uses. Phases 31 through
+// 37 populate it, each with one new file plus one entry here, never an
+// edit to this file's own dispatch logic.
+var forgeCommands = map[string]commandFunc{
+	"new-device":     runForgeNewDevice,
+	"new-collection": runForgeNewCollection,
+}
 
 // runForge is cmd/pleiades's forge subcommand dispatcher. It mirrors
 // run()'s own structure exactly (help interception, then a map lookup,
@@ -49,7 +52,10 @@ func printForgeUsage() {
 	fmt.Fprintln(os.Stderr, `usage: pleiades forge <command> [flags]
 
 commands:
-  (none registered yet; see docs/hephaestus.md for the planned Forge
-  command surface, and .SPECIFICATION/IMPLEMENTATION.md Part VII for the
-  phases that populate this namespace)`)
+  new-device      generate a new vendor device-type package
+  new-collection  generate a new namespaced Collection method package
+
+See docs/hephaestus.md for the full planned Forge command surface, and
+.SPECIFICATION/IMPLEMENTATION.md Part VII for the phases that populate
+this namespace.`)
 }
