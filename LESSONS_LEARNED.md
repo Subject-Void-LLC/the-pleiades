@@ -610,3 +610,30 @@ story, per `.AGENTS/AGENTS.md`.
     own "X does not exist yet" claim is a claim about the repo at drafting time, and needs the same
     direct verification (`grep`, `gopls references`, reading the actual package) as any other assumed
     fact before code is written to satisfy it.
+
+53. **A checklist item can name the right shared primitive and still cite the wrong mode of it, when
+    the item's own prose conflates two distinct call sites that merely sit near each other in the
+    specification -- cross-check a cited test/example against what it actually proves, not just
+    against whether the primitive it names is the correct one.** Phase 32's "capability granularity:
+    decided" item said the classification-driven capability field (a device's capabilities
+    accumulating down the classification tree, e.g. `debian_family` adding `AptCapable` on top of
+    `linux_server`'s baseline) needed `pkg/policy`'s *intersection*-mode call site, citing
+    `pkg/policy/policy_test.go`'s `TestIntersectSlices_ViaResolve` (a "manifest narrowed by runbook"
+    example) as already-built evidence. Both `pkg/policy.go`'s own doc comment and
+    `internal/classification/rule.go`'s own doc comment, written before this phase touched either
+    file, already said the opposite for this exact field: "a future Capabilities field, Phase 32
+    scope, would be Union." The cited test was not wrong, and the primitive named (`pkg/policy`) was
+    the right one -- but the test proves a *different* Phase-32-adjacent resolution (a Collection
+    manifest's required capability narrowed by a runbook/task-level requirement, which needs a
+    runbook-level narrowing field that does not exist anywhere yet) than the one the checklist item's
+    prose was actually describing (capabilities accumulating down a classification tree, which is
+    strictly additive and must never narrow what a broader level already granted). Implementing the
+    checklist's literal claim (Intersection) would have silently broken the worked example the same
+    item's own prose gives two paragraphs earlier: a level's Capabilities would clamp to the
+    intersection of every layer instead of accumulating, so `debian_family`'s `AptCapable` would only
+    survive if `linux_server`'s own rule also happened to list it. The general lesson: when a
+    checklist item cites a specific test or example as evidence a mechanism already exists and is
+    ready to reuse, read what that test actually asserts, not just whether it exercises the primitive
+    named -- two real, correctly-built call sites of the same shared primitive can require opposite
+    merge semantics, and a checklist written before either was implemented can attribute one's
+    evidence to the other.

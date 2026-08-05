@@ -4,10 +4,124 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session reconciled a stale checklist premise and implemented Phase 31: The Collection Registry
-& Manifest in full**, the second phase of Part VII (The Forge of Hephaestus) to close, after a
-Plan-mode design review (`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`, reused across
-both phases' planning sessions). All fourteen checklist items are now `[x]`.
+**This session implemented Phase 32: The Capability Vocabulary & Hierarchy in full**, the third phase
+of Part VII (The Forge of Hephaestus) to close, after a Plan-mode design review
+(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`, reused across all three phases'
+planning sessions). All thirteen checklist items are now `[x]`. This is Part VII's largest single
+checklist so far: ~23 new capability interfaces, a hierarchy resolution mechanism, a naming
+reconciliation, and an end-to-end wiring of classification-derived, data-driven device capabilities.
+
+**Reconciliation, done first (Pattern Entry Gate item):** the three-way `SSHCapable` vs
+`SSHTransportCapable` naming drift the checklist itself named. `PLAN.md` (4 occurrences, including its
+Section 14 transports table) and `CODE_SCAFFOLD.md` (1 occurrence, plus a pseudocode method set
+matching neither the real code nor `PLAN.md`) both said `SSHCapable`; the real code has always said
+`SSHTransportCapable`. Both spec documents corrected to match the code, dated 2026-08-04.
+`docs/hephaestus.md`'s own "naming drift" section (which had already documented this exact drift as
+unresolved, in an earlier session) updated to past tense.
+
+**What was built:** ~23 new `*Capable` interfaces in `pkg/capability`, split across 7 new files by
+domain (`capabilities_exec.go`, `capabilities_package.go`, `capabilities_service.go`,
+`capabilities_posix.go`, `capabilities_network.go`, `capabilities_windows.go`,
+`capabilities_cloud.go`), each with a real accessor method and a `Register(Descriptor{Name, Parent,
+Assert})` call, exactly mirroring the 3 pre-existing capabilities' shape. Child interfaces Go-embed
+their parent's method set (`AptCapable` embeds `PackageManagerCapable`, `FirewalldCapable` embeds
+`SystemdCapable` embeds `ServiceManagerCapable` three levels deep, etc.), so `capability.Implements`
+resolves the broader capability for free via structural typing. The one genuinely new mechanism is
+`capability.Resolves`/`isAncestor`, which closes the data-side gap: it walks `Descriptor.Parent`
+(cycle-guarded) so a device that only *declared* a narrower capability is still found to declare the
+broader one it descends from. `record.Base.Declares` is its sole production call site, now a one-line
+delegation; neither `Router` nor `Server`'s own `HasCapability` needed to change.
+
+**The capability granularity decision (already recorded 2026-08-03) was implemented, bounded to what
+the real hydration pipeline can carry end to end:** `record.Record` and `classification.Rule` both
+gained a `Capabilities []capability.Name` field, the latter folded via `policy.UnionSlices` in
+`combineRule` (mixing Union with the field's existing per-field Override semantics on one `Rule`
+type — `PLAN.md` Section 25's own anticipated shape). `DefaultRuleSet()` now grants real capabilities
+matching `Router`/`Server`'s hardcoded baseline, plus a new `linux_server.debian_family` sub-rule
+granting `AptCapable` — the checklist's own worked example, made real. A new
+`ResolveHostCapabilities` mirrors `ResolveHostType` exactly, including its "Type short-circuits an
+unresolvable Classify" invariant; both `HydrateHosts` and `buildRecord` call it. `Router`/`Server`'s
+constructors union their hardcoded baseline with `rec.Capabilities` rather than replacing it outright
+— an explicit-`Type` host (still the common case) keeps exactly its old baseline, while a
+`Classify`-only host gains real additional capabilities no inventory file could vary before this
+phase.
+
+**A real documentation/checklist conflation was found and corrected, not silently worked around:**
+the checklist's own dependency note for the granularity decision claimed this same capability field
+needed `pkg/policy`'s *intersection*-mode call site. Two other pre-existing doc comments
+(`pkg/policy.go`'s and `internal/classification/rule.go`'s own, written before this phase touched
+either file) already said the opposite: this field is Union. The intersection-mode
+"manifest narrowed by runbook" example the checklist cited is real, but it is Section 25's *other*
+Phase-32-adjacent call site (a Collection manifest requirement narrowed by a runbook/task
+requirement), which needs a runbook-level narrowing field that does not exist anywhere yet — correctly
+left unbuilt, deferred to whichever later phase adds it. Corrected in place, dated 2026-08-04, in
+`IMPLEMENTATION.md`. See `LESSONS_LEARNED.md`'s new entry for the general lesson.
+
+**A second real gap was found and fixed while implementing the checklist's own worked example:**
+`docs/hephaestus.md` already documented `net.cli.config` (requiring `NetworkCLICapable`) resolving
+down to `net.ios.config` (`CiscoIOSCapable`) — which required retrofitting `Parent: NameNetworkCLI`
+onto the pre-existing `CiscoIOSCapable` (this phase's own plan had said no pre-existing capability's
+`Parent` would be touched, corrected once the doc's own worked example was found to need exactly
+that) and adding `Router.CLIPrompt()` so the structural side resolves too, proven against the real
+device type, not a synthetic one.
+
+**Adversarial Pattern Justification:** every new capability's `Assert` rejects an empty struct (no
+trivial always-true capability). Both halves of "neither side is trusted alone" are proven directly
+(declared-without-structural-backing and structural-without-declared are both unsatisfied), at both
+the synthetic-type layer (`pkg/capability`, `record`) and the real-device-type layer
+(`Router`/`Server`). The cycle guard is proven to actually terminate, not just trusted by inspection,
+against a deliberately cyclic pair of test-only capabilities.
+
+**Schema/Injection Hardening:** clean, no new externally-facing boundary — `Rule.Capabilities` is
+populated only from compiled-in Go literals; the only user-controlled input in this pipeline (the
+classification path) was already bounded before this phase and is unchanged.
+
+**Fuzz/Stress:** `FuzzResolves` (15s, ~2.2M execs, zero failures) fuzzes hierarchy resolution against
+random subsets of the real vocabulary, cross-checked against an independently written reference
+implementation. `FuzzClassifyCapabilitiesUnion` (15s, ~2.0M execs, zero failures) fuzzes the
+Union-fold itself across arbitrary layer counts, asserting a true, deduplicated set union.
+
+**Release Gate:** downward resolution proven end to end against the real `Router` type
+(`TestNewRouter_ResolvesBroadNetworkCLICapable`), not only a synthetic one. The plain-language,
+both-sides-named plan-time error is the pre-existing `internal/validate.CapabilityRule` message,
+unchanged and still passing — this phase added no new error-reporting code, only proved the new
+hierarchy-aware `HasCapability` still feeds it correctly. `make ci` (build, vet, fmt, `test-race`,
+`gosec`, `govulncheck`, `coverage`) passed clean end to end. Coverage moved meaningfully:
+`pkg/capability` stayed at 100%, `internal/classification` rose from 93.0% to 97.6%,
+`internal/inventory/record` rose from 4.0% to 30.0% (its first-ever direct test file), and
+`internal/inventory/devices/{cisco,linux}` moved from `coverage-floor.json`'s `excluded` list (a
+documented, honest 0%-coverage gap) to a real recorded floor (100.0% each), now that both have real,
+direct tests for the first time.
+
+**Files changed:** 7 new `pkg/capability/capabilities_*.go` files, `pkg/capability/capabilities.go`
+(new `Resolves`/`isAncestor`/`All`, `CiscoIOSCapable`'s `Parent` retrofitted),
+`pkg/capability/hierarchy_test.go` (new), `pkg/capability/hierarchy_fuzz_test.go` (new),
+`internal/inventory/record/record.go` (`Capabilities` field, `Declares` delegates to
+`capability.Resolves`), `internal/inventory/record/record_test.go` (new),
+`internal/classification/rule.go` (`Rule.Capabilities`, `combineRule`'s Union fold),
+`internal/classification/default_ruleset.go` (real `Capabilities`, new `debian_family` sub-rule),
+`internal/classification/rule_test.go` and `rule_fuzz_test.go` (extended),
+`internal/inventory/host_classify.go` (new `ResolveHostCapabilities`),
+`internal/inventory/host_classify_test.go` (new), `internal/inventory/yaml_plugin.go` and
+`file_repository.go` (wire `ResolveHostCapabilities` in), `internal/inventory/yaml_plugin_test.go`
+(extended), `internal/inventory/devices/cisco/router.go` (`NewRouter` unions capabilities,
+`CLIPrompt()`), `internal/inventory/devices/cisco/router_test.go` (new),
+`internal/inventory/devices/linux/server.go` (`NewServer` unions capabilities),
+`internal/inventory/devices/linux/server_test.go` (new), `.SPECIFICATION/PLAN.md` (`SSHCapable` ->
+`SSHTransportCapable`, dated corrections), `.SPECIFICATION/CODE_SCAFFOLD.md` (same, plus method set
+fix), `docs/hephaestus.md` (naming drift and hierarchy sections updated past-tense),
+`.SPECIFICATION/PATTERNS.md` (Interface Segregation and Hierarchical Policy Resolver entries
+extended), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 32 checked off in full, including the
+Union/Intersection correction), `coverage-floor.json` (three floors raised, two `excluded` entries
+promoted to real floors), `LESSONS_LEARNED.md` (new entry). See "The Phase 32 session" immediately
+below for full detail. Everything from "The Phase 31 session" onward describes earlier sessions and
+is unchanged.
+
+### The Phase 32 session
+
+**Scope: Phase 32 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the third phase of Part VII (The
+Forge of Hephaestus) to close. See "Current Status" above for the complete summary; this heading
+exists so future sessions can find this session's detail without re-reading the whole file.
 
 **The reconciliation, done first:** Phase 31's own checklist text (`IMPLEMENTATION.md`'s Pattern Entry
 Gate and a standalone build item) asserted "`pkg/registry` does not exist" and told the implementer to

@@ -126,17 +126,27 @@ An author writes the broadest name that works. A task calling `pkg.install` agai
 declaring `AptCapable` resolves to the apt implementation at plan time. If nothing matches, planning
 fails with an error naming both the task and the device, before anything runs.
 
-Two facts about the ground this stands on, because both are easy to get wrong:
+Two facts about the ground this stood on before Phase 32, kept here because both were easy to get
+wrong and the history is worth keeping:
 
-- **`capability.Descriptor` already has a `Parent` field, and nothing reads it.** The slot for the
-  hierarchy exists. Phase 32's job is to make resolution actually use it, not to invent the field.
-- **Exactly three capabilities exist in code today:** `SSHTransportCapable`, `CiscoIOSCapable`, and
-  `LinuxCapable`, all in `pkg/capability/capabilities.go`. Everything else named anywhere in the
-  specification is prose, not Go.
+- **`capability.Descriptor` already had a `Parent` field, and nothing read it.** Phase 32 made
+  `capability.Resolves` walk it (a device that only declares the narrower `AptCapable` also resolves
+  the broader `PackageManagerCapable` it descends from), and retrofitted `Parent: NetworkCLICapable`
+  onto the pre-existing `CiscoIOSCapable` so this section's own `net.cli.config -> net.ios.config`
+  worked example is real, not aspirational: `cisco.Router` also structurally implements
+  `NetworkCLICapable`'s `CLIPrompt()`, so the resolution holds on both the data and structural sides.
+- **Exactly three capabilities existed in code before Phase 32:** `SSHTransportCapable`,
+  `CiscoIOSCapable`, and `LinuxCapable`. Phase 32 added the other ~23 named throughout this document
+  (`PackageManagerCapable`/`AptCapable`/`DnfCapable`, `ServiceManagerCapable`/`SystemdCapable`/
+  `FirewalldCapable`/`WindowsServiceCapable`, `NetworkCLICapable`/`NetconfCapable`/`JunosCapable`/
+  `AristaEOSCapable`, and the rest of the catalog table below) as real Go interfaces in
+  `pkg/capability`, split across several files by domain. None has a concrete device type
+  implementing it yet beyond the three originals plus `NetworkCLICapable` (via `Router`) -- that is
+  Phase 33/34's job, not this one's.
 
-### A naming drift that has to be settled first
+### A naming drift that Phase 32 settled
 
-The same capability is spelled three different ways across this project:
+The same capability used to be spelled three different ways across this project:
 
 | Source | Spelling |
 |--------|----------|
@@ -144,10 +154,10 @@ The same capability is spelled three different ways across this project:
 | `PLAN.md` Section 14 transports table | `SSHCapable` |
 | `CODE_SCAFFOLD.md` | `SSHCapable`, with a different method set |
 
-**The code name wins.** `SSHTransportCapable` is what exists and what `capability.Implements` checks.
-Phase 32 reconciles the two specification documents to match the code, rather than the other way
-around. Any table that emits capability names must use code spellings, or the linter will reject
-names the specification told an author to use.
+**The code name won.** `SSHTransportCapable` is what exists and what `capability.Implements` checks.
+Phase 32 reconciled both specification documents to match the code (spelling and method set alike)
+rather than the other way around. Any table that emits capability names must use code spellings, or
+the linter will reject names the specification told an author to use.
 
 ### Why renaming lowers friction rather than raising it
 

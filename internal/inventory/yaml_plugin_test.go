@@ -120,7 +120,13 @@ func TestParseHosts_MissingType(t *testing.T) {
 // TestHydrateHosts_ClassifyOnly proves a hand-written entry carrying only
 // Classify (no Type) hydrates through the real DefaultRuleSet, the
 // resolver's first consumer wired into the real hydration path rather than
-// exercised only inside internal/classification's own package tests.
+// exercised only inside internal/classification's own package tests. It
+// also proves Phase 32's capability granularity decision end to end,
+// through the real production seam: the debian_family level's AptCapable
+// reaches the hydrated item's declared set, unioned with Server's own
+// SSHTransportCapable/LinuxCapable baseline, even though Server does not
+// structurally implement AptCapable (so HasCapability(AptCapable) is
+// correctly still false -- see cisco/linux's own union tests).
 func TestHydrateHosts_ClassifyOnly(t *testing.T) {
 	hosts := []inventory.HostSpec{
 		{Name: "web1", Classify: []string{"linux_server", "debian_family", "ubuntu"}},
@@ -136,6 +142,16 @@ func TestHydrateHosts_ClassifyOnly(t *testing.T) {
 	}
 	if !items[0].HasCapability(capability.NameLinux) {
 		t.Error("classify-resolved host does not declare LinuxCapable; classification did not resolve to linux_server")
+	}
+
+	foundApt := false
+	for _, c := range items[0].Capabilities() {
+		if c == capability.NameApt {
+			foundApt = true
+		}
+	}
+	if !foundApt {
+		t.Error("expected debian_family's AptCapable to be unioned into the hydrated item's declared set")
 	}
 }
 

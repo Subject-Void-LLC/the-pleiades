@@ -159,6 +159,11 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		return record.Record{}, err
 	}
 
+	caps, err := ResolveHostCapabilities(h, r.ruleSet)
+	if err != nil {
+		return record.Record{}, err
+	}
+
 	rec := record.Record{
 		ID:   deviceID,
 		Name: h.Name,
@@ -166,10 +171,11 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		// PropertyValue is a type alias for any (pkg/inventory/item.go),
 		// so HostSpec's map[string]interface{} and Record's
 		// map[string]PropertyValue are the same type; no conversion needed.
-		Properties: h.Properties,
-		Tags:       toTags(h.Tags), // toTags is unexported in yaml_plugin.go, same package
-		State:      inventory.StateActive,
-		Source:     inventory.SourceAuthority{Plugin: "file"},
+		Properties:   h.Properties,
+		Tags:         toTags(h.Tags), // toTags is unexported in yaml_plugin.go, same package
+		State:        inventory.StateActive,
+		Source:       inventory.SourceAuthority{Plugin: "file"},
+		Capabilities: caps,
 	}
 
 	entry, idx := findSidecarEntry(sidecar, deviceID)

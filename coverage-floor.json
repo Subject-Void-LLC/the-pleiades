@@ -14,9 +14,11 @@
     "github.com/SubjectVoidLLC/the-pleiades/internal/ent": 14.1,
     "github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate": 85.3,
     "github.com/SubjectVoidLLC/the-pleiades/internal/event": 85.3,
-    "github.com/SubjectVoidLLC/the-pleiades/internal/classification": 93.0,
+    "github.com/SubjectVoidLLC/the-pleiades/internal/classification": 97.6,
     "github.com/SubjectVoidLLC/the-pleiades/internal/inventory": 81.8,
-    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record": 4.0,
+    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco": 100.0,
+    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux": 100.0,
+    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record": 30.0,
     "github.com/SubjectVoidLLC/the-pleiades/internal/lock": 87.0,
     "github.com/SubjectVoidLLC/the-pleiades/internal/runner": 83.9,
     "github.com/SubjectVoidLLC/the-pleiades/internal/storage": 87.5,
@@ -50,8 +52,6 @@
     "github.com/SubjectVoidLLC/the-pleiades/pkg/sdk": "interface-only scaffolding for an unbuilt phase (the Collection SDK); no logic exists yet to test",
     "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest": "test-double helper package, not shippable product code",
     "github.com/SubjectVoidLLC/the-pleiades/tools/gosec-check": "CI meta-tooling, not shippable product code",
-    "github.com/SubjectVoidLLC/the-pleiades/tools/coverage-check": "CI meta-tooling, not shippable product code",
-    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco": "real logic, currently 0% direct coverage (exercised transitively through internal/inventory's factory tests); a known, honestly-recorded gap rather than a floor to protect at 0",
-    "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux": "real logic, currently 0% direct coverage (exercised transitively through internal/inventory's factory tests); a known, honestly-recorded gap rather than a floor to protect at 0"
+    "github.com/SubjectVoidLLC/the-pleiades/tools/coverage-check": "CI meta-tooling, not shippable product code"
   }
 }

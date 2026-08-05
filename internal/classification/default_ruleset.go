@@ -1,5 +1,7 @@
 package classification
 
+import "github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+
 // DefaultRuleSet returns the built-in classification rules PLAN.md Section
 // 7 promises every `pleiades init` scaffold ships with ("built-in
 // classification rules for common OS families"). It is grounded only in
@@ -10,12 +12,15 @@ package classification
 //
 // The tree shape mirrors PLAN.md Section 6d's own worked example
 // (linux_server -> debian_family -> ubuntu; network_device -> cisco ->
-// ios), including levels that carry no rule at all (debian_family and
-// ubuntu add nothing here, the same as Section 6d's own windows/ and
-// windows/desktop/ levels), to demonstrate real root-to-leaf inheritance:
-// classifying ["linux_server", "debian_family", "ubuntu"] pulls its Type
-// and ConnectionMode from the root rule two levels up, unchanged by the
-// two no-op levels in between.
+// ios). Capabilities matches what Router/Server's vendor constructors
+// already hardcode at the root level (Phase 32's capability granularity
+// decision: this makes classification and the vendor literal agree, not
+// diverge), plus one real sub-rule at debian_family granting AptCapable --
+// the checklist's own worked example ("the mechanism where
+// debian_family/_rule.yaml adds AptCapable") made concrete: classifying
+// ["linux_server", "debian_family", "ubuntu"] unions AptCapable into the
+// LinuxCapable/SSHTransportCapable the root already granted, unchanged by
+// the ubuntu level, which still carries no rule of its own.
 func DefaultRuleSet() *RuleSet {
 	str := func(s string) *string { return &s }
 
@@ -24,11 +29,16 @@ func DefaultRuleSet() *RuleSet {
 			Type:           str("linux_server"),
 			ConnectionMode: str("agentless"),
 			Onboard:        str("configure_polling"),
+			Capabilities:   []capability.Name{capability.NameLinux, capability.NameSSHTransport},
+		},
+		"linux_server.debian_family": {
+			Capabilities: []capability.Name{capability.NameApt},
 		},
 		"network_device.cisco.ios": {
 			Type:           str("cisco_router"),
 			ConnectionMode: str("agentless"),
 			Onboard:        str("configure_polling"),
+			Capabilities:   []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport},
 		},
 	})
 	if err != nil {

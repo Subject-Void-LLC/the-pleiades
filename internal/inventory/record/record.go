@@ -64,6 +64,15 @@ type Record struct {
 	// "this item has never changed". Version is the authority on whether
 	// an item has changed.
 	History []inventory.Revision
+
+	// Capabilities is the classification-derived capability set (Phase
+	// 32's capability granularity decision: a device's capability set is
+	// data, walked from internal/classification's rule tree at
+	// classification time, not a literal baked into a vendor
+	// constructor). It is nil for a Record resolved from an explicit Type
+	// with no Classify path, since there is no rule tree to walk in that
+	// case; NewBase's caller decides what, if anything, fills that gap.
+	Capabilities []capability.Name
 }
 
 // Base implements the Section 1 base contract shared by every concrete
@@ -152,15 +161,17 @@ func (b *Base) Tags() []inventory.Tag {
 	return append([]inventory.Tag(nil), b.tags...)
 }
 
-// Declares reports whether this device's classification assigned it name.
-// A concrete type's HasCapability ANDs this with capability.Implements, so
-// a device can only advertise a capability it both claims and structurally
-// satisfies (the CODE_SCAFFOLD binding rule).
+// Declares reports whether this device's classification assigned it name,
+// directly or through the Section 8 capability hierarchy (a device that
+// only declared AptCapable also Declares the broader PackageManagerCapable
+// it descends from -- see capability.Resolves). A concrete type's
+// HasCapability ANDs this with capability.Implements, so a device can only
+// advertise a capability it both claims and structurally satisfies (the
+// CODE_SCAFFOLD binding rule).
 func (b *Base) Declares(name capability.Name) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	_, ok := b.caps[name]
-	return ok
+	return capability.Resolves(b.caps, name)
 }
 
 func (b *Base) Capabilities() []capability.Name {
