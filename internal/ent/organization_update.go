@@ -14,6 +14,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 )
 
 // OrganizationUpdate is the builder for updating Organization entities.
@@ -64,6 +65,21 @@ func (_u *OrganizationUpdate) AddDevices(v ...*Device) *OrganizationUpdate {
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddTeamIDs adds the "teams" edge to the Team entity by IDs.
+func (_u *OrganizationUpdate) AddTeamIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddTeamIDs(ids...)
+	return _u
+}
+
+// AddTeams adds the "teams" edges to the Team entity.
+func (_u *OrganizationUpdate) AddTeams(v ...*Team) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTeamIDs(ids...)
+}
+
 // Mutation returns the OrganizationMutation object of the builder.
 func (_u *OrganizationUpdate) Mutation() *OrganizationMutation {
 	return _u.mutation
@@ -88,6 +104,27 @@ func (_u *OrganizationUpdate) RemoveDevices(v ...*Device) *OrganizationUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearTeams clears all "teams" edges to the Team entity.
+func (_u *OrganizationUpdate) ClearTeams() *OrganizationUpdate {
+	_u.mutation.ClearTeams()
+	return _u
+}
+
+// RemoveTeamIDs removes the "teams" edge to Team entities by IDs.
+func (_u *OrganizationUpdate) RemoveTeamIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveTeamIDs(ids...)
+	return _u
+}
+
+// RemoveTeams removes "teams" edges to Team entities.
+func (_u *OrganizationUpdate) RemoveTeams(v ...*Team) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTeamIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -199,6 +236,51 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTeamsIDs(); len(nodes) > 0 && !_u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{organization.Label}
@@ -254,6 +336,21 @@ func (_u *OrganizationUpdateOne) AddDevices(v ...*Device) *OrganizationUpdateOne
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddTeamIDs adds the "teams" edge to the Team entity by IDs.
+func (_u *OrganizationUpdateOne) AddTeamIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddTeamIDs(ids...)
+	return _u
+}
+
+// AddTeams adds the "teams" edges to the Team entity.
+func (_u *OrganizationUpdateOne) AddTeams(v ...*Team) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTeamIDs(ids...)
+}
+
 // Mutation returns the OrganizationMutation object of the builder.
 func (_u *OrganizationUpdateOne) Mutation() *OrganizationMutation {
 	return _u.mutation
@@ -278,6 +375,27 @@ func (_u *OrganizationUpdateOne) RemoveDevices(v ...*Device) *OrganizationUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearTeams clears all "teams" edges to the Team entity.
+func (_u *OrganizationUpdateOne) ClearTeams() *OrganizationUpdateOne {
+	_u.mutation.ClearTeams()
+	return _u
+}
+
+// RemoveTeamIDs removes the "teams" edge to Team entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveTeamIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveTeamIDs(ids...)
+	return _u
+}
+
+// RemoveTeams removes "teams" edges to Team entities.
+func (_u *OrganizationUpdateOne) RemoveTeams(v ...*Team) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTeamIDs(ids...)
 }
 
 // Where appends a list predicates to the OrganizationUpdate builder.
@@ -412,6 +530,51 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTeamsIDs(); len(nodes) > 0 && !_u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

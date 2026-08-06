@@ -10,6 +10,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -105,6 +106,16 @@ func (m *MockMsg) Metadata() (*jetstream.MsgMetadata, error) {
 
 func (m *MockMsg) Subject() string { return "pleiades.jobs.dispatch" }
 
+// Headers backs handleMessage's trace-context extraction. It returns nil,
+// the shape of a message published with tracing disabled, which is the
+// right default for every test here that is not about tracing; the one
+// that is supplies its own (agent_trace_test.go's tracingMockMsg).
+//
+// It must exist rather than fall through to the embedded jetstream.Msg:
+// that interface field is nil in this mock, so an unimplemented method
+// called by production code is a nil dereference, not a compile error.
+func (m *MockMsg) Headers() nats.Header { return nil }
+
 func (m *MockMsg) NakWithDelay(delay time.Duration) error { return nil }
 
 func TestAgent_ReleaseGate(t *testing.T) {
@@ -122,7 +133,7 @@ func TestAgent_ReleaseGate(t *testing.T) {
 	logger := slog.Default()
 	// js is nil: MockAdapter never returns an error, so handleMessage's
 	// DLQ path (the only code that touches js) is never reached here.
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -178,7 +189,7 @@ func (erroringAdapter) Execute(ctx context.Context, payload runner.DispatchPaylo
 func TestNewAgent_DefaultsNilLoggerToSlogDefault(t *testing.T) {
 	consumer := &MockConsumer{}
 	// Must not panic on a nil logger; NewAgent substitutes slog.Default().
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, nil)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -193,7 +204,7 @@ func TestAgent_HandleMessage_ToleratesAckFailure(t *testing.T) {
 		ackErr: errors.New("deliberate ack failure"),
 	}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -215,7 +226,7 @@ func TestAgent_HandleMessage_ToleratesTermFailureOnMalformedMessage(t *testing.T
 		termErr: errors.New("deliberate term failure"),
 	}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -238,7 +249,7 @@ func TestAgent_HandleMessage_AdapterFailureRoutesThroughDeadLetterHandling(t *te
 	// so HandleDeliveryFailure takes the NakWithDelay branch (also
 	// overridden on MockMsg), never the dead-letter-republish branch that
 	// would need a working js.Publish.
-	agent := runner.NewAgent(consumer, erroringAdapter{}, nil, 5, slog.Default())
+	agent := runner.NewAgent(consumer, erroringAdapter{}, nil, 5, slog.Default(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -260,7 +271,7 @@ func TestAgent_HandleMessage_MalformedDispatchPayloadInsideValidEnvelope(t *test
 	// bytes -> Event).
 	msg := &MockMsg{data: []byte(`{"id":"e1","data":"not an object"}`)}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default())
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

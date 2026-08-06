@@ -36,6 +36,31 @@ func FuzzDAGBuilder(f *testing.F) {
 	// Metadata section present.
 	f.Add([]byte(`{"id":"r9","metadata":{"service_effecting":true},"tasks":[{"name":"a","fqcn":"noop"}]}`))
 
+	// Module-as-key sugar (task_syntax.go), JSON path: valid, ambiguous,
+	// conflicting, and non-map, mirroring yaml_fuzz_test.go's seeds so the
+	// JSON normalizer gets the same adversarial coverage as the YAML one.
+	f.Add([]byte(`{"id":"s1","tasks":[{"name":"a","net.cli.command":{"command":"x"}}]}`))
+	f.Add([]byte(`{"id":"s2","tasks":[{"name":"a","net.cli.command":{"command":"x"},"net.ios.config":{"lines":[]}}]}`))
+	f.Add([]byte(`{"id":"s3","tasks":[{"name":"a","fqcn":"noop","net.cli.command":{"command":"x"}}]}`))
+	f.Add([]byte(`{"id":"s4","tasks":[{"name":"a","net.cli.command":"not a map"}]}`))
+	f.Add([]byte(`{"id":"s5","tasks":[{"name":"a","net.cli.command":[1,2,3]}]}`))
+	f.Add([]byte(`{"id":"s6","tasks":[{"name":"a","noop":null}]}`))
+
+	// Parallel (Phase 10): valid, and adversarial - alongside fqcn/block,
+	// empty, and module-as-key sugar colliding with an explicit parallel:.
+	f.Add([]byte(`{"id":"p1","tasks":[{"name":"fanout","parallel":[{"name":"a","fqcn":"noop"},{"name":"b","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p2","tasks":[{"name":"bad","fqcn":"noop","parallel":[{"name":"a","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p3","tasks":[{"name":"bad","block":[{"name":"c","fqcn":"noop"}],"parallel":[{"name":"a","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p4","tasks":[{"name":"empty","parallel":[]}]}`))
+	f.Add([]byte(`{"id":"p5","tasks":[{"name":"nested","parallel":[{"name":"inner","parallel":[{"name":"a","fqcn":"noop"}]}]}]}`))
+	f.Add([]byte(`{"id":"p6","tasks":[{"name":"a","net.cli.command":{"command":"x"},"parallel":[{"name":"b","fqcn":"noop"}]}]}`))
+
+	// Deeply nested block, well beyond maxTaskNestingDepth
+	// (import_tasks.go): must fail with a clear depth-limit error rather
+	// than crash the fuzzer process (Schema/Injection Hardening finding,
+	// FAILURE_PATTERNS.md #62).
+	f.Add(deeplyNestedPayload(500))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		// Just ensure it doesn't panic on arbitrary byte slices
 		builder.Build(payload)

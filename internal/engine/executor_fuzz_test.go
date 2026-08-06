@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -45,5 +46,79 @@ func FuzzExecutorRun(f *testing.F) {
 		if len(result.Nodes) != len(dag.Nodes) {
 			t.Fatalf("expected %d node results (one per synthesized node), got %d", len(dag.Nodes), len(result.Nodes))
 		}
+	})
+}
+
+// FuzzRegisterMaskPath proves resolveRegisterMaskPath's dotted-path walk
+// (executor_secrets.go, reached through register_mask) never panics on an
+// arbitrary path string, run through the real Executor against a fixed,
+// two-level-nested Stats shape: deeply nested paths, paths with
+// leading/trailing/doubled dots, paths naming a real key at the wrong
+// depth (walking through a leaf value), and empty segments must all
+// either resolve, benignly skip, or fail the node with a clear error, but
+// never crash the process that would otherwise be running a user's
+// runbook.
+func FuzzRegisterMaskPath(f *testing.F) {
+	seeds := []string{
+		"",
+		".",
+		"..",
+		"a",
+		"a.b",
+		"a.b.c",
+		".a",
+		"a.",
+		"a..b",
+		"secret",
+		"secret.oops",
+		"parent",
+		"parent.nested",
+		"parent.nested.too_deep",
+		"parent.does_not_exist",
+	}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+
+	eval, err := engine.NewCELEvaluator()
+	if err != nil {
+		f.Fatal(err)
+	}
+	builder := engine.NewBuilder(eval)
+
+	f.Fuzz(func(t *testing.T, path string) {
+		task := map[string]any{
+			"name":     "mark",
+			"fqcn":     "noop",
+			"register": "creds",
+			"register_mask": []string{path},
+			"params": map[string]any{
+				// "secret" is a long-enough leaf string (a non-map
+				// intermediate, if path tries to descend through it);
+				// "parent.nested" is the one genuinely resolvable nested
+				// path among the seeds above.
+				"secret": "a-long-enough-leaf-value",
+				"parent": map[string]any{
+					"nested": "a-long-enough-nested-value",
+				},
+			},
+		}
+		payload, err := json.Marshal(map[string]any{
+			"id":    "fuzz-register-mask",
+			"tasks": []any{task},
+		})
+		if err != nil {
+			t.Fatalf("marshaling fuzz runbook: %v", err)
+		}
+
+		dag, err := builder.Build(payload)
+		if err != nil {
+			return // an invalid path string rejected at build time is fine
+		}
+
+		x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = x.Run(ctx, dag) // a node failure is an acceptable outcome; a panic or hang is not
 	})
 }

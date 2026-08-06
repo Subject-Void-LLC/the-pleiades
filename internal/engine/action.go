@@ -22,6 +22,29 @@ type TargetResolver interface {
 	Resolve(target string) []inventory.InventoryItem
 }
 
+// TaskTarget returns task's effective target: task's own Params["target"]
+// when it is a non-empty string, otherwise dag.Hosts, the runbook-level
+// default (WorkflowDef.Hosts's own doc comment). This is the one place
+// that implements the default/override resolution, reused identically by
+// the executor (resolveDevices, executor.go) and by every validate.Rule
+// that resolves a target (capability_rule.go, blast_radius.go,
+// lifecycle_rule.go), so the two-level fallback lives in exactly one place
+// rather than four copies of the same lookup drifting apart.
+//
+// A non-string Params["target"] (e.g. a YAML list) falls through to
+// dag.Hosts exactly like an absent one: the unchecked type assertion
+// here matches every existing call site's own long-standing behavior
+// (FAILURE_PATTERNS.md #11 already tracks that a malformed target is
+// silently indistinguishable from an absent one; fixing that is a
+// separate, not yet applied, change, not something this helper's
+// introduction takes on incidentally).
+func TaskTarget(dag *DAG, task *Task) string {
+	if target, ok := task.Params["target"].(string); ok && target != "" {
+		return target
+	}
+	return dag.Hosts
+}
+
 // ActionResult is what one fqcn action reports after running once,
 // either against one resolved device or, for a controller-side task with
 // no target, against none at all (PLAN.md Section 14's Execution
@@ -79,14 +102,20 @@ type builtinActionExecutor struct{}
 //     role Ansible's own debug module plays, and the only way to prove
 //     conditional branching end to end (Phase W5's Release Gate) before
 //     Phase W6 adds a real transport to produce a real value to branch on.
-//   - "set_metadata", mirroring Ansible's set_stats module: requires a
-//     non-empty task.Params["data"] map, reported verbatim as
-//     ActionResult.Stats with IsMetadata set, for RunResult.Metadata's
-//     final run report. Never reports Changed: setting metadata never
-//     alters device state. Deliberately does not implement set_stats'
-//     aggregate/per_host flags (overwrite semantics only): nothing asked
-//     for them, and top-level keys only, matching every ActionResult.Stats
-//     shape this codebase produces today.
+//   - "set_metadata", also reachable as "pleiades.builtin.set_metadata"
+//     (both spellings dispatch identically, indefinitely), mirroring
+//     Ansible's set_stats module: requires a non-empty task.Params["data"]
+//     map, reported verbatim as ActionResult.Stats with IsMetadata set,
+//     for RunResult.Metadata's final run report. Never reports Changed:
+//     setting metadata never alters device state. Deliberately does not
+//     implement set_stats' aggregate/per_host flags (overwrite semantics
+//     only): nothing asked for them, and top-level keys only, matching
+//     every ActionResult.Stats shape this codebase produces today. The
+//     dotted spelling exists so a runbook can namespace every genuinely
+//     native (non-Ansible-ported) fqcn under "pleiades.builtin.", the same
+//     namespace internal/validate/collection_rule.go's exemption list
+//     names; see that file's doc comment for why this one builtin stays a
+//     hardcoded switch case rather than a real pkg/collection method.
 //
 // Every other fqcn returns an explicit "not implemented" error rather than
 // a fake success, the same honesty rule the Forge catalog's stub decision
@@ -108,7 +137,7 @@ func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.
 			result.Stats = task.Params
 		}
 		return result, nil
-	case "set_metadata":
+	case "set_metadata", "pleiades.builtin.set_metadata":
 		data, ok := task.Params["data"].(map[string]interface{})
 		if !ok || len(data) == 0 {
 			return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty params.data map", task.FQCN)

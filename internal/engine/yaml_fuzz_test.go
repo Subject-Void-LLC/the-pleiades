@@ -67,6 +67,17 @@ func FuzzBuildFromYAML(f *testing.F) {
 	f.Add([]byte("id: r8\ntasks:\n  - name: empty\n"))
 	f.Add([]byte("id: r9\ntasks:\n  - name: both\n    fqcn: noop\n    block:\n      - name: child\n        fqcn: noop\n"))
 
+	// Module-as-key sugar (task_syntax.go): valid, ambiguous, conflicting,
+	// non-map, and deeply nested, so the fuzzer exercises the normalizer's
+	// rewrite/error paths, not just the post-normalization decode.
+	f.Add([]byte("id: s1\ntasks:\n  - name: a\n    net.cli.command:\n      command: x\n"))
+	f.Add([]byte("id: s2\ntasks:\n  - name: a\n    net.cli.command:\n      command: x\n    net.ios.config:\n      lines: []\n"))
+	f.Add([]byte("id: s3\ntasks:\n  - name: a\n    fqcn: noop\n    net.cli.command:\n      command: x\n"))
+	f.Add([]byte("id: s4\ntasks:\n  - name: a\n    net.cli.command: \"not a map\"\n"))
+	f.Add([]byte("id: s5\ntasks:\n  - name: a\n    net.cli.command: [1, 2, 3]\n"))
+	f.Add([]byte("id: s6\ntasks:\n  - name: a\n    noop:\n"))
+	f.Add([]byte("id: s7\ntasks:\n  - name: outer\n    block:\n      - name: inner\n        net.ios.config:\n          lines: []\n        net.cli.command:\n          command: x\n"))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		_, _ = builder.BuildFromYAML(payload)
 	})

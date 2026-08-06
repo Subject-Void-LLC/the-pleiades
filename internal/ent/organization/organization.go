@@ -22,6 +22,8 @@ const (
 	FieldName = "name"
 	// EdgeDevices holds the string denoting the devices edge name in mutations.
 	EdgeDevices = "devices"
+	// EdgeTeams holds the string denoting the teams edge name in mutations.
+	EdgeTeams = "teams"
 	// Table holds the table name of the organization in the database.
 	Table = "organizations"
 	// DevicesTable is the table that holds the devices relation/edge.
@@ -31,6 +33,13 @@ const (
 	DevicesInverseTable = "devices"
 	// DevicesColumn is the table column denoting the devices relation/edge.
 	DevicesColumn = "organization_devices"
+	// TeamsTable is the table that holds the teams relation/edge.
+	TeamsTable = "teams"
+	// TeamsInverseTable is the table name for the Team entity.
+	// It exists in this package in order to avoid circular dependency with the "team" package.
+	TeamsInverseTable = "teams"
+	// TeamsColumn is the table column denoting the teams relation/edge.
+	TeamsColumn = "organization_teams"
 )
 
 // Columns holds all SQL columns for organization fields.
@@ -98,10 +107,31 @@ func ByDevices(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newDevicesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByTeamsCount orders the results by teams count.
+func ByTeamsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTeamsStep(), opts...)
+	}
+}
+
+// ByTeams orders the results by teams terms.
+func ByTeams(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTeamsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newDevicesStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(DevicesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, DevicesTable, DevicesColumn),
+	)
+}
+func newTeamsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TeamsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TeamsTable, TeamsColumn),
 	)
 }

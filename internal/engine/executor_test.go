@@ -127,6 +127,55 @@ func TestExecutor_ConditionalBranch_ReleaseGate(t *testing.T) {
 	}
 }
 
+// TestExecutor_ConditionalBranch_NodesVariable is Phase 9's own end-to-end
+// proof, at the real Executor call site rather than the bare
+// Program/Evaluator primitives: a task's when_cel can reach an earlier
+// task's registered result through the "nodes" root (PLAN.md Section 27's
+// cross-node aggregation), not only through "stat". It is the same
+// three-task shape as TestExecutor_ConditionalBranch_ReleaseGate
+// immediately above, with "nodes." in place of "stat." in every when_cel
+// expression, proving runNode really does bind both roots to the same
+// WorkflowContext snapshot (executor.go) rather than only "stat" working
+// by convention.
+func TestExecutor_ConditionalBranch_NodesVariable(t *testing.T) {
+	dag := buildDAG(t, `{
+		"id": "conditional-demo-nodes",
+		"tasks": [
+			{"name": "precheck", "fqcn": "noop", "register": "precheck", "params": {"needs_reboot": true}},
+			{"name": "reboot", "fqcn": "noop", "when_cel": "nodes.precheck[\"\"].needs_reboot == true", "params": {"changed": true}},
+			{"name": "skip-me", "fqcn": "noop", "when_cel": "nodes.precheck[\"\"].needs_reboot == false"}
+		]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+	if len(result.Nodes) != 3 {
+		t.Fatalf("expected 3 node results (the third Skipped, not omitted), got %d: %+v", len(result.Nodes), result.Nodes)
+	}
+
+	byID := map[string]engine.NodeResult{}
+	for _, n := range result.Nodes {
+		byID[n.NodeID] = n
+	}
+
+	if byID["tasks[1]"].Skipped || !byID["tasks[1]"].Changed {
+		t.Fatalf("expected reboot (tasks[1]) to run and report changed, got %+v", byID["tasks[1]"])
+	}
+	if !byID["tasks[2]"].Skipped {
+		t.Fatalf("expected skip-me (tasks[2]) to be skipped, got %+v", byID["tasks[2]"])
+	}
+	if !strings.Contains(byID["tasks[2]"].SkipReason, "nodes.precheck[\"\"].needs_reboot == false") {
+		t.Errorf("expected SkipReason to name skip-me's own when_cel expression, got %q", byID["tasks[2]"].SkipReason)
+	}
+}
+
 // TestExecutor_DeviceFanOut confirms a task whose target resolves to
 // several devices runs against every one of them, each getting its own
 // NodeResult carrying that device's ID.
@@ -167,6 +216,82 @@ func TestExecutor_DeviceFanOut(t *testing.T) {
 	}
 }
 
+// TestExecutor_Parallel_RunsConcurrently confirms a parallel task's
+// children genuinely run concurrently through the real Executor.Run call
+// (not just LevelIterator.Next in isolation, which TestLevelIterator_Diamond,
+// level_iterator_test.go, already proves), using the same high-water-mark
+// tracking pattern as TestExecutor_ConcurrencyBound below. It also proves
+// the synthetic fan-out/join markers never reach the ActionExecutor at
+// all (the count of onExecute calls equals exactly childCount, not
+// childCount+2), and that every child plus both markers still produced a
+// NodeResult, so Phase 10's synthetic fast path (executor.go's runNode)
+// is provably inert rather than silently dropping results.
+func TestExecutor_Parallel_RunsConcurrently(t *testing.T) {
+	const childCount = 4
+
+	var current, peak, calls int32
+	tracker := trackingActionExecutor{
+		onExecute: func() {
+			atomic.AddInt32(&calls, 1)
+			n := atomic.AddInt32(&current, 1)
+			for {
+				p := atomic.LoadInt32(&peak)
+				if n <= p || atomic.CompareAndSwapInt32(&peak, p, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt32(&current, -1)
+		},
+	}
+
+	dag := buildDAG(t, `{
+		"id": "parallel-concurrency",
+		"tasks": [
+			{"name": "fanout", "parallel": [
+				{"name": "p0", "fqcn": "noop"},
+				{"name": "p1", "fqcn": "noop"},
+				{"name": "p2", "fqcn": "noop"},
+				{"name": "p3", "fqcn": "noop"}
+			]}
+		]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, tracker, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	if got := atomic.LoadInt32(&peak); got != childCount {
+		t.Fatalf("expected all %d parallel children to run concurrently (peak == %d), observed peak %d", childCount, childCount, got)
+	}
+	if got := atomic.LoadInt32(&calls); got != childCount {
+		t.Fatalf("expected exactly %d ActionExecutor calls (the synthetic fanout/join markers must never reach it), got %d", childCount, got)
+	}
+
+	wantIDs := map[string]bool{
+		"tasks[0].fanout": true, "tasks[0].join": true,
+		"tasks[0].parallel[0]": true, "tasks[0].parallel[1]": true,
+		"tasks[0].parallel[2]": true, "tasks[0].parallel[3]": true,
+	}
+	if len(result.Nodes) != len(wantIDs) {
+		t.Fatalf("expected %d node results, got %d: %+v", len(wantIDs), len(result.Nodes), result.Nodes)
+	}
+	for _, n := range result.Nodes {
+		if !wantIDs[n.NodeID] {
+			t.Errorf("unexpected node result %q", n.NodeID)
+		}
+		if n.Err != nil {
+			t.Errorf("node %q: expected no error, got %v", n.NodeID, n.Err)
+		}
+	}
+}
+
 // TestExecutor_UnknownTargetIsError confirms a non-empty target that
 // resolves to no device fails the node with an actionable error, rather
 // than silently doing nothing (this codebase's own established defect
@@ -188,6 +313,59 @@ func TestExecutor_UnknownTargetIsError(t *testing.T) {
 	}
 	if !strings.Contains(result.Nodes[0].Err.Error(), "nonexistent") {
 		t.Errorf("expected the error to name the target, got: %v", result.Nodes[0].Err)
+	}
+}
+
+// TestExecutor_RunbookHostsIsDefaultTarget confirms a task with no
+// params.target of its own runs against the runbook-level hosts: default
+// (WorkflowDef.Hosts), and that a task with its own params.target still
+// overrides it, dispatching to a different device than the default names.
+// This is TaskTarget's (action.go) default/override contract exercised
+// through the real executor, not just the unit test on TaskTarget itself.
+func TestExecutor_RunbookHostsIsDefaultTarget(t *testing.T) {
+	sw1 := &inventorytest.Stub{StubID: "sw1", StubName: "sw1", StubState: inventory.StateActive}
+	sw2 := &inventorytest.Stub{StubID: "sw2", StubName: "sw2", StubState: inventory.StateActive}
+	resolver := mapResolver{"sw1": {sw1}, "sw2": {sw2}}
+
+	var mu sync.Mutex
+	var executedAgainst []string
+	recording := deviceRecordingActionExecutor{onExecute: func(device inventory.InventoryItem) {
+		mu.Lock()
+		defer mu.Unlock()
+		if device != nil {
+			executedAgainst = append(executedAgainst, string(device.ID()))
+		}
+	}}
+
+	dag := buildDAG(t, `{
+		"id": "hosts-default",
+		"hosts": "sw1",
+		"tasks": [
+			{"name": "uses the default", "fqcn": "noop"},
+			{"name": "overrides the default", "fqcn": "noop", "params": {"target": "sw2"}}
+		]
+	}`)
+
+	x := engine.NewExecutor(resolver, recording, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"sw1", "sw2"}
+	if len(executedAgainst) != len(want) {
+		t.Fatalf("expected the executor to run against %v, got %v", want, executedAgainst)
+	}
+	for i, id := range want {
+		if executedAgainst[i] != id {
+			t.Errorf("executedAgainst[%d] = %q, want %q", i, executedAgainst[i], id)
+		}
 	}
 }
 

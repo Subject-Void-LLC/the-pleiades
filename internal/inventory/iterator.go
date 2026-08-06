@@ -32,21 +32,53 @@ type Iterator interface {
 // change it computed was based on state that no longer exists.
 var ErrVersionConflict = errors.New("inventory item was modified by another writer")
 
+// ErrItemNotFound is returned by GetByName when no item carries that name.
+// Every Repository adapter wraps it rather than returning a bare formatted
+// error, because callers must be able to tell "this device is new" apart
+// from "the backend failed". A sync plugin's reconciliation pass is the
+// first real consumer: an unwrapped not-found would make it treat a broken
+// database as a fleet of brand new devices and write duplicates.
+var ErrItemNotFound = errors.New("inventory item not found")
+
+// ErrItemExists is returned by Create when an item with that name or ID is
+// already stored. Create never overwrites: a sync plugin that rediscovers a
+// device it already onboarded must reconcile it through Save, so the
+// existing version token and audit trail survive rather than being reset by
+// a second insert.
+var ErrItemExists = errors.New("inventory item already exists")
+
 // Repository defines the data access methods for the inventory state. It
 // is the pluggable port every tier's inventory backend satisfies: an
 // ent-backed repository at Crawl and above, a YAML-backed one at Walk.
 type Repository interface {
-	// GetGroup returns an Iterator to safely stream all devices within a
-	// group. Items it yields carry their stored version but not their
+	// GetGroup returns an Iterator to safely stream every device matching
+	// sel. Items it yields carry their stored version but not their
 	// audit trail: loading history for every row of a list view would be
 	// a query per device for data a list view does not display.
-	GetGroup(ctx context.Context, groupName string) (Iterator, error)
+	GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error)
 
 	// GetByName returns a single item by its unique name, including its
 	// full audit trail. This is the read counterpart to Save: it is how a
 	// caller reloads after an ErrVersionConflict, and how anything that
 	// needs History rather than just current state fetches an item.
 	GetByName(ctx context.Context, name string) (inventory.InventoryItem, error)
+
+	// Create inserts a brand new item, returning ErrItemExists if one is
+	// already stored under that name or ID.
+	//
+	// It is separate from Save because the two have genuinely different
+	// preconditions and failure modes. Save is a conditional update guarded
+	// by a version token and is a no-op when nothing changed; Create has no
+	// prior version to condition on and must fail loudly rather than
+	// silently doing nothing. Folding them into one upsert would mean the
+	// caller could no longer tell a first-time onboard from a re-sync,
+	// which is exactly the distinction a sync plugin's reconciliation
+	// report is made of.
+	//
+	// Until this method existed the Repository port had no write path at
+	// all for new devices: add-host wrote hosts.yaml directly, bypassing
+	// the port, and no sync plugin could onboard anything.
+	Create(ctx context.Context, item inventory.InventoryItem) error
 
 	// Save persists an item's mutated properties, its lifecycle state, and
 	// every Revision recorded since it was loaded.

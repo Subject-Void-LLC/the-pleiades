@@ -453,6 +453,16 @@ asserts the second, because the second has no real value to assert against until
 Revisit this the moment Section 17 or 32 defines what should populate `iss`/`aud` on a real issued token,
 and add `jwt.WithIssuer`/`jwt.WithAudience` at that point, not before.
 
+**Resolved (2026-08-06, Phase 8: RBAC & Identity Validation).** `NewJWTEvaluator` now takes an explicit
+`issuer, audience string` pair and pins both via `jwt.WithIssuer`/`jwt.WithAudience`, plus
+`jwt.WithExpirationRequired()` (a token with no `exp` claim was also accepted forever until this phase)
+and `jwt.WithValidMethods(provider.Algorithms())` (replacing "any HMAC family" with the exact algorithm
+set a given `KeyProvider`'s keys are valid for). `cmd/controller/main.go` sources both from
+`JWT_ISSUER`/`JWT_AUDIENCE` env vars, non-empty defaulted so an empty issuer/audience can never
+accidentally become the value being matched against. This closes the gap this entry named as its own
+condition for revisiting: a real caller now exists (`cmd/controller`'s composition root), so the
+previously-guessed validation is now a real one.
+
 ## 21. `add-host --set port=<n>` silently produced an unusable port, defaulting `SSHPort()` to 22
 
 **Symptom:** found while building Phase W6's own Release Gate, which needed to point a scaffolded
@@ -1198,3 +1208,443 @@ neither the existing benchmark (a fixed 3-segment path) nor the existing fuzz co
 segments) had exposed this before the adversarial review measured it directly.
 
 **Lesson:** LESSONS_LEARNED.md #49.
+
+## 50. A shared CLI positional-argument parser silently swallowed a real flag as a bare boolean flag's value
+
+**Symptom:** `runForgeNewCollection([]string{"pkg.apt.install", "--capabilities", "AptCapable",
+"--transports", "ssh", "--requires-elevation", "--engine-version", ">=1.0.0"})` failed with `unexpected
+extra argument: ">=1.0.0"`, even though every flag was spelled correctly and `--engine-version` was
+given a value.
+
+**Root cause:** `cmd/pleiades/addhost.go`'s `splitPositional` (shared by `add-host`, `add-credential`,
+and, as of Phase 33, `forge new-device`/`forge new-collection`) assumed every `"-"`-prefixed token
+without an inline `=value` consumes the next token as its value, a premise true of every flag `add-host`
+itself defines (all string-valued) but false for a bare boolean flag in its short form (`--flag`, no
+following token, matching the stdlib `flag` package's own bool-flag convention). `forge new-collection`
+introduced the first caller with a boolean flag (`--requires-elevation`) reachable through this shared
+function: `splitPositional` treated `--engine-version` (the token immediately after
+`--requires-elevation`) as that flag's "value," which pushed `>=1.0.0` into the position `splitPositional`
+reads as a second positional argument. The same defect was already live, unnoticed, for
+`add-credential --passphrase` (`cmd/pleiades/addcredential.go`), a pre-existing boolean flag that just
+happened never to be exercised with another flag following it in any existing test.
+
+**Fix:** applied. `splitPositional` gained a `boolFlags map[string]bool` parameter naming every flag (by
+name, without its leading dashes) that takes no following value in its bare form; only a flag in that set
+is exempted from the "next token is this flag's value" rule, and inline `--flag=value` continues to work
+unconditionally either way. Every call site was updated: `add-host` and `forge new-device` (which define
+no boolean flags) pass `nil`; `add-credential` now passes `map[string]bool{"passphrase": true}`, closing
+the pre-existing latent bug; `forge new-collection` passes `map[string]bool{"requires-elevation": true}`.
+`cmd/pleiades/addhost_test.go`'s `TestSplitPositional_BoolFlagTakesNoFollowingValue` is the regression
+test, including a case proving the bug reproduces when `boolFlags` is omitted for a command that needs it.
+
+**Lesson:** LESSONS_LEARNED.md #54.
+
+## 51. `pkg/capability`'s own Windows capability file never compiled on any non-Windows platform
+
+**Symptom:** while wiring Phase 34's generated `windows.Server` device type, `internal/forge/catalogdata`
+failed to build with `undefined: capability.NameWindows` / `NameWinRM` / `NameWindowsFeature`, even though
+`pkg/capability/capabilities_windows.go` plainly declares all three, has no `//go:build` line, and
+`go build ./pkg/capability/...` on its own succeeded with zero errors.
+
+**Root cause:** the filename itself, not its content, was the problem. Go treats a source file whose name
+ends in `_GOOS.go` (or `_GOOS_GOARCH.go`) as implicitly constrained to that platform, with no explicit
+build tag required; `capabilities_windows.go`'s trailing `_windows` exactly matches the reserved GOOS value
+`windows`, so the Go toolchain silently excluded the entire file from every build and test run on this
+project's actual platform (`linux/amd64`). `go build ./pkg/capability/...` succeeded because the package
+still compiled correctly *without* the file; `go list -f '{{.IgnoredGoFiles}}' ./pkg/capability` was what
+finally surfaced it (`go doc`/`go list -f '{{.GoFiles}}'` both silently omitted the file's symbols too).
+The three capabilities it declares (`WindowsCapable`, `WinRMCapable`, `WindowsFeatureCapable`) had existed
+since Phase 32 but had never been compiled, registered via their own `init()`, or covered by any test on
+any developer or CI machine building for Linux or macOS -- Phase 32's own "26 capabilities, 100% coverage"
+claims for `pkg/capability` were measured against a package that silently only had 23 of them. This is the
+only file anywhere in the repository whose name collides with a real `GOOS`/`GOARCH` suffix (confirmed by
+searching for every `*_windows.go`/`*_linux.go`/`*_darwin.go`/etc. filename in the tree).
+
+**Fix:** applied. Renamed the file to `pkg/capability/capabilities_win.go` (`git mv`, preserving history);
+`"win"` matches no `GOOS` or `GOARCH` value, so nothing about the implicit-constraint mechanism can trigger
+on it again. No code inside the file changed. `go list -f '{{.GoFiles}}' ./pkg/capability` now includes it,
+and `go test ./pkg/capability/...` exercises it for the first time.
+
+**Lesson:** LESSONS_LEARNED.md #55.
+
+## 52. A generated Collection catalog compiled and unit-tested cleanly while being completely unreachable from the real binary
+
+**Symptom:** `internal/validate`'s own stress test (`TestCollectionRule_StressAllCatalogNames`, built to
+prove the new collection-declared-but-unimplemented validation rule against every real catalog entry)
+failed every single case with "not a registered collection name" instead of "declared but not yet
+implemented" -- even though all 71 generated `internal/catalog/...` packages built, and each one's own
+`_test.go` (asserting `collection.Lookup` succeeds) passed in isolation.
+
+**Root cause:** a generated Collection package's `init()` (the only thing that calls
+`collection.MustRegister`) only runs once something imports that package. Running `go test
+./internal/catalog/...` triggers each package's own `init()` inside its own, isolated test binary, so its
+own test always finds itself registered -- proving nothing about any other binary. Nothing in this
+codebase, including the real `pleiades` binary, ever imported any `internal/catalog/...` package for any
+other reason (confirmed by a repo-wide grep before this fix), so `pkg/collection`'s registry was, in
+every real context except a catalog package's own test, completely empty. This is structurally identical
+to entry #27 above (a `database/sql` driver whose only real registration happened to be a test import):
+per-package tests all green, real binary silently broken, with no failing test anywhere to say so, because
+nothing had reason to import the aggregate outside a test.
+
+**Fix:** applied, before anything shipped, not after: added `internal/catalog/builtins.go` (regenerated by
+`tools/gencatalog` on every run, from `internal/forge/catalogdata`'s own entries, deduplicated and sorted
+-- never hand-maintained, so it can never silently drift the way a hand-written 27-line import list
+could), mirroring `internal/inventory/builtins.go`'s established pattern for device types. Added
+`cmd/pleiades/catalog_builtins.go`, the one blank import that makes the real binary actually pull in that
+aggregator. Added `internal/archtest/catalog_test.go`
+(`TestCatalogCollections_AllRegistered`/`TestCatalogDevices_AllRegistered`) so a future catalog entry added
+to `catalogdata` without regenerating `builtins.go` fails a fast, targeted test instead of silently
+reproducing this exact gap.
+
+**Lesson:** LESSONS_LEARNED.md #56.
+
+## 53. A real end-to-end test writing into the live module tree can race an architecture test's `go list` scan of the same tree
+
+**Symptom:** `go test ./...` (no `-race`, ordinary full-suite run) intermittently failed
+`internal/archtest`'s `TestAdapterAllowlistHasNoStaleEntries` on one run and
+`TestRegistryConsumerAllowlistHasNoStaleEntries` on a different run, both with `go list -json
+github.com/SubjectVoidLLC/the-pleiades/internal/...: exit status 1 / cannot find package`. Both tests
+passed cleanly every time when run in isolation.
+
+**Root cause:** `go test ./...` runs different packages' test binaries concurrently. Three separate
+packages' end-to-end tests (`cmd/pleiades/e2e_test.go`'s `TestCLI_ForgeNewDevice_EndToEnd`/
+`TestCLI_ForgeNewCollection_EndToEnd`, and, as of this phase, `tools/gencatalog`'s
+`TestGencatalog_DogfoodsRealCLI_EndToEnd`) each drive the real built `pleiades` binary to write a real,
+temporary package directory under the real `internal/catalog/` or `internal/inventory/devices/` tree, then
+remove it via `t.Cleanup`, per RULE 0's requirement to prove the actual CLI surface against the actual
+module rather than a stand-in. `internal/archtest`'s own tests shell out to `go list -json
+.../internal/...`, a live filesystem-plus-module-graph scan of that same tree. When one of the three
+mutating tests' temporary directory is created or removed at the exact moment `go list` is mid-walk, `go
+list` can observe a half-consistent state and fail outright rather than simply omitting the transient
+package. This risk already existed with only `cmd/pleiades`'s own two e2e tests; adding this phase's third
+instance of the identical pattern made it measurably more likely to actually manifest in a given run.
+
+**Fix:** not applied. This is a real, narrow, and low-frequency race between test-suite-only I/O, not a
+production code path, and every real-tree-mutating e2e test it involves is already the established,
+intentional pattern for proving a CLI surface against the real module (Phase 33's own precedent, extended
+here rather than invented). Building cross-process test synchronization (a shared file lock between three
+otherwise-unrelated test packages) to close a rare, test-only race was judged disproportionate to this
+phase's scope. `make ci`/`go test -race ./...` run cleanly on a normal single pass; a repeat run is the
+existing, already-documented remedy for this class of transient failure (see this project's own prior
+"run `make ci` twice to rule out a transient failure" precedent).
+
+**Lesson:** LESSONS_LEARNED.md #57.
+
+## 54. A real end-to-end test's fixture used a device property key the code under test never read, so a passing test proved nothing about the feature it appeared to exercise
+
+**Symptom:** `tests/e2e/integration_test.go`'s `TestGrandIntegration` failed with "expected 2 dispatched,
+got 0" the moment Phase 7 made `entRepository.GetGroup` actually filter by its `Selector`'s `GroupName`,
+even though this test predates Phase 7 and had passed on every prior run, including full `-race` CI runs.
+
+**Root cause:** the test seeded two devices with `properties["group"] = "edge"` and dispatched with
+`?group=edge`, but `entRepository.GetGroup` discarded its group argument entirely before this phase
+(exactly the bug Phase 7's own checklist named: "the current implementation discards its group argument
+and streams the entire device table") and streamed every device regardless of what was asked for. The
+`"group"` property was pure decoration: nothing in the code path this test exercised ever read it. The
+test looked like it verified group-scoped dispatch and actually only verified "dispatch works when every
+device happens to match, because filtering is not wired up at all."
+
+**Fix:** applied. The test now attaches both devices to a real ent `Group` named `"edge"` via
+`client.Group.Create().SetName("edge").AddDevices(rtr1, rtr2)`, the mechanism
+`Selector{GroupName: "edge"}` actually filters against, matching
+`internal/inventory/ent_repository_selector_test.go`'s own real-`Group` fixture pattern.
+
+**Lesson:** LESSONS_LEARNED.md #58.
+
+## 55. Two end-to-end tests in different packages each removed the *shared parent* directory their per-process fixtures lived under, so a parallel run deleted one test's package while it was still building
+
+**Symptom:** `cmd/pleiades`'s `TestCLI_ForgeNewCollection_EndToEnd` failed under `go test ./...` with
+`no required module provides package .../internal/catalog/test/gencatalogtest<pid>`, while passing every
+time it was run alone or as its own package. The failing test name moved between runs: sometimes
+`cmd/pleiades`, sometimes `tools/gencatalog`.
+
+**Root cause:** both `cmd/pleiades/e2e_test.go` and `tools/gencatalog/main_test.go` generate a synthetic
+Collection into the real module tree under `internal/catalog/test/<something><pid>`, correctly namespacing
+their own subdirectory by process id, and then both registered a `t.Cleanup` that removed
+`internal/catalog/test` -- the shared parent, not their own subdirectory. `go test ./...` runs separate
+packages concurrently as separate processes, so whichever test finished first deleted the other's
+package mid-build. The pid namespacing made the *creation* safe and did nothing for the *deletion*,
+which is why the bug survived: every author correctly reasoned about collisions on the way in.
+
+This is the same family as #53 (a real end-to-end test writing into the live module tree racing another
+package's scan of it), reached from the cleanup side rather than the write side.
+
+**Fix:** applied. Both cleanups now remove only their own pid-namespaced subdirectory
+(`internal/catalog/test/<suffix>`), never the shared parent. Two consecutive full `go test ./...` runs
+pass where the failure previously reproduced roughly one run in three.
+
+**Lesson:** LESSONS_LEARNED.md #59.
+
+## 56. A repository port had no create operation at all, so the first sync plugin had nothing to onboard a device with
+
+**Symptom:** implementing `syncplugin.Reconcile` against `inventory.Repository` had no way to persist a
+newly discovered device. `Save` exists, but it is a conditional update guarded by a version token and
+short-circuits to a no-op when `current == baseVersion`, which is exactly the state a brand new item is
+in, so calling it on a new device silently wrote nothing and returned nil.
+
+**Root cause:** nothing had ever needed to create a device through the port. `pleiades add-host` writes
+`hosts.yaml` directly with `ReadHosts`/`WriteHosts`, bypassing `Repository` entirely, and the ent adapter's
+`Save` is an `Update().Where(...)` with no insert path. The port therefore looked complete (get, list,
+save) while being write-only for devices that already existed. Two smaller gaps fell out of the same
+hole: `GetByName` returned a bare formatted error for not-found, so a caller could not distinguish "this
+device is new" from "the backend failed", and no accessor exposed the registry key an item was hydrated
+through, so even a working `Create` could not have known what to store in the immutable `type` column.
+
+**Fix:** applied. `Repository.Create` added and implemented on both adapters, guarded by a new
+`ErrItemExists`; `ErrItemNotFound` added and wrapped by both adapters' `GetByName`; `record.Base.DeviceType`
+added and read through an unexported `typed` interface, mirroring how `versioned` already keeps
+`BaseVersion` out of the public `InventoryItem` contract. All four are covered by new conformance tests
+running against both backends.
+
+**Lesson:** LESSONS_LEARNED.md #60.
+
+## 57. A file-backed repository named its own storage backend as the authoritative sync plugin, so the first real sync plugin reported every host as a conflict
+
+**Symptom:** the static YAML sync plugin's first conformance run reported `conflict` for every host, with
+the reason `device is owned by sync plugin "file"`, against a project whose inventory no plugin had ever
+touched.
+
+**Root cause:** `fileRepository.buildRecord` defaulted `Source` to `SourceAuthority{Plugin: "file"}` for any
+host whose sidecar recorded no provenance. That conflated two different questions: where a device's data
+is stored, and which sync plugin authoritatively owns it. Section 11's One Authority Per Item is about the
+second. Naming the storage backend as the owner meant every hand-written `hosts.yaml` entry looked like it
+was already claimed, and reconciliation correctly refused to adopt any of them. The default was harmless
+for as long as nothing compared against it, which is why it survived until the first plugin did.
+
+**Fix:** applied. `buildRecord` now leaves `Source` zero when the sidecar recorded none, which is the honest
+answer for "provenance was never recorded" and the value reconciliation already treats as adoptable. The
+conformance test that pinned the old behavior was strengthened rather than deleted: both backends now
+round-trip a real, caller-supplied plugin name, which is a stronger claim than the asymmetric one it
+replaced.
+
+**Lesson:** LESSONS_LEARNED.md #61.
+
+## 58. A read-only guard that failed loudly turned a dry run into an abort on the first device
+
+**Symptom:** `pleiades inventory sync --plugin catalyst_center --read-only` against the real DevNet sandbox
+exited with `refusing to create sandboxdnac.cisco.com: inventory is open read-only` after processing one
+device, having reported nothing about the other four.
+
+**Root cause:** `NewReadOnlyRepository` was built to fail loudly, which is right: a component that must not
+write should be told so rather than silently ignored. But `--read-only` on a sync is a *dry run*, and a user
+asking what would change gets no answer from an abort. Both behaviors are legitimate; the mistake was
+assuming one mechanism could serve both without the caller in between deciding which it wanted.
+
+**Fix:** applied. The guard still refuses every write. `syncplugin.Reconcile` now catches
+`ErrInventoryReadOnly` specifically and records `would add` / `would update` rather than failing the sync,
+so the same guard produces the simulate-first proof with no second code path that could drift: every
+decision above the write is identical, and only the final write is intercepted.
+
+**Lesson:** LESSONS_LEARNED.md #62.
+
+## 59. A migration-generation tool's zero-option schema diff silently never emits `DROP COLUMN`
+
+**Symptom:** Phase 8 removed `User.role` from `internal/ent/schema/user.go` (the orphaned-permission
+anti-pattern PLAN.md Section 18.2 forbids, replaced by Team-bound `RoleBinding`s), then ran
+`internal/ent/migrate/gen/main.go` to generate the incremental migration. The generated
+`0003_add_rbac_teams.sql` would have added the new `teams`/`role_bindings`/`team_users` tables but left
+the `users.role` column behind, silently: no error, no warning, a schema that visibly still diverged from
+`internal/ent/schema/user.go` after the "correct" tool ran.
+
+**Root cause:** `gen/main.go`'s `client.Schema.WriteTo(ctx, &buf)` call passed zero `MigrateOption`s. ent's
+own default for `WithDropColumn` is `false` (`entgo.io/ent/dialect/sql/schema`), a deliberate safety choice
+in ent itself so an accidental field removal cannot accidentally drop a column carrying real data. That
+default is correct for ent in general and wrong for silence: nothing in `gen/main.go`'s own output said a
+column was being deliberately skipped, so the omission looked identical to "the tool correctly detected
+no change needed here."
+
+**Fix:** applied. `gen/main.go` now calls `client.Schema.WriteTo(ctx, &buf, schema.WithDropColumn(true))`,
+with an inline comment explaining why. Verified by inspecting the regenerated `0003_add_rbac_teams.sql`
+directly: it now includes the SQLite rename-table-recreate-copy sequence that drops `role` from `users`
+(ent's own diff engine chose that approach over a native `ALTER TABLE ... DROP COLUMN`, even though the
+bundled SQLite 3.53.4 supports the native form).
+
+**Lesson:** a "regenerate the migration and trust the tool" workflow is only as trustworthy as the tool's
+own default options. A schema diff tool that defaults to *not* emitting a destructive statement is right
+to default that way, but the caller must still verify a schema *removal* actually produced the DDL it
+implies, not just that the tool exited zero - the same "correct code, empty result, still wrong" trap
+`.AGENTS/AGENTS.md`'s "Always run a control first" guidance names for `gopls` queries, here for a codegen
+tool instead.
+
+## 60. A `coverage-floor.json` regression check flagged four packages this phase never touched
+
+**Symptom:** `go run ./tools/coverage-check`, run as part of Phase 8's own Release Gate verification,
+reported `internal/forge/genutil` (75.0% vs. a 96.0% floor), `internal/inventory/record` (29.5% vs. 30.0%),
+`pkg/collection` (91.7% vs. 100.0%), and `tools/gencatalog` (70.3% vs. 70.8%) all below their recorded
+floors - none of which Phase 8's diff touches at all (`git status` confirms zero changes to any of the
+four).
+
+**Root cause:** not investigated past confirming it predates this phase, which is the actual point of this
+entry. A `git worktree add --detach` checkout of this branch's base commit (before any Phase 8 change)
+measured the identical four percentages for the identical four packages, proving the drift already existed
+and this phase did not introduce, worsen, or trigger it.
+
+**Fix:** not applied, deliberately, and not this phase's to apply. Lowering these floors to match reality
+would silently hide a real regression from whatever change actually caused it (`coverage-floor.json`'s own
+header: "floors only rises over time... never silently down"); fixing the underlying test coverage in four
+unrelated packages is scope creep this phase's own RBAC/Identity Validation mandate does not cover. Recorded
+here, plainly, so the next session that runs `make ci` and sees it fail does not spend time re-deriving
+that Phase 8 is not the cause.
+
+**Lesson:** before treating any red `make ci`/`coverage-check` result as "this session's problem to fix,"
+check whether it predates the session's own diff - a real, cheap way to do that (not a memory or a guess)
+is a disposable `git worktree add --detach <base-commit>` and re-running the identical check there. The
+same class of finding this project already accepts for flaky container tests (`internal/lock`,
+`internal/transport/ssh`, and, this session, `internal/event` and `tests/e2e` under heavy concurrent Docker
+load) generalizes to coverage drift: a pre-existing gap discovered during verification is worth recording
+honestly, not silently absorbed into "this session's own regressions" or silently ignored.
+
+## 61. A full concurrent `go test ./...` run reliably flakes on containerized-dependency packages in this sandboxed environment, and reducing package-level parallelism reliably fixes it
+
+**Symptom:** Phase 9's own verification (`internal/engine`-only diff, zero changes to any of the packages
+below) ran `go test ./... -race -count=1` and separately `go test ./... -cover -count=1` (the exact
+command `tools/coverage-check` shells out to). Each full run failed a different, non-overlapping subset
+of: `internal/event` (`TestNatsBus_SurvivesConnectionSeverance`, `TestNatsBusPublish_DistinctEventsBothStored`),
+`internal/lock` (`TestNewNatsLockManagerRejectsOldServer`), and `tests/e2e` (`TestGrandIntegration`) - all
+real-container (testcontainers-go: NATS, toxiproxy, Postgres, ryuk) tests, none touched by this phase's
+diff (`git status` confirms). Every one of the four passed cleanly, every time, run individually in
+isolation.
+
+**Root cause:** `go test ./...`'s default package-level concurrency (one test binary per package, run in
+parallel up to `GOMAXPROCS`) means several packages spin up their own testcontainers-managed Docker
+containers at the same moment. In this sandboxed environment that contention is enough to blow past
+container-ready wait timeouts and connection deadlines on an unpredictable subset each run - the specific
+package that loses the race changes between runs, which is the signature of resource contention, not a
+code defect. This is the same category `HANDOFF_DOCUMENT.md`'s own prior sessions already named narratively
+(`internal/lock`/`internal/transport/ssh` "under parallel container load"), here isolated with a concrete,
+actionable mitigation for the first time.
+
+**Fix:** not a code fix (there is no code defect to fix). `go test ./... -p 4` (capping package-level
+parallelism, distinct from `-race`'s own goroutine concurrency within a package) ran the identical full
+suite clean, twice, with no failures, by reducing how many containerized-dependency packages start their
+own Docker containers at the same moment. Use `-p 4` (or lower) for a full-suite run in this environment
+when verifying a change that does not touch `internal/event`/`internal/lock`/`tests/e2e`/`internal/transport/ssh`
+themselves, rather than repeatedly retrying the default-parallelism command and hoping for a clean window.
+
+**Lesson:** in a resource-constrained sandbox, "flaky under `go test ./...`, passes in isolation" is not
+automatically a dead end once a package is confirmed innocent (`git status` on the diff) - `-p 4` is a
+cheap, real, repeatable way to get a genuine full-suite signal instead of settling for "probably fine,
+retried once." Reach for it before spending further time re-deriving that a failure is the known container
+category.
+
+## 62. Two independent unbounded-recursion sites in the DAG builder scaled stack usage directly with externally-supplied input size
+
+**Symptom:** Phase 10 (Workflow DAG Builder)'s own checklist named one specific instance ("bound the
+cycle-detection recursion") but research found the same defect class in three call sites, not one:
+`dag.go`'s `hasCycle` (a recursive DFS whose depth is driven by `Adjacency` path length - a large *flat*
+`tasks:` list, no nesting needed at all, since `synthesizeChain` always chains a flat list into one long
+line), and `tasktree.go`'s `synthesizeChain`/`collectSubtree` plus `import_tasks.go`'s
+`resolveImportTasksInList` (whose depth is driven by `block`/`rescue`/`always`/`parallel`/`import_tasks`
+*nesting* depth instead - a structurally different risk from the first, since a flat list has nesting
+depth 1 no matter how many tasks it holds). Neither had a depth bound. `dag_fuzz_test.go`'s existing seed
+corpus (a 3-level nested `block` seed) came nowhere near adversarial depth and did not catch this.
+
+**Root cause:** every one of these three functions is a plain recursive walk with no depth accounting,
+over a graph/tree shape an external caller fully controls via a runbook JSON or YAML payload. Go's
+goroutine stacks grow dynamically (unlike a fixed-size C stack), so this is not a "one tiny payload
+instantly crashes the process" bug the way it would be in a language with fixed-size stacks - but the
+growth ceiling is still finite (1GB by default, `runtime/debug.SetMaxStack`), and exceeding it is a fatal,
+unrecoverable process crash, not a catchable `panic`/`recover()`. A single request large enough to reach
+that ceiling is a real but non-trivial payload (tens of MB); more realistically, several concurrent
+requests each moderately deep can exhaust process memory well before any single one reaches the per-
+goroutine ceiling alone. Either way this is a real resource-exhaustion vector on an externally-supplied
+boundary (Phase 39's Schema/Injection Hardening categories), not merely a theoretical concern.
+
+**Fix:** `hasCycle` converted to an iterative DFS over an explicit stack (`dfsFrame`/`dfsColor`,
+`internal/engine/dag.go`), removing its recursion limit entirely rather than picking an arbitrary cap on
+legitimate large runbooks - the right fix for a risk driven by input *size*, not depth.
+`resolveImportTasksInList` (`internal/engine/import_tasks.go`) gained a real depth check at the top of the
+function, reusing its own pre-existing `maxImportDepth` constant (renamed `maxTaskNestingDepth`, value
+unchanged at 32) for both its original purpose (import-hop-chain length) and plain nesting depth. Because
+`resolveImportTasksInList` runs first and unconditionally on the complete tree (`resolveImportTasks` is
+`buildFromDef`'s very first step), bounding it there transitively bounds `tasktree.go`'s own recursion too
+- one check, not two, for the one risk. `TestHasCycle_NoStackOverflowOnLongChain` (500,000-node chain,
+`dag_internal_test.go`), `TestDAGBuilder_LargeFlatTaskListDoesNotCrash` (20,000 flat tasks through the
+real `Build()` path), and `TestDAGBuilder_ExcessiveNestingRejected` (a 200-level nested payload, rejected
+with a clear error; a 10-level one still builds) are the regression tests; `FuzzDAGBuilder`'s seed corpus
+gained a 500-level-deep adversarial seed.
+
+**Lesson:** when a checklist item names one instance of a recursion-depth risk, grep the same package for
+the identical shape (a function recursing over the same externally-supplied tree/graph with no depth
+accounting) before considering the item closed - `import_tasks.go`'s `resolveImportTasksInList` was found
+this way, not named in the original item, and would have been an identical, un-fixed gap sitting right
+next to the one just closed. Separately: a recursion-depth risk in Go is real even though Go's growable
+stacks make it a higher bar to hit than in a fixed-stack language - state the actual mechanics (a finite
+but large ceiling, a fatal, unrecoverable crash once reached, concurrent load lowering the practical
+bar) rather than either dismissing the risk as impossible or overstating it as "one tiny payload always
+crashes the process," a description that is accurate for other languages but not for Go's default stack
+behavior.
+
+## 63. A caller-supplied job ID was concatenated straight into a NATS subject, so `>` streamed every job's logs
+
+**Symptom:** `GET /api/v1/jobs/{id}/logs` returned the log stream of exactly the job named by `{id}`, in
+every ordinary test and every manual check, because every job ID any part of this platform mints is a
+UUID and a UUID has no special meaning to NATS. Nothing looked wrong.
+
+**Root cause:** `internal/api/logs.go`'s `StreamLogs` read `{id}` with `chi.URLParam` and checked only
+that it was non-empty, then handed it to `topology.LogViewerConsumerConfig`, whose `FilterSubject` is
+`topology.LogSubject(jobID)`, which is the bare concatenation `logSubjectPrefix + jobID`. NATS subject
+wildcards are ordinary characters in an ordinary string: `>` matches every remaining token and `*`
+matches one. A request for `/api/v1/jobs/%3E/logs` therefore built the filter subject
+`pleiades.jobs.logs.>` and subscribed the caller to the live execution logs of *every job in the
+system*, and `.` re-tokenized the subject so a partial ID could be widened the same way. Any
+authenticated caller, holding any scope, could read every other tenant's job output. The boundary was
+never validated because the only producer of job IDs is trusted (`api.Dispatcher`'s own `uuid.New()`),
+which is exactly the reasoning that makes an input look safe while an attacker supplies it directly.
+
+Two things hid it. First, `gosec` did flag the adjacent line (`G705`, the same `jobID` reaching an SSE
+write) and that finding had been individually waived across three phases as a low-severity XSS question,
+which framed the whole variable as a cosmetic escaping concern rather than an authorization one; nobody
+followed the same variable one line up into the subject builder. Second, the only route in this
+repository that reads a URL parameter at all is this one, so there was no second instance to compare
+against and notice the pattern.
+
+**Fix:** `StreamLogs` now rejects any `{id}` that does not parse as a UUID (`uuid.Parse`), with `400`,
+before the value reaches `topology` or the bus. That is the boundary check, placed at the boundary: every
+job ID this platform issues is a UUID, so the restriction costs nothing, and it closes the subject
+injection and the waived `G705` SSE-write question in the same stroke. The 500 error path stopped echoing
+the caller-supplied ID back into the response body as well; the real error goes to the structured log,
+where it is just as useful and not attacker-readable.
+`TestStreamLogs_RejectsSubjectInjectingJobIDs` is the regression test: a table of `>`, `*`, a wildcard
+suffix, an embedded subject separator, an embedded newline, empty, and a plain non-UUID string, each
+asserted to be refused *before* consumer creation (the fake JetStream it runs against answers `500` if
+reached, so a `400` proves the bus was never touched) and asserted not to echo the input back.
+
+**Lesson:** a string that is safe because of who *usually* produces it is not validated, it is lucky. The
+question to ask at any boundary is not "what does our code put here" but "what happens if the caller puts
+anything here," and the answer has to be traced through every consumer of the value, not just the one the
+static analyzer happened to point at. Concretely: message-broker subject construction belongs on the same
+mental list as SQL and shell construction, because subject wildcards are an access-control mechanism, so
+injecting one is privilege escalation rather than a formatting bug. A waived static-analysis finding is
+also a map of tainted data, not just a ticket to close: this hole was one line away from a finding that
+had been read, understood, and dismissed three times.
+
+## 64. A live SSE handler mutated its response header map while its own consumer goroutine was already writing the body
+
+**Symptom:** `go test ./internal/api/ -race` failed intermittently, roughly one run in five, with a
+`WARNING: DATA RACE` between `net/textproto.MIMEHeader.Set` in `StreamLogs` and `fmt.Fprintf` inside the
+`Consume` callback. Runs in isolation always passed. It had been passing in CI by luck.
+
+**Root cause:** `internal/api/logs.go`'s `StreamLogs` started the JetStream `Consume` callback *before*
+setting its own SSE response headers, deliberately: a `Write` implicitly commits a 200 status, so
+starting `Consume` first is what lets a consumer-creation failure still report an honest error code. The
+file already knew two goroutines write to `w` and guarded that with a `writeMu`. But the header
+assignments after `Consume` are not writes to `w` in the sense the mutex covers: they mutate the header
+map, while the callback goroutine's first body write *reads* that same map to build the response. One
+side of the race never takes the mutex because it never looked like a write at all.
+
+The existing comment even anticipated the shape ("Consume above may already be delivering messages
+concurrently by this point... nothing structurally guarantees" a gap) and drew the wrong boundary from
+it, protecting the body writes and leaving the header map exposed.
+
+**Fix:** the four `w.Header().Set` calls moved above the `Consume` call. Setting a header is not a write
+and commits nothing, so the "no write before `Consume` is checked" property that motivated the original
+ordering is fully preserved, while the header map is now final before any goroutine that could read it
+exists. Confirmed by four consecutive clean `-race` runs of the package.
+
+**Lesson:** "which goroutines write to this variable" is the wrong question for a `http.ResponseWriter`;
+the right one is "which goroutines touch this object's state, including through methods that do not look
+like writes." A mutex named for one operation invites exactly this: `writeMu` reads as covering
+everything dangerous, and it covered one of the two dangerous things. When a handler hands its
+`ResponseWriter` to another goroutine, everything the handler still intends to do to that writer,
+headers included, must happen before the handoff, not after.

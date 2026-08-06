@@ -128,6 +128,37 @@ func TestBuiltinActionExecutor_SetMetadataRequiresNonEmptyData(t *testing.T) {
 	}
 }
 
+// TestTaskTarget covers the default/override resolution WorkflowDef.Hosts
+// documents: a task's own Params["target"] wins when it is a non-empty
+// string, dag.Hosts is the fallback, and a malformed (non-string) target
+// falls back exactly like an absent one, matching FAILURE_PATTERNS.md #11's
+// established "malformed is indistinguishable from absent" behavior at
+// every other call site.
+func TestTaskTarget(t *testing.T) {
+	cases := []struct {
+		name   string
+		hosts  string
+		params map[string]interface{}
+		want   string
+	}{
+		{"task target wins over runbook hosts", "sw1", map[string]interface{}{"target": "sw2"}, "sw2"},
+		{"falls back to runbook hosts when task has none", "sw1", nil, "sw1"},
+		{"falls back to runbook hosts when task target is empty", "sw1", map[string]interface{}{"target": ""}, "sw1"},
+		{"neither set yields empty (controller-side task)", "", nil, ""},
+		{"non-string task target falls back to runbook hosts", "sw1", map[string]interface{}{"target": []string{"sw1", "sw2"}}, "sw1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dag := &engine.DAG{Hosts: tc.hosts}
+			task := &engine.Task{Params: tc.params}
+			if got := engine.TaskTarget(dag, task); got != tc.want {
+				t.Errorf("TaskTarget() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuiltinActionExecutor_SetMetadataNeverReportsChanged confirms
 // set_metadata never reports Changed, even if a task authors a
 // params.changed value the way a "noop" task would: setting metadata

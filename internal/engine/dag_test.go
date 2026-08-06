@@ -292,9 +292,286 @@ func TestDAGBuilder_AllowsSafeRunbookID(t *testing.T) {
 	}
 }
 
-// Cycle detection (hasCycle) has no test here: the tree-walk builder
-// synthesizes Adjacency deterministically from pretasks/tasks/posttasks
-// and their Block children, so a cycle is structurally unreachable
-// through any authoring surface this package exposes. hasCycle stays as a
-// cheap defensive guard (see dag.go), but there is deliberately no new
-// user-facing way to construct one to test against.
+// Cycle detection (hasCycle) has no Builder-level test here: the
+// tree-walk builder synthesizes Adjacency deterministically from
+// pretasks/tasks/posttasks and their Block/Parallel children, so a cycle
+// is structurally unreachable through any authoring surface this package
+// exposes, Parallel's synthetic fan-out/join splice included. hasCycle
+// stays as a cheap defensive guard (see dag.go); dag_internal_test.go
+// (package engine, not engine_test) tests it directly against hand-built
+// *DAG values, the only way to exercise a genuinely cyclic graph and to
+// prove its iterative rewrite does not scale its stack usage with input
+// size.
+
+// TestDAGBuilder_Parallel confirms a parallel task compiles into a real
+// fan-out/join splice: the parallel task's own id lands in Nodes (for
+// coverage, exactly like a block task's own id already does), but never
+// as a source or target in Adjacency; a synthetic node id+".fanout" feeds
+// every child's own entry concurrently instead, and each child's own exit
+// feeds a synthetic id+".join" node.
+func TestDAGBuilder_Parallel(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	payload := []byte(`{
+		"id": "runbook-parallel",
+		"tasks": [
+			{"name": "before", "fqcn": "noop"},
+			{"name": "fanout", "parallel": [
+				{"name": "p0", "fqcn": "noop"},
+				{"name": "p1", "fqcn": "noop"}
+			]},
+			{"name": "after", "fqcn": "noop"}
+		]
+	}`)
+
+	dag, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("failed to build valid DAG: %v", err)
+	}
+
+	wantNodes := []string{
+		"tasks[0]", "tasks[1]", "tasks[1].fanout", "tasks[1].parallel[0]", "tasks[1].parallel[1]", "tasks[1].join", "tasks[2]",
+	}
+	if len(dag.Nodes) != len(wantNodes) {
+		t.Fatalf("expected %d nodes, got %d: %v", len(wantNodes), len(dag.Nodes), dag.Nodes)
+	}
+	for _, id := range wantNodes {
+		if _, ok := dag.Nodes[id]; !ok {
+			t.Errorf("expected node %q to exist", id)
+		}
+	}
+	if edges, ok := dag.Adjacency["tasks[1]"]; ok {
+		t.Errorf("expected the parallel task's own id tasks[1] to have no outgoing adjacency (only its fanout/join markers do), got %v", edges)
+	}
+	for _, edges := range dag.Adjacency {
+		for _, e := range edges {
+			if e.To == "tasks[1]" {
+				t.Errorf("expected no edge to target tasks[1] itself, got one")
+			}
+		}
+	}
+
+	// before -> fanout.
+	if len(dag.Adjacency["tasks[0]"]) != 1 || dag.Adjacency["tasks[0]"][0].To != "tasks[1].fanout" {
+		t.Fatalf("expected tasks[0] -> tasks[1].fanout, got %v", dag.Adjacency["tasks[0]"])
+	}
+
+	// fanout -> both children, concurrently (order not guaranteed, so
+	// compare as a set).
+	fanoutEdges := dag.Adjacency["tasks[1].fanout"]
+	if len(fanoutEdges) != 2 {
+		t.Fatalf("expected tasks[1].fanout to have 2 outgoing edges, got %v", fanoutEdges)
+	}
+	gotTargets := map[string]bool{fanoutEdges[0].To: true, fanoutEdges[1].To: true}
+	for _, want := range []string{"tasks[1].parallel[0]", "tasks[1].parallel[1]"} {
+		if !gotTargets[want] {
+			t.Errorf("expected tasks[1].fanout to reach %q, got %v", want, fanoutEdges)
+		}
+	}
+
+	// Both children -> join.
+	for _, child := range []string{"tasks[1].parallel[0]", "tasks[1].parallel[1]"} {
+		edges := dag.Adjacency[child]
+		if len(edges) != 1 || edges[0].To != "tasks[1].join" {
+			t.Errorf("expected %s -> tasks[1].join, got %v", child, edges)
+		}
+	}
+
+	// join -> after.
+	if len(dag.Adjacency["tasks[1].join"]) != 1 || dag.Adjacency["tasks[1].join"][0].To != "tasks[2]" {
+		t.Fatalf("expected tasks[1].join -> tasks[2], got %v", dag.Adjacency["tasks[1].join"])
+	}
+
+	// Every synthesized edge defaults to EdgeTypeOnSuccess: adding
+	// EdgeType changed no existing (or new) synthesized edge's behavior.
+	for source, edges := range dag.Adjacency {
+		for _, e := range edges {
+			if e.Type != engine.EdgeTypeOnSuccess {
+				t.Errorf("expected edge %s -> %s to be EdgeTypeOnSuccess, got %v", source, e.To, e.Type)
+			}
+		}
+	}
+}
+
+// TestDAGBuilder_ParallelWithNestedBlock confirms a parallel child that is
+// itself a block task splices its own Block chain in at
+// "tasks[0].parallel[i].block[j]", proving synthesizeOne's shared splice
+// logic reached through the parallel path, not just the block path.
+func TestDAGBuilder_ParallelWithNestedBlock(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	payload := []byte(`{
+		"id": "runbook-parallel-block",
+		"tasks": [
+			{"name": "fanout", "parallel": [
+				{"name": "grouped", "block": [
+					{"name": "b0", "fqcn": "noop"},
+					{"name": "b1", "fqcn": "noop"}
+				]},
+				{"name": "p1", "fqcn": "noop"}
+			]}
+		]
+	}`)
+
+	dag, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("failed to build valid DAG: %v", err)
+	}
+
+	for _, id := range []string{"tasks[0].parallel[0].block[0]", "tasks[0].parallel[0].block[1]"} {
+		if _, ok := dag.Nodes[id]; !ok {
+			t.Errorf("expected node %q to exist, got nodes: %v", id, dag.Nodes)
+		}
+	}
+
+	// The fanout reaches the block's own first child directly, not a
+	// "tasks[0].parallel[0]" node (mirroring how a top-level block task's
+	// own id never appears in Adjacency).
+	fanoutEdges := dag.Adjacency["tasks[0].fanout"]
+	gotTargets := map[string]bool{}
+	for _, e := range fanoutEdges {
+		gotTargets[e.To] = true
+	}
+	if !gotTargets["tasks[0].parallel[0].block[0]"] {
+		t.Errorf("expected fanout to reach the block child's first task directly, got %v", fanoutEdges)
+	}
+	if edges, ok := dag.Adjacency["tasks[0].parallel[0]"]; ok {
+		t.Errorf("expected the nested block task's own id to have no outgoing adjacency, got %v", edges)
+	}
+}
+
+// TestDAGBuilder_ParallelExclusivity confirms Parallel participates in the
+// same exactly-one-of-fqcn/block/parallel rule fqcn/block already had, and
+// that Rescue/Always without Block is still rejected even when Parallel is
+// the field actually set (Parallel stays Block-only for rescue/always).
+func TestDAGBuilder_ParallelExclusivity(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	cases := map[string]string{
+		"fqcn and parallel": `{"id":"x","tasks":[{"name":"bad","fqcn":"noop","parallel":[{"name":"c","fqcn":"noop"}]}]}`,
+		"block and parallel": `{"id":"x","tasks":[{"name":"bad","block":[{"name":"c","fqcn":"noop"}],
+			"parallel":[{"name":"c","fqcn":"noop"}]}]}`,
+		"parallel with rescue, no block": `{"id":"x","tasks":[{"name":"bad","parallel":[{"name":"c","fqcn":"noop"}],
+			"rescue":[{"name":"r","fqcn":"noop"}]}]}`,
+	}
+
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := builder.Build([]byte(payload))
+			if err == nil {
+				t.Fatalf("expected %s to be rejected", name)
+			}
+		})
+	}
+}
+
+// TestDAGBuilder_Version confirms DAG.Version is a stable, deterministic
+// "sha256:<hex>" digest of the fully-resolved definition: identical input
+// hashes identically every time, and any real content change (not just
+// whitespace/key order, which json.Marshal already normalizes) changes it.
+func TestDAGBuilder_Version(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	payload := []byte(`{"id":"v1","tasks":[{"name":"a","fqcn":"noop"}]}`)
+
+	first, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("failed to build DAG: %v", err)
+	}
+	second, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("failed to build DAG: %v", err)
+	}
+
+	if first.Version == "" {
+		t.Fatal("expected a non-empty Version")
+	}
+	if !strings.HasPrefix(first.Version, "sha256:") {
+		t.Errorf("expected Version to be formatted \"sha256:<hex>\", got %q", first.Version)
+	}
+	if first.Version != second.Version {
+		t.Errorf("expected identical input to produce identical Version, got %q and %q", first.Version, second.Version)
+	}
+
+	changed := []byte(`{"id":"v1","tasks":[{"name":"a","fqcn":"noop","params":{"x":1}}]}`)
+	third, err := builder.Build(changed)
+	if err != nil {
+		t.Fatalf("failed to build DAG: %v", err)
+	}
+	if third.Version == first.Version {
+		t.Errorf("expected a real content change to change Version, both were %q", first.Version)
+	}
+}
+
+// TestDAGBuilder_ExcessiveNestingRejected confirms block nesting beyond
+// maxTaskNestingDepth (import_tasks.go) fails with a clear error rather
+// than crashing the process, proving the depth bound is real and reached
+// through the ordinary Build() path (RULE 0), not just import_tasks'
+// own chain. deeplyNestedPayload builds a JSON payload nesting a block
+// task inside itself n times.
+func TestDAGBuilder_ExcessiveNestingRejected(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	t.Run("beyond the bound is rejected", func(t *testing.T) {
+		_, err := builder.Build(deeplyNestedPayload(200))
+		if err == nil {
+			t.Fatal("expected excessive block nesting to be rejected")
+		}
+		if !strings.Contains(err.Error(), "max task nesting depth") {
+			t.Errorf("expected a max-nesting-depth error, got: %v", err)
+		}
+	})
+
+	t.Run("within the bound still builds", func(t *testing.T) {
+		if _, err := builder.Build(deeplyNestedPayload(10)); err != nil {
+			t.Errorf("expected 10 levels of nesting to build successfully, got: %v", err)
+		}
+	})
+}
+
+// deeplyNestedPayload returns a runbook JSON payload with a block task
+// nested n levels deep, innermost holding one leaf "noop" task. Shared by
+// TestDAGBuilder_ExcessiveNestingRejected above and dag_fuzz_test.go's
+// FuzzDAGBuilder seed corpus, so the fuzzer exercises the identical
+// adversarial shape the targeted test already pins down.
+func deeplyNestedPayload(n int) []byte {
+	inner := `{"name":"leaf","fqcn":"noop"}`
+	for i := 0; i < n; i++ {
+		inner = `{"name":"level","block":[` + inner + `]}`
+	}
+	return []byte(`{"id":"deep","tasks":[` + inner + `]}`)
+}
+
+// TestDAGBuilder_LargeFlatTaskListDoesNotCrash is the real, end-to-end
+// (RULE 0) proof that hasCycle's iterative rewrite scales with a large
+// flat tasks: list (no nesting, so maxTaskNestingDepth does not bound it)
+// through the actual Build() path a runbook file goes through, not just
+// dag_internal_test.go's direct hasCycle unit tests.
+func TestDAGBuilder_LargeFlatTaskListDoesNotCrash(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	const n = 20000
+	var sb strings.Builder
+	sb.WriteString(`{"id":"large","tasks":[`)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"name":"t","fqcn":"noop"}`)
+	}
+	sb.WriteString(`]}`)
+
+	dag, err := builder.Build([]byte(sb.String()))
+	if err != nil {
+		t.Fatalf("failed to build a large flat task list: %v", err)
+	}
+	if len(dag.Nodes) != n {
+		t.Fatalf("expected %d nodes, got %d", n, len(dag.Nodes))
+	}
+}

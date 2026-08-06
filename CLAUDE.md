@@ -1,1 +1,3 @@
-Use .AGENTS/AGENTS.md
+# Instructions
+
+Always read and use .AGENTS/AGENTS.md

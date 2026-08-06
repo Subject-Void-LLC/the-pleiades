@@ -67,7 +67,15 @@ func (b *natsBus) Publish(ctx context.Context, topic string, evt Event) error {
 		return fmt.Errorf("failed to marshal event for %s: %w", topic, err)
 	}
 
-	if _, err := b.js.Publish(ctx, topic, data, jetstream.WithMsgID(evt.IdempotencyKey)); err != nil {
+	// The W3C trace context rides in the message headers rather than the
+	// JSON body: out of band from the payload, so a consumer can decide
+	// whether to continue the trace before it has parsed (or failed to
+	// parse) anything, and readable by a non-Go consumer that knows
+	// nothing about this Event schema. See trace.go.
+	msg := &nats.Msg{Subject: topic, Data: data, Header: nats.Header{}}
+	InjectTraceContext(ctx, msg.Header)
+
+	if _, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(evt.IdempotencyKey)); err != nil {
 		return fmt.Errorf("failed to publish to %s: %w", topic, err)
 	}
 	return nil

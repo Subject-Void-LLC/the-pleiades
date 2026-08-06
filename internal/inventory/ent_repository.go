@@ -6,6 +6,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/storage"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
@@ -41,17 +42,38 @@ func (r *entRepository) entClient(ctx context.Context) *ent.Client {
 	return r.client
 }
 
-func (r *entRepository) GetGroup(ctx context.Context, groupName string) (Iterator, error) {
-	// Query devices. If groupName is provided, we would normally filter here.
-	// For this phase, we'll just stream all devices, or implement a basic JSON check.
-	// entgo json filtering: .Where(sql.ExprP("properties->>'group' = ?", groupName))
-	// For simplicity in the Iterator implementation, we fetch everything for now.
+func (r *entRepository) GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error) {
+	// Order once, here, rather than per batch in Next: Clone() carries an
+	// applied Order forward, so there is no need to reapply it on every
+	// page fetch.
+	query := r.entClient(ctx).Device.Query().Order(device.ByDeviceID())
 
-	query := r.entClient(ctx).Device.Query()
+	// A non-empty GroupName pushes the filter down to SQL via the Group
+	// edge (an EXISTS subquery, ent's HasGroupsWith, not a join, so no
+	// duplicate-row risk). Before this, GroupName was received and never
+	// referenced again: every call streamed the whole devices table
+	// regardless of what a caller asked for.
+	//
+	// This matches on DIRECT Group membership only. PLAN.md Section 3's
+	// group nesting (a group's own Group.children/parents edges,
+	// internal/ent/schema/group.go) is not traversed here: nothing in this
+	// codebase populates those edges yet, so there is no real nested-group
+	// data to test against, and building traversal for a case with zero
+	// live callers would be exactly the kind of premature infrastructure
+	// this project's own conventions avoid elsewhere. A group with real
+	// child groups but no direct device members will dispatch to zero
+	// devices today, the same "fails closed, not open" behavior an
+	// unpopulated or nonexistent group name gets.
+	if sel.GroupName != "" {
+		query = query.Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))
+	}
 
-	// Create an offset-based iterator.
-	// In production Postgres, a server-side cursor (DECLARE cursor_name CURSOR FOR...) is better,
-	// but offset/limit batching is fully supported by all SQL drivers (including SQLite).
+	// Keyset-paginated iterator: batches page on device_id, the stable,
+	// indexed, time-ordered (UUIDv7) column this schema was built to
+	// support (internal/ent/schema/device.go). In production Postgres, a
+	// server-side cursor (DECLARE cursor_name CURSOR FOR...) is another
+	// option, but keyset batching needs no such driver-specific feature
+	// and works identically across SQL dialects.
 	return &entIterator{
 		query:     query,
 		factory:   r.factory,
@@ -64,6 +86,14 @@ func (r *entRepository) GetGroup(ctx context.Context, groupName string) (Iterato
 func (r *entRepository) GetByName(ctx context.Context, name string) (inventory.InventoryItem, error) {
 	dev, err := r.entClient(ctx).Device.Query().Where(device.NameEQ(name)).Only(ctx)
 	if err != nil {
+		// Translate ent's own not-found into the port's sentinel so both
+		// adapters answer "no such device" identically. Without this, only
+		// the file adapter would be distinguishable and any caller
+		// branching on ErrItemNotFound would silently change behavior
+		// depending on which tier it ran at.
+		if ent.IsNotFound(err) {
+			return nil, fmt.Errorf("device %s: %w", name, ErrItemNotFound)
+		}
 		return nil, fmt.Errorf("failed to load device %s: %w", name, err)
 	}
 
@@ -128,11 +158,36 @@ type entIterator struct {
 	query     *ent.DeviceQuery
 	factory   *ItemFactory
 	batchSize int
-	offset    int
-	buffer    []*ent.Device
-	index     int
-	current   inventory.InventoryItem
-	err       error
+	// cursor is the device_id of the last row yielded so far, valid once
+	// started is true. Paging on this stable, unique, indexed column
+	// (rather than a numeric offset) means a device removed elsewhere in
+	// the table between batch fetches cannot shift which rows the next
+	// WHERE device_id > cursor batch returns: offset pagination has no
+	// such guarantee, since OFFSET counts row position dynamically and
+	// SQL defines no row order at all without an ORDER BY, so two
+	// sequential unordered queries are not even guaranteed to agree with
+	// each other, let alone survive a concurrent write. A device inserted
+	// with a device_id sorting AHEAD of the cursor is picked up normally;
+	// one inserted behind it (only possible if a caller bypasses the
+	// schema's own UUIDv7 default, or two writers' clocks skew) is not
+	// retroactively surfaced, the same trade-off every keyset-paginated
+	// cursor makes.
+	//
+	// started distinguishes "before the first row" (cursor is not yet
+	// meaningful) from "the first-ever device_id happens to be the empty
+	// string." device_id is NotEmpty() at the ent validation layer, so
+	// this cannot occur through this schema's own write path, but that
+	// guarantee is application-level, not a database CHECK constraint
+	// (internal/ent/migrate/schema.go), so a row written by something
+	// other than this ent client is not structurally impossible. Without
+	// started, such a row would make cursor == "" forever, and Next would
+	// refetch the same first batch on every call rather than reaching EOF.
+	started bool
+	cursor  string
+	buffer  []*ent.Device
+	index   int
+	current inventory.InventoryItem
+	err     error
 }
 
 func (i *entIterator) build(dev *ent.Device) (inventory.InventoryItem, error) {
@@ -151,6 +206,13 @@ func (i *entIterator) Next(ctx context.Context) bool {
 	if i.err != nil {
 		return false
 	}
+	// A caller that already gave up should see false rather than more
+	// items it no longer wants, matching fileIterator.Next's identical
+	// ctx-honoring behavior (file_repository_iterator.go): the Repository
+	// port's two adapters are documented to behave identically to callers.
+	if err := ctx.Err(); err != nil {
+		return false
+	}
 
 	// If we still have items in the buffer, just advance the index
 	if i.index < len(i.buffer) {
@@ -166,8 +228,14 @@ func (i *entIterator) Next(ctx context.Context) bool {
 
 	// Buffer is empty (or fully consumed). Fetch the next batch, honoring
 	// the ctx argument passed to this call rather than a context captured
-	// at construction time.
-	batch, err := i.query.Clone().Limit(i.batchSize).Offset(i.offset).All(ctx)
+	// at construction time. i.query already carries Order(ByDeviceID())
+	// from GetGroup; only the cursor predicate and the limit are added
+	// per batch here.
+	q := i.query.Clone().Limit(i.batchSize)
+	if i.started {
+		q = q.Where(device.DeviceIDGT(i.cursor))
+	}
+	batch, err := q.All(ctx)
 	if err != nil {
 		i.err = fmt.Errorf("failed to fetch device batch: %w", err)
 		return false
@@ -178,7 +246,8 @@ func (i *entIterator) Next(ctx context.Context) bool {
 	}
 
 	i.buffer = batch
-	i.offset += len(batch)
+	i.started = true
+	i.cursor = batch[len(batch)-1].DeviceID
 	i.index = 0
 
 	// Build the first item of the new batch

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
@@ -33,6 +34,39 @@ func TestLifecycleRule_ReleaseGate(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("expected the message to contain %q, got: %s", want, msg)
 		}
+	}
+}
+
+// TestLifecycleRule_FallsBackToRunbookHosts confirms a task with no
+// params.target of its own is checked against the runbook-level hosts:
+// default (engine.TaskTarget's default/override contract), and that a
+// task's own target still overrides it.
+func TestLifecycleRule_FallsBackToRunbookHosts(t *testing.T) {
+	quarantined := &inventorytest.Stub{StubName: "webserver1", StubState: inventory.StateQuarantined}
+	active := &inventorytest.Stub{StubName: "router1", StubState: inventory.StateActive}
+
+	dag := &engine.DAG{
+		ID:    "t",
+		Hosts: "webserver1",
+		Nodes: map[string]*engine.Task{
+			"tasks[0]": {FQCN: "noop"}, // no params.target: falls back to Hosts
+			"tasks[1]": {FQCN: "noop", Params: map[string]interface{}{"target": "router1"}},
+		},
+		Adjacency: map[string][]engine.EdgeConfig{},
+	}
+
+	world := validate.WorldView{Items: []inventory.InventoryItem{quarantined, active}, DAG: dag}
+	report := validate.Validate(world)
+
+	if !report.HasErrors() {
+		t.Fatal("expected a finding for the task that fell back to the quarantined runbook default")
+	}
+	msg := report.String()
+	if !strings.Contains(msg, "webserver1") {
+		t.Errorf("expected the message to name the device reached via the runbook-level hosts: default, got: %s", msg)
+	}
+	if strings.Contains(msg, "tasks[1]") {
+		t.Errorf("expected the task with its own target overriding hosts: to pass, but it was flagged: %s", msg)
 	}
 }
 

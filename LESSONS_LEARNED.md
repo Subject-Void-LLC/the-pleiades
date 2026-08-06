@@ -573,3 +573,375 @@ story, per `.AGENTS/AGENTS.md`.
     was the correct behavior and the doc comment's broader "nil or empty" claim was the actual defect.
     Treat "the code and its own doc comment disagree" as two candidate fixes, not one: fix whichever side
     is actually wrong, verified against the real invariant, not whichever side is easier to edit.
+
+51. **A nested command dispatcher needs a shared sentinel error to keep its own "unknown subcommand"
+    failure the same shape as the outer dispatcher's, because a plain `error` return type erases that
+    distinction on the way up.** `cmd/pleiades/main.go`'s top-level `run()` special-cases an unrecognized
+    command name before ever calling a handler, so it can return its own exit code (2) directly. Once a
+    handler is itself a nested dispatcher (`forge.go`'s `runForge`), its "no match" case can only report
+    back through the same `error` a handler's own business failure uses, and without a shared signal the
+    two become indistinguishable to the caller: both surface as an ordinary handler error (exit 1),
+    silently losing the "this name doesn't exist" distinction the top level treats as a different, more
+    specific failure. The fix is one unexported sentinel (`errUnknownCommand`) returned by both the
+    top-level and every nested "no match" branch, checked with `errors.Is` at the one place that decides
+    exit codes. This is a one-time, generic addition made by the phase that introduces the first nested
+    dispatcher, not a special case bolted on for that one dispatcher: any future nested dispatcher reuses
+    the same sentinel for free. Any dispatch layer added over a plain-`error`-returning handler contract
+    should ask this question before assuming a status code will simply propagate: does anything about
+    *how* this failed matter to a caller above me, and if so, does my return type still carry that
+    information, or did I just flatten it back into "an error happened"?
+
+52. **A roadmap phase's own checklist prose can go stale relative to a shared primitive an
+    earlier-numbered phase already built, when phases execute out of their originally-drafted order --
+    verify the primitive's real existence in code before trusting what a phase's own Pattern Entry Gate
+    says about it.** Phase 31's checklist (`.SPECIFICATION/IMPLEMENTATION.md`) asserted "`pkg/registry`
+    does not exist" and instructed building it there, first, as a two-type-parameter
+    `Registry[K comparable, V any]`. Phase 6 had already built it, as `Registry[T any]` (one type
+    parameter, string-keyed), with two real consumers already wired to it by the time Phase 31 was
+    picked up. `PLAN.md` Section 25's own build-once table had already hit and corrected this identical
+    class of drift twice, both times for the same primitive (reassigning its builder from Phase 21 to
+    Phase 6) -- this was a third instance of the same failure mode, just against a different phase's
+    checklist text, never corrected because that phase hadn't been implemented yet. Treating the stale
+    premise as current would not have been a harmless redundancy: building the two-type-parameter
+    version as literally specified would have been Section 25's own named defect ("a second
+    implementation is a defect, not a variation"), shipped in service of a checklist item that was wrong
+    about the codebase's starting state. A phase number is a position in a drafting order, not a
+    guarantee about what has or hasn't been built by the time someone actually starts it; a checklist's
+    own "X does not exist yet" claim is a claim about the repo at drafting time, and needs the same
+    direct verification (`grep`, `gopls references`, reading the actual package) as any other assumed
+    fact before code is written to satisfy it.
+
+53. **A checklist item can name the right shared primitive and still cite the wrong mode of it, when
+    the item's own prose conflates two distinct call sites that merely sit near each other in the
+    specification -- cross-check a cited test/example against what it actually proves, not just
+    against whether the primitive it names is the correct one.** Phase 32's "capability granularity:
+    decided" item said the classification-driven capability field (a device's capabilities
+    accumulating down the classification tree, e.g. `debian_family` adding `AptCapable` on top of
+    `linux_server`'s baseline) needed `pkg/policy`'s *intersection*-mode call site, citing
+    `pkg/policy/policy_test.go`'s `TestIntersectSlices_ViaResolve` (a "manifest narrowed by runbook"
+    example) as already-built evidence. Both `pkg/policy.go`'s own doc comment and
+    `internal/classification/rule.go`'s own doc comment, written before this phase touched either
+    file, already said the opposite for this exact field: "a future Capabilities field, Phase 32
+    scope, would be Union." The cited test was not wrong, and the primitive named (`pkg/policy`) was
+    the right one -- but the test proves a *different* Phase-32-adjacent resolution (a Collection
+    manifest's required capability narrowed by a runbook/task-level requirement, which needs a
+    runbook-level narrowing field that does not exist anywhere yet) than the one the checklist item's
+    prose was actually describing (capabilities accumulating down a classification tree, which is
+    strictly additive and must never narrow what a broader level already granted). Implementing the
+    checklist's literal claim (Intersection) would have silently broken the worked example the same
+    item's own prose gives two paragraphs earlier: a level's Capabilities would clamp to the
+    intersection of every layer instead of accumulating, so `debian_family`'s `AptCapable` would only
+    survive if `linux_server`'s own rule also happened to list it. The general lesson: when a
+    checklist item cites a specific test or example as evidence a mechanism already exists and is
+    ready to reuse, read what that test actually asserts, not just whether it exercises the primitive
+    named -- two real, correctly-built call sites of the same shared primitive can require opposite
+    merge semantics, and a checklist written before either was implemented can attribute one's
+    evidence to the other.
+
+54. **A shared helper's implicit precondition survives unnoticed until a caller finally violates it --
+    audit what a function silently assumes about every past caller, not just what its signature says,
+    before adding a new caller that differs from all of them in one respect.** `splitPositional`'s doc
+    comment named its true premise honestly ("every flag ... takes a value"), but nothing enforced it:
+    the function had three call sites (`add-host`, `add-credential`, later `forge new-device`/`forge
+    new-collection`), and the premise happened to hold for the first, by coincidence, and silently did
+    not for `add-credential`'s pre-existing `--passphrase` bool flag, because no existing test ever put
+    another flag immediately after it. `forge new-collection`'s own new `--requires-elevation` bool
+    flag was the first caller exercised with a flag following it, which is what surfaced both the new
+    bug and the pre-existing, unnoticed one in the same fix (FAILURE_PATTERNS.md #50). The general
+    lesson: when reusing an existing shared function for a new caller, check its stated assumptions
+    against the new caller's actual shape, not just against whether the new caller's *inputs* look
+    superficially similar to prior callers' -- a precondition that has never been violated is not the
+    same as a precondition that has been verified.
+
+55. **A source filename ending in `_GOOS.go` or `_GOARCH.go` is an implicit build constraint in Go, with
+    no `//go:build` line required, and `go build ./pkg` succeeding proves nothing about whether every
+    file in it was actually compiled.** `capabilities_windows.go` silently matched the reserved GOOS value
+    `windows` and was excluded from every build and test on this project's real (`linux/amd64`)
+    platform since the day it was written; the package still built and its own tests still passed,
+    because Go doesn't need the excluded file to make the rest of the package valid
+    (FAILURE_PATTERNS.md #51). Two verification habits would have caught this immediately and neither was
+    in routine use: `go list -f '{{.GoFiles}}' ./pkg/...` (or `.IgnoredGoFiles}}'` to see exactly what got
+    left out) after adding a new file to an existing package, and picking a filename topic suffix by
+    checking it against Go's own reserved GOOS/GOARCH list first, not just against this project's own
+    naming convention for sibling files (`capabilities_cloud.go`, `capabilities_exec.go`, etc., none of
+    which happen to collide, entirely by luck). "The package built" and "the file I just added is part of
+    the package" are not the same claim; only `go list`'s own file inventory proves the second one.
+
+56. **A generated, per-package `init()`-registration pattern needs its own composition-root aggregator
+    from day one, proven by an integration-level test, not by each generated package's own isolated
+    unit test.** Every one of Phase 34's 71 generated Collection packages' own test passed
+    (`collection.Lookup` finds itself, inside its own test binary, which imports itself by definition) while
+    the shared `pkg/collection` registry stayed completely empty in the one binary that actually mattered,
+    because nothing else in the codebase had any other reason to import any of them
+    (FAILURE_PATTERNS.md #52, structurally the same shape as #27's dormant SQLite driver). The general
+    rule this project already half-knows from `internal/inventory/builtins.go`'s device-type pattern:
+    any "many packages self-register via `init()`" design needs exactly one more thing, a blank-import
+    aggregator that something in the real binary actually imports, built and wired in the same change
+    that introduces the first generated package, not discovered later by a test that happens to check
+    the aggregate rather than each part in isolation. When the aggregator can be derived mechanically
+    from the same data driving generation (as it can here), generate it too, rather than hand-maintaining
+    an import list that drifts the moment someone edits the data table and forgets the aggregator exists.
+
+57. **`go test ./...`'s default cross-package concurrency means a test that mutates the real module tree
+    can race a different package's `go list`-based architecture test, and the fix is not always worth
+    building.** Three independent packages' end-to-end tests (two pre-existing, one added this phase)
+    each write and then remove a real temporary package directory under `internal/` to prove a CLI
+    surface against the actual module (RULE 0); `internal/archtest`'s tests shell out to `go list
+    .../internal/...` over that same live tree. Neither category of test is wrong on its own, and neither
+    can see the other's existence, but running many packages' test binaries concurrently (Go's own
+    default) can transiently interleave a directory create/delete with a `go list` walk of the same
+    path (FAILURE_PATTERNS.md #53). Not every real, reproducible-in-principle race is worth fixing with
+    new infrastructure: cross-process synchronization between otherwise-unrelated test packages is real
+    engineering cost for a failure mode a repeat run already resolves, and this project already has an
+    established, accepted remedy for exactly this shape of flake ("run `make ci` twice"). Recognize when
+    a finding belongs in the record as a known, accepted risk rather than as a blocking defect to
+    engineer around.
+
+58. **A fixture that sets a field the code under test never reads is not evidence a feature works; it is
+    evidence the test doesn't fail.** `TestGrandIntegration` tagged devices with a `group` property and
+    dispatched to that group name, and had passed on every run since it was written, not because
+    group-scoped dispatch worked, but because the dispatch path it exercised never looked at that property
+    at all (FAILURE_PATTERNS.md #54). A green test only proves a feature works if its assertion is
+    actually coupled to the code path under test; a fixture value that happens to match the code path's
+    real read set by coincidence, rather than because the code path consumes it, keeps passing right up
+    until a real implementation lands and the coincidence stops holding. When a checklist item says a
+    piece of state is "currently discarded" or "not yet wired up" (Phase 7's own checklist said exactly
+    this about `GetGroup`'s `groupName`), grep for every existing test that already passes a
+    non-empty/non-default value into that argument before implementing the fix: a pre-existing, currently
+    "passing" test is the first place a masked defect exposes itself once the real implementation starts
+    reading what it used to ignore.
+
+59. **Namespacing a shared directory on the way in is only half the job; the cleanup has to be namespaced
+    too.** Two end-to-end tests in different packages each generated into
+    `internal/catalog/test/<name><pid>` and each removed `internal/catalog/test` afterwards, so under
+    `go test ./...`'s cross-package concurrency one deleted the other's package mid-build
+    (FAILURE_PATTERNS.md #55). Every author had correctly reasoned about collisions when choosing where to
+    write and then reached for the parent when tearing down, because the parent is what looks like "the
+    directory this test made". A `t.Cleanup` that removes anything above the exact path the test created
+    is a cross-package race in waiting, and it will present as a failure in whichever unrelated package
+    loses the timing, which is the hardest possible place to look for it.
+
+60. **A port is not complete because every method on it works; it is complete when every operation its
+    consumers need exists.** `inventory.Repository` had get, list, and save, all correct, and no way to
+    create a device, because the one caller that created devices bypassed the port and wrote YAML directly
+    (FAILURE_PATTERNS.md #56). The gap was invisible for as long as no consumer needed it and became a hard
+    blocker the moment a sync plugin did. When adding the first real consumer of an existing port, list the
+    operations that consumer needs *before* implementing it and check each one against the port, rather
+    than discovering the hole partway through: the missing operation is rarely a method that is broken, it
+    is a method nobody has needed yet, so nothing about the existing code looks wrong.
+
+61. **A default value that names the wrong kind of thing stays harmless exactly until something compares
+    against it.** A file-backed repository stamped `Source.Plugin = "file"` on every host with no recorded
+    provenance, conflating "where this is stored" with "which sync plugin authoritatively owns this"
+    (FAILURE_PATTERNS.md #57). Nothing read that field for as long as no plugin existed, so the wrong
+    default cost nothing and looked reasonable in review. The first real sync plugin then read it exactly as
+    designed and refused to adopt a single host. Prefer leaving a field zero over filling it with a
+    plausible-looking value from an adjacent concept: an empty value is honestly "unknown" and can be
+    adopted later, while a wrong non-empty value is indistinguishable from a real one and will be believed.
+
+62. **"Refuse loudly" and "tell me what would happen" are different requests, and one guard can serve both
+    only if the caller decides which it wanted.** A read-only Repository wrapper that returned a typed error
+    on every write was correct, and it turned `sync --read-only` into an abort on the first device rather
+    than the dry run the flag promised (FAILURE_PATTERNS.md #58). The fix was not to soften the guard, which
+    would have made it useless where a hard refusal is right, but to let the reconciler catch that specific
+    error and report `would add` instead of failing. The general shape: keep the enforcement strict and
+    total at the boundary, and put the interpretation one layer up, where the caller knows whether it is
+    enforcing or simulating. A guard that tries to be lenient in some contexts has to know its callers,
+    which is exactly what a boundary exists to avoid.
+
+63. **A second consumer is what turns an interface from a guess into a design, and the two consumers have
+    to be unalike for the evidence to count.** `PLAN.md` Section 6a's four-method sync plugin port was
+    deliberately not built for the static YAML plugin alone, on the recorded grounds that one static-file
+    implementation is not enough to design a port around. Building it against a live Cisco Catalyst Center
+    at the same time produced an interface neither implementation would have produced by itself: the
+    file-backed one has no authentication, no paging, and a classification the document states outright,
+    while the network-backed one has all three and derives its classification from raw upstream fields.
+    The conformance suite running both through identical assertions is the artifact that makes the claim
+    checkable rather than asserted. When deferring an abstraction for want of a second consumer, say so in
+    the code (that comment is what made this decision easy to revisit correctly), and when the second
+    consumer arrives, pick the one that is least like the first.
+
+64. **A shared fold-and-merge primitive's safety comes from the caller's combine function, not from the
+    primitive; a "more specific wins" mode and a "the strongest statement wins" mode look identical until
+    the case where they disagree.** `pkg/policy.Resolve` folds System -> Organization -> Group -> Device
+    RoleBindings for RBAC scope resolution (Phase 8, closing the last of Section 25's eight named call
+    sites). Plain `policy.Override` already satisfies PLAN.md 18.4's literal worked example for free
+    (a Device-level Deny beats a Group-level Allow, since Device folds last) - but it would also let a
+    later, more specific Allow override an earlier, broader Deny, which a security primitive should not do
+    silently. The two modes are indistinguishable by their passing tests until a test is written for the
+    specific case where a broader Deny meets a narrower Allow, which is exactly the case a naive
+    "device-level RBAC is overridable" reading of the spec would miss. State which of the two a combine
+    function implements in a comment at the combine function itself, not only in the call site's own doc
+    comment, and write the disagreeing-case test before trusting either.
+
+65. **A schema-diff codegen tool's own safe-by-default option can make a schema removal silently
+    incomplete, and the tool exiting zero looks identical to "nothing needed doing."** `internal/ent/migrate
+    /gen/main.go` diffs the desired ent schema against the last-applied migration state and writes the
+    incremental SQL. Its `Schema.WriteTo` call passed no `MigrateOption`s, so ent's own `WithDropColumn`
+    default (`false`, a real and correct safety choice in ent itself) meant removing a field from a schema
+    file produced a migration that added everything new and silently omitted the `DROP COLUMN` for what was
+    removed (FAILURE_PATTERNS.md #59). Nothing in the tool's own output distinguished "correctly found no
+    change here" from "deliberately declined to emit a destructive statement." When a schema change is a
+    removal, not just an addition, read the generated migration file directly rather than trusting a clean
+    exit code, and check the tool's own option defaults for anything opt-in specifically because it is
+    destructive.
+
+66. **A `make ci`/coverage regression that predates a session's own diff is still worth finding, but is not
+    that session's to fix.** Four packages Phase 8 never touched (`internal/forge/genutil`,
+    `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) were already below their recorded
+    `coverage-floor.json` floors before this session started, confirmed by measuring the identical
+    percentages in a disposable `git worktree add --detach` checkout of the base commit
+    (FAILURE_PATTERNS.md #60). The cheap, reliable way to answer "did I cause this" is that worktree
+    comparison, not memory of what the diff touched or an assumption that a red check must be the current
+    session's fault. Recording the finding plainly, without silently lowering the floor (which would hide a
+    real regression from whoever's change actually caused it) or silently fixing four unrelated packages'
+    tests (scope creep well outside whatever the current task actually is), is the same discipline this
+    project already applies to flaky container tests: a known, pre-existing gap stated honestly is not the
+    same failure as a gap this session's own verification papered over.
+
+67. **Adding a cache to a function silently invalidates any benchmark that assumed every call does real
+    work, and nothing fails to flag it.** `dag_bench_test.go`'s `BenchmarkDAGBuilder` called
+    `builder.Build(payload)` with the *same* condition text on every one of its `b.N` iterations, and its
+    own doc comment stated the point was to measure "real CEL condition compilation." Phase 9 added a
+    Flyweight compile cache to `celEvaluator.Compile` (`internal/engine/cel.go`) for an unrelated reason
+    (closing the "cache compiled programs" checklist item) - and the moment it existed, iterations 2..N of
+    that benchmark silently became cache hits. Nothing broke: the benchmark still ran, still reported a
+    number, still looked like the same measurement it always had. Only reading the benchmark's own doc
+    comment against what the new code actually does revealed the number had quietly stopped meaning what it
+    claimed. Caught during this phase's own verification pass, not by any test failing. When adding a cache
+    (or any other layer that makes repeated identical calls cheaper than the first), grep the codebase for
+    existing benchmarks that call the now-cached function with fixed/repeated input, and either vary the
+    input per iteration to keep measuring the cold path, or rewrite the benchmark's own doc comment to
+    honestly describe the amortized/cached path it now measures - do not leave the old claim standing next
+    to new behavior that quietly stopped supporting it.
+
+68. **A "closed by construction" discriminator needs an explicit exemption list the moment one case
+    legitimately crosses it, and the doc comment claiming closure must be edited in the same change.**
+    `internal/validate/collection_rule.go`'s `CollectionRule` used to route purely on
+    `strings.Contains(fqcn, ".")`: dotted meant "look it up in `pkg/collection`," undotted meant "engine
+    keyword or legacy builtin, skip it," and the doc comment stated this would always hold because
+    `pkg/collection.Register` itself refuses an undotted name. Giving `set_metadata` a second, dotted
+    spelling (`pleiades.builtin.set_metadata`, `internal/engine/action.go`'s hardcoded switch, deliberately
+    kept out of `pkg/collection` since no dispatcher in this codebase calls a registered method's real
+    implementation yet) broke that closure: the dot check alone would now misfile a real, working builtin
+    as an unregistered collection name. The fix is a small, named `dottedBuiltinExemptions` set checked
+    before the dot test, not a change to the dot test itself - and the old doc comment's "will remain a
+    bare, undotted word" claim had to be corrected in the same commit, since leaving it standing would have
+    left the comment actively contradicting the code three lines below it the moment someone read both.
+
+69. **`tools/gencatalog`'s `go generate` target is not incrementally safe: it re-runs `forge new-collection`
+    for every catalog entry, and the real CLI refuses to overwrite a file that already exists.** Renaming
+    one `internal/forge/catalogdata` entry (`wait.port` -> `pleiades.builtin.wait.port`) and then running
+    `go generate ./internal/forge/catalogdata` failed immediately on an unrelated, already-generated entry
+    (`exec.command`) before ever reaching the renamed one, because the tool loops over all ~70 entries and
+    calls the real `pleiades forge new-collection` binary once per entry with no "skip if unchanged" check.
+    Making this work would require deleting the entire generated `internal/catalog/` tree first, a large,
+    unnecessary blast radius for a one-entry rename. The targeted fix: call the real CLI directly for just
+    the new entry (`pleiades forge new-collection pleiades.builtin.wait.port --capabilities ... --transports
+    ... --engine-version ...`, mirroring `newCollectionArgs`'s own argument-building exactly), which writes
+    only the two new files since nothing already occupies that path; delete the old entry's now-orphaned
+    generated files by hand (`gencatalog` never calls `os.Remove` on stale output); and separately
+    regenerate `internal/catalog/builtins.go` (the one step in `gencatalog` that does not go through the
+    CLI at all - it recomputes the aggregator's import list directly from `catalogdata.Collections` and
+    always overwrites). A full wholesale `go generate` run is for a from-scratch catalog build, not a
+    single-entry rename.
+
+70. **"Masked at the moment of registration" is a property of *when* a task marks its own output secret,
+    not of *what shape* the marked field name can take - the two are independent axes and only one of
+    them needed to change.** A request to mask a value "at instantiation, like a password" sounded at
+    first like it might require a new mechanism distinct from `Task.SecretFields` (`secret_fields:`,
+    since renamed `RegisterMask`/`register_mask:`), which already runs `markRegisterMask` before
+    `Register`/`Merge` and before this same task's own `publish` call (`executor.go`) - the exact "no
+    exposure window" timing already asked for. The only real gap was that `SecretFields`/`SecretMaskSpec`
+    both matched flat, top-level `Stats` keys only, and the requested syntax wanted dotted, nested paths
+    (`parent.nested_secret`). Solving that meant extending the existing same-task mechanism with a path
+    walker (`resolveRegisterMaskPath`), not building a third one: `secret_mask.go`'s own doc comment had
+    already named "a nested-path syntax" as "a clean additive follow-up if a real need for one appears" -
+    this was that need appearing, for one of the two mechanisms, not both. Deliberately not extending
+    `SecretMaskSpec` (the retroactive, different-task case) to the same nested-path support keeps the two
+    mechanisms' scope honest rather than unifying them because the syntax looked similar on the surface.
+
+71. **A masking feature that silently fails to mask is worse than one that never shipped, and a real
+    hand-written usage example is what caught it, not the tests written for the feature.** `register_mask`
+    landed with paths resolved literally against `ActionResult.Stats` (a flat map with no key named after
+    the task's own register), matching the deliberately-dropped-prefix design this session had picked. A
+    genuine usage example added afterward wrote `register_mask: running_config.stdout` on a task registered
+    as `running_config` - the natural spelling, mirroring `when_cel`'s own `stat.<register>` addressing
+    used two tasks later in the same file - and it silently resolved to nothing: `Stats["running_config"]`
+    does not exist, so the path was a benign "not found" skip, and the secret it was meant to protect
+    would have leaked in cleartext with the runbook reporting no error at all. Every test written *for* the
+    feature passed, because every one of them was written against the same bare-path assumption the bug
+    shared. The fix, `markRegisterMask` stripping an exact `<Task.Register>.` prefix before resolving, so
+    both spellings reach the same field. **The lesson is procedural, not just the specific bug:** a
+    security- or secrecy-relevant feature's own test suite, written by the same reasoning that designed the
+    feature, cannot catch a design assumption that reasoning got wrong - it takes an independent, real
+    usage example (here, one the user wrote by hand for a different purpose entirely) to surface that class
+    of gap. A silent no-op is the worst failure mode this specific feature can have, worse than a hard
+    error, so a real dogfood usage pass belongs in the checklist before calling a masking feature done, not
+    only a green test suite the feature's own author wrote.
+
+72. **A roadmap checklist item's "Expected" pattern list is a draft prediction to verify, not a mandate to
+    satisfy, and a Pattern Entry Gate's own Adversarial Pattern Justification line can reveal that the
+    "light" version of an item is an active regression, not merely an inert one.** Phase 10 (Workflow DAG
+    Builder)'s Pattern Entry Gate listed Checkpointing as "Expected," but `PLAN.md` Section 25's own table
+    already described that pattern as a durable run record "separate from the compiled definition" -
+    exactly what Phase 10 (`engine.Builder`/`engine.DAG`) is, and Phase 27 already independently claimed
+    the same pattern in its own Pattern Entry Gate for the shape that actually needs it (a persisted row
+    surviving a multi-day approval pause). Building it here anyway would have violated Section 25's "one
+    implementation per contract" rule for no real gain. Separately, "add typed edges so status routing can
+    be expressed" read, on first pass, like a small, additive, structural-only change - add an enum, done.
+    Pressure-testing it against the real code (before any implementation) found the opposite: `Executor.Run`
+    aborts its whole walk on any node failure, and `LevelIterator`'s reachability is computed once, up
+    front, independent of runtime outcome. Naively wiring `Task.Rescue` into a real `Adjacency` edge without
+    also rewriting that control flow would not have been an inert, unconsumed piece of vocabulary - it
+    would have made `Rescue` fire on the *happy* path (its in-degree already hits zero when the guarded
+    block's own exit level is returned) and never fire on the *failure* path it exists for (since `Run`
+    aborts before that level is ever requested). The lesson generalizes past this one phase: when a
+    roadmap's own checklist line describes an "Expected" pattern or a "just wire it in" step, treat both as
+    claims to verify against the real, current code before writing anything, not facts to implement against
+    - and when a hostile pressure-test surfaces that the small version of a change is actively wrong rather
+    than merely incomplete, that is exactly the finding a Pattern Entry Gate exists to catch before code is
+    written, not after.
+
+73. **A cross-process concern is only "built" once it is proven at the far end; the boundary crossing is
+    the feature, not the header.** Phase 11's checklist said "inject trace context into event headers on
+    publish." Doing exactly that is easy, testable, and worthless on its own: a `traceparent` no consumer
+    reads is a decoration with a passing test attached, the same failure shape Phase 10's own Adversarial
+    Pattern Justification line warns about for a port with no callers. What made it real was extracting at
+    the one place that actually consumes raw messages (`runner.Agent.handleMessage`, which pulls
+    `jetstream.Msg` values on its own loop by design) and asserting, with a recorded span, that the
+    Runner's span sits in the *same trace* and is parented to the *same span* the API request created.
+    Note what that assertion is not: it is not "a header was written," which is what a publish-side-only
+    test proves. The general rule is that any requirement phrased as "X survives boundary B" needs a test
+    that observes X on the far side of B through the real consumer, and if no real consumer exists yet,
+    that absence is the finding to report rather than a reason to test the near side twice.
+    (`internal/event/trace.go`, `internal/runner/agent_trace_test.go`.)
+
+74. **Prefer one wire format decided in one place over per-boundary "reasonable defaults," and encode the
+    format the specification mandates rather than the one the language makes convenient.** Trace context
+    now crosses two boundaries in this codebase (HTTP headers at the API edge, NATS headers at the bus).
+    Both take their propagator from `telemetry.Propagator`, a single free function, precisely because a
+    second "obvious" choice at the second boundary is how a trace stops crossing it: two W3C-compliant
+    processes that disagree on composition silently produce two disconnected traces and no error anywhere.
+    The convenience trap was concrete here. `nats.Header` and `http.Header` share an underlying type, so
+    `propagation.HeaderCarrier(http.Header(hdr))` compiles, runs, and round-trips perfectly between two Go
+    processes - while writing the canonicalized `Traceparent`, because `http.Header`'s methods
+    canonicalize and NATS does not. The W3C specification mandates lowercase, so that shortcut would have
+    been invisible to a consumer in any other language, and invisible to us too, since every test we would
+    naturally write has Go on both ends. Writing an explicit twenty-line carrier that emits the exact
+    mandated spelling and reads case-insensitively is the cheap price of not discovering this from a
+    Python consumer two years later. (`internal/event/trace.go`'s `natsHeaderCarrier`.)
+
+75. **Changing where the default logger writes is a behavior change with a blast radius well past
+    logging, and both directions of it bite.** Installing a JSON `slog` handler on `os.Stdout` and calling
+    `slog.SetDefault` in `cmd/controller` looked like pure improvement. It silently did two other things.
+    The standard `log` package routes through `slog.Default` at *info* level, so every `log.Fatalf`
+    startup failure in that binary began emitting as an `INFO` line: no alert keyed on level would ever
+    have fired for a controller that failed to start, and the only reason this was caught is that a manual
+    run happened to fail and the JSON said `"level":"INFO"` next to a fatal message. And a release-gate
+    test that scraped the subprocess's *stderr* for a log line (correct, when `slog`'s built-in default
+    wrote there) began seeing nothing at all, failing with a timeout that described a leader-election
+    problem rather than a logging one. Both are the same underlying rule: log destination and log level
+    are part of a binary's observable contract, and anything that asserts on them - an alert, a test, a
+    scrape config - is coupled to a decision that looks internal. When changing it, grep for what reads
+    the old destination before assuming the change is additive.

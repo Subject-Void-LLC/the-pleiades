@@ -8,6 +8,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -35,7 +36,7 @@ func BenchmarkIterator(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		iter, err := repo.GetGroup(ctx, "all")
+		iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 		if err != nil {
 			b.Fatalf("failed to get group iterator: %v", err)
 		}

@@ -1,9 +1,18 @@
 # The Forge of Hephaestus (Design Note)
 
-**Status: partly real.** Writing a runbook and linting one already work today. The device type
-pattern works but has no generator. Playbook migration, collection migration, the Collection
-registry, and the IDE plugin are not built. This document specifies all of it, and
-`.SPECIFICATION/IMPLEMENTATION.md` Part VII (Phases 30 through 38) builds it.
+**Status: partly real.** Writing a runbook and linting one already work today. The Collection registry
+(`pkg/collection`), the capability vocabulary and its hierarchy (`pkg/capability`), the generators for
+both the device type pattern and the Collection method pattern, and now the actual module catalog those
+generators produce are all built (Phases 30 through 34). Playbook migration, collection migration, and
+the IDE plugin are not built. This document specifies all of it, and `.SPECIFICATION/IMPLEMENTATION.md`
+Part VII (Phases 30 through 38) builds it.
+
+**Correction (2026-08-05):** Phase 34 built the catalog with one deliberate exception and one
+deliberate deferral, both explained where the catalog and the four non-collection modules are described
+below: no dispatcher yet calls a registered Collection method's real implementation (still true after
+Phase 34, and still not this phase's job to fix), and `set_fact`/`debug` remain engine keywords in name
+only, genuinely blocked on Phase 40's journal and Phase 41's fact substrate rather than built against a
+stand-in.
 
 ## What this is
 
@@ -24,9 +33,10 @@ boundaries statable.
 | 2 | Migrate an Ansible playbook file | Not built. Only a rejection message exists | `pleiades forge migrate-playbook` |
 | 3 | Lint a runbook | Works. Rule registry in `internal/validate` | `pleiades validate` |
 | 4 | Use an IDE plugin | Not built. No language server code anywhere | `pleiades-lsp` |
-| 5 | Create a namespaced Collection | Not built. No registry or manifest exists | `pleiades forge new-collection` |
-| 6 | Create an inventory device type | Pattern works, generator missing | `pleiades forge new-device` |
+| 5 | Create a namespaced Collection | Registry, manifest, and generator built (Phases 31, 33); the real 75-method catalog is registered (Phase 34), all declared stubs except the four `net.catalyst.*` methods, which are implemented and verified against a real controller | `pleiades forge new-collection` |
+| 6 | Create an inventory device type | Pattern and generator built (Phase 33); six real device types registered across five vendor packages: `cisco` (router and switch), `linux`, `windows`, `aws`, `catalyst` | `pleiades forge new-device` |
 | 7 | Migrate an Ansible Galaxy collection | Not built | `pleiades forge migrate-collection` |
+| 8 | Create an inventory sync plugin | Generator built; `static_yaml` and `catalyst_center` implemented behind the `PLAN.md` Section 6a port | `pleiades forge new-plugin` |
 
 ## What the Forge is not
 
@@ -126,17 +136,27 @@ An author writes the broadest name that works. A task calling `pkg.install` agai
 declaring `AptCapable` resolves to the apt implementation at plan time. If nothing matches, planning
 fails with an error naming both the task and the device, before anything runs.
 
-Two facts about the ground this stands on, because both are easy to get wrong:
+Two facts about the ground this stood on before Phase 32, kept here because both were easy to get
+wrong and the history is worth keeping:
 
-- **`capability.Descriptor` already has a `Parent` field, and nothing reads it.** The slot for the
-  hierarchy exists. Phase 32's job is to make resolution actually use it, not to invent the field.
-- **Exactly three capabilities exist in code today:** `SSHTransportCapable`, `CiscoIOSCapable`, and
-  `LinuxCapable`, all in `pkg/capability/capabilities.go`. Everything else named anywhere in the
-  specification is prose, not Go.
+- **`capability.Descriptor` already had a `Parent` field, and nothing read it.** Phase 32 made
+  `capability.Resolves` walk it (a device that only declares the narrower `AptCapable` also resolves
+  the broader `PackageManagerCapable` it descends from), and retrofitted `Parent: NetworkCLICapable`
+  onto the pre-existing `CiscoIOSCapable` so this section's own `net.cli.config -> net.ios.config`
+  worked example is real, not aspirational: `cisco.Router` also structurally implements
+  `NetworkCLICapable`'s `CLIPrompt()`, so the resolution holds on both the data and structural sides.
+- **Exactly three capabilities existed in code before Phase 32:** `SSHTransportCapable`,
+  `CiscoIOSCapable`, and `LinuxCapable`. Phase 32 added the other ~23 named throughout this document
+  (`PackageManagerCapable`/`AptCapable`/`DnfCapable`, `ServiceManagerCapable`/`SystemdCapable`/
+  `FirewalldCapable`/`WindowsServiceCapable`, `NetworkCLICapable`/`NetconfCapable`/`JunosCapable`/
+  `AristaEOSCapable`, and the rest of the catalog table below) as real Go interfaces in
+  `pkg/capability`, split across several files by domain. None has a concrete device type
+  implementing it yet beyond the three originals plus `NetworkCLICapable` (via `Router`) -- that is
+  Phase 33/34's job, not this one's.
 
-### A naming drift that has to be settled first
+### A naming drift that Phase 32 settled
 
-The same capability is spelled three different ways across this project:
+The same capability used to be spelled three different ways across this project:
 
 | Source | Spelling |
 |--------|----------|
@@ -144,10 +164,10 @@ The same capability is spelled three different ways across this project:
 | `PLAN.md` Section 14 transports table | `SSHCapable` |
 | `CODE_SCAFFOLD.md` | `SSHCapable`, with a different method set |
 
-**The code name wins.** `SSHTransportCapable` is what exists and what `capability.Implements` checks.
-Phase 32 reconciles the two specification documents to match the code, rather than the other way
-around. Any table that emits capability names must use code spellings, or the linter will reject
-names the specification told an author to use.
+**The code name won.** `SSHTransportCapable` is what exists and what `capability.Implements` checks.
+Phase 32 reconciled both specification documents to match the code (spelling and method set alike)
+rather than the other way around. Any table that emits capability names must use code spellings, or
+the linter will reject names the specification told an author to use.
 
 ### Why renaming lowers friction rather than raising it
 
@@ -193,15 +213,34 @@ a module's name, and scaffolding them as collections would be a mistake.
 
 | Ansible module | What it becomes | Why |
 |----------------|-----------------|-----|
-| `ansible.builtin.set_fact` | An engine keyword | It writes to the run context. `WorkflowContext` and `sdk.RunbookContext` already own that. |
-| `ansible.builtin.debug` | An engine keyword | It writes to the execution journal. See `docs/rollback_journal_design.md`. |
-| `ansible.builtin.import_tasks` | An engine keyword, resolved at parse time | Static inclusion is compatible with building the DAG up front. |
+| `ansible.builtin.set_fact` | An engine keyword, **not yet built** | It writes to the run context. `WorkflowContext` and `sdk.RunbookContext` already own that, but Phase 41 has not yet decided or built the durable fact substrate `WorkflowContext` explicitly cannot substitute for. |
+| `ansible.builtin.debug` | An engine keyword, **not yet built** | It writes to the execution journal. See `docs/rollback_journal_design.md`; the journal itself is Phase 40's undelivered work, not a line of code anywhere yet. |
+| `ansible.builtin.import_tasks` | An engine keyword, resolved at parse time. **Built (Phase 34)** | Static inclusion is compatible with building the DAG up front: `internal/engine/import_tasks.go` splices a referenced file's own task list into an ordinary block task before the DAG builder ever sees it, with no dependency on either unbuilt subsystem above. |
 | `ansible.builtin.include_tasks` | Unresolved. See the honest limits below | Runtime inclusion fights plan-time validation. |
+
+This table of four is not exhaustive of every native-only name, only of the ones with no
+Ansible module counterpart at all. `set_metadata` (`ansible.builtin.set_stats`'s native
+equivalent, `internal/engine/action.go`) and `pleiades.builtin.wait.port`
+(`internal/forge/catalogdata/collections_gating.go`) are a different case: both are real,
+catalog-registered (or, for `set_metadata`, hardcoded-builtin) entries, ported 1:1 from an
+Ansible module like everything else in this catalog, but namespaced under a reserved
+`pleiades.builtin.` prefix rather than a `net.*`/`pkg.*`/etc. domain name, since nothing about
+either one is vendor- or domain-specific the way the rest of the catalog is. `set_metadata`
+answers to both the bare and dotted spelling indefinitely; `wait.port`'s own siblings,
+`wait.path` and `wait.search`, are deliberately not yet renamed under this same prefix, an
+accepted, visible inconsistency rather than a scope expansion to "fix" it.
 
 ### The catalog
 
-Roughly twenty seven collections cover the thirty six modules. Method counts are approximate until
-Phase 34 generates them.
+Twenty seven collections (Go packages) cover the thirty six modules. **Correction (2026-08-05):** this
+used to say method counts were "approximate until Phase 34 generates them"; Phase 34 has now generated
+them, and the real count is pinned down: **71 individual `<namespace>.<method>` collection names**
+across those 27 packages, since several Ansible modules expand to more than one native method each
+(`ansible.builtin.file` alone becomes five). `internal/forge/catalogdata` is the single source of truth
+for the exact list, one Go file per table section below; `tools/gencatalog` drove the real
+`pleiades forge new-collection`/`new-device` CLI through all 71 entries plus the two device types
+described further down. Twenty seven and thirty six were never the same count to begin with: twenty
+seven counts packages, thirty six counts Ansible modules.
 
 **Execution.** `exec` requires `CommandExecCapable` or `ShellExecCapable`.
 
@@ -254,6 +293,17 @@ takes a `state` parameter covering five unrelated operations. Here they are five
 | `cisco.ios.ios_config` | `net.ios.config` | `CiscoIOSCapable` |
 | `junipernetworks.junos.junos_config` | `net.junos.config` | `JunosCapable` |
 | `arista.eos.eos_config` | `net.eos.config` | `AristaEOSCapable` |
+| `cisco.dnac.*_info` | `net.catalyst.device_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.site_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.tag_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.reachability` | `CatalystAPICapable` |
+
+The four `net.catalyst.*` methods are controller-side and read-only: they address a Cisco Catalyst
+Center over its REST API and gather facts about the fleet it manages, changing nothing. They are the
+first entries in this catalog to reach `status: implemented`, verified against Cisco's public DevNet
+sandbox rather than against a mocked transport, which is what Phase 38's Release Gate requires. The
+controller they target is itself an inventory device (`catalyst_center`), onboarded by the sync plugin
+of the same name, so a runbook targets it the way it targets anything else.
 
 **Extended infrastructure.**
 
@@ -273,6 +323,18 @@ not against an inventory device over SSH. Ansible needs `delegate_to: localhost`
 `connection: local` to express this. Here execution context is a first class field on the manifest,
 so no hack is needed. This is `PLAN.md`'s execution context table earning its keep.
 
+**Two new device types, Phase 34.** `cisco.Router` and `linux.Server` were, until this phase, the only
+two concrete device types in this codebase; nothing declared `WindowsServiceCapable`,
+`WindowsFeatureCapable`, or `AWSAPICapable`. `internal/inventory/devices/windows.Server`
+(`windows_server`) declares `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, and
+`WindowsFeatureCapable` -- the identity+transport baseline `linux.Server` already establishes, plus the
+two capabilities the `svc.windows.*` and `win.feature.*` rows above actually need.
+`internal/inventory/devices/aws.Account` (`aws_account`) declares `AWSAPICapable` only, deliberately no
+transport, matching that capability's own doc comment: "satisfied by resources addressable through the
+AWS API rather than a direct transport." Read literally: no device type was generated for
+`JunosCapable`, `AristaEOSCapable`, or `DockerCapable`, an accepted, pre-existing gap this phase's own
+Release Gate does not require closing.
+
 **Gating and facts.**
 
 | Ansible | Native | Capability | Context |
@@ -286,9 +348,11 @@ so no hack is needed. This is `PLAN.md`'s execution context table earning its ke
 
 ### Declared is not implemented
 
-Phase 34 generates all of the above as registered manifests with working stubs. Implementations come
-later, module by module. That is a deliberate choice, and it is exactly the situation RULE 0 exists
-to police. Three guardrails make it safe:
+Phase 34 generated all of the above as registered manifests with working stubs: all 71 methods resolve
+through `pkg/collection.Lookup` in the real binary, and `pleiades validate` against a runbook calling
+one of them reports it by name as declared but not yet implemented. Implementations come later, module
+by module. That is a deliberate choice, and it is exactly the situation RULE 0 exists to police. Three
+guardrails make it safe:
 
 - **A stub returns an explicit `not implemented` error. It never returns success.** A collection
   named `pkg.apt.install` that silently does nothing is worse than one that does not exist, because
@@ -297,7 +361,11 @@ to police. Three guardrails make it safe:
   tooling reads rather than knowledge people carry.
 - **A validation rule flags any runbook calling a declared but unimplemented name.** The gap becomes
   a write time and pre commit error instead of a runtime surprise. An incomplete catalog stays safe
-  because the linter tells the truth about what is real.
+  because the linter tells the truth about what is real. `internal/validate/collection_rule.go`'s
+  `CollectionRule` is that rule, built this phase: it also flags a runbook calling a dotted name
+  `pkg/collection` has never heard of at all (a typo, not just an unimplemented one), and leaves every
+  undotted legacy built-in and engine keyword alone by construction, since `pkg/collection.Register`
+  itself refuses to register a bare, undotted name.
 
 ## State is a migration concern, not a parameter
 
@@ -349,9 +417,20 @@ Four new verbs live under `pleiades forge`:
 ```bash
 pleiades forge migrate-playbook   playbook.yml
 pleiades forge migrate-collection ./my_galaxy_collection
-pleiades forge new-collection     pkg.apt
-pleiades forge new-device         juniper --device-type junos_router
+pleiades forge new-collection     pkg.apt.install --capabilities AptCapable
+pleiades forge new-device         juniper --type junos_router
+pleiades forge new-plugin         netbox --description "reads devices from NetBox"
 ```
+
+**Correction (2026-08-05):** the flag was `--device-type` in an earlier revision of this document.
+The real flag, and the pre-committed fuzz corpus seed in `cmd/pleiades/cli_fuzz_test.go` that predates
+Phase 33's implementation, both say `--type`, matching `add-host --type`'s own established naming.
+Code and its own committed test fixture win over prose; this line is corrected to match, the same
+resolution `SSHCapable` vs `SSHTransportCapable` used. Also corrected: `new-collection`'s example is now
+a real, three-segment namespaced method name (`pkg.apt.install`), not the two-segment `pkg.apt` shown
+before Phase 33 existed to generate one for real: `pkg.apt` alone remains a legal registration (PLAN.md
+Section 2 allows a bare-domain namespace), but a worked example should show the shape Phase 34 will
+actually generate two dozen more of.
 
 Two existing surfaces are branded as part of the Forge but do not move:
 
@@ -366,6 +445,10 @@ Two existing surfaces are branded as part of the Forge but do not move:
 `PLAN.md` Section 2 already made the "namespace everything, never bare" decision for collection
 methods, for exactly the same collision and discoverability reasons. The Forge should not contradict
 the principle its own `new-collection` scaffold teaches.
+
+The dispatcher itself is `cmd/pleiades/forge.go` (Phase 30): a `forgeCommands` map mirroring
+`main.go`'s own top-level dispatch, empty until the phases above populate it one subcommand at a
+time.
 
 ## The workflows in detail
 
@@ -397,32 +480,71 @@ core. The IDE plugin adopts it rather than forking it.
 
 Not built. There is no language server code and no related dependency anywhere in the repository.
 Phase 37 adds `cmd/pleiades-lsp` and `internal/lsp`, translating `validate.Finding` into an LSP
-diagnostic. `internal/validate` gains no LSP specific type. Autocomplete over the catalog becomes
-useful once Phase 34 exists, but diagnostics alone are the release gate, so the plugin never waits on
-the catalog.
+diagnostic. `internal/validate` gains no LSP specific type. Autocomplete over the catalog is now
+possible, since Phase 34's real 71-method catalog exists in `pkg/collection`, but diagnostics alone are
+the release gate, so the plugin never waited on the catalog and does not need to be resequenced now
+that it exists.
 
 ### Create a Collection
 
-Not built. There is no Collection interface, registry, or manifest in the codebase today. The word
-appears throughout `PLAN.md` and once in `pkg/sdk/context.go`, but no code implements it.
+Built. `pkg/collection`'s `Manifest` and `Descriptor`/`Register`/`Lookup` (Phase 31), mirroring
+`pkg/capability`'s naming and built on `pkg/registry`'s existing generic Registry (Phase 6), already
+backing `pkg/capability`'s own capability vocabulary and `internal/inventory/record`'s device-type
+table -- `pkg/collection` is that primitive's third consumer, not its first. `internal/forge/collectionscaffold`
+(Phase 33) generates a new namespaced method package: a registration in `init()`, a stub built on
+`pkg/sdk.RunbookContext`, and a starter table-driven test, driven by `pleiades forge new-collection`.
+Phase 34 used it to generate the real 71-method catalog described above, driving the actual CLI (via
+`tools/gencatalog`) rather than calling the generator's library function directly, so `pkg/collection`
+now holds 71 real, registered, `declared` entries, not zero.
 
-Phase 31 builds the target format. It also builds `pkg/registry`, the generic registry primitive
-`CODE_SCAFFOLD.md` names as planned but which does not exist. Both `pkg/capability` and
-`ItemFactory` currently hand roll their own map, so `pkg/collection` becomes the first consumer of a
-shared primitive rather than the third copy.
+**A second honest limitation, alongside the device type one below.** `pkg/collection` is planning-time
+metadata only. No dispatcher anywhere in this codebase yet consumes it, or `pkg/sdk.RunbookContext`, to
+actually call a registered method's real implementation: `internal/engine/action.go`, the only real
+action executor today, dispatches on a hardcoded switch over bare `task.FQCN` strings and touches
+neither package. A generated stub is real, buildable, testable Go code, immediately registered and
+resolvable through `collection.Lookup`, but it is not reachable from any execution path until a later
+phase builds that dispatcher. Phase 34 deliberately left this closed rather than open: it considered
+building the bridge and rejected it, since a second, incompatible dispatch mechanism next to the one
+that already exists (`internal/engine`'s transport-binding executor) would itself be a new pattern,
+which Phase 34's own Pattern Entry Gate forbids. The Release Gate this limitation might seem to threaten
+("executing any stub returns an explicit not implemented error") is satisfied today for free: no catalog
+fqcn will ever match that hardcoded switch's known cases, so the existing `default` branch's honest
+error is what a runbook actually gets.
 
-Phase 33 adds the generator.
+**A gap Phase 34 did find and close, the same shape as the reachability gap above but real, not
+deliberate.** Every generated package's own test passed from day one (each triggers its own `init()`
+inside its own test binary), but nothing else in this codebase ever imported any `internal/catalog/...`
+package for any other reason, so `pkg/collection`'s registry was completely empty in the one binary that
+actually mattered. `internal/catalog/builtins.go` (regenerated by `tools/gencatalog` from the same data
+that drives generation, never hand-maintained) and `cmd/pleiades/catalog_builtins.go` close it, mirroring
+`internal/inventory/builtins.go`'s identical pattern for device types below.
 
 ### Create an inventory device type
 
 The pattern works today. `internal/inventory/devices/cisco` and `devices/linux` build on
-`record.Base` and register through `ItemFactory.Register`. Phase 33 adds a generator for it.
+`record.Base` and self-register via `record.RegisterType` in their own `init()`, triggered by
+`internal/inventory/builtins.go`'s blank-import list. `internal/inventory/devicescaffold` (Phase 33)
+generates a new vendor package mirroring this pattern, driven by `pleiades forge new-device`.
 
-**One honest limitation.** `NewItemFactory()` in `internal/inventory/factory.go` hardcodes exactly
-two device types, and `cmd/pleiades/load.go` calls that constructor directly. So a generated device
-type is not reachable from the stock binary without a small composition root change.
-`ItemFactory.Register` itself is genuinely open. The closed part is the built in default set, not
-the mechanism.
+**One honest limitation.** `internal/inventory/builtins.go` blank-imports a fixed set of device packages
+(`cisco`, `linux`, and, as of Phase 34, `windows` and `aws`), and that list, not `NewItemFactory()`
+itself, is what is closed: `NewItemFactory()` (`internal/inventory/factory.go`) builds its constructor
+set from `record.AllTypes()`, and `cmd/pleiades/load.go` calls that constructor directly. So a generated
+device type is not reachable from the stock binary until a human adds a blank import of it to
+`builtins.go` (or their own composition root) -- the one composition-root change this document's
+earlier revisions described as needed against a different, now-retired API
+(`ItemFactory.Register`, retired during the Phase 6 registry retrofit; the real registration call is
+`record.RegisterType`). `record.RegisterType` itself is genuinely open. The closed part is the
+built-in default set, not the mechanism.
+
+**A second scope limitation, specific to the generator.** `pkg/capability.Descriptor`'s `Assert` is an
+opaque function with no reflectable method-set metadata, so `devicescaffold` cannot mechanically know
+that, say, `JunosCapable` implies a `JunosVersion() string` accessor, or what to name it. A generated
+device type is therefore a structural skeleton (a `record.Base` embed, a capability-baseline
+constructor, `HasCapability`, and a `var _ inventory.InventoryItem = (*T)(nil)` compile-time
+assertion the hand-written packages lack) with no capability-specific accessor methods: immediately
+after generation, `HasCapability` correctly returns `false` for every declared capability until a
+human adds real accessor methods matching each one's interface.
 
 ### Migrate a Galaxy collection
 

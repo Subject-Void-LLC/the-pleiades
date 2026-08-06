@@ -23,9 +23,28 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Email holds the value of the "email" field.
 	Email string `json:"email,omitempty"`
-	// Role holds the value of the "role" field.
-	Role         string `json:"role,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the UserQuery when eager-loading is set.
+	Edges        UserEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// UserEdges holds the relations/edges for other nodes in the graph.
+type UserEdges struct {
+	// Teams holds the value of the teams edge.
+	Teams []*Team `json:"teams,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [1]bool
+}
+
+// TeamsOrErr returns the Teams value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) TeamsOrErr() ([]*Team, error) {
+	if e.loadedTypes[0] {
+		return e.Teams, nil
+	}
+	return nil, &NotLoadedError{edge: "teams"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -35,7 +54,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case user.FieldID:
 			values[i] = new(sql.NullInt64)
-		case user.FieldEmail, user.FieldRole:
+		case user.FieldEmail:
 			values[i] = new(sql.NullString)
 		case user.FieldCreatedAt, user.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -78,12 +97,6 @@ func (_m *User) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Email = value.String
 			}
-		case user.FieldRole:
-			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field role", values[i])
-			} else if value.Valid {
-				_m.Role = value.String
-			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -95,6 +108,11 @@ func (_m *User) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *User) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryTeams queries the "teams" edge of the User entity.
+func (_m *User) QueryTeams() *TeamQuery {
+	return NewUserClient(_m.config).QueryTeams(_m)
 }
 
 // Update returns a builder for updating this User.
@@ -128,9 +146,6 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("email=")
 	builder.WriteString(_m.Email)
-	builder.WriteString(", ")
-	builder.WriteString("role=")
-	builder.WriteString(_m.Role)
 	builder.WriteByte(')')
 	return builder.String()
 }

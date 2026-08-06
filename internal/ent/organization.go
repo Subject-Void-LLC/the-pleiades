@@ -33,9 +33,11 @@ type Organization struct {
 type OrganizationEdges struct {
 	// Devices holds the value of the devices edge.
 	Devices []*Device `json:"devices,omitempty"`
+	// Teams holds the value of the teams edge.
+	Teams []*Team `json:"teams,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -45,6 +47,15 @@ func (e OrganizationEdges) DevicesOrErr() ([]*Device, error) {
 		return e.Devices, nil
 	}
 	return nil, &NotLoadedError{edge: "devices"}
+}
+
+// TeamsOrErr returns the Teams value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) TeamsOrErr() ([]*Team, error) {
+	if e.loadedTypes[1] {
+		return e.Teams, nil
+	}
+	return nil, &NotLoadedError{edge: "teams"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -113,6 +124,11 @@ func (_m *Organization) Value(name string) (ent.Value, error) {
 // QueryDevices queries the "devices" edge of the Organization entity.
 func (_m *Organization) QueryDevices() *DeviceQuery {
 	return NewOrganizationClient(_m.config).QueryDevices(_m)
+}
+
+// QueryTeams queries the "teams" edge of the Organization entity.
+func (_m *Organization) QueryTeams() *TeamQuery {
+	return NewOrganizationClient(_m.config).QueryTeams(_m)
 }
 
 // Update returns a builder for updating this Organization.

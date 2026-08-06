@@ -8,6 +8,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 )
 
 // newTestFileRepo creates a Repository backed by a hosts.yaml file inside
@@ -188,7 +189,7 @@ func TestFileRepository_GetGroupListViewOmitsHistory(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	iter, err := repo.GetGroup(ctx, "all")
+	iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 	if err != nil {
 		t.Fatalf("GetGroup: %v", err)
 	}
@@ -248,7 +249,7 @@ func TestFileRepository_ResolvesClassifyOnlyHost(t *testing.T) {
 		t.Error("expected a linux_server-classified host to declare LinuxCapable")
 	}
 
-	iter, err := repo.GetGroup(ctx, "all")
+	iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 	if err != nil {
 		t.Fatalf("GetGroup: %v", err)
 	}
@@ -265,3 +266,36 @@ func TestFileRepository_ResolvesClassifyOnlyHost(t *testing.T) {
 // no-leftover-temp-file check) live in file_repository_concurrency_test.go,
 // a sibling file kept separate so this file stays focused on Save's
 // single-writer correctness contract.
+
+// TestFileRepository_Selector_GroupNameIgnored pins down a deliberate,
+// documented gap (GetGroup's own doc comment): Walk tier's HostSpec has no
+// group-membership field at all, unlike the ent-backed adapter, which now
+// pushes sel.GroupName down to SQL via a real Group edge. A non-empty
+// GroupName here must still return every host rather than erroring or
+// silently filtering to nothing, so a future change cannot quietly start
+// erroring on it without this test forcing that decision to be visible.
+func TestFileRepository_Selector_GroupNameIgnored(t *testing.T) {
+	ctx := context.Background()
+	repo, path := newTestFileRepo(t)
+	seedHosts(t, path, []inventory.HostSpec{
+		{ID: "id-1", Name: "web-1", Type: "linux_server", Properties: map[string]interface{}{"host": "10.0.0.1"}},
+		{ID: "id-2", Name: "web-2", Type: "linux_server", Properties: map[string]interface{}{"host": "10.0.0.2"}},
+	})
+
+	iter, err := repo.GetGroup(ctx, pkginventory.Selector{GroupName: "prod"})
+	if err != nil {
+		t.Fatalf("GetGroup: %v", err)
+	}
+	defer iter.Close()
+
+	count := 0
+	for iter.Next(ctx) {
+		count++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("GetGroup with a non-empty GroupName the file backend cannot honor returned %d hosts, want 2 (both, unfiltered)", count)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 )
 
 // OrganizationQuery is the builder for querying Organization entities.
@@ -25,6 +26,7 @@ type OrganizationQuery struct {
 	inters      []Interceptor
 	predicates  []predicate.Organization
 	withDevices *DeviceQuery
+	withTeams   *TeamQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -76,6 +78,28 @@ func (_q *OrganizationQuery) QueryDevices() *DeviceQuery {
 			sqlgraph.From(organization.Table, organization.FieldID, selector),
 			sqlgraph.To(device.Table, device.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, organization.DevicesTable, organization.DevicesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTeams chains the current query on the "teams" edge.
+func (_q *OrganizationQuery) QueryTeams() *TeamQuery {
+	query := (&TeamClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.TeamsTable, organization.TeamsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -276,6 +300,7 @@ func (_q *OrganizationQuery) Clone() *OrganizationQuery {
 		inters:      append([]Interceptor{}, _q.inters...),
 		predicates:  append([]predicate.Organization{}, _q.predicates...),
 		withDevices: _q.withDevices.Clone(),
+		withTeams:   _q.withTeams.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -290,6 +315,17 @@ func (_q *OrganizationQuery) WithDevices(opts ...func(*DeviceQuery)) *Organizati
 		opt(query)
 	}
 	_q.withDevices = query
+	return _q
+}
+
+// WithTeams tells the query-builder to eager-load the nodes that are connected to
+// the "teams" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithTeams(opts ...func(*TeamQuery)) *OrganizationQuery {
+	query := (&TeamClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTeams = query
 	return _q
 }
 
@@ -371,8 +407,9 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Organization{}
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [2]bool{
 			_q.withDevices != nil,
+			_q.withTeams != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -397,6 +434,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		if err := _q.loadDevices(ctx, query, nodes,
 			func(n *Organization) { n.Edges.Devices = []*Device{} },
 			func(n *Organization, e *Device) { n.Edges.Devices = append(n.Edges.Devices, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withTeams; query != nil {
+		if err := _q.loadTeams(ctx, query, nodes,
+			func(n *Organization) { n.Edges.Teams = []*Team{} },
+			func(n *Organization, e *Team) { n.Edges.Teams = append(n.Edges.Teams, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -429,6 +473,37 @@ func (_q *OrganizationQuery) loadDevices(ctx context.Context, query *DeviceQuery
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "organization_devices" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadTeams(ctx context.Context, query *TeamQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *Team)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Team(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.TeamsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_teams
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_teams" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_teams" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

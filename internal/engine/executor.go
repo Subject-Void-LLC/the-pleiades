@@ -103,8 +103,8 @@ type NodeResult struct {
 type RunResult struct {
 	Nodes []NodeResult
 
-	// Secrets is every value a secret_fields or secret_mask task
-	// annotation discovered during this run (see Task.SecretFields,
+	// Secrets is every value a register_mask or secret_mask task
+	// annotation discovered during this run (see Task.RegisterMask,
 	// Task.SecretMask), in no particular order. A caller that prints or
 	// logs this run's own output (cmd/pleiades/run.go) should mask through
 	// credential.Mask using this exact, complete slice after Run has
@@ -192,7 +192,7 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 
 // run holds the state scoped to a single Executor.Run call: the dag being
 // walked, the worker-pool semaphore this call's device executions share,
-// and the secret-tracking accumulators secret_fields/secret_mask feed.
+// and the secret-tracking accumulators register_mask/secret_mask feed.
 // Keeping this separate from Executor itself means Executor has no
 // per-run mutable state, so a single Executor value stays safe to reuse
 // (or even to call Run on concurrently) across more than one dag; a fresh
@@ -297,12 +297,31 @@ func runConcurrently[T any, R any](items []T, fn func(T) R) []R {
 func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	task := r.dag.Nodes[nodeID]
 
+	if task.Kind() == TaskKindSynthetic {
+		// A Parallel task's own fan-out/join marker (tasktree.go's
+		// synthesizeParallel): a bare structural node with no condition,
+		// target, register, or action of its own. Running it through the
+		// full pipeline below would acquire a pointless lock and publish
+		// a spammy event for a node that carries no runbook author's
+		// intent at all, so it short-circuits here instead. This is the
+		// only Executor change Phase 10 makes; see EdgeType's own doc
+		// comment (dag.go) for what deliberately stays out of scope.
+		return []NodeResult{{NodeID: nodeID}}
+	}
+
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
-		stat, err := r.x.workflow.Read()
+		tree, err := r.x.workflow.Read()
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err)}}
 		}
-		res, err := cp.Eval(stat)
+		// Both CEL roots are bound to the identical snapshot today: "stat"
+		// for simple, non-cross-node conditions and "nodes" for Section
+		// 27-style cross-node conditions (e.g. nodes.precheck[""].ok), a
+		// deliberate scope choice recorded in cel.go's NewCELEvaluator doc
+		// comment rather than a narrower, diverging "stat" meaning nothing
+		// here needs yet.
+		vars := map[string]interface{}{"stat": tree, "nodes": tree}
+		res, err := cp.Eval(vars)
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err)}}
 		}
@@ -387,16 +406,17 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	})...)
 }
 
-// resolveDevices resolves task's Params["target"], returning (nil, nil)
-// for a controller-side task with no target at all. A non-empty target
-// that resolves to no device is an error: capability_rule.go only checks
-// target existence for an fqcn that requires a capability, so a target
-// typo on an unconstrained fqcn (including "noop") would otherwise pass
-// validation silently and then do nothing at all at execution time,
+// resolveDevices resolves task's effective target (TaskTarget: task's own
+// Params["target"], falling back to r.dag.Hosts), returning (nil, nil) for
+// a controller-side task with no target at all, from either source. A
+// non-empty target that resolves to no device is an error: capability_rule.go
+// only checks target existence for an fqcn that requires a capability, so a
+// target typo on an unconstrained fqcn (including "noop") would otherwise
+// pass validation silently and then do nothing at all at execution time,
 // exactly the kind of silent drop this codebase's own FAILURE_PATTERNS.md
 // already tracks as a defect class elsewhere.
 func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
-	target, _ := task.Params["target"].(string)
+	target := TaskTarget(r.dag, task)
 	if target == "" {
 		return nil, nil
 	}
@@ -454,11 +474,11 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		return result
 	}
 
-	// secret_fields marks fields of this task's own just-computed result as
+	// register_mask marks fields of this task's own just-computed result as
 	// secret, before Register/Merge below records it anywhere: this way a
 	// masked value is unmasked in WorkflowContext (when_cel must always see
 	// real values) but is already tracked for every later output boundary.
-	if err := r.markSecretFields(cmd, actionResult); err != nil {
+	if err := r.markRegisterMask(cmd, actionResult); err != nil {
 		result.Err = fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err)
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
 		return result
@@ -518,7 +538,7 @@ type nodeEvent struct {
 // publication is an observability side effect, matching Bus.Publish's own
 // fire-and-forget contract, and must never fail a node's real outcome.
 //
-// message is masked through every secret_fields/secret_mask value known to
+// message is masked through every register_mask/secret_mask value known to
 // r.secrets as of this exact call, before it ever reaches the payload.
 // This is necessarily best-effort, not complete: an event published before
 // a later task marks something secret cannot be retroactively scrubbed.

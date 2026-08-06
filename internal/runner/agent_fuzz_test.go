@@ -27,7 +27,7 @@ func FuzzAgentPayload(f *testing.F) {
 		logger := slog.Default()
 		// js is nil: MockAdapter never returns an error, so handleMessage's
 		// DLQ path (the only code that touches js) is never reached here.
-		agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger)
+		agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger, nil)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {

@@ -31,10 +31,14 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/adapters/native"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// serviceName identifies this process in every span it emits.
+const serviceName = "pleiades-runner"
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -49,6 +53,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Tracing is built before anything else so the spans describing
+	// startup itself are recorded. PLAN.md Section 19 puts OTEL in "all
+	// components", and this is the far end of the trace the Controller
+	// starts: without a provider here, a dispatch's trace ends at the bus.
+	telemetryCfg, err := telemetry.ConfigFromEnv(serviceName, "")
+	if err != nil {
+		log.Fatalf("failed to read telemetry configuration: %v", err)
+	}
+	tracerProvider, err := telemetry.Setup(ctx, telemetryCfg)
+	if err != nil {
+		log.Fatalf("failed to init telemetry: %v", err)
+	}
 
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
@@ -81,7 +98,8 @@ func main() {
 	}
 
 	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, logger)
+	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, logger,
+		tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner"))
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -98,5 +116,14 @@ func main() {
 
 	if err := bus.Close(); err != nil {
 		logger.Error("event bus drain failed", slog.String("error", err.Error()))
+	}
+
+	// Flushed last, and on its own timeout: spans describing the shutdown
+	// path are only exported if the provider outlives everything that
+	// emits them.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), telemetry.ShutdownTimeout)
+	defer shutdownCancel()
+	if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+		logger.Error("telemetry shutdown failed", slog.String("error", err.Error()))
 	}
 }

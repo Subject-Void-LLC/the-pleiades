@@ -2,6 +2,8 @@ package validate
 
 import (
 	"fmt"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
 )
 
 // LifecycleRule is the plan-time half of enforcing PLAN.md Section 11's
@@ -24,7 +26,7 @@ func LifecycleRule(world WorldView) []Finding {
 	var findings []Finding
 
 	for id, task := range world.DAG.Nodes {
-		target, _ := task.Params["target"].(string)
+		target := engine.TaskTarget(world.DAG, task)
 		if target == "" {
 			continue
 		}

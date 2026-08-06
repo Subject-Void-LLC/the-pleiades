@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
 )
 
@@ -48,23 +49,45 @@ func (_u *UserUpdate) SetNillableEmail(v *string) *UserUpdate {
 	return _u
 }
 
-// SetRole sets the "role" field.
-func (_u *UserUpdate) SetRole(v string) *UserUpdate {
-	_u.mutation.SetRole(v)
+// AddTeamIDs adds the "teams" edge to the Team entity by IDs.
+func (_u *UserUpdate) AddTeamIDs(ids ...int) *UserUpdate {
+	_u.mutation.AddTeamIDs(ids...)
 	return _u
 }
 
-// SetNillableRole sets the "role" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableRole(v *string) *UserUpdate {
-	if v != nil {
-		_u.SetRole(*v)
+// AddTeams adds the "teams" edges to the Team entity.
+func (_u *UserUpdate) AddTeams(v ...*Team) *UserUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
 	}
-	return _u
+	return _u.AddTeamIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
+}
+
+// ClearTeams clears all "teams" edges to the Team entity.
+func (_u *UserUpdate) ClearTeams() *UserUpdate {
+	_u.mutation.ClearTeams()
+	return _u
+}
+
+// RemoveTeamIDs removes the "teams" edge to Team entities by IDs.
+func (_u *UserUpdate) RemoveTeamIDs(ids ...int) *UserUpdate {
+	_u.mutation.RemoveTeamIDs(ids...)
+	return _u
+}
+
+// RemoveTeams removes "teams" edges to Team entities.
+func (_u *UserUpdate) RemoveTeams(v ...*Team) *UserUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTeamIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -131,8 +154,50 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Email(); ok {
 		_spec.SetField(user.FieldEmail, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.Role(); ok {
-		_spec.SetField(user.FieldRole, field.TypeString, value)
+	if _u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTeamsIDs(); len(nodes) > 0 && !_u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -174,23 +239,45 @@ func (_u *UserUpdateOne) SetNillableEmail(v *string) *UserUpdateOne {
 	return _u
 }
 
-// SetRole sets the "role" field.
-func (_u *UserUpdateOne) SetRole(v string) *UserUpdateOne {
-	_u.mutation.SetRole(v)
+// AddTeamIDs adds the "teams" edge to the Team entity by IDs.
+func (_u *UserUpdateOne) AddTeamIDs(ids ...int) *UserUpdateOne {
+	_u.mutation.AddTeamIDs(ids...)
 	return _u
 }
 
-// SetNillableRole sets the "role" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableRole(v *string) *UserUpdateOne {
-	if v != nil {
-		_u.SetRole(*v)
+// AddTeams adds the "teams" edges to the Team entity.
+func (_u *UserUpdateOne) AddTeams(v ...*Team) *UserUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
 	}
-	return _u
+	return _u.AddTeamIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
+}
+
+// ClearTeams clears all "teams" edges to the Team entity.
+func (_u *UserUpdateOne) ClearTeams() *UserUpdateOne {
+	_u.mutation.ClearTeams()
+	return _u
+}
+
+// RemoveTeamIDs removes the "teams" edge to Team entities by IDs.
+func (_u *UserUpdateOne) RemoveTeamIDs(ids ...int) *UserUpdateOne {
+	_u.mutation.RemoveTeamIDs(ids...)
+	return _u
+}
+
+// RemoveTeams removes "teams" edges to Team entities.
+func (_u *UserUpdateOne) RemoveTeams(v ...*Team) *UserUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTeamIDs(ids...)
 }
 
 // Where appends a list predicates to the UserUpdate builder.
@@ -287,8 +374,50 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	if value, ok := _u.mutation.Email(); ok {
 		_spec.SetField(user.FieldEmail, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.Role(); ok {
-		_spec.SetField(user.FieldRole, field.TypeString, value)
+	if _u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTeamsIDs(); len(nodes) > 0 && !_u.mutation.TeamsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TeamsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   user.TeamsTable,
+			Columns: user.TeamsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &User{config: _u.config}
 	_spec.Assign = _node.assignValues

@@ -14,6 +14,12 @@ func FuzzCELCompile(f *testing.F) {
 	f.Add(`invalid.syntax()`)
 	f.Add(`stat['key'] == true`)
 	f.Add(``)
+	// Phase 9: the "nodes" root (PLAN.md Section 27's cross-node
+	// aggregation) and its map-key-iteration idiom, the surface this phase
+	// newly declares.
+	f.Add(`nodes.precheck["switch1"].needs_reboot == true`)
+	f.Add(`nodes.precheck.exists(d, nodes.precheck[d].needs_reboot == true)`)
+	f.Add(`nodes.precheck.all(d, nodes.precheck[d].online == true)`)
 
 	f.Fuzz(func(t *testing.T, expr string) {
 		prg, err := eval.Compile(expr)

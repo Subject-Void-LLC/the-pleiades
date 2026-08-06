@@ -123,10 +123,25 @@ func runRunbook(args []string) error {
 		return fmt.Errorf("transport bindings misconfigured: %w", err)
 	}
 
-	actionExecutor := engine.NewTransportActionExecutor(
-		bindings,
-		newLazyCredentialStore(*dir),
-		engine.NewBuiltinActionExecutor(),
+	// The executor chain, innermost fallback last: a registered Collection
+	// method wins, then a transport-backed legacy fqcn, then the two engine
+	// keywords. Ordering matters only in that the Collection registry is
+	// consulted first, which is what makes the generated catalog reachable
+	// at all; the two layers underneath it are namespaced-free fqcn values
+	// the registry has never heard of, so they cannot collide.
+	//
+	// Credentials are resolved per device by the transport layer below.
+	// A Collection method receives them through its RunbookContext, which
+	// is empty here because no method in the catalog needs a device secret
+	// yet: net.catalyst.* authenticates to a controller, and wiring that
+	// through is the next thing this chain grows.
+	actionExecutor := engine.NewCollectionActionExecutor(
+		engine.NewTransportActionExecutor(
+			bindings,
+			newLazyCredentialStore(*dir),
+			engine.NewBuiltinActionExecutor(),
+		),
+		engine.NewDeviceRunbookContext,
 	)
 
 	executor := engine.NewExecutor(
@@ -151,7 +166,7 @@ func runRunbook(args []string) error {
 		switch {
 		case node.Err != nil:
 			// Masked through result.Secrets: a later task's failure can
-			// echo a value an earlier secret_fields/secret_mask task
+			// echo a value an earlier register_mask/secret_mask task
 			// marked secret (its own stdout accidentally repeating a
 			// generated password, for example), and by the time this
 			// prints, Run has already returned the complete secret set,
@@ -187,7 +202,7 @@ func runRunbook(args []string) error {
 // register name, then device ID, then key, for deterministic output.
 // Every value is masked through credential.Mask using result.Secrets
 // before printing: a set_metadata task can echo back a value an earlier
-// secret_fields/secret_mask task marked secret just as easily as any other
+// register_mask/secret_mask task marked secret just as easily as any other
 // task's output can.
 func printMetadata(metadata map[string]interface{}, secrets []string) {
 	registers := make([]string, 0, len(metadata))
@@ -235,11 +250,13 @@ func printMetadata(metadata map[string]interface{}, secrets []string) {
 // printTaskList prints tasks in order, indented two spaces per depth.
 // Each task prints its Name, or its FQCN if Name is empty, so a task
 // always has something readable printed even though Name has no
-// uniqueness requirement (see engine.Task's doc comment). A task with a
-// non-empty Block recurses one level deeper under a "block:" label, and
-// prints Rescue and Always, if present, as further labeled sub-sections
-// at that same depth, mirroring how Ansible authors read a block/rescue/
-// always task.
+// uniqueness requirement (see engine.Task's doc comment). A block task
+// recurses one level deeper under a "block:" label, and prints Rescue and
+// Always, if present, as further labeled sub-sections at that same depth,
+// mirroring how Ansible authors read a block/rescue/always task. A
+// parallel task recurses the same way under a "parallel:" label; its
+// children have no rescue/always of their own (Task.Parallel stays
+// Block-only for that, see dag.go).
 func printTaskList(tasks []engine.Task, depth int) {
 	indent := strings.Repeat("  ", depth)
 	for _, task := range tasks {
@@ -249,8 +266,9 @@ func printTaskList(tasks []engine.Task, depth int) {
 		}
 		fmt.Printf("%s%s\n", indent, label)
 
-		if len(task.Block) > 0 {
-			childIndent := strings.Repeat("  ", depth+1)
+		childIndent := strings.Repeat("  ", depth+1)
+		switch task.Kind() {
+		case engine.TaskKindBlock:
 			fmt.Printf("%sblock:\n", childIndent)
 			printTaskList(task.Block, depth+2)
 
@@ -262,6 +280,9 @@ func printTaskList(tasks []engine.Task, depth int) {
 				fmt.Printf("%salways:\n", childIndent)
 				printTaskList(task.Always, depth+2)
 			}
+		case engine.TaskKindParallel:
+			fmt.Printf("%sparallel:\n", childIndent)
+			printTaskList(task.Parallel, depth+2)
 		}
 	}
 }

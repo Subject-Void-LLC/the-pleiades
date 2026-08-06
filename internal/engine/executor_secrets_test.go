@@ -36,15 +36,15 @@ func (perDeviceTokenExecutor) Execute(_ context.Context, task *engine.Task, devi
 	return engine.ActionResult{Stats: map[string]interface{}{"token": "token-for-" + name}}, nil
 }
 
-// TestExecutor_SecretFieldsMaskedInLaterPublishedEvent proves the core
-// requirement behind secret_fields: a value marked secret is scrubbed out
+// TestExecutor_RegisterMaskMaskedInLaterPublishedEvent proves the core
+// requirement behind register_mask: a value marked secret is scrubbed out
 // of a *later, unrelated* task's own output, not just wherever it was
 // first produced. "mark-secret" registers a value and marks it secret via
-// secret_fields; "leak-secret" then uses that exact value as its own
+// register_mask; "leak-secret" then uses that exact value as its own
 // target, which fails to resolve (matching no inventory host or tag) and
 // would otherwise embed the raw secret verbatim in its own error and
 // published event message.
-func TestExecutor_SecretFieldsMaskedInLaterPublishedEvent(t *testing.T) {
+func TestExecutor_RegisterMaskMaskedInLaterPublishedEvent(t *testing.T) {
 	const secret = "sup3r-secret-password"
 
 	bus := event.NewInProcessBus()
@@ -77,7 +77,7 @@ func TestExecutor_SecretFieldsMaskedInLaterPublishedEvent(t *testing.T) {
 	dag := buildDAG(t, fmt.Sprintf(`{
 		"id": "secret-fields-leak",
 		"tasks": [
-			{"name": "mark-secret", "fqcn": "noop", "register": "creds", "secret_fields": ["password"], "params": {"password": %q}},
+			{"name": "mark-secret", "fqcn": "noop", "register": "creds", "register_mask": ["password"], "params": {"password": %q}},
 			{"name": "leak-secret", "fqcn": "noop", "params": {"target": %q}}
 		]
 	}`, secret, secret))
@@ -205,11 +205,11 @@ func TestExecutor_SecretMaskUnknownRegisterIsError(t *testing.T) {
 	}
 }
 
-// TestExecutor_SecretFieldsRejectsShortOrNonStringValue confirms a value
+// TestExecutor_RegisterMaskRejectsShortOrNonStringValue confirms a value
 // that is not safe to substring-mask (not a string, or too short) fails
 // the node loudly, and that the failure never leaks the offending value
 // itself into the error message.
-func TestExecutor_SecretFieldsRejectsShortOrNonStringValue(t *testing.T) {
+func TestExecutor_RegisterMaskRejectsShortOrNonStringValue(t *testing.T) {
 	cases := []struct {
 		name      string
 		paramsRaw string
@@ -232,7 +232,7 @@ func TestExecutor_SecretFieldsRejectsShortOrNonStringValue(t *testing.T) {
 
 			dag := buildDAG(t, fmt.Sprintf(`{
 				"id": "invalid-secret-field",
-				"tasks": [{"name": "mark", "fqcn": "noop", "secret_fields": [%q], "params": %s}]
+				"tasks": [{"name": "mark", "fqcn": "noop", "register_mask": [%q], "params": %s}]
 			}`, field, tc.paramsRaw))
 
 			x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
@@ -272,7 +272,7 @@ func TestExecutor_SecretsConcurrentDiscoveryUnderRace(t *testing.T) {
 
 	dag := buildDAG(t, `{
 		"id": "concurrent-secrets",
-		"tasks": [{"name": "collect", "fqcn": "token_source", "register": "out", "secret_fields": ["token"], "params": {"target": "all"}}]
+		"tasks": [{"name": "collect", "fqcn": "token_source", "register": "out", "register_mask": ["token"], "params": {"target": "all"}}]
 	}`)
 
 	x := engine.NewExecutor(resolver, perDeviceTokenExecutor{}, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), deviceCount)
@@ -326,5 +326,131 @@ func TestExecutor_SetMetadataAppearsInRunResult(t *testing.T) {
 
 	if _, ok := result.Metadata["other"]; ok {
 		t.Errorf("expected an ordinary registered task (fqcn noop) to not appear in Metadata, got: %+v", result.Metadata)
+	}
+}
+
+// TestExecutor_RegisterMaskNestedPath proves register_mask's dotted-path
+// support: "noop" echoes task.Params verbatim into Stats, so a nested
+// params.parent.nested_secret value is reachable by register_mask entry
+// "parent.nested_secret", exactly the shape secret_fields never supported.
+func TestExecutor_RegisterMaskNestedPath(t *testing.T) {
+	const secret = "a-very-long-nested-secret-value"
+
+	dag := buildDAG(t, fmt.Sprintf(`{
+		"id": "register-mask-nested",
+		"tasks": [{
+			"name": "mark",
+			"fqcn": "noop",
+			"register": "creds",
+			"register_mask": ["parent.nested_secret"],
+			"params": {"parent": {"nested_secret": %q}}
+		}]
+	}`, secret))
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	found := false
+	for _, s := range result.Secrets {
+		if s == secret {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected result.Secrets to contain the nested value, got: %v", result.Secrets)
+	}
+}
+
+// TestExecutor_RegisterMaskAbsentPath_IsBenignSkip confirms a register_mask
+// path naming a field this task's action never produced is a benign skip,
+// not an error, matching the top-level-absent-field behavior secret_fields
+// already had.
+func TestExecutor_RegisterMaskAbsentPath_IsBenignSkip(t *testing.T) {
+	dag := buildDAG(t, `{
+		"id": "register-mask-absent",
+		"tasks": [{"name": "mark", "fqcn": "noop", "register_mask": ["nope.not_here"], "params": {"other": "value"}}]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected an absent register_mask path to be a benign skip, got %+v", result.Nodes)
+	}
+}
+
+// TestExecutor_RegisterMaskNonMapIntermediate_Errors confirms a
+// register_mask path that tries to descend through a segment which
+// resolved to a non-map leaf value fails loudly, naming the path, rather
+// than silently treating it as absent.
+func TestExecutor_RegisterMaskNonMapIntermediate_Errors(t *testing.T) {
+	dag := buildDAG(t, `{
+		"id": "register-mask-non-map",
+		"tasks": [{"name": "mark", "fqcn": "noop", "register_mask": ["password.oops"], "params": {"password": "a-long-enough-string"}}]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run itself should not fail, only the node: %v", err)
+	}
+	if !result.HasErrors() {
+		t.Fatalf("expected the node to fail, got %+v", result.Nodes)
+	}
+	if !strings.Contains(result.Nodes[0].Err.Error(), "password.oops") {
+		t.Errorf("expected the error to name the offending path, got: %v", result.Nodes[0].Err)
+	}
+}
+
+// TestExecutor_RegisterMaskRegisterNamePrefix_Stripped proves a
+// register_mask path optionally prefixed with this task's own Register
+// name (mirroring when_cel's stat.<register> addressing, and exactly the
+// shape a hand-authored runbook naturally reaches for) resolves to the
+// identical field a bare, unprefixed path would: Stats has no key named
+// after the register itself, so leaving the prefix on would otherwise
+// silently resolve to nothing.
+func TestExecutor_RegisterMaskRegisterNamePrefix_Stripped(t *testing.T) {
+	const secret = "a-long-enough-secret-value"
+
+	dag := buildDAG(t, fmt.Sprintf(`{
+		"id": "register-mask-prefix",
+		"tasks": [{
+			"name": "get config",
+			"fqcn": "noop",
+			"register": "running_config",
+			"register_mask": "running_config.stdout",
+			"params": {"stdout": %q}
+		}]
+	}`, secret))
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	found := false
+	for _, s := range result.Secrets {
+		if s == secret {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the register-name-prefixed path to still mask the value, got: %v", result.Secrets)
 	}
 }

@@ -2,10 +2,11 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
-// minMaskableSecretLength is the shortest string value markSecretFields or
+// minMaskableSecretLength is the shortest string value markRegisterMask or
 // applySecretMask will accept as a secret. credential.Mask has no minimum
 // length of its own: it substring-scrubs whatever it is given, anywhere it
 // appears. A short or common value (a bool stringified to "true", a
@@ -72,22 +73,69 @@ func (s *stringSet) Snapshot() []string {
 	return out
 }
 
-// markSecretFields marks cmd.Task.SecretFields' values, read from
-// actionResult.Stats (this task's own just-computed result), as secret.
-// A field named in SecretFields but absent from Stats is a benign skip:
-// not every action produces every field a task might ask to protect. A
-// present-but-invalid field (not a long-enough string, see
-// secretMaskValue) is a hard error, since silently ignoring it would leave
-// the author believing a value is protected when it is not.
-func (r *run) markSecretFields(cmd nodeExecution, actionResult ActionResult) error {
-	for _, field := range cmd.Task.SecretFields {
-		v, ok := actionResult.Stats[field]
+// resolveRegisterMaskPath walks path (dot-separated) through stats,
+// descending into nested map[string]interface{} values one segment at a
+// time. It returns (value, true, nil) if the full path resolves;
+// (nil, false, nil) if any segment is simply absent, the same benign-skip
+// treatment a top-level-only field gets (not every action produces every
+// field a task might ask to protect); and a non-nil error if the path
+// tries to descend through a segment that resolved to something present
+// but not itself a map, since there is nowhere left to go and silently
+// stopping would leave the author believing a value is protected when it
+// is not.
+func resolveRegisterMaskPath(stats map[string]interface{}, path string) (interface{}, bool, error) {
+	segments := strings.Split(path, ".")
+	var current interface{} = stats
+	for i, seg := range segments {
+		m, ok := current.(map[string]interface{})
 		if !ok {
+			return nil, false, fmt.Errorf("path %q: %q is not a map, cannot resolve %q", path, strings.Join(segments[:i], "."), strings.Join(segments[i:], "."))
+		}
+		v, ok := m[seg]
+		if !ok {
+			return nil, false, nil
+		}
+		current = v
+	}
+	return current, true, nil
+}
+
+// markRegisterMask marks cmd.Task.RegisterMask's values, read from
+// actionResult.Stats (this task's own just-computed result), as secret.
+// Each entry is a dotted path (resolveRegisterMaskPath), so a top-level
+// field and a nested one use the same syntax. A path may optionally be
+// written with this task's own Register name as its leading segment
+// (Task.RegisterMask's own doc comment, dag.go), mirroring when_cel's
+// stat.<register> addressing; that exact prefix, if present, is stripped
+// before resolving into Stats, which itself has no register-name key at
+// all (Stats is the flat result map, never nested under its own register
+// name), so leaving the prefix on would silently resolve to nothing. A
+// path absent from Stats (after stripping, if applicable) is a benign
+// skip: not every action produces every field a task might ask to
+// protect. A path that resolves to something present but invalid (not a
+// long-enough string, see secretMaskValue, or blocked partway through by
+// a non-map intermediate value) is a hard error, since silently ignoring
+// it would leave the author believing a value is protected when it is
+// not.
+func (r *run) markRegisterMask(cmd nodeExecution, actionResult ActionResult) error {
+	for _, path := range cmd.Task.RegisterMask {
+		resolvePath := path
+		if cmd.Task.Register != "" {
+			if rest, ok := strings.CutPrefix(path, cmd.Task.Register+"."); ok {
+				resolvePath = rest
+			}
+		}
+
+		v, found, err := resolveRegisterMaskPath(actionResult.Stats, resolvePath)
+		if err != nil {
+			return fmt.Errorf("register_mask: %w", err)
+		}
+		if !found {
 			continue
 		}
-		s, err := secretMaskValue(field, v)
+		s, err := secretMaskValue(path, v)
 		if err != nil {
-			return fmt.Errorf("secret_fields: %w", err)
+			return fmt.Errorf("register_mask: %w", err)
 		}
 		r.secrets.Add(s)
 	}

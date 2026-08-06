@@ -16,6 +16,10 @@ func FuzzCommandDispatch(f *testing.F) {
 	f.Add("unknown-command", "", "", "")
 	f.Add("", "", "", "")
 	f.Add("-h", "", "", "")
+	f.Add("forge", "", "", "")
+	f.Add("forge", "bogus", "", "")
+	f.Add("forge", "-h", "", "")
+	f.Add("forge", "new-device", "--type", "junos_router")
 
 	f.Fuzz(func(t *testing.T, cmd, a1, a2, a3 string) {
 		dir := t.TempDir()

@@ -18,6 +18,7 @@ func TestCalculateBlastRadius(t *testing.T) {
 		name      string
 		items     []inventory.InventoryItem
 		nodes     map[string]*engine.Task
+		hosts     string
 		wantCount int
 		wantTiers []string
 	}{
@@ -99,13 +100,38 @@ func TestCalculateBlastRadius(t *testing.T) {
 			wantCount: 0,
 			wantTiers: nil,
 		},
+		{
+			name: "task with no target falls back to runbook-level hosts",
+			items: []inventory.InventoryItem{
+				&inventorytest.Stub{StubID: "d1", StubName: "router1", Props: map[string]inventory.PropertyValue{"tier": "prod"}},
+			},
+			nodes: map[string]*engine.Task{
+				"tasks[0]": {FQCN: "ssh_exec"},
+			},
+			hosts:     "router1",
+			wantCount: 1,
+			wantTiers: []string{"prod"},
+		},
+		{
+			name: "task's own target overrides runbook-level hosts",
+			items: []inventory.InventoryItem{
+				&inventorytest.Stub{StubID: "d1", StubName: "router1", Props: map[string]inventory.PropertyValue{"tier": "prod"}},
+				&inventorytest.Stub{StubID: "d2", StubName: "router2", Props: map[string]inventory.PropertyValue{"tier": "lab"}},
+			},
+			nodes: map[string]*engine.Task{
+				"tasks[0]": {FQCN: "ssh_exec", Params: map[string]interface{}{"target": "router2"}},
+			},
+			hosts:     "router1",
+			wantCount: 1,
+			wantTiers: []string{"lab"},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			world := validate.WorldView{
 				Items: tc.items,
-				DAG:   &engine.DAG{ID: "t", Nodes: tc.nodes, Adjacency: map[string][]engine.EdgeConfig{}},
+				DAG:   &engine.DAG{ID: "t", Hosts: tc.hosts, Nodes: tc.nodes, Adjacency: map[string][]engine.EdgeConfig{}},
 			}
 
 			got := validate.CalculateBlastRadius(world)

@@ -10,7 +10,9 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Dispatcher coordinates the execution of Runbooks against an inventory group.
@@ -65,7 +67,7 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Obtain an Iterator for the target group
-	iter, err := d.repo.GetGroup(r.Context(), groupName)
+	iter, err := d.repo.GetGroup(r.Context(), pkginventory.Selector{GroupName: groupName})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to query inventory: %v", err), http.StatusInternalServerError)
 		return
@@ -122,9 +124,16 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 		// stable across a retry of this exact device's dispatch within
 		// this job and more meaningful than a fresh random default.
 		pubCtx := event.WithActor(context.Background(), id.Subject)
-		if traceID, ok := r.Context().Value(traceIDKey).(string); ok {
+		if traceID, ok := TraceIDFromContext(r.Context()); ok {
 			pubCtx = event.WithTraceID(pubCtx, traceID)
 		}
+		// The envelope's TraceID field is for a human reading an audit
+		// row. The machine-readable W3C trace context that actually lets
+		// the Runner continue this trace rides in the NATS message
+		// headers, injected by the Bus adapter, and needs the live span
+		// from the request context rather than the detached background
+		// one, so it is grafted back on here.
+		pubCtx = trace.ContextWithSpan(pubCtx, trace.SpanFromContext(r.Context()))
 		pubCtx = event.WithIdempotencyKey(pubCtx, jobID+":"+deviceName)
 
 		if err := d.bus.Publish(pubCtx, topology.DispatchSubject(), *evt); err != nil {

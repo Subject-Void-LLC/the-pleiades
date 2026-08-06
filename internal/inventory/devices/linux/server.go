@@ -14,6 +14,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
 )
 
 func init() {
@@ -29,8 +30,21 @@ type Server struct {
 // NewServer builds a Server from rec. It matches the
 // func(record.Record) (inventory.InventoryItem, error) shape ItemFactory's
 // registry expects.
+//
+// The capability set is the vendor baseline (SSHTransportCapable,
+// LinuxCapable) unioned with rec.Capabilities, per Phase 32's capability
+// granularity decision: classification-derived data can only add to what
+// this type already asserts about itself, never replace it -- a Record
+// hydrated with no Classify path (an explicit Type) still gets the same
+// baseline this constructor always granted, while a classified one can
+// gain more (policy.UnionSlices, Section 25's shared primitive, rather
+// than a bespoke dedup loop here).
 func NewServer(rec record.Record) (inventory.InventoryItem, error) {
-	base := record.NewBase(rec, []capability.Name{capability.NameSSHTransport, capability.NameLinux})
+	caps := policy.UnionSlices(
+		[]capability.Name{capability.NameSSHTransport, capability.NameLinux},
+		rec.Capabilities,
+	)
+	base := record.NewBase(rec, caps)
 	return &Server{Base: base}, nil
 }
 

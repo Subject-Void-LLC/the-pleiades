@@ -2,12 +2,6 @@
   "_comment": "Per-finding gosec waivers for code outside Phase 0/Part 0 (W1-W6)/Phase 1 scope, per the Phase 0 CI harness item's pre-existing-findings policy (.SPECIFICATION/IMPLEMENTATION.md). Every entry names one exact (file, line, rule) finding gosec currently reports and a reason; it is not a blanket rule or directory exclusion. A finding that stops matching (because the surrounding code moved) must be re-reviewed, not silently re-added: that is deliberate, not a maintenance burden to route around. Every entry's backstop is AGENTS.md's own rule: gosec must be validated (zero remaining waivers) prior to Phase 20 production packaging.",
   "waivers": [
     {
-      "file": "internal/api/router.go",
-      "line": "29-31",
-      "rule_id": "G104",
-      "reason": "Owned by Phase 11 (API Gateway), outside Part 0/Phase 1 scope. json.Encode error ignored in the healthz handler."
-    },
-    {
       "file": "internal/api/hateoas.go",
       "line": "49",
       "rule_id": "G104",
@@ -33,15 +27,15 @@
     },
     {
       "file": "internal/api/logs.go",
-      "line": "107",
+      "line": "135",
       "rule_id": "G705",
-      "reason": "Owned by Phase 11 (API Gateway & Telemetry) / Phase 14 (Dispatcher) / Phase 39 (Schema & Injection Hardening), not this phase's (Phase 2, Event Bus) own checklist. jobID (a chi URL param) is written into the initial SSE comment line unescaped. Phase 2 touched this file to fix a real, different bug (the consumer was not actually scoped per job ID) but did not undertake a general HTTP-response injection audit of the whole API surface, which is Phase 39's named job. Revisit there."
+      "reason": "Owned by Phase 11 (API Gateway & Telemetry). Phase 11 audited this exact finding and closed the underlying risk rather than only re-waiving it: jobID is now rejected unless it parses as a UUID (internal/api/logs.go's StreamLogs), so the value gosec still traces from the chi URL param into this SSE write can no longer contain a newline, an angle bracket, or any other character with meaning to an SSE consumer or a browser. The same check closed a real NATS subject-wildcard injection on the line below it (FAILURE_PATTERNS.md). gosec's taint analysis cannot see the uuid.Parse guard, so the finding remains reported; it is no longer reachable. Re-verify at Phase 39."
     },
     {
       "file": "internal/api/dispatcher.go",
-      "line": "145-150",
+      "line": "154-159",
       "rule_id": "G104",
-      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in router.go and hateoas.go above. Phase 2 rewired this handler to publish through event.Bus (a real, different fix) but did not undertake a general response-encoding-error audit."
+      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in hateoas.go above. Line numbers shifted (146-151 -> 154-159) when Phase 11 added the trace-context graft above it; no code at this finding changed."
     }
   ]
 }

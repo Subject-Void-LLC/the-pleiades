@@ -9,6 +9,10 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/retry"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // DispatchPayload mirrors the one defined in api/dispatcher.go.
@@ -31,6 +35,7 @@ type Agent struct {
 	js         jetstream.JetStream
 	maxDeliver int
 	logger     *slog.Logger
+	tracer     trace.Tracer
 	baseSleep  time.Duration
 	maxSleep   time.Duration
 }
@@ -47,9 +52,19 @@ type Agent struct {
 // uses. maxDeliver should match consumer's own configured MaxDeliver
 // (topology.DispatchConsumerConfig's, in real use), or the two can
 // disagree about when a message is actually exhausted.
-func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstream.JetStream, maxDeliver int, logger *slog.Logger) *Agent {
+//
+// tracer is what makes this node the far end of PLAN.md Section 19's
+// distributed trace: handleMessage continues the trace the Controller
+// started, rather than beginning an unrelated one, by reading the W3C
+// trace context the publishing Bus left in the message headers. A nil
+// tracer means no spans, which is right for a test and wrong for a
+// deployment.
+func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstream.JetStream, maxDeliver int, logger *slog.Logger, tracer trace.Tracer) *Agent {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if tracer == nil {
+		tracer = noop.NewTracerProvider().Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner")
 	}
 	return &Agent{
 		consumer:   consumer,
@@ -57,6 +72,7 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		js:         js,
 		maxDeliver: maxDeliver,
 		logger:     logger,
+		tracer:     tracer,
 		baseSleep:  100 * time.Millisecond,
 		maxSleep:   10 * time.Second,
 	}
@@ -107,6 +123,19 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
+	// The far end of PLAN.md Section 19's "API Request -> Event Bus ->
+	// Runner Execution" trace. The publishing Bus left W3C trace context
+	// in the message headers (internal/event/trace.go); extracting it here
+	// makes this span a child of the API request's span, in the same
+	// trace, rather than the root of a second one that no operator could
+	// connect back to the request that caused it.
+	ctx = event.ExtractTraceContext(ctx, msg.Headers())
+	ctx, span := a.tracer.Start(ctx, "runner.handle_message",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(attribute.String("messaging.destination.name", msg.Subject())),
+	)
+	defer span.End()
+
 	// Every publish in this codebase goes through Bus.Publish now, which
 	// wraps the domain payload in the Event envelope (internal/event) --
 	// so the raw bytes on the wire are a marshaled Event, not a bare
@@ -139,6 +168,11 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
+	span.SetAttributes(
+		attribute.String("pleiades.job.id", payload.JobID),
+		attribute.String("pleiades.runbook.id", payload.RunbookID),
+		attribute.String("pleiades.device.name", payload.DeviceName),
+	)
 	a.logger.Info("processing job",
 		slog.String("runbook", payload.RunbookID),
 		slog.String("device", payload.DeviceName),
@@ -146,6 +180,8 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 
 	// Execute the Runbook using the configured adapter.
 	if err := a.adapter.Execute(ctx, payload); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "adapter execution failed")
 		a.logger.Error("adapter execution failed", slog.String("error", err.Error()))
 		// Routed through the same Dead Letter Queue mechanism
 		// natsBus.Subscribe itself uses (event.HandleDeliveryFailure),

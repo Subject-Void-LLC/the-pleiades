@@ -5,6 +5,7 @@
 package main_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -294,12 +295,12 @@ func TestCLI_RunReportsSetMetadata(t *testing.T) {
 	}
 }
 
-// TestCLI_RunMasksSecretFields exercises secret_fields through the real
+// TestCLI_RunMasksRegisterMask exercises register_mask through the real
 // binary: a value marked secret must never appear in cleartext anywhere
 // in the CLI's own printed output, including a later, unrelated task's
 // own failure message that happens to echo it back, only the mask
 // placeholder should.
-func TestCLI_RunMasksSecretFields(t *testing.T) {
+func TestCLI_RunMasksRegisterMask(t *testing.T) {
 	dir := t.TempDir()
 	if out, err := runPleiades(t, dir, "init"); err != nil {
 		t.Fatalf("init failed: %v\n%s", err, out)
@@ -312,7 +313,7 @@ func TestCLI_RunMasksSecretFields(t *testing.T) {
 		"  - name: mark-secret\n" +
 		"    fqcn: noop\n" +
 		"    register: creds\n" +
-		"    secret_fields: [password]\n" +
+		"    register_mask: [password]\n" +
 		"    params:\n" +
 		"      password: \"" + secret + "\"\n" +
 		"  - name: leak-secret\n" +
@@ -333,4 +334,181 @@ func TestCLI_RunMasksSecretFields(t *testing.T) {
 	if !strings.Contains(out, "********") {
 		t.Errorf("expected the mask placeholder to appear in CLI output, got:\n%s", out)
 	}
+}
+
+// exitCode extracts a subprocess's real exit code from the error
+// CombinedOutput returns, failing the test if the process never ran at
+// all (as opposed to running and exiting non-zero, which is not an error
+// here).
+func exitCode(t *testing.T, err error) int {
+	t.Helper()
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	t.Fatalf("pleiades failed to run at all: %v", err)
+	return -1
+}
+
+// TestCLI_ForgeHelp is Phase 30's own Release Gate: "pleiades forge --help
+// lists its subcommands." Phase 33 adds the first two real subcommands
+// (new-device, new-collection), so the assertion moved from "the usage
+// block honestly says nothing is registered yet" to "the usage block
+// actually lists what is now registered."
+func TestCLI_ForgeHelp(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runPleiades(t, dir, "forge", "--help")
+	if err != nil {
+		t.Fatalf("forge --help should succeed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "usage: pleiades forge") {
+		t.Errorf("expected forge --help to print its own usage block, got:\n%s", out)
+	}
+	for _, want := range []string{"new-device", "new-collection"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected forge --help to list %q, got:\n%s", want, out)
+		}
+	}
+}
+
+// TestCLI_ForgeUnknownSubcommand is the other half of Phase 30's Release
+// Gate: "pleiades forge bogus fails with the same shape as an unknown
+// top-level command," verified against the real built binary, not a
+// mock. Compares directly against the real top-level "pleiades bogus"
+// case rather than asserting a hardcoded string twice, so a future change
+// to one shape without the other would fail this test.
+func TestCLI_ForgeUnknownSubcommand(t *testing.T) {
+	dir := t.TempDir()
+
+	topOut, topErr := runPleiades(t, dir, "bogus")
+	topCode := exitCode(t, topErr)
+	if !strings.Contains(topOut, `unknown command "bogus"`) {
+		t.Fatalf("expected top-level unknown command message, got:\n%s", topOut)
+	}
+	if !strings.Contains(topOut, "usage: pleiades") {
+		t.Fatalf("expected top-level unknown command to print usage, got:\n%s", topOut)
+	}
+
+	forgeOut, forgeErr := runPleiades(t, dir, "forge", "bogus")
+	forgeCode := exitCode(t, forgeErr)
+	if !strings.Contains(forgeOut, `unknown command "bogus"`) {
+		t.Errorf("expected forge unknown command message, got:\n%s", forgeOut)
+	}
+	if !strings.Contains(forgeOut, "usage: pleiades forge") {
+		t.Errorf("expected forge unknown command to print its own usage, got:\n%s", forgeOut)
+	}
+	if forgeCode != topCode {
+		t.Errorf("pleiades forge bogus exited %d, want the same shape as pleiades bogus (%d)", forgeCode, topCode)
+	}
+	if forgeCode != 2 {
+		t.Errorf("pleiades forge bogus exited %d, want 2 (matching an unknown top-level command)", forgeCode)
+	}
+}
+
+// repoRoot locates the module root from this test file's own package
+// directory (cmd/pleiades), so the forge new-* release gate tests below
+// can point the real binary's --dir default (".") at the actual
+// repository checkout: a generated package imports internal/ paths, so
+// unlike TestCLI_EndToEnd's throwaway t.TempDir() project, it can only
+// go build/go test successfully from inside this module.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	return filepath.Clean(filepath.Join(wd, "..", ".."))
+}
+
+func runGoBuildAndTest(t *testing.T, dir, pkgImportPath string) {
+	t.Helper()
+	for _, subcmd := range []string{"build", "test"} {
+		cmd := exec.Command("go", subcmd, pkgImportPath)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go %s %s failed: %v\n%s", subcmd, pkgImportPath, err, out)
+		}
+	}
+}
+
+// TestCLI_ForgeNewDevice_EndToEnd is Phase 33's Release Gate, driven
+// through the actual built binary rather than devicescaffold's own
+// in-process tests: "pleiades forge new-device" writes a package that go
+// builds and whose generated test passes. (End-to-end registration
+// through record.RegisterType is separately proven, in more depth, by
+// internal/inventory/devicescaffold's own release_gate_test.go; this test
+// exists to prove the real CLI surface, not just the library it calls.)
+func TestCLI_ForgeNewDevice_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping release gate test in -short mode")
+	}
+
+	root := repoRoot(t)
+	vendor := fmt.Sprintf("e2egate%d", os.Getpid())
+	typeKey := vendor + "_widget"
+
+	t.Cleanup(func() {
+		_ = os.RemoveAll(filepath.Join(root, "internal", "inventory", "devices", vendor))
+	})
+
+	out, err := runPleiades(t, root, "forge", "new-device", vendor,
+		"--type", typeKey, "--capabilities", "SSHTransportCapable")
+	if err != nil {
+		t.Fatalf("forge new-device failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "not yet reachable from the stock binary") {
+		t.Errorf("expected the composition-root honesty note in output, got:\n%s", out)
+	}
+
+	sourcePath := filepath.Join(root, "internal", "inventory", "devices", vendor, "widget.go")
+	if _, statErr := os.Stat(sourcePath); statErr != nil {
+		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
+	}
+
+	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/" + vendor
+	runGoBuildAndTest(t, root, pkgImportPath)
+}
+
+// TestCLI_ForgeNewCollection_EndToEnd is TestCLI_ForgeNewDevice_EndToEnd's
+// counterpart for "pleiades forge new-collection", proving the real CLI
+// surface produces a package that go builds and whose generated test
+// (including its own collection.Lookup registration check) passes.
+func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping release gate test in -short mode")
+	}
+
+	root := repoRoot(t)
+	name := fmt.Sprintf("test.e2egate%d.check", os.Getpid())
+
+	// Remove only this test's own pid-namespaced package, never the shared
+	// internal/catalog/test parent. tools/gencatalog's dogfood test writes
+	// a sibling directory under the same parent, and a cleanup that took
+	// the parent would delete that test's package while it was still
+	// building it, which under a parallel `go test ./...` showed up as an
+	// unexplainable "no required module provides package" failure in
+	// whichever of the two happened to lose the race.
+	t.Cleanup(func() {
+		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid())))
+	})
+
+	out, err := runPleiades(t, root, "forge", "new-collection", name,
+		"--capabilities", "SSHTransportCapable", "--transports", "ssh")
+	if err != nil {
+		t.Fatalf("forge new-collection failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "planning-time metadata only") {
+		t.Errorf("expected the reachability honesty note in output, got:\n%s", out)
+	}
+
+	sourcePath := filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid()), "check.go")
+	if _, statErr := os.Stat(sourcePath); statErr != nil {
+		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
+	}
+
+	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
+	runGoBuildAndTest(t, root, pkgImportPath)
 }

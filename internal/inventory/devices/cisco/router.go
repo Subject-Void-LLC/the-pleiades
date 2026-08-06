@@ -14,6 +14,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
 )
 
 func init() {
@@ -21,7 +22,11 @@ func init() {
 }
 
 // Router implements InventoryItem plus, structurally,
-// capability.SSHTransportCapable and capability.CiscoIOSCapable.
+// capability.SSHTransportCapable, capability.CiscoIOSCapable, and
+// capability.NetworkCLICapable (CiscoIOSCapable's Section 8 parent,
+// docs/hephaestus.md's own worked example: net.cli.config, requiring the
+// broad NetworkCLICapable, resolves down to net.ios.config against a
+// Router at plan time).
 type Router struct {
 	*record.Base
 }
@@ -29,8 +34,21 @@ type Router struct {
 // NewRouter builds a Router from rec. It matches the
 // func(record.Record) (inventory.InventoryItem, error) shape ItemFactory's
 // registry expects.
+//
+// The capability set is the vendor baseline (SSHTransportCapable,
+// CiscoIOSCapable) unioned with rec.Capabilities, per Phase 32's capability
+// granularity decision: classification-derived data can only add to what
+// this type already asserts about itself, never replace it -- a Record
+// hydrated with no Classify path (an explicit Type) still gets the same
+// baseline this constructor always granted, while a classified one can
+// gain more (policy.UnionSlices, Section 25's shared primitive, rather
+// than a bespoke dedup loop here).
 func NewRouter(rec record.Record) (inventory.InventoryItem, error) {
-	base := record.NewBase(rec, []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS})
+	caps := policy.UnionSlices(
+		[]capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS},
+		rec.Capabilities,
+	)
+	base := record.NewBase(rec, caps)
 	return &Router{Base: base}, nil
 }
 
@@ -63,5 +81,13 @@ func (c *Router) IOSVersion() string {
 // SupportsNETCONF reports whether NETCONF/YANG is enabled on this router.
 func (c *Router) SupportsNETCONF() bool {
 	v, _ := c.Properties().Bool("netconf_enabled")
+	return v
+}
+
+// CLIPrompt returns the router's configured CLI prompt string, the
+// structural half of capability.NetworkCLICapable (CiscoIOSCapable's
+// Section 8 parent -- see capability.Resolves for the data half).
+func (c *Router) CLIPrompt() string {
+	v, _ := c.Properties().String("cli_prompt")
 	return v
 }

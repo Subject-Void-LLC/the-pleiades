@@ -8,18 +8,18 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
 )
 
-// TestDAGBuilder_SecretFieldsAndSecretMaskRoundTrip confirms secret_fields
+// TestDAGBuilder_RegisterMaskAndSecretMaskRoundTrip confirms register_mask
 // and secret_mask parse off a runbook and land on the compiled Task
 // unchanged, the same round-trip guarantee every other Task field already
 // has.
-func TestDAGBuilder_SecretFieldsAndSecretMaskRoundTrip(t *testing.T) {
+func TestDAGBuilder_RegisterMaskAndSecretMaskRoundTrip(t *testing.T) {
 	eval, _ := engine.NewCELEvaluator()
 	builder := engine.NewBuilder(eval)
 
 	payload := []byte(`{
 		"id": "runbook-secret-mask",
 		"tasks": [
-			{"name": "mark", "fqcn": "noop", "register": "creds", "secret_fields": ["password", "token"]},
+			{"name": "mark", "fqcn": "noop", "register": "creds", "register_mask": ["password", "token"]},
 			{"name": "mask", "fqcn": "noop", "secret_mask": {"register": "creds", "fields": ["password"]}}
 		]
 	}`)
@@ -30,8 +30,8 @@ func TestDAGBuilder_SecretFieldsAndSecretMaskRoundTrip(t *testing.T) {
 	}
 
 	markTask := dag.Nodes["tasks[0]"]
-	if !reflect.DeepEqual(markTask.SecretFields, []string{"password", "token"}) {
-		t.Errorf("expected SecretFields to round-trip, got %#v", markTask.SecretFields)
+	if !reflect.DeepEqual(markTask.RegisterMask, engine.StringList{"password", "token"}) {
+		t.Errorf("expected RegisterMask to round-trip, got %#v", markTask.RegisterMask)
 	}
 	if markTask.SecretMask != nil {
 		t.Errorf("expected tasks[0] to have no SecretMask, got %#v", markTask.SecretMask)
@@ -44,6 +44,34 @@ func TestDAGBuilder_SecretFieldsAndSecretMaskRoundTrip(t *testing.T) {
 	want := &engine.SecretMaskSpec{Register: "creds", Fields: []string{"password"}}
 	if !reflect.DeepEqual(maskTask.SecretMask, want) {
 		t.Errorf("expected SecretMask to round-trip as %#v, got %#v", want, maskTask.SecretMask)
+	}
+}
+
+// TestDAGBuilder_RegisterMaskBareScalarYAML confirms register_mask, like
+// when/when_or, accepts a bare scalar in YAML as shorthand for a
+// one-element list (StringList, dag.go), the shape a hand-authored
+// runbook naturally reaches for when it only has one path to mask.
+func TestDAGBuilder_RegisterMaskBareScalarYAML(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	dag, err := builder.BuildFromYAML([]byte(`
+id: register-mask-bare-scalar
+tasks:
+  - name: get config
+    fqcn: noop
+    register: running_config
+    register_mask: running_config.stdout
+    params:
+      stdout: "a-long-enough-secret-value"
+`))
+	if err != nil {
+		t.Fatalf("failed to build valid DAG: %v", err)
+	}
+
+	got := dag.Nodes["tasks[0]"].RegisterMask
+	if !reflect.DeepEqual(got, engine.StringList{"running_config.stdout"}) {
+		t.Errorf("expected a bare scalar to decode as a one-element list, got %#v", got)
 	}
 }
 

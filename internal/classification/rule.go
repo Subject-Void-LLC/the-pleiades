@@ -5,28 +5,24 @@
 // tree, most specific wins on conflicts. This is the Section 25 shared
 // hierarchical policy resolver's (pkg/policy) first real consumer.
 //
-// Deliberately out of scope for this package, per a settled design
-// decision recorded in this project's own memory system: a data-driven
-// Capabilities field, sourced by walking this same rule tree, belongs to
-// Phase 32 once record.Record grows the corresponding field. Growing this
-// package's Rule to carry capabilities today, with no caller anywhere to
-// consume them, would be exactly the "port with no callers is a
-// decoration, not an implemented pattern" failure this project's own
-// Adversarial Pattern Justification standard rejects. Rule below carries
-// only the fields a real caller (internal/inventory's HostSpec resolution)
-// actually consumes: Type and ConnectionMode, plus Onboard for the Section
-// 6b onboarding action name, which is exercised by this package's own
-// tests even though no onboarding pipeline consumes it yet (Section 6b is
-// unbuilt).
+// Phase 32 implements the data-driven Capabilities field this package's
+// own doc comment used to defer: Rule.Capabilities is populated by
+// walking this same rule tree and folded via pkg/policy's Union mode
+// (capabilities accumulate down the tree, they never replace), while
+// Type/ConnectionMode/Onboard keep the Override semantics they already
+// had. internal/inventory.ResolveHostCapabilities is the real caller
+// (mirroring ResolveHostType), and record.Record.Capabilities is where
+// the result lands.
 //
-// Also deliberately out of scope: loading a RuleSet from a real on-disk
+// Deliberately still out of scope: loading a RuleSet from a real on-disk
 // directory of _rule.yaml files (Section 6d's own classification_rules/
 // layout). DefaultRuleSet below is the only RuleSet this phase ships,
 // baked in for the Walk tier's "built-in classification rules for common
 // OS families" promise (PLAN.md Section 7). A filesystem loader with no
 // caller (no CLI flag or config surface references a custom rule
-// directory yet) would be the same decoration failure mode; building one
-// is deferred to whichever phase first needs to consume it.
+// directory yet) would be a "port with no callers is a decoration, not an
+// implemented pattern" failure; building one is deferred to whichever
+// phase first needs to consume it.
 package classification
 
 import (
@@ -35,6 +31,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
 )
 
@@ -60,10 +57,14 @@ var segmentPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
 // worse-than-linear scaling.
 const maxPathSegments = 64
 
-// Rule is one level's classification data. Every field is a pointer so a
-// level can leave a field unset (nil) and let a less specific level's
-// value continue inheriting, rather than every level being forced to
-// restate every field. See combineRule for the merge semantics.
+// Rule is one level's classification data. Type/ConnectionMode/Onboard are
+// pointers so a level can leave a field unset (nil) and let a less
+// specific level's value continue inheriting, rather than every level
+// being forced to restate every field. Capabilities is not a pointer: it
+// merges by Union (accumulate down the tree), not Override, so an unset
+// level is simply an empty slice contributing nothing to the fold, never
+// a signal to keep or discard a prior value. See combineRule for the
+// merge semantics.
 type Rule struct {
 	// Type is the ItemFactory registry key this rule assigns (e.g.
 	// "linux_server", "cisco_router").
@@ -73,14 +74,22 @@ type Rule struct {
 	// Onboard names the Section 6b provisioning action for a device
 	// matching this rule (e.g. "configure_polling", "install_agent").
 	Onboard *string
+	// Capabilities are the capability names this level's rule grants, in
+	// addition to whatever a less specific level already granted (Phase
+	// 32's capability granularity decision: "debian_family/_rule.yaml
+	// adds AptCapable" on top of whatever linux_server already granted).
+	Capabilities []capability.Name
 }
 
-// combineRule is Rule's Section 25 combine function: a more specific
-// layer's non-nil fields replace the accumulated value; a nil field
-// leaves whatever a less specific layer already set untouched. This is
-// Override semantics applied per field, the shape pkg/policy's own doc
-// comment names as the reason Resolve takes a caller-supplied combine
-// rather than interpreting Mode itself.
+// combineRule is Rule's Section 25 combine function, mixing two merge
+// modes in one type as PLAN.md Section 25 itself anticipates ("a single T
+// can even mix modes per field"): Type/ConnectionMode/Onboard are
+// Override (a more specific layer's non-nil field replaces the
+// accumulated value; a nil field leaves inheritance untouched), while
+// Capabilities is Union (pkg/policy.UnionSlices) -- a more specific
+// level's capabilities add to what a less specific level already granted,
+// never replace it, since classification never revokes a capability a
+// broader level already assigned.
 func combineRule(acc, next Rule) Rule {
 	if next.Type != nil {
 		acc.Type = next.Type
@@ -91,6 +100,7 @@ func combineRule(acc, next Rule) Rule {
 	if next.Onboard != nil {
 		acc.Onboard = next.Onboard
 	}
+	acc.Capabilities = policy.UnionSlices(acc.Capabilities, next.Capabilities)
 	return acc
 }
 

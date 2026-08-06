@@ -20,6 +20,8 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
 )
 
@@ -38,6 +40,10 @@ type Client struct {
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
 	Revision *RevisionClient
+	// RoleBinding is the client for interacting with the RoleBinding builders.
+	RoleBinding *RoleBindingClient
+	// Team is the client for interacting with the Team builders.
+	Team *TeamClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
 }
@@ -56,6 +62,8 @@ func (c *Client) init() {
 	c.Group = NewGroupClient(c.config)
 	c.Organization = NewOrganizationClient(c.config)
 	c.Revision = NewRevisionClient(c.config)
+	c.RoleBinding = NewRoleBindingClient(c.config)
+	c.Team = NewTeamClient(c.config)
 	c.User = NewUserClient(c.config)
 }
 
@@ -154,6 +162,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Group:        NewGroupClient(cfg),
 		Organization: NewOrganizationClient(cfg),
 		Revision:     NewRevisionClient(cfg),
+		RoleBinding:  NewRoleBindingClient(cfg),
+		Team:         NewTeamClient(cfg),
 		User:         NewUserClient(cfg),
 	}, nil
 }
@@ -179,6 +189,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Group:        NewGroupClient(cfg),
 		Organization: NewOrganizationClient(cfg),
 		Revision:     NewRevisionClient(cfg),
+		RoleBinding:  NewRoleBindingClient(cfg),
+		Team:         NewTeamClient(cfg),
 		User:         NewUserClient(cfg),
 	}, nil
 }
@@ -209,7 +221,8 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.Device, c.Fact, c.Group, c.Organization, c.Revision, c.User,
+		c.Device, c.Fact, c.Group, c.Organization, c.Revision, c.RoleBinding, c.Team,
+		c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -219,7 +232,8 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.Device, c.Fact, c.Group, c.Organization, c.Revision, c.User,
+		c.Device, c.Fact, c.Group, c.Organization, c.Revision, c.RoleBinding, c.Team,
+		c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -238,6 +252,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Organization.mutate(ctx, m)
 	case *RevisionMutation:
 		return c.Revision.mutate(ctx, m)
+	case *RoleBindingMutation:
+		return c.RoleBinding.mutate(ctx, m)
+	case *TeamMutation:
+		return c.Team.mutate(ctx, m)
 	case *UserMutation:
 		return c.User.mutate(ctx, m)
 	default:
@@ -928,6 +946,22 @@ func (c *OrganizationClient) QueryDevices(_m *Organization) *DeviceQuery {
 	return query
 }
 
+// QueryTeams queries the teams edge of a Organization.
+func (c *OrganizationClient) QueryTeams(_m *Organization) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.TeamsTable, organization.TeamsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *OrganizationClient) Hooks() []Hook {
 	return c.hooks.Organization
@@ -1102,6 +1136,336 @@ func (c *RevisionClient) mutate(ctx context.Context, m *RevisionMutation) (Value
 	}
 }
 
+// RoleBindingClient is a client for the RoleBinding schema.
+type RoleBindingClient struct {
+	config
+}
+
+// NewRoleBindingClient returns a client for the RoleBinding from the given config.
+func NewRoleBindingClient(c config) *RoleBindingClient {
+	return &RoleBindingClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `rolebinding.Hooks(f(g(h())))`.
+func (c *RoleBindingClient) Use(hooks ...Hook) {
+	c.hooks.RoleBinding = append(c.hooks.RoleBinding, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `rolebinding.Intercept(f(g(h())))`.
+func (c *RoleBindingClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RoleBinding = append(c.inters.RoleBinding, interceptors...)
+}
+
+// Create returns a builder for creating a RoleBinding entity.
+func (c *RoleBindingClient) Create() *RoleBindingCreate {
+	mutation := newRoleBindingMutation(c.config, OpCreate)
+	return &RoleBindingCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RoleBinding entities.
+func (c *RoleBindingClient) CreateBulk(builders ...*RoleBindingCreate) *RoleBindingCreateBulk {
+	return &RoleBindingCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RoleBindingClient) MapCreateBulk(slice any, setFunc func(*RoleBindingCreate, int)) *RoleBindingCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RoleBindingCreateBulk{err: fmt.Errorf("calling to RoleBindingClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RoleBindingCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RoleBindingCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RoleBinding.
+func (c *RoleBindingClient) Update() *RoleBindingUpdate {
+	mutation := newRoleBindingMutation(c.config, OpUpdate)
+	return &RoleBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RoleBindingClient) UpdateOne(_m *RoleBinding) *RoleBindingUpdateOne {
+	mutation := newRoleBindingMutation(c.config, OpUpdateOne, withRoleBinding(_m))
+	return &RoleBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RoleBindingClient) UpdateOneID(id int) *RoleBindingUpdateOne {
+	mutation := newRoleBindingMutation(c.config, OpUpdateOne, withRoleBindingID(id))
+	return &RoleBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RoleBinding.
+func (c *RoleBindingClient) Delete() *RoleBindingDelete {
+	mutation := newRoleBindingMutation(c.config, OpDelete)
+	return &RoleBindingDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RoleBindingClient) DeleteOne(_m *RoleBinding) *RoleBindingDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RoleBindingClient) DeleteOneID(id int) *RoleBindingDeleteOne {
+	builder := c.Delete().Where(rolebinding.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RoleBindingDeleteOne{builder}
+}
+
+// Query returns a query builder for RoleBinding.
+func (c *RoleBindingClient) Query() *RoleBindingQuery {
+	return &RoleBindingQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRoleBinding},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RoleBinding entity by its id.
+func (c *RoleBindingClient) Get(ctx context.Context, id int) (*RoleBinding, error) {
+	return c.Query().Where(rolebinding.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RoleBindingClient) GetX(ctx context.Context, id int) *RoleBinding {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTeam queries the team edge of a RoleBinding.
+func (c *RoleBindingClient) QueryTeam(_m *RoleBinding) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(rolebinding.Table, rolebinding.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, rolebinding.TeamTable, rolebinding.TeamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *RoleBindingClient) Hooks() []Hook {
+	return c.hooks.RoleBinding
+}
+
+// Interceptors returns the client interceptors.
+func (c *RoleBindingClient) Interceptors() []Interceptor {
+	return c.inters.RoleBinding
+}
+
+func (c *RoleBindingClient) mutate(ctx context.Context, m *RoleBindingMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RoleBindingCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RoleBindingUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RoleBindingUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RoleBindingDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RoleBinding mutation op: %q", m.Op())
+	}
+}
+
+// TeamClient is a client for the Team schema.
+type TeamClient struct {
+	config
+}
+
+// NewTeamClient returns a client for the Team from the given config.
+func NewTeamClient(c config) *TeamClient {
+	return &TeamClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `team.Hooks(f(g(h())))`.
+func (c *TeamClient) Use(hooks ...Hook) {
+	c.hooks.Team = append(c.hooks.Team, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `team.Intercept(f(g(h())))`.
+func (c *TeamClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Team = append(c.inters.Team, interceptors...)
+}
+
+// Create returns a builder for creating a Team entity.
+func (c *TeamClient) Create() *TeamCreate {
+	mutation := newTeamMutation(c.config, OpCreate)
+	return &TeamCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Team entities.
+func (c *TeamClient) CreateBulk(builders ...*TeamCreate) *TeamCreateBulk {
+	return &TeamCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TeamClient) MapCreateBulk(slice any, setFunc func(*TeamCreate, int)) *TeamCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TeamCreateBulk{err: fmt.Errorf("calling to TeamClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TeamCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TeamCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Team.
+func (c *TeamClient) Update() *TeamUpdate {
+	mutation := newTeamMutation(c.config, OpUpdate)
+	return &TeamUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TeamClient) UpdateOne(_m *Team) *TeamUpdateOne {
+	mutation := newTeamMutation(c.config, OpUpdateOne, withTeam(_m))
+	return &TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TeamClient) UpdateOneID(id int) *TeamUpdateOne {
+	mutation := newTeamMutation(c.config, OpUpdateOne, withTeamID(id))
+	return &TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Team.
+func (c *TeamClient) Delete() *TeamDelete {
+	mutation := newTeamMutation(c.config, OpDelete)
+	return &TeamDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TeamClient) DeleteOne(_m *Team) *TeamDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TeamClient) DeleteOneID(id int) *TeamDeleteOne {
+	builder := c.Delete().Where(team.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TeamDeleteOne{builder}
+}
+
+// Query returns a query builder for Team.
+func (c *TeamClient) Query() *TeamQuery {
+	return &TeamQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTeam},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Team entity by its id.
+func (c *TeamClient) Get(ctx context.Context, id int) (*Team, error) {
+	return c.Query().Where(team.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TeamClient) GetX(ctx context.Context, id int) *Team {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryOrganization queries the organization edge of a Team.
+func (c *TeamClient) QueryOrganization(_m *Team) *OrganizationQuery {
+	query := (&OrganizationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(organization.Table, organization.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, team.OrganizationTable, team.OrganizationColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUsers queries the users edge of a Team.
+func (c *TeamClient) QueryUsers(_m *Team) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, team.UsersTable, team.UsersPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryRoleBindings queries the role_bindings edge of a Team.
+func (c *TeamClient) QueryRoleBindings(_m *Team) *RoleBindingQuery {
+	query := (&RoleBindingClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, id),
+			sqlgraph.To(rolebinding.Table, rolebinding.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.RoleBindingsTable, team.RoleBindingsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TeamClient) Hooks() []Hook {
+	return c.hooks.Team
+}
+
+// Interceptors returns the client interceptors.
+func (c *TeamClient) Interceptors() []Interceptor {
+	return c.inters.Team
+}
+
+func (c *TeamClient) mutate(ctx context.Context, m *TeamMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TeamCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TeamUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TeamUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TeamDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Team mutation op: %q", m.Op())
+	}
+}
+
 // UserClient is a client for the User schema.
 type UserClient struct {
 	config
@@ -1210,6 +1574,22 @@ func (c *UserClient) GetX(ctx context.Context, id int) *User {
 	return obj
 }
 
+// QueryTeams queries the teams edge of a User.
+func (c *UserClient) QueryTeams(_m *User) *TeamQuery {
+	query := (&TeamClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(team.Table, team.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, user.TeamsTable, user.TeamsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UserClient) Hooks() []Hook {
 	return c.hooks.User
@@ -1238,9 +1618,10 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Device, Fact, Group, Organization, Revision, User []ent.Hook
+		Device, Fact, Group, Organization, Revision, RoleBinding, Team, User []ent.Hook
 	}
 	inters struct {
-		Device, Fact, Group, Organization, Revision, User []ent.Interceptor
+		Device, Fact, Group, Organization, Revision, RoleBinding, Team,
+		User []ent.Interceptor
 	}
 )

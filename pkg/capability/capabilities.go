@@ -87,6 +87,19 @@ func Lookup(name Name) (Descriptor, bool) {
 	return vocabulary.Get(string(name))
 }
 
+// All returns a snapshot of the entire blessed vocabulary, keyed by Name.
+// Tests use it to walk every registered Descriptor (e.g. proving every
+// non-empty Parent itself resolves) without needing a hardcoded list that
+// drifts as capabilities are added.
+func All() map[Name]Descriptor {
+	raw := vocabulary.All()
+	out := make(map[Name]Descriptor, len(raw))
+	for k, v := range raw {
+		out[Name(k)] = v
+	}
+	return out
+}
+
 // Implements reports whether item structurally satisfies the interface
 // bound to name. Concrete HasCapability implementations call this so that
 // returning true is a compiler-checked guarantee, not an assertion left to
@@ -99,6 +112,52 @@ func Implements(item any, name Name) bool {
 	return d.Assert(item)
 }
 
+// Resolves reports whether required is satisfied by declared: either
+// required is present directly, or some name in declared has required as
+// a transitive Descriptor.Parent (Section 8's "system resolves
+// downward" - a task targeting the broad PackageManagerCapable is
+// satisfied by a device that only declared the narrower AptCapable).
+// This is the sole hierarchy resolution mechanism; record.Base.Declares
+// is its only production caller. It is deliberately the only place this
+// walk happens: a child interface Go-embedding its parent's method set
+// already makes Implements resolve upward for free (structural typing),
+// so Resolves only needs to close the gap on the data side, where a
+// device's declared set is a nominal map of Names, not a Go type.
+func Resolves(declared map[Name]struct{}, required Name) bool {
+	if _, ok := declared[required]; ok {
+		return true
+	}
+	for name := range declared {
+		if isAncestor(required, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// isAncestor reports whether ancestor is a transitive Parent of name,
+// walking the registered vocabulary. Cycle-guarded: a cycle can only come
+// from a Register call this codebase's own init makes (never external
+// input), but the guard costs one map and keeps this function total
+// regardless.
+func isAncestor(ancestor, name Name) bool {
+	seen := make(map[Name]bool)
+	for cur := name; ; {
+		d, ok := vocabulary.Get(string(cur))
+		if !ok || d.Parent == "" {
+			return false
+		}
+		if d.Parent == ancestor {
+			return true
+		}
+		if seen[d.Parent] {
+			return false
+		}
+		seen[d.Parent] = true
+		cur = d.Parent
+	}
+}
+
 func init() {
 	Register(Descriptor{
 		Name:   NameSSHTransport,
@@ -106,6 +165,7 @@ func init() {
 	})
 	Register(Descriptor{
 		Name:   NameCiscoIOS,
+		Parent: NameNetworkCLI,
 		Assert: func(item any) bool { _, ok := item.(CiscoIOSCapable); return ok },
 	})
 	Register(Descriptor{

@@ -1,0 +1,11 @@
+# Connection vars for the catalyst_lab group. The two secret values are
+# deliberately not here: they live in an ansible-vault encrypted
+# group_vars/catalyst_lab/vault.yml (not included in this example), and
+# are referenced by name below.
+ansible_connection: ansible.netcommon.network_cli
+ansible_network_os: cisco.ios.ios
+ansible_user: svc-netauto
+ansible_password: "{{ vault_catalyst_lab_password }}"
+ansible_become: true
+ansible_become_method: enable
+ansible_become_password: "{{ vault_catalyst_lab_enable_secret }}"

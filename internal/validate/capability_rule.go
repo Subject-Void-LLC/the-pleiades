@@ -9,9 +9,10 @@ import (
 // CapabilityRule is the first production caller of InventoryItem's
 // HasCapability anywhere in this repository (IMPLEMENTATION.md Phase W3
 // names its absence explicitly). For every task whose fqcn requires a
-// capability, it resolves the task's target (Params["target"], a device
-// name or a tag) and rejects any resolved device that does not declare it,
-// and any target that resolves to no device at all.
+// capability, it resolves the task's effective target (engine.TaskTarget:
+// Params["target"], falling back to the runbook's own Hosts default; a
+// device name or a tag either way) and rejects any resolved device that
+// does not declare it, and any target that resolves to no device at all.
 //
 // world.DAG.Nodes is already the flattened view produced by internal/engine
 // (every pretasks/tasks/posttasks entry plus every block/rescue/always
@@ -26,7 +27,7 @@ func CapabilityRule(world WorldView) []Finding {
 			continue
 		}
 
-		target, _ := task.Params["target"].(string)
+		target := engine.TaskTarget(world.DAG, task)
 		if target == "" {
 			continue
 		}

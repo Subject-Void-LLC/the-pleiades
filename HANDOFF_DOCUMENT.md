@@ -4,51 +4,1262 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session implemented Phase 6: Inventory Factory & Hydration in full**, per the explicit prompt to
-begin it. Most Phase 6 checklist items were already `[x]` from Part 0/the chain audit; what remained was
-the Pattern Entry Gate, the Registry item, the shared hierarchical policy resolver (and its first real
-consumer), the Fuzz/Stress/Adversarial Pattern Justification/Schema/Injection Hardening gates, and the
-Release Gate itself, all now `[x]`. A Plan-agent-reviewed design preceded any code (cross-cutting
-surface: two new `pkg/` primitives meant to be reused by many future phases, an import-cycle-sensitive
-registry placement decision, and a wiring decision spanning three files plus a CLI flag); the review
-caught and settled several real design questions before code was written, most importantly: where the
-device-type registry must physically live to avoid reintroducing the exact import cycle
-`internal/inventory/record`'s own doc comment says it exists to prevent, and that `HostSpec.Classify`
-must resolve to a concrete `Type` eagerly at `add-host` write time (not lazily on every load), since
-`internal/ent/schema/device.go`'s `type` column is immutable with no generated update setter at all,
-making eager resolution not merely cleaner but the only structurally possible timing for a future
-ent-backed create path.
+**This session closed Phase 11: API Gateway & Telemetry** (`.SPECIFICATION/IMPLEMENTATION.md`), all
+fourteen previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Research was one Explore agent over
+`PLAN.md`/`PATTERNS.md` plus direct reading of `internal/api`, `internal/event`, `internal/runner`, and
+both composition roots. That research produced the one finding that shaped everything else: almost every
+concrete requirement this phase owes originates in `PATTERNS.md`, not `PLAN.md`. `PLAN.md` Section 19 says
+only "OTEL everywhere" and "trace IDs must propagate API -> Bus -> Lock Manager -> Runner -> Device," and
+Section 25's Shared Primitives table has no row for telemetry, tracing, an HTTP server, or an ingress
+rate limiter at all. `PATTERNS.md` is where `/healthz`, `/readyz`, RED, the Front Controller, `/api/v1`,
+and the per-identity token bucket are actually specified.
 
-Per a mid-session user request, Phase 5's own Release Gate ("a secret saved via the API is completely
-unreadable ciphertext when queried directly via `psql`") was independently re-verified against the
-current code before any Phase 6 handoff text was written: both blockers its own note cites still hold
-today (`internal/api/router.go` still mounts only `/healthz`/`/metrics`; `internal/ent/migrate/apply.go`'s
-own comment confirms no Postgres composition root exists anywhere in the repository), and its
-closest-honest-equivalent tests still pass. No edit was needed there; its unchecked status and reasoning
-are current, not stale.
+**The honest headline, stated plainly because the phase's own Adversarial Pattern Justification line asks
+for it:** this phase was named "Telemetry" and had none. What existed was a UUID in an `X-Trace-ID` header
+and one Prometheus counter labeled by raw URL path. No span, no duration, no exporter, no propagation;
+`otel` was in `go.mod` only as an indirect test dependency. Three of `PATTERNS.md`'s six observability
+entries described behavior that did not exist anywhere. That is closed rather than argued away, and the
+Release Gate was strengthened so the same gap cannot pass it again: the gate used to require a log field
+*named* `trace_id`, which a UUID generator satisfies, and now requires that field to equal the trace ID of
+the real OpenTelemetry span that served the request.
 
-After the core implementation passed its own tests, two independent adversarial reviews (one
-correctness/concurrency-focused, one injection/architecture-focused) were run against every new or
-changed file before considering this phase's own Adversarial Pattern Justification and Schema/Injection
-Hardening items closed. Both surfaced one real, verified finding each, neither accepted at face value:
-`pkg/policy.IntersectSlices`'s own doc comment claimed a nil-or-empty accumulator both meant "no
-constraint yet," but only nil was actually special-cased; tracing the fold-sequence invariant by hand
-before applying the reviewer's own suggested fix (matching `len(acc) == 0` instead of `acc == nil`) found
-that "fix" would have been a real regression, breaking the non-widening guarantee the function exists to
-provide, so the doc comment was corrected instead of the code (`LESSONS_LEARNED.md` #50). Separately,
-`internal/classification.Classify`'s first draft rebuilt its dotted lookup key from scratch on every path
-prefix, an O(n^2) cost in path length with no upper bound anywhere on that length; benchmarked directly
-against the real function at ~40s for a 100,000-segment path, and reachable from two real, new,
-user-controlled input boundaries this same phase introduced (`HostSpec.Classify` in a hand-edited
-`inventory.yaml`, and `add-host --classify`'s comma-split CLI value). Fixed with two independent changes:
-an incremental `strings.Builder`-based key (O(n) total) and a new `maxPathSegments` (64) bounding path
-length regardless of the algorithm (`FAILURE_PATTERNS.md` #48, `LESSONS_LEARNED.md` #49). Docker became
-available partway through this session (initially unreachable in the sandbox, then the user started it);
-once the required container images (`nats:2.10`, `nats:2.11`, `nats:latest`, `postgres:15-alpine`, an
-OpenSSH server image) were pulled through some real network flakiness on the pull itself, `go test
-./... -race -count=1` and `make ci` both passed cleanly end to end across the entire repository, not just
-the packages this phase touched. See "The Phase 6 session" immediately below for full detail. Everything
-from "The Phase 5 session" onward describes earlier sessions and is unchanged.
+**Two real, pre-existing bugs were found while auditing this phase's own boundaries, both fixed, both
+recorded:**
+
+1. **A NATS subject injection that was an authorization bypass** (`FAILURE_PATTERNS.md` #63). `internal/
+   api/logs.go` concatenated the caller-supplied `{id}` URL parameter straight into a NATS subject via
+   `topology.LogSubject`. NATS subject wildcards are ordinary characters, so `GET /api/v1/jobs/%3E/logs`
+   built the filter subject `pleiades.jobs.logs.>` and streamed **every job's live logs in the system** to
+   any authenticated caller holding any scope. Found by following a `G705` gosec finding that had been
+   individually waived across three phases as a low-severity XSS question, one line further up into the
+   subject builder. Fixed by requiring the `{id}` to parse as a UUID at the boundary (every job ID this
+   platform mints already is one), which closes the injection and the waived `G705` together.
+2. **A data race between an SSE handler and its own consumer goroutine** (`FAILURE_PATTERNS.md` #64).
+   `StreamLogs` set its response headers *after* starting the JetStream `Consume` callback that writes the
+   body, so the callback's first write read the header map while the handler was still mutating it. The
+   file already had a `writeMu` guarding writes to `w`; header mutation is not a write to `w`, so the
+   mutex never covered it. It flaked roughly one `-race` run in five. Fixed by moving the four header
+   assignments above `Consume` (setting a header commits nothing, so the ordering property the original
+   code wanted is preserved).
+
+**What was built, by area:**
+
+1. **`internal/telemetry`** (new package). `Config`/`ExporterKind`/`Provider`/`Setup`/`ConfigFromEnv`, plus
+   `Propagator()`, the single place this platform's trace-context wire format is decided (W3C
+   `TraceContext`+`Baggage`). Exporters: `none`, `stdout`, `otlp` (HTTP). `ConfigFromEnv` reads the
+   standard `OTEL_*` variables so an operator configures this like any other OTEL process, and treats a
+   bare `OTEL_EXPORTER_OTLP_ENDPOINT` as implying `otlp`, since an endpoint with nothing sent to it is far
+   more likely a mistake than an intention. **`none` builds a real `TracerProvider` with no span
+   processor, not a no-op tracer**, deliberately: with no collector deployed the trace IDs must still be
+   valid, or the `trace_id` log field, the `X-Trace-ID` header, and cross-process propagation all silently
+   become all-zeros.
+2. **`internal/api/middleware.go`** (rewritten). `TracingMiddleware` (renamed from `TraceIDMiddleware`)
+   starts a real server span, continues an inbound `traceparent`, and renames the span to the matched chi
+   route pattern on the way out (chi only knows the pattern after routing). `StructuredLoggerMiddleware`
+   and `MetricsMiddleware` take injected dependencies. Package-level `promauto` registration and the
+   package-level `slog.New` are both gone. `TraceIDFromContext` reads the span context and reports absence
+   honestly, so a caller can tell "tracing is off" from "the ID is zeros."
+3. **`internal/api/metrics.go`, `health.go`, `ratelimit.go`** (new). Full RED (`http_requests_total` with a
+   `code` label, `http_request_duration_seconds`, `http_requests_in_flight`) on an injected registry,
+   labeled by **route pattern, never raw path**, with an `unmatched` fallback so a 404 flood cannot mint
+   label values. `/readyz` runs `ReadinessCheck`s concurrently under one deadline and reports only
+   `ok`/`failed` per check, never driver error text, because the endpoint is unauthenticated. `/healthz`
+   deliberately checks nothing: a liveness probe that fails on a broken dependency tells the orchestrator
+   to restart a process a restart cannot fix. The rate limiter is a per-caller token bucket keyed on the
+   authenticated identity when present and the source address otherwise, **never** on `X-Forwarded-For`
+   (a caller-supplied key mints a fresh bucket per request, which is worse than no limiter for looking
+   like one), with a capped, self-evicting caller table so the defense is not itself the exhaustion
+   vector.
+4. **`internal/api/router.go`** (rewritten). `NewRouter(RouterConfig)`; every field optional with a safe
+   default. Middleware order is load bearing and documented: tracing outermost, then metrics, then
+   logging, then `Recoverer` innermost, so a panic becomes a 500 all three observe. Routes register
+   through `RouterConfig.Routes`, already mounted under `/api/v1` with auth and the limiter applied, which
+   is what turns "versioned, authenticated, throttled" into a structural property rather than a rule each
+   new route must remember. `/healthz`, `/readyz`, `/metrics` are the documented unversioned, unthrottled,
+   unauthenticated exception.
+5. **`internal/event/trace.go`** (new) and `nats.go`. `InjectTraceContext`/`ExtractTraceContext` over a
+   purpose-built `natsHeaderCarrier`. **The carrier is hand-written rather than a `http.Header`
+   conversion on purpose**: the two types share an underlying map, so the conversion compiles and
+   round-trips perfectly between two Go processes while writing the canonicalized `Traceparent`, which the
+   W3C specification does not mandate and a non-Go consumer would never find.
+6. **`internal/runner/agent.go`**. `handleMessage` extracts the trace context and starts a child consumer
+   span. This is what makes item 5 a feature rather than a decoration, and it is asserted as such:
+   `TestAgent_ContinuesTraceFromMessageHeaders` proves the Runner's recorded span shares the API request's
+   trace ID and is parented to its span.
+7. **`cmd/controller/main.go`, `cmd/runner/main.go`**. Telemetry setup with bounded shutdown flush, one
+   injected JSON logger, one private Prometheus registry, real readiness checks, and rate-limiter
+   configuration. `log.Fatalf` replaced with a `fatal` helper (see the log-destination note below).
+8. **Tests** (all new unless noted): `internal/telemetry/{telemetry_test,export_test}.go`,
+   `internal/api/{ratelimit_test,ratelimit_bench_test,defaults_test}.go`,
+   `internal/event/{trace_test,trace_fuzz_test,trace_bench_test}.go`,
+   `internal/runner/agent_trace_test.go`. Rewritten: `internal/api/{router_test,middleware_test,
+   router_fuzz_test,router_bench_test}.go`. Extended: `internal/api/logs_test.go` (the injection
+   regression table), `internal/api/dispatcher_test.go` (now uses a real SDK span, since a no-op tracer's
+   span context is all-zeros and a test built on one proves nothing).
+
+**One trap worth naming for whoever touches logging next.** Installing a JSON `slog` handler on stdout and
+calling `slog.SetDefault` in `cmd/controller` looked like a pure improvement and silently did two other
+things. Go's standard `log` package routes through `slog.Default` at **info** level, so every
+`log.Fatalf` startup failure began emitting as an `INFO` line, meaning no alert keyed on level would ever
+fire for a controller that failed to start. And `cmd/controller/leader_election_release_gate_test.go`
+scraped the subprocess's **stderr** for a log line (correct while `slog`'s built-in default wrote there)
+and began seeing nothing, failing with a timeout that described a leader-election problem rather than a
+logging one. Both are fixed; both are `LESSONS_LEARNED.md` #75.
+
+**Verification.** `go build ./... && go vet ./...` clean; `gofmt -l` clean on every file this session
+touched. `go test ./... -race -count=1 -p 4` clean across the whole repository (the `-p 4` cap is
+`FAILURE_PATTERNS.md` #61's own recorded mitigation for this environment's container contention).
+`internal/api` re-run four consecutive times to confirm the #64 race fix holds. `make gosec`: 6 findings,
+all individually waived, zero new; the stale `internal/api/router.go` waiver was **removed** rather than
+re-pointed, because this phase actually fixed it. `make govulncheck`: **found three real vulnerabilities in
+the OTEL and gRPC modules this phase added** (`GO-2026-5158`, `GO-2026-4985`, `GO-2026-6061`), all fixed by
+upgrading to `otel@v1.44.0`/`grpc@v1.82.1` rather than waived; now reports 0. `make coverage`:
+`internal/api` 94.0% (floor raised 90.0 -> 93.5), `internal/telemetry` 96.9% (new, floor 96.0),
+`internal/runner` 94.0% (new floor 93.5), `internal/event` 86.8% (floor raised 85.3 -> 86.5), `cmd/runner`
+floor recorded at 0.0 to match `cmd/controller`. The same four pre-existing `coverage-floor.json`
+regressions from `FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`, `internal/inventory/record`,
+`pkg/collection`, `tools/gencatalog`) recurred at identical percentages, unrelated to this phase. Fuzz:
+`FuzzAPIRouter` ~358,000 executions/26s and `FuzzExtractTraceContext` ~503,000 executions/26s, zero
+crashes. Benchmarks (real numbers, this machine): `BenchmarkAPIMiddleware` ~8.3 µs/op,
+`BenchmarkRateLimiter_Allow` ~114 ns/op, `BenchmarkRateLimiter_AllowDistinctCallers` ~32.7 µs/op,
+`BenchmarkInjectTraceContext` ~395 ns/op, `BenchmarkExtractTraceContext` ~437 ns/op; no credible published
+AWX/Tower figure exists to compare any of these against (`AGENTS.md`'s benchmarking rule), stated plainly
+rather than fabricated. **Real end-to-end proof against the actual built binary and a real NATS broker
+(RULE 0), not only `go test`:** see the Release Gate entry in `IMPLEMENTATION.md` Phase 11 for the full
+transcript (trace ID matching between header/log/metric, inbound `traceparent` continuation, exported
+stdout spans, `/readyz` flipping to 503 on broker loss while `/healthz` stayed 200, unversioned 404 vs.
+versioned 401, and a real signed token hitting the rate limiter at 200/200/429).
+
+**`make ci` still fails on one pre-existing item this session did not touch:** `gofmt` would reformat
+`internal/engine/executor_fuzz_test.go`. Confirmed unchanged by this session (`git diff` is empty for it;
+it dates to commit `c8b364a`), and the Phase 9 and Phase 10 handoff entries below already named it. It is
+a one-line formatting fix owned by nobody, and it has now blocked `make ci` for three sessions running;
+left alone again here to keep this diff to one logical change, but it is worth someone deliberately
+deciding to fix rather than inheriting a fourth time.
+
+**Follow-ups named, not built:** `event.Bus.Subscribe`'s handler signature takes no `context.Context`, so a
+`Bus` subscriber structurally cannot read message headers and therefore cannot continue a trace. It costs
+nothing today (the one production consumer, `runner.Agent`, pulls raw messages by design and does read
+them), so changing the port and its six test doubles now would be churn ahead of a consumer; revisit when
+Phase 14/15 adds a real `Subscribe` caller. `cmd/runner` has no HTTP listener, so it has neither `/healthz`
+nor `/readyz`, which `PATTERNS.md`'s probe entry requires of Runners as well as Controllers. The
+production identity test hook (`api.IdentityKeyForTest`) survives unchanged: it is Phase 12's own
+checklist item, and moving it behind an `export_test.go` seam is not sufficient on its own because
+`tests/e2e` is a different package, so the real fix is a test-only token issuer Phase 12 should build.
+
+**Also uncommitted, from the previous session and unrelated to this phase:** the runbook-level `hosts:`
+default (`internal/engine/{dag,action,executor}.go`, `internal/validate/*`, the two example runbooks and
+their README). Described in "Previous session" below; it is a separate logical change and should be a
+separate commit.
+
+**Files changed:** `internal/telemetry/{telemetry,telemetry_test,export_test}.go` (new package),
+`internal/api/{middleware,router,dispatcher,logs}.go`, `internal/api/{metrics,health,ratelimit}.go` (new),
+`internal/api/{router_test,middleware_test,router_fuzz_test,router_bench_test,dispatcher_test,logs_test}.go`,
+`internal/api/{ratelimit_test,ratelimit_bench_test,defaults_test}.go` (new),
+`internal/api/testdata/fuzz/FuzzAPIRouter/*`, `internal/event/{nats,trace}.go`,
+`internal/event/{trace_test,trace_fuzz_test,trace_bench_test}.go` (new), `internal/runner/agent.go`,
+`internal/runner/agent_trace_test.go` (new), `internal/runner/{agent_test,agent_bench_test,agent_fuzz_test,
+agent_nats_test}.go`, `cmd/controller/{main.go,leader_election_release_gate_test.go}`, `cmd/runner/main.go`,
+`tests/e2e/integration_test.go`, `.SPECIFICATION/{IMPLEMENTATION,PATTERNS}.md`, `coverage-floor.json`,
+`gosec-waivers.json`, `FAILURE_PATTERNS.md` (#63, #64 new), `LESSONS_LEARNED.md` (#73, #74, #75 new),
+`go.mod`/`go.sum`.
+
+## Previous session: runbook-level `hosts:` default
+
+**What was built:** a runbook-level `hosts:` default, not a tracked `IMPLEMENTATION.md` phase item: a
+user-driven request to move `examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe*.yaml` from repeating
+`target: sw1` on every task to a single `hosts: sw1` at the top, mirroring an Ansible play's own `hosts:`.
+`PLAN.md` (lines 397-412, 795-804) had already sketched `hosts:` in the classic list-of-plays shape, but it
+was never implemented; `WorkflowDef` had no such field.
+
+**Design decision, made with the user before writing code (via `AskUserQuestion`):** `hosts:` is a
+default, not a hard override. A task's own `Params["target"]` wins when set; `dag.Hosts` is the
+fallback. This was chosen over a hard-replace semantic because the engine already lets a single runbook
+mix a controller-side task (no target at all) with target-side tasks naming different devices task by
+task (`PLAN.md` Section 14's mixed execution contexts), and a hard replace would have taken that away.
+It also matches `AGENTS.md`'s own "most specific level wins" hierarchical-policy principle, already
+established for every other multi-level setting in this codebase, applied here for the first time to
+runbook-vs-task.
+
+**Detail:**
+
+1. **`internal/engine/dag.go`.** `WorkflowDef.Hosts string` (`hosts,omitempty` in both YAML and JSON) and
+   `DAG.Hosts string`, carried through unchanged in `buildFromDef`. Both are plain strings: `Params` still
+   has no template rendering, so `hosts: "{{ some_var }}"` is not reachable from this change (`docs/
+   hephaestus.md` still names a Jinja-compatible renderer as a planned, unbuilt shared primitive).
+2. **`internal/engine/action.go`.** `TaskTarget(dag *DAG, task *Task) string`, the single place the
+   default/override resolution happens: task's own `Params["target"]` if a non-empty string, else
+   `dag.Hosts`. This replaces four independent copies of the same `task.Params["target"].(string)`
+   assertion that previously lived in `executor.go` (`resolveDevices`) and three `internal/validate`
+   rules - a real duplication, not a hypothetical one, so consolidating it into one function was in scope
+   for this change rather than a separate cleanup. A non-string `Params["target"]` still falls back to
+   `dag.Hosts` exactly like an absent one: `FAILURE_PATTERNS.md` #11 (a malformed target silently reads as
+   absent) is unchanged by that session, still open, and deliberately not folded into this change.
+3. **`internal/engine/executor.go`** (`resolveDevices`) and **`internal/validate/{capability_rule,
+   blast_radius,lifecycle_rule}.go`** now call `TaskTarget` instead of their own inline assertion.
+   `lifecycle_rule.go` gained its first `internal/engine` import as a result.
+4. **`examples/upgrade_ios/pleiades/runbooks/{upgrade_ios_xe,upgrade_ios_xe_sugar}.yaml`**: `hosts: sw1`
+   added once at the top, `target: sw1` removed from every task (9 tasks per file). Confirmed both files
+   still compile to DAGs that `pleiades validate` reports identical findings against, the invariant
+   `examples/upgrade_ios/README.md` already documents for this file pair.
+5. **`examples/upgrade_ios/README.md`**: one new bullet under "What is identical" documenting `hosts:`
+   and its default/override relationship to a task's own `target:`.
+6. **Tests** (all new): `internal/engine/action_test.go` (`TestTaskTarget`, table-driven over the
+   default/override/malformed cases), `internal/engine/tasktree_test.go` (`TestWorkflowDef_Hosts_
+   JSONRoundTrip`/`YAMLRoundTrip`, `TestDAGBuilder_Hosts`), `internal/engine/executor_test.go`
+   (`TestExecutor_RunbookHostsIsDefaultTarget`, a real `Executor.Run` proving both the fallback and the
+   override dispatch to the right device), `internal/validate/{capability_rule_test,lifecycle_rule_test}.go`
+   (`Test*Rule_FallsBackToRunbookHosts`), `internal/validate/blast_radius_test.go` (two new table cases).
+
+**Follow-ups named, not built:** `FAILURE_PATTERNS.md` #11 (malformed `target` silently reads as absent)
+is now one call site instead of four but is still unfixed. Template rendering for `hosts:`/`params:`
+(a Jinja-compatible renderer) is still the pre-existing, separately-tracked gap `docs/hephaestus.md`
+already names.
+
+**Files changed:** `internal/engine/{dag,action,executor}.go`, `internal/engine/{action_test,
+tasktree_test,executor_test}.go`, `internal/validate/{capability_rule,blast_radius,lifecycle_rule}.go`,
+`internal/validate/{capability_rule_test,blast_radius_test,lifecycle_rule_test}.go`, `examples/
+upgrade_ios/pleiades/runbooks/{upgrade_ios_xe,upgrade_ios_xe_sugar}.yaml`, `examples/upgrade_ios/
+README.md`.
+
+## Previous session: Phase 10, Workflow DAG Builder
+
+**What was built:** see "Phase 10: Workflow DAG Builder session" immediately below for the complete
+file-by-file summary. Everything from "Previous session: Phase 9, Google CEL Engine" onward describes
+earlier sessions and is unchanged.
+
+### Phase 10: Workflow DAG Builder session
+
+**This session closed Phase 10: Workflow DAG Builder** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
+previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Planning followed this project's own
+established ritual: direct research (small, well-bounded surface, matching Phase 9's own precedent for a
+phase this size: `internal/engine/{dag,tasktree,executor,level_iterator,topology,conditional,
+lock_acquisition,action,collection_action,import_tasks,task_syntax}.go`, `cmd/pleiades/run.go`, plus
+`PLAN.md` Sections 14/22.1/25/35 and `PATTERNS.md`'s Builder/Composite/Checkpointing/Workflow Definition
+Versioning entries), then one Plan agent pressure-tested the resulting design against the real repo before
+any plan file was written — its findings (a full re-scoping of the typed-edges item, a correction removing
+Checkpointing from this phase's own Pattern Entry Gate, deferring `DefinitionStore` entirely, and the
+`TaskKind`-as-computed-not-stored/synthetic-fast-path design) were folded in before implementation began,
+and are recorded in full in `IMPLEMENTATION.md`'s own Phase 10 entry and `LESSONS_LEARNED.md` #72.
+
+**The one real scope call, stated plainly:** typed edges (`EdgeType`: `EdgeTypeOnSuccess`/
+`EdgeTypeOnFailure`/`EdgeTypeAlways`) were added as vocabulary only. Wiring `Task.Rescue`/`Task.Always` into
+real `Adjacency` edges and teaching `Executor` to route on outcome was investigated and deliberately not
+built this phase: `LevelIterator` computes static, outcome-independent reachability once up front, and
+`Executor.Run` aborts its whole walk on any failure rather than routing around it, so the "light" version of
+this wiring would have been an active correctness regression (`Rescue` firing on the happy path, never on
+failure), not merely an inert one — a pressure-test finding, not a guess. This reopens Phase W5-sized
+territory and is named as a separate, explicit follow-up rather than folded in silently. `DefinitionStore`
+was deferred for a related but distinct reason: it has no consumer anywhere in the repo and no entry in
+Section 25's Shared Primitives table (the one place a "declare now, build later" carve-out is sanctioned),
+so building it now would be exactly the "port with no callers is a decoration" failure this phase's own
+Adversarial Pattern Justification line warns against. Both corrections are recorded as dated corrections in
+`IMPLEMENTATION.md`/`PATTERNS.md`, not silently reinterpreted.
+
+**What was built, by area:**
+
+1. **`internal/engine/task_kind.go`** (new). `TaskKind` (an iota enum: `TaskKindLeaf`/`TaskKindBlock`/
+   `TaskKindParallel`/`TaskKindSynthetic`/`TaskKindInvalid`), computed via `Task.Kind()` from field
+   presence (`taskShape`, the one shared derivation `Kind` and `validateTask`'s own precise-conflict
+   diagnosis both build on) rather than stored — a stored field would be a second source of truth that
+   could drift from the fields it describes, the same reasoning `DAG.Version` (below) follows.
+2. **`internal/engine/dag.go`**. `Task.Parallel []Task` (mirrors `Block`'s shape exactly, not `PLAN.md`
+   Section 14's stale bare-string example) plus an unexported `synthetic bool` field, set only by
+   `registerSyntheticNode`. `EdgeType`/`EdgeConfig.Type` (see scope note above). `DAG.Version string`,
+   `"sha256:" + hex(sha256(json.Marshal(resolvedDef)))`, computed in `buildFromDef` after
+   `resolveImportTasks` so the hash reflects the fully-resolved definition, not just one file's own bytes.
+   `hasCycle` rewritten from recursive to an iterative DFS (`dfsFrame`/`dfsColor`, an explicit stack),
+   removing its recursion-depth risk entirely rather than capping it.
+3. **`internal/engine/tasktree.go`**. `validateTask` is now a 3-way switch (via `Kind()`/`taskShape`)
+   instead of a 2-way boolean check, and gained a real rescue/always-guard rule for `Parallel` (Block-only,
+   deliberately — Ansible has no established parallel-failure-handling vocabulary to mirror).
+   `synthesizeChain` refactored: its per-task splice logic moved into a new `synthesizeOne`, shared by the
+   ordinary list-stitching path and the new `synthesizeParallel` (a synthetic fan-out node feeding every
+   `Parallel` child's own independently-synthesized chain, each child's own exit feeding a synthetic join
+   node — `id+".fanout"`/`id+".join"`, registered via `registerSyntheticNode`, bypassing `validateTask`
+   since a synthetic node is not user input). `LevelIterator`/`TopologicalOrder`/`reachableWithInDegree`
+   needed **zero** change: `TestLevelIterator_Diamond` already proved multi-parent/multi-child grouping
+   worked; only `Builder` needed to learn to produce that shape.
+4. **`internal/engine/import_tasks.go`**. `maxImportDepth` renamed `maxTaskNestingDepth` (value unchanged,
+   32) and now bounds two risks with one shared counter: import-hop-chain length (its original purpose) and
+   plain `block`/`rescue`/`always`/`parallel` nesting depth (a second, structurally identical unbounded-
+   recursion site found while researching the named checklist item, not previously called out — fixed in
+   the same pass). Because `resolveImportTasksInList` runs first, unconditionally, on the complete tree
+   before `tasktree.go`'s own recursion ever sees it, this one check transitively bounds both — no second
+   check was added there.
+5. **`internal/engine/executor.go`**. `runNode` gained exactly one addition: a fast path that returns
+   immediately for a `TaskKindSynthetic` node, skipping condition-check/lock/action-dispatch/publish. This
+   is the *only* `Executor` change this phase makes — explicitly not the rescue/always-routing change
+   described in the scope note above.
+6. **`internal/engine/task_syntax.go`**. `parallel` added to `reservedTaskKeys` and both normalizers'
+   recursion lists (YAML and JSON paths) — a real gap caught by the test suite itself: without this, module-
+   as-key sugar detection misread a task's `parallel:` list as an unrecognized sugar key and failed with a
+   confusing "module must be an object of arguments" error.
+7. **`cmd/pleiades/run.go`**. `printTaskList` now switches on `Kind()` and prints a `parallel:` section,
+   mirroring `block:`.
+8. **Tests** (all new unless noted): `task_kind_test.go`, `dag_internal_test.go` (package `engine`, not
+   `engine_test` — the only way to hand-build a genuinely cyclic `*DAG` and prove `hasCycle`'s rewrite both
+   still detects it and doesn't stack-overflow on a 500,000-node chain), `dag_test.go` (`Parallel`
+   structural tests, `Version` stability/change tests, nesting-depth-bound tests, a 20,000-flat-task
+   `Build()` stack-safety test), `tasktree_test.go` (parallel ID-scheme test), `executor_test.go`
+   (`TestExecutor_Parallel_RunsConcurrently`, a real `Executor.Run`-level high-water-mark proof of genuine
+   concurrency, and that the `ActionExecutor` is called exactly `childCount` times, never `childCount+2` —
+   proving the synthetic fast path is provably inert, not just present), `task_syntax_test.go` (parallel
+   sugar-conflict and nested-sugar tests), `cmd/pleiades/run_test.go` (new file; `printTaskList` had no
+   prior test coverage at all). `dag_fuzz_test.go`'s seed corpus extended with `parallel` shapes and a
+   500-level adversarial nesting seed. `dag_bench_test.go` gained two new benchmarks (below).
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean on every file this session
+touched (one pre-existing, unrelated `gofmt` finding in `executor_fuzz_test.go` confirmed via a disposable
+`git stash -u` to predate this session — left alone, not this phase's to fix). `go test ./internal/engine/...
+./cmd/pleiades/... ./internal/validate/... -race -count=1` clean. A full `go test ./... -count=1` was clean
+except `internal/lock`'s `TestNatsLease_ExclusiveKeepAliveAfterRelease` (the established testcontainers
+port-mapping flake category, `FAILURE_PATTERNS.md` #61's own precedent; passed cleanly in isolation,
+re-confirmed). Fuzz: `FuzzDAGBuilder` ~380,000 executions/20s on the extended seed corpus, zero crashes.
+Benchmarks (real numbers, this machine): `BenchmarkDAGBuilder_LargeFlatTaskList` (10,000 flat tasks) ~43.0
+ms/op; `BenchmarkDAGBuilder_Parallel` (100 children) ~409 µs/op, against the pre-existing
+`BenchmarkDAGBuilder` (5 tasks, one CEL condition) ~142 µs/op. No credible existing published AWX/Tower/
+raw-topological-sort figure exists to cite for either (`AGENTS.md`'s benchmarking rule); stated plainly
+rather than fabricated. `make gosec` (7 pre-existing findings, all individually waived, zero new). `make
+govulncheck` (0 called vulnerabilities). `make coverage`: `internal/engine` 91.9% → 92.8% (floor raised to
+92.5), `cmd/pleiades` 58.2% (pre-existing, undocumented drift above its stale 44.0 floor) → 61.5% (floor
+raised to 61.0). The same four pre-existing `coverage-floor.json` regressions from `FAILURE_PATTERNS.md`
+#60 (`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) recurred
+at the identical percentages, reconfirmed via a fresh `git stash -u` baseline check (this session's own
+new files are untracked, so a plain `git stash` without `-u` is insufficient and was caught mid-check)
+— predate and are unrelated to this phase. Real, end-to-end proof against the actual built `pleiades`
+binary and real code paths (RULE 0), not only `go test`: `TestExecutor_Parallel_RunsConcurrently` drives
+the real `Executor.Run`/`LevelIterator`/`Builder` chain end to end with a `parallel:` runbook, and a hand-
+built cyclic `*DAG` (`dag_internal_test.go`) proves `hasCycle`'s own correctness survived its rewrite,
+since `Builder` structurally cannot construct a cycle through any authoring surface it exposes.
+
+**Also touched, incidentally, while implementing this phase's real gaps (not scope creep — each is a
+correctness bug this phase's own new code would otherwise have silently mismatched with):** `internal/
+validate`'s four rules (`CapabilityRule`, `CollectionRule`, `LifecycleRule`, `blast_radius.go`) were audited
+against `Parallel`'s new synthetic nodes and confirmed already-safe with no code change needed — every one
+already treats an empty `FQCN`/nil `Params` as "no capability required, no target, skip," the identical
+shape a block task's own ID has always had, so a synthetic node is nothing new to them.
+
+**Files changed:** `internal/engine/{dag,tasktree,executor,import_tasks,task_syntax}.go`,
+`internal/engine/task_kind.go` (new), `internal/engine/{dag_test,dag_fuzz_test,dag_bench_test,
+tasktree_test,executor_test,task_syntax_test}.go`, `internal/engine/{dag_internal_test,task_kind_test}.go`
+(new), `cmd/pleiades/run.go`, `cmd/pleiades/run_test.go` (new), `.SPECIFICATION/{IMPLEMENTATION,PATTERNS}.md`,
+`coverage-floor.json` (`internal/engine`/`cmd/pleiades` floors raised), `FAILURE_PATTERNS.md` (#62 new),
+`LESSONS_LEARNED.md` (#72 new).
+
+## Previous session: Phase 9, Google CEL Engine
+
+**What was built:** see "Phase 9: Google CEL Engine session" immediately below for the complete
+file-by-file summary. Everything from "Previous session: Phase 8, RBAC & Identity Validation" onward
+describes earlier sessions and is unchanged.
+
+### Phase 9: Google CEL Engine session
+
+**This session closed Phase 9: Google CEL Engine** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
+previously-open checklist items plus the Release Gate (three items — cel-go import, `engine.Evaluator`,
+string-to-AST compile logic — were already `[x]` from an earlier session). Research was direct rather than
+agent-delegated (small, well-bounded surface: `internal/engine/cel.go`, `conditional.go`, `executor.go`,
+`workflow_context.go`, `trigger.go`, `dag.go`/`tasktree.go`, plus `PLAN.md` Sections 21/27 and every real
+`Program.Eval`/`ConditionProgram.Eval`/`Conditional.Compile`/`Evaluator.Compile`/`NewCELEvaluator` call
+site read directly), then one Plan agent pressure-tested the resulting design against the real repo before
+any plan file was written — its findings (an exact 14-real-call-site inventory versus a much larger but
+harmless 49-call-site `NewCELEvaluator` count, cel-go v0.30.0's README/source confirming compiled
+`cel.Program` is safe for concurrent `Eval`, cel-go's map-macro key-iteration semantics verified by reading
+`common/types/map.go` directly, and three real gaps — a benchmark whose meaning the new cache would
+silently invalidate, a stale doc comment, and an untested concurrency claim) were folded in before
+implementation began.
+
+**The core gap this phase closed:** only `stat` was declared in the CEL environment, and `Program.Eval`
+hardcoded every caller's input under that one name, so neither of `PLAN.md` Sections 21.4/27.3's own
+illustrative `nodes.`-rooted expressions could even compile. Research found the two spec examples
+themselves mutually inconsistent (`nodes.precheck.stats.devices.all(...)` vs.
+`nodes.precheck.devices.exists(...)`) and inconsistent with the real `WorkflowContext.Read()` shape
+(`nodeID -> deviceID -> stats`, a map keyed by device ID, no `.devices` list anywhere). Verified by reading
+cel-go's own source that `all`/`exists` over a CEL map iterate its keys, `nodes.precheck.exists(d,
+nodes.precheck[d].needs_reboot == true)` is real, valid, tested CEL against the actual data shape with no
+`WorkflowContext` restructuring needed — so, per this project's own established practice (Phase 7's
+Selector, Phase 32's Registry, Phase 18's role names), `PLAN.md` Sections 21.4/27.3 got a dated correction
+to the real, working spelling rather than the engine being bent to fit illustrative prose that was never
+reachable as written.
+
+**What was built, by area:**
+
+1. **`internal/engine/cel.go`.** `NewCELEvaluator` now declares `nodes` (`cel.MapType(cel.StringType,
+   cel.DynType)`) alongside the pre-existing `stat`, both bound by `Executor.runNode` to the identical
+   `WorkflowContext.Read()` snapshot — a deliberate, stated scope choice (every existing
+   `stat.precheck[""].x` runbook/test keeps working unchanged; `nodes.precheck[""].x` becomes newly valid
+   too; narrowing `stat` to a genuinely different, current-device-only meaning is left to a future phase).
+   `Program.Eval`'s contract changed from "wrap my input under `stat`" to "my input IS the top-level CEL
+   activation" (`celProgram.Eval` no longer wraps anything — a behavioral change with no Go signature
+   change, so it compiles everywhere but every caller's *values* needed updating). `celEvaluator.Compile`
+   is now a Flyweight cache keyed by raw expression string (mutex-guarded map, store-if-absent so
+   concurrent first-time compiles of new text converge on one shared winner), safe per cel-go's own
+   documented "stateless, thread-safe, and cachable" guarantee for a compiled `cel.Program`.
+2. **`internal/engine/executor.go`.** `runNode` now builds the activation explicitly:
+   `map[string]interface{}{"stat": tree, "nodes": tree}`, both aliased to the one `WorkflowContext.Read()`
+   call.
+3. **`internal/engine/workflow_context.go`, `conditional.go`.** Doc comments updated for the new
+   contract (Gap B from the pressure-test); no logic change in `conditional.go` (`ConditionProgram.Eval`
+   already forwarded its map verbatim).
+4. **Tests.** All 14 real `Program.Eval`/`ConditionProgram.Eval` call sites needing the new
+   activation-map shape updated (`cel_test.go` x2, `cel_bench_test.go` x1, `conditional_test.go` x10,
+   `executor.go`'s production call site) — the pressure-test's exhaustive grep found this exact count, not
+   the larger set naming whole files would have implied. New: `TestCELEngine_NodesVariable`,
+   `TestCELEngine_CompileSharesProgramForIdenticalExpressions`,
+   `TestCELEngine_ConcurrentCompileConvergesOnOneSharedProgram` (32-goroutine race, `-race`-clean, Gap C
+   from the pressure-test), `TestExecutor_ConditionalBranch_NodesVariable` (the same three-task shape as
+   the pre-existing `..._ReleaseGate` test, `nodes.` in place of `stat.`, proving the real `Executor` call
+   site, not just the bare primitives). `dag_bench_test.go`'s `BenchmarkDAGBuilder` (Gap A) now varies its
+   condition text per iteration so the new cache doesn't silently turn it into a cache-hit benchmark
+   contradicting its own doc comment (`LESSONS_LEARNED.md` #67). `cel_fuzz_test.go`'s seed corpus gained
+   three `nodes.`-rooted seeds.
+5. **Docs.** `PATTERNS.md`'s Flyweight entry flipped NO → YES, narrowly, pointing at the new cache,
+   without contradicting its existing (separate, still-true) device-struct reasoning. `PLAN.md` Sections
+   21.4 and 27.3 dated-corrected as described above. `IMPLEMENTATION.md` Phase 9 checked off in full with
+   inline evidence.
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean. `go test
+./internal/engine/... -race -count=1` clean. Benchmarks (real numbers, this machine):
+`BenchmarkCELCompile_Cached` ~25.8 ns/op vs. `BenchmarkCELCompile_Uncached` ~57,419 ns/op (~2,200x),
+the direct evidence the "compile per evaluation defeats the microsecond claim" gap is closed;
+`BenchmarkCELEval` ~1,192 ns/op. No credible existing published figure for this specific comparison exists
+to cite (`AGENTS.md`'s benchmarking rule); stated plainly rather than fabricated. Fuzz:
+`FuzzCELCompile` ~165,000 executions/21s, zero crashes. `make gosec` (7 pre-existing findings, all
+individually waived, zero new). `make govulncheck` (0 called vulnerabilities). `make coverage`:
+`internal/engine` 91.5% → 91.9%, floor raised to match. A full `go test ./... -race -count=1` and a
+separate `go test ./... -cover -count=1` each flaked on a different, non-overlapping subset of
+`internal/event`/`internal/lock`/`tests/e2e` (real-container tests, zero overlap with this phase's diff,
+confirmed by `git status`); each of the four failing tests passed cleanly in isolation, and `go test ./...
+-p 4` (capping package-level parallelism) ran the identical full suite clean twice — a concrete,
+actionable mitigation for this environment's container contention, newly recorded as
+`FAILURE_PATTERNS.md` #61 rather than left as only a narrative mention. The four pre-existing
+`coverage-floor.json` regressions from `FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`,
+`internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) recurred at the identical percentages,
+confirming (again) they predate and are unrelated to this phase. Real, end-to-end proof against the
+actual built `pleiades` binary (RULE 0), not only `go test`: a `pleiades init`-scaffolded project running
+a runbook that registers `precheck` and gates `reboot`/`skip-me` on `nodes.precheck[""].needs_reboot`
+produced `tasks[1]: changed` and `tasks[2]: skipped (when_cel \`nodes.precheck[""].needs_reboot ==
+false\` evaluated false)` via `pleiades run`, with `pleiades validate` passing clean on the same runbook.
+
+**Files changed:** `internal/engine/{cel,executor,workflow_context,conditional}.go`,
+`internal/engine/{cel_test,cel_bench_test,cel_fuzz_test,conditional_test,executor_test,dag_bench_test}.go`,
+`.SPECIFICATION/{PATTERNS,PLAN,IMPLEMENTATION}.md`, `coverage-floor.json` (`internal/engine` floor raised),
+`FAILURE_PATTERNS.md` (#61 new), `LESSONS_LEARNED.md` (#67 new).
+
+## Previous session: Phase 8, RBAC & Identity Validation
+
+**What was built:** see "Phase 8: RBAC & Identity Validation session" immediately below for the complete
+file-by-file summary. Everything from "The Cisco Catalyst Center Sync Plugin session" onward describes
+earlier sessions and is unchanged.
+
+### Phase 8: RBAC & Identity Validation session
+
+**This session closed Phase 8: RBAC & Identity Validation** (`.SPECIFICATION/IMPLEMENTATION.md`), all
+twelve checklist items plus the four verification gates. Planning followed this project's established
+ritual: two parallel Explore-agent research passes (the real `internal/auth`/ent code and every real call
+site; the spec corpus — `PLAN.md` Section 18/32, `CODE_SCAFFOLD.md`, `IMPLEMENTATION.md` Part VIII and
+Phase 6/12/14/49's cross-references, `PATTERNS.md`, prior `FAILURE_PATTERNS.md`/`LESSONS_LEARNED.md`
+entries) fed a design, which one Plan agent then pressure-tested against the real repo before any plan
+file was written — its findings (the migration tool's silent `WithDropColumn` default, four missed
+`NewJWTEvaluator` call sites inside `internal/auth` itself, the exact `pkg/policy` combine shape, the
+sticky-Deny-vs-plain-Override judgment call, `RoleBinding.scope_id`'s int type) were folded in before
+implementation began.
+
+**What was built, by area:**
+
+1. **Role name reconciliation.** `PLAN.md` Section 18.2's prose corrected from `Viewer/Executor/Admin` to
+   `Viewer/Operator/Admin` (dated correction), since the roadmap's own Phase 8 line and the code
+   (`RoleViewer`/`RoleOperator`/`RoleAdmin`) already agreed; no identifier rename.
+2. **`auth.KeyProvider`** (`internal/auth/keyprovider.go`, `jwks.go`): `NewStaticKeyProvider` (a
+   development-only symmetric secret, rejecting nil/empty/<32-byte keys at construction) and
+   `NewJWKSKeyProvider` (a real RFC 7517 JWKS fetch/cache/rotate client, hand-rolled against the standard
+   library, no new dependency — caches by `kid`, one bounded refetch on an unknown `kid`, never lets a
+   failed/empty refresh discard a good cache).
+3. **`internal/auth/jwt.go` reworked.** `NewJWTEvaluator(provider KeyProvider, issuer, audience string)
+   (Evaluator, error)` pins issuer, audience, `jwt.WithExpirationRequired()`, and
+   `jwt.WithValidMethods(provider.Algorithms())`. `Evaluator`'s two existing methods keep their
+   signatures unchanged, so `internal/api/dispatcher.go`/`middleware.go` needed no edits at all.
+4. **`Team`/`RoleBinding` ent schema** (new `internal/ent/schema/team.go`, `role_binding.go`; edited
+   `user.go`, `organization.go`). `User.role` deleted outright (zero real consumers, confirmed by grep —
+   the literal orphaned-permission anti-pattern `PLAN.md` Section 18.2 forbids). Migration
+   `0003_add_rbac_teams.sql`, generated via `internal/ent/migrate/gen/main.go` after adding
+   `schema.WithDropColumn(true)` to its diff call (its previous zero-option call would have silently kept
+   the dropped column — `FAILURE_PATTERNS.md` #59).
+5. **`auth.ScopeResolver`** (`internal/auth/scope.go`, `rolebinding_repository.go` (port),
+   `ent_role_binding_repository.go` (ent adapter)): PLAN.md Section 18.4's four scopes folded via
+   `pkg/policy.Resolve` — Phase 6's shared resolver, the RBAC-scope call site `PLAN.md` Section 25 itself
+   named, closing the last of its eight named call sites with no consumer — through
+   `combineScopeDecision`, a deliberate sticky-first-Deny variant of the `simulate-locked` terminal-lock
+   idiom: once any level sets Deny, no later, more specific level (even an explicit Allow) can undo it, a
+   stated departure from plain `policy.Override`.
+6. **`auth.AdmissionChain`/`AdmissionRule`/`Recorder`** (`internal/auth/chain.go`,
+   `ent_team_lookup.go`): a fail-closed Chain of Responsibility (`NewTokenScopeRule` wrapping the
+   pre-existing scope-string check, `NewScopeRule` wrapping `ScopeResolver`) composed with a `slog`-backed
+   `Recorder` (Audit Trail), built generically enough for Phase 49 to append a Step-Up rule later without
+   rework — Step-Up itself deliberately not built here, matching `IMPLEMENTATION.md`'s own Phase 49
+   cross-reference.
+7. **`cmd/controller/main.go`** wired: `loadKeyProvider()` selects `NewJWKSKeyProvider` when `JWKS_URL`
+   is set, else `NewStaticKeyProvider` from `JWT_SECRET`; `JWT_ISSUER`/`JWT_AUDIENCE` via the existing
+   `getenv` helper (optional, non-empty defaulted, not a new required env var, so
+   `leader_election_release_gate_test.go`'s subprocess spawn kept working unmodified).
+
+**Two real, unrelated findings from this session's own verification, not from Phase 8's diff itself.**
+(1) The migration-generation tool's `WithDropColumn` default trap above (`FAILURE_PATTERNS.md` #59,
+`LESSONS_LEARNED.md` #65). (2) Four packages this phase never touched
+(`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) were already
+below their `coverage-floor.json` floors before this session started, confirmed via a disposable
+`git worktree add --detach <base-commit>` measuring the identical percentages
+(`FAILURE_PATTERNS.md` #60, `LESSONS_LEARNED.md` #66) — recorded, not fixed (scope creep) and not hidden
+(floors were not lowered).
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean. `go test ./... -race`: clean
+on a full run (a second full non-race run hit three different container-infrastructure flakes across three
+separate attempts — `internal/lock`, `internal/event`, `tests/e2e`'s `TestGrandIntegration` — each
+confirmed to pass in isolation and to be pre-existing/environmental, matching this project's own
+documented flake category, not a regression). `make gosec` (7 pre-existing findings, all individually
+waived, zero new). `make govulncheck` (0 called vulnerabilities). `make coverage`: `internal/auth` 87.5%
+→ 90.8% (floor raised to 90.0); `internal/ent` 10.9% → 16.1% (floor raised to 16.0, restored by a new
+`internal/ent/team_role_binding_test.go` exercising the new edges directly, matching
+`group_organization_test.go`'s own convention); `internal/ent/rolebinding`/`internal/ent/team` added to
+`excluded` (generated code, matching every sibling ent predicate subpackage). Real, end-to-end proof
+against the actual built `pleiades-controller` binary (RULE 0), not only package tests:
+`TestController_JWKS_RealServer_AcceptsValidRejectsForged` (`cmd/controller`) starts the real binary with
+`JWKS_URL` pointed at a real `httptest.Server` and real NATS (testcontainers), and proves a request with
+no token, and one signed by a key never published to that server, both get a real `401 Unauthorized` from
+the real mounted route, while one signed by the real, published key does not. Fuzz: `FuzzParseJWK` (new,
+white-box, 15s/~510K executions, zero crashes) and `FuzzJWTParsing` (extended to the new surface,
+15s/~440K executions, zero crashes). Benchmark: `BenchmarkValidateToken_HMAC` (~8.9us/op) vs.
+`BenchmarkValidateToken_RSA` (~48.7us/op, real JWKS fetch + RSA verification, the honest measured cost of
+moving off a shared secret).
+
+**Files changed:** `internal/auth/{keyprovider,jwks,scope,rolebinding_repository,
+ent_role_binding_repository,chain,ent_team_lookup}.go` (new) plus matching `_test.go` files (new),
+`internal/auth/{evaluator,jwt}.go` (jwt.go reworked; evaluator.go unchanged), `internal/auth/{jwt_test,
+jwt_fuzz_test,jwt_bench_test}.go` (updated for the new constructor/claims), `internal/ent/schema/
+{team,role_binding}.go` (new), `internal/ent/schema/{user,organization}.go` (edited),
+`internal/ent/migrate/gen/main.go` (`WithDropColumn(true)`), `internal/ent/migrate/migrations/sqlite/
+0003_add_rbac_teams.sql` (new, generated), `internal/ent/team_role_binding_test.go` (new),
+`cmd/controller/main.go`, `cmd/controller/jwks_release_gate_test.go` (new),
+`.SPECIFICATION/PLAN.md` (Section 18.2 dated correction), `.SPECIFICATION/PATTERNS.md` (Federated
+Identity and Audit Trail POTENTIALLY→YES, Chain of Responsibility and Hierarchical Policy Resolver
+entries extended, Step-Up Authentication's Phase 49 pointer made explicit),
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 8 checked off in full), `FAILURE_PATTERNS.md` (#20 closed out,
+#59/#60 new), `LESSONS_LEARNED.md` (#64/#65/#66 new), `coverage-floor.json` (`internal/auth`/`internal/ent`
+floors raised, two new `excluded` entries).
+
+## Previous session: The Cisco Catalyst Center Sync Plugin
+
+**What was built:** see "The Cisco Catalyst Center Sync Plugin session" immediately below for the
+complete file-by-file summary. Everything from "The Phase 7 session" onward describes earlier sessions
+and is unchanged.
+
+### The Cisco Catalyst Center Sync Plugin session
+
+**This session built the first real inventory sync plugin, Cisco Catalyst Center, and everything it
+turned out to depend on.** It is the reference design the user asked for, and it was generated by the
+Forge rather than hand-written: a new `pleiades forge new-plugin` scaffold emitted the package, and the
+implementation was filled into that skeleton. It is verified against Cisco's public DevNet sandbox at
+`sandboxdnac.cisco.com`, not against a mock.
+
+**What is new, in dependency order.**
+
+1. `internal/inventory/syncplugin`: `PLAN.md` Section 6a's four-method port (`Connect`, `Discover`,
+   `Classify`, `Sync`, plus `Close`), its supporting types (`Config`, `Classification`,
+   `Reconciliation`, `RecordIterator`), a `pkg/registry`-backed plugin registry, and `Reconcile`, the
+   shared driver every plugin delegates to so "added", "updated", and "conflict" mean the same thing
+   everywhere. The port was built against two deliberately unalike consumers at once; see
+   LESSONS_LEARNED.md #63 for why that mattered.
+2. `Repository.Create`, on both adapters. The port had no create operation at all, so nothing could
+   onboard a device (FAILURE_PATTERNS.md #56). `ErrItemNotFound`, `ErrItemExists`, and
+   `record.Base.DeviceType` came with it, each closing a hole the same gap had hidden.
+3. `internal/forge/pluginscaffold` and `pleiades forge new-plugin`: the Forge's eighth capability,
+   modeled file-for-file on `collectionscaffold`. Its generated output compiled and passed its own
+   generated tests unmodified on the first run.
+4. `pkg/catalystcenter`: a read-only REST client (auth with token caching and 401 refresh, paged device
+   listing, sites, tags). It lives under `pkg/` because a Collection may import only `pkg/`, a rule that
+   was documented in three places and enforced nowhere until this session added
+   `TestCatalogPackagesImportOnlyPkg`.
+5. `internal/inventory/plugins/{staticyaml,catalystcenter}` and their composition root. `StaticYAMLPlugin`
+   moved out of `internal/inventory` and now implements the real port it previously declined to.
+6. The read-only flag at both levels the user asked for: `Config.ReadOnly` (devices land
+   `StateSimulateLocked`; the client has no write path at all) and `inventory.NewReadOnlyRepository`
+   (every write refused with `ErrInventoryReadOnly`). `pleiades inventory sync --read-only` is a dry run
+   reporting `would add` / `would update`, which took a second iteration to get right
+   (FAILURE_PATTERNS.md #58).
+7. `pleiades inventory sync` and `pleiades inventory plugins`, the user-facing surface.
+8. The collection dispatch bridge. `pkg/collection` was planning-time metadata only: 71 registered
+   methods and no execution path that could call one. `collection.Descriptor` now carries `Invoke`, and
+   `engine.NewCollectionActionExecutor` resolves a task's FQCN through the registry, composing over the
+   existing transport and builtin executors.
+9. The four `net.catalyst.*` methods, generated by `forge new-collection` and then implemented. They are
+   the first entries in the catalog to reach `status: implemented`, which moved the count from 71 to 75.
+
+**Four real defects were found by running the thing rather than by reading it**, and all four are
+written up: a cross-package test-cleanup race that had been failing roughly one full-suite run in three
+(#55), the missing `Create` (#56), a file repository that named its own storage backend as the
+authoritative sync plugin so every host synced as a conflict (#57), and the read-only abort above (#58).
+A fifth came from the fuzzer: an un-normalized base URL meant `Http://x` and `http://x` would onboard the
+same controller twice. A sixth came from `goleak`: a failed `Connect` leaked the pooled connection it had
+already opened.
+
+**Verification.** `go test ./...` green, `-race` green. Live proof:
+`PLEIADES_E2E_DNAC=1 go test -tags integration -race ./tests/e2e/ -run Catalyst` passes three tests
+against the real sandbox (sync, idempotent re-sync, wrong-credential refusal), with `goleak`. The CLI
+path was driven end to end by hand: `init`, `add-credential`, `inventory sync --read-only` (reports 5,
+writes nothing), `inventory sync` (adds 5), `inventory sync` again (5 unchanged). Fuzzing ran clean at
+1.5M executions on the base-URL target and 29k on the forge subcommand. `gosec` reports zero issues
+across all 120 files this session touched, with no new waivers. Every measured package meets its
+coverage floor; new floors were recorded for the seven new packages.
+
+**Known gaps, stated rather than hidden.**
+
+- `tools/gencatalog` cannot re-run on a dirty tree: `forge new-*` refuses to overwrite, which is correct
+  protection for hand-edited files and means full regeneration needs the generated output removed first.
+  The new artifacts this session were generated by driving the same CLI directly, one invocation at a
+  time, which is what gencatalog itself does.
+- A quarantined device is reported but not persisted, because building an item requires a device type and
+  no generic unclassified type is registered. Section 6g's full quarantine bucket needs that type first.
+- The 71 pre-existing catalog stubs still carry the older method signature. They compile and register
+  correctly; they will pick up the new `Invoke`-carrying shape on the next full regeneration.
+- `internal/lock` and `internal/transport/ssh` fail intermittently in this environment under parallel
+  container load (testcontainers port mapping). Both pass in isolation and neither has any dependency on
+  anything this session changed.
+
+### Phase 7: The Iterator Pattern (session recap; full detail in "The Phase 7 session," immediately below)
+
+**This session implemented Phase 7: The Iterator Pattern in full**, jumping back from Part VII (The
+Forge of Hephaestus, closed through Phase 34) to close a Part II gap that had sat partially done since an
+earlier session (`inventory.Iterator` and its ent hookup were already `[x]`; keyset pagination, the
+`Selector`/`GetGroup` fix, and all four verification gates were not). Planning followed this project's
+own established ritual: three parallel Explore-agent research passes (the real Go code, this project's own
+spec docs, and Postgres/ent test conventions) fed a synthesis, direct reads of every load-bearing file
+verified the research rather than trusting it, one Plan agent pressure-tested the resulting design against
+the real repo, and its own findings (a call-site count that was wrong by 9, an import-aliasing trap, a
+sampling-noise risk in the pprof design) were folded in before any plan file was written. All checklist
+items are now `[x]`.
+
+**Two checklist premises were checked against the real code before being trusted, and one was wrong.**
+The "ctx shadowed by a context stored at construction" item's bug is real in history
+(`git show de98a9a:internal/inventory/ent_repository.go`) but was already fixed by an unrelated commit
+(`609dadd`) two sessions before this one landed; today's `entIterator` has no `ctx` field. Checked off with
+a note, not re-implemented. The `device_id` column this phase paginates on, by contrast, really was
+already built for exactly this moment: `internal/ent/schema/device.go`'s field and index doc comments
+literally say "a future keyset-paginated listing (Phase 7) can/will page on this column," so this phase
+needed zero ent schema change or migration, pure Go logic over existing schema.
+
+**The literal named bug (`GetGroup` discards its group argument) is fixed by pushing a real `Group`
+edge down to SQL, not the JSONB-field approach `PATTERNS.md`'s own Specification entry incorrectly
+described.** `entRepository.GetGroup(ctx, sel inventory.Selector)` applies
+`device.HasGroupsWith(group.NameEQ(sel.GroupName))` when `GroupName` is non-empty, closing the deferral
+Phase 1's own session note recorded explicitly ("`Group`/`Organization` are honestly scoped as
+schema-only substrate this phase... `Repository` exposes no traversal for either yet"). `Selector`
+(`pkg/inventory/selector.go`, new) is a deliberately narrow, single-field value object, not the full
+AND/OR/NOT predicate tree `CODE_SCAFFOLD.md`'s aspirational storage sketch warns a Selector must not be
+("It is NOT a group name string, which cannot express Section 3 overlapping groups") — that warning is
+about `PLAN.md` Section 22.3's future Virtual Groups syntax, a different, later phase's job, addressed
+head-on in `IMPLEMENTATION.md`'s own Pattern Entry Gate note rather than silently sidestepped.
+
+**A call-site count that looked complete at 4 was actually 13, caught by the Plan agent's pressure-test
+before any code was written, not discovered mid-implementation.** `internal/inventory/factory_test.go`
+(the exact test `IMPLEMENTATION.md`'s Phase W4 note cites as closed Release-Gate evidence),
+`file_repository_test.go`, `file_repository_bench_test.go`, and `file_repository_errors_test.go` (8 call
+sites across the last three, none of which imported `pkg/inventory` before this phase) all called
+`GetGroup` too. Three different, already-established import-alias conventions coexist in this package's
+test files (`pkginventory`, `baseinventory` in `factory_test.go`, `pkginv` in `ent_save_test.go`, none of
+which this phase touched); each file's own existing convention was matched rather than a single alias
+imposed everywhere.
+
+**A previously-green integration test was proven to have never actually tested what it appeared to.**
+`tests/e2e/integration_test.go`'s `TestGrandIntegration` (real Postgres, real NATS, `testcontainers-go`)
+failed the moment `GetGroup` started really filtering: it had tagged devices with a `properties["group"]`
+key nothing had ever read, and passed only because the old code streamed everything regardless. Fixed by
+attaching the seeded devices to a real ent `Group`, the mechanism a `Selector` now actually matches
+against; passes against a real Postgres container. `FAILURE_PATTERNS.md` #54, `LESSONS_LEARNED.md` #58.
+
+**The Release Gate's literal wording ("`pprof` proves... completely flat") is met literally, not just in
+spirit.** The pre-existing `TestIteratorMemoryFlatline` proved flatness via `runtime.MemStats`, a coarser
+two-point signal, not `pprof`. New `TestIteratorHeapProfileStaysFlat` calls
+`pprof.Lookup("heap").WriteTo(w, 1)` (Go's documented debug=1 legacy text format, not
+`pprof.WriteHeapProfile`, which always writes the unparseable-without-a-new-dependency protobuf format at
+debug=0) at five checkpoints across a real 50,000-device stream, with `runtime.MemProfileRate` set to 1
+for the duration of the test so the normally-sampled heap profiler reports exact, not noisy, numbers.
+Measured spread on a real run: 0.00 MB.
+
+**What was built:** see "The Phase 7 session" immediately below for the complete file-by-file summary.
+Everything from "The Phase 34 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 7 session
+
+**Scope: Phase 7 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), picked up after Part VII (The Forge of
+Hephaestus) closed through Phase 34, per the user's explicit direction to come back to it. See "Current
+Status" above for the complete summary; this heading exists so future sessions can find this session's
+detail without re-reading the whole file.
+
+**Research and design, before any code:** three parallel Explore-agent research passes (the real
+`inventory.Iterator`/`Repository`/`entIterator`/`fileRepository` code and every real caller, this
+project's own spec docs — `PLAN.md`, `PATTERNS.md`, `CODE_SCAFFOLD.md`, every other `IMPLEMENTATION.md`
+phase referencing this substrate — and this repo's Postgres/ent test conventions, benchmark style, and
+`runtime/pprof` usage, or lack of it) fed a synthesized design. Every load-bearing claim from that
+synthesis was then re-verified by directly reading the actual files (`iterator.go`, `ent_repository.go`,
+`file_repository.go`, `pkg/inventory/item.go`, `dispatcher.go`, `dispatcher_test.go`, all four existing
+iterator test files, `device.go`/`group.go` ent schemas, the generated `device`/`group` predicate and
+order helpers), not trusted from the research agents' summaries alone. One Plan agent then pressure-tested
+the resulting design against the real repo (see "Current Status" above for its key findings) before the
+plan file was written and approved.
+
+**What was built, by area:**
+
+- **`pkg/inventory/selector.go`** (new). `Selector{GroupName string}`, zero value selects every device.
+  Deliberately narrow: a real, SQL-pushdown-capable Specification-shaped value object, not yet
+  `PLAN.md` Section 22.3's future composable AND/OR/NOT predicate tree.
+- **`internal/inventory/iterator.go`**: `Repository.GetGroup`'s second parameter changed from
+  `groupName string` to `sel inventory.Selector`.
+- **`internal/inventory/ent_repository.go`**: `entRepository.GetGroup` now applies
+  `Order(device.ByDeviceID())` once at construction and, when `sel.GroupName != ""`,
+  `Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))` (an `EXISTS` subquery, not a join — no
+  duplicate-row risk). `entIterator`'s `offset int` field became `cursor string` (last-seen `device_id`);
+  `Next` now batches via `Clone().Limit(batchSize)` plus a conditional `Where(device.DeviceIDGT(cursor))`,
+  replacing `Limit(batchSize).Offset(offset)`. No "exhausted" flag added — EOF is still "the batch fetch
+  returned zero rows," the same idempotent shape the pre-existing code already had.
+- **`internal/inventory/file_repository.go`**: `fileRepository.GetGroup` signature changed identically;
+  behavior did not, since `HostSpec` has no group-membership field at all. Doc comment updated to explain
+  why, and `TestFileRepository_Selector_GroupNameIgnored` (`file_repository_test.go`) pins the behavior
+  down so a future change cannot silently start erroring on it.
+- **13 call sites updated** (production: `internal/api/dispatcher.go` — new aliased `pkginventory`
+  import, `cmd/pleiades/load.go`; tests: `dispatcher_test.go`'s two mocks, and 9 call sites across
+  `internal/inventory`'s `iterator_test.go`, `iterator_bench_test.go`, `iterator_fuzz_test.go`,
+  `repository_conformance_test.go`, `factory_test.go` (its own `baseinventory` alias),
+  `file_repository_test.go`, `file_repository_bench_test.go`, `file_repository_errors_test.go`).
+- **New tests**: `internal/inventory/ent_repository_selector_test.go`
+  (`TestEntRepository_GetGroup_FiltersBySelectorGroupName` — a named group returns exactly its members,
+  an empty selector returns everything, a nonexistent group fails closed to zero devices, never open to
+  the whole fleet; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` — 1,500 devices with
+  explicit sequential `device_id`s, a mid-stream delete of an already-yielded row and an insert ahead of
+  the cursor, asserting zero duplicates/skips). `internal/api/dispatcher_selector_test.go`
+  (`TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` — the same proof at the real
+  HTTP-handler level, against a real ent-backed `Repository`, not the package's hand-written mocks).
+  `internal/inventory/iterator_pprof_test.go` (`TestIteratorHeapProfileStaysFlat`, detailed above).
+  `FuzzIteratorPagination`'s doc comment updated to describe the keyset mechanism it now fuzzes; its
+  assertions were already sufficient (exact count match already proves no skip/duplicate in the
+  single-writer case).
+- **`tests/e2e/integration_test.go`** fixed, not just updated: see "Current Status" above.
+- **Docs corrected**, matching this project's own "correct the map before/alongside the code" convention:
+  `PLAN.md` Section 25's keyset-pagination row (`Build by: Phase 23` → `Phase 7`, dated
+  `Correction (2026-08-05)`, Phase 23 remains a consumer). `PATTERNS.md`'s Specification entry (flipped
+  from "POTENTIALLY" to "YES, narrowly," and its "Why" text corrected — group membership was never
+  actually a JSONB field match, that was only ever a considered-and-rejected approach named in
+  `GetGroup`'s own old comment). `PATTERNS.md`'s Repository entry (its quoted `GetGroup() (Iterator,
+  error)` signature was already stale before this phase). `CODE_SCAFFOLD.md` Section C, narrowly (a new
+  dated correction: `Selector`/`GetGroup` stay on `internal/inventory`, not the aspirational
+  `internal/storage.DeviceRepository.Stream`; `internal/ent` is imported directly from
+  `internal/inventory` today; the aspirational `StateStore` consolidation itself is left alone since no
+  phase claims it as a deliverable).
+- **`gosec-waivers.json`**: one waiver's line range shifted (145-150 → 146-151) when the new
+  `pkginventory` import line was added to `dispatcher.go`; no code at that finding changed.
+
+**Real, end-to-end verification against the actual built binary and a real Postgres container, not just
+`go test`** (RULE 0): `TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` drives the real
+`entRepository`/`entIterator`/`Dispatcher.DispatchRunbook` chain through real HTTP requests, two real ent
+`Group`s, proving a named group dispatches to exactly its members and a nonexistent group dispatches to
+zero, never the whole fleet. `TestGrandIntegration` (`tests/e2e`) proves the identical property against a
+real Postgres container end to end, through the real NATS-backed agent pull loop.
+
+**Fuzz/Stress:** `FuzzIteratorPagination` adapted to the keyset code, ~10,700 executions in 20s, zero
+failures. `BenchmarkIterator` (10,000 devices via keyset batching): ~63ms/op. No credible existing
+AWX/Tower/raw-Postgres keyset-pagination throughput figure exists to cite (`AGENTS.md`'s benchmarking
+rule); stated plainly rather than fabricated, matching `internal/ent/embedded_bench_test.go`'s own
+`[REFERENCE]` convention.
+
+**Adversarial Pattern Justification:** the old `Limit(batchSize).Offset(offset)` query had no `ORDER BY`
+at all, a defect independent of concurrency (SQL defines no row order without one, so two sequential
+unordered queries are not even guaranteed to agree with each other on an untouched table). Not empirically
+reproduced against the old code: its failure mode is implementation-defined per the SQL standard, so a
+test forcing it to misbehave in one fixed direction would really only be asserting an accident of
+SQLite's own undocumented rowid ordering, not a general property. The new keyset query is deterministic
+by construction; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` is the direct evidence.
+
+**Schema/Injection Hardening:** the one new boundary, `dispatcher.go`'s HTTP `group` query parameter now
+flowing into `device.HasGroupsWith(group.NameEQ(sel.GroupName))`, is fully parameterized by ent's
+generated query builder (no string concatenation; confirmed by reading the generated code) — audited,
+clean, no `FAILURE_PATTERNS.md` entry needed for the boundary itself.
+
+**Release Gate:** verified against real code paths above, plus `go build ./... && go vet ./...` clean,
+`gofmt -l` clean, `make gosec` (7 findings, all individually waived, none new beyond the line-shift
+above), `make govulncheck` (0 called vulnerabilities), and `make coverage`/`coverage-check` (78 packages
+measured, none below floor). Coverage: `internal/inventory` 81.8% → 82.5% (floor raised to 82.0);
+`internal/api` 82.1% → 90.7% (floor raised to 90.0, the new real end-to-end dispatcher test's own
+contribution); `pkg/inventory` unchanged at 97.7% (`Selector`'s zero-value struct added no coverable
+branching statements).
+
+`go test ./... -race -count=1`: every package this phase actually touched passes reliably, repeatedly,
+in isolation (`internal/inventory`, `internal/api`, `pkg/inventory`, `cmd/pleiades`, `tests/e2e`, each
+re-run individually multiple times with zero failures). The full concurrent `./...` run itself flaked on
+five separate invocations across this session, twice via `coverage-check`'s own internal `go test`
+call and three times via a direct `-race` run: `cmd/pleiades`'s `TestCLI_ForgeNewCollection_EndToEnd`
+(four of the five, always with the exact `FAILURE_PATTERNS.md` #53 signature -- `internal/catalog/test/
+e2egateNNNNN`: "cannot find package") and, once, `internal/api`'s unrelated `TestStreamLogs_ToleratesAckFailure`
+(an SSE ack-timing test, 5/5 clean when re-run alone). Neither test is touched by this phase's diff;
+`TestCLI_ForgeNewCollection_EndToEnd`'s failure mode is the pre-existing, already-documented race between
+a real-tree-mutating e2e test and `internal/archtest`'s `go list` scan, and the lone `internal/api` flake
+is consistent with system load during a many-container concurrent run, not a real regression -- both
+categories this project already treats as a known, accepted risk with an established "run again" remedy,
+not something this phase's own verification papers over.
+
+**Adversarial review, before this phase was considered done.** An independent review agent (not the
+implementer) audited the full diff against the real repo and found five real gaps, all fixed before this
+session ended, none requiring a design change: (1) `entIterator`'s `cursor == ""` sentinel could not
+distinguish "before the first row" from a legitimately empty `device_id` written outside this ent client
+(the schema's `NotEmpty()` is an application-level check, not a DB `CHECK` constraint), which would have
+looped `Next` forever on such a row; replaced with an explicit `started bool` field. (2) `entIterator.Next`
+never checked `ctx.Err()` on its buffered fast path, a real divergence from `fileIterator.Next`'s identical
+check given `fileRepository.go`'s own doc comment claims both adapters "must behave identically to
+callers"; added, with `TestEntIterator_HonorsContextCancellation` as the regression test. (3)
+`TestIteratorHeapProfileStaysFlat` could not actually detect its own target regression (a dropped batch
+`Limit` holding the whole 50,000-row result set resident): comparing checkpoints only to each other, not to
+a pre-iteration baseline, would show near-zero spread even with the whole set loaded, since every
+checkpoint would sit on the same elevated plateau together; added a baseline-relative growth ceiling.
+(4) `TestEntRepository_GetGroup_FiltersBySelectorGroupName`'s "named group" case asserted set membership,
+not per-name count, so it could not distinguish two real devices from one device double-counted -- exactly
+the duplicate-row failure mode the adjacent code comment claims immunity from; switched to a count-per-name
+map. (5) `FuzzIteratorPagination`'s doc comment claimed proof against skips and duplicates, but the body
+only compared a count, which cannot detect a skip-plus-duplicate pair that cancels out; switched to
+collecting distinct `device_id`s into a set. The review also surfaced two real, deliberate scope
+boundaries worth being explicit about rather than silent: `Selector{GroupName}` matches direct Group
+membership only, not `PLAN.md` Section 3's group nesting (nothing in this codebase populates
+`Group.children`/`parents` edges yet, so there is no live case to build traversal against); and a device
+inserted with a `device_id` sorting *behind* the current cursor is not retroactively surfaced, the
+inherent trade-off of any keyset cursor. Both are now stated directly in `ent_repository.go`'s own
+comments rather than left implicit.
+
+**Files changed:** `pkg/inventory/selector.go` (new), `internal/inventory/iterator.go`,
+`internal/inventory/ent_repository.go`, `internal/inventory/file_repository.go`,
+`internal/inventory/ent_repository_selector_test.go` (new), `internal/inventory/iterator_pprof_test.go`
+(new), `internal/inventory/{iterator_test.go,iterator_bench_test.go,iterator_fuzz_test.go,
+repository_conformance_test.go,factory_test.go,file_repository_test.go,file_repository_bench_test.go,
+file_repository_errors_test.go}`, `internal/api/dispatcher.go`, `internal/api/dispatcher_test.go`,
+`internal/api/dispatcher_selector_test.go` (new), `cmd/pleiades/load.go`, `tests/e2e/integration_test.go`,
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 7 checked off in full), `.SPECIFICATION/PLAN.md` (Section 25
+dated correction), `.SPECIFICATION/PATTERNS.md` (Specification and Repository entries corrected),
+`.SPECIFICATION/CODE_SCAFFOLD.md` (Section C dated correction), `coverage-floor.json` (`internal/inventory`
+and `internal/api` floors raised), `gosec-waivers.json` (one line-range shift), `FAILURE_PATTERNS.md`
+(#54 new), `LESSONS_LEARNED.md` (#58 new). See "The Phase 34 session" immediately below for full detail.
+Everything from "The Phase 33 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 34 session
+
+**Scope: Phase 34 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the fifth phase of Part VII (The Forge
+of Hephaestus) to close. See "Current Status" above for the complete summary; this heading exists so
+future sessions can find this session's detail without re-reading the whole file.
+
+**What was built, by area:**
+
+- **`internal/forge/catalogdata`** (new package, 11 files: `doc.go` with the `//go:generate go run
+  ../../../tools/gencatalog` directive, `collections.go` aggregating 8 per-table-section files into
+  the exported `Collections` slice, `devices.go`). The single source of truth for the real catalog;
+  editing it and re-running `go generate ./internal/forge/catalogdata` is this project's own established
+  "edit the schema and regenerate" discipline (`internal/ent/generate.go`'s precedent), applied here for
+  the first time to something other than ent.
+- **`tools/gencatalog`** (new, `main.go` + `main_test.go`). Builds the real `pleiades` binary
+  (`buildPleiadesBinary`, into a temp dir, cleaned up via a returned closure) and drives it through
+  `forge new-collection`/`new-device` once per `catalogdata` entry (`newCollectionArgs`/`newDeviceArgs`
+  construct the exact flag sets from each `Config`, `runPleiades` shells out via `exec.Command`).
+  `validateCatalogEntries` runs every entry's own `Validate()` before touching the CLI or filesystem at
+  all, so a data-table typo fails fast, named, before any partial (non-idempotent, since `forge new-*`
+  refuses to overwrite) CLI run leaves half a catalog behind. Also regenerates
+  `internal/catalog/builtins.go` (`writeCatalogBuiltins`, deduplicated and sorted from the same data,
+  via `go/format.Source`, never hand-maintained). Own tests: pure-function argument-construction tests
+  (no I/O), a `writeCatalogBuiltins` test against a synthetic small set, and one real end-to-end test
+  (`TestGencatalog_DogfoodsRealCLI_EndToEnd`, `-short`-skippable) that drives the actual binary to
+  generate one synthetic collection and device into the real repository tree, cleans up via
+  `t.Cleanup`, and `go build`/`test`s the result, mirroring `cmd/pleiades/e2e_test.go`'s own release-gate
+  test shape.
+- **The real catalog, generated** (`internal/catalog/`, 27 packages, 71 methods, 142 files plus the
+  regenerated `builtins.go`; `internal/inventory/devices/{windows,aws}/`, 2 new device packages).
+  Every file is Phase 33's own unmodified template output; this phase supplied only the data
+  (`catalogdata`) and drove the CLI (`gencatalog`) that produced it. `internal/inventory/builtins.go`
+  gained two blank imports (`devices/aws`, `devices/windows`) by hand, the one manual step the scaffold
+  itself never performs.
+- **`internal/engine/import_tasks.go`** (new). `resolveImportTasks`/`resolveImportTasksInList`/
+  `resolveOneImport`/`resolveImportPath`: a parse-time pre-pass, called as the first step of
+  `buildFromDef` (`dag.go`, which gained a `baseDir string` parameter), that recursively rewrites any
+  task with `fqcn: import_tasks` into an ordinary block task (`Block` = the referenced file's own,
+  recursively-resolved task list; `FQCN`/`Params` cleared) before `synthesizeChain`/`collectSubtree`
+  ever see it, requiring no change to either. `resolveImportPath` fails closed against an empty or
+  absolute path and requires the resolved result to stay under the runbook's own base directory via
+  `filepath.Rel` (no `..`-prefixed result accepted), the same closed-by-construction style
+  `internal/forge/genutil.ValidateSegment` already uses; a `resolving` map catches an import cycle, and
+  `maxImportDepth` (32) bounds a long, non-cyclic chain. `internal/engine/yaml.go` gained a shared
+  `parseWorkflowYAML` helper (factored out of `BuildFromYAML` rather than duplicated) and a new
+  `BuildFromYAMLFile(path)` that reads the file itself and passes `filepath.Dir(path)` as the base
+  directory; `Build`/`BuildFromYAML` keep their existing signatures, passing `""`, and an `import_tasks`
+  task reaching either fails with a clear, actionable error instead of silently misresolving a relative
+  path. `cmd/pleiades/load.go`'s `loadWorld` now calls `BuildFromYAMLFile` directly, collapsing its own
+  manual `os.ReadFile` + `BuildFromYAML` pair.
+- **`internal/validate/collection_rule.go`** (new). `CollectionRule` mirrors `capability_rule.go`'s
+  exact shape: skips any `task.FQCN` with no dot (every legacy built-in and engine keyword, closed by
+  construction, since `pkg/collection.Register` itself refuses to register an undotted name), otherwise
+  calls `collection.Lookup` and reports "not a registered collection name" or "declared but not yet
+  implemented." Independent of `CapabilityRule`, which keys off the separate `engine.ActionCapability`
+  map and has no notion of `pkg/collection` names.
+- **`cmd/pleiades/catalog_builtins.go`** (new, one blank import of `internal/catalog`), the composition-root
+  fix for defect (2) above.
+
+**Real, end-to-end verification against the actual built binary, not just `go test`** (RULE 0): `pleiades
+validate` against a runbook calling `pkg.apt.install` and a typo'd `totally.fake.name` produced
+`[collection] node "tasks[0]" ...: calls "pkg.apt.install", which is declared but not yet implemented`
+and `[collection] node "tasks[1]" ...: calls "totally.fake.name", which is not a registered collection
+name`, exit code 1; a runbook using `import_tasks` to pull in a sibling file produced `validate: no
+issues found`, exit code 0, and built the identical `*DAG` a hand-written inline `block:` would (the
+actual regression test, not just a manual check).
+
+**Fuzz/Stress:** `FuzzImportTasksPath` (`internal/engine`, seeded with `../../../etc/passwd`, an
+absolute path, `..\..\windows\...`, an empty string, a NUL byte, and a planted sentinel file just
+outside the runbook directory that must never appear in a successfully built DAG), 15s/~58K executions,
+zero failures. `internal/validate/collection_rule_test.go`'s `TestCollectionRule_StressAllCatalogNames`
+builds one task per real `catalogdata.Collections` entry (so it cannot drift out of sync with the actual
+catalog) and asserts exactly one Finding each, plus a negative control over every legacy/engine-keyword
+fqcn asserting zero. `internal/archtest/catalog_test.go` loads every one of the 71 manifests and both
+device types through the real registries the generated files and their builtins aggregators feed.
+
+**Adversarial Pattern Justification:** "no stub can report success" is structural (Phase 33's single,
+unmodified template has exactly one `return` in every stub body, an error), proven per-package by each
+generated file's own `Test<X>_NotImplemented`. "Every declared capability exists in `pkg/capability`" is
+enforced three times over: `collectionscaffold.Config.Validate()`, `collection.Register()`'s own
+`capability.Lookup` check, and, the strongest form, `catalogdata`'s typed `capability.Name` constants
+making an unknown capability a compile error rather than a runtime one. The dispatcher question was
+considered and deliberately not built: `pkg/collection.Descriptor` carries no function reference at
+all, `sdk.RunbookContext` has zero implementations anywhere, and a real fqcn-keyed dispatcher
+(`internal/engine`'s transport-binding executor) already exists on an incompatible raw-command shape;
+building a second, incompatible dispatch mechanism next to it would itself be a new pattern, which this
+phase's own Pattern Entry Gate forbids, and the Release Gate's literal wording is satisfied today for
+free by the existing fallback's honest error.
+
+**Schema/Injection Hardening:** the 71 stubs and 2 device types introduce no new boundary at all (a stub
+touches no `params` before erroring; a device type is a structurally inert placeholder). The one real
+new boundary, `import_tasks`' file path (Phase 39's "filesystem paths" category), audited clean: no
+`FAILURE_PATTERNS.md` entry was needed for the boundary itself, closed by construction and proven by the
+fuzz target and named escape/cycle regression tests above. Three unrelated, real findings were made and
+fixed elsewhere during this phase's own construction and verification (see "Three real,
+previously-unnoticed defects" above; `FAILURE_PATTERNS.md` #51-53).
+
+**Release Gate:** verified against the real built binary (see above), plus `go build ./... && go vet
+./...` clean, `go test ./...`/`go test -race ./...` passing (`make ci` run twice end to end, both clean;
+one intervening plain `go test ./...` did hit `FAILURE_PATTERNS.md` #53's documented, accepted,
+non-deterministic flake, not reproduced under `-race` or on either full `make ci` run), `make gosec`
+(7 pre-existing findings, all individually waived, none new: `tools/gencatalog/main.go`'s two
+subprocess-launching calls, the `go build` step and the built binary invocation, both carry an inline
+`#nosec G204` justification, mirroring `cmd/pleiades/forge_scaffold_io.go`'s existing convention, rather
+than a `gosec-waivers.json` entry), `make govulncheck` (0 called vulnerabilities), and `make coverage`
+(78 packages
+measured, none below floor; `cmd/runner` remains unrecorded, pre-existing, out of this phase's scope).
+Coverage: all 27 generated catalog packages and `internal/forge/catalogdata` at 100.0%;
+`internal/inventory/devices/{windows,aws}` at 80.0% (the devicescaffold template's own known
+structural-skeleton gap, unchanged by this phase, not hand-patched since the output is generated and
+never hand-edited); `tools/gencatalog` at 70.8%; `cmd/pleiades` rose from 43.0% to 44.2%, floor raised
+to 44.0.
+
+**Files changed:** `internal/forge/catalogdata/` (new, 11 files), `tools/gencatalog/` (new, `main.go`,
+`main_test.go`), `internal/catalog/` (new, 142 generated files plus regenerated `builtins.go`),
+`internal/inventory/devices/aws/` and `.../windows/` (new, 2 files each), `internal/inventory/builtins.go`
+(two blank imports added), `pkg/capability/capabilities_windows.go` renamed to `capabilities_win.go`
+(`git mv`, no content change), `internal/engine/import_tasks.go`, `import_tasks_test.go`,
+`import_tasks_fuzz_test.go` (all new), `internal/engine/dag.go` (`buildFromDef` gained a `baseDir`
+parameter), `internal/engine/yaml.go` (`parseWorkflowYAML` factored out, new `BuildFromYAMLFile`),
+`cmd/pleiades/load.go` (`loadWorld` uses `BuildFromYAMLFile`), `cmd/pleiades/catalog_builtins.go` (new),
+`internal/validate/collection_rule.go` and `collection_rule_test.go` (new), `internal/archtest/catalog_test.go`
+(new), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 34 checked off in full, two dated corrections),
+`docs/hephaestus.md` (status line, workflow table, the catalog's own hedge retired, two new device types
+documented, both real defects documented in place, command surface unchanged), `.SPECIFICATION/CODE_SCAFFOLD.md`
+(`internal/forge/catalogdata`, `internal/catalog/`, `internal/inventory/devices/`, and a new top-level
+`tools/` entry), `coverage-floor.json` (32 new/changed floors), `FAILURE_PATTERNS.md` (#51-53 new),
+`LESSONS_LEARNED.md` (#55-57 new). See "The Phase 33 session" immediately below for full detail.
+Everything from "The Phase 32 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 33 session
+
+**Scope: Phase 33 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the fourth phase of Part VII (The
+Forge of Hephaestus) to close. See "Current Status" above for the complete summary; this heading exists
+so future sessions can find this session's detail without re-reading the whole file.
+
+**Research and design, before any code:** three parallel Explore agents (the hand-written device-type
+pattern in full, the collection registry/`pkg/sdk` pattern and what real consumers exist, and the forge
+CLI dispatch pattern plus every cross-phase reference to "Phase 33" elsewhere in `IMPLEMENTATION.md`)
+fed a synthesized design, which one Plan agent then pressure-tested against the real repo before any
+plan file was written. The Plan agent's review caught several things worth recording: (1) the
+`ItemFactory.Register` retirement is documented, not just inferred — `HANDOFF_DOCUMENT.md`'s own Phase
+6 session notes say it outright; (2) `forge new-collection`'s positional name must accept two segments,
+not require three, since `docs/hephaestus.md`'s own catalog table lists real two-segment names
+(`exec.command`, `pkg.install`) Phase 34 must generate; (3) a segment that becomes a Go identifier needs
+a leading-letter rule, not `internal/classification`'s leading-digit-permissive one; (4)
+`cli_fuzz_test.go`'s pre-committed `forge new-device` fuzz seed is real but structurally can't reach
+this phase's flag parsing, because the harness splices `--dir` in at a position that hits the
+unknown-subcommand path first; (5) `internal/inventory/project.go`'s `Scaffold`/`writeIfAbsent` is the
+right precedent for "don't clobber an existing file" even though this phase deliberately diverges from
+its silent-skip behavior. All five were verified against the real files before being trusted, not taken
+on the agent's word alone (`internal/classification/rule.go`'s `segmentPattern`, `cmd/pleiades/cli_fuzz_test.go`'s
+literal seed, `docs/hephaestus.md`'s literal CLI example line, and `internal/inventory/project.go`'s
+literal `Scaffold` function were all read directly).
+
+**What was built:** see "Current Status" above for the complete file-by-file summary; this section adds
+detail beyond it.
+
+- `internal/forge/genutil.ValidateSegment` closes both halves of the checklist's Fuzz/Stress ask in one
+  function: `^[a-z][a-z0-9_]*$` (no `.`, `/`, `\`, or leading digit is even expressible) plus
+  `go/token.IsKeyword` (not a hand-maintained keyword list). `ToExportedIdent` is a plain
+  underscore-split-and-titlecase helper with no dependency on the validation having already run — its
+  own doc comment says so explicitly, since a caller skipping `ValidateSegment` first would get a
+  PascalCase string built from invalid characters, not a panic.
+- Both scaffolds' templates use a `quote` `text/template.FuncMap` entry (`strconv.Quote`) rather than
+  passing `capability.Name` values (or any other named string type) directly into it: `templateData`
+  converts every such value to a plain `string` in Go code before `Execute` ever runs, sidestepping
+  `reflect.Value.Call`'s assignability rules entirely rather than relying on `capability.Name` happening
+  to be `AssignableTo(string)` at the reflection layer (it is not, without an explicit conversion, the
+  same rule that blocks it at compile time).
+- The device template's `Kind()` derivation (`Config.Kind()`, `internal/inventory/devicescaffold/config.go`)
+  splits `TypeKey` on its *last* underscore, not its first, and does not try to strip a vendor prefix at
+  all: `docs/hephaestus.md`'s own worked example (vendor `juniper`, type key `junos_router`) has a
+  vendor and a type-key prefix that don't match, so "last segment becomes the struct name" is the one
+  rule that reproduces both real examples (`cisco_router`→`Router`, `linux_server`→`Server`) and the
+  doc's mismatched one with no special-casing.
+- The generated device starter test asserts on `Capabilities()` (the data layer), never `HasCapability()`
+  (which also requires structural satisfaction): a freshly generated type has no capability-specific
+  accessor methods, so `HasCapability` correctly stays `false` for every declared capability until a
+  human adds them, and a starter test asserting the opposite would fail immediately out of the box,
+  which would itself violate the Release Gate's "whose generated tests pass" wording. This was decided
+  during design, not discovered as a test failure, but is exactly the kind of gap the design review
+  exists to catch before it becomes one.
+- `internal/catalog/` has no prior claimant anywhere in `PLAN.md`, `PATTERNS.md`, or Part X; the closest
+  existing tree annotation (`internal/adapters/native/`, labelled "Native Go collections" in
+  `CODE_SCAFFOLD.md`) turned out to describe something unrelated (Phase 16's still-stubbed
+  `ExecutionAdapter`, which will eventually *dispatch to* a catalog entry, not *contain* one) once its
+  real code was read directly rather than trusted from the tree comment alone.
+
+**No defects found in the generated output itself** by the adversarial pass; the one real defect this
+session found (`splitPositional`'s boolean-flag bug) was caught by the CLI's own unit test failing for
+real during normal test-writing, the same "a test failing for real" discovery shape several earlier
+phases' own defects were found by, not a separate adversarial review step.
+
+**Files changed:** see "Current Status" above for the complete list.
+
+### The Phase 32 session
+
+**Scope: Phase 32 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the third phase of Part VII (The
+Forge of Hephaestus) to close. See "Current Status" above for the complete summary; this heading
+exists so future sessions can find this session's detail without re-reading the whole file.
+
+**The reconciliation, done first:** Phase 31's own checklist text (`IMPLEMENTATION.md`'s Pattern Entry
+Gate and a standalone build item) asserted "`pkg/registry` does not exist" and told the implementer to
+build it, first, as `pkg/collection`'s foundation, with a two-type-parameter signature
+(`Registry[K comparable, V any]`). Both claims were stale: Phase 6 already built
+`pkg/registry.Registry[T]` (single type parameter, string-keyed), already consumed by `pkg/capability`
+and `internal/inventory/record`. `PLAN.md` Section 25's own build-once table already carried two dated
+corrections (2026-08-03, 2026-08-04) catching this exact class of drift for other primitives; this was
+a third instance, just never corrected because Phase 31 hadn't been picked up yet. Building the
+two-type-parameter version as literally specified would have been Section 25's own named defect: "a
+second implementation is a defect, not a variation." Corrected in place, dated the same way, in
+`IMPLEMENTATION.md` (Phase 31's own checklist text), `docs/hephaestus.md` ("Create a Collection"), and
+`.SPECIFICATION/PATTERNS.md` (the Registry entry's consumer list) — see `LESSONS_LEARNED.md`'s new
+entry for the general lesson.
+
+**What was built:** new package `pkg/collection` (`manifest.go`, `collection.go`), consuming
+`pkg/registry.Registry[Descriptor]` directly as this primitive's third consumer, not a fourth
+hand-rolled map. `Manifest{SupportedTransports []string, RequiredCapabilities []capability.Name,
+ExecutionContext, PlatformTargets []PlatformTarget, EngineVersion string, Status Status}`, with
+`Status` = `StatusDeclared`/`StatusImplemented` and full `json` struct tags (the stable serialized form
+Phase 42 later embeds as an OCI config layer). `Descriptor{Name string, Manifest Manifest}` plus
+package-level `Register`/`MustRegister`/`Lookup`, mirroring `pkg/capability`'s naming exactly.
+`Register` structurally enforces `PLAN.md` Section 2 (rejects a bare name, an empty namespace, or an
+empty method segment, citing "Section 2" in the error) and rejects any `RequiredCapabilities` entry
+`pkg/capability` doesn't recognize — safe against init-order races, since any package importing
+`pkg/collection` transitively imports `pkg/capability` first, per normal Go import-init ordering.
+Duplicate names are always rejected, never resolved by first-write-wins or last-write-wins (inherited
+free from `pkg/registry.Registry`'s own semantics; the decision itself is recorded in `collection.go`'s
+doc comment, since Part X's Phase 44 later notes namespace collision becomes a routine outcome once
+Collections can arrive from outside this binary).
+
+**A gap in Section 25's own enforcement was closed, not just documented:** `PLAN.md` Section 25 names
+an architecture test proving single-Registry-implementation as something that should exist but didn't.
+New `internal/archtest/registry_test.go` adds `TestKnownRegistryConsumersImportPkgRegistry` and
+`TestRegistryConsumerAllowlistHasNoStaleEntries`, so a future regression back to a hand-rolled map is a
+CI failure, not a silent drift — mirroring the existing `adapterAllowlist` pattern in
+`internal/archtest/layering_test.go`.
+
+**Adversarial Pattern Justification:** a grep control (`registry.New\[` across the tree, excluding
+tests) found exactly 3 non-test call sites (`pkg/capability`, `internal/inventory/record`,
+`pkg/collection`); `gopls references` on `registry.New` and `registry.Registry`, run after that
+control, agreed exactly. This audit is honest about its own limit: import-graph analysis proves the
+three known vocabularies stay wired to the shared `Registry`; it cannot structurally prove no
+unrelated fourth hand-rolled map exists anywhere else, which stays a code-review-time convention.
+
+**Schema/Injection Hardening:** not a clean "no new boundary" result, unlike Phase 30. `Manifest`
+gains a real deserialization-shaped boundary (its JSON marshal/unmarshal capability) — recorded
+explicitly as inert today (no code path before Part X's Phase 42 feeds it externally-sourced bytes,
+only this phase's own round-trip test does) rather than silently claimed clean. `Register`'s
+namespace/capability validation touches no filesystem, network, SQL, CEL, or NATS subject, the same
+class of argument already made for `main.go`'s argv handling in Phase 30. No `FAILURE_PATTERNS.md`
+entry; there is no live vulnerability to record, only an inert boundary honestly noted for later.
+
+**Fuzz/Stress:** `FuzzRegister` (15s, `execs: 2305176`, ~177k/sec, zero failures) covers empty
+namespaces, bare names, and duplicate registration, distinguishing a genuine cross-iteration duplicate
+(the shared package-level registry persists for the life of the test binary) from a malformed-name
+rejection by recomputing `Register`'s own namespace/method split inside the test.
+`FuzzRegisterRequiredCapability` (15s, `execs: 1740379`, ~135k/sec, zero failures) covers capability
+names absent from `pkg/capability`, registering each iteration under a fresh, atomically-counted name
+so an unknown capability is always the sole possible rejection reason.
+
+**Release Gate:** `TestManifest_RoundTrip` (a fully populated `Manifest`) and
+`TestManifest_RoundTripZeroValue` (an empty one) both round-trip through JSON to a `reflect.DeepEqual`
+match; `TestRegister_RejectsBareName` asserts the returned error cites "Section 2" literally. These are
+ordinary in-package tests (`package collection_test`), not subprocess/e2e tests — this phase adds no
+CLI behavior, so RULE 0's real-binary requirement does not apply the way it did for Phase 30.
+`go test ./... -race -count=1` (whole repository) passed with zero `FAIL` lines; `gofmt -l`,
+`go build ./...`, `go vet ./...`, `make gosec` (7 pre-existing findings, all individually waived, none
+new), `make govulncheck` (0 called vulnerabilities), and `make coverage` (44 packages measured, none
+below floor) all passed; `make ci` passed end to end. `pkg/collection` measured 100.0% coverage; floor
+recorded at 100.0 in `coverage-floor.json`.
+
+**Files changed:** `pkg/collection/manifest.go` (new), `pkg/collection/collection.go` (new),
+`pkg/collection/manifest_test.go` (new), `pkg/collection/collection_test.go` (new),
+`pkg/collection/collection_fuzz_test.go` (new), `internal/archtest/registry_test.go` (new),
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 31 checked off in full, including the reconciliation
+corrections), `docs/hephaestus.md` ("Create a Collection" corrected), `.SPECIFICATION/PATTERNS.md`
+(Registry entry's consumer list extended), `.SPECIFICATION/PLAN.md` (Section 25's "Typed generic
+Registry" row call-site list extended), `coverage-floor.json` (`pkg/collection` 100.0, new entry),
+`LESSONS_LEARNED.md` (new entry). See "The Phase 31 session" immediately below for full detail.
+Everything from "The Phase 30 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 31 session
+
+**Scope: reconciliation, then Phase 31 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the second
+phase of Part VII (The Forge of Hephaestus) to close, following directly from Phase 30's own
+namespace. Part VII's own intro says Phase 31 and Phase 32 are independent of each other, so either
+was a valid next step; this session took Phase 31.
+
+A Plan-mode design review preceded any code (the plan file above, rewritten for this task from the
+Phase 30 planning session): three parallel Explore-agent research passes (the real `pkg/registry`
+implementation and its consumers, Phase 31/32/33's exact checklist text, and the collection-manifest
+shape `pkg/capability` was named as the mirror for) fed a single written plan, approved before
+implementation began.
+
+**Why the reconciliation came first, not after:** Phase 31's own Pattern Entry Gate read
+"`pkg/registry` does not exist... Build `pkg/registry` first and make `pkg/collection` its first
+consumer," and a separate item asked to implement `pkg/registry/registry.go` as a generic
+`Registry[K comparable, V any]`. Both were checked against the real repo, not trusted: `pkg/registry`
+already existed (Phase 6), as `Registry[T any]` — one type parameter, string-keyed — with two real
+consumers already wired to it. Treating the checklist's stale premise as current would have meant
+building a second Registry implementation with a different signature, which `PLAN.md` Section 25
+itself names as a defect the moment it exists, not a variation worth having. The correction was
+written in place, dated `2026-08-04` to match the style `PLAN.md` Section 25's own table already used
+twice for this identical class of drift (both times reassigning the same primitive's builder from
+Phase 21 to Phase 6).
+
+**What was built:** see "Current Status" above for the full file-by-file summary; this section adds
+detail beyond it.
+
+- `pkg/collection`'s `Register` validates `RequiredCapabilities` against `pkg/capability.Lookup`
+  before delegating to the shared registry. This is safe against import-order races specifically
+  because `pkg/collection` imports `pkg/capability` for its `Name` type: any package that imports
+  `pkg/collection` (to call `MustRegister` from its own `init()`) transitively imports
+  `pkg/capability` too, and Go guarantees a package's imports are fully initialized, `init()` included,
+  before its own `init()` runs. There is no call site where the capability vocabulary could still be
+  empty when this check runs.
+- `PlatformTarget` and `EngineVersion` are both deliberately inert this phase: `PlatformTarget` is
+  plain string data (vendor/model/version-range/deployment-context), matched against nothing yet,
+  since no phase before this one builds the plan-time resolution logic to call it from; `EngineVersion`
+  is an unparsed string, with no semver library added, since nothing enforces it yet either. Both
+  match the checklist's own reasoning ("adding a field to a manifest that nothing has published yet is
+  free") rather than gold-plating ahead of a real caller.
+- `SupportedTransports` is `[]string`, not a reference to `internal/transport.Transport`. Only one
+  transport (`ssh`) exists in this codebase today; binding this field to a concrete internal type
+  ahead of a second transport existing would be premature structure this project avoids elsewhere.
+- The two new architecture tests in `internal/archtest/registry_test.go` mirror
+  `layering_test.go`'s existing `adapterAllowlist`/`TestAdapterAllowlistHasNoStaleEntries` shape
+  exactly (a required-consumer list plus a stale-entry check), rather than inventing a new
+  verification idiom for a very similar problem.
+
+**No defects found** in the new code itself; the one real finding of this session was the stale
+checklist premise above, caught by verifying against the actual repo state rather than trusting
+`IMPLEMENTATION.md`'s own prose, the same discipline `.AGENTS/AGENTS.md` asks for before starting any
+phase. `LESSONS_LEARNED.md`'s new entry generalizes this: a roadmap phase's own checklist can go stale
+relative to a shared primitive an earlier-numbered phase already built, when phases execute out of
+their originally-drafted order — verify the primitive's real existence in code before trusting what a
+phase's own Pattern Entry Gate says about it.
+
+**Coverage.** `pkg/collection`: 100.0%, new floor recorded at 100.0 in `coverage-floor.json`. `make
+coverage` reports 44 packages measured, none below floor (`cmd/runner` remains unrecorded,
+pre-existing, untouched by this phase, out of its scope).
+
+**Verified, not assumed.** `gofmt -l`, `go build ./...`, and `go vet ./...` are clean across the
+entire repository. `go test ./... -race -count=1` passes with zero `FAIL` lines, run against the full
+repository. `make gosec` (7 pre-existing findings, all individually waived, none new) and
+`make govulncheck` (0 called vulnerabilities) both pass. `make ci` passes end to end.
+
+**Files changed:** see "Current Status" above for the complete list.
+
+### The Phase 30 session
+
+**Scope: Phase 30 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the first phase of Part VII (The
+Forge of Hephaestus). This phase deliberately ships zero forge subcommands: Part VII's own ordering
+note is "tooling first, catalog second," and Phases 31 through 37 (Collection Registry, Capability
+Vocabulary, Scaffolds, Catalog generation, Playbook/Galaxy migration, IDE plugin) populate
+`forgeCommands` later, each one file plus one map entry, never an edit to `forge.go` itself. Phase 31
+and Phase 32 were explicitly kept out of scope for this session, per the prompt that began it, even
+though Part VII's own notes say they are independent of each other and could theoretically start
+anytime.
+
+A Plan-mode design review preceded any code
+(`/root/.claude/plans/plan-phase-30-the-delegated-treasure.md`): three Explore-equivalent research
+passes (reading `.AGENTS/AGENTS.md` in full, verifying Phase 6/Phase W1 closure and `main.go`'s real
+dispatch shape via `gopls`, and checking `docs/hephaestus.md` against the literal checklist wording)
+preceded a single `AskUserQuestion` on the one genuine design fork the checklist left open (see
+"Current Status" above), then a written plan the user approved before implementation began.
+
+**What was built:** see "Current Status" above for the full file-by-file summary; this section adds
+detail beyond it.
+
+- `errUnknownCommand` was placed in `main.go`, not `forge.go`, deliberately: it is the generic,
+  reusable half of the exit-code-parity mechanism (any future nested dispatcher can reuse it for
+  free), while `forge.go` only ever *returns* it, keeping the sentinel's ownership at the same level
+  as the exit-code decision that consumes it (`run()`'s own `errors.Is` check).
+- `runForge`'s bare-args case (`len(args) == 0`) prints usage and returns `errUnknownCommand`, a
+  deliberate difference from a namespace that might otherwise treat "no subcommand" as a silent
+  no-op: `forge` is a namespace, not a runnable default action, so `pleiades forge` alone fails the
+  same way `pleiades` alone does.
+- `printForgeUsage`'s command list currently reads "(none registered yet; see docs/hephaestus.md...
+  and .SPECIFICATION/IMPLEMENTATION.md Part VII...)" rather than an empty block or a placeholder
+  subcommand invented for this phase alone. This matches the project's own established "declared is
+  not implemented" convention (`docs/hephaestus.md`'s own guardrails for the catalog: a stub returns
+  an explicit error, never silent success) applied to the command surface itself: the Release Gate's
+  "lists its subcommands" is satisfied honestly, not by pretending Phase 31-37 work already landed.
+
+**Fuzz/Stress, Adversarial Pattern Justification, Schema/Injection Hardening, Release Gate:** see
+"Current Status" above for the full detail; all four are unusually clean for this phase specifically
+because `forge.go` has zero subcommands and zero `internal/*` imports yet, a property of this phase's
+narrow scope rather than evidence any of the four checks were skipped or shortened.
+
+**No defects found.** Unlike the Phase 5 and Phase 6 sessions above, no adversarial review in this
+session surfaced a real bug; the codebase is small enough (56 new lines, two edited lines beyond that
+in `main.go`) that the two `gopls references` audits above serve as the adversarial check itself. One
+real design decision was resolved by asking the user directly rather than by unilateral judgment (the
+exit-code-parity question) since it changed the concrete file diff shape and the user was available to
+decide it; that decision itself is `LESSONS_LEARNED.md` #51.
+
+**Coverage.** `cmd/pleiades`: 33.5% (up from 29.7%), floor raised to 33.0 in `coverage-floor.json`.
+`make coverage` reports 43 packages measured, none below floor (`cmd/runner` remains unrecorded,
+pre-existing, untouched by this phase, out of its scope).
+
+**Verified, not assumed.** `gofmt -l`, `go build ./...`, and `go vet ./...` are clean across the
+entire repository. `go test ./... -race -count=1` passes with zero `FAIL` lines, run against the full
+repository (not just `cmd/pleiades`), including every container-backed package
+(`internal/lock` at 50.8s was the slowest, matching its own historical real-container cost). `make
+gosec` (7 pre-existing findings, all individually waived, none new) and `make govulncheck` (0 called
+vulnerabilities) both pass. `make ci` passes end to end. The Release Gate was additionally confirmed
+by hand against a freshly built binary (see "Current Status" above), not solely through the automated
+test suite.
+
+**Files changed:** see "Current Status" above for the complete list.
 
 ### The Phase 6 session
 

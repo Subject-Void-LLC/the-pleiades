@@ -14,6 +14,8 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // --- Mocks ---
@@ -22,17 +24,22 @@ type MockRepository struct {
 	Count int
 }
 
-func (m *MockRepository) GetGroup(ctx context.Context, groupName string) (inventory.Iterator, error) {
+func (m *MockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
 	return &MockIterator{count: m.Count, current: 0}, nil
 }
 
-// GetByName and Save exist to satisfy the Repository port. The dispatcher
-// under test only ever streams a group, so these fail loudly rather than
-// returning a zero value: a test that starts depending on them should say
-// so out loud instead of silently exercising a stub that does nothing.
+// GetByName, Create, and Save exist to satisfy the Repository port. The
+// dispatcher under test only ever streams a group, so these fail loudly
+// rather than returning a zero value: a test that starts depending on them
+// should say so out loud instead of silently exercising a stub that does
+// nothing.
 
 func (m *MockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
 	return nil, errors.New("MockRepository.GetByName is not implemented for these tests")
+}
+
+func (m *MockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
+	return errors.New("MockRepository.Create is not implemented for these tests")
 }
 
 func (m *MockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {
@@ -160,12 +167,16 @@ func (i *noIPMockIterator) Close() error { return nil }
 
 type noIPMockRepository struct{}
 
-func (m *noIPMockRepository) GetGroup(ctx context.Context, groupName string) (inventory.Iterator, error) {
+func (m *noIPMockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
 	return &noIPMockIterator{}, nil
 }
 
 func (m *noIPMockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
 	return nil, errors.New("not implemented for this test")
+}
+
+func (m *noIPMockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
+	return errors.New("not implemented for this test")
 }
 
 func (m *noIPMockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {
@@ -277,23 +288,41 @@ func TestDispatcher_PublishFailureCountsAsFailed(t *testing.T) {
 	}
 }
 
-// TestDispatcher_PropagatesTraceIDFromContext proves the traceIDKey branch
-// in DispatchRunbook: when the request context carries a trace ID (as
-// TraceIDMiddleware would set it in the real router), DispatchRunbook
-// bridges it onto the context it publishes with via event.WithTraceID.
-// The published Event's own TraceID field is stamped by Bus.Publish
-// itself from that context (see stampEnvelope), not by Dispatcher
-// directly, so this checks the context Publish receives, the thing
-// Dispatcher actually controls, rather than the Event field a real
-// adapter -- not this test's minimal mockBus -- is the one that sets.
+// TestDispatcher_PropagatesTraceIDFromContext proves the trace-propagation
+// branch in DispatchRunbook: when a real OpenTelemetry span is recording
+// on the request context (as TracingMiddleware makes it in the real
+// router), DispatchRunbook bridges that span's trace ID onto the context
+// it publishes with via event.WithTraceID, and grafts the live span itself
+// onto that context so the Bus adapter can inject W3C trace context into
+// the outgoing message headers.
+//
+// The published Event's own TraceID field is stamped by Bus.Publish itself
+// from that context (see stampEnvelope), not by Dispatcher directly, so
+// this checks the context Publish receives, the thing Dispatcher actually
+// controls, rather than the Event field a real adapter -- not this test's
+// minimal mockBus -- is the one that sets.
+//
+// The span is started through a real SDK tracer rather than a fake context
+// value: a no-op tracer mints an all-zero, invalid span context, so a test
+// built on one would pass while proving nothing about the real path.
 func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
 	repo := &MockRepository{Count: 1}
 	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
 	dispatcher := api.NewDispatcher(repo, eval, bus)
 
+	tp := sdktrace.NewTracerProvider()
+	t.Cleanup(func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			t.Errorf("shutting down tracer provider: %v", err)
+		}
+	})
+
 	req := dispatchTestRequest(t)
-	req = req.WithContext(context.WithValue(req.Context(), api.TraceIDKeyForTest, "trace-abc-123"))
+	ctx, span := tp.Tracer("test").Start(req.Context(), "test-request")
+	defer span.End()
+	req = req.WithContext(ctx)
+	wantTraceID := span.SpanContext().TraceID().String()
 
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, req)
@@ -302,15 +331,20 @@ func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
 		t.Fatalf("expected 1 publish, got %d", bus.Publishes)
 	}
 	gotTraceID, ok := event.TraceIDFromContext(bus.LastCtx)
-	if !ok || gotTraceID != "trace-abc-123" {
-		t.Errorf("expected the publish context to carry TraceID %q, got (%q, %v)", "trace-abc-123", gotTraceID, ok)
+	if !ok || gotTraceID != wantTraceID {
+		t.Errorf("expected the publish context to carry TraceID %q, got (%q, %v)", wantTraceID, gotTraceID, ok)
+	}
+	// The live span must survive onto the publish context too, not just
+	// its ID: without it the Bus adapter has nothing to inject and the
+	// trace stops at the bus boundary.
+	if got := trace.SpanContextFromContext(bus.LastCtx).TraceID().String(); got != wantTraceID {
+		t.Errorf("expected the publish context to carry the live span (trace %q), got %q", wantTraceID, got)
 	}
 }
 
 // TestDispatcher_OmitsTraceIDWhenAbsentFromContext proves the other half
-// of the same branch: a request with no trace ID in context (the
-// traceIDKey type-assertion's ok=false path) still dispatches
-// successfully, without fabricating one.
+// of the same branch: a request with no recording span still dispatches
+// successfully, without fabricating a trace ID.
 func TestDispatcher_OmitsTraceIDWhenAbsentFromContext(t *testing.T) {
 	repo := &MockRepository{Count: 1}
 	eval := &MockAuthEvaluator{Allow: true}

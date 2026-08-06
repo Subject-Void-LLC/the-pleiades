@@ -8,9 +8,8 @@ import (
 
 // Organization holds the schema definition for the Organization entity:
 // the PLAN.md Section 18 tenancy boundary, the highest multi-tenant scope
-// a resource belongs to. This phase adds only the entity and its Device
-// edge, as substrate; row-level tenant filtering, Teams, and Roles are
-// Phase 8's job, not this one.
+// a resource belongs to. Phase 1 added only the entity and its Device edge,
+// as substrate; Phase 8 adds the Team edge, its own RBAC job.
 type Organization struct {
 	ent.Schema
 }
@@ -35,5 +34,8 @@ func (Organization) Edges() []ent.Edge {
 		// optional: .Required() is declared there, not here, and this
 		// phase deliberately does not declare it).
 		edge.To("devices", Device.Type),
+		// A Team MUST belong to exactly one Organization (Team.organization
+		// is the Ref side, .Required() declared there).
+		edge.To("teams", Team.Type),
 	}
 }

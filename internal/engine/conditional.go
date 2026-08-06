@@ -140,22 +140,23 @@ func compileItems(cel Evaluator, keyword string, or bool, exprs []string) (*Cond
 	return &ConditionProgram{keyword: keyword, or: or, items: items}, nil
 }
 
-// Eval evaluates cp's items against input, returning whether the condition
-// holds and, if not, a Reason naming the responsible expression.
-func (cp *ConditionProgram) Eval(input map[string]interface{}) (ConditionResult, error) {
+// Eval evaluates cp's items against vars, the same top-level CEL
+// activation Program.Eval expects (cel.go), returning whether the
+// condition holds and, if not, a Reason naming the responsible expression.
+func (cp *ConditionProgram) Eval(vars map[string]interface{}) (ConditionResult, error) {
 	if cp.or {
-		return cp.evalOr(input)
+		return cp.evalOr(vars)
 	}
-	return cp.evalAnd(input)
+	return cp.evalAnd(vars)
 }
 
 // evalAnd implements when/when_cel semantics: every item must be true.
 // It short-circuits and reports the first false item, mirroring how CEL's
 // own && operator would short-circuit if the items were still joined into
 // one expression.
-func (cp *ConditionProgram) evalAnd(input map[string]interface{}) (ConditionResult, error) {
+func (cp *ConditionProgram) evalAnd(vars map[string]interface{}) (ConditionResult, error) {
 	for i, item := range cp.items {
-		ok, err := item.prg.Eval(input)
+		ok, err := item.prg.Eval(vars)
 		if err != nil {
 			return ConditionResult{}, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
 		}
@@ -174,10 +175,10 @@ func (cp *ConditionProgram) evalAnd(input map[string]interface{}) (ConditionResu
 // short-circuits on the first true item; if every item is false, the
 // Reason names all of them, since each one contributed to the skip, unlike
 // evalAnd where only the first false item is the actionable one.
-func (cp *ConditionProgram) evalOr(input map[string]interface{}) (ConditionResult, error) {
+func (cp *ConditionProgram) evalOr(vars map[string]interface{}) (ConditionResult, error) {
 	falseExprs := make([]string, 0, len(cp.items))
 	for i, item := range cp.items {
-		ok, err := item.prg.Eval(input)
+		ok, err := item.prg.Eval(vars)
 		if err != nil {
 			return ConditionResult{}, fmt.Errorf("failed to evaluate %s expression %d (`%s`): %w", cp.keyword, i+1, item.expr, err)
 		}

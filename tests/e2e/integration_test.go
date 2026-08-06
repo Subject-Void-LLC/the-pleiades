@@ -72,10 +72,16 @@ func TestGrandIntegration(t *testing.T) {
 
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
 
-	// Seed an inventory group
+	// Seed an inventory group. Phase 7 made GetGroup's Selector push a
+	// real Group edge down to SQL rather than a decorative "group"
+	// properties key nothing ever filtered on (entRepository.GetGroup),
+	// so the two devices are attached to a real Group named "edge" here,
+	// the mechanism a Selector{GroupName: "edge"} dispatch now actually
+	// matches against.
 	t.Log("Seeding inventory...")
-	client.Device.Create().SetName("rtr1").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.1", "group": "edge"}).SaveX(ctx)
-	client.Device.Create().SetName("rtr2").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.2", "group": "edge"}).SaveX(ctx)
+	rtr1 := client.Device.Create().SetName("rtr1").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.1"}).SaveX(ctx)
+	rtr2 := client.Device.Create().SetName("rtr2").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.2"}).SaveX(ctx)
+	client.Group.Create().SetName("edge").AddDevices(rtr1, rtr2).SaveX(ctx)
 
 	// 3. Spin up NATS Container with JetStream
 	req := testcontainers.ContainerRequest{
@@ -130,7 +136,7 @@ func TestGrandIntegration(t *testing.T) {
 
 	// 5. Start Runner Agent
 	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, nil)
+	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, nil, nil)
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	defer cancelAgent()
 	go agent.Run(agentCtx)

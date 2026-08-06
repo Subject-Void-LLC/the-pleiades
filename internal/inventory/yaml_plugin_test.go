@@ -9,53 +9,13 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 )
 
-func TestStaticYAMLPlugin_Load(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "inventory.yaml")
-
-	hosts := []inventory.HostSpec{
-		{
-			ID:   "11111111-1111-1111-1111-111111111111",
-			Name: "webserver1",
-			Type: "linux_server",
-			Tags: []string{"web", "prod"},
-			Properties: map[string]interface{}{
-				"host":         "10.0.0.5",
-				"distribution": "ubuntu",
-			},
-		},
-	}
-
-	if err := inventory.WriteHosts(path, hosts); err != nil {
-		t.Fatalf("failed to write inventory: %v", err)
-	}
-
-	plugin := inventory.NewStaticYAMLPlugin(path, inventory.NewItemFactory())
-	items, err := plugin.Load()
-	if err != nil {
-		t.Fatalf("failed to load inventory: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
-	}
-
-	item := items[0]
-	if item.Name() != "webserver1" {
-		t.Errorf("expected name 'webserver1', got %q", item.Name())
-	}
-	if item.ID() != "11111111-1111-1111-1111-111111111111" {
-		t.Errorf("expected the explicit id to survive hydration, got %q", item.ID())
-	}
-	if !item.State().CanExecute() {
-		t.Error("expected a statically listed host to be immediately active")
-	}
-	if !item.HasCapability(capability.NameLinux) {
-		t.Error("expected linux_server to declare LinuxCapable")
-	}
-	if item.Source().Plugin != "static_yaml" {
-		t.Errorf("expected source plugin 'static_yaml', got %q", item.Source().Plugin)
-	}
-}
+// The former TestStaticYAMLPlugin_Load moved with the plugin itself, to
+// internal/inventory/plugins/staticyaml. What it proved (an explicit id
+// survives hydration, a statically listed host is immediately active, a
+// linux_server declares LinuxCapable, and the source plugin is recorded as
+// static_yaml) is now proved through the real syncplugin.Plugin port
+// against a real Repository, rather than through a Load method that no
+// production code called.
 
 // TestHostsRoundTrip proves ParseHosts -> EncodeHosts -> ParseHosts is
 // lossless at the data level: this is the YAML layer's round-trip
@@ -120,7 +80,13 @@ func TestParseHosts_MissingType(t *testing.T) {
 // TestHydrateHosts_ClassifyOnly proves a hand-written entry carrying only
 // Classify (no Type) hydrates through the real DefaultRuleSet, the
 // resolver's first consumer wired into the real hydration path rather than
-// exercised only inside internal/classification's own package tests.
+// exercised only inside internal/classification's own package tests. It
+// also proves Phase 32's capability granularity decision end to end,
+// through the real production seam: the debian_family level's AptCapable
+// reaches the hydrated item's declared set, unioned with Server's own
+// SSHTransportCapable/LinuxCapable baseline, even though Server does not
+// structurally implement AptCapable (so HasCapability(AptCapable) is
+// correctly still false -- see cisco/linux's own union tests).
 func TestHydrateHosts_ClassifyOnly(t *testing.T) {
 	hosts := []inventory.HostSpec{
 		{Name: "web1", Classify: []string{"linux_server", "debian_family", "ubuntu"}},
@@ -136,6 +102,16 @@ func TestHydrateHosts_ClassifyOnly(t *testing.T) {
 	}
 	if !items[0].HasCapability(capability.NameLinux) {
 		t.Error("classify-resolved host does not declare LinuxCapable; classification did not resolve to linux_server")
+	}
+
+	foundApt := false
+	for _, c := range items[0].Capabilities() {
+		if c == capability.NameApt {
+			foundApt = true
+		}
+	}
+	if !foundApt {
+		t.Error("expected debian_family's AptCapable to be unioned into the hydrated item's declared set")
 	}
 }
 

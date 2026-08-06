@@ -91,6 +91,55 @@ func TestSynthesizedIDScheme(t *testing.T) {
 	}
 }
 
+// TestSynthesizedIDScheme_Parallel confirms the synthesized ID scheme for
+// a parallel task: children append ".parallel[j]" to their parent's ID,
+// recursively, exactly mirroring ".block[j]"'s own scheme, and the
+// synthetic fan-out/join markers append ".fanout"/".join".
+func TestSynthesizedIDScheme_Parallel(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	payload := []byte(`{
+		"id": "id-scheme-parallel",
+		"tasks": [
+			{"name": "fanout", "parallel": [
+				{"name": "p0", "fqcn": "noop"},
+				{"name": "nested", "parallel": [
+					{"name": "np0", "fqcn": "noop"}
+				]}
+			]}
+		]
+	}`)
+
+	dag, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("failed to build DAG: %v", err)
+	}
+
+	wantNames := map[string]string{
+		"tasks[0]":                         "fanout",
+		"tasks[0].parallel[0]":             "p0",
+		"tasks[0].parallel[1]":             "nested",
+		"tasks[0].parallel[1].parallel[0]": "np0",
+	}
+	for id, wantName := range wantNames {
+		node, ok := dag.Nodes[id]
+		if !ok {
+			t.Errorf("expected synthesized ID %q to exist in dag.Nodes, got: %v", id, dag.Nodes)
+			continue
+		}
+		if node.Name != wantName {
+			t.Errorf("node %q: expected name %q, got %q", id, wantName, node.Name)
+		}
+	}
+
+	for _, id := range []string{"tasks[0].fanout", "tasks[0].join", "tasks[0].parallel[1].fanout", "tasks[0].parallel[1].join"} {
+		if _, ok := dag.Nodes[id]; !ok {
+			t.Errorf("expected synthetic marker node %q to exist, got: %v", id, dag.Nodes)
+		}
+	}
+}
+
 // TestMetadata_ServiceEffecting_JSONRoundTrip confirms Metadata.
 // ServiceEffecting round-trips through JSON: marshaling a WorkflowDef with
 // it set and unmarshaling the result back preserves the value.
@@ -166,6 +215,86 @@ func TestMetadata_AbsentSectionBuildsZeroValue(t *testing.T) {
 		}
 		if dag.Metadata.ServiceEffecting {
 			t.Errorf("expected ServiceEffecting to default to false, got true")
+		}
+	})
+}
+
+// TestWorkflowDef_Hosts_JSONRoundTrip confirms WorkflowDef.Hosts round-trips
+// through JSON, the same guarantee TestMetadata_ServiceEffecting_JSONRoundTrip
+// establishes for Metadata.
+func TestWorkflowDef_Hosts_JSONRoundTrip(t *testing.T) {
+	original := engine.WorkflowDef{
+		ID:    "hosts-default",
+		Hosts: "sw1",
+		Tasks: []engine.Task{{Name: "a", FQCN: "noop"}},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("failed to marshal WorkflowDef: %v", err)
+	}
+
+	var decoded engine.WorkflowDef
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal WorkflowDef: %v", err)
+	}
+
+	if decoded.Hosts != "sw1" {
+		t.Errorf("expected Hosts to round-trip as %q through JSON, got %q", "sw1", decoded.Hosts)
+	}
+}
+
+// TestWorkflowDef_Hosts_YAMLRoundTrip is the YAML mirror of
+// TestWorkflowDef_Hosts_JSONRoundTrip.
+func TestWorkflowDef_Hosts_YAMLRoundTrip(t *testing.T) {
+	original := engine.WorkflowDef{
+		ID:    "hosts-default",
+		Hosts: "sw1",
+		Tasks: []engine.Task{{Name: "a", FQCN: "noop"}},
+	}
+
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("failed to marshal WorkflowDef: %v", err)
+	}
+
+	var decoded engine.WorkflowDef
+	if err := yaml.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal WorkflowDef: %v", err)
+	}
+
+	if decoded.Hosts != "sw1" {
+		t.Errorf("expected Hosts to round-trip as %q through YAML, got %q", "sw1", decoded.Hosts)
+	}
+}
+
+// TestDAGBuilder_Hosts confirms Build carries WorkflowDef.Hosts through to
+// DAG.Hosts unchanged, and that an absent hosts: builds a DAG with an empty
+// Hosts default, exactly today's behavior (every task must name its own
+// target explicitly).
+func TestDAGBuilder_Hosts(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	t.Run("hosts set", func(t *testing.T) {
+		payload := []byte(`{"id": "with-hosts", "hosts": "sw1", "tasks": [{"name": "a", "fqcn": "noop"}]}`)
+		dag, err := builder.Build(payload)
+		if err != nil {
+			t.Fatalf("failed to build DAG: %v", err)
+		}
+		if dag.Hosts != "sw1" {
+			t.Errorf("expected dag.Hosts to be %q, got %q", "sw1", dag.Hosts)
+		}
+	})
+
+	t.Run("hosts absent defaults to empty", func(t *testing.T) {
+		payload := []byte(`{"id": "no-hosts", "tasks": [{"name": "a", "fqcn": "noop"}]}`)
+		dag, err := builder.Build(payload)
+		if err != nil {
+			t.Fatalf("failed to build DAG: %v", err)
+		}
+		if dag.Hosts != "" {
+			t.Errorf("expected dag.Hosts to default to empty, got %q", dag.Hosts)
 		}
 	})
 }

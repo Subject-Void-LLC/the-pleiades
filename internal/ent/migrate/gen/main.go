@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"entgo.io/ent/dialect/sql/schema"
+
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	entmigrate "github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate"
 
@@ -76,7 +78,11 @@ func main() {
 	defer client.Close()
 
 	var buf bytes.Buffer
-	if err := client.Schema.WriteTo(ctx, &buf); err != nil {
+	// WithDropColumn(true): ent's own default is to never emit a DROP
+	// COLUMN, so a schema edit that removes a field (e.g. Phase 8 deleting
+	// User.role) would otherwise diff clean while silently leaving the old
+	// column behind. This tool exists to capture the real, full diff.
+	if err := client.Schema.WriteTo(ctx, &buf, schema.WithDropColumn(true)); err != nil {
 		fatal("diffing schema", err)
 	}
 

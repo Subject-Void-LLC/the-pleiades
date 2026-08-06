@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -53,6 +55,25 @@ type Metadata struct {
 // unusual but pretasks/posttasks-only plays exist.
 type WorkflowDef struct {
 	ID string `json:"id" yaml:"id"`
+
+	// Hosts names this runbook's default target, exactly like an Ansible
+	// play's own hosts:: a device name or an inventory tag string, resolved
+	// the same way a task's Params["target"] already is (TargetResolver,
+	// action.go). It is a default, not an override: a task that sets its
+	// own non-empty Params["target"] still wins, the same "most specific
+	// level wins" hierarchical policy AGENTS.md's Architecture Principles
+	// already establish for every other multi-level setting in this
+	// codebase. This keeps the one capability per-task target has and
+	// Ansible's single-hosts-per-play model does not: a task with no
+	// target at all (a controller-side action) still runs controller-side
+	// even when Hosts is set, and a task can still name a different device
+	// than the rest of the runbook, matching PLAN.md Section 14's mixed
+	// target-side/controller-side/hybrid execution contexts in one play.
+	// See TaskTarget (action.go), the single place this default/override
+	// resolution happens, reused by both the executor and every
+	// validate.Rule that resolves a target. Empty means every task must
+	// name its own target explicitly, exactly today's behavior.
+	Hosts string `json:"hosts,omitempty" yaml:"hosts,omitempty"`
 
 	// Type is the runbook-type discriminator. It reuses the field name
 	// PLAN.md Section 23 already specifies for distinguishing native
@@ -123,18 +144,35 @@ type Task struct {
 	// later tasks to reference, mirroring Ansible's register:.
 	Register string `json:"register,omitempty" yaml:"register,omitempty"`
 
-	// SecretFields names top-level keys of this task's own ActionResult.Stats
-	// (once computed) whose values must be treated as secret from this point
-	// on: masked out of every later published event and out of a caller's
-	// own printed output, wherever that value reappears for the rest of the
-	// run. This is Ansible parity Ansible itself does not have (there is no
-	// per-value secrecy in a registered result, only a whole-task no_log),
-	// for the case where a value's secrecy is only known at runtime (a
-	// generated password, a dynamically issued token): see
-	// internal/credential.Mask, which this reuses, for the "known,
-	// pre-registered secret" case this is deliberately not. See
-	// executor_secrets.go for how these are collected and applied.
-	SecretFields []string `json:"secret_fields,omitempty" yaml:"secret_fields,omitempty"`
+	// RegisterMask names fields of this task's own ActionResult.Stats (once
+	// computed), dotted paths into nested values allowed, whose values must
+	// be treated as secret from this point on: masked out of every later
+	// published event and out of a caller's own printed output, wherever
+	// that value reappears for the rest of the run. Named for what it does,
+	// register_mask: applied at the moment this task's own result is
+	// registered, before Merge or publish ever see it (executor.go's
+	// markRegisterMask call site), the same "secret from the instant it is
+	// produced" guarantee a password field gets. A path may optionally be
+	// prefixed with this task's own Register name (e.g. Register
+	// "running_config", path "running_config.stdout"), mirroring when_cel's
+	// stat.<register> addressing; markRegisterMask strips that exact prefix
+	// before resolving, so both the prefixed and bare ("stdout") spelling
+	// reach the identical field, and neither is silently a no-op. StringList
+	// (not a plain []string) so a single path can be written as a bare
+	// scalar, matching When/WhenOr's own scalar-or-list convenience, since a
+	// hand-typed one-mask task is the common case. This is Ansible parity
+	// Ansible itself does not have (there is no per-value secrecy in a
+	// registered result, only a whole-task no_log), for the case where a
+	// value's secrecy is only known at runtime (a generated password, a
+	// dynamically issued token): see internal/credential.Mask, which this
+	// reuses, for the "known, pre-registered secret" case this is
+	// deliberately not. See executor_secrets.go for how these are collected
+	// and applied, and secret_mask.go's SecretMaskSpec for the different,
+	// deliberately separate retroactive case (marking an earlier task's
+	// already-registered result secret, flat top-level fields only, no
+	// nested-path support): the two do not share an implementation, and
+	// RegisterMask's nested-path support does not extend to SecretMaskSpec.
+	RegisterMask StringList `json:"register_mask,omitempty" yaml:"register_mask,omitempty"`
 
 	// SecretMask retroactively marks fields of an earlier task's already
 	// registered result as secret, evaluated once for this task (not once
@@ -164,12 +202,55 @@ type Task struct {
 	// if it ran), mirroring Ansible's always:. Only meaningful alongside
 	// a non-empty Block.
 	Always []Task `json:"always,omitempty" yaml:"always,omitempty"`
+
+	// Parallel holds this task's children, if it is a parallel task
+	// rather than a leaf or block task (mutually exclusive with FQCN and
+	// Block; see validateTask). Its children all run concurrently rather
+	// than in sequence, mirroring PLAN.md Section 14's parallel:
+	// construct; synthesizeParallel (tasktree.go) splices each child's
+	// own chain between a synthetic fan-out and join node rather than
+	// stitching them into one another the way Block's children are.
+	// Rescue and Always stay Block-only: Ansible has no established
+	// parallel-failure-handling vocabulary to mirror, so a Parallel task
+	// carrying either is rejected rather than given invented semantics.
+	Parallel []Task `json:"parallel,omitempty" yaml:"parallel,omitempty"`
+
+	// synthetic marks a structural fan-out/join marker node the Builder
+	// constructs itself (synthesizeParallel), never one a runbook author
+	// writes. It is unexported so it is unreachable from encoding/json or
+	// yaml.v3 decode: only this package's own internal construction
+	// (registerSyntheticNode) ever sets it. See TaskKindSynthetic.
+	synthetic bool
 }
 
 // DAG is the executable in-memory graph compiled from a WorkflowDef.
 type DAG struct {
 	ID       string
 	Metadata Metadata
+
+	// Hosts is def.Hosts, carried through unchanged from the WorkflowDef
+	// this DAG was compiled from. See WorkflowDef.Hosts for the
+	// default/override semantics and TaskTarget (action.go) for where it
+	// is applied.
+	Hosts string
+
+	// Version is a content-hash digest of the fully-resolved WorkflowDef
+	// this DAG was compiled from (computed in buildFromDef, after
+	// resolveImportTasks has expanded every import_tasks task in place),
+	// formatted "sha256:<hex>" to match this repo's own existing
+	// content-hash conventions (internal/topology.DurableName) and the
+	// OCI digest format Phase 43 (OCI Distribution) already commits to
+	// elsewhere. Hashing the resolved definition, not the raw top-level
+	// file's own bytes, is deliberate: two runbooks that reach the
+	// identical effective task tree via different import_tasks paths hash
+	// identically, and editing an imported sub-file changes the
+	// importing runbook's own Version too - this is what makes Version a
+	// real "pin the compiled definition" identity (PLAN.md Section 25's
+	// Workflow Definition Versioning), not just a hash of one file's
+	// bytes. It is computed, never authored: WorkflowDef has no version:
+	// field, matching Task.Kind's own "derived, not a second source of
+	// truth" reasoning.
+	Version string
 
 	// PreTasks, Tasks, and PostTasks are the original, unflattened task
 	// lists this DAG was compiled from, preserved for callers that want
@@ -179,23 +260,29 @@ type DAG struct {
 	PostTasks []Task
 
 	// Nodes is the flattened view of every task in the runbook, including
-	// every Block, Rescue, and Always descendant at any nesting depth,
-	// keyed by its synthesized ID (see synthesizeChain and
-	// collectSubtree). This is what validation and capability-checking
-	// walk, since it covers every task, not just the ones on the happy
-	// path.
+	// every Block, Rescue, Always, and Parallel descendant at any nesting
+	// depth, plus each Parallel task's own synthetic fan-out/join marker
+	// nodes (TaskKindSynthetic), keyed by its synthesized ID (see
+	// synthesizeChain, synthesizeParallel, and collectSubtree). This is
+	// what validation and capability-checking walk, since it covers
+	// every task, not just the ones on the happy path.
 	Nodes map[string]*Task
 
 	// Adjacency holds the "happy path" chain only: PreTasks in order,
 	// then Tasks in order, then PostTasks in order. Within a block task,
 	// its Block children chain in order and splice into the position
 	// their parent block task occupies, so the block task's own ID never
-	// appears as a source or target in Adjacency. Rescue and Always
-	// children are deliberately NOT part of this chain: "run this on
-	// failure" cannot be expressed as a precondition, and there is no
-	// executor yet to give it real meaning. They still get entries in
-	// Nodes and Conditions, so validation and capability-checking still
-	// cover them, just not here.
+	// appears as a source or target in Adjacency; a parallel task's
+	// children splice in the same way, between its own synthetic
+	// fan-out/join pair (synthesizeParallel), so the parallel task's own
+	// ID never appears here either. Rescue and Always children are
+	// deliberately NOT part of this chain: EdgeType (this file) now gives
+	// "run this on failure" a real vocabulary to be expressed as an edge,
+	// but Executor does not yet interpret it (see EdgeType's own doc
+	// comment for why that is a separate, named follow-up rather than
+	// silently folded in here). Rescue/Always still get entries in Nodes
+	// and Conditions, so validation and capability-checking still cover
+	// them, just not here.
 	Adjacency map[string][]EdgeConfig
 
 	// Conditions holds every task's compiled when/when_or/when_cel
@@ -218,13 +305,66 @@ type DAG struct {
 	EntryPoint string
 }
 
+// EdgeType classifies an Adjacency edge by which of its source node's
+// outcomes it is traversed for, giving PLAN.md Section 22.1's status
+// routing ("Node A dispatches, then traverses to Node B on success or Node
+// C on failure") a real vocabulary to be expressed in.
+//
+// This phase (10) adds the vocabulary only, not execution-time branching:
+// every edge synthesizeChain/synthesizeParallel produce today is
+// EdgeTypeOnSuccess (the zero value), so no existing runbook's behavior
+// changes. Executor does not yet interpret EdgeTypeOnFailure or
+// EdgeTypeAlways, and Task.Rescue/Task.Always deliberately still do not
+// appear in Adjacency at all (see DAG.Adjacency's own doc comment) -
+// wiring either in is a named, separate follow-up: LevelIterator computes
+// static, outcome-independent reachability once up front
+// (reachableWithInDegree, topology.go), and Executor.Run aborts its whole
+// walk on any node failure rather than routing around it (executor.go),
+// so making a failure actually route to a different next node changes
+// both, not just adds a field here.
+type EdgeType int
+
+const (
+	// EdgeTypeOnSuccess traverses only if the source node succeeded. It
+	// is the zero value and today's only behavior: every synthesized
+	// happy-path edge is implicitly this.
+	EdgeTypeOnSuccess EdgeType = iota
+
+	// EdgeTypeOnFailure traverses only if the source node failed. Not yet
+	// interpreted by Executor; see EdgeType's own doc comment.
+	EdgeTypeOnFailure
+
+	// EdgeTypeAlways traverses unconditionally, regardless of outcome.
+	// Not yet interpreted by Executor; see EdgeType's own doc comment.
+	EdgeTypeAlways
+)
+
+// String returns EdgeType's name, used in error messages and logs.
+func (e EdgeType) String() string {
+	switch e {
+	case EdgeTypeOnSuccess:
+		return "on_success"
+	case EdgeTypeOnFailure:
+		return "on_failure"
+	case EdgeTypeAlways:
+		return "always"
+	default:
+		return "unknown"
+	}
+}
+
 // EdgeConfig is a single synthesized structural connector in DAG.Adjacency.
-// Synthesized edges are always unconditional: every conditional now lives
-// on Task via the embedded Conditional and is compiled into
-// DAG.Conditions, keyed by node ID, never on an edge, so EdgeConfig carries
-// no condition of its own.
+// Synthesized edges carry no CEL condition of their own (every conditional
+// lives on Task via the embedded Conditional, compiled into DAG.Conditions
+// keyed by node ID, never on an edge), only a Type classifying which
+// outcome it is meant to be traversed for. Every edge this package
+// synthesizes today is EdgeTypeOnSuccess, its zero value; EdgeConfig lives
+// on the compiled DAG output, never on the authored WorkflowDef/Task
+// input, so it needs no YAML/JSON (un)marshal support - nothing decodes
+// one from user input.
 type EdgeConfig struct {
-	To string
+	To   string
+	Type EdgeType
 }
 
 // Builder compiles JSON into an executable memory DAG.
@@ -240,21 +380,36 @@ func NewBuilder(celEvaluator Evaluator) *Builder {
 }
 
 // Build parses a raw JSON payload, validates references, compiles CEL expressions,
-// and ensures the graph is acyclic.
+// and ensures the graph is acyclic. It has no file context, so an
+// import_tasks task in payload fails with a clear error; use
+// BuildFromYAMLFile for a runbook that uses import_tasks.
 func (b *Builder) Build(payload []byte) (*DAG, error) {
+	normalized, err := normalizeWorkflowJSON(payload)
+	if err != nil {
+		return nil, err
+	}
+
 	var def WorkflowDef
-	if err := json.Unmarshal(payload, &def); err != nil {
+	if err := json.Unmarshal(normalized, &def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
-	return b.buildFromDef(def)
+	return b.buildFromDef(def, "")
 }
 
 // buildFromDef is the one domain-level compilation path shared by every
-// surface format. BuildFromYAML (yaml.go) decodes into the same WorkflowDef
-// and calls this too, so a hand-written YAML runbook and a JSON-built one
-// produce the identical *DAG: there is exactly one runbook-to-DAG path, not
-// two that can drift apart.
-func (b *Builder) buildFromDef(def WorkflowDef) (*DAG, error) {
+// surface format. BuildFromYAML/BuildFromYAMLFile (yaml.go) decode into
+// the same WorkflowDef and call this too, so a hand-written YAML runbook
+// and a JSON-built one produce the identical *DAG: there is exactly one
+// runbook-to-DAG path, not two that can drift apart. baseDir is the
+// directory an import_tasks task's relative file reference resolves
+// against (see resolveImportTasks, import_tasks.go); an empty baseDir
+// means no file context is available, which is fine unless def actually
+// uses import_tasks.
+func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
+	if err := resolveImportTasks(&def, baseDir); err != nil {
+		return nil, err
+	}
+
 	switch def.Type {
 	case "", "native":
 		// Default. Proceed normally.
@@ -268,9 +423,24 @@ func (b *Builder) buildFromDef(def WorkflowDef) (*DAG, error) {
 		return nil, fmt.Errorf("invalid runbook id %q: only letters, digits, hyphens, and underscores are allowed, since the id is embedded in NATS subject strings and a \".\", \"*\", or trailing \">\" would widen or misroute a subject beyond what the publisher intended", def.ID)
 	}
 
+	// Computed from def after resolveImportTasks has already expanded
+	// every import_tasks task in place above, so Version reflects the
+	// fully-resolved definition (see DAG.Version's own doc comment for
+	// why that matters). encoding/json is already deterministic here:
+	// struct fields marshal in fixed declaration order and map keys sort,
+	// so no separate canonicalization step is needed.
+	resolvedJSON, err := json.Marshal(def)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute content-hash version: %w", err)
+	}
+	versionSum := sha256.Sum256(resolvedJSON)
+	version := "sha256:" + hex.EncodeToString(versionSum[:])
+
 	dag := &DAG{
 		ID:         def.ID,
+		Version:    version,
 		Metadata:   def.Metadata,
+		Hosts:      def.Hosts,
 		PreTasks:   def.PreTasks,
 		Tasks:      def.Tasks,
 		PostTasks:  def.PostTasks,
@@ -328,35 +498,79 @@ func (b *Builder) buildFromDef(def WorkflowDef) (*DAG, error) {
 	return dag, nil
 }
 
-// hasCycle performs a Depth-First Search to detect back-edges.
+// dfsColor is hasCycle's own per-node visitation state: white (never
+// pushed), gray (on the current DFS path, not yet fully explored), or
+// black (fully explored, safe to skip on a later encounter).
+type dfsColor int
+
+const (
+	dfsWhite dfsColor = iota
+	dfsGray
+	dfsBlack
+)
+
+// dfsFrame is one entry in hasCycle's explicit stack, standing in for a
+// recursive dfs(nodeID) call's own stack frame: edgeIndex remembers which
+// of nodeID's outgoing edges to resume from when this frame is revisited,
+// exactly what a recursive call's local loop variable would otherwise
+// track on the real call stack.
+type dfsFrame struct {
+	nodeID    string
+	edgeIndex int
+}
+
+// hasCycle reports whether dag's Adjacency graph contains a cycle, via an
+// iterative depth-first search over an explicit stack rather than
+// recursion. A recursive DFS here would recurse once per edge along the
+// longest path in the graph, and a large flat tasks: list (no nesting
+// needed at all - synthesizeChain always chains a flat list into one long
+// line) grows that path with every extra task, unbounded by
+// maxTaskNestingDepth (import_tasks.go), which bounds nesting depth, not
+// list length. Go's goroutine stacks grow dynamically rather than being a
+// fixed size, so this is not a "one small payload instantly crashes the
+// process" bug the way it might be in another language, but the ceiling
+// (1GB by default, runtime/debug.SetMaxStack) is still finite and a fatal,
+// unrecoverable crash once reached, not a catchable panic, and several
+// concurrent requests each with a large-but-not-individually-fatal task
+// list can exhaust process memory well before any one of them gets there
+// alone. Recursion depth here should not scale with input size at all
+// when a flat, iterative rewrite costs nothing extra (Schema/Injection
+// Hardening finding, FAILURE_PATTERNS.md #62).
 func hasCycle(dag *DAG) bool {
-	visited := make(map[string]bool)
-	recStack := make(map[string]bool)
+	color := make(map[string]dfsColor, len(dag.Nodes))
 
-	var dfs func(nodeID string) bool
-	dfs = func(nodeID string) bool {
-		visited[nodeID] = true
-		recStack[nodeID] = true
-
-		for _, edge := range dag.Adjacency[nodeID] {
-			if !visited[edge.To] {
-				if dfs(edge.To) {
-					return true
-				}
-			} else if recStack[edge.To] {
-				// We hit a node currently in our recursion stack -> CYCLE!
-				return true
-			}
+	for start := range dag.Nodes {
+		if color[start] != dfsWhite {
+			continue
 		}
 
-		recStack[nodeID] = false
-		return false
-	}
+		stack := []dfsFrame{{nodeID: start}}
+		color[start] = dfsGray
 
-	for nodeID := range dag.Nodes {
-		if !visited[nodeID] {
-			if dfs(nodeID) {
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			edges := dag.Adjacency[top.nodeID]
+
+			if top.edgeIndex >= len(edges) {
+				// Every outgoing edge explored: this node is done.
+				color[top.nodeID] = dfsBlack
+				stack = stack[:len(stack)-1]
+				continue
+			}
+
+			next := edges[top.edgeIndex].To
+			top.edgeIndex++
+
+			switch color[next] {
+			case dfsWhite:
+				color[next] = dfsGray
+				stack = append(stack, dfsFrame{nodeID: next})
+			case dfsGray:
+				// next is still on the current path: a back-edge, i.e. a
+				// cycle.
 				return true
+			case dfsBlack:
+				// Already fully explored via another path; nothing to do.
 			}
 		}
 	}

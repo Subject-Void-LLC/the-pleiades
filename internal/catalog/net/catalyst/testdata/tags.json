@@ -1,0 +1,64 @@
+{
+  "response": [
+    {
+      "id": "f2b75712-0e35-45ce-8677-a9f9779924df",
+      "name": "WAN",
+      "systemTag": true
+    },
+    {
+      "id": "35692500-e123-4762-a716-7e8f881e4c62",
+      "name": "AUTO_INV_EVENT_SYNC_DISABLED",
+      "systemTag": false
+    },
+    {
+      "id": "826bd2c5-ec7b-46e6-b836-c1eba098de75",
+      "name": "Day0Configuration",
+      "systemTag": false
+    },
+    {
+      "id": "f442b48d-910a-494e-b439-6abf7f56f834",
+      "name": "cloud-ipsec-one-branch-router",
+      "systemTag": false
+    },
+    {
+      "id": "2665806a-74f9-4a33-8d99-d84256df367c",
+      "name": "cloud-dmvpn-hub",
+      "systemTag": false
+    },
+    {
+      "id": "43f616b7-f2ea-4c22-be30-ff02bee18984",
+      "name": "cloud-ipsec-two-branch-routers",
+      "systemTag": false
+    },
+    {
+      "id": "49905e5f-dffb-486e-9993-cba481e4870d",
+      "name": "day_n_system_config",
+      "systemTag": false
+    },
+    {
+      "id": "090d733f-43fc-47fa-b19e-76e126b6bb75",
+      "name": "branch-router-ipsec",
+      "systemTag": false
+    },
+    {
+      "id": "7f2f9908-6209-4540-8626-4ba79f0e3f80",
+      "name": "cloud-ipsec",
+      "systemTag": false
+    },
+    {
+      "id": "021f7307-2b9f-4069-9d63-0880c5676c04",
+      "name": "branch-router-dmvpn-spoke",
+      "systemTag": false
+    },
+    {
+      "id": "7cfba9da-3316-40d0-bbe8-f88b98c459a9",
+      "name": "cloud-dmvpn",
+      "systemTag": false
+    },
+    {
+      "id": "e930db95-2f9a-41aa-8514-2dce7e9a0904",
+      "name": "K17_AUTOMATION_LAB",
+      "systemTag": false
+    }
+  ]
+}

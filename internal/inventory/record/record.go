@@ -64,6 +64,15 @@ type Record struct {
 	// "this item has never changed". Version is the authority on whether
 	// an item has changed.
 	History []inventory.Revision
+
+	// Capabilities is the classification-derived capability set (Phase
+	// 32's capability granularity decision: a device's capability set is
+	// data, walked from internal/classification's rule tree at
+	// classification time, not a literal baked into a vendor
+	// constructor). It is nil for a Record resolved from an explicit Type
+	// with no Classify path, since there is no rule tree to walk in that
+	// case; NewBase's caller decides what, if anything, fills that gap.
+	Capabilities []capability.Name
 }
 
 // Base implements the Section 1 base contract shared by every concrete
@@ -82,6 +91,15 @@ type Base struct {
 	history []inventory.Revision
 	state   inventory.LifecycleState
 	source  inventory.SourceAuthority
+
+	// deviceType is the registry key this item was hydrated through. It is
+	// carried but never mutated: the ent schema's type column is Immutable
+	// and the domain has no reclassification operation, so this is a record
+	// of how the item was built, not a setting. It exists so a repository
+	// writing a brand new row can name the type it is storing; nothing in
+	// the public InventoryItem contract exposes it, for the same reason
+	// BaseVersion is kept out of that contract.
+	deviceType string
 
 	// baseVersion is the version this Base was hydrated at, fixed for the
 	// lifetime of the object. version moves as properties change;
@@ -108,6 +126,7 @@ func NewBase(rec Record, caps []capability.Name) *Base {
 	return &Base{
 		id:          rec.ID,
 		name:        rec.Name,
+		deviceType:  rec.Type,
 		props:       props,
 		tags:        append([]inventory.Tag(nil), rec.Tags...),
 		caps:        capSet,
@@ -129,6 +148,15 @@ func (b *Base) BaseVersion() uint64 {
 	defer b.mu.RUnlock()
 	return b.baseVersion
 }
+
+// DeviceType reports the registry key this item was hydrated through. A
+// repository needs it to insert a new row, since the classification a
+// device is created with is immutable and there is no later write that
+// could supply it. It is not part of inventory.InventoryItem: what a device
+// IS, is expressed by its capabilities, and the string key its constructor
+// happens to be registered under is a persistence detail no third-party
+// device type should have to expose.
+func (b *Base) DeviceType() string { return b.deviceType }
 
 func (b *Base) ID() inventory.DeviceID { return b.id }
 
@@ -152,15 +180,17 @@ func (b *Base) Tags() []inventory.Tag {
 	return append([]inventory.Tag(nil), b.tags...)
 }
 
-// Declares reports whether this device's classification assigned it name.
-// A concrete type's HasCapability ANDs this with capability.Implements, so
-// a device can only advertise a capability it both claims and structurally
-// satisfies (the CODE_SCAFFOLD binding rule).
+// Declares reports whether this device's classification assigned it name,
+// directly or through the Section 8 capability hierarchy (a device that
+// only declared AptCapable also Declares the broader PackageManagerCapable
+// it descends from -- see capability.Resolves). A concrete type's
+// HasCapability ANDs this with capability.Implements, so a device can only
+// advertise a capability it both claims and structurally satisfies (the
+// CODE_SCAFFOLD binding rule).
 func (b *Base) Declares(name capability.Name) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	_, ok := b.caps[name]
-	return ok
+	return capability.Resolves(b.caps, name)
 }
 
 func (b *Base) Capabilities() []capability.Name {

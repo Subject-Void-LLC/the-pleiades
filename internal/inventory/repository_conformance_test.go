@@ -10,6 +10,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
 	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -302,7 +303,7 @@ func TestRepositoryConformance_GetGroupListViewOmitsHistory(t *testing.T) {
 				t.Fatalf("Save: %v", err)
 			}
 
-			it, err := repo.GetGroup(ctx, "all")
+			it, err := repo.GetGroup(ctx, pkginventory.Selector{})
 			if err != nil {
 				t.Fatalf("GetGroup: %v", err)
 			}
@@ -349,12 +350,19 @@ var conformanceSeedTags = []string{"core", "prod"}
 // columns and wired toRecord to populate them for real (ent_repository.go),
 // matching what the file-backed adapter already did from real YAML.
 //
-// Source is asserted more narrowly than Tags: the file-backed adapter
-// hardcodes Plugin: "file" for every host regardless of input (there is
-// no per-host Source field in HostSpec), so there is no arbitrary value
-// to round-trip there. What both backends genuinely share is that
-// Source().Plugin is real and backend-specific, never the empty string
-// and never a value one backend invented to look like the other.
+// Source is now asserted symmetrically. It used to be asserted more
+// narrowly on the file backend, because that backend hardcoded Plugin:
+// "file" for every host regardless of input and there was no arbitrary
+// value to round-trip. That hardcoded default was wrong and has been
+// removed: it conflated where a device's data is stored with which sync
+// plugin authoritatively owns it, and Section 11's One Authority Per Item
+// is about the second. The practical damage was that every hand-written
+// hosts.yaml entry looked like it was already claimed by a plugin named
+// "file", so the first real sync plugin to run against a Walk-tier project
+// reported every host as a conflict and adopted none of them.
+//
+// Both backends now round-trip a real, caller-supplied plugin name, which
+// is a stronger conformance claim than the asymmetric one it replaces.
 func TestRepositoryConformance_TagsAndSourceRoundTrip(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -362,7 +370,7 @@ func TestRepositoryConformance_TagsAndSourceRoundTrip(t *testing.T) {
 		wantPlugin string
 	}{
 		{name: "ent", newRepo: newConformanceTagsEntRepo, wantPlugin: "netbox"},
-		{name: "file", newRepo: newConformanceTagsFileRepo, wantPlugin: "file"},
+		{name: "file", newRepo: newConformanceTagsFileRepo, wantPlugin: "netbox"},
 	}
 
 	for _, tt := range tests {
@@ -417,28 +425,49 @@ func newConformanceTagsEntRepo(t *testing.T) inventory.Repository {
 	return inventory.NewEntRepository(client, inventory.NewItemFactory())
 }
 
-// newConformanceTagsFileRepo seeds a file-backed device with the same
-// tags, via HostSpec.Tags (the only per-host field the YAML format
-// carries; Source is always the fixed "file" literal on this backend).
+// newConformanceTagsFileRepo seeds a file-backed device with the same tags
+// and the same source plugin name the ent backend is seeded with.
+//
+// It seeds through Repository.Create rather than by writing the YAML
+// directly, because provenance lives in the sidecar state file rather than
+// in HostSpec, and Create is the port's own way to write both halves. That
+// also makes this the conformance proof that Create stores what it was
+// given: the assertions below read back through GetByName without caring
+// which backend wrote the row.
 func newConformanceTagsFileRepo(t *testing.T) inventory.Repository {
 	t.Helper()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hosts.yaml")
-	err := inventory.WriteHosts(path, []inventory.HostSpec{
-		{
-			ID:   "conformance-tags-id-1",
-			Name: conformanceTagsHostName,
-			Type: "linux_server",
-			Tags: conformanceSeedTags,
-			Properties: map[string]interface{}{
-				"host": "10.0.0.10",
-			},
+	if err := inventory.WriteHosts(path, nil); err != nil {
+		t.Fatalf("creating empty file-backed inventory: %v", err)
+	}
+
+	factory := inventory.NewItemFactory()
+	repo := inventory.NewFileRepository(path, factory)
+
+	tags := make([]pkginventory.Tag, len(conformanceSeedTags))
+	for i, s := range conformanceSeedTags {
+		tags[i] = pkginventory.Tag(s)
+	}
+
+	item, err := factory.Build(record.Record{
+		ID:   "conformance-tags-id-1",
+		Name: conformanceTagsHostName,
+		Type: "linux_server",
+		Properties: map[string]interface{}{
+			"host": "10.0.0.10",
 		},
+		Tags:   tags,
+		State:  pkginventory.StateActive,
+		Source: pkginventory.SourceAuthority{Plugin: "netbox"},
 	})
 	if err != nil {
+		t.Fatalf("building file-backed tags conformance host: %v", err)
+	}
+	if err := repo.Create(context.Background(), item); err != nil {
 		t.Fatalf("seeding file-backed tags conformance host: %v", err)
 	}
 
-	return inventory.NewFileRepository(path, inventory.NewItemFactory())
+	return repo
 }

@@ -4,12 +4,10 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 )
 
 func FuzzJWTParsing(f *testing.F) {
-	secret := []byte("fuzz-secret")
+	secret := []byte("fuzz-secret-that-is-long-enough-for-hs256")
 
 	// Add valid seed
 	validToken := generateTestToken(secret, "viewer", []string{}, time.Hour)
@@ -21,7 +19,7 @@ func FuzzJWTParsing(f *testing.F) {
 	f.Add("not-a-token")
 	f.Add("")
 
-	eval := auth.NewJWTEvaluator(secret)
+	eval := newTestEvaluator(f, secret)
 	ctx := context.Background()
 
 	f.Fuzz(func(t *testing.T, token string) {
