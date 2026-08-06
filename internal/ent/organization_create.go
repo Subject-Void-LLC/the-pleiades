@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 )
 
 // OrganizationCreate is the builder for creating a Organization entity.
@@ -68,6 +69,21 @@ func (_c *OrganizationCreate) AddDevices(v ...*Device) *OrganizationCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddDeviceIDs(ids...)
+}
+
+// AddTeamIDs adds the "teams" edge to the Team entity by IDs.
+func (_c *OrganizationCreate) AddTeamIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddTeamIDs(ids...)
+	return _c
+}
+
+// AddTeams adds the "teams" edges to the Team entity.
+func (_c *OrganizationCreate) AddTeams(v ...*Team) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTeamIDs(ids...)
 }
 
 // Mutation returns the OrganizationMutation object of the builder.
@@ -178,6 +194,22 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.TeamsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TeamsTable,
+			Columns: []string{organization.TeamsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

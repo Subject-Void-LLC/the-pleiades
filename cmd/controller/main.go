@@ -136,6 +136,30 @@ func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 	return crypto.NewEnvelopeService(currentKey, currentVersion, previousKey, previousVersion)
 }
 
+// loadKeyProvider builds the auth.KeyProvider this process verifies
+// tokens against. JWKS_URL, when set, selects the real Federated Identity
+// path (auth.NewJWKSKeyProvider); otherwise JWT_SECRET backs a static,
+// development-only provider (auth.NewStaticKeyProvider), which fails
+// closed on a short or empty secret rather than a stale open condition
+// letting a forgeable key start serving traffic.
+//
+// PLAN.md Section 32.1 says a shared symmetric secret "must be rejected at
+// startup in any other mode" than local development. No deploy-mode
+// config surface (dev vs. production) exists anywhere in this codebase
+// yet, so that stronger enforcement is not built here: an operator can
+// choose JWKS today by setting JWKS_URL, but nothing yet forces the
+// choice. Stated plainly as a deferred gap, not silently skipped.
+func loadKeyProvider() (auth.KeyProvider, error) {
+	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
+		return auth.NewJWKSKeyProvider(jwksURL)
+	}
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET is required when JWKS_URL is not set")
+	}
+	return auth.NewStaticKeyProvider([]byte(jwtSecret))
+}
+
 // Known, deliberate residual risk (confirmed by an adversarial review of
 // this phase, not fixed here): every log.Fatal/log.Fatalf below calls
 // os.Exit directly, which skips Go's deferred-function cleanup. A startup
@@ -156,9 +180,11 @@ func main() {
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 	dbPath := getenv("DB_PATH", "controller.db")
 	listenAddr := getenv("LISTEN_ADDR", ":8080")
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET is required")
+	jwtIssuer := getenv("JWT_ISSUER", "pleiades-controller")
+	jwtAudience := getenv("JWT_AUDIENCE", "pleiades-api")
+	keyProvider, err := loadKeyProvider()
+	if err != nil {
+		log.Fatalf("failed to init auth key provider: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -184,7 +210,10 @@ func main() {
 	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
 
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
-	evaluator := auth.NewJWTEvaluator([]byte(jwtSecret))
+	evaluator, err := auth.NewJWTEvaluator(keyProvider, jwtIssuer, jwtAudience)
+	if err != nil {
+		log.Fatalf("failed to init auth evaluator: %v", err)
+	}
 
 	bus, err := event.NewNatsBus(ctx, natsURL)
 	if err != nil {

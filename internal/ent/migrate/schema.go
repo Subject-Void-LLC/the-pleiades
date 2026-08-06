@@ -139,13 +139,66 @@ var (
 			},
 		},
 	}
+	// RoleBindingsColumns holds the columns for the "role_bindings" table.
+	RoleBindingsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "role", Type: field.TypeString},
+		{Name: "scope_type", Type: field.TypeString},
+		{Name: "scope_id", Type: field.TypeInt, Nullable: true},
+		{Name: "effect", Type: field.TypeString, Default: "allow"},
+		{Name: "team_role_bindings", Type: field.TypeInt},
+	}
+	// RoleBindingsTable holds the schema information for the "role_bindings" table.
+	RoleBindingsTable = &schema.Table{
+		Name:       "role_bindings",
+		Columns:    RoleBindingsColumns,
+		PrimaryKey: []*schema.Column{RoleBindingsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "role_bindings_teams_role_bindings",
+				Columns:    []*schema.Column{RoleBindingsColumns[7]},
+				RefColumns: []*schema.Column{TeamsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "rolebinding_scope_type_scope_id",
+				Unique:  false,
+				Columns: []*schema.Column{RoleBindingsColumns[4], RoleBindingsColumns[5]},
+			},
+		},
+	}
+	// TeamsColumns holds the columns for the "teams" table.
+	TeamsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "organization_teams", Type: field.TypeInt},
+	}
+	// TeamsTable holds the schema information for the "teams" table.
+	TeamsTable = &schema.Table{
+		Name:       "teams",
+		Columns:    TeamsColumns,
+		PrimaryKey: []*schema.Column{TeamsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "teams_organizations_teams",
+				Columns:    []*schema.Column{TeamsColumns[4]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "email", Type: field.TypeString, Unique: true},
-		{Name: "role", Type: field.TypeString, Default: "viewer"},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{
@@ -203,6 +256,31 @@ var (
 			},
 		},
 	}
+	// TeamUsersColumns holds the columns for the "team_users" table.
+	TeamUsersColumns = []*schema.Column{
+		{Name: "team_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// TeamUsersTable holds the schema information for the "team_users" table.
+	TeamUsersTable = &schema.Table{
+		Name:       "team_users",
+		Columns:    TeamUsersColumns,
+		PrimaryKey: []*schema.Column{TeamUsersColumns[0], TeamUsersColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "team_users_team_id",
+				Columns:    []*schema.Column{TeamUsersColumns[0]},
+				RefColumns: []*schema.Column{TeamsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "team_users_user_id",
+				Columns:    []*schema.Column{TeamUsersColumns[1]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		DevicesTable,
@@ -210,9 +288,12 @@ var (
 		GroupsTable,
 		OrganizationsTable,
 		RevisionsTable,
+		RoleBindingsTable,
+		TeamsTable,
 		UsersTable,
 		GroupDevicesTable,
 		GroupChildrenTable,
+		TeamUsersTable,
 	}
 )
 
@@ -221,8 +302,12 @@ func init() {
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
+	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
+	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	GroupDevicesTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	GroupChildrenTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupChildrenTable.ForeignKeys[1].RefTable = GroupsTable
+	TeamUsersTable.ForeignKeys[0].RefTable = TeamsTable
+	TeamUsersTable.ForeignKeys[1].RefTable = UsersTable
 }

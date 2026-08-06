@@ -760,3 +760,41 @@ story, per `.AGENTS/AGENTS.md`.
     checkable rather than asserted. When deferring an abstraction for want of a second consumer, say so in
     the code (that comment is what made this decision easy to revisit correctly), and when the second
     consumer arrives, pick the one that is least like the first.
+
+64. **A shared fold-and-merge primitive's safety comes from the caller's combine function, not from the
+    primitive; a "more specific wins" mode and a "the strongest statement wins" mode look identical until
+    the case where they disagree.** `pkg/policy.Resolve` folds System -> Organization -> Group -> Device
+    RoleBindings for RBAC scope resolution (Phase 8, closing the last of Section 25's eight named call
+    sites). Plain `policy.Override` already satisfies PLAN.md 18.4's literal worked example for free
+    (a Device-level Deny beats a Group-level Allow, since Device folds last) - but it would also let a
+    later, more specific Allow override an earlier, broader Deny, which a security primitive should not do
+    silently. The two modes are indistinguishable by their passing tests until a test is written for the
+    specific case where a broader Deny meets a narrower Allow, which is exactly the case a naive
+    "device-level RBAC is overridable" reading of the spec would miss. State which of the two a combine
+    function implements in a comment at the combine function itself, not only in the call site's own doc
+    comment, and write the disagreeing-case test before trusting either.
+
+65. **A schema-diff codegen tool's own safe-by-default option can make a schema removal silently
+    incomplete, and the tool exiting zero looks identical to "nothing needed doing."** `internal/ent/migrate
+    /gen/main.go` diffs the desired ent schema against the last-applied migration state and writes the
+    incremental SQL. Its `Schema.WriteTo` call passed no `MigrateOption`s, so ent's own `WithDropColumn`
+    default (`false`, a real and correct safety choice in ent itself) meant removing a field from a schema
+    file produced a migration that added everything new and silently omitted the `DROP COLUMN` for what was
+    removed (FAILURE_PATTERNS.md #59). Nothing in the tool's own output distinguished "correctly found no
+    change here" from "deliberately declined to emit a destructive statement." When a schema change is a
+    removal, not just an addition, read the generated migration file directly rather than trusting a clean
+    exit code, and check the tool's own option defaults for anything opt-in specifically because it is
+    destructive.
+
+66. **A `make ci`/coverage regression that predates a session's own diff is still worth finding, but is not
+    that session's to fix.** Four packages Phase 8 never touched (`internal/forge/genutil`,
+    `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) were already below their recorded
+    `coverage-floor.json` floors before this session started, confirmed by measuring the identical
+    percentages in a disposable `git worktree add --detach` checkout of the base commit
+    (FAILURE_PATTERNS.md #60). The cheap, reliable way to answer "did I cause this" is that worktree
+    comparison, not memory of what the diff touched or an assumption that a red check must be the current
+    session's fault. Recording the finding plainly, without silently lowering the floor (which would hide a
+    real regression from whoever's change actually caused it) or silently fixing four unrelated packages'
+    tests (scope creep well outside whatever the current task actually is), is the same discipline this
+    project already applies to flaky container tests: a known, pre-existing gap stated honestly is not the
+    same failure as a gap this session's own verification papered over.

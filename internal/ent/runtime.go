@@ -10,7 +10,9 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/schema"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
 )
 
@@ -133,6 +135,54 @@ func init() {
 	revisionDescFieldName := revisionFields[2].Descriptor()
 	// revision.FieldNameValidator is a validator for the "field_name" field. It is called by the builders before save.
 	revision.FieldNameValidator = revisionDescFieldName.Validators[0].(func(string) error)
+	rolebindingMixin := schema.RoleBinding{}.Mixin()
+	rolebindingMixinFields0 := rolebindingMixin[0].Fields()
+	_ = rolebindingMixinFields0
+	rolebindingFields := schema.RoleBinding{}.Fields()
+	_ = rolebindingFields
+	// rolebindingDescCreatedAt is the schema descriptor for created_at field.
+	rolebindingDescCreatedAt := rolebindingMixinFields0[0].Descriptor()
+	// rolebinding.DefaultCreatedAt holds the default value on creation for the created_at field.
+	rolebinding.DefaultCreatedAt = rolebindingDescCreatedAt.Default.(func() time.Time)
+	// rolebindingDescUpdatedAt is the schema descriptor for updated_at field.
+	rolebindingDescUpdatedAt := rolebindingMixinFields0[1].Descriptor()
+	// rolebinding.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	rolebinding.DefaultUpdatedAt = rolebindingDescUpdatedAt.Default.(func() time.Time)
+	// rolebinding.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	rolebinding.UpdateDefaultUpdatedAt = rolebindingDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// rolebindingDescRole is the schema descriptor for role field.
+	rolebindingDescRole := rolebindingFields[0].Descriptor()
+	// rolebinding.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	rolebinding.RoleValidator = rolebindingDescRole.Validators[0].(func(string) error)
+	// rolebindingDescScopeType is the schema descriptor for scope_type field.
+	rolebindingDescScopeType := rolebindingFields[1].Descriptor()
+	// rolebinding.ScopeTypeValidator is a validator for the "scope_type" field. It is called by the builders before save.
+	rolebinding.ScopeTypeValidator = rolebindingDescScopeType.Validators[0].(func(string) error)
+	// rolebindingDescEffect is the schema descriptor for effect field.
+	rolebindingDescEffect := rolebindingFields[3].Descriptor()
+	// rolebinding.DefaultEffect holds the default value on creation for the effect field.
+	rolebinding.DefaultEffect = rolebindingDescEffect.Default.(string)
+	// rolebinding.EffectValidator is a validator for the "effect" field. It is called by the builders before save.
+	rolebinding.EffectValidator = rolebindingDescEffect.Validators[0].(func(string) error)
+	teamMixin := schema.Team{}.Mixin()
+	teamMixinFields0 := teamMixin[0].Fields()
+	_ = teamMixinFields0
+	teamFields := schema.Team{}.Fields()
+	_ = teamFields
+	// teamDescCreatedAt is the schema descriptor for created_at field.
+	teamDescCreatedAt := teamMixinFields0[0].Descriptor()
+	// team.DefaultCreatedAt holds the default value on creation for the created_at field.
+	team.DefaultCreatedAt = teamDescCreatedAt.Default.(func() time.Time)
+	// teamDescUpdatedAt is the schema descriptor for updated_at field.
+	teamDescUpdatedAt := teamMixinFields0[1].Descriptor()
+	// team.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	team.DefaultUpdatedAt = teamDescUpdatedAt.Default.(func() time.Time)
+	// team.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	team.UpdateDefaultUpdatedAt = teamDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// teamDescName is the schema descriptor for name field.
+	teamDescName := teamFields[0].Descriptor()
+	// team.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	team.NameValidator = teamDescName.Validators[0].(func(string) error)
 	userMixin := schema.User{}.Mixin()
 	userMixinFields0 := userMixin[0].Fields()
 	_ = userMixinFields0
@@ -152,8 +202,4 @@ func init() {
 	userDescEmail := userFields[0].Descriptor()
 	// user.EmailValidator is a validator for the "email" field. It is called by the builders before save.
 	user.EmailValidator = userDescEmail.Validators[0].(func(string) error)
-	// userDescRole is the schema descriptor for role field.
-	userDescRole := userFields[1].Descriptor()
-	// user.DefaultRole holds the default value on creation for the role field.
-	user.DefaultRole = userDescRole.Default.(string)
 }

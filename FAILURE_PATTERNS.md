@@ -453,6 +453,16 @@ asserts the second, because the second has no real value to assert against until
 Revisit this the moment Section 17 or 32 defines what should populate `iss`/`aud` on a real issued token,
 and add `jwt.WithIssuer`/`jwt.WithAudience` at that point, not before.
 
+**Resolved (2026-08-06, Phase 8: RBAC & Identity Validation).** `NewJWTEvaluator` now takes an explicit
+`issuer, audience string` pair and pins both via `jwt.WithIssuer`/`jwt.WithAudience`, plus
+`jwt.WithExpirationRequired()` (a token with no `exp` claim was also accepted forever until this phase)
+and `jwt.WithValidMethods(provider.Algorithms())` (replacing "any HMAC family" with the exact algorithm
+set a given `KeyProvider`'s keys are valid for). `cmd/controller/main.go` sources both from
+`JWT_ISSUER`/`JWT_AUDIENCE` env vars, non-empty defaulted so an empty issuer/audience can never
+accidentally become the value being matched against. This closes the gap this entry named as its own
+condition for revisiting: a real caller now exists (`cmd/controller`'s composition root), so the
+previously-guessed validation is now a real one.
+
 ## 21. `add-host --set port=<n>` silently produced an unusable port, defaulting `SSHPort()` to 22
 
 **Symptom:** found while building Phase W6's own Release Gate, which needed to point a scaffolded
@@ -1426,3 +1436,60 @@ so the same guard produces the simulate-first proof with no second code path tha
 decision above the write is identical, and only the final write is intercepted.
 
 **Lesson:** LESSONS_LEARNED.md #62.
+
+## 59. A migration-generation tool's zero-option schema diff silently never emits `DROP COLUMN`
+
+**Symptom:** Phase 8 removed `User.role` from `internal/ent/schema/user.go` (the orphaned-permission
+anti-pattern PLAN.md Section 18.2 forbids, replaced by Team-bound `RoleBinding`s), then ran
+`internal/ent/migrate/gen/main.go` to generate the incremental migration. The generated
+`0003_add_rbac_teams.sql` would have added the new `teams`/`role_bindings`/`team_users` tables but left
+the `users.role` column behind, silently: no error, no warning, a schema that visibly still diverged from
+`internal/ent/schema/user.go` after the "correct" tool ran.
+
+**Root cause:** `gen/main.go`'s `client.Schema.WriteTo(ctx, &buf)` call passed zero `MigrateOption`s. ent's
+own default for `WithDropColumn` is `false` (`entgo.io/ent/dialect/sql/schema`), a deliberate safety choice
+in ent itself so an accidental field removal cannot accidentally drop a column carrying real data. That
+default is correct for ent in general and wrong for silence: nothing in `gen/main.go`'s own output said a
+column was being deliberately skipped, so the omission looked identical to "the tool correctly detected
+no change needed here."
+
+**Fix:** applied. `gen/main.go` now calls `client.Schema.WriteTo(ctx, &buf, schema.WithDropColumn(true))`,
+with an inline comment explaining why. Verified by inspecting the regenerated `0003_add_rbac_teams.sql`
+directly: it now includes the SQLite rename-table-recreate-copy sequence that drops `role` from `users`
+(ent's own diff engine chose that approach over a native `ALTER TABLE ... DROP COLUMN`, even though the
+bundled SQLite 3.53.4 supports the native form).
+
+**Lesson:** a "regenerate the migration and trust the tool" workflow is only as trustworthy as the tool's
+own default options. A schema diff tool that defaults to *not* emitting a destructive statement is right
+to default that way, but the caller must still verify a schema *removal* actually produced the DDL it
+implies, not just that the tool exited zero - the same "correct code, empty result, still wrong" trap
+`.AGENTS/AGENTS.md`'s "Always run a control first" guidance names for `gopls` queries, here for a codegen
+tool instead.
+
+## 60. A `coverage-floor.json` regression check flagged four packages this phase never touched
+
+**Symptom:** `go run ./tools/coverage-check`, run as part of Phase 8's own Release Gate verification,
+reported `internal/forge/genutil` (75.0% vs. a 96.0% floor), `internal/inventory/record` (29.5% vs. 30.0%),
+`pkg/collection` (91.7% vs. 100.0%), and `tools/gencatalog` (70.3% vs. 70.8%) all below their recorded
+floors - none of which Phase 8's diff touches at all (`git status` confirms zero changes to any of the
+four).
+
+**Root cause:** not investigated past confirming it predates this phase, which is the actual point of this
+entry. A `git worktree add --detach` checkout of this branch's base commit (before any Phase 8 change)
+measured the identical four percentages for the identical four packages, proving the drift already existed
+and this phase did not introduce, worsen, or trigger it.
+
+**Fix:** not applied, deliberately, and not this phase's to apply. Lowering these floors to match reality
+would silently hide a real regression from whatever change actually caused it (`coverage-floor.json`'s own
+header: "floors only rises over time... never silently down"); fixing the underlying test coverage in four
+unrelated packages is scope creep this phase's own RBAC/Identity Validation mandate does not cover. Recorded
+here, plainly, so the next session that runs `make ci` and sees it fail does not spend time re-deriving
+that Phase 8 is not the cause.
+
+**Lesson:** before treating any red `make ci`/`coverage-check` result as "this session's problem to fix,"
+check whether it predates the session's own diff - a real, cheap way to do that (not a memory or a guess)
+is a disposable `git worktree add --detach <base-commit>` and re-running the identical check there. The
+same class of finding this project already accepts for flaky container tests (`internal/lock`,
+`internal/transport/ssh`, and, this session, `internal/event` and `tests/e2e` under heavy concurrent Docker
+load) generalizes to coverage drift: a pre-existing gap discovered during verification is worth recording
+honestly, not silently absorbed into "this session's own regressions" or silently ignored.

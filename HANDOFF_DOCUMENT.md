@@ -4,6 +4,107 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 8: RBAC & Identity Validation** (`.SPECIFICATION/IMPLEMENTATION.md`), all
+twelve checklist items plus the four verification gates. Planning followed this project's established
+ritual: two parallel Explore-agent research passes (the real `internal/auth`/ent code and every real call
+site; the spec corpus — `PLAN.md` Section 18/32, `CODE_SCAFFOLD.md`, `IMPLEMENTATION.md` Part VIII and
+Phase 6/12/14/49's cross-references, `PATTERNS.md`, prior `FAILURE_PATTERNS.md`/`LESSONS_LEARNED.md`
+entries) fed a design, which one Plan agent then pressure-tested against the real repo before any plan
+file was written — its findings (the migration tool's silent `WithDropColumn` default, four missed
+`NewJWTEvaluator` call sites inside `internal/auth` itself, the exact `pkg/policy` combine shape, the
+sticky-Deny-vs-plain-Override judgment call, `RoleBinding.scope_id`'s int type) were folded in before
+implementation began.
+
+**What was built, by area:**
+
+1. **Role name reconciliation.** `PLAN.md` Section 18.2's prose corrected from `Viewer/Executor/Admin` to
+   `Viewer/Operator/Admin` (dated correction), since the roadmap's own Phase 8 line and the code
+   (`RoleViewer`/`RoleOperator`/`RoleAdmin`) already agreed; no identifier rename.
+2. **`auth.KeyProvider`** (`internal/auth/keyprovider.go`, `jwks.go`): `NewStaticKeyProvider` (a
+   development-only symmetric secret, rejecting nil/empty/<32-byte keys at construction) and
+   `NewJWKSKeyProvider` (a real RFC 7517 JWKS fetch/cache/rotate client, hand-rolled against the standard
+   library, no new dependency — caches by `kid`, one bounded refetch on an unknown `kid`, never lets a
+   failed/empty refresh discard a good cache).
+3. **`internal/auth/jwt.go` reworked.** `NewJWTEvaluator(provider KeyProvider, issuer, audience string)
+   (Evaluator, error)` pins issuer, audience, `jwt.WithExpirationRequired()`, and
+   `jwt.WithValidMethods(provider.Algorithms())`. `Evaluator`'s two existing methods keep their
+   signatures unchanged, so `internal/api/dispatcher.go`/`middleware.go` needed no edits at all.
+4. **`Team`/`RoleBinding` ent schema** (new `internal/ent/schema/team.go`, `role_binding.go`; edited
+   `user.go`, `organization.go`). `User.role` deleted outright (zero real consumers, confirmed by grep —
+   the literal orphaned-permission anti-pattern `PLAN.md` Section 18.2 forbids). Migration
+   `0003_add_rbac_teams.sql`, generated via `internal/ent/migrate/gen/main.go` after adding
+   `schema.WithDropColumn(true)` to its diff call (its previous zero-option call would have silently kept
+   the dropped column — `FAILURE_PATTERNS.md` #59).
+5. **`auth.ScopeResolver`** (`internal/auth/scope.go`, `rolebinding_repository.go` (port),
+   `ent_role_binding_repository.go` (ent adapter)): PLAN.md Section 18.4's four scopes folded via
+   `pkg/policy.Resolve` — Phase 6's shared resolver, the RBAC-scope call site `PLAN.md` Section 25 itself
+   named, closing the last of its eight named call sites with no consumer — through
+   `combineScopeDecision`, a deliberate sticky-first-Deny variant of the `simulate-locked` terminal-lock
+   idiom: once any level sets Deny, no later, more specific level (even an explicit Allow) can undo it, a
+   stated departure from plain `policy.Override`.
+6. **`auth.AdmissionChain`/`AdmissionRule`/`Recorder`** (`internal/auth/chain.go`,
+   `ent_team_lookup.go`): a fail-closed Chain of Responsibility (`NewTokenScopeRule` wrapping the
+   pre-existing scope-string check, `NewScopeRule` wrapping `ScopeResolver`) composed with a `slog`-backed
+   `Recorder` (Audit Trail), built generically enough for Phase 49 to append a Step-Up rule later without
+   rework — Step-Up itself deliberately not built here, matching `IMPLEMENTATION.md`'s own Phase 49
+   cross-reference.
+7. **`cmd/controller/main.go`** wired: `loadKeyProvider()` selects `NewJWKSKeyProvider` when `JWKS_URL`
+   is set, else `NewStaticKeyProvider` from `JWT_SECRET`; `JWT_ISSUER`/`JWT_AUDIENCE` via the existing
+   `getenv` helper (optional, non-empty defaulted, not a new required env var, so
+   `leader_election_release_gate_test.go`'s subprocess spawn kept working unmodified).
+
+**Two real, unrelated findings from this session's own verification, not from Phase 8's diff itself.**
+(1) The migration-generation tool's `WithDropColumn` default trap above (`FAILURE_PATTERNS.md` #59,
+`LESSONS_LEARNED.md` #65). (2) Four packages this phase never touched
+(`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) were already
+below their `coverage-floor.json` floors before this session started, confirmed via a disposable
+`git worktree add --detach <base-commit>` measuring the identical percentages
+(`FAILURE_PATTERNS.md` #60, `LESSONS_LEARNED.md` #66) — recorded, not fixed (scope creep) and not hidden
+(floors were not lowered).
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean. `go test ./... -race`: clean
+on a full run (a second full non-race run hit three different container-infrastructure flakes across three
+separate attempts — `internal/lock`, `internal/event`, `tests/e2e`'s `TestGrandIntegration` — each
+confirmed to pass in isolation and to be pre-existing/environmental, matching this project's own
+documented flake category, not a regression). `make gosec` (7 pre-existing findings, all individually
+waived, zero new). `make govulncheck` (0 called vulnerabilities). `make coverage`: `internal/auth` 87.5%
+→ 90.8% (floor raised to 90.0); `internal/ent` 10.9% → 16.1% (floor raised to 16.0, restored by a new
+`internal/ent/team_role_binding_test.go` exercising the new edges directly, matching
+`group_organization_test.go`'s own convention); `internal/ent/rolebinding`/`internal/ent/team` added to
+`excluded` (generated code, matching every sibling ent predicate subpackage). Real, end-to-end proof
+against the actual built `pleiades-controller` binary (RULE 0), not only package tests:
+`TestController_JWKS_RealServer_AcceptsValidRejectsForged` (`cmd/controller`) starts the real binary with
+`JWKS_URL` pointed at a real `httptest.Server` and real NATS (testcontainers), and proves a request with
+no token, and one signed by a key never published to that server, both get a real `401 Unauthorized` from
+the real mounted route, while one signed by the real, published key does not. Fuzz: `FuzzParseJWK` (new,
+white-box, 15s/~510K executions, zero crashes) and `FuzzJWTParsing` (extended to the new surface,
+15s/~440K executions, zero crashes). Benchmark: `BenchmarkValidateToken_HMAC` (~8.9us/op) vs.
+`BenchmarkValidateToken_RSA` (~48.7us/op, real JWKS fetch + RSA verification, the honest measured cost of
+moving off a shared secret).
+
+**Files changed:** `internal/auth/{keyprovider,jwks,scope,rolebinding_repository,
+ent_role_binding_repository,chain,ent_team_lookup}.go` (new) plus matching `_test.go` files (new),
+`internal/auth/{evaluator,jwt}.go` (jwt.go reworked; evaluator.go unchanged), `internal/auth/{jwt_test,
+jwt_fuzz_test,jwt_bench_test}.go` (updated for the new constructor/claims), `internal/ent/schema/
+{team,role_binding}.go` (new), `internal/ent/schema/{user,organization}.go` (edited),
+`internal/ent/migrate/gen/main.go` (`WithDropColumn(true)`), `internal/ent/migrate/migrations/sqlite/
+0003_add_rbac_teams.sql` (new, generated), `internal/ent/team_role_binding_test.go` (new),
+`cmd/controller/main.go`, `cmd/controller/jwks_release_gate_test.go` (new),
+`.SPECIFICATION/PLAN.md` (Section 18.2 dated correction), `.SPECIFICATION/PATTERNS.md` (Federated
+Identity and Audit Trail POTENTIALLY→YES, Chain of Responsibility and Hierarchical Policy Resolver
+entries extended, Step-Up Authentication's Phase 49 pointer made explicit),
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 8 checked off in full), `FAILURE_PATTERNS.md` (#20 closed out,
+#59/#60 new), `LESSONS_LEARNED.md` (#64/#65/#66 new), `coverage-floor.json` (`internal/auth`/`internal/ent`
+floors raised, two new `excluded` entries).
+
+## Previous session: The Cisco Catalyst Center Sync Plugin
+
+**What was built:** see "The Cisco Catalyst Center Sync Plugin session" immediately below for the
+complete file-by-file summary. Everything from "The Phase 7 session" onward describes earlier sessions
+and is unchanged.
+
+### The Cisco Catalyst Center Sync Plugin session
+
 **This session built the first real inventory sync plugin, Cisco Catalyst Center, and everything it
 turned out to depend on.** It is the reference design the user asked for, and it was generated by the
 Forge rather than hand-written: a new `pleiades forge new-plugin` scaffold emitted the package, and the
@@ -74,7 +175,7 @@ coverage floor; new floors were recorded for the seven new packages.
   container load (testcontainers port mapping). Both pass in isolation and neither has any dependency on
   anything this session changed.
 
-## Previous session: Phase 7, The Iterator Pattern
+### Phase 7: The Iterator Pattern (session recap; full detail in "The Phase 7 session," immediately below)
 
 **This session implemented Phase 7: The Iterator Pattern in full**, jumping back from Part VII (The
 Forge of Hephaestus, closed through Phase 34) to close a Part II gap that had sat partially done since an

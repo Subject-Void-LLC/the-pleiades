@@ -21,5 +21,11 @@ type Organization func(*sql.Selector)
 // Revision is the predicate function for revision builders.
 type Revision func(*sql.Selector)
 
+// RoleBinding is the predicate function for rolebinding builders.
+type RoleBinding func(*sql.Selector)
+
+// Team is the predicate function for team builders.
+type Team func(*sql.Selector)
+
 // User is the predicate function for user builders.
 type User func(*sql.Selector)

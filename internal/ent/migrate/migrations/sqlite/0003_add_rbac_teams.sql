@@ -1,0 +1,13 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_users` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `email` text NOT NULL);
+INSERT INTO `new_users` (`id`, `created_at`, `updated_at`, `email`) SELECT `id`, `created_at`, `updated_at`, `email` FROM `users`;
+DROP TABLE `users`;
+ALTER TABLE `new_users` RENAME TO `users`;
+CREATE UNIQUE INDEX `users_email_key` ON `users` (`email`);
+CREATE TABLE `role_bindings` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `role` text NOT NULL, `scope_type` text NOT NULL, `scope_id` integer NULL, `effect` text NOT NULL DEFAULT ('allow'), `team_role_bindings` integer NOT NULL, CONSTRAINT `role_bindings_teams_role_bindings` FOREIGN KEY (`team_role_bindings`) REFERENCES `teams` (`id`) ON DELETE NO ACTION);
+CREATE INDEX `rolebinding_scope_type_scope_id` ON `role_bindings` (`scope_type`, `scope_id`);
+CREATE TABLE `teams` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL, `organization_teams` integer NOT NULL, CONSTRAINT `teams_organizations_teams` FOREIGN KEY (`organization_teams`) REFERENCES `organizations` (`id`) ON DELETE NO ACTION);
+CREATE TABLE `team_users` (`team_id` integer NOT NULL, `user_id` integer NOT NULL, PRIMARY KEY (`team_id`, `user_id`), CONSTRAINT `team_users_team_id` FOREIGN KEY (`team_id`) REFERENCES `teams` (`id`) ON DELETE CASCADE, CONSTRAINT `team_users_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;
