@@ -1493,3 +1493,36 @@ same class of finding this project already accepts for flaky container tests (`i
 `internal/transport/ssh`, and, this session, `internal/event` and `tests/e2e` under heavy concurrent Docker
 load) generalizes to coverage drift: a pre-existing gap discovered during verification is worth recording
 honestly, not silently absorbed into "this session's own regressions" or silently ignored.
+
+## 61. A full concurrent `go test ./...` run reliably flakes on containerized-dependency packages in this sandboxed environment, and reducing package-level parallelism reliably fixes it
+
+**Symptom:** Phase 9's own verification (`internal/engine`-only diff, zero changes to any of the packages
+below) ran `go test ./... -race -count=1` and separately `go test ./... -cover -count=1` (the exact
+command `tools/coverage-check` shells out to). Each full run failed a different, non-overlapping subset
+of: `internal/event` (`TestNatsBus_SurvivesConnectionSeverance`, `TestNatsBusPublish_DistinctEventsBothStored`),
+`internal/lock` (`TestNewNatsLockManagerRejectsOldServer`), and `tests/e2e` (`TestGrandIntegration`) - all
+real-container (testcontainers-go: NATS, toxiproxy, Postgres, ryuk) tests, none touched by this phase's
+diff (`git status` confirms). Every one of the four passed cleanly, every time, run individually in
+isolation.
+
+**Root cause:** `go test ./...`'s default package-level concurrency (one test binary per package, run in
+parallel up to `GOMAXPROCS`) means several packages spin up their own testcontainers-managed Docker
+containers at the same moment. In this sandboxed environment that contention is enough to blow past
+container-ready wait timeouts and connection deadlines on an unpredictable subset each run - the specific
+package that loses the race changes between runs, which is the signature of resource contention, not a
+code defect. This is the same category `HANDOFF_DOCUMENT.md`'s own prior sessions already named narratively
+(`internal/lock`/`internal/transport/ssh` "under parallel container load"), here isolated with a concrete,
+actionable mitigation for the first time.
+
+**Fix:** not a code fix (there is no code defect to fix). `go test ./... -p 4` (capping package-level
+parallelism, distinct from `-race`'s own goroutine concurrency within a package) ran the identical full
+suite clean, twice, with no failures, by reducing how many containerized-dependency packages start their
+own Docker containers at the same moment. Use `-p 4` (or lower) for a full-suite run in this environment
+when verifying a change that does not touch `internal/event`/`internal/lock`/`tests/e2e`/`internal/transport/ssh`
+themselves, rather than repeatedly retrying the default-parallelism command and hoping for a clean window.
+
+**Lesson:** in a resource-constrained sandbox, "flaky under `go test ./...`, passes in isolation" is not
+automatically a dead end once a package is confirmed innocent (`git status` on the diff) - `-p 4` is a
+cheap, real, repeatable way to get a genuine full-suite signal instead of settling for "probably fine,
+retried once." Reach for it before spending further time re-deriving that a failure is the known container
+category.

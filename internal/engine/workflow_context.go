@@ -51,12 +51,15 @@ func (c *inProcessWorkflowContext) Merge(nodeID string, deviceID string, stats m
 }
 
 // Read returns a snapshot of every merged stat, nested nodeID then
-// deviceID, in the exact shape engine.Program.Eval expects for its "stat"
-// input variable (cel.go declares stat as a map(string, dyn), and CEL's
-// own field-selection-on-a-map semantics mean stat.precheck[""].foo works
-// against this shape with no further translation). Read returns a deep
-// copy, not the live map, so a caller holding onto a prior Read's result
-// can never observe or corrupt a Merge call that happens afterward.
+// deviceID. Executor.runNode binds this same snapshot under both the
+// "stat" and "nodes" CEL variables (cel.go declares both as
+// map(string, dyn)), so CEL's own field-selection-on-a-map semantics mean
+// stat.precheck[""].foo and nodes.precheck[""].foo both work against this
+// shape with no further translation; Program.Eval itself no longer assumes
+// which variable name a caller's data belongs under; that binding now
+// happens explicitly at the call site. Read returns a deep copy, not the
+// live map, so a caller holding onto a prior Read's result can never
+// observe or corrupt a Merge call that happens afterward.
 func (c *inProcessWorkflowContext) Read() (map[string]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

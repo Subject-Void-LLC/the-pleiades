@@ -4,6 +4,105 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 9: Google CEL Engine** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
+previously-open checklist items plus the Release Gate (three items — cel-go import, `engine.Evaluator`,
+string-to-AST compile logic — were already `[x]` from an earlier session). Research was direct rather than
+agent-delegated (small, well-bounded surface: `internal/engine/cel.go`, `conditional.go`, `executor.go`,
+`workflow_context.go`, `trigger.go`, `dag.go`/`tasktree.go`, plus `PLAN.md` Sections 21/27 and every real
+`Program.Eval`/`ConditionProgram.Eval`/`Conditional.Compile`/`Evaluator.Compile`/`NewCELEvaluator` call
+site read directly), then one Plan agent pressure-tested the resulting design against the real repo before
+any plan file was written — its findings (an exact 14-real-call-site inventory versus a much larger but
+harmless 49-call-site `NewCELEvaluator` count, cel-go v0.30.0's README/source confirming compiled
+`cel.Program` is safe for concurrent `Eval`, cel-go's map-macro key-iteration semantics verified by reading
+`common/types/map.go` directly, and three real gaps — a benchmark whose meaning the new cache would
+silently invalidate, a stale doc comment, and an untested concurrency claim) were folded in before
+implementation began.
+
+**The core gap this phase closed:** only `stat` was declared in the CEL environment, and `Program.Eval`
+hardcoded every caller's input under that one name, so neither of `PLAN.md` Sections 21.4/27.3's own
+illustrative `nodes.`-rooted expressions could even compile. Research found the two spec examples
+themselves mutually inconsistent (`nodes.precheck.stats.devices.all(...)` vs.
+`nodes.precheck.devices.exists(...)`) and inconsistent with the real `WorkflowContext.Read()` shape
+(`nodeID -> deviceID -> stats`, a map keyed by device ID, no `.devices` list anywhere). Verified by reading
+cel-go's own source that `all`/`exists` over a CEL map iterate its keys, `nodes.precheck.exists(d,
+nodes.precheck[d].needs_reboot == true)` is real, valid, tested CEL against the actual data shape with no
+`WorkflowContext` restructuring needed — so, per this project's own established practice (Phase 7's
+Selector, Phase 32's Registry, Phase 18's role names), `PLAN.md` Sections 21.4/27.3 got a dated correction
+to the real, working spelling rather than the engine being bent to fit illustrative prose that was never
+reachable as written.
+
+**What was built, by area:**
+
+1. **`internal/engine/cel.go`.** `NewCELEvaluator` now declares `nodes` (`cel.MapType(cel.StringType,
+   cel.DynType)`) alongside the pre-existing `stat`, both bound by `Executor.runNode` to the identical
+   `WorkflowContext.Read()` snapshot — a deliberate, stated scope choice (every existing
+   `stat.precheck[""].x` runbook/test keeps working unchanged; `nodes.precheck[""].x` becomes newly valid
+   too; narrowing `stat` to a genuinely different, current-device-only meaning is left to a future phase).
+   `Program.Eval`'s contract changed from "wrap my input under `stat`" to "my input IS the top-level CEL
+   activation" (`celProgram.Eval` no longer wraps anything — a behavioral change with no Go signature
+   change, so it compiles everywhere but every caller's *values* needed updating). `celEvaluator.Compile`
+   is now a Flyweight cache keyed by raw expression string (mutex-guarded map, store-if-absent so
+   concurrent first-time compiles of new text converge on one shared winner), safe per cel-go's own
+   documented "stateless, thread-safe, and cachable" guarantee for a compiled `cel.Program`.
+2. **`internal/engine/executor.go`.** `runNode` now builds the activation explicitly:
+   `map[string]interface{}{"stat": tree, "nodes": tree}`, both aliased to the one `WorkflowContext.Read()`
+   call.
+3. **`internal/engine/workflow_context.go`, `conditional.go`.** Doc comments updated for the new
+   contract (Gap B from the pressure-test); no logic change in `conditional.go` (`ConditionProgram.Eval`
+   already forwarded its map verbatim).
+4. **Tests.** All 14 real `Program.Eval`/`ConditionProgram.Eval` call sites needing the new
+   activation-map shape updated (`cel_test.go` x2, `cel_bench_test.go` x1, `conditional_test.go` x10,
+   `executor.go`'s production call site) — the pressure-test's exhaustive grep found this exact count, not
+   the larger set naming whole files would have implied. New: `TestCELEngine_NodesVariable`,
+   `TestCELEngine_CompileSharesProgramForIdenticalExpressions`,
+   `TestCELEngine_ConcurrentCompileConvergesOnOneSharedProgram` (32-goroutine race, `-race`-clean, Gap C
+   from the pressure-test), `TestExecutor_ConditionalBranch_NodesVariable` (the same three-task shape as
+   the pre-existing `..._ReleaseGate` test, `nodes.` in place of `stat.`, proving the real `Executor` call
+   site, not just the bare primitives). `dag_bench_test.go`'s `BenchmarkDAGBuilder` (Gap A) now varies its
+   condition text per iteration so the new cache doesn't silently turn it into a cache-hit benchmark
+   contradicting its own doc comment (`LESSONS_LEARNED.md` #67). `cel_fuzz_test.go`'s seed corpus gained
+   three `nodes.`-rooted seeds.
+5. **Docs.** `PATTERNS.md`'s Flyweight entry flipped NO → YES, narrowly, pointing at the new cache,
+   without contradicting its existing (separate, still-true) device-struct reasoning. `PLAN.md` Sections
+   21.4 and 27.3 dated-corrected as described above. `IMPLEMENTATION.md` Phase 9 checked off in full with
+   inline evidence.
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean. `go test
+./internal/engine/... -race -count=1` clean. Benchmarks (real numbers, this machine):
+`BenchmarkCELCompile_Cached` ~25.8 ns/op vs. `BenchmarkCELCompile_Uncached` ~57,419 ns/op (~2,200x),
+the direct evidence the "compile per evaluation defeats the microsecond claim" gap is closed;
+`BenchmarkCELEval` ~1,192 ns/op. No credible existing published figure for this specific comparison exists
+to cite (`AGENTS.md`'s benchmarking rule); stated plainly rather than fabricated. Fuzz:
+`FuzzCELCompile` ~165,000 executions/21s, zero crashes. `make gosec` (7 pre-existing findings, all
+individually waived, zero new). `make govulncheck` (0 called vulnerabilities). `make coverage`:
+`internal/engine` 91.5% → 91.9%, floor raised to match. A full `go test ./... -race -count=1` and a
+separate `go test ./... -cover -count=1` each flaked on a different, non-overlapping subset of
+`internal/event`/`internal/lock`/`tests/e2e` (real-container tests, zero overlap with this phase's diff,
+confirmed by `git status`); each of the four failing tests passed cleanly in isolation, and `go test ./...
+-p 4` (capping package-level parallelism) ran the identical full suite clean twice — a concrete,
+actionable mitigation for this environment's container contention, newly recorded as
+`FAILURE_PATTERNS.md` #61 rather than left as only a narrative mention. The four pre-existing
+`coverage-floor.json` regressions from `FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`,
+`internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) recurred at the identical percentages,
+confirming (again) they predate and are unrelated to this phase. Real, end-to-end proof against the
+actual built `pleiades` binary (RULE 0), not only `go test`: a `pleiades init`-scaffolded project running
+a runbook that registers `precheck` and gates `reboot`/`skip-me` on `nodes.precheck[""].needs_reboot`
+produced `tasks[1]: changed` and `tasks[2]: skipped (when_cel \`nodes.precheck[""].needs_reboot ==
+false\` evaluated false)` via `pleiades run`, with `pleiades validate` passing clean on the same runbook.
+
+**Files changed:** `internal/engine/{cel,executor,workflow_context,conditional}.go`,
+`internal/engine/{cel_test,cel_bench_test,cel_fuzz_test,conditional_test,executor_test,dag_bench_test}.go`,
+`.SPECIFICATION/{PATTERNS,PLAN,IMPLEMENTATION}.md`, `coverage-floor.json` (`internal/engine` floor raised),
+`FAILURE_PATTERNS.md` (#61 new), `LESSONS_LEARNED.md` (#67 new).
+
+## Previous session: Phase 8, RBAC & Identity Validation
+
+**What was built:** see "Phase 8: RBAC & Identity Validation session" immediately below for the complete
+file-by-file summary. Everything from "The Cisco Catalyst Center Sync Plugin session" onward describes
+earlier sessions and is unchanged.
+
+### Phase 8: RBAC & Identity Validation session
+
 **This session closed Phase 8: RBAC & Identity Validation** (`.SPECIFICATION/IMPLEMENTATION.md`), all
 twelve checklist items plus the four verification gates. Planning followed this project's established
 ritual: two parallel Explore-agent research passes (the real `internal/auth`/ent code and every real call

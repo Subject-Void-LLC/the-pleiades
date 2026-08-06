@@ -99,10 +99,13 @@ func TestConditional_Compile(t *testing.T) {
 	}
 
 	// trueInput makes "stat.a" true and "stat.b" false; falseAndTrue is the
-	// mirror image. bothTrue makes both true.
-	falseAndTrue := map[string]interface{}{"a": false, "b": true}
-	trueAndFalse := map[string]interface{}{"a": true, "b": false}
-	bothTrue := map[string]interface{}{"a": true, "b": true}
+	// mirror image. bothTrue makes both true. Program.Eval's activation is
+	// the top-level CEL variable map directly (cel.go), so every fixture
+	// here wraps its facts under "stat" itself rather than relying on an
+	// implicit wrap.
+	falseAndTrue := map[string]interface{}{"stat": map[string]interface{}{"a": false, "b": true}}
+	trueAndFalse := map[string]interface{}{"stat": map[string]interface{}{"a": true, "b": false}}
+	bothTrue := map[string]interface{}{"stat": map[string]interface{}{"a": true, "b": true}}
 
 	t.Run("When single string ANDs trivially", func(t *testing.T) {
 		c := engine.Conditional{When: engine.StringList{"stat.a == true"}}
@@ -113,7 +116,7 @@ func TestConditional_Compile(t *testing.T) {
 		if prg == nil {
 			t.Fatalf("expected a compiled program, got nil")
 		}
-		result, err := prg.Eval(map[string]interface{}{"a": true})
+		result, err := prg.Eval(map[string]interface{}{"stat": map[string]interface{}{"a": true}})
 		if err != nil {
 			t.Fatalf("unexpected eval error: %v", err)
 		}
@@ -128,7 +131,7 @@ func TestConditional_Compile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		result, err := prg.Eval(map[string]interface{}{"a": false})
+		result, err := prg.Eval(map[string]interface{}{"stat": map[string]interface{}{"a": false}})
 		if err != nil {
 			t.Fatalf("unexpected eval error: %v", err)
 		}
@@ -174,7 +177,7 @@ func TestConditional_Compile(t *testing.T) {
 		// The second item ("stat.b == true") is the false one; the first
 		// (true) and third (never evaluated, AND short-circuits) must not
 		// appear as the reported cause.
-		result, err := prg.Eval(map[string]interface{}{"a": true, "b": false, "c": true})
+		result, err := prg.Eval(map[string]interface{}{"stat": map[string]interface{}{"a": true, "b": false, "c": true}})
 		if err != nil {
 			t.Fatalf("unexpected eval error: %v", err)
 		}
@@ -207,7 +210,7 @@ func TestConditional_Compile(t *testing.T) {
 			t.Errorf("expected no Reason when OK is true, got %q", result.Reason)
 		}
 
-		result, err = prg.Eval(map[string]interface{}{"a": false, "b": false})
+		result, err = prg.Eval(map[string]interface{}{"stat": map[string]interface{}{"a": false, "b": false}})
 		if err != nil {
 			t.Fatalf("unexpected eval error: %v", err)
 		}
@@ -223,7 +226,7 @@ func TestConditional_Compile(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		result, err := prg.Eval(map[string]interface{}{"a": false, "b": false})
+		result, err := prg.Eval(map[string]interface{}{"stat": map[string]interface{}{"a": false, "b": false}})
 		if err != nil {
 			t.Fatalf("unexpected eval error: %v", err)
 		}

@@ -39,7 +39,7 @@
     "github.com/SubjectVoidLLC/the-pleiades/internal/credential": 89.9,
     "github.com/SubjectVoidLLC/the-pleiades/internal/crypto": 87.5,
     "github.com/SubjectVoidLLC/the-pleiades/internal/election": 90.0,
-    "github.com/SubjectVoidLLC/the-pleiades/internal/engine": 91.5,
+    "github.com/SubjectVoidLLC/the-pleiades/internal/engine": 91.9,
     "github.com/SubjectVoidLLC/the-pleiades/internal/ent": 16.0,
     "github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate": 85.3,
     "github.com/SubjectVoidLLC/the-pleiades/internal/event": 85.3,

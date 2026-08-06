@@ -127,6 +127,55 @@ func TestExecutor_ConditionalBranch_ReleaseGate(t *testing.T) {
 	}
 }
 
+// TestExecutor_ConditionalBranch_NodesVariable is Phase 9's own end-to-end
+// proof, at the real Executor call site rather than the bare
+// Program/Evaluator primitives: a task's when_cel can reach an earlier
+// task's registered result through the "nodes" root (PLAN.md Section 27's
+// cross-node aggregation), not only through "stat". It is the same
+// three-task shape as TestExecutor_ConditionalBranch_ReleaseGate
+// immediately above, with "nodes." in place of "stat." in every when_cel
+// expression, proving runNode really does bind both roots to the same
+// WorkflowContext snapshot (executor.go) rather than only "stat" working
+// by convention.
+func TestExecutor_ConditionalBranch_NodesVariable(t *testing.T) {
+	dag := buildDAG(t, `{
+		"id": "conditional-demo-nodes",
+		"tasks": [
+			{"name": "precheck", "fqcn": "noop", "register": "precheck", "params": {"needs_reboot": true}},
+			{"name": "reboot", "fqcn": "noop", "when_cel": "nodes.precheck[\"\"].needs_reboot == true", "params": {"changed": true}},
+			{"name": "skip-me", "fqcn": "noop", "when_cel": "nodes.precheck[\"\"].needs_reboot == false"}
+		]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, engine.NewBuiltinActionExecutor(), lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+	if len(result.Nodes) != 3 {
+		t.Fatalf("expected 3 node results (the third Skipped, not omitted), got %d: %+v", len(result.Nodes), result.Nodes)
+	}
+
+	byID := map[string]engine.NodeResult{}
+	for _, n := range result.Nodes {
+		byID[n.NodeID] = n
+	}
+
+	if byID["tasks[1]"].Skipped || !byID["tasks[1]"].Changed {
+		t.Fatalf("expected reboot (tasks[1]) to run and report changed, got %+v", byID["tasks[1]"])
+	}
+	if !byID["tasks[2]"].Skipped {
+		t.Fatalf("expected skip-me (tasks[2]) to be skipped, got %+v", byID["tasks[2]"])
+	}
+	if !strings.Contains(byID["tasks[2]"].SkipReason, "nodes.precheck[\"\"].needs_reboot == false") {
+		t.Errorf("expected SkipReason to name skip-me's own when_cel expression, got %q", byID["tasks[2]"].SkipReason)
+	}
+}
+
 // TestExecutor_DeviceFanOut confirms a task whose target resolves to
 // several devices runs against every one of them, each getting its own
 // NodeResult carrying that device's ID.

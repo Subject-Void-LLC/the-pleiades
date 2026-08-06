@@ -798,3 +798,19 @@ story, per `.AGENTS/AGENTS.md`.
     tests (scope creep well outside whatever the current task actually is), is the same discipline this
     project already applies to flaky container tests: a known, pre-existing gap stated honestly is not the
     same failure as a gap this session's own verification papered over.
+
+67. **Adding a cache to a function silently invalidates any benchmark that assumed every call does real
+    work, and nothing fails to flag it.** `dag_bench_test.go`'s `BenchmarkDAGBuilder` called
+    `builder.Build(payload)` with the *same* condition text on every one of its `b.N` iterations, and its
+    own doc comment stated the point was to measure "real CEL condition compilation." Phase 9 added a
+    Flyweight compile cache to `celEvaluator.Compile` (`internal/engine/cel.go`) for an unrelated reason
+    (closing the "cache compiled programs" checklist item) - and the moment it existed, iterations 2..N of
+    that benchmark silently became cache hits. Nothing broke: the benchmark still ran, still reported a
+    number, still looked like the same measurement it always had. Only reading the benchmark's own doc
+    comment against what the new code actually does revealed the number had quietly stopped meaning what it
+    claimed. Caught during this phase's own verification pass, not by any test failing. When adding a cache
+    (or any other layer that makes repeated identical calls cheaper than the first), grep the codebase for
+    existing benchmarks that call the now-cached function with fixed/repeated input, and either vary the
+    input per iteration to keep measuring the cold path, or rewrite the benchmark's own doc comment to
+    honestly describe the amortized/cached path it now measures - do not leave the old claim standing next
+    to new behavior that quietly stopped supporting it.

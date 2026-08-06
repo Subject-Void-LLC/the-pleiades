@@ -298,11 +298,18 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	task := r.dag.Nodes[nodeID]
 
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
-		stat, err := r.x.workflow.Read()
+		tree, err := r.x.workflow.Read()
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err)}}
 		}
-		res, err := cp.Eval(stat)
+		// Both CEL roots are bound to the identical snapshot today: "stat"
+		// for simple, non-cross-node conditions and "nodes" for Section
+		// 27-style cross-node conditions (e.g. nodes.precheck[""].ok), a
+		// deliberate scope choice recorded in cel.go's NewCELEvaluator doc
+		// comment rather than a narrower, diverging "stat" meaning nothing
+		// here needs yet.
+		vars := map[string]interface{}{"stat": tree, "nodes": tree}
+		res, err := cp.Eval(vars)
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err)}}
 		}
