@@ -14,6 +14,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// testJobID is a well-formed job ID. It is a UUID because StreamLogs
+// requires one: the job ID is concatenated into a NATS subject, where a
+// wildcard character would widen the subscription past the requested job.
+const testJobID = "1f8c8a48-0f21-4c65-9a45-2f6bd9b0a111"
+
 // mockJetStreamForLogs fakes only CreateOrUpdateConsumer, the one method
 // LogStreamer's per-request consumer creation calls; every other
 // jetstream.JetStream method falls through to the embedded nil interface
@@ -152,7 +157,7 @@ func TestStreamLogs_ReleaseGate(t *testing.T) {
 	r := chi.NewRouter()
 	r.Get("/api/v1/jobs/{id}/logs", streamer.StreamLogs)
 
-	req := httptest.NewRequest("GET", "/api/v1/jobs/123/logs", nil)
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+testJobID+"/logs", nil)
 	// Add a short timeout so the SSE stream closes automatically
 	ctx, cancel := context.WithTimeout(req.Context(), 50*time.Millisecond)
 	defer cancel()
@@ -203,17 +208,68 @@ func TestStreamLogs_RequiresJobID(t *testing.T) {
 	}
 }
 
+// TestStreamLogs_RejectsSubjectInjectingJobIDs is the regression test for
+// a real vulnerability found while auditing this boundary: the job ID is
+// concatenated into a NATS subject (topology.LogSubject), and NATS subject
+// wildcards are ordinary characters, so a job ID of ">" built the
+// FilterSubject "pleiades.jobs.logs.>" and streamed every job's logs in the
+// system to any authenticated caller. A "*" did the same for one segment.
+//
+// The assertion is that no such request ever reaches consumer creation:
+// consumerCreationErrJetStream would answer 500 if it did, so a 400 here
+// means the handler refused before touching the bus at all.
+func TestStreamLogs_RejectsSubjectInjectingJobIDs(t *testing.T) {
+	tests := []struct {
+		name  string
+		jobID string
+	}{
+		{name: "full wildcard", jobID: ">"},
+		{name: "token wildcard", jobID: "*"},
+		{name: "wildcard suffix", jobID: "1f8c8a48.>"},
+		{name: "subject separator", jobID: "1f8c8a48.0f21"},
+		{name: "empty", jobID: ""},
+		{name: "space", jobID: " "},
+		{name: "newline injection", jobID: "1f8c8a48-0f21-4c65-9a45-2f6bd9b0a111\ndata: forged"},
+		{name: "not a uuid", jobID: "123"},
+	}
+
+	streamer := api.NewLogStreamer(consumerCreationErrJetStream{})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/v1/jobs/x/logs", nil)
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", tt.jobID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+			rr := httptest.NewRecorder()
+			streamer.StreamLogs(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("job id %q returned %d, want %d: it reached the bus instead of being refused",
+					tt.jobID, rr.Code, http.StatusBadRequest)
+			}
+			// The body must be the fixed message and nothing else: a
+			// rejection that quotes the rejected input back is how a
+			// refused injection becomes a reflected one.
+			if got := strings.TrimSpace(rr.Body.String()); got != "job id must be a UUID" {
+				t.Errorf("error body is %q, want the fixed rejection message with no caller input in it", got)
+			}
+		})
+	}
+}
+
 func TestStreamLogs_ReturnsErrorWhenConsumerCreationFails(t *testing.T) {
 	streamer := api.NewLogStreamer(consumerCreationErrJetStream{})
 
-	req := httptest.NewRequest("GET", "/api/v1/jobs/123/logs", nil)
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+testJobID+"/logs", nil)
 	rr := httptest.NewRecorder()
 
 	// chi.URLParam needs a routing context to read "id" from; set one up
 	// directly rather than going through a full router for this
 	// single-handler test.
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", "123")
+	rctx.URLParams.Add("id", testJobID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	streamer.StreamLogs(rr, req)
@@ -231,10 +287,10 @@ func TestStreamLogs_ReturnsErrorWhenConsumeFails(t *testing.T) {
 	js := &mockJetStreamForLogs{consumer: consumer}
 	streamer := api.NewLogStreamer(js)
 
-	req := httptest.NewRequest("GET", "/api/v1/jobs/123/logs", nil)
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+testJobID+"/logs", nil)
 	rr := httptest.NewRecorder()
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", "123")
+	rctx.URLParams.Add("id", testJobID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	streamer.StreamLogs(rr, req)
@@ -249,9 +305,9 @@ func TestStreamLogs_ReturnsErrorWhenStreamingUnsupported(t *testing.T) {
 	js := &mockJetStreamForLogs{consumer: consumer}
 	streamer := api.NewLogStreamer(js)
 
-	req := httptest.NewRequest("GET", "/api/v1/jobs/123/logs", nil)
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+testJobID+"/logs", nil)
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", "123")
+	rctx.URLParams.Add("id", testJobID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	w := &nonFlushingResponseWriter{header: make(http.Header)}
@@ -272,7 +328,7 @@ func TestStreamLogs_ToleratesAckFailure(t *testing.T) {
 	r := chi.NewRouter()
 	r.Get("/api/v1/jobs/{id}/logs", streamer.StreamLogs)
 
-	req := httptest.NewRequest("GET", "/api/v1/jobs/123/logs", nil)
+	req := httptest.NewRequest("GET", "/api/v1/jobs/"+testJobID+"/logs", nil)
 	ctx, cancel := context.WithTimeout(req.Context(), 50*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)

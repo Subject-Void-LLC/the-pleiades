@@ -47,11 +47,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -64,10 +64,15 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+// serviceName identifies this process in every span it emits.
+const serviceName = "pleiades-controller"
 
 // schedulerLeaseKey is the well-known key every controller replica
 // contends for to become the one holder of the scheduler lease. It lives
@@ -82,6 +87,21 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// fatal logs a startup failure at error level and exits non-zero.
+//
+// It replaces log.Fatalf, which this file used to call. That stopped being
+// correct once main installed a JSON slog handler as the default: Go's
+// standard log package routes through slog.Default at *info* level, so
+// every startup failure in this binary was being emitted as an INFO line
+// and no alerting rule keyed on level would ever have fired for one.
+//
+// It does not fix the separate, pre-existing residual risk described
+// below: exiting here still skips deferred cleanup.
+func fatal(msg string, err error) {
+	slog.Error(msg, slog.String("error", err.Error()))
+	os.Exit(1)
 }
 
 // decodeEnvelopeKey base64-decodes the value of envVar and requires it to
@@ -160,9 +180,75 @@ func loadKeyProvider() (auth.KeyProvider, error) {
 	return auth.NewStaticKeyProvider([]byte(jwtSecret))
 }
 
+// loadRateLimiter builds the ingress token bucket from environment
+// configuration. RATE_LIMIT_RPS is the sustained per-caller rate and
+// RATE_LIMIT_BURST the back-to-back allowance; both have defaults, and
+// setting RATE_LIMIT_RPS to 0 turns throttling off entirely.
+//
+// The limiter is on by default rather than opt-in. PATTERNS.md's Rate
+// Limiter entry names the realistic threat as "a misconfigured CI pipeline
+// retrying a failed playbooks.dispatch call in a tight loop," and a
+// protection nobody remembers to enable does not defend against a mistake
+// nobody meant to make. The defaults are generous enough that no
+// legitimate interactive or scripted caller reaches them.
+func loadRateLimiter() (*api.RateLimiter, error) {
+	rps, err := strconv.ParseFloat(getenv("RATE_LIMIT_RPS", "50"), 64)
+	if err != nil || rps < 0 {
+		return nil, fmt.Errorf("RATE_LIMIT_RPS must be a non-negative number")
+	}
+	if rps == 0 {
+		return nil, nil
+	}
+	burst, err := strconv.Atoi(getenv("RATE_LIMIT_BURST", "100"))
+	if err != nil || burst < 1 {
+		return nil, fmt.Errorf("RATE_LIMIT_BURST must be a positive integer")
+	}
+	return api.NewRateLimiter(api.RateLimiterConfig{
+		RequestsPerSecond: rps,
+		Burst:             burst,
+	}), nil
+}
+
+// readinessChecks are the dependencies /readyz reports on, the two this
+// process cannot serve a single API request without.
+//
+// The NATS check uses the connection this binary already holds for the
+// log streamer rather than reaching inside event.Bus for its own. That is
+// a real check, not a proxy: it is a live connection to the same broker,
+// so a broker outage or a network partition flips it exactly when it
+// flips for the Bus. Reaching for the Bus's own connection would mean
+// widening the event.Bus port with a health method that six test doubles
+// would then have to implement, to learn the same fact.
+//
+// The database check issues a real query rather than pinging the pool,
+// because SQLite's pool will happily hand out a handle to a file that has
+// been deleted or corrupted underneath it.
+func readinessChecks(nc *nats.Conn, client *ent.Client) []api.ReadinessCheck {
+	return []api.ReadinessCheck{
+		{
+			Name: "nats",
+			Probe: func(ctx context.Context) error {
+				if !nc.IsConnected() {
+					return fmt.Errorf("nats connection is %s", nc.Status())
+				}
+				return nil
+			},
+		},
+		{
+			Name: "database",
+			Probe: func(ctx context.Context) error {
+				if _, err := client.Device.Query().Limit(1).IDs(ctx); err != nil {
+					return fmt.Errorf("state store query failed: %w", err)
+				}
+				return nil
+			},
+		},
+	}
+}
+
 // Known, deliberate residual risk (confirmed by an adversarial review of
-// this phase, not fixed here): every log.Fatal/log.Fatalf below calls
-// os.Exit directly, which skips Go's deferred-function cleanup. A startup
+// Phase 5, not fixed here): every fatal call below reaches os.Exit
+// directly, which skips Go's deferred-function cleanup. A startup
 // failure after client, bus, or lockMgr are constructed (several of
 // which this phase's own envelope-service/rotation wiring added) exits
 // without running the same graceful client.Close()/bus.Close()/
@@ -184,15 +270,46 @@ func main() {
 	jwtAudience := getenv("JWT_AUDIENCE", "pleiades-api")
 	keyProvider, err := loadKeyProvider()
 	if err != nil {
-		log.Fatalf("failed to init auth key provider: %v", err)
+		fatal("failed to init auth key provider", err)
+	}
+
+	// One logger, built here and injected into everything that logs,
+	// rather than each package building its own from a package-level var.
+	// slog.SetDefault means the packages this phase did not touch still
+	// emit the same JSON to the same place instead of plain text.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	// One private Prometheus registry, not the process-global default:
+	// two routers in one process (or one process that later grows a
+	// second listener) must not fight over one registry, and a test that
+	// asserts on metrics must be able to read an isolated set.
+	metricsRegistry := prometheus.NewRegistry()
+
+	rateLimiter, err := loadRateLimiter()
+	if err != nil {
+		fatal("failed to init rate limiter", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Tracing is built before any port so the spans describing startup
+	// itself are recorded. PLAN.md Section 19 requires OTEL in the
+	// foundation of the Controller API, and this is where the distributed
+	// trace that reaches cmd/runner begins.
+	telemetryCfg, err := telemetry.ConfigFromEnv(serviceName, "")
+	if err != nil {
+		fatal("failed to read telemetry configuration", err)
+	}
+	tracerProvider, err := telemetry.Setup(ctx, telemetryCfg)
+	if err != nil {
+		fatal("failed to init telemetry", err)
+	}
+
 	client, err := ent.OpenEmbedded(ctx, dbPath)
 	if err != nil {
-		log.Fatalf("failed to open embedded store: %v", err)
+		fatal("failed to open embedded store", err)
 	}
 	defer client.Close()
 
@@ -202,7 +319,7 @@ func main() {
 	// MASTER_ENCRYPTION_KEY has no file fallback here.
 	envelopeSvc, err := loadEnvelopeService()
 	if err != nil {
-		log.Fatalf("failed to init envelope encryption: %v", err)
+		fatal("failed to init envelope encryption", err)
 	}
 	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
 	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
@@ -212,12 +329,12 @@ func main() {
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
 	evaluator, err := auth.NewJWTEvaluator(keyProvider, jwtIssuer, jwtAudience)
 	if err != nil {
-		log.Fatalf("failed to init auth evaluator: %v", err)
+		fatal("failed to init auth evaluator", err)
 	}
 
 	bus, err := event.NewNatsBus(ctx, natsURL)
 	if err != nil {
-		log.Fatalf("failed to connect event bus: %v", err)
+		fatal("failed to connect event bus", err)
 	}
 
 	// lockMgr backs the scheduler leader election below. Like the
@@ -226,7 +343,7 @@ func main() {
 	// and event.Bus are separate ports with no shared adapter today.
 	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL)
 	if err != nil {
-		log.Fatalf("failed to init lock manager: %v", err)
+		fatal("failed to init lock manager", err)
 	}
 
 	elector := election.NewLeaderElector(lockMgr, schedulerLeaseKey,
@@ -248,22 +365,38 @@ func main() {
 	// tradeoff cmd/demo/main.go already accepts, not an oversight.
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		log.Fatalf("failed to connect to nats: %v", err)
+		fatal("failed to connect to nats", err)
 	}
 	defer nc.Close()
 	js, err := jetstream.New(nc)
 	if err != nil {
-		log.Fatalf("failed to get jetstream: %v", err)
+		fatal("failed to get jetstream", err)
 	}
 
 	dispatcher := api.NewDispatcher(repo, evaluator, bus)
 	streamer := api.NewLogStreamer(js)
 
-	r := api.NewRouter()
-	r.Group(func(r chi.Router) {
-		r.Use(api.AuthMiddleware(evaluator))
-		r.Post("/api/v1/jobs/dispatch", dispatcher.DispatchRunbook)
-		r.Get("/api/v1/jobs/{id}/logs", streamer.StreamLogs)
+	// Routes are registered through RouterConfig.Routes rather than by
+	// grouping onto the returned mux afterwards. The router mounts that
+	// callback under api.APIVersionPrefix with auth and the rate limiter
+	// already applied, so "every application route is versioned,
+	// authenticated, and throttled" holds structurally: there is no way
+	// to register a route here that skips any of the three, which the
+	// previous shape (spelling "/api/v1/..." into each path by hand,
+	// inside a hand-assembled group) left entirely to whoever added the
+	// next route.
+	r := api.NewRouter(api.RouterConfig{
+		Logger:      logger,
+		Tracer:      tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/api"),
+		Propagator:  tracerProvider.Propagator(),
+		Registry:    metricsRegistry,
+		Readiness:   readinessChecks(nc, client),
+		RateLimiter: rateLimiter,
+		Auth:        api.AuthMiddleware(evaluator),
+		Routes: func(r chi.Router) {
+			r.Post("/jobs/dispatch", dispatcher.DispatchRunbook)
+			r.Get("/jobs/{id}/logs", streamer.StreamLogs)
+		},
 	})
 
 	srv := &http.Server{
@@ -280,7 +413,7 @@ func main() {
 	go func() {
 		slog.Info("controller listening", slog.String("addr", listenAddr))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server failed: %v", err)
+			fatal("server failed", err)
 		}
 	}()
 
@@ -337,5 +470,14 @@ func main() {
 
 	if err := bus.Close(); err != nil {
 		slog.Error("event bus drain failed", slog.String("error", err.Error()))
+	}
+
+	// Flushed last, on its own timeout: the spans describing this whole
+	// shutdown sequence are only exported if the provider outlives
+	// everything that emits them.
+	telemetryCtx, telemetryCancel := context.WithTimeout(context.Background(), telemetry.ShutdownTimeout)
+	defer telemetryCancel()
+	if err := tracerProvider.Shutdown(telemetryCtx); err != nil {
+		slog.Error("telemetry shutdown failed", slog.String("error", err.Error()))
 	}
 }

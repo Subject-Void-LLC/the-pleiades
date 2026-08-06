@@ -1574,3 +1574,77 @@ but large ceiling, a fatal, unrecoverable crash once reached, concurrent load lo
 bar) rather than either dismissing the risk as impossible or overstating it as "one tiny payload always
 crashes the process," a description that is accurate for other languages but not for Go's default stack
 behavior.
+
+## 63. A caller-supplied job ID was concatenated straight into a NATS subject, so `>` streamed every job's logs
+
+**Symptom:** `GET /api/v1/jobs/{id}/logs` returned the log stream of exactly the job named by `{id}`, in
+every ordinary test and every manual check, because every job ID any part of this platform mints is a
+UUID and a UUID has no special meaning to NATS. Nothing looked wrong.
+
+**Root cause:** `internal/api/logs.go`'s `StreamLogs` read `{id}` with `chi.URLParam` and checked only
+that it was non-empty, then handed it to `topology.LogViewerConsumerConfig`, whose `FilterSubject` is
+`topology.LogSubject(jobID)`, which is the bare concatenation `logSubjectPrefix + jobID`. NATS subject
+wildcards are ordinary characters in an ordinary string: `>` matches every remaining token and `*`
+matches one. A request for `/api/v1/jobs/%3E/logs` therefore built the filter subject
+`pleiades.jobs.logs.>` and subscribed the caller to the live execution logs of *every job in the
+system*, and `.` re-tokenized the subject so a partial ID could be widened the same way. Any
+authenticated caller, holding any scope, could read every other tenant's job output. The boundary was
+never validated because the only producer of job IDs is trusted (`api.Dispatcher`'s own `uuid.New()`),
+which is exactly the reasoning that makes an input look safe while an attacker supplies it directly.
+
+Two things hid it. First, `gosec` did flag the adjacent line (`G705`, the same `jobID` reaching an SSE
+write) and that finding had been individually waived across three phases as a low-severity XSS question,
+which framed the whole variable as a cosmetic escaping concern rather than an authorization one; nobody
+followed the same variable one line up into the subject builder. Second, the only route in this
+repository that reads a URL parameter at all is this one, so there was no second instance to compare
+against and notice the pattern.
+
+**Fix:** `StreamLogs` now rejects any `{id}` that does not parse as a UUID (`uuid.Parse`), with `400`,
+before the value reaches `topology` or the bus. That is the boundary check, placed at the boundary: every
+job ID this platform issues is a UUID, so the restriction costs nothing, and it closes the subject
+injection and the waived `G705` SSE-write question in the same stroke. The 500 error path stopped echoing
+the caller-supplied ID back into the response body as well; the real error goes to the structured log,
+where it is just as useful and not attacker-readable.
+`TestStreamLogs_RejectsSubjectInjectingJobIDs` is the regression test: a table of `>`, `*`, a wildcard
+suffix, an embedded subject separator, an embedded newline, empty, and a plain non-UUID string, each
+asserted to be refused *before* consumer creation (the fake JetStream it runs against answers `500` if
+reached, so a `400` proves the bus was never touched) and asserted not to echo the input back.
+
+**Lesson:** a string that is safe because of who *usually* produces it is not validated, it is lucky. The
+question to ask at any boundary is not "what does our code put here" but "what happens if the caller puts
+anything here," and the answer has to be traced through every consumer of the value, not just the one the
+static analyzer happened to point at. Concretely: message-broker subject construction belongs on the same
+mental list as SQL and shell construction, because subject wildcards are an access-control mechanism, so
+injecting one is privilege escalation rather than a formatting bug. A waived static-analysis finding is
+also a map of tainted data, not just a ticket to close: this hole was one line away from a finding that
+had been read, understood, and dismissed three times.
+
+## 64. A live SSE handler mutated its response header map while its own consumer goroutine was already writing the body
+
+**Symptom:** `go test ./internal/api/ -race` failed intermittently, roughly one run in five, with a
+`WARNING: DATA RACE` between `net/textproto.MIMEHeader.Set` in `StreamLogs` and `fmt.Fprintf` inside the
+`Consume` callback. Runs in isolation always passed. It had been passing in CI by luck.
+
+**Root cause:** `internal/api/logs.go`'s `StreamLogs` started the JetStream `Consume` callback *before*
+setting its own SSE response headers, deliberately: a `Write` implicitly commits a 200 status, so
+starting `Consume` first is what lets a consumer-creation failure still report an honest error code. The
+file already knew two goroutines write to `w` and guarded that with a `writeMu`. But the header
+assignments after `Consume` are not writes to `w` in the sense the mutex covers: they mutate the header
+map, while the callback goroutine's first body write *reads* that same map to build the response. One
+side of the race never takes the mutex because it never looked like a write at all.
+
+The existing comment even anticipated the shape ("Consume above may already be delivering messages
+concurrently by this point... nothing structurally guarantees" a gap) and drew the wrong boundary from
+it, protecting the body writes and leaving the header map exposed.
+
+**Fix:** the four `w.Header().Set` calls moved above the `Consume` call. Setting a header is not a write
+and commits nothing, so the "no write before `Consume` is checked" property that motivated the original
+ordering is fully preserved, while the header map is now final before any goroutine that could read it
+exists. Confirmed by four consecutive clean `-race` runs of the package.
+
+**Lesson:** "which goroutines write to this variable" is the wrong question for a `http.ResponseWriter`;
+the right one is "which goroutines touch this object's state, including through methods that do not look
+like writes." A mutex named for one operation invites exactly this: `writeMu` reads as covering
+everything dangerous, and it covered one of the two dangerous things. When a handler hands its
+`ResponseWriter` to another goroutine, everything the handler still intends to do to that writer,
+headers included, must happen before the handoff, not after.

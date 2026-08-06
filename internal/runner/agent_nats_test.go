@@ -83,7 +83,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	}
 
 	adapter := &alwaysFailAdapter{attempts: make(chan struct{}, topology.MaxDeliverDefault+2)}
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, slog.Default())
+	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, slog.Default(), nil)
 
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	defer cancelAgent()

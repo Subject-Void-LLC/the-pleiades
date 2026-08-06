@@ -136,7 +136,7 @@ func TestGrandIntegration(t *testing.T) {
 
 	// 5. Start Runner Agent
 	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, nil)
+	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, nil, nil)
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	defer cancelAgent()
 	go agent.Run(agentCtx)

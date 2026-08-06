@@ -902,3 +902,46 @@ story, per `.AGENTS/AGENTS.md`.
     - and when a hostile pressure-test surfaces that the small version of a change is actively wrong rather
     than merely incomplete, that is exactly the finding a Pattern Entry Gate exists to catch before code is
     written, not after.
+
+73. **A cross-process concern is only "built" once it is proven at the far end; the boundary crossing is
+    the feature, not the header.** Phase 11's checklist said "inject trace context into event headers on
+    publish." Doing exactly that is easy, testable, and worthless on its own: a `traceparent` no consumer
+    reads is a decoration with a passing test attached, the same failure shape Phase 10's own Adversarial
+    Pattern Justification line warns about for a port with no callers. What made it real was extracting at
+    the one place that actually consumes raw messages (`runner.Agent.handleMessage`, which pulls
+    `jetstream.Msg` values on its own loop by design) and asserting, with a recorded span, that the
+    Runner's span sits in the *same trace* and is parented to the *same span* the API request created.
+    Note what that assertion is not: it is not "a header was written," which is what a publish-side-only
+    test proves. The general rule is that any requirement phrased as "X survives boundary B" needs a test
+    that observes X on the far side of B through the real consumer, and if no real consumer exists yet,
+    that absence is the finding to report rather than a reason to test the near side twice.
+    (`internal/event/trace.go`, `internal/runner/agent_trace_test.go`.)
+
+74. **Prefer one wire format decided in one place over per-boundary "reasonable defaults," and encode the
+    format the specification mandates rather than the one the language makes convenient.** Trace context
+    now crosses two boundaries in this codebase (HTTP headers at the API edge, NATS headers at the bus).
+    Both take their propagator from `telemetry.Propagator`, a single free function, precisely because a
+    second "obvious" choice at the second boundary is how a trace stops crossing it: two W3C-compliant
+    processes that disagree on composition silently produce two disconnected traces and no error anywhere.
+    The convenience trap was concrete here. `nats.Header` and `http.Header` share an underlying type, so
+    `propagation.HeaderCarrier(http.Header(hdr))` compiles, runs, and round-trips perfectly between two Go
+    processes - while writing the canonicalized `Traceparent`, because `http.Header`'s methods
+    canonicalize and NATS does not. The W3C specification mandates lowercase, so that shortcut would have
+    been invisible to a consumer in any other language, and invisible to us too, since every test we would
+    naturally write has Go on both ends. Writing an explicit twenty-line carrier that emits the exact
+    mandated spelling and reads case-insensitively is the cheap price of not discovering this from a
+    Python consumer two years later. (`internal/event/trace.go`'s `natsHeaderCarrier`.)
+
+75. **Changing where the default logger writes is a behavior change with a blast radius well past
+    logging, and both directions of it bite.** Installing a JSON `slog` handler on `os.Stdout` and calling
+    `slog.SetDefault` in `cmd/controller` looked like pure improvement. It silently did two other things.
+    The standard `log` package routes through `slog.Default` at *info* level, so every `log.Fatalf`
+    startup failure in that binary began emitting as an `INFO` line: no alert keyed on level would ever
+    have fired for a controller that failed to start, and the only reason this was caught is that a manual
+    run happened to fail and the JSON said `"level":"INFO"` next to a fatal message. And a release-gate
+    test that scraped the subprocess's *stderr* for a log line (correct, when `slog`'s built-in default
+    wrote there) began seeing nothing at all, failing with a timeout that described a leader-election
+    problem rather than a logging one. Both are the same underlying rule: log destination and log level
+    are part of a binary's observable contract, and anything that asserts on them - an alert, a test, a
+    scrape config - is coupled to a decision that looks internal. When changing it, grep for what reads
+    the old destination before assuming the change is additive.

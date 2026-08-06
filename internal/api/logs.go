@@ -8,10 +8,20 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 // LogStreamer handles SSE log streaming to clients.
+//
+// The {id} URL parameter it reads is validated as a UUID before it is used
+// for anything. That is not cosmetic input tidying: topology.LogSubject
+// builds a NATS subject by concatenating the job ID onto a prefix, and
+// NATS subject wildcards are ordinary characters, so a job ID of ">"
+// produced the FilterSubject "pleiades.jobs.logs.>" and streamed every
+// job's logs in the system to whoever asked. Every job ID this platform
+// mints is a UUID (api.Dispatcher's own uuid.New()), so requiring one
+// closes that hole with no loss of function. See FAILURE_PATTERNS.md.
 type LogStreamer struct {
 	js jetstream.JetStream
 }
@@ -36,14 +46,23 @@ func NewLogStreamer(js jetstream.JetStream) *LogStreamer {
 // StreamLogs handles GET /api/v1/jobs/{id}/logs via SSE.
 func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
-	if jobID == "" {
-		http.Error(w, "job id required", http.StatusBadRequest)
+	if _, err := uuid.Parse(jobID); err != nil {
+		http.Error(w, "job id must be a UUID", http.StatusBadRequest)
 		return
 	}
 
 	consumer, err := ls.js.CreateOrUpdateConsumer(r.Context(), topology.StreamName, topology.LogViewerConsumerConfig(jobID))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to create log consumer for job %s: %v", jobID, err), http.StatusInternalServerError)
+		// The job ID is deliberately not echoed back. It is
+		// caller-supplied, and reflecting it into a response body is the
+		// shape of a reflected-injection bug even after the UUID check
+		// above makes this particular one unreachable; the real error goes
+		// to the log, where an operator can still see which job failed.
+		slog.Error("failed to create log consumer",
+			slog.String("job_id", jobID),
+			slog.String("error", err.Error()),
+		)
+		http.Error(w, "failed to create log consumer", http.StatusInternalServerError)
 		return
 	}
 
@@ -63,6 +82,21 @@ func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	// across both, closing a real race a -race run of this file's own
 	// test suite caught directly.
 	var writeMu sync.Mutex
+
+	// Headers are set before Consume starts, not after. Setting a header
+	// is not a write: it mutates a map and commits nothing, so this keeps
+	// the "no write before Consume is checked" property below intact while
+	// closing a real data race a -race run caught directly. The Consume
+	// callback runs on its own goroutine and writes to w, and the first
+	// such write reads this header map to build the response; mutating it
+	// afterwards, as this code used to, is a concurrent map read and write
+	// that writeMu cannot help with, because one side of it is not a write
+	// to w at all. See FAILURE_PATTERNS.md.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Allow CORS for the web UI dev server
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Consume is started, and checked for error, before anything is
 	// written to w: a Write (even just the "event: init" line below)
@@ -91,12 +125,6 @@ func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to start consumer", http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	// Allow CORS for the web UI dev server
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Send an initial ping to establish connection. Consume above may
 	// already be delivering messages concurrently by this point (the

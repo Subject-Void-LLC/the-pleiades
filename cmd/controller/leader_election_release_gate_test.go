@@ -69,7 +69,7 @@ type acquisitionEvent struct {
 type controllerProc struct {
 	name string
 	cmd  *exec.Cmd
-	done chan struct{} // closed once this process's own stderr-draining goroutine (and its own cmd.Wait) has fully returned
+	done chan struct{} // closed once this process's own stdout-draining goroutine (and its own cmd.Wait) has fully returned
 }
 
 // freeTCPPort asks the OS for a currently-unused TCP port by binding to
@@ -91,10 +91,15 @@ func freeTCPPort(t *testing.T) int {
 
 // startController launches one real controller subprocess against
 // natsURL, with its own isolated LISTEN_ADDR and DB_PATH, and starts a
-// goroutine that continuously drains its stderr (log/slog's default
-// handler writes there, confirmed: no custom slog handler is configured
-// anywhere in this repository), forwarding every acquiredLeaseMessage
-// line it sees to acquisitions.
+// goroutine that continuously drains its stdout, forwarding every
+// acquiredLeaseMessage line it sees to acquisitions.
+//
+// Stdout, not stderr: main installs a JSON slog handler over os.Stdout
+// and makes it the default, per PATTERNS.md's Sidecar entry ("structured
+// logs go to stdout for the platform to scrape rather than being shipped
+// by a co-located agent"). This test used to read stderr, which is where
+// log/slog's own built-in default handler writes, and would silently see
+// nothing at all if that ever diverged again.
 //
 // No HTTP request is ever made against this process's own LISTEN_ADDR:
 // the Release Gate this test proves is entirely about log output and
@@ -117,9 +122,9 @@ func startController(t *testing.T, natsURL, jwtSecret, masterEncryptionKey strin
 		"MASTER_ENCRYPTION_KEY="+masterEncryptionKey,
 	)
 
-	stderr, err := cmd.StderrPipe()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		t.Fatalf("failed to open stderr pipe for %s: %v", name, err)
+		t.Fatalf("failed to open stdout pipe for %s: %v", name, err)
 	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start %s: %v", name, err)
@@ -129,18 +134,18 @@ func startController(t *testing.T, natsURL, jwtSecret, masterEncryptionKey strin
 
 	go func() {
 		defer close(p.done)
-		sc := bufio.NewScanner(stderr)
+		sc := bufio.NewScanner(stdout)
 		for sc.Scan() {
 			line := sc.Text()
 			if strings.Contains(line, acquiredLeaseMessage) {
 				acquisitions <- acquisitionEvent{idx: idx, at: time.Now()}
 			}
 		}
-		// The scan loop only ends once this process's own stderr fd is
+		// The scan loop only ends once this process's own stdout fd is
 		// closed (process exit), so it is now safe to Wait: calling Wait
 		// while a read is still in flight can race with Wait's own pipe
 		// close and turn a clean EOF into a "file already closed" error
-		// (documented on exec.Cmd.StderrPipe).
+		// (documented on exec.Cmd.StdoutPipe).
 		_ = cmd.Wait()
 	}()
 

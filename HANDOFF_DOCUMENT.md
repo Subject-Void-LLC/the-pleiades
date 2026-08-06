@@ -4,11 +4,174 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session added a runbook-level `hosts:` default**, not a tracked `IMPLEMENTATION.md` phase item:
-a user-driven request to move `examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe*.yaml` from
-repeating `target: sw1` on every task to a single `hosts: sw1` at the top, mirroring an Ansible play's own
-`hosts:`. `PLAN.md` (lines 397-412, 795-804) had already sketched `hosts:` in the classic
-list-of-plays shape, but it was never implemented; `WorkflowDef` had no such field.
+**This session closed Phase 11: API Gateway & Telemetry** (`.SPECIFICATION/IMPLEMENTATION.md`), all
+fourteen previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Research was one Explore agent over
+`PLAN.md`/`PATTERNS.md` plus direct reading of `internal/api`, `internal/event`, `internal/runner`, and
+both composition roots. That research produced the one finding that shaped everything else: almost every
+concrete requirement this phase owes originates in `PATTERNS.md`, not `PLAN.md`. `PLAN.md` Section 19 says
+only "OTEL everywhere" and "trace IDs must propagate API -> Bus -> Lock Manager -> Runner -> Device," and
+Section 25's Shared Primitives table has no row for telemetry, tracing, an HTTP server, or an ingress
+rate limiter at all. `PATTERNS.md` is where `/healthz`, `/readyz`, RED, the Front Controller, `/api/v1`,
+and the per-identity token bucket are actually specified.
+
+**The honest headline, stated plainly because the phase's own Adversarial Pattern Justification line asks
+for it:** this phase was named "Telemetry" and had none. What existed was a UUID in an `X-Trace-ID` header
+and one Prometheus counter labeled by raw URL path. No span, no duration, no exporter, no propagation;
+`otel` was in `go.mod` only as an indirect test dependency. Three of `PATTERNS.md`'s six observability
+entries described behavior that did not exist anywhere. That is closed rather than argued away, and the
+Release Gate was strengthened so the same gap cannot pass it again: the gate used to require a log field
+*named* `trace_id`, which a UUID generator satisfies, and now requires that field to equal the trace ID of
+the real OpenTelemetry span that served the request.
+
+**Two real, pre-existing bugs were found while auditing this phase's own boundaries, both fixed, both
+recorded:**
+
+1. **A NATS subject injection that was an authorization bypass** (`FAILURE_PATTERNS.md` #63). `internal/
+   api/logs.go` concatenated the caller-supplied `{id}` URL parameter straight into a NATS subject via
+   `topology.LogSubject`. NATS subject wildcards are ordinary characters, so `GET /api/v1/jobs/%3E/logs`
+   built the filter subject `pleiades.jobs.logs.>` and streamed **every job's live logs in the system** to
+   any authenticated caller holding any scope. Found by following a `G705` gosec finding that had been
+   individually waived across three phases as a low-severity XSS question, one line further up into the
+   subject builder. Fixed by requiring the `{id}` to parse as a UUID at the boundary (every job ID this
+   platform mints already is one), which closes the injection and the waived `G705` together.
+2. **A data race between an SSE handler and its own consumer goroutine** (`FAILURE_PATTERNS.md` #64).
+   `StreamLogs` set its response headers *after* starting the JetStream `Consume` callback that writes the
+   body, so the callback's first write read the header map while the handler was still mutating it. The
+   file already had a `writeMu` guarding writes to `w`; header mutation is not a write to `w`, so the
+   mutex never covered it. It flaked roughly one `-race` run in five. Fixed by moving the four header
+   assignments above `Consume` (setting a header commits nothing, so the ordering property the original
+   code wanted is preserved).
+
+**What was built, by area:**
+
+1. **`internal/telemetry`** (new package). `Config`/`ExporterKind`/`Provider`/`Setup`/`ConfigFromEnv`, plus
+   `Propagator()`, the single place this platform's trace-context wire format is decided (W3C
+   `TraceContext`+`Baggage`). Exporters: `none`, `stdout`, `otlp` (HTTP). `ConfigFromEnv` reads the
+   standard `OTEL_*` variables so an operator configures this like any other OTEL process, and treats a
+   bare `OTEL_EXPORTER_OTLP_ENDPOINT` as implying `otlp`, since an endpoint with nothing sent to it is far
+   more likely a mistake than an intention. **`none` builds a real `TracerProvider` with no span
+   processor, not a no-op tracer**, deliberately: with no collector deployed the trace IDs must still be
+   valid, or the `trace_id` log field, the `X-Trace-ID` header, and cross-process propagation all silently
+   become all-zeros.
+2. **`internal/api/middleware.go`** (rewritten). `TracingMiddleware` (renamed from `TraceIDMiddleware`)
+   starts a real server span, continues an inbound `traceparent`, and renames the span to the matched chi
+   route pattern on the way out (chi only knows the pattern after routing). `StructuredLoggerMiddleware`
+   and `MetricsMiddleware` take injected dependencies. Package-level `promauto` registration and the
+   package-level `slog.New` are both gone. `TraceIDFromContext` reads the span context and reports absence
+   honestly, so a caller can tell "tracing is off" from "the ID is zeros."
+3. **`internal/api/metrics.go`, `health.go`, `ratelimit.go`** (new). Full RED (`http_requests_total` with a
+   `code` label, `http_request_duration_seconds`, `http_requests_in_flight`) on an injected registry,
+   labeled by **route pattern, never raw path**, with an `unmatched` fallback so a 404 flood cannot mint
+   label values. `/readyz` runs `ReadinessCheck`s concurrently under one deadline and reports only
+   `ok`/`failed` per check, never driver error text, because the endpoint is unauthenticated. `/healthz`
+   deliberately checks nothing: a liveness probe that fails on a broken dependency tells the orchestrator
+   to restart a process a restart cannot fix. The rate limiter is a per-caller token bucket keyed on the
+   authenticated identity when present and the source address otherwise, **never** on `X-Forwarded-For`
+   (a caller-supplied key mints a fresh bucket per request, which is worse than no limiter for looking
+   like one), with a capped, self-evicting caller table so the defense is not itself the exhaustion
+   vector.
+4. **`internal/api/router.go`** (rewritten). `NewRouter(RouterConfig)`; every field optional with a safe
+   default. Middleware order is load bearing and documented: tracing outermost, then metrics, then
+   logging, then `Recoverer` innermost, so a panic becomes a 500 all three observe. Routes register
+   through `RouterConfig.Routes`, already mounted under `/api/v1` with auth and the limiter applied, which
+   is what turns "versioned, authenticated, throttled" into a structural property rather than a rule each
+   new route must remember. `/healthz`, `/readyz`, `/metrics` are the documented unversioned, unthrottled,
+   unauthenticated exception.
+5. **`internal/event/trace.go`** (new) and `nats.go`. `InjectTraceContext`/`ExtractTraceContext` over a
+   purpose-built `natsHeaderCarrier`. **The carrier is hand-written rather than a `http.Header`
+   conversion on purpose**: the two types share an underlying map, so the conversion compiles and
+   round-trips perfectly between two Go processes while writing the canonicalized `Traceparent`, which the
+   W3C specification does not mandate and a non-Go consumer would never find.
+6. **`internal/runner/agent.go`**. `handleMessage` extracts the trace context and starts a child consumer
+   span. This is what makes item 5 a feature rather than a decoration, and it is asserted as such:
+   `TestAgent_ContinuesTraceFromMessageHeaders` proves the Runner's recorded span shares the API request's
+   trace ID and is parented to its span.
+7. **`cmd/controller/main.go`, `cmd/runner/main.go`**. Telemetry setup with bounded shutdown flush, one
+   injected JSON logger, one private Prometheus registry, real readiness checks, and rate-limiter
+   configuration. `log.Fatalf` replaced with a `fatal` helper (see the log-destination note below).
+8. **Tests** (all new unless noted): `internal/telemetry/{telemetry_test,export_test}.go`,
+   `internal/api/{ratelimit_test,ratelimit_bench_test,defaults_test}.go`,
+   `internal/event/{trace_test,trace_fuzz_test,trace_bench_test}.go`,
+   `internal/runner/agent_trace_test.go`. Rewritten: `internal/api/{router_test,middleware_test,
+   router_fuzz_test,router_bench_test}.go`. Extended: `internal/api/logs_test.go` (the injection
+   regression table), `internal/api/dispatcher_test.go` (now uses a real SDK span, since a no-op tracer's
+   span context is all-zeros and a test built on one proves nothing).
+
+**One trap worth naming for whoever touches logging next.** Installing a JSON `slog` handler on stdout and
+calling `slog.SetDefault` in `cmd/controller` looked like a pure improvement and silently did two other
+things. Go's standard `log` package routes through `slog.Default` at **info** level, so every
+`log.Fatalf` startup failure began emitting as an `INFO` line, meaning no alert keyed on level would ever
+fire for a controller that failed to start. And `cmd/controller/leader_election_release_gate_test.go`
+scraped the subprocess's **stderr** for a log line (correct while `slog`'s built-in default wrote there)
+and began seeing nothing, failing with a timeout that described a leader-election problem rather than a
+logging one. Both are fixed; both are `LESSONS_LEARNED.md` #75.
+
+**Verification.** `go build ./... && go vet ./...` clean; `gofmt -l` clean on every file this session
+touched. `go test ./... -race -count=1 -p 4` clean across the whole repository (the `-p 4` cap is
+`FAILURE_PATTERNS.md` #61's own recorded mitigation for this environment's container contention).
+`internal/api` re-run four consecutive times to confirm the #64 race fix holds. `make gosec`: 6 findings,
+all individually waived, zero new; the stale `internal/api/router.go` waiver was **removed** rather than
+re-pointed, because this phase actually fixed it. `make govulncheck`: **found three real vulnerabilities in
+the OTEL and gRPC modules this phase added** (`GO-2026-5158`, `GO-2026-4985`, `GO-2026-6061`), all fixed by
+upgrading to `otel@v1.44.0`/`grpc@v1.82.1` rather than waived; now reports 0. `make coverage`:
+`internal/api` 94.0% (floor raised 90.0 -> 93.5), `internal/telemetry` 96.9% (new, floor 96.0),
+`internal/runner` 94.0% (new floor 93.5), `internal/event` 86.8% (floor raised 85.3 -> 86.5), `cmd/runner`
+floor recorded at 0.0 to match `cmd/controller`. The same four pre-existing `coverage-floor.json`
+regressions from `FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`, `internal/inventory/record`,
+`pkg/collection`, `tools/gencatalog`) recurred at identical percentages, unrelated to this phase. Fuzz:
+`FuzzAPIRouter` ~358,000 executions/26s and `FuzzExtractTraceContext` ~503,000 executions/26s, zero
+crashes. Benchmarks (real numbers, this machine): `BenchmarkAPIMiddleware` ~8.3 µs/op,
+`BenchmarkRateLimiter_Allow` ~114 ns/op, `BenchmarkRateLimiter_AllowDistinctCallers` ~32.7 µs/op,
+`BenchmarkInjectTraceContext` ~395 ns/op, `BenchmarkExtractTraceContext` ~437 ns/op; no credible published
+AWX/Tower figure exists to compare any of these against (`AGENTS.md`'s benchmarking rule), stated plainly
+rather than fabricated. **Real end-to-end proof against the actual built binary and a real NATS broker
+(RULE 0), not only `go test`:** see the Release Gate entry in `IMPLEMENTATION.md` Phase 11 for the full
+transcript (trace ID matching between header/log/metric, inbound `traceparent` continuation, exported
+stdout spans, `/readyz` flipping to 503 on broker loss while `/healthz` stayed 200, unversioned 404 vs.
+versioned 401, and a real signed token hitting the rate limiter at 200/200/429).
+
+**`make ci` still fails on one pre-existing item this session did not touch:** `gofmt` would reformat
+`internal/engine/executor_fuzz_test.go`. Confirmed unchanged by this session (`git diff` is empty for it;
+it dates to commit `c8b364a`), and the Phase 9 and Phase 10 handoff entries below already named it. It is
+a one-line formatting fix owned by nobody, and it has now blocked `make ci` for three sessions running;
+left alone again here to keep this diff to one logical change, but it is worth someone deliberately
+deciding to fix rather than inheriting a fourth time.
+
+**Follow-ups named, not built:** `event.Bus.Subscribe`'s handler signature takes no `context.Context`, so a
+`Bus` subscriber structurally cannot read message headers and therefore cannot continue a trace. It costs
+nothing today (the one production consumer, `runner.Agent`, pulls raw messages by design and does read
+them), so changing the port and its six test doubles now would be churn ahead of a consumer; revisit when
+Phase 14/15 adds a real `Subscribe` caller. `cmd/runner` has no HTTP listener, so it has neither `/healthz`
+nor `/readyz`, which `PATTERNS.md`'s probe entry requires of Runners as well as Controllers. The
+production identity test hook (`api.IdentityKeyForTest`) survives unchanged: it is Phase 12's own
+checklist item, and moving it behind an `export_test.go` seam is not sufficient on its own because
+`tests/e2e` is a different package, so the real fix is a test-only token issuer Phase 12 should build.
+
+**Also uncommitted, from the previous session and unrelated to this phase:** the runbook-level `hosts:`
+default (`internal/engine/{dag,action,executor}.go`, `internal/validate/*`, the two example runbooks and
+their README). Described in "Previous session" below; it is a separate logical change and should be a
+separate commit.
+
+**Files changed:** `internal/telemetry/{telemetry,telemetry_test,export_test}.go` (new package),
+`internal/api/{middleware,router,dispatcher,logs}.go`, `internal/api/{metrics,health,ratelimit}.go` (new),
+`internal/api/{router_test,middleware_test,router_fuzz_test,router_bench_test,dispatcher_test,logs_test}.go`,
+`internal/api/{ratelimit_test,ratelimit_bench_test,defaults_test}.go` (new),
+`internal/api/testdata/fuzz/FuzzAPIRouter/*`, `internal/event/{nats,trace}.go`,
+`internal/event/{trace_test,trace_fuzz_test,trace_bench_test}.go` (new), `internal/runner/agent.go`,
+`internal/runner/agent_trace_test.go` (new), `internal/runner/{agent_test,agent_bench_test,agent_fuzz_test,
+agent_nats_test}.go`, `cmd/controller/{main.go,leader_election_release_gate_test.go}`, `cmd/runner/main.go`,
+`tests/e2e/integration_test.go`, `.SPECIFICATION/{IMPLEMENTATION,PATTERNS}.md`, `coverage-floor.json`,
+`gosec-waivers.json`, `FAILURE_PATTERNS.md` (#63, #64 new), `LESSONS_LEARNED.md` (#73, #74, #75 new),
+`go.mod`/`go.sum`.
+
+## Previous session: runbook-level `hosts:` default
+
+**What was built:** a runbook-level `hosts:` default, not a tracked `IMPLEMENTATION.md` phase item: a
+user-driven request to move `examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe*.yaml` from repeating
+`target: sw1` on every task to a single `hosts: sw1` at the top, mirroring an Ansible play's own `hosts:`.
+`PLAN.md` (lines 397-412, 795-804) had already sketched `hosts:` in the classic list-of-plays shape, but it
+was never implemented; `WorkflowDef` had no such field.
 
 **Design decision, made with the user before writing code (via `AskUserQuestion`):** `hosts:` is a
 default, not a hard override. A task's own `Params["target"]` wins when set; `dag.Hosts` is the
@@ -19,7 +182,7 @@ It also matches `AGENTS.md`'s own "most specific level wins" hierarchical-policy
 established for every other multi-level setting in this codebase, applied here for the first time to
 runbook-vs-task.
 
-**What was built:**
+**Detail:**
 
 1. **`internal/engine/dag.go`.** `WorkflowDef.Hosts string` (`hosts,omitempty` in both YAML and JSON) and
    `DAG.Hosts string`, carried through unchanged in `buildFromDef`. Both are plain strings: `Params` still
@@ -29,10 +192,10 @@ runbook-vs-task.
    default/override resolution happens: task's own `Params["target"]` if a non-empty string, else
    `dag.Hosts`. This replaces four independent copies of the same `task.Params["target"].(string)`
    assertion that previously lived in `executor.go` (`resolveDevices`) and three `internal/validate`
-   rules — a real duplication, not a hypothetical one, so consolidating it into one function was in scope
+   rules - a real duplication, not a hypothetical one, so consolidating it into one function was in scope
    for this change rather than a separate cleanup. A non-string `Params["target"]` still falls back to
    `dag.Hosts` exactly like an absent one: `FAILURE_PATTERNS.md` #11 (a malformed target silently reads as
-   absent) is unchanged by this session, still open, and deliberately not folded into this change.
+   absent) is unchanged by that session, still open, and deliberately not folded into this change.
 3. **`internal/engine/executor.go`** (`resolveDevices`) and **`internal/validate/{capability_rule,
    blast_radius,lifecycle_rule}.go`** now call `TaskTarget` instead of their own inline assertion.
    `lifecycle_rule.go` gained its first `internal/engine` import as a result.
@@ -48,17 +211,6 @@ runbook-vs-task.
    (`TestExecutor_RunbookHostsIsDefaultTarget`, a real `Executor.Run` proving both the fallback and the
    override dispatch to the right device), `internal/validate/{capability_rule_test,lifecycle_rule_test}.go`
    (`Test*Rule_FallsBackToRunbookHosts`), `internal/validate/blast_radius_test.go` (two new table cases).
-
-**Verification.** `go build ./... && go vet ./...` clean. `gofmt -l` clean on every file this session
-touched (the same pre-existing, unrelated `executor_fuzz_test.go` finding Phase 10's own handoff entry
-below already names recurred here too — confirmed via `git diff --stat` showing no session change to
-that file — left alone, not this session's to fix). `go test ./internal/engine/... ./internal/validate/...
-./cmd/pleiades/... -race -count=1` clean. `go run ./tools/coverage-check` clean, no package regressed
-below its `coverage-floor.json` floor. `go run ./tools/gosec-check` clean (7 pre-existing findings, all
-individually waived, zero new). `pleiades validate` run by hand against both example runbooks: identical
-`[collection] ... declared but not yet implemented` findings on both, same as before this session, and
-no lifecycle/capability/blast-radius findings on either, confirming `hosts: sw1` resolves `sw1` correctly
-end to end through the real `WorldView.Resolve`.
 
 **Follow-ups named, not built:** `FAILURE_PATTERNS.md` #11 (malformed `target` silently reads as absent)
 is now one call site instead of four but is still unfixed. Template rendering for `hosts:`/`params:`
