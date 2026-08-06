@@ -297,6 +297,18 @@ func runConcurrently[T any, R any](items []T, fn func(T) R) []R {
 func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	task := r.dag.Nodes[nodeID]
 
+	if task.Kind() == TaskKindSynthetic {
+		// A Parallel task's own fan-out/join marker (tasktree.go's
+		// synthesizeParallel): a bare structural node with no condition,
+		// target, register, or action of its own. Running it through the
+		// full pipeline below would acquire a pointless lock and publish
+		// a spammy event for a node that carries no runbook author's
+		// intent at all, so it short-circuits here instead. This is the
+		// only Executor change Phase 10 makes; see EdgeType's own doc
+		// comment (dag.go) for what deliberately stays out of scope.
+		return []NodeResult{{NodeID: nodeID}}
+	}
+
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
 		tree, err := r.x.workflow.Read()
 		if err != nil {

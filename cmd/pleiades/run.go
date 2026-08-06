@@ -250,11 +250,13 @@ func printMetadata(metadata map[string]interface{}, secrets []string) {
 // printTaskList prints tasks in order, indented two spaces per depth.
 // Each task prints its Name, or its FQCN if Name is empty, so a task
 // always has something readable printed even though Name has no
-// uniqueness requirement (see engine.Task's doc comment). A task with a
-// non-empty Block recurses one level deeper under a "block:" label, and
-// prints Rescue and Always, if present, as further labeled sub-sections
-// at that same depth, mirroring how Ansible authors read a block/rescue/
-// always task.
+// uniqueness requirement (see engine.Task's doc comment). A block task
+// recurses one level deeper under a "block:" label, and prints Rescue and
+// Always, if present, as further labeled sub-sections at that same depth,
+// mirroring how Ansible authors read a block/rescue/always task. A
+// parallel task recurses the same way under a "parallel:" label; its
+// children have no rescue/always of their own (Task.Parallel stays
+// Block-only for that, see dag.go).
 func printTaskList(tasks []engine.Task, depth int) {
 	indent := strings.Repeat("  ", depth)
 	for _, task := range tasks {
@@ -264,8 +266,9 @@ func printTaskList(tasks []engine.Task, depth int) {
 		}
 		fmt.Printf("%s%s\n", indent, label)
 
-		if len(task.Block) > 0 {
-			childIndent := strings.Repeat("  ", depth+1)
+		childIndent := strings.Repeat("  ", depth+1)
+		switch task.Kind() {
+		case engine.TaskKindBlock:
 			fmt.Printf("%sblock:\n", childIndent)
 			printTaskList(task.Block, depth+2)
 
@@ -277,6 +280,9 @@ func printTaskList(tasks []engine.Task, depth int) {
 				fmt.Printf("%salways:\n", childIndent)
 				printTaskList(task.Always, depth+2)
 			}
+		case engine.TaskKindParallel:
+			fmt.Printf("%sparallel:\n", childIndent)
+			printTaskList(task.Parallel, depth+2)
 		}
 	}
 }

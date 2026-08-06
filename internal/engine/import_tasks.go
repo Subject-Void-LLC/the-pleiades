@@ -14,13 +14,38 @@ import (
 	"strings"
 )
 
-// maxImportDepth bounds how many import_tasks hops a single chain may
-// take before resolveImportTasks gives up, the same defensive-bound style
-// internal/forge/genutil.ValidateSegments uses for segment count: cycle
-// detection (see resolving below) already rejects a file that imports
-// itself, but a long, non-cyclic chain (A imports B imports C ...) is
-// still worth bounding rather than trusting to be finite by construction.
-const maxImportDepth = 32
+// maxTaskNestingDepth bounds two distinct risks with one shared counter:
+// how many import_tasks hops a single chain may take (A imports B imports
+// C ...; cycle detection, see resolving below, already rejects a file
+// that imports itself, but a long, non-cyclic chain is still worth
+// bounding rather than trusting to be finite by construction), and how
+// many levels deep plain block/rescue/always/parallel nesting may go
+// within one file, a risk that has nothing to do with import_tasks at
+// all. Both share one counter (depth, below) because resolveImportTasksInList
+// is the one function that walks both shapes, and unbounded recursion is
+// the same defect class either way: Go's goroutine stacks grow
+// dynamically (unlike a fixed-size C stack), so a single small payload
+// does not trip this the way it might in another language, but the
+// ceiling (1GB by default, runtime/debug.SetMaxStack) is still finite and
+// a fatal, unrecoverable process crash, not a catchable panic, once
+// reached - and several concurrent requests each nested deeply enough can
+// exhaust process memory well before any single one hits that ceiling.
+// Kept small (32, unchanged from this constant's original import-only
+// value) because no legitimate runbook plausibly nests this deep at all:
+// this is a defensive ceiling, not a working limit anyone should expect
+// to approach.
+//
+// This is also, deliberately, the only depth bound this package needs:
+// resolveImportTasksInList runs first, unconditionally, on the complete
+// tree (resolveImportTasks is buildFromDef's very first step, dag.go),
+// visiting every Block/Rescue/Always/Parallel level to look for
+// import_tasks tasks to resolve, whether or not any exist. Bounding it
+// here transitively bounds tasktree.go's synthesizeChain/collectSubtree
+// too, since neither ever sees a tree deeper than what already passed
+// through this check - checking the same thing twice would be redundant,
+// not more defensive. The same defensive-bound style
+// internal/forge/genutil.ValidateSegments already uses for segment count.
+const maxTaskNestingDepth = 32
 
 // resolveImportTasks rewrites every "import_tasks" task reachable from
 // def's PreTasks/Tasks/PostTasks, at any Block/Rescue/Always nesting
@@ -56,12 +81,20 @@ func resolveImportTasks(def *WorkflowDef, baseDir string) error {
 
 // resolveImportTasksInList walks tasks in place, resolving any
 // import_tasks task it finds and recursing into every task's own
-// Block/Rescue/Always (imported or hand-authored) to reach every nesting
-// depth. tasks is mutated through its backing array (task := &tasks[i]),
-// exactly like tasktree.go's synthesizeChain/collectSubtree, so callers
-// passing a WorkflowDef field's slice see the mutation without needing to
-// reassign the field themselves.
+// Block/Rescue/Always/Parallel (imported or hand-authored) to reach every
+// nesting depth. tasks is mutated through its backing array
+// (task := &tasks[i]), exactly like tasktree.go's synthesizeChain/
+// collectSubtree, so callers passing a WorkflowDef field's slice see the
+// mutation without needing to reassign the field themselves.
+//
+// depth counts every level of recursion this function itself takes.
+// See maxTaskNestingDepth's own doc comment for why this one check
+// stands in for a depth check in tasktree.go too.
 func resolveImportTasksInList(tasks []Task, baseDir string, resolving map[string]bool, depth int) error {
+	if depth > maxTaskNestingDepth {
+		return fmt.Errorf("import_tasks: exceeded max task nesting depth of %d (block/rescue/always/parallel nested too deeply, or an unbounded import chain)", maxTaskNestingDepth)
+	}
+
 	for i := range tasks {
 		task := &tasks[i]
 
@@ -79,19 +112,11 @@ func resolveImportTasksInList(tasks []Task, baseDir string, resolving map[string
 			continue
 		}
 
-		if len(task.Block) > 0 {
-			if err := resolveImportTasksInList(task.Block, baseDir, resolving, depth); err != nil {
-				return err
-			}
-		}
-		if len(task.Rescue) > 0 {
-			if err := resolveImportTasksInList(task.Rescue, baseDir, resolving, depth); err != nil {
-				return err
-			}
-		}
-		if len(task.Always) > 0 {
-			if err := resolveImportTasksInList(task.Always, baseDir, resolving, depth); err != nil {
-				return err
+		for _, sub := range [][]Task{task.Block, task.Rescue, task.Always, task.Parallel} {
+			if len(sub) > 0 {
+				if err := resolveImportTasksInList(sub, baseDir, resolving, depth+1); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -109,8 +134,8 @@ func resolveOneImport(task *Task, baseDir string, resolving map[string]bool, dep
 	if baseDir == "" {
 		return nil, fmt.Errorf("import_tasks: no base directory available to resolve %q; build this runbook via BuildFromYAMLFile, not Build or BuildFromYAML", file)
 	}
-	if depth >= maxImportDepth {
-		return nil, fmt.Errorf("import_tasks: exceeded max import depth of %d (a possible unbounded import chain)", maxImportDepth)
+	if depth >= maxTaskNestingDepth {
+		return nil, fmt.Errorf("import_tasks: exceeded max import depth of %d (a possible unbounded import chain)", maxTaskNestingDepth)
 	}
 
 	full, err := resolveImportPath(baseDir, file)

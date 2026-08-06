@@ -4,6 +4,132 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 10: Workflow DAG Builder** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
+previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Planning followed this project's own
+established ritual: direct research (small, well-bounded surface, matching Phase 9's own precedent for a
+phase this size: `internal/engine/{dag,tasktree,executor,level_iterator,topology,conditional,
+lock_acquisition,action,collection_action,import_tasks,task_syntax}.go`, `cmd/pleiades/run.go`, plus
+`PLAN.md` Sections 14/22.1/25/35 and `PATTERNS.md`'s Builder/Composite/Checkpointing/Workflow Definition
+Versioning entries), then one Plan agent pressure-tested the resulting design against the real repo before
+any plan file was written — its findings (a full re-scoping of the typed-edges item, a correction removing
+Checkpointing from this phase's own Pattern Entry Gate, deferring `DefinitionStore` entirely, and the
+`TaskKind`-as-computed-not-stored/synthetic-fast-path design) were folded in before implementation began,
+and are recorded in full in `IMPLEMENTATION.md`'s own Phase 10 entry and `LESSONS_LEARNED.md` #72.
+
+**The one real scope call, stated plainly:** typed edges (`EdgeType`: `EdgeTypeOnSuccess`/
+`EdgeTypeOnFailure`/`EdgeTypeAlways`) were added as vocabulary only. Wiring `Task.Rescue`/`Task.Always` into
+real `Adjacency` edges and teaching `Executor` to route on outcome was investigated and deliberately not
+built this phase: `LevelIterator` computes static, outcome-independent reachability once up front, and
+`Executor.Run` aborts its whole walk on any failure rather than routing around it, so the "light" version of
+this wiring would have been an active correctness regression (`Rescue` firing on the happy path, never on
+failure), not merely an inert one — a pressure-test finding, not a guess. This reopens Phase W5-sized
+territory and is named as a separate, explicit follow-up rather than folded in silently. `DefinitionStore`
+was deferred for a related but distinct reason: it has no consumer anywhere in the repo and no entry in
+Section 25's Shared Primitives table (the one place a "declare now, build later" carve-out is sanctioned),
+so building it now would be exactly the "port with no callers is a decoration" failure this phase's own
+Adversarial Pattern Justification line warns against. Both corrections are recorded as dated corrections in
+`IMPLEMENTATION.md`/`PATTERNS.md`, not silently reinterpreted.
+
+**What was built, by area:**
+
+1. **`internal/engine/task_kind.go`** (new). `TaskKind` (an iota enum: `TaskKindLeaf`/`TaskKindBlock`/
+   `TaskKindParallel`/`TaskKindSynthetic`/`TaskKindInvalid`), computed via `Task.Kind()` from field
+   presence (`taskShape`, the one shared derivation `Kind` and `validateTask`'s own precise-conflict
+   diagnosis both build on) rather than stored — a stored field would be a second source of truth that
+   could drift from the fields it describes, the same reasoning `DAG.Version` (below) follows.
+2. **`internal/engine/dag.go`**. `Task.Parallel []Task` (mirrors `Block`'s shape exactly, not `PLAN.md`
+   Section 14's stale bare-string example) plus an unexported `synthetic bool` field, set only by
+   `registerSyntheticNode`. `EdgeType`/`EdgeConfig.Type` (see scope note above). `DAG.Version string`,
+   `"sha256:" + hex(sha256(json.Marshal(resolvedDef)))`, computed in `buildFromDef` after
+   `resolveImportTasks` so the hash reflects the fully-resolved definition, not just one file's own bytes.
+   `hasCycle` rewritten from recursive to an iterative DFS (`dfsFrame`/`dfsColor`, an explicit stack),
+   removing its recursion-depth risk entirely rather than capping it.
+3. **`internal/engine/tasktree.go`**. `validateTask` is now a 3-way switch (via `Kind()`/`taskShape`)
+   instead of a 2-way boolean check, and gained a real rescue/always-guard rule for `Parallel` (Block-only,
+   deliberately — Ansible has no established parallel-failure-handling vocabulary to mirror).
+   `synthesizeChain` refactored: its per-task splice logic moved into a new `synthesizeOne`, shared by the
+   ordinary list-stitching path and the new `synthesizeParallel` (a synthetic fan-out node feeding every
+   `Parallel` child's own independently-synthesized chain, each child's own exit feeding a synthetic join
+   node — `id+".fanout"`/`id+".join"`, registered via `registerSyntheticNode`, bypassing `validateTask`
+   since a synthetic node is not user input). `LevelIterator`/`TopologicalOrder`/`reachableWithInDegree`
+   needed **zero** change: `TestLevelIterator_Diamond` already proved multi-parent/multi-child grouping
+   worked; only `Builder` needed to learn to produce that shape.
+4. **`internal/engine/import_tasks.go`**. `maxImportDepth` renamed `maxTaskNestingDepth` (value unchanged,
+   32) and now bounds two risks with one shared counter: import-hop-chain length (its original purpose) and
+   plain `block`/`rescue`/`always`/`parallel` nesting depth (a second, structurally identical unbounded-
+   recursion site found while researching the named checklist item, not previously called out — fixed in
+   the same pass). Because `resolveImportTasksInList` runs first, unconditionally, on the complete tree
+   before `tasktree.go`'s own recursion ever sees it, this one check transitively bounds both — no second
+   check was added there.
+5. **`internal/engine/executor.go`**. `runNode` gained exactly one addition: a fast path that returns
+   immediately for a `TaskKindSynthetic` node, skipping condition-check/lock/action-dispatch/publish. This
+   is the *only* `Executor` change this phase makes — explicitly not the rescue/always-routing change
+   described in the scope note above.
+6. **`internal/engine/task_syntax.go`**. `parallel` added to `reservedTaskKeys` and both normalizers'
+   recursion lists (YAML and JSON paths) — a real gap caught by the test suite itself: without this, module-
+   as-key sugar detection misread a task's `parallel:` list as an unrecognized sugar key and failed with a
+   confusing "module must be an object of arguments" error.
+7. **`cmd/pleiades/run.go`**. `printTaskList` now switches on `Kind()` and prints a `parallel:` section,
+   mirroring `block:`.
+8. **Tests** (all new unless noted): `task_kind_test.go`, `dag_internal_test.go` (package `engine`, not
+   `engine_test` — the only way to hand-build a genuinely cyclic `*DAG` and prove `hasCycle`'s rewrite both
+   still detects it and doesn't stack-overflow on a 500,000-node chain), `dag_test.go` (`Parallel`
+   structural tests, `Version` stability/change tests, nesting-depth-bound tests, a 20,000-flat-task
+   `Build()` stack-safety test), `tasktree_test.go` (parallel ID-scheme test), `executor_test.go`
+   (`TestExecutor_Parallel_RunsConcurrently`, a real `Executor.Run`-level high-water-mark proof of genuine
+   concurrency, and that the `ActionExecutor` is called exactly `childCount` times, never `childCount+2` —
+   proving the synthetic fast path is provably inert, not just present), `task_syntax_test.go` (parallel
+   sugar-conflict and nested-sugar tests), `cmd/pleiades/run_test.go` (new file; `printTaskList` had no
+   prior test coverage at all). `dag_fuzz_test.go`'s seed corpus extended with `parallel` shapes and a
+   500-level adversarial nesting seed. `dag_bench_test.go` gained two new benchmarks (below).
+
+**Verification.** `go build ./... && go vet ./...` clean, `gofmt -l` clean on every file this session
+touched (one pre-existing, unrelated `gofmt` finding in `executor_fuzz_test.go` confirmed via a disposable
+`git stash -u` to predate this session — left alone, not this phase's to fix). `go test ./internal/engine/...
+./cmd/pleiades/... ./internal/validate/... -race -count=1` clean. A full `go test ./... -count=1` was clean
+except `internal/lock`'s `TestNatsLease_ExclusiveKeepAliveAfterRelease` (the established testcontainers
+port-mapping flake category, `FAILURE_PATTERNS.md` #61's own precedent; passed cleanly in isolation,
+re-confirmed). Fuzz: `FuzzDAGBuilder` ~380,000 executions/20s on the extended seed corpus, zero crashes.
+Benchmarks (real numbers, this machine): `BenchmarkDAGBuilder_LargeFlatTaskList` (10,000 flat tasks) ~43.0
+ms/op; `BenchmarkDAGBuilder_Parallel` (100 children) ~409 µs/op, against the pre-existing
+`BenchmarkDAGBuilder` (5 tasks, one CEL condition) ~142 µs/op. No credible existing published AWX/Tower/
+raw-topological-sort figure exists to cite for either (`AGENTS.md`'s benchmarking rule); stated plainly
+rather than fabricated. `make gosec` (7 pre-existing findings, all individually waived, zero new). `make
+govulncheck` (0 called vulnerabilities). `make coverage`: `internal/engine` 91.9% → 92.8% (floor raised to
+92.5), `cmd/pleiades` 58.2% (pre-existing, undocumented drift above its stale 44.0 floor) → 61.5% (floor
+raised to 61.0). The same four pre-existing `coverage-floor.json` regressions from `FAILURE_PATTERNS.md`
+#60 (`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`, `tools/gencatalog`) recurred
+at the identical percentages, reconfirmed via a fresh `git stash -u` baseline check (this session's own
+new files are untracked, so a plain `git stash` without `-u` is insufficient and was caught mid-check)
+— predate and are unrelated to this phase. Real, end-to-end proof against the actual built `pleiades`
+binary and real code paths (RULE 0), not only `go test`: `TestExecutor_Parallel_RunsConcurrently` drives
+the real `Executor.Run`/`LevelIterator`/`Builder` chain end to end with a `parallel:` runbook, and a hand-
+built cyclic `*DAG` (`dag_internal_test.go`) proves `hasCycle`'s own correctness survived its rewrite,
+since `Builder` structurally cannot construct a cycle through any authoring surface it exposes.
+
+**Also touched, incidentally, while implementing this phase's real gaps (not scope creep — each is a
+correctness bug this phase's own new code would otherwise have silently mismatched with):** `internal/
+validate`'s four rules (`CapabilityRule`, `CollectionRule`, `LifecycleRule`, `blast_radius.go`) were audited
+against `Parallel`'s new synthetic nodes and confirmed already-safe with no code change needed — every one
+already treats an empty `FQCN`/nil `Params` as "no capability required, no target, skip," the identical
+shape a block task's own ID has always had, so a synthetic node is nothing new to them.
+
+**Files changed:** `internal/engine/{dag,tasktree,executor,import_tasks,task_syntax}.go`,
+`internal/engine/task_kind.go` (new), `internal/engine/{dag_test,dag_fuzz_test,dag_bench_test,
+tasktree_test,executor_test,task_syntax_test}.go`, `internal/engine/{dag_internal_test,task_kind_test}.go`
+(new), `cmd/pleiades/run.go`, `cmd/pleiades/run_test.go` (new), `.SPECIFICATION/{IMPLEMENTATION,PATTERNS}.md`,
+`coverage-floor.json` (`internal/engine`/`cmd/pleiades` floors raised), `FAILURE_PATTERNS.md` (#62 new),
+`LESSONS_LEARNED.md` (#72 new).
+
+## Previous session: Phase 9, Google CEL Engine
+
+**What was built:** see "Phase 9: Google CEL Engine session" immediately below for the complete
+file-by-file summary. Everything from "Previous session: Phase 8, RBAC & Identity Validation" onward
+describes earlier sessions and is unchanged.
+
+### Phase 9: Google CEL Engine session
+
 **This session closed Phase 9: Google CEL Engine** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
 previously-open checklist items plus the Release Gate (three items — cel-go import, `engine.Evaluator`,
 string-to-AST compile logic — were already `[x]` from an earlier session). Research was direct rather than

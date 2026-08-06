@@ -46,6 +46,21 @@ func FuzzDAGBuilder(f *testing.F) {
 	f.Add([]byte(`{"id":"s5","tasks":[{"name":"a","net.cli.command":[1,2,3]}]}`))
 	f.Add([]byte(`{"id":"s6","tasks":[{"name":"a","noop":null}]}`))
 
+	// Parallel (Phase 10): valid, and adversarial - alongside fqcn/block,
+	// empty, and module-as-key sugar colliding with an explicit parallel:.
+	f.Add([]byte(`{"id":"p1","tasks":[{"name":"fanout","parallel":[{"name":"a","fqcn":"noop"},{"name":"b","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p2","tasks":[{"name":"bad","fqcn":"noop","parallel":[{"name":"a","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p3","tasks":[{"name":"bad","block":[{"name":"c","fqcn":"noop"}],"parallel":[{"name":"a","fqcn":"noop"}]}]}`))
+	f.Add([]byte(`{"id":"p4","tasks":[{"name":"empty","parallel":[]}]}`))
+	f.Add([]byte(`{"id":"p5","tasks":[{"name":"nested","parallel":[{"name":"inner","parallel":[{"name":"a","fqcn":"noop"}]}]}]}`))
+	f.Add([]byte(`{"id":"p6","tasks":[{"name":"a","net.cli.command":{"command":"x"},"parallel":[{"name":"b","fqcn":"noop"}]}]}`))
+
+	// Deeply nested block, well beyond maxTaskNestingDepth
+	// (import_tasks.go): must fail with a clear depth-limit error rather
+	// than crash the fuzzer process (Schema/Injection Hardening finding,
+	// FAILURE_PATTERNS.md #62).
+	f.Add(deeplyNestedPayload(500))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		// Just ensure it doesn't panic on arbitrary byte slices
 		builder.Build(payload)

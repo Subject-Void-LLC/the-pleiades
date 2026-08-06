@@ -35,6 +35,7 @@ var reservedTaskKeys = map[string]bool{
 	"block":            true,
 	"rescue":           true,
 	"always":           true,
+	"parallel":         true,
 }
 
 // --- YAML path -------------------------------------------------------
@@ -118,8 +119,8 @@ func normalizeTaskListNode(seq *yaml.Node, label string) error {
 
 // normalizeTaskNode rewrites task, a single task mapping node, in place
 // if it uses module-as-key sugar, then recurses into its own
-// block/rescue/always sequences. label identifies this task in error
-// messages (see normalizeTaskListNode).
+// block/rescue/always/parallel sequences. label identifies this task in
+// error messages (see normalizeTaskListNode).
 func normalizeTaskNode(task *yaml.Node, label string) error {
 	if task.Kind != yaml.MappingNode {
 		return fmt.Errorf("task %s: expected a YAML map, got a YAML node of kind %v", label, task.Kind)
@@ -127,7 +128,7 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 
 	type kv struct{ key, val *yaml.Node }
 	var nonReserved []kv
-	hasFQCN, hasBlock := false, false
+	hasFQCN, hasBlock, hasParallel := false, false, false
 
 	for i := 0; i+1 < len(task.Content); i += 2 {
 		key := task.Content[i]
@@ -136,6 +137,8 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 			hasFQCN = true
 		case "block":
 			hasBlock = true
+		case "parallel":
+			hasParallel = true
 		}
 		if !reservedTaskKeys[key.Value] {
 			nonReserved = append(nonReserved, kv{key, task.Content[i+1]})
@@ -149,19 +152,22 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 			names[i] = p.key.Value
 		}
 		return fmt.Errorf("task %s has multiple unrecognized keys %v: module-as-key syntax allows exactly one module name per task", label, names)
-	case len(nonReserved) == 1 && (hasFQCN || hasBlock):
+	case len(nonReserved) == 1 && (hasFQCN || hasBlock || hasParallel):
 		conflict := "fqcn:"
-		if hasBlock {
+		switch {
+		case hasBlock:
 			conflict = "block:"
+		case hasParallel:
+			conflict = "parallel:"
 		}
-		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call or a block, and module-as-key sugar cannot combine with an explicit fqcn:/block:", label, conflict, nonReserved[0].key.Value)
+		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call, a block, or a parallel group, and module-as-key sugar cannot combine with an explicit fqcn:/block:/parallel:", label, conflict, nonReserved[0].key.Value)
 	case len(nonReserved) == 1:
 		if err := rewriteModuleKeyNode(task, nonReserved[0].key, nonReserved[0].val, label); err != nil {
 			return err
 		}
 	}
 
-	for _, key := range []string{"block", "rescue", "always"} {
+	for _, key := range []string{"block", "rescue", "always", "parallel"} {
 		if seq := findMappingValue(task, key); seq != nil {
 			if err := normalizeTaskListNode(seq, label+"."+key); err != nil {
 				return err
@@ -267,10 +273,12 @@ func normalizeTaskListJSON(list interface{}, label string) error {
 
 // normalizeTaskMapJSON rewrites task, a single task object decoded from
 // JSON, in place if it uses module-as-key sugar, then recurses into its
-// own block/rescue/always. label identifies this task in error messages.
+// own block/rescue/always/parallel. label identifies this task in error
+// messages.
 func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
 	_, hasFQCN := task["fqcn"]
 	_, hasBlock := task["block"]
+	_, hasParallel := task["parallel"]
 
 	var nonReservedKeys []string
 	for key := range task {
@@ -283,12 +291,15 @@ func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
 	switch {
 	case len(nonReservedKeys) > 1:
 		return fmt.Errorf("task %s has multiple unrecognized keys %v: module-as-key syntax allows exactly one module name per task", label, nonReservedKeys)
-	case len(nonReservedKeys) == 1 && (hasFQCN || hasBlock):
+	case len(nonReservedKeys) == 1 && (hasFQCN || hasBlock || hasParallel):
 		conflict := "fqcn"
-		if hasBlock {
+		switch {
+		case hasBlock:
 			conflict = "block"
+		case hasParallel:
+			conflict = "parallel"
 		}
-		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call or a block, and module-as-key sugar cannot combine with an explicit fqcn/block", label, conflict, nonReservedKeys[0])
+		return fmt.Errorf("task %s sets both %s and an unrecognized key %q: a task must be exactly one of a module call, a block, or a parallel group, and module-as-key sugar cannot combine with an explicit fqcn/block/parallel", label, conflict, nonReservedKeys[0])
 	case len(nonReservedKeys) == 1:
 		key := nonReservedKeys[0]
 		val := task[key]
@@ -303,7 +314,7 @@ func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
 		}
 	}
 
-	for _, key := range []string{"block", "rescue", "always"} {
+	for _, key := range []string{"block", "rescue", "always", "parallel"} {
 		if sub, ok := task[key]; ok {
 			if err := normalizeTaskListJSON(sub, label+"."+key); err != nil {
 				return err

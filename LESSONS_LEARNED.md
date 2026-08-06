@@ -879,3 +879,26 @@ story, per `.AGENTS/AGENTS.md`.
     of gap. A silent no-op is the worst failure mode this specific feature can have, worse than a hard
     error, so a real dogfood usage pass belongs in the checklist before calling a masking feature done, not
     only a green test suite the feature's own author wrote.
+
+72. **A roadmap checklist item's "Expected" pattern list is a draft prediction to verify, not a mandate to
+    satisfy, and a Pattern Entry Gate's own Adversarial Pattern Justification line can reveal that the
+    "light" version of an item is an active regression, not merely an inert one.** Phase 10 (Workflow DAG
+    Builder)'s Pattern Entry Gate listed Checkpointing as "Expected," but `PLAN.md` Section 25's own table
+    already described that pattern as a durable run record "separate from the compiled definition" -
+    exactly what Phase 10 (`engine.Builder`/`engine.DAG`) is, and Phase 27 already independently claimed
+    the same pattern in its own Pattern Entry Gate for the shape that actually needs it (a persisted row
+    surviving a multi-day approval pause). Building it here anyway would have violated Section 25's "one
+    implementation per contract" rule for no real gain. Separately, "add typed edges so status routing can
+    be expressed" read, on first pass, like a small, additive, structural-only change - add an enum, done.
+    Pressure-testing it against the real code (before any implementation) found the opposite: `Executor.Run`
+    aborts its whole walk on any node failure, and `LevelIterator`'s reachability is computed once, up
+    front, independent of runtime outcome. Naively wiring `Task.Rescue` into a real `Adjacency` edge without
+    also rewriting that control flow would not have been an inert, unconsumed piece of vocabulary - it
+    would have made `Rescue` fire on the *happy* path (its in-degree already hits zero when the guarded
+    block's own exit level is returned) and never fire on the *failure* path it exists for (since `Run`
+    aborts before that level is ever requested). The lesson generalizes past this one phase: when a
+    roadmap's own checklist line describes an "Expected" pattern or a "just wire it in" step, treat both as
+    claims to verify against the real, current code before writing anything, not facts to implement against
+    - and when a hostile pressure-test surfaces that the small version of a change is actively wrong rather
+    than merely incomplete, that is exactly the finding a Pattern Entry Gate exists to catch before code is
+    written, not after.

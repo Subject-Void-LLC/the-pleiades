@@ -244,6 +244,65 @@ tasks:
 	}
 }
 
+// TestModuleAsKeySugar_ConflictsWithExplicitParallel_Errors is the
+// parallel: counterpart of TestModuleAsKeySugar_ConflictsWithExplicitBlock_Errors,
+// proving reservedTaskKeys (task_syntax.go) recognizes "parallel" the same
+// way it already recognizes "block", not just at the DAG-validation layer
+// (tasktree.go's validateTask) but at the sugar-normalization layer this
+// file owns: without this, the sugar rewriter would misread parallel:'s
+// own list as an unrecognized module-as-key value instead.
+func TestModuleAsKeySugar_ConflictsWithExplicitParallel_Errors(t *testing.T) {
+	builder := newTestBuilder(t)
+
+	_, err := builder.BuildFromYAML([]byte(`
+id: sugar-conflict-parallel
+tasks:
+  - name: confused
+    parallel:
+      - name: child
+        fqcn: noop
+    net.cli.command:
+      command: "show version"
+`))
+	if err == nil {
+		t.Fatal("expected an error for a task combining parallel: with sugar syntax")
+	}
+	if !strings.Contains(err.Error(), "parallel:") {
+		t.Errorf("expected error to name the parallel: conflict, got: %v", err)
+	}
+}
+
+// TestModuleAsKeySugar_NestedInParallel proves module-as-key sugar is
+// rewritten inside a parallel: child too, mirroring
+// TestModuleAsKeySugar_NestedBlockRescueAlways for block/rescue/always.
+func TestModuleAsKeySugar_NestedInParallel(t *testing.T) {
+	builder := newTestBuilder(t)
+
+	dag, err := builder.BuildFromYAML([]byte(`
+id: sugar-in-parallel
+tasks:
+  - name: fanout
+    parallel:
+      - name: child
+        net.cli.command:
+          command: "show version"
+`))
+	if err != nil {
+		t.Fatalf("failed to build DAG: %v", err)
+	}
+
+	task, ok := dag.Nodes["tasks[0].parallel[0]"]
+	if !ok {
+		t.Fatalf("expected node tasks[0].parallel[0] to exist, got nodes: %v", dag.Nodes)
+	}
+	if task.FQCN != "net.cli.command" {
+		t.Errorf("expected fqcn %q, got %q", "net.cli.command", task.FQCN)
+	}
+	if task.Params["command"] != "show version" {
+		t.Errorf("expected params.command %q, got %v", "show version", task.Params)
+	}
+}
+
 // TestModuleAsKeySugar_NonMapValue_Errors proves a module-as-key value
 // that isn't a map of arguments (a scalar or a list) is rejected rather
 // than silently coerced into something Params can't sensibly represent.

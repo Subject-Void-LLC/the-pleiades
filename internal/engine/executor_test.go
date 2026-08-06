@@ -216,6 +216,82 @@ func TestExecutor_DeviceFanOut(t *testing.T) {
 	}
 }
 
+// TestExecutor_Parallel_RunsConcurrently confirms a parallel task's
+// children genuinely run concurrently through the real Executor.Run call
+// (not just LevelIterator.Next in isolation, which TestLevelIterator_Diamond,
+// level_iterator_test.go, already proves), using the same high-water-mark
+// tracking pattern as TestExecutor_ConcurrencyBound below. It also proves
+// the synthetic fan-out/join markers never reach the ActionExecutor at
+// all (the count of onExecute calls equals exactly childCount, not
+// childCount+2), and that every child plus both markers still produced a
+// NodeResult, so Phase 10's synthetic fast path (executor.go's runNode)
+// is provably inert rather than silently dropping results.
+func TestExecutor_Parallel_RunsConcurrently(t *testing.T) {
+	const childCount = 4
+
+	var current, peak, calls int32
+	tracker := trackingActionExecutor{
+		onExecute: func() {
+			atomic.AddInt32(&calls, 1)
+			n := atomic.AddInt32(&current, 1)
+			for {
+				p := atomic.LoadInt32(&peak)
+				if n <= p || atomic.CompareAndSwapInt32(&peak, p, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt32(&current, -1)
+		},
+	}
+
+	dag := buildDAG(t, `{
+		"id": "parallel-concurrency",
+		"tasks": [
+			{"name": "fanout", "parallel": [
+				{"name": "p0", "fqcn": "noop"},
+				{"name": "p1", "fqcn": "noop"},
+				{"name": "p2", "fqcn": "noop"},
+				{"name": "p3", "fqcn": "noop"}
+			]}
+		]
+	}`)
+
+	x := engine.NewExecutor(mapResolver{}, tracker, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	if got := atomic.LoadInt32(&peak); got != childCount {
+		t.Fatalf("expected all %d parallel children to run concurrently (peak == %d), observed peak %d", childCount, childCount, got)
+	}
+	if got := atomic.LoadInt32(&calls); got != childCount {
+		t.Fatalf("expected exactly %d ActionExecutor calls (the synthetic fanout/join markers must never reach it), got %d", childCount, got)
+	}
+
+	wantIDs := map[string]bool{
+		"tasks[0].fanout": true, "tasks[0].join": true,
+		"tasks[0].parallel[0]": true, "tasks[0].parallel[1]": true,
+		"tasks[0].parallel[2]": true, "tasks[0].parallel[3]": true,
+	}
+	if len(result.Nodes) != len(wantIDs) {
+		t.Fatalf("expected %d node results, got %d: %+v", len(wantIDs), len(result.Nodes), result.Nodes)
+	}
+	for _, n := range result.Nodes {
+		if !wantIDs[n.NodeID] {
+			t.Errorf("unexpected node result %q", n.NodeID)
+		}
+		if n.Err != nil {
+			t.Errorf("node %q: expected no error, got %v", n.NodeID, n.Err)
+		}
+	}
+}
+
 // TestExecutor_UnknownTargetIsError confirms a non-empty target that
 // resolves to no device fails the node with an actionable error, rather
 // than silently doing nothing (this codebase's own established defect

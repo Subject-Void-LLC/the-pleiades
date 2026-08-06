@@ -1526,3 +1526,51 @@ automatically a dead end once a package is confirmed innocent (`git status` on t
 cheap, real, repeatable way to get a genuine full-suite signal instead of settling for "probably fine,
 retried once." Reach for it before spending further time re-deriving that a failure is the known container
 category.
+
+## 62. Two independent unbounded-recursion sites in the DAG builder scaled stack usage directly with externally-supplied input size
+
+**Symptom:** Phase 10 (Workflow DAG Builder)'s own checklist named one specific instance ("bound the
+cycle-detection recursion") but research found the same defect class in three call sites, not one:
+`dag.go`'s `hasCycle` (a recursive DFS whose depth is driven by `Adjacency` path length - a large *flat*
+`tasks:` list, no nesting needed at all, since `synthesizeChain` always chains a flat list into one long
+line), and `tasktree.go`'s `synthesizeChain`/`collectSubtree` plus `import_tasks.go`'s
+`resolveImportTasksInList` (whose depth is driven by `block`/`rescue`/`always`/`parallel`/`import_tasks`
+*nesting* depth instead - a structurally different risk from the first, since a flat list has nesting
+depth 1 no matter how many tasks it holds). Neither had a depth bound. `dag_fuzz_test.go`'s existing seed
+corpus (a 3-level nested `block` seed) came nowhere near adversarial depth and did not catch this.
+
+**Root cause:** every one of these three functions is a plain recursive walk with no depth accounting,
+over a graph/tree shape an external caller fully controls via a runbook JSON or YAML payload. Go's
+goroutine stacks grow dynamically (unlike a fixed-size C stack), so this is not a "one tiny payload
+instantly crashes the process" bug the way it would be in a language with fixed-size stacks - but the
+growth ceiling is still finite (1GB by default, `runtime/debug.SetMaxStack`), and exceeding it is a fatal,
+unrecoverable process crash, not a catchable `panic`/`recover()`. A single request large enough to reach
+that ceiling is a real but non-trivial payload (tens of MB); more realistically, several concurrent
+requests each moderately deep can exhaust process memory well before any single one reaches the per-
+goroutine ceiling alone. Either way this is a real resource-exhaustion vector on an externally-supplied
+boundary (Phase 39's Schema/Injection Hardening categories), not merely a theoretical concern.
+
+**Fix:** `hasCycle` converted to an iterative DFS over an explicit stack (`dfsFrame`/`dfsColor`,
+`internal/engine/dag.go`), removing its recursion limit entirely rather than picking an arbitrary cap on
+legitimate large runbooks - the right fix for a risk driven by input *size*, not depth.
+`resolveImportTasksInList` (`internal/engine/import_tasks.go`) gained a real depth check at the top of the
+function, reusing its own pre-existing `maxImportDepth` constant (renamed `maxTaskNestingDepth`, value
+unchanged at 32) for both its original purpose (import-hop-chain length) and plain nesting depth. Because
+`resolveImportTasksInList` runs first and unconditionally on the complete tree (`resolveImportTasks` is
+`buildFromDef`'s very first step), bounding it there transitively bounds `tasktree.go`'s own recursion too
+- one check, not two, for the one risk. `TestHasCycle_NoStackOverflowOnLongChain` (500,000-node chain,
+`dag_internal_test.go`), `TestDAGBuilder_LargeFlatTaskListDoesNotCrash` (20,000 flat tasks through the
+real `Build()` path), and `TestDAGBuilder_ExcessiveNestingRejected` (a 200-level nested payload, rejected
+with a clear error; a 10-level one still builds) are the regression tests; `FuzzDAGBuilder`'s seed corpus
+gained a 500-level-deep adversarial seed.
+
+**Lesson:** when a checklist item names one instance of a recursion-depth risk, grep the same package for
+the identical shape (a function recursing over the same externally-supplied tree/graph with no depth
+accounting) before considering the item closed - `import_tasks.go`'s `resolveImportTasksInList` was found
+this way, not named in the original item, and would have been an identical, un-fixed gap sitting right
+next to the one just closed. Separately: a recursion-depth risk in Go is real even though Go's growable
+stacks make it a higher bar to hit than in a fixed-stack language - state the actual mechanics (a finite
+but large ceiling, a fatal, unrecoverable crash once reached, concurrent load lowering the practical
+bar) rather than either dismissing the risk as impossible or overstating it as "one tiny payload always
+crashes the process," a description that is accurate for other languages but not for Go's default stack
+behavior.
