@@ -46,9 +46,8 @@ func TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository(t *testing.T) 
 	client.Group.Create().SetName("staging-real").AddDevices(staging1).SaveX(ctx)
 
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	dispatchGroup := func(t *testing.T, groupName string) int {
 		t.Helper()

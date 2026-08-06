@@ -65,7 +65,6 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
-	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus"
@@ -373,19 +372,34 @@ func main() {
 		fatal("failed to get jetstream", err)
 	}
 
-	dispatcher := api.NewDispatcher(repo, evaluator, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 	streamer := api.NewLogStreamer(js)
 
-	// Routes are registered through RouterConfig.Routes rather than by
-	// grouping onto the returned mux afterwards. The router mounts that
-	// callback under api.APIVersionPrefix with auth and the rate limiter
-	// already applied, so "every application route is versioned,
-	// authenticated, and throttled" holds structurally: there is no way
-	// to register a route here that skips any of the three, which the
-	// previous shape (spelling "/api/v1/..." into each path by hand,
-	// inside a hand-assembled group) left entirely to whoever added the
-	// next route.
-	r := api.NewRouter(api.RouterConfig{
+	// admission is Phase 8's own Chain of Responsibility, given its first
+	// production caller by Phase 12: every request into the versioned API
+	// subtree is evaluated against it, not only authenticated. The chain
+	// carries one rule today, NewTokenScopeRule, the token-scope axis. The
+	// Team/RoleBinding axis (NewScopeRule/auth.ScopeResolver) is
+	// deliberately not appended here: it needs a ScopeTarget (which
+	// Group/Device/Organization the request is against), and an HTTP
+	// route has none to give it until a handler resolves one, which is
+	// Phase 14's own concern once it holds a device. Recorder is the
+	// Audit Trail entry PATTERNS.md already names: every decision, allow
+	// or deny, is logged.
+	admission := auth.Admission{
+		Chain:    auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)},
+		Recorder: auth.NewSlogRecorder(logger),
+	}
+
+	// Routes are registered as a declarative table rather than a callback
+	// that groups onto the returned mux. NewRouter mounts every entry
+	// under api.APIVersionPrefix with auth, the rate limiter, and that
+	// route's own RequireScope(admission, Scope) already applied, and
+	// refuses to build at all if any entry omits its Scope or if Admission
+	// is nil, so "every application route is versioned, authenticated,
+	// throttled, and authorized" holds structurally: there is no way to
+	// register a route here that skips any of the four.
+	r, err := api.NewRouter(api.RouterConfig{
 		Logger:      logger,
 		Tracer:      tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/api"),
 		Propagator:  tracerProvider.Propagator(),
@@ -393,11 +407,15 @@ func main() {
 		Readiness:   readinessChecks(nc, client),
 		RateLimiter: rateLimiter,
 		Auth:        api.AuthMiddleware(evaluator),
-		Routes: func(r chi.Router) {
-			r.Post("/jobs/dispatch", dispatcher.DispatchRunbook)
-			r.Get("/jobs/{id}/logs", streamer.StreamLogs)
+		Admission:   admission,
+		Routes: []api.Route{
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: dispatcher.DispatchRunbook},
+			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Handler: streamer.StreamLogs},
 		},
 	})
+	if err != nil {
+		fatal("failed to build router", err)
+	}
 
 	srv := &http.Server{
 		Addr:    listenAddr,

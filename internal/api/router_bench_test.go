@@ -30,12 +30,16 @@ func BenchmarkAPIMiddleware(b *testing.B) {
 		}
 	}()
 
-	router := api.NewRouter(api.RouterConfig{
-		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Tracer:     tp.Tracer("bench"),
-		Propagator: telemetry.Propagator(),
-		Registry:   prometheus.NewRegistry(),
+	router, err := api.NewRouter(api.RouterConfig{
+		Logger:               slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Tracer:               tp.Tracer("bench"),
+		Propagator:           telemetry.Propagator(),
+		Registry:             prometheus.NewRegistry(),
+		AllowUnauthenticated: true,
 	})
+	if err != nil {
+		b.Fatalf("NewRouter: %v", err)
+	}
 	req := httptest.NewRequest("GET", "/healthz", nil)
 
 	b.ResetTimer()

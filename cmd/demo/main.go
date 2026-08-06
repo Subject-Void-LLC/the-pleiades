@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,11 +13,57 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ansible"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// demoSecretLen matches auth.NewStaticKeyProvider's own HS256 minimum
+// (RFC 7518 SS3.2), so this binary's own secret is never itself the
+// reason a real code path would have rejected it.
+const demoSecretLen = 32
+
+// mintDemoToken builds a fresh, random HMAC secret, the real
+// auth.Evaluator that verifies tokens signed against it, and one signed
+// admin token this process's own operator can use immediately.
+//
+// This demo used to mount streamer.StreamLogs on a bare chi.NewRouter
+// with no middleware at all: no auth, no tracing, no metrics, no rate
+// limiting protected the one route it advertised, a live unauthenticated
+// entry point recorded as FAILURE_PATTERNS.md #67. It now goes through
+// api.NewRouter like every other binary in this repository, which means
+// it needs a real evaluator and a real token to demonstrate that one
+// route with, not a way around either.
+func mintDemoToken() (auth.Evaluator, string, error) {
+	secret := make([]byte, demoSecretLen)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, "", fmt.Errorf("generating demo signing secret: %w", err)
+	}
+	provider, err := auth.NewStaticKeyProvider(secret)
+	if err != nil {
+		return nil, "", err
+	}
+	evaluator, err := auth.NewJWTEvaluator(provider, "pleiades-demo", "pleiades-demo")
+	if err != nil {
+		return nil, "", err
+	}
+
+	claims := jwt.MapClaims{
+		"sub":  "demo-operator",
+		"role": string(auth.RoleAdmin),
+		"iss":  "pleiades-demo",
+		"aud":  "pleiades-demo",
+		"exp":  time.Now().Add(24 * time.Hour).Unix(),
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+	if err != nil {
+		return nil, "", fmt.Errorf("signing demo token: %w", err)
+	}
+	return evaluator, token, nil
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +95,12 @@ func main() {
 	adapter := ansible.NewReceptorAdapter(bus)
 	streamer := api.NewLogStreamer(js)
 
-	const demoJobID = "123"
+	// A real UUID, not the literal "123" this used to be: every job ID
+	// this platform mints is a UUID (api.Dispatcher's own uuid.New()), and
+	// LogStreamer's own {id} boundary has required one since
+	// FAILURE_PATTERNS.md #63, so the old literal 400'd against this
+	// binary's own advertised URL from that phase onward.
+	demoJobID := uuid.New().String()
 
 	// Continually pump logs rapidly
 	go func() {
@@ -64,8 +117,30 @@ func main() {
 		}
 	}()
 
-	r := chi.NewRouter()
-	r.Get("/api/v1/jobs/{id}/logs", streamer.StreamLogs)
+	evaluator, token, err := mintDemoToken()
+	if err != nil {
+		log.Fatalf("failed to mint demo token: %v", err)
+	}
+
+	// admission is the same Chain of Responsibility cmd/controller wires:
+	// a demo binary bypassing authorization while every real composition
+	// root enforces it would itself be exactly the kind of second,
+	// unguarded entry point this fix is closing.
+	admission := auth.Admission{
+		Chain:    auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)},
+		Recorder: auth.NewSlogRecorder(nil),
+	}
+
+	r, err := api.NewRouter(api.RouterConfig{
+		Auth:      api.AuthMiddleware(evaluator),
+		Admission: admission,
+		Routes: []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Handler: streamer.StreamLogs},
+		},
+	})
+	if err != nil {
+		log.Fatalf("failed to build router: %v", err)
+	}
 
 	srv := &http.Server{
 		Addr:              ":8081",
@@ -74,7 +149,8 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Starting API server on :8081 (try /api/v1/jobs/%s/logs)", demoJobID)
+		log.Printf("Starting API server on :8081")
+		log.Printf("try: curl -H 'Authorization: Bearer %s' http://localhost:8081/api/v1/jobs/%s/logs", token, demoJobID)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}

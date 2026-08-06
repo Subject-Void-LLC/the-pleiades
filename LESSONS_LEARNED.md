@@ -945,3 +945,20 @@ story, per `.AGENTS/AGENTS.md`.
     are part of a binary's observable contract, and anything that asserts on them - an alert, a test, a
     scrape config - is coupled to a decision that looks internal. When changing it, grep for what reads
     the old destination before assuming the change is additive.
+
+76. **A mechanism with a passing unit test suite and zero production callers is not "adopted," and
+    `PATTERNS.md` saying `YES` does not make it so.** `auth.AdmissionChain`/`auth.Admission` were built,
+    tested, and documented in `PATTERNS.md` as this platform's zero-trust enforcement a full phase before
+    anything outside `internal/auth`'s own tests ever called `Evaluate`. The gap survived because every
+    signal that would normally catch it was pointed at the wrong layer: `go build`/`go vet` confirm the
+    type compiles, a green test suite confirms the logic is correct in isolation, and a Pattern Entry Gate
+    that names a mechanism reads as though naming it closes the question of whether it runs. None of the
+    three asks "what production code path actually reaches this." The check that does is mechanical and
+    cheap - grep every exported entry point of the mechanism for a caller outside its own package's
+    `_test.go` files - and it has to be run explicitly, on purpose, because nothing else in the normal
+    build/test/lint sequence will surface a real capability that nothing calls. Apply this any time a
+    phase's own checklist says a port, a chain, or a validator was "implemented": implemented and wired
+    are different claims, and only the second one is a security or correctness guarantee. The same
+    session found the same shape a second time one layer down: a forged-token corpus that had genuinely
+    been run once, correctly, left no test file behind, so "was verified" and "was asserted in a
+    checklist" were indistinguishable until someone re-ran it (`FAILURE_PATTERNS.md` #65, #68).

@@ -11,6 +11,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/adapters/native"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth/authtest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
@@ -23,16 +24,6 @@ import (
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-type mockEvaluator struct{}
-
-func (m *mockEvaluator) ValidateToken(ctx context.Context, rawToken string) (*auth.Identity, error) {
-	return &auth.Identity{Subject: "admin1", Role: auth.RoleAdmin}, nil
-}
-
-func (m *mockEvaluator) CheckAccess(ctx context.Context, id *auth.Identity, requiredScopes ...string) error {
-	return nil
-}
 
 func TestGrandIntegration(t *testing.T) {
 	if testing.Short() {
@@ -142,19 +133,28 @@ func TestGrandIntegration(t *testing.T) {
 	go agent.Run(agentCtx)
 
 	// 6. Start API Dispatcher
-	eval := &mockEvaluator{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
-	// 7. Make API Request
+	// 7. Make API Request, authenticated with a real signed token through
+	// the real AuthMiddleware rather than a hand-injected identity: this
+	// package cannot reach api.IdentityKeyForTest (an export_test.go
+	// symbol, visible only inside package api's own test binary), which
+	// is exactly the cross-package gap HANDOFF_DOCUMENT.md's Phase 11
+	// session named authtest as the fix for. Going through the real
+	// middleware here is also strictly more representative of what a
+	// caller actually experiences (AGENTS.md RULE 0) than constructing an
+	// *auth.Identity by hand ever was.
+	issuer := authtest.New(t, "pleiades-e2e-issuer", "pleiades-e2e-audience")
+	handler := api.AuthMiddleware(issuer.Evaluator())(http.HandlerFunc(dispatcher.DispatchRunbook))
+
 	httpReq := httptest.NewRequest("POST", "/api/v1/jobs/dispatch?group=edge&runbook=ping", nil)
-	id := &auth.Identity{
+	httpReq.Header.Set("Authorization", issuer.BearerToken(t, &auth.Identity{
 		Subject: "admin1",
 		Role:    auth.RoleAdmin,
-	}
-	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), api.IdentityKeyForTest, id))
+	}))
 
 	rr := httptest.NewRecorder()
-	dispatcher.DispatchRunbook(rr, httpReq)
+	handler.ServeHTTP(rr, httpReq)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d. Body: %s", rr.Code, rr.Body.String())

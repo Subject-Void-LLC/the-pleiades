@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -8,37 +9,69 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/go-chi/chi/v5"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// FuzzAPIRouter drives arbitrary methods, paths, and traceparent headers
-// through the whole middleware chain. The traceparent input matters:
-// propagator.Extract parses attacker-supplied hex, and a malformed value
-// must produce an ordinary un-parented span rather than a panic that
-// takes the process down.
+// alwaysAllowAdmitter is a minimal Admitter that never denies, since this
+// fuzzer's target is the tracing/propagator boundary (an attacker-supplied
+// traceparent), not authorization. AllowUnauthenticated stays false and a
+// real, if trivial, evaluator is wired below so the request still passes
+// through AuthMiddleware, matching the shape of a real deployment rather
+// than skipping a pipeline stage the real router always runs.
+type alwaysAllowAdmitter struct{}
+
+func (alwaysAllowAdmitter) Evaluate(context.Context, *auth.Identity, auth.AdmissionRequest) error {
+	return nil
+}
+
+// alwaysValidEvaluator accepts any bearer value as an authenticated
+// identity, isolating this fuzzer from auth.jwtEvaluator's own parsing (a
+// distinct boundary, fuzzed directly by internal/auth's own
+// FuzzJWTParsing).
+type alwaysValidEvaluator struct{}
+
+func (alwaysValidEvaluator) ValidateToken(context.Context, string) (*auth.Identity, error) {
+	return &auth.Identity{Subject: "fuzz-user"}, nil
+}
+
+// FuzzAPIRouter drives arbitrary methods, paths, traceparent headers, and
+// Authorization headers through the whole middleware chain. The
+// traceparent input matters: propagator.Extract parses attacker-supplied
+// hex, and a malformed value must produce an ordinary un-parented span
+// rather than a panic that takes the process down. The Authorization
+// input matters for the same reason AuthMiddleware.ValidateToken's own
+// prefix-slicing exists: a header shorter than "Bearer " must not panic
+// on the slice bound.
 func FuzzAPIRouter(f *testing.F) {
-	router := api.NewRouter(api.RouterConfig{
-		Logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Registry: prometheus.NewRegistry(),
-		Routes: func(r chi.Router) {
-			r.Get("/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+	router, err := api.NewRouter(api.RouterConfig{
+		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Registry:  prometheus.NewRegistry(),
+		Auth:      api.AuthMiddleware(alwaysValidEvaluator{}),
+		Admission: alwaysAllowAdmitter{},
+		Routes: []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-			})
+			}},
 		},
 	})
+	if err != nil {
+		f.Fatalf("NewRouter: %v", err)
+	}
 
-	f.Add("GET", "/healthz", "")
-	f.Add("GET", "/readyz", "")
-	f.Add("POST", "/metrics", "")
-	f.Add("PUT", "/unknown", "")
-	f.Add("GET", "/../../etc/passwd", "")
-	f.Add("GET", "/api/v1/jobs/abc", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
-	f.Add("GET", "/api/v1/jobs/abc", "not-a-traceparent")
-	f.Add("GET", "/api/v1/jobs/abc", "00--00f067aa0ba902b7-01")
-	f.Add("GET", "/healthz", "99-ffffffffffffffffffffffffffffffff-ffffffffffffffff-ff")
+	f.Add("GET", "/healthz", "", "")
+	f.Add("GET", "/readyz", "", "")
+	f.Add("POST", "/metrics", "", "")
+	f.Add("PUT", "/unknown", "", "")
+	f.Add("GET", "/../../etc/passwd", "", "")
+	f.Add("GET", "/api/v1/jobs/abc", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "Bearer x")
+	f.Add("GET", "/api/v1/jobs/abc", "not-a-traceparent", "Bearer x")
+	f.Add("GET", "/api/v1/jobs/abc", "00--00f067aa0ba902b7-01", "")
+	f.Add("GET", "/healthz", "99-ffffffffffffffffffffffffffffffff-ffffffffffffffff-ff", "")
+	f.Add("GET", "/api/v1/jobs/abc", "", "Bearer")
+	f.Add("GET", "/api/v1/jobs/abc", "", "B")
 
-	f.Fuzz(func(t *testing.T, method, path, traceparent string) {
+	f.Fuzz(func(t *testing.T, method, path, traceparent, authorization string) {
 		// httptest.NewRequest panics on a URI the fuzzer invents that
 		// net/http cannot parse at all; that is the test harness's own
 		// limitation, not a finding about the router.
@@ -49,6 +82,9 @@ func FuzzAPIRouter(f *testing.F) {
 		req := httptest.NewRequest(method, path, nil)
 		if traceparent != "" {
 			req.Header.Set("traceparent", traceparent)
+		}
+		if authorization != "" {
+			req.Header.Set("Authorization", authorization)
 		}
 		rr := httptest.NewRecorder()
 

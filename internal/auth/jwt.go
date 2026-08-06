@@ -72,17 +72,24 @@ func (j *jwtEvaluator) ValidateToken(ctx context.Context, rawToken string) (*Ide
 
 	if customClaims, ok := token.Claims.(*claims); ok && token.Valid {
 		sub, _ := customClaims.GetSubject()
+		// The wire claim is a plain []string (JWT has no concept of this
+		// package's Scope type), converted here at the one boundary where
+		// an untyped wire value becomes a typed domain value.
+		scopes := make([]Scope, len(customClaims.Scopes))
+		for i, s := range customClaims.Scopes {
+			scopes[i] = Scope(s)
+		}
 		return &Identity{
 			Subject: sub,
 			Role:    Role(customClaims.Role),
-			Scopes:  customClaims.Scopes,
+			Scopes:  scopes,
 		}, nil
 	}
 
 	return nil, fmt.Errorf("invalid token claims")
 }
 
-func (j *jwtEvaluator) CheckAccess(ctx context.Context, id *Identity, requiredScopes ...string) error {
+func (j *jwtEvaluator) CheckAccess(ctx context.Context, id *Identity, requiredScopes ...Scope) error {
 	if id == nil {
 		return fmt.Errorf("access denied: unauthenticated identity")
 	}

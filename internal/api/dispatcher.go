@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
@@ -18,7 +17,6 @@ import (
 // Dispatcher coordinates the execution of Runbooks against an inventory group.
 type Dispatcher struct {
 	repo inventory.Repository
-	auth auth.Evaluator
 	bus  event.Bus
 }
 
@@ -32,10 +30,19 @@ type Dispatcher struct {
 // failed with its error swallowed into errCount. Publishing through Bus
 // and topology.DispatchSubject fixes the subject mismatch and gives
 // Bus.Publish its first real, meaningful production caller.
-func NewDispatcher(repo inventory.Repository, evaluator auth.Evaluator, bus event.Bus) *Dispatcher {
+//
+// This used to also take an auth.Evaluator, so the per-device loop below
+// could re-check "runbook:execute" on every iteration. Phase 12 removed
+// it: the check was an invariant, identical for every device on every
+// call, so it was one boundary-level check away from being redundant, not
+// defense in depth. Now that api.RequireScope enforces the same scope at
+// the router boundary before this handler is ever reached, the loop's own
+// copy could never fail differently from the one at the door, and kept
+// alive would have been dead code pretending to be a security control. See
+// FAILURE_PATTERNS.md #66.
+func NewDispatcher(repo inventory.Repository, bus event.Bus) *Dispatcher {
 	return &Dispatcher{
 		repo: repo,
-		auth: evaluator,
 		bus:  bus,
 	}
 }
@@ -48,12 +55,21 @@ type DispatchPayload struct {
 	DeviceIP   string `json:"device_ip"`
 }
 
-// DispatchRunbook executes a runbook against an inventory group.
-// It iterates through the group, verifies authorization per device, and emits a NATS message.
+// DispatchRunbook executes a runbook against an inventory group. It
+// iterates through the group and emits one NATS message per device.
+// Authorization (the caller holds auth.ScopeRunbookExecute) is enforced
+// once, at the router boundary, by api.RequireScope before this handler
+// ever runs; the identity is read from context here only to stamp the
+// actor onto each published event, not to authorize anything.
 func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
-	// 1. Extract Identity from Context
-	id, ok := r.Context().Value(identityKey).(*auth.Identity)
-	if !ok || id == nil {
+	// 1. Extract Identity from Context. Its absence here means the
+	// request reached this handler with no middleware in front of it at
+	// all (a direct unit-test call, or a second router mounting this
+	// handler unguarded, PATTERNS.md's Front Controller entry's whole
+	// concern) rather than an authorization failure, which RequireScope
+	// already turned into a 403 upstream.
+	id, ok := IdentityFromContext(r.Context())
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -83,14 +99,15 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	for iter.Next(r.Context()) {
 		device := iter.Item()
 
-		// 4. Capability Check: Ensure the user is allowed to run runbooks
-		// In a full implementation, we might check `runbook:execute:<device_type>`
-		if err := d.auth.CheckAccess(r.Context(), id, "runbook:execute"); err != nil {
-			errCount++
-			continue // Skip unauthorized devices instead of failing the whole batch
-		}
+		// Capability check: HasCapability("runbook:execute" and friends) is
+		// Phase 14's own open checklist item, not this one's. The scope
+		// check that used to live here is gone; api.RequireScope already
+		// enforced auth.ScopeRunbookExecute before this handler was ever
+		// reached, so re-checking the identical, per-call-invariant fact on
+		// every device would only have been dead code pretending to guard
+		// something.
 
-		// 5. Build and Publish NATS Payload
+		// 4. Build and Publish NATS Payload
 		// The typed Properties accessor replaces an unchecked map assertion
 		// that used to panic the handler for any device lacking "ip".
 		deviceIP, ok := device.Properties().String("ip")

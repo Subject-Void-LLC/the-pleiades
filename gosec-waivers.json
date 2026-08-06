@@ -33,9 +33,9 @@
     },
     {
       "file": "internal/api/dispatcher.go",
-      "line": "154-159",
+      "line": "171-176",
       "rule_id": "G104",
-      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in hateoas.go above. Line numbers shifted (146-151 -> 154-159) when Phase 11 added the trace-context graft above it; no code at this finding changed."
+      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in hateoas.go above. Line numbers shifted again (154-159 -> 171-176) when Phase 12 removed the per-device auth.CheckAccess call and its comment above this line (FAILURE_PATTERNS.md #66: the check was redundant with api.RequireScope, which now enforces the same scope once at the router boundary); no code at this finding itself changed."
     }
   ]
 }

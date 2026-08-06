@@ -9,12 +9,20 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
 )
 
-// TestNewRouter_ZeroConfigIsUsable proves every RouterConfig field has a
-// working default. A constructor whose zero value panics forces every
-// test and every future caller to know the full dependency list before it
-// can serve one request.
+// TestNewRouter_ZeroConfigIsUsable proves every RouterConfig field that
+// has a safe default actually gets one. A constructor whose zero value
+// panics forces every test and every future caller to know the full
+// dependency list before it can serve one request.
+//
+// Auth is the one field this no longer holds for by itself: Phase 12
+// made a nil Auth a construction error unless AllowUnauthenticated states
+// the opt-out explicitly, so this test states it, the same way any other
+// caller now must.
 func TestNewRouter_ZeroConfigIsUsable(t *testing.T) {
-	router := api.NewRouter(api.RouterConfig{})
+	router, err := api.NewRouter(api.RouterConfig{AllowUnauthenticated: true})
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
 
 	for _, path := range []string{"/healthz", "/readyz", "/metrics"} {
 		rr := httptest.NewRecorder()

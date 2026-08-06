@@ -82,7 +82,7 @@ func (f *fakeRecorder) Record(_ context.Context, d auth.Decision) {
 func TestAdmission_Evaluate_RecordsEveryDecision(t *testing.T) {
 	recorder := &fakeRecorder{}
 	id := &auth.Identity{Subject: "u1", Role: auth.RoleViewer}
-	req := auth.AdmissionRequest{RequiredScope: "inventory:read"}
+	req := auth.AdmissionRequest{RequiredScope: auth.ScopeInventoryRead}
 
 	allowAdmission := auth.Admission{
 		Chain:    auth.AdmissionChain{&fakeAdmissionRule{effect: auth.EffectAllow}},
@@ -117,14 +117,14 @@ func TestTokenScopeRule(t *testing.T) {
 	rule := auth.NewTokenScopeRule(eval)
 	ctx := context.Background()
 
-	viewer := &auth.Identity{Subject: "u1", Role: auth.RoleViewer, Scopes: []string{"inventory:read"}}
+	viewer := &auth.Identity{Subject: "u1", Role: auth.RoleViewer, Scopes: []auth.Scope{auth.ScopeInventoryRead}}
 
-	effect, err := rule.Check(ctx, viewer, auth.AdmissionRequest{RequiredScope: "inventory:read"})
+	effect, err := rule.Check(ctx, viewer, auth.AdmissionRequest{RequiredScope: auth.ScopeInventoryRead})
 	if err != nil || effect != auth.EffectAllow {
 		t.Errorf("expected a matching scope to allow, got effect=%v err=%v", effect, err)
 	}
 
-	effect, err = rule.Check(ctx, viewer, auth.AdmissionRequest{RequiredScope: "inventory:write"})
+	effect, err = rule.Check(ctx, viewer, auth.AdmissionRequest{RequiredScope: auth.ScopeInventoryWrite})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

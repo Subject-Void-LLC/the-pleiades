@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/auth/authtest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +28,27 @@ import (
 // Everything here is the same machinery cmd/controller constructs. RULE 0:
 // a router test that swapped any of it for a stub would prove the stub
 // works, not the request pipeline.
+//
+// alwaysAuthenticated is the default test Auth: it stamps a fixed
+// identity into every request's context without inspecting the request
+// at all, unlike the real AuthMiddleware, which requires an actual Bearer
+// header even when the Evaluator behind it would accept anything. Most of
+// this file's tests are about tracing, metrics, and routing, not
+// authentication, so they should not each have to carry a token to reach
+// their own Route. TestRouter_RequireScopeEnforcesDeclaredScope below is
+// the one test in this file that cares about the real thing, and it
+// overrides Auth with a real evaluator via authtest.
+func alwaysAuthenticated(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), api.IdentityKeyForTest, &auth.Identity{Subject: "test-user", Role: auth.RoleAdmin})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Auth defaults to alwaysAuthenticated and Admission to an always-allow
+// fakeAdmitter, so a registered Route reaches its handler by default. A
+// test that wants to exercise real authentication or authorization
+// overrides Auth/Admission in mutate.
 func newTestRouter(t *testing.T, buf *bytes.Buffer, mutate func(cfg *api.RouterConfig)) (*chi.Mux, *prometheus.Registry) {
 	t.Helper()
 
@@ -42,11 +65,17 @@ func newTestRouter(t *testing.T, buf *bytes.Buffer, mutate func(cfg *api.RouterC
 		Tracer:     tp.Tracer("test"),
 		Propagator: telemetry.Propagator(),
 		Registry:   reg,
+		Auth:       alwaysAuthenticated,
+		Admission:  &fakeAdmitter{},
 	}
 	if mutate != nil {
 		mutate(&cfg)
 	}
-	return api.NewRouter(cfg), reg
+	router, err := api.NewRouter(cfg)
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+	return router, reg
 }
 
 // get issues one request against router and returns the recorder.
@@ -123,10 +152,10 @@ func TestAPIGateway_ReleaseGate(t *testing.T) {
 func TestRouter_MetricLabelUsesRoutePatternNotPath(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, reg := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
-		cfg.Routes = func(r chi.Router) {
-			r.Get("/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		cfg.Routes = []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-			})
+			}},
 		}
 	})
 
@@ -180,10 +209,10 @@ func TestRouter_ContinuesUpstreamTrace(t *testing.T) {
 func TestRouter_RecovererTurnsPanicIntoObserved500(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, reg := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
-		cfg.Routes = func(r chi.Router) {
-			r.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
+		cfg.Routes = []api.Route{
+			{Method: http.MethodGet, Pattern: "/boom", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) {
 				panic("handler exploded")
-			})
+			}},
 		}
 	})
 
@@ -264,10 +293,10 @@ func TestRouter_ReadyzReflectsDependencies(t *testing.T) {
 func TestRouter_EveryApplicationRouteIsVersioned(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, _ := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
-		cfg.Routes = func(r chi.Router) {
-			r.Post("/jobs/dispatch", func(w http.ResponseWriter, r *http.Request) {
+		cfg.Routes = []api.Route{
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusAccepted)
-			})
+			}},
 		}
 	})
 
@@ -293,8 +322,8 @@ func TestRouter_OperationalEndpointsBypassAuthAndRateLimit(t *testing.T) {
 			})
 		}
 		cfg.RateLimiter = api.NewRateLimiter(api.RateLimiterConfig{RequestsPerSecond: 1, Burst: 1})
-		cfg.Routes = func(r chi.Router) {
-			r.Get("/jobs", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+		cfg.Routes = []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }},
 		}
 	})
 
@@ -307,6 +336,63 @@ func TestRouter_OperationalEndpointsBypassAuthAndRateLimit(t *testing.T) {
 	}
 	if rr := get(t, router, http.MethodGet, api.APIVersionPrefix+"/jobs"); rr.Code != http.StatusUnauthorized {
 		t.Errorf("versioned route without a token returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestRouter_RequireScopeEnforcesDeclaredScope is Phase 12's own Release
+// Gate, exercised end to end against the real router, the real
+// auth.Admission Chain of Responsibility, and a real signed token (RULE
+// 0: a test that stubbed out Auth or Admission here would prove nothing
+// about whether the two actually compose). It replaces
+// api.IdentityKeyForTest with authtest.Issuer: every identity below
+// reaches the handler, or does not, purely because a real token really
+// validated and really carried (or lacked) the declared scope, not
+// because anything was injected around the check.
+//
+// Three identities, one request path, three outcomes: no token is 401
+// (authentication never happened), the wrong scope is 403 (authenticated,
+// not admitted), the right scope is 200. Before Phase 12 the second case
+// did not exist: AuthMiddleware alone cannot distinguish "wrong scope"
+// from "right scope," and nothing before this file called
+// auth.AdmissionChain.Evaluate outside of internal/auth's own tests.
+func TestRouter_RequireScopeEnforcesDeclaredScope(t *testing.T) {
+	issuer := authtest.New(t, "router-test-issuer", "router-test-audience")
+	admission := auth.Admission{Chain: auth.AdmissionChain{auth.NewTokenScopeRule(issuer.Evaluator())}}
+
+	var logBuf bytes.Buffer
+	router, _ := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
+		cfg.Auth = api.AuthMiddleware(issuer.Evaluator())
+		cfg.Admission = admission
+		cfg.Routes = []api.Route{
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}},
+		}
+	})
+
+	dispatch := func(t *testing.T, bearer string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, api.APIVersionPrefix+"/jobs/dispatch", nil)
+		if bearer != "" {
+			req.Header.Set("Authorization", bearer)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := dispatch(t, ""); rr.Code != http.StatusUnauthorized {
+		t.Errorf("no token: got %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+
+	wrongScope := &auth.Identity{Subject: "viewer1", Role: auth.RoleViewer, Scopes: []auth.Scope{auth.ScopeInventoryRead}}
+	if rr := dispatch(t, issuer.BearerToken(t, wrongScope)); rr.Code != http.StatusForbidden {
+		t.Errorf("wrong scope: got %d, want %d", rr.Code, http.StatusForbidden)
+	}
+
+	rightScope := &auth.Identity{Subject: "operator1", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeRunbookExecute}}
+	if rr := dispatch(t, issuer.BearerToken(t, rightScope)); rr.Code != http.StatusOK {
+		t.Errorf("right scope: got %d, want %d", rr.Code, http.StatusOK)
 	}
 }
 

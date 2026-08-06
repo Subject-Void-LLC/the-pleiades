@@ -11,7 +11,7 @@ import (
 // where relevant, the resource it targets (the Section 18.4 Team/
 // RoleBinding check).
 type AdmissionRequest struct {
-	RequiredScope string
+	RequiredScope Scope
 	Target        ScopeTarget
 }
 
@@ -95,7 +95,7 @@ func (r *slogRecorder) Record(_ context.Context, d Decision) {
 	attrs := []any{
 		slog.String("subject", subject),
 		slog.String("role", string(role)),
-		slog.String("required_scope", d.Request.RequiredScope),
+		slog.String("required_scope", string(d.Request.RequiredScope)),
 		slog.Bool("allowed", d.Allowed),
 	}
 	if d.Err != nil {
