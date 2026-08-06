@@ -61,6 +61,37 @@ func ValidateSegment(s string) error {
 	return nil
 }
 
+// ValidateIdentSegment reports whether s is safe to use as the raw material
+// for an exported Go identifier and as a single filesystem path component,
+// but not necessarily as a Go package name. It applies every check
+// ValidateSegment does except the reserved-keyword rejection.
+//
+// The distinction is narrow and real. A segment that becomes a package name
+// must not be a keyword, because `package switch` does not compile. A
+// segment that only ever becomes an exported identifier may be one, because
+// ToExportedIdent capitalizes it first and `type Switch struct{}` is
+// perfectly ordinary Go. Rejecting the second case too costs real names:
+// a network switch is the obvious example, and "range", "map", "type",
+// "import", and "return" are all plausible words in a device or method
+// name.
+//
+// Path safety is unaffected. That comes entirely from segmentPattern, which
+// permits no `.`, `/`, `\`, or `..`, so an accepted segment still cannot
+// escape its parent directory once joined with filepath.Join. This function
+// relaxes a Go-syntax check, never a path check.
+func ValidateIdentSegment(s string) error {
+	if s == "" {
+		return fmt.Errorf("genutil: segment is empty")
+	}
+	if len(s) > maxSegmentLength {
+		return fmt.Errorf("genutil: segment %q exceeds the maximum length of %d", s, maxSegmentLength)
+	}
+	if !segmentPattern.MatchString(s) {
+		return fmt.Errorf("genutil: invalid segment %q: must match %s", s, segmentPattern.String())
+	}
+	return nil
+}
+
 // ValidateSegments checks that segments has between one and maxSegments
 // elements and that every element passes ValidateSegment.
 func ValidateSegments(segments []string) error {

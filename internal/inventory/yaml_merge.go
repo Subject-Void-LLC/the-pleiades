@@ -46,6 +46,19 @@ func mergeHostsIntoDocument(original []byte, hosts []HostSpec) (*yaml.Node, erro
 	}
 	hostsSeq.Content = merged
 
+	// An empty sequence parses as flow style ("hosts: []"), which is what
+	// `pleiades init` scaffolds and what yaml.Marshal then preserves. Left
+	// alone, the first write that actually adds hosts emits every one of
+	// them inline on a single line, so a project synced from a controller
+	// ends up with a multi-thousand-character line instead of the
+	// hand-editable file Section 7 promises. Once the sequence has entries,
+	// block style is the only readable choice; a sequence a human
+	// deliberately wrote in flow style is already non-empty and is left as
+	// it is.
+	if len(merged) > 0 && hostsSeq.Style == yaml.FlowStyle {
+		hostsSeq.Style = 0
+	}
+
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
 	return doc, nil
 }

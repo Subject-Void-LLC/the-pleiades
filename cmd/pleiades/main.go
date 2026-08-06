@@ -26,6 +26,7 @@ var commands = map[string]commandFunc{
 	"validate":       runValidate,
 	"run":            runRunbook,
 	"forge":          runForge,
+	"inventory":      runInventory,
 }
 
 // errUnknownCommand signals that a dispatch table (this file's own
@@ -84,6 +85,7 @@ commands:
   add-credential  store an encrypted SSH credential for a device
   validate        check a runbook against the inventory
   run             build, validate, and print the plan for a runbook
+  inventory       sync devices from an external source (see 'pleiades inventory --help')
   forge           authoring and migration tooling (see 'pleiades forge --help')
 
 Walk tier: no server, no database, no broker. See PLAN.md Section 7.`)

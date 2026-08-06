@@ -184,33 +184,24 @@ func tagsToStrings(tags []inventory.Tag) []string {
 	return ss
 }
 
-// StaticYAMLPlugin hydrates a static YAML inventory file into InventoryItems.
-// It is PLAN.md Section 6a's "simple case" SyncPlugin: unlike a NetBox or
-// AWS plugin, it has no external system to Connect to and no ambiguous
-// data that needs a Discover/Classify pass, so it does not implement the
-// full four-method SyncPlugin interface (Connect/Discover/Classify/Sync).
-// That interface's supporting types (Classification, Reconciliation,
-// PluginConfig) belong to Phase 6, which owns dynamic sync plugins with a
-// real discovery pipeline; inventing them here for one static-file
-// implementation would be the premature generalization Gate 1's
-// reusability check exists to catch. StaticYAMLPlugin instead produces the
-// same Records the ent-backed repository does, which is the part Walk
-// tier actually needs.
-type StaticYAMLPlugin struct {
-	path    string
-	factory *ItemFactory
-}
-
-// NewStaticYAMLPlugin creates a plugin reading from the given file path.
-func NewStaticYAMLPlugin(path string, factory *ItemFactory) *StaticYAMLPlugin {
-	return &StaticYAMLPlugin{path: path, factory: factory}
-}
-
-// Load reads and hydrates every host in the inventory file.
-func (p *StaticYAMLPlugin) Load() ([]inventory.InventoryItem, error) {
-	hosts, err := ReadHosts(p.path)
-	if err != nil {
-		return nil, err
-	}
-	return HydrateHosts(p.factory, hosts)
-}
+// The static YAML sync plugin that used to live here now lives in
+// internal/inventory/plugins/staticyaml, alongside every other sync plugin
+// and behind the real four-method syncplugin.Plugin port it previously
+// declined to implement.
+//
+// It declined for a reason that has since expired. Its own doc comment
+// argued that one static-file implementation was not enough evidence to
+// design a four-method port around, and that inventing Classification,
+// Reconciliation, and PluginConfig for it alone would be premature
+// generalization. A live Cisco Catalyst Center is the second, deliberately
+// unalike consumer that supplies the missing evidence, so the port was
+// built against both rather than around either.
+//
+// The move itself was forced by the import graph: syncplugin imports this
+// package for Repository, so a plugin living here could not import
+// syncplugin back without a cycle. Plugins therefore live below this
+// package, never inside it.
+//
+// The parsing and hydration helpers above (ParseHosts, ReadHosts,
+// WriteHosts, HydrateHosts) stayed, because fileRepository and the CLI's
+// add-host path use them directly and neither is a sync plugin.

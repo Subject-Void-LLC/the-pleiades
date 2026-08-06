@@ -19,10 +19,18 @@ import (
 )
 
 // TestCatalogCollections_AllRegistered proves every catalogdata.Collections
-// entry is actually registered in pkg/collection with the expected
-// declared-not-implemented status, catching a stale
+// entry is actually registered in pkg/collection, catching a stale
 // internal/catalog/builtins.go (missing a blank import) or a catalogdata
 // entry never regenerated at all.
+//
+// It used to also assert every entry was declared, on the grounds that
+// Phase 34 generates stubs and never implementations. That was true when
+// nothing was implemented and stopped being true the moment something was:
+// the net.catalyst.* methods are verified against a real Cisco Catalyst
+// Center and carry status implemented. The invariant worth keeping is not
+// "everything is a stub" but the one below, which holds at both ends of
+// that transition and is what actually prevents a lie: status and the
+// presence of an implementation must agree.
 func TestCatalogCollections_AllRegistered(t *testing.T) {
 	for _, cfg := range catalogdata.Collections {
 		desc, ok := collection.Lookup(cfg.Name)
@@ -30,8 +38,20 @@ func TestCatalogCollections_AllRegistered(t *testing.T) {
 			t.Errorf("catalogdata.Collections entry %q is not registered in pkg/collection; internal/catalog/builtins.go may be stale (run `go generate ./internal/forge/catalogdata`)", cfg.Name)
 			continue
 		}
-		if desc.Manifest.Status != collection.StatusDeclared {
-			t.Errorf("%q has Manifest.Status %v, want %v: Phase 34 generates every catalog entry as declared, never implemented", cfg.Name, desc.Manifest.Status, collection.StatusDeclared)
+
+		switch desc.Manifest.Status {
+		case collection.StatusDeclared:
+			if desc.Invoke != nil {
+				t.Errorf("%q is declared but carries an implementation; flip its status to %v or remove the Invoke",
+					cfg.Name, collection.StatusImplemented)
+			}
+		case collection.StatusImplemented:
+			if desc.Invoke == nil {
+				t.Errorf("%q claims status %v but carries no implementation, so a runbook calling it would fail at run time",
+					cfg.Name, collection.StatusImplemented)
+			}
+		default:
+			t.Errorf("%q has unknown Manifest.Status %q", cfg.Name, desc.Manifest.Status)
 		}
 	}
 }

@@ -40,4 +40,43 @@ var Devices = []devicescaffold.Config{
 			capability.NameAWSAPI,
 		},
 	},
+	{
+		// catalyst.Center is the Cisco Catalyst Center controller itself,
+		// the target every net.catalyst.* method addresses. Like
+		// aws.Account it declares an API capability and no transport,
+		// because a controller answers REST calls rather than a terminal
+		// session.
+		//
+		// It is a separate device type from the switches it manages, and
+		// that split is the whole point: the controller is
+		// CatalystAPICapable and nothing else, while the devices behind it
+		// are SSH- and CLI-reachable Cisco gear that happens to have been
+		// discovered through it. Modeling both as one type would force a
+		// device to claim capabilities only one of them has.
+		Vendor:  "catalyst",
+		TypeKey: "catalyst_center",
+		Capabilities: []capability.Name{
+			capability.NameCatalystAPI,
+		},
+	},
+	{
+		// cisco.Switch is what the Catalyst Center sync plugin classifies
+		// its managed IOS-XE devices as. cisco.Router already exists and is
+		// hand-written; a switch is genuinely a different device type
+		// (Section 6d's rule tree assigns them separately) rather than a
+		// router with a different label, and the classification tree should
+		// be able to say so.
+		//
+		// The capability set is the same identity+transport baseline
+		// cisco.Router carries, plus NetworkCLICapable, which is what
+		// net.cli.command and net.cli.config require and what a managed
+		// switch actually offers.
+		Vendor:  "cisco",
+		TypeKey: "cisco_switch",
+		Capabilities: []capability.Name{
+			capability.NameSSHTransport,
+			capability.NameCiscoIOS,
+			capability.NameNetworkCLI,
+		},
+	},
 }

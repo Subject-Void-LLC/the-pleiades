@@ -40,6 +40,27 @@ func DefaultRuleSet() *RuleSet {
 			Onboard:        str("configure_polling"),
 			Capabilities:   []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport},
 		},
+		// A switch is a more specific IOS device, so it inherits the level
+		// above (agentless, configure_polling, CiscoIOSCapable plus
+		// SSHTransportCapable) and changes only what actually differs: the
+		// device type, and NetworkCLICapable, which is what net.cli.command
+		// and net.cli.config require. This is the Section 6d
+		// most-specific-wins merge doing exactly what it exists for, rather
+		// than a second rule restating the first.
+		"network_device.cisco.ios.switch": {
+			Type:         str("cisco_switch"),
+			Capabilities: []capability.Name{capability.NameNetworkCLI},
+		},
+		// A Catalyst Center controller is not an IOS device and does not
+		// sit under the ios level: it answers a REST API and has no CLI, no
+		// SSH transport, and no IOS version. It hangs off cisco directly so
+		// it inherits nothing the controller cannot do.
+		"network_device.cisco.catalyst_center": {
+			Type:           str("catalyst_center"),
+			ConnectionMode: str("agentless"),
+			Onboard:        str("configure_polling"),
+			Capabilities:   []capability.Name{capability.NameCatalystAPI},
+		},
 	})
 	if err != nil {
 		// The map above is a compile-time literal built entirely from this

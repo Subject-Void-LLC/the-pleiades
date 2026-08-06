@@ -19,9 +19,10 @@ import "testing"
 // (both Phase 6), and pkg/collection's namespaced method registry (Phase
 // 31, this primitive's third consumer).
 var registryConsumers = map[string]bool{
-	modulePath + "/pkg/capability":            true,
-	modulePath + "/internal/inventory/record": true,
-	modulePath + "/pkg/collection":            true,
+	modulePath + "/pkg/capability":                true,
+	modulePath + "/internal/inventory/record":     true,
+	modulePath + "/pkg/collection":                true,
+	modulePath + "/internal/inventory/syncplugin": true,
 }
 
 // TestKnownRegistryConsumersImportPkgRegistry asserts every package on the

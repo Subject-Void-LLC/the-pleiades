@@ -16,6 +16,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 // TestCollectionRule_UnregisteredName is half of Phase 34's Release Gate:
@@ -80,22 +81,50 @@ func TestCollectionRule_SkipsLegacyAndEngineKeywords(t *testing.T) {
 // runbook calling every name in the catalog." It builds one task per real
 // catalogdata.Collections entry (the same single source of truth
 // tools/gencatalog drove the real CLI from), so this test can never drift
-// out of sync with the actual generated catalog, and asserts exactly one
-// declared-but-unimplemented Finding per entry, no more and no fewer.
+// out of sync with the actual generated catalog.
+//
+// It asserts exactly one declared-but-unimplemented Finding per declared
+// entry, and none at all for an implemented one. The count used to be "one
+// per entry, no more and no fewer", which was right while every entry was a
+// stub and became wrong the moment the net.catalyst.* methods were verified
+// against a real controller. Deriving the expectation from each entry's own
+// registered status keeps the assertion honest as more methods land: a
+// method that stops being flagged has to have earned it by carrying a real
+// implementation, and a stub that stops being flagged still fails.
 func TestCollectionRule_StressAllCatalogNames(t *testing.T) {
 	nodes := make(map[string]*engine.Task, len(catalogdata.Collections))
+	var wantFindings int
+	implemented := make(map[string]bool)
+
 	for i, cfg := range catalogdata.Collections {
 		nodes[fmt.Sprintf("tasks[%d]", i)] = &engine.Task{FQCN: cfg.Name}
-	}
-	world := validate.WorldView{DAG: &engine.DAG{Nodes: nodes}}
 
+		desc, ok := collection.Lookup(cfg.Name)
+		if !ok {
+			t.Fatalf("catalog entry %q is not registered; internal/catalog/builtins.go may be stale", cfg.Name)
+		}
+		if desc.Manifest.Status == collection.StatusImplemented {
+			implemented[cfg.Name] = true
+			continue
+		}
+		wantFindings++
+	}
+
+	world := validate.WorldView{DAG: &engine.DAG{Nodes: nodes}}
 	findings := validate.CollectionRule(world)
-	if len(findings) != len(catalogdata.Collections) {
-		t.Fatalf("expected exactly one finding per catalog entry (%d), got %d", len(catalogdata.Collections), len(findings))
+
+	if len(findings) != wantFindings {
+		t.Fatalf("expected one finding per declared catalog entry (%d of %d entries, %d implemented), got %d",
+			wantFindings, len(catalogdata.Collections), len(implemented), len(findings))
 	}
 	for _, f := range findings {
 		if !strings.Contains(f.Message, "declared but not yet implemented") {
-			t.Errorf("expected every catalog entry to be flagged as declared-but-unimplemented, got: %s", f.Message)
+			t.Errorf("expected every declared catalog entry to be flagged as declared-but-unimplemented, got: %s", f.Message)
+		}
+		for name := range implemented {
+			if strings.Contains(f.Message, name) {
+				t.Errorf("implemented method %q was flagged as unimplemented: %s", name, f.Message)
+			}
 		}
 	}
 }

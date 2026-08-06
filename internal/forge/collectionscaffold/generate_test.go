@@ -34,8 +34,8 @@ func TestGenerate(t *testing.T) {
 				"RequiresElevation: true",
 				`EngineVersion:   ">=1.0.0"`,
 				"Status:          collection.StatusDeclared",
-				"func Install(ctx context.Context, rc sdk.RunbookContext, params map[string]any) error",
-				`return fmt.Errorf("pkg.apt.install: not implemented")`,
+				"func Install(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error)",
+				`return collection.Result{}, fmt.Errorf("pkg.apt.install: not implemented")`,
 			},
 		},
 		{

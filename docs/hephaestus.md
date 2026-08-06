@@ -33,9 +33,10 @@ boundaries statable.
 | 2 | Migrate an Ansible playbook file | Not built. Only a rejection message exists | `pleiades forge migrate-playbook` |
 | 3 | Lint a runbook | Works. Rule registry in `internal/validate` | `pleiades validate` |
 | 4 | Use an IDE plugin | Not built. No language server code anywhere | `pleiades-lsp` |
-| 5 | Create a namespaced Collection | Registry, manifest, and generator built (Phases 31, 33); the real 71-method catalog is registered as declared stubs (Phase 34) | `pleiades forge new-collection` |
-| 6 | Create an inventory device type | Pattern and generator built (Phase 33); four real device types registered: `cisco`, `linux`, `windows`, `aws` (Phase 34 added the latter two) | `pleiades forge new-device` |
+| 5 | Create a namespaced Collection | Registry, manifest, and generator built (Phases 31, 33); the real 75-method catalog is registered (Phase 34), all declared stubs except the four `net.catalyst.*` methods, which are implemented and verified against a real controller | `pleiades forge new-collection` |
+| 6 | Create an inventory device type | Pattern and generator built (Phase 33); six real device types registered across five vendor packages: `cisco` (router and switch), `linux`, `windows`, `aws`, `catalyst` | `pleiades forge new-device` |
 | 7 | Migrate an Ansible Galaxy collection | Not built | `pleiades forge migrate-collection` |
+| 8 | Create an inventory sync plugin | Generator built; `static_yaml` and `catalyst_center` implemented behind the `PLAN.md` Section 6a port | `pleiades forge new-plugin` |
 
 ## What the Forge is not
 
@@ -280,6 +281,17 @@ takes a `state` parameter covering five unrelated operations. Here they are five
 | `cisco.ios.ios_config` | `net.ios.config` | `CiscoIOSCapable` |
 | `junipernetworks.junos.junos_config` | `net.junos.config` | `JunosCapable` |
 | `arista.eos.eos_config` | `net.eos.config` | `AristaEOSCapable` |
+| `cisco.dnac.*_info` | `net.catalyst.device_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.site_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.tag_facts` | `CatalystAPICapable` |
+| `cisco.dnac.*_info` | `net.catalyst.reachability` | `CatalystAPICapable` |
+
+The four `net.catalyst.*` methods are controller-side and read-only: they address a Cisco Catalyst
+Center over its REST API and gather facts about the fleet it manages, changing nothing. They are the
+first entries in this catalog to reach `status: implemented`, verified against Cisco's public DevNet
+sandbox rather than against a mocked transport, which is what Phase 38's Release Gate requires. The
+controller they target is itself an inventory device (`catalyst_center`), onboarded by the sync plugin
+of the same name, so a runbook targets it the way it targets anything else.
 
 **Extended infrastructure.**
 
@@ -395,6 +407,7 @@ pleiades forge migrate-playbook   playbook.yml
 pleiades forge migrate-collection ./my_galaxy_collection
 pleiades forge new-collection     pkg.apt.install --capabilities AptCapable
 pleiades forge new-device         juniper --type junos_router
+pleiades forge new-plugin         netbox --description "reads devices from NetBox"
 ```
 
 **Correction (2026-08-05):** the flag was `--device-type` in an earlier revision of this document.

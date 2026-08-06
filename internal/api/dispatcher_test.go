@@ -26,13 +26,18 @@ func (m *MockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector
 	return &MockIterator{count: m.Count, current: 0}, nil
 }
 
-// GetByName and Save exist to satisfy the Repository port. The dispatcher
-// under test only ever streams a group, so these fail loudly rather than
-// returning a zero value: a test that starts depending on them should say
-// so out loud instead of silently exercising a stub that does nothing.
+// GetByName, Create, and Save exist to satisfy the Repository port. The
+// dispatcher under test only ever streams a group, so these fail loudly
+// rather than returning a zero value: a test that starts depending on them
+// should say so out loud instead of silently exercising a stub that does
+// nothing.
 
 func (m *MockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
 	return nil, errors.New("MockRepository.GetByName is not implemented for these tests")
+}
+
+func (m *MockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
+	return errors.New("MockRepository.Create is not implemented for these tests")
 }
 
 func (m *MockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {
@@ -166,6 +171,10 @@ func (m *noIPMockRepository) GetGroup(ctx context.Context, sel pkginventory.Sele
 
 func (m *noIPMockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
 	return nil, errors.New("not implemented for this test")
+}
+
+func (m *noIPMockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
+	return errors.New("not implemented for this test")
 }
 
 func (m *noIPMockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {

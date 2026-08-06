@@ -484,8 +484,15 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 	root := repoRoot(t)
 	name := fmt.Sprintf("test.e2egate%d.check", os.Getpid())
 
+	// Remove only this test's own pid-namespaced package, never the shared
+	// internal/catalog/test parent. tools/gencatalog's dogfood test writes
+	// a sibling directory under the same parent, and a cleanup that took
+	// the parent would delete that test's package while it was still
+	// building it, which under a parallel `go test ./...` showed up as an
+	// unexplainable "no required module provides package" failure in
+	// whichever of the two happened to lose the race.
 	t.Cleanup(func() {
-		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test"))
+		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test", fmt.Sprintf("e2egate%d", os.Getpid())))
 	})
 
 	out, err := runPleiades(t, root, "forge", "new-collection", name,

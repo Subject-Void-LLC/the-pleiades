@@ -7,6 +7,7 @@ const (
 	NameAristaEOS          Name = "AristaEOSCapable"
 	NameNetworkAddressable Name = "NetworkAddressableCapable"
 	NameFileTransfer       Name = "FileTransferCapable"
+	NameCatalystAPI        Name = "CatalystAPICapable"
 )
 
 // NetworkCLICapable is satisfied by any network device exposing a
@@ -63,6 +64,31 @@ type FileTransferCapable interface {
 	FileTransferRoot() string
 }
 
+// CatalystAPICapable is satisfied by a Cisco Catalyst Center controller
+// addressable through its REST API rather than a direct transport, the
+// same shape AWSAPICapable already establishes for a controller-side
+// target.
+//
+// It is deliberately a sibling of NetworkCLICapable rather than a child.
+// The devices a Catalyst Center manages are NetworkCLICapable (and
+// CiscoIOSCapable, and SSHTransportCapable); the controller itself is
+// none of those. It has no CLI prompt and nothing sends it configuration
+// over a terminal session. Nesting it under NetworkCLICapable would let
+// capability.Resolves answer "yes" to a question about the controller
+// that is only true of the switches behind it.
+//
+// It also sits exactly at the vendor-API-family floor PLAN.md Section 8
+// requires and no lower. A Catalyst Center's software version, its
+// deployment size, and the specific hardware models it manages are all
+// platform-target data matched against classification facts, never new
+// capabilities: growing the vocabulary per model or per release is the
+// unchecked-boolean-claim anti-pattern the capability floor exists to
+// prevent.
+type CatalystAPICapable interface {
+	// CatalystBaseURL returns the controller's API base URL.
+	CatalystBaseURL() string
+}
+
 func init() {
 	Register(Descriptor{
 		Name:   NameNetworkCLI,
@@ -90,5 +116,9 @@ func init() {
 	Register(Descriptor{
 		Name:   NameFileTransfer,
 		Assert: func(item any) bool { _, ok := item.(FileTransferCapable); return ok },
+	})
+	Register(Descriptor{
+		Name:   NameCatalystAPI,
+		Assert: func(item any) bool { _, ok := item.(CatalystAPICapable); return ok },
 	})
 }

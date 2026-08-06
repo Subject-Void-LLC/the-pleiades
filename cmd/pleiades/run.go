@@ -123,10 +123,25 @@ func runRunbook(args []string) error {
 		return fmt.Errorf("transport bindings misconfigured: %w", err)
 	}
 
-	actionExecutor := engine.NewTransportActionExecutor(
-		bindings,
-		newLazyCredentialStore(*dir),
-		engine.NewBuiltinActionExecutor(),
+	// The executor chain, innermost fallback last: a registered Collection
+	// method wins, then a transport-backed legacy fqcn, then the two engine
+	// keywords. Ordering matters only in that the Collection registry is
+	// consulted first, which is what makes the generated catalog reachable
+	// at all; the two layers underneath it are namespaced-free fqcn values
+	// the registry has never heard of, so they cannot collide.
+	//
+	// Credentials are resolved per device by the transport layer below.
+	// A Collection method receives them through its RunbookContext, which
+	// is empty here because no method in the catalog needs a device secret
+	// yet: net.catalyst.* authenticates to a controller, and wiring that
+	// through is the next thing this chain grows.
+	actionExecutor := engine.NewCollectionActionExecutor(
+		engine.NewTransportActionExecutor(
+			bindings,
+			newLazyCredentialStore(*dir),
+			engine.NewBuiltinActionExecutor(),
+		),
+		engine.NewDeviceRunbookContext,
 	)
 
 	executor := engine.NewExecutor(

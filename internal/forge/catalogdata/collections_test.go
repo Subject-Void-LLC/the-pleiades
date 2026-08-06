@@ -31,7 +31,7 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// doc's own "roughly twenty seven collections" counts packages, not
 	// methods). This test pins that number down so a future accidental
 	// entry loss or duplication is a build failure, not a silent gap.
-	const wantCollections = 71
+	const wantCollections = 75
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

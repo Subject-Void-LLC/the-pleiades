@@ -117,7 +117,7 @@ func (r *fileRepository) GetByName(ctx context.Context, name string) (inventory.
 		}
 	}
 	if found == nil {
-		return nil, fmt.Errorf("host not found: %s", name)
+		return nil, fmt.Errorf("host %s: %w", name, ErrItemNotFound)
 	}
 
 	sidecar, err := readSidecar(r.sidecarPath)
@@ -173,10 +173,20 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		// PropertyValue is a type alias for any (pkg/inventory/item.go),
 		// so HostSpec's map[string]interface{} and Record's
 		// map[string]PropertyValue are the same type; no conversion needed.
-		Properties:   h.Properties,
-		Tags:         toTags(h.Tags), // toTags is unexported in yaml_plugin.go, same package
-		State:        inventory.StateActive,
-		Source:       inventory.SourceAuthority{Plugin: "file"},
+		Properties: h.Properties,
+		Tags:       toTags(h.Tags), // toTags is unexported in yaml_plugin.go, same package
+		State:      inventory.StateActive,
+		// Source is deliberately left zero when the sidecar recorded none.
+		// It used to default to Plugin: "file", which conflated two
+		// different questions: where the data is stored, and which sync
+		// plugin authoritatively owns it. Section 11's One Authority Per
+		// Item is about the second. Naming the storage backend as the owner
+		// made every hand-written hosts.yaml entry look like it was already
+		// claimed by a plugin called "file", so the first real sync plugin
+		// to run against a Walk-tier project reported every host as a
+		// conflict and refused to adopt any of them. An empty Plugin is the
+		// honest answer for "provenance was never recorded", and it is the
+		// value reconciliation already treats as adoptable.
 		Capabilities: caps,
 	}
 

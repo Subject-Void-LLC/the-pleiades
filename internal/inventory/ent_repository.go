@@ -86,6 +86,14 @@ func (r *entRepository) GetGroup(ctx context.Context, sel inventory.Selector) (I
 func (r *entRepository) GetByName(ctx context.Context, name string) (inventory.InventoryItem, error) {
 	dev, err := r.entClient(ctx).Device.Query().Where(device.NameEQ(name)).Only(ctx)
 	if err != nil {
+		// Translate ent's own not-found into the port's sentinel so both
+		// adapters answer "no such device" identically. Without this, only
+		// the file adapter would be distinguishable and any caller
+		// branching on ErrItemNotFound would silently change behavior
+		// depending on which tier it ran at.
+		if ent.IsNotFound(err) {
+			return nil, fmt.Errorf("device %s: %w", name, ErrItemNotFound)
+		}
 		return nil, fmt.Errorf("failed to load device %s: %w", name, err)
 	}
 

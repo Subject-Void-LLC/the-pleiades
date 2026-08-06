@@ -9,53 +9,13 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 )
 
-func TestStaticYAMLPlugin_Load(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "inventory.yaml")
-
-	hosts := []inventory.HostSpec{
-		{
-			ID:   "11111111-1111-1111-1111-111111111111",
-			Name: "webserver1",
-			Type: "linux_server",
-			Tags: []string{"web", "prod"},
-			Properties: map[string]interface{}{
-				"host":         "10.0.0.5",
-				"distribution": "ubuntu",
-			},
-		},
-	}
-
-	if err := inventory.WriteHosts(path, hosts); err != nil {
-		t.Fatalf("failed to write inventory: %v", err)
-	}
-
-	plugin := inventory.NewStaticYAMLPlugin(path, inventory.NewItemFactory())
-	items, err := plugin.Load()
-	if err != nil {
-		t.Fatalf("failed to load inventory: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
-	}
-
-	item := items[0]
-	if item.Name() != "webserver1" {
-		t.Errorf("expected name 'webserver1', got %q", item.Name())
-	}
-	if item.ID() != "11111111-1111-1111-1111-111111111111" {
-		t.Errorf("expected the explicit id to survive hydration, got %q", item.ID())
-	}
-	if !item.State().CanExecute() {
-		t.Error("expected a statically listed host to be immediately active")
-	}
-	if !item.HasCapability(capability.NameLinux) {
-		t.Error("expected linux_server to declare LinuxCapable")
-	}
-	if item.Source().Plugin != "static_yaml" {
-		t.Errorf("expected source plugin 'static_yaml', got %q", item.Source().Plugin)
-	}
-}
+// The former TestStaticYAMLPlugin_Load moved with the plugin itself, to
+// internal/inventory/plugins/staticyaml. What it proved (an explicit id
+// survives hydration, a statically listed host is immediately active, a
+// linux_server declares LinuxCapable, and the source plugin is recorded as
+// static_yaml) is now proved through the real syncplugin.Plugin port
+// against a real Repository, rather than through a Load method that no
+// production code called.
 
 // TestHostsRoundTrip proves ParseHosts -> EncodeHosts -> ParseHosts is
 // lossless at the data level: this is the YAML layer's round-trip

@@ -22,6 +22,7 @@ import (
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/http"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/identity/group"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/identity/user"
+	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/net/catalyst"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/net/cli"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/net/eos"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/net/ios"

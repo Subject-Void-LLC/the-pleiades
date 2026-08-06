@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 )
@@ -101,6 +102,44 @@ func TestNewDeviceArgs(t *testing.T) {
 	}
 }
 
+func TestNewPluginArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  pluginscaffold.Config
+		want []string
+	}{
+		{
+			name: "minimal",
+			cfg:  pluginscaffold.Config{Name: "netbox", Description: "reads NetBox"},
+			want: []string{"forge", "new-plugin", "netbox", "--description", "reads NetBox"},
+		},
+		{
+			name: "endpoint and read-only",
+			cfg: pluginscaffold.Config{
+				Name:        "catalyst_center",
+				Description: "reads a Catalyst Center",
+				Endpoint:    "https://sandboxdnac.cisco.com",
+				ReadOnly:    true,
+			},
+			want: []string{
+				"forge", "new-plugin", "catalyst_center",
+				"--description", "reads a Catalyst Center",
+				"--endpoint", "https://sandboxdnac.cisco.com",
+				"--read-only",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := newPluginArgs(tc.cfg)
+			if !equalArgs(got, tc.want) {
+				t.Errorf("newPluginArgs(%+v) = %v, want %v", tc.cfg, got, tc.want)
+			}
+		})
+	}
+}
+
 func equalArgs(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -121,7 +160,11 @@ func TestValidateCatalogEntries_CatchesInvalidEntry(t *testing.T) {
 		{Vendor: "ok", TypeKey: "ok_thing"},
 	}
 
-	err := validateCatalogEntries(collections, devices)
+	plugins := []pluginscaffold.Config{
+		{Name: "ok_plugin", Description: "a valid entry, so only the collection above is at fault"},
+	}
+
+	err := validateCatalogEntries(collections, devices, plugins)
 	if err == nil {
 		t.Fatal("expected an error for the un-namespaced collection name")
 	}
@@ -215,11 +258,15 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test"))
+		// Scoped to this test's own suffix directory, never the shared
+		// internal/catalog/test parent: cmd/pleiades's forge end-to-end
+		// test writes a sibling under the same parent, and removing the
+		// parent would delete it mid-build under a parallel run.
+		_ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test", suffix))
 		_ = os.RemoveAll(filepath.Join(root, "internal", "inventory", "devices", suffix))
 	})
 
-	if err := validateCatalogEntries([]collectionscaffold.Config{collectionCfg}, []devicescaffold.Config{deviceCfg}); err != nil {
+	if err := validateCatalogEntries([]collectionscaffold.Config{collectionCfg}, []devicescaffold.Config{deviceCfg}, nil); err != nil {
 		t.Fatalf("validateCatalogEntries: %v", err)
 	}
 	if err := runPleiades(binPath, root, newCollectionArgs(collectionCfg)...); err != nil {

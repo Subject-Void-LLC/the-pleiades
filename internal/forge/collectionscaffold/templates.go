@@ -41,6 +41,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/sdk"
 )
 
@@ -76,8 +77,8 @@ func init() {
 // because it makes a failed runbook look like a successful one. See this
 // package's own doc comment for the signature's provisional status and
 // the reachability gap.
-func {{.FunctionName}}(ctx context.Context, rc sdk.RunbookContext, params map[string]any) error {
-	return fmt.Errorf("{{.Name}}: not implemented")
+func {{.FunctionName}}(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return collection.Result{}, fmt.Errorf("{{.Name}}: not implemented")
 }
 `
 
@@ -129,7 +130,7 @@ func Test{{.FunctionName}}_NotImplemented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := {{.PackageName}}.{{.FunctionName}}(context.Background(), nil, tt.params)
+			_, err := {{.PackageName}}.{{.FunctionName}}(context.Background(), nil, nil, tt.params)
 			if err == nil {
 				t.Fatal("expected an explicit not-implemented error, got nil")
 			}

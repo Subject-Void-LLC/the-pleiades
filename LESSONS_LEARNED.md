@@ -710,3 +710,53 @@ story, per `.AGENTS/AGENTS.md`.
     non-empty/non-default value into that argument before implementing the fix: a pre-existing, currently
     "passing" test is the first place a masked defect exposes itself once the real implementation starts
     reading what it used to ignore.
+
+59. **Namespacing a shared directory on the way in is only half the job; the cleanup has to be namespaced
+    too.** Two end-to-end tests in different packages each generated into
+    `internal/catalog/test/<name><pid>` and each removed `internal/catalog/test` afterwards, so under
+    `go test ./...`'s cross-package concurrency one deleted the other's package mid-build
+    (FAILURE_PATTERNS.md #55). Every author had correctly reasoned about collisions when choosing where to
+    write and then reached for the parent when tearing down, because the parent is what looks like "the
+    directory this test made". A `t.Cleanup` that removes anything above the exact path the test created
+    is a cross-package race in waiting, and it will present as a failure in whichever unrelated package
+    loses the timing, which is the hardest possible place to look for it.
+
+60. **A port is not complete because every method on it works; it is complete when every operation its
+    consumers need exists.** `inventory.Repository` had get, list, and save, all correct, and no way to
+    create a device, because the one caller that created devices bypassed the port and wrote YAML directly
+    (FAILURE_PATTERNS.md #56). The gap was invisible for as long as no consumer needed it and became a hard
+    blocker the moment a sync plugin did. When adding the first real consumer of an existing port, list the
+    operations that consumer needs *before* implementing it and check each one against the port, rather
+    than discovering the hole partway through: the missing operation is rarely a method that is broken, it
+    is a method nobody has needed yet, so nothing about the existing code looks wrong.
+
+61. **A default value that names the wrong kind of thing stays harmless exactly until something compares
+    against it.** A file-backed repository stamped `Source.Plugin = "file"` on every host with no recorded
+    provenance, conflating "where this is stored" with "which sync plugin authoritatively owns this"
+    (FAILURE_PATTERNS.md #57). Nothing read that field for as long as no plugin existed, so the wrong
+    default cost nothing and looked reasonable in review. The first real sync plugin then read it exactly as
+    designed and refused to adopt a single host. Prefer leaving a field zero over filling it with a
+    plausible-looking value from an adjacent concept: an empty value is honestly "unknown" and can be
+    adopted later, while a wrong non-empty value is indistinguishable from a real one and will be believed.
+
+62. **"Refuse loudly" and "tell me what would happen" are different requests, and one guard can serve both
+    only if the caller decides which it wanted.** A read-only Repository wrapper that returned a typed error
+    on every write was correct, and it turned `sync --read-only` into an abort on the first device rather
+    than the dry run the flag promised (FAILURE_PATTERNS.md #58). The fix was not to soften the guard, which
+    would have made it useless where a hard refusal is right, but to let the reconciler catch that specific
+    error and report `would add` instead of failing. The general shape: keep the enforcement strict and
+    total at the boundary, and put the interpretation one layer up, where the caller knows whether it is
+    enforcing or simulating. A guard that tries to be lenient in some contexts has to know its callers,
+    which is exactly what a boundary exists to avoid.
+
+63. **A second consumer is what turns an interface from a guess into a design, and the two consumers have
+    to be unalike for the evidence to count.** `PLAN.md` Section 6a's four-method sync plugin port was
+    deliberately not built for the static YAML plugin alone, on the recorded grounds that one static-file
+    implementation is not enough to design a port around. Building it against a live Cisco Catalyst Center
+    at the same time produced an interface neither implementation would have produced by itself: the
+    file-backed one has no authentication, no paging, and a classification the document states outright,
+    while the network-backed one has all three and derives its classification from raw upstream fields.
+    The conformance suite running both through identical assertions is the artifact that makes the claim
+    checkable rather than asserted. When deferring an abstraction for want of a second consumer, say so in
+    the code (that comment is what made this decision easy to revisit correctly), and when the second
+    consumer arrives, pick the one that is least like the first.

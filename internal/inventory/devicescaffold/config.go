@@ -56,14 +56,24 @@ func (c Config) StructName() string {
 // since a TypeKey like "a_" is a valid segment overall but yields an empty
 // Kind) must be valid identifiers, and every capability name must already
 // be registered.
+//
+// Vendor is checked with ValidateSegment because it becomes the generated
+// package's name, where a Go keyword would not compile. TypeKey and Kind
+// are checked with ValidateIdentSegment, which applies every rule except
+// the keyword rejection, because neither ever becomes a package name: the
+// type key is stored data and a registry key, and Kind is title-cased into
+// an exported struct name before it appears in any source. "cisco_switch"
+// is the case that found this: it names a real device type, produces the
+// perfectly ordinary `type Switch struct`, and was rejected only because
+// the lowercase word is a keyword in a position no keyword rule applies to.
 func (c Config) Validate() error {
 	if err := genutil.ValidateSegment(c.Vendor); err != nil {
 		return fmt.Errorf("devicescaffold: invalid vendor: %w", err)
 	}
-	if err := genutil.ValidateSegment(c.TypeKey); err != nil {
+	if err := genutil.ValidateIdentSegment(c.TypeKey); err != nil {
 		return fmt.Errorf("devicescaffold: invalid type key %q: %w", c.TypeKey, err)
 	}
-	if err := genutil.ValidateSegment(c.Kind()); err != nil {
+	if err := genutil.ValidateIdentSegment(c.Kind()); err != nil {
 		return fmt.Errorf("devicescaffold: invalid type key %q, final segment: %w", c.TypeKey, err)
 	}
 	for _, name := range c.Capabilities {

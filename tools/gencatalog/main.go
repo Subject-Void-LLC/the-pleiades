@@ -21,6 +21,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 )
@@ -38,7 +39,7 @@ func main() {
 }
 
 func run() error {
-	if err := validateCatalogEntries(catalogdata.Collections, catalogdata.Devices); err != nil {
+	if err := validateCatalogEntries(catalogdata.Collections, catalogdata.Devices, catalogdata.Plugins); err != nil {
 		return err
 	}
 
@@ -63,14 +64,40 @@ func run() error {
 			return err
 		}
 	}
+	for _, cfg := range catalogdata.Plugins {
+		if err := runPleiades(binPath, root, newPluginArgs(cfg)...); err != nil {
+			return err
+		}
+	}
 
 	if err := writeCatalogBuiltins(root, catalogdata.Collections); err != nil {
 		return err
 	}
 
-	fmt.Printf("gencatalog: generated %d collection(s), %d device type(s), and the catalog builtins aggregator\n",
-		len(catalogdata.Collections), len(catalogdata.Devices))
+	// internal/inventory/plugins/builtins.go is deliberately not regenerated
+	// here, unlike internal/catalog/builtins.go above. It lists plugins this
+	// table does not own: static_yaml predates the Forge and is
+	// hand-written, so a fully regenerated aggregator computed from
+	// catalogdata.Plugins alone would silently drop its blank import and
+	// unregister a working plugin. That is the same reason
+	// internal/inventory/builtins.go stays hand-maintained for device types.
+	// internal/archtest is what catches a missing entry.
+	fmt.Printf("gencatalog: generated %d collection(s), %d device type(s), %d sync plugin(s), and the catalog builtins aggregator\n",
+		len(catalogdata.Collections), len(catalogdata.Devices), len(catalogdata.Plugins))
 	return nil
+}
+
+// newPluginArgs builds the exact `forge new-plugin` argument list for cfg,
+// mirroring cmd/pleiades/forge_new_plugin.go's own flag surface.
+func newPluginArgs(cfg pluginscaffold.Config) []string {
+	args := []string{"forge", "new-plugin", cfg.Name, "--description", cfg.Description}
+	if cfg.Endpoint != "" {
+		args = append(args, "--endpoint", cfg.Endpoint)
+	}
+	if cfg.ReadOnly {
+		args = append(args, "--read-only")
+	}
+	return args
 }
 
 // writeCatalogBuiltins writes internal/catalog/builtins.go: a blank
@@ -136,7 +163,11 @@ func writeCatalogBuiltins(root string, collections []collectionscaffold.Config) 
 // partial files cleaned up first). collections and devices are passed in
 // explicitly, rather than read from catalogdata directly, so this
 // function is testable against a small synthetic set.
-func validateCatalogEntries(collections []collectionscaffold.Config, devices []devicescaffold.Config) error {
+func validateCatalogEntries(
+	collections []collectionscaffold.Config,
+	devices []devicescaffold.Config,
+	plugins []pluginscaffold.Config,
+) error {
 	var errs []string
 	for _, c := range collections {
 		if err := c.Validate(); err != nil {
@@ -145,6 +176,11 @@ func validateCatalogEntries(collections []collectionscaffold.Config, devices []d
 	}
 	for _, d := range devices {
 		if err := d.Validate(); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	for _, p := range plugins {
+		if err := p.Validate(); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}

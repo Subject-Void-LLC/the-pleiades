@@ -48,4 +48,33 @@ var networkCollections = []collectionscaffold.Config{
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
 	},
+	// The net.catalyst.* namespace is controller-side and read-only: each
+	// method addresses a Cisco Catalyst Center over its REST API and
+	// gathers facts about the fleet it manages, changing nothing. They are
+	// the first methods in this catalog to reach status implemented, having
+	// been verified against Cisco's public DevNet sandbox.
+	{
+		Name:          "net.catalyst.device_facts",
+		Capabilities:  []capability.Name{capability.NameCatalystAPI},
+		Transports:    []string{"https"},
+		EngineVersion: engineVersion,
+	},
+	{
+		Name:          "net.catalyst.site_facts",
+		Capabilities:  []capability.Name{capability.NameCatalystAPI},
+		Transports:    []string{"https"},
+		EngineVersion: engineVersion,
+	},
+	{
+		Name:          "net.catalyst.tag_facts",
+		Capabilities:  []capability.Name{capability.NameCatalystAPI},
+		Transports:    []string{"https"},
+		EngineVersion: engineVersion,
+	},
+	{
+		Name:          "net.catalyst.reachability",
+		Capabilities:  []capability.Name{capability.NameCatalystAPI},
+		Transports:    []string{"https"},
+		EngineVersion: engineVersion,
+	},
 }

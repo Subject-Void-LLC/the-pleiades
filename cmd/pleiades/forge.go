@@ -18,6 +18,7 @@ import (
 var forgeCommands = map[string]commandFunc{
 	"new-device":     runForgeNewDevice,
 	"new-collection": runForgeNewCollection,
+	"new-plugin":     runForgeNewPlugin,
 }
 
 // runForge is cmd/pleiades's forge subcommand dispatcher. It mirrors
@@ -54,6 +55,7 @@ func printForgeUsage() {
 commands:
   new-device      generate a new vendor device-type package
   new-collection  generate a new namespaced Collection method package
+  new-plugin      generate a new inventory sync plugin package
 
 See docs/hephaestus.md for the full planned Forge command surface, and
 .SPECIFICATION/IMPLEMENTATION.md Part VII for the phases that populate

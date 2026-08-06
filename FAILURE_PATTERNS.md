@@ -1340,3 +1340,89 @@ device happens to match, because filtering is not wired up at all."
 `internal/inventory/ent_repository_selector_test.go`'s own real-`Group` fixture pattern.
 
 **Lesson:** LESSONS_LEARNED.md #58.
+
+## 55. Two end-to-end tests in different packages each removed the *shared parent* directory their per-process fixtures lived under, so a parallel run deleted one test's package while it was still building
+
+**Symptom:** `cmd/pleiades`'s `TestCLI_ForgeNewCollection_EndToEnd` failed under `go test ./...` with
+`no required module provides package .../internal/catalog/test/gencatalogtest<pid>`, while passing every
+time it was run alone or as its own package. The failing test name moved between runs: sometimes
+`cmd/pleiades`, sometimes `tools/gencatalog`.
+
+**Root cause:** both `cmd/pleiades/e2e_test.go` and `tools/gencatalog/main_test.go` generate a synthetic
+Collection into the real module tree under `internal/catalog/test/<something><pid>`, correctly namespacing
+their own subdirectory by process id, and then both registered a `t.Cleanup` that removed
+`internal/catalog/test` -- the shared parent, not their own subdirectory. `go test ./...` runs separate
+packages concurrently as separate processes, so whichever test finished first deleted the other's
+package mid-build. The pid namespacing made the *creation* safe and did nothing for the *deletion*,
+which is why the bug survived: every author correctly reasoned about collisions on the way in.
+
+This is the same family as #53 (a real end-to-end test writing into the live module tree racing another
+package's scan of it), reached from the cleanup side rather than the write side.
+
+**Fix:** applied. Both cleanups now remove only their own pid-namespaced subdirectory
+(`internal/catalog/test/<suffix>`), never the shared parent. Two consecutive full `go test ./...` runs
+pass where the failure previously reproduced roughly one run in three.
+
+**Lesson:** LESSONS_LEARNED.md #59.
+
+## 56. A repository port had no create operation at all, so the first sync plugin had nothing to onboard a device with
+
+**Symptom:** implementing `syncplugin.Reconcile` against `inventory.Repository` had no way to persist a
+newly discovered device. `Save` exists, but it is a conditional update guarded by a version token and
+short-circuits to a no-op when `current == baseVersion`, which is exactly the state a brand new item is
+in, so calling it on a new device silently wrote nothing and returned nil.
+
+**Root cause:** nothing had ever needed to create a device through the port. `pleiades add-host` writes
+`hosts.yaml` directly with `ReadHosts`/`WriteHosts`, bypassing `Repository` entirely, and the ent adapter's
+`Save` is an `Update().Where(...)` with no insert path. The port therefore looked complete (get, list,
+save) while being write-only for devices that already existed. Two smaller gaps fell out of the same
+hole: `GetByName` returned a bare formatted error for not-found, so a caller could not distinguish "this
+device is new" from "the backend failed", and no accessor exposed the registry key an item was hydrated
+through, so even a working `Create` could not have known what to store in the immutable `type` column.
+
+**Fix:** applied. `Repository.Create` added and implemented on both adapters, guarded by a new
+`ErrItemExists`; `ErrItemNotFound` added and wrapped by both adapters' `GetByName`; `record.Base.DeviceType`
+added and read through an unexported `typed` interface, mirroring how `versioned` already keeps
+`BaseVersion` out of the public `InventoryItem` contract. All four are covered by new conformance tests
+running against both backends.
+
+**Lesson:** LESSONS_LEARNED.md #60.
+
+## 57. A file-backed repository named its own storage backend as the authoritative sync plugin, so the first real sync plugin reported every host as a conflict
+
+**Symptom:** the static YAML sync plugin's first conformance run reported `conflict` for every host, with
+the reason `device is owned by sync plugin "file"`, against a project whose inventory no plugin had ever
+touched.
+
+**Root cause:** `fileRepository.buildRecord` defaulted `Source` to `SourceAuthority{Plugin: "file"}` for any
+host whose sidecar recorded no provenance. That conflated two different questions: where a device's data
+is stored, and which sync plugin authoritatively owns it. Section 11's One Authority Per Item is about the
+second. Naming the storage backend as the owner meant every hand-written `hosts.yaml` entry looked like it
+was already claimed, and reconciliation correctly refused to adopt any of them. The default was harmless
+for as long as nothing compared against it, which is why it survived until the first plugin did.
+
+**Fix:** applied. `buildRecord` now leaves `Source` zero when the sidecar recorded none, which is the honest
+answer for "provenance was never recorded" and the value reconciliation already treats as adoptable. The
+conformance test that pinned the old behavior was strengthened rather than deleted: both backends now
+round-trip a real, caller-supplied plugin name, which is a stronger claim than the asymmetric one it
+replaced.
+
+**Lesson:** LESSONS_LEARNED.md #61.
+
+## 58. A read-only guard that failed loudly turned a dry run into an abort on the first device
+
+**Symptom:** `pleiades inventory sync --plugin catalyst_center --read-only` against the real DevNet sandbox
+exited with `refusing to create sandboxdnac.cisco.com: inventory is open read-only` after processing one
+device, having reported nothing about the other four.
+
+**Root cause:** `NewReadOnlyRepository` was built to fail loudly, which is right: a component that must not
+write should be told so rather than silently ignored. But `--read-only` on a sync is a *dry run*, and a user
+asking what would change gets no answer from an abort. Both behaviors are legitimate; the mistake was
+assuming one mechanism could serve both without the caller in between deciding which it wanted.
+
+**Fix:** applied. The guard still refuses every write. `syncplugin.Reconcile` now catches
+`ErrInventoryReadOnly` specifically and records `would add` / `would update` rather than failing the sync,
+so the same guard produces the simulate-first proof with no second code path that could drift: every
+decision above the write is identical, and only the final write is intercepted.
+
+**Lesson:** LESSONS_LEARNED.md #62.
