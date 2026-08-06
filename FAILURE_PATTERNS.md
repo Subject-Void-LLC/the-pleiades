@@ -1648,3 +1648,160 @@ like writes." A mutex named for one operation invites exactly this: `writeMu` re
 everything dangerous, and it covered one of the two dangerous things. When a handler hands its
 `ResponseWriter` to another goroutine, everything the handler still intends to do to that writer,
 headers included, must happen before the handoff, not after.
+
+## 65. `GET /api/v1/jobs/{id}/logs` authenticated every caller and authorized none of them
+
+**Symptom:** none, to any test written before this phase. Every existing test for this route asserted a
+401 for a missing or invalid Bearer token and stopped there, which is exactly the shape of test that
+cannot see this bug: it never presented a *valid* token belonging to an identity with the wrong scope,
+because nothing in the route ever checked a scope at all.
+
+**Root cause:** Phase 11's own composition root (`cmd/controller/main.go`) mounted `streamer.StreamLogs`
+behind `api.AuthMiddleware(evaluator)` and stopped. `AuthMiddleware` answers exactly one question, "is
+this a valid token," and places the resulting `*auth.Identity` in context; it was never wired to ask "is
+this identity allowed to do this." Phase 8 had already built the real answer,
+`auth.AdmissionChain`/`auth.Admission`, months earlier, and `PATTERNS.md`'s own Chain of Responsibility
+entry already claimed, in writing, that "every API request is stripped, token-validated, and checked
+against scope before it ever touches application logic." Grepping for a production caller of
+`auth.Admission.Evaluate` outside of `internal/auth`'s own tests returned nothing: the sentence in
+`PATTERNS.md` described a mechanism that existed and a wiring that did not.
+
+The practical effect: any caller holding any validly signed token, regardless of what scopes it carried
+(including an empty `Scopes` slice), could stream the live execution log of any job in the system by UUID.
+
+**Fix:** `api.RequireScope` (`internal/api/authz.go`), mounted per route via the new declarative
+`RouterConfig.Routes []Route` table, each entry naming the `auth.Scope` it requires. `NewRouter` now
+refuses to build at all if a `Route` omits its `Scope` or if `Routes` is non-empty with a nil
+`RouterConfig.Admission` (see item 66's own construction-time companion). `cmd/controller` wires
+`auth.Admission{Chain: auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)}, Recorder:
+auth.NewSlogRecorder(logger)}` and declares `/jobs/{id}/logs` as requiring `auth.ScopeJobRead`.
+
+**Lesson:** a Pattern Entry Gate that names a mechanism is not evidence the mechanism runs. `PATTERNS.md`
+described `auth.Admission.Evaluate` in the present tense for months while its production call-site count
+was zero; the fix here is the same one Phase 11 already drew for its own "Telemetry" phase that had no
+telemetry (`HANDOFF_DOCUMENT.md`'s own "the name was aspirational" line): the Release Gate must assert the
+thing the phase title claims, not a weaker thing a partial implementation already satisfies. See also
+`LESSONS_LEARNED.md` #76.
+
+## 66. An unauthorized `runbook:execute` dispatch returned HTTP 200 with a per-device failure tally
+
+**Symptom:** none observed in production; found by the same chain audit that found item 65, while reading
+every caller of `auth.Evaluator.CheckAccess`. `internal/api/dispatcher.go`'s `DispatchRunbook` called
+`d.auth.CheckAccess(ctx, id, "runbook:execute")` *inside* its per-device loop and, on failure,
+incremented `errCount` and `continue`d to the next device rather than returning an error response.
+
+**Root cause:** the scope check was written as if a partial batch failure (one device down, one API call
+erroring) were the case being handled, but the condition it actually checked, "does this identity hold
+`runbook:execute`," is an invariant: identical for every device on every iteration of one request. A
+caller with no scopes therefore received `200 {"status":"dispatched","dispatched":0,"failed":N}`, a
+successful-looking response describing a request that should have been rejected outright, and the
+in-loop check re-evaluated the same true-or-false fact against a `MockAuthEvaluator` up to ten thousand
+times per test run (`TestDispatcher_ReleaseGate`) without ever being able to fail differently the second
+time than the first.
+
+**Fix:** removed outright rather than moved. `api.RequireScope` (item 65) now enforces
+`auth.ScopeRunbookExecute` once, at the router boundary, before `DispatchRunbook` is ever invoked; an
+unauthorized caller now gets `403` and reaches no device at all. The in-loop check's own test,
+`TestDispatcher_UnauthorizedDeviceCountsAsFailed`, is deleted with it: the behavior it asserted (silent
+per-device failure for a caller-wide condition) is exactly what item 65's fix eliminates.
+`api.NewDispatcher` no longer takes an `auth.Evaluator` at all, since nothing inside it ever needed one
+once the redundant check was gone.
+
+**Lesson:** a scope check that is identical for every iteration of a loop is not defense in depth, it is
+one accurate check and N-1 expensive no-ops wearing the same clothes. The tell was in the test already:
+a mock that returns the same `Allow bool` on every call, asserted against thousands of iterations, is
+proving a boundary condition holds at the boundary, not inside a loop that crosses it once per call and
+never again. When a per-device check and a per-request check would always agree, keep the one that runs
+once, at the door, per Phase 14's own now-updated checklist item (`IMPLEMENTATION.md`).
+
+## 67. `cmd/demo` mounted a production SSE handler on a router with no auth, no tracing, and no rate limiting, and its own advertised URL had 400'd for a full phase without anyone noticing
+
+**Symptom:** none reported; found while auditing every place `api.NewRouter` is *not* used, the same
+"second unguarded entry point" question this phase's own Adversarial Pattern Justification has to answer.
+`cmd/demo/main.go` built `chi.NewRouter()` directly and mounted `streamer.StreamLogs` on it with zero
+middleware, rather than going through the Front Controller (`api.NewRouter`) every other binary in this
+repository uses.
+
+**Root cause:** `cmd/demo` predates `api.NewRouter` growing route registration (Phase 11) and was never
+migrated. Two independent problems followed from that one omission. First, the security one: its one
+route was reachable by anyone who could reach the port, with no Bearer token, no scope check, no trace,
+and no metric, exactly the shape items 65 and 66 above closed everywhere else. Second, a functional one
+that had been silently broken since Phase 11 landed: the demo's job ID was the literal string `"123"`,
+and `LogStreamer.StreamLogs` has required a UUID-shaped `{id}` since `FAILURE_PATTERNS.md` #63, so the
+binary's own printed instruction (`/api/v1/jobs/123/logs`) had returned `400` for an entire phase and
+nobody had run the demo to notice.
+
+**Fix:** `cmd/demo` now builds its router through `api.NewRouter`, wires a real, freshly generated HMAC
+`auth.Evaluator` and `auth.Admission` chain identical in shape to `cmd/controller`'s, mints one real
+signed admin token at startup, and prints it alongside a working `curl` command. The job ID is now a real
+`uuid.New()`.
+
+**Lesson:** a demo binary is a production binary that nobody threatens to page anyone over, which is a
+reason to keep watching it, not a reason to stop. "Nothing hand-rolls a router outside `cmd/controller`"
+is a claim that has to be checked by grepping for every `chi.NewRouter()` call in the repository, not by
+reasoning about which binaries matter; the check found exactly one, and it was wrong in two unrelated
+ways at once. Related to item 65's own root cause: a security control that lives in one composition root
+is not a platform guarantee until every composition root is confirmed to use it.
+
+## 68. Phase 39's "five real forged tokens... correctly rejected by the real `ValidateToken`" audit left no test file behind
+
+**Symptom:** none, until asked directly whether this codebase tests the classic `alg: none` JWT forgery.
+Grepping for `SigningMethodNone`, `alg.*none`, `Tamper`, `Stripped`, or `RS256` anywhere under
+`internal/auth` before this entry returned nothing but production code and JWKS-rotation tests. Both
+`IMPLEMENTATION.md` Phase 39 and Phase 12 state, in the past tense, that `alg: none`, an algorithm-
+confusion token, an expired token, a not-yet-valid token, a tampered signature, and a stripped signature
+were all run against the real `ValidateToken` and all correctly rejected. That was apparently true when
+written, and nothing in this repository would have caught it becoming false the next time `jwt.
+ParseWithClaims`'s option list changed.
+
+**Root cause:** the audit was real but transient: run by hand (or by an agent, once, in a session that
+did not persist it) rather than committed as a `_test.go` file. A checklist line that says a security
+property was verified is not itself evidence the property still holds; without a runnable artifact, "was
+tested" and "was asserted in prose" are indistinguishable to the next reader, and to CI.
+
+**Fix:** `internal/auth/jwt_forgery_test.go` (six cases: `alg: none`, RS256-against-HMAC confusion,
+expired, not-yet-valid, tampered signature, stripped signature, all run against the real
+`auth.jwtEvaluator.ValidateToken`) and `internal/api/middleware_forgery_test.go` (the `alg: none` and
+algorithm-confusion cases re-run through the real `api.AuthMiddleware`, closing Phase 12's own
+"re-audit the full request path, not just the evaluator, once one is [mounted]" note - Phase 12 is the
+first phase for which a secured endpoint actually exists to re-audit against).
+
+**Lesson:** "audited, see Phase N" is a pointer, not a proof, unless Phase N's own diff contains a test
+a future `go test ./...` will actually run. A security claim that cannot regress-test itself has already
+regressed once, silently, by the time anyone thinks to ask.
+
+## 69. `go test ./...`'s default parallelism raced a real scaffolded package's temp directory against `go list`'s own tree walk
+
+**Symptom:** a plain `go test ./... -count=1` (the exact command `tools/coverage-check` shells out to)
+failed `internal/archtest`'s `TestKnownRegistryConsumersImportPkgRegistry` with `go list -json .../...:
+exit status 1: cannot find package "." in: .../internal/catalog/test/relgate<pid>`. Neither
+`internal/archtest` nor `internal/catalog` is touched by this phase's diff (`git status` confirms). A
+second, immediate re-run of the identical command passed clean, which is the signature of a race, not a
+code defect (the same signature `FAILURE_PATTERNS.md` #61 already names for a different pair of
+packages).
+
+**Root cause:** `internal/forge/collectionscaffold`'s own release-gate test
+(`release_gate_test.go`) writes a real, temporary Go package to
+`internal/catalog/test/relgate<pid>/` to prove the collection scaffold's generated code actually builds,
+then removes it. `internal/archtest`'s `TestKnownRegistryConsumersImportPkgRegistry` calls `go list -json
+.../...`, which walks the *entire* module tree including that directory. `go test ./...`'s default
+package-level concurrency runs both packages' test binaries at once with no ordering guarantee between
+them, so `go list` occasionally observes the directory mid-write or mid-delete (present but not yet a
+valid package, or already gone) and fails the whole walk. Confirmed unrelated to this phase by the
+immediate clean re-run; not investigated further than that, per `FAILURE_PATTERNS.md` #60's own
+precedent for a finding whose only relevant fact is "predates this diff."
+
+**Fix:** not a code fix, and not this phase's to make one (the same posture #60 and #61 already took for
+their own unrelated pre-existing gaps). `GOFLAGS="-p=4" go test ./...` (or `make coverage`/`make ci` run
+under the same env var) caps package-level parallelism without editing `tools/coverage-check`'s own
+hardcoded command, and ran clean. This is the identical mitigation #61 already established for a
+different race (containerized-dependency contention); the concrete finding here is that the same
+"`go test ./...` default parallelism races something," "reduce `-p`" shape now covers a filesystem race
+between two ordinary, non-containerized packages too, not only container-contention.
+
+**Lesson:** any test that walks the whole module tree (`go list ./...`, `go build ./...`, or anything
+shelling out to either) is implicitly coupled to every other package that ever writes a file under that
+tree during its own test, even one it shares no import with. `-p 4` (or lower) is the standing, cheap
+answer for a full-suite run in this environment whenever a failure's signature is "fails sometimes, passes
+in isolation, passes on immediate retry, touches a package the diff never touched" - reach for it before
+re-deriving the diagnosis from scratch a third time.

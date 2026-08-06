@@ -15,13 +15,13 @@ const (
 type Identity struct {
 	Subject string
 	Role    Role
-	Scopes  []string // e.g. "inventory:read", "inventory:write", "runbook:execute"
+	Scopes  []Scope
 }
 
 // HasScope checks if the identity possesses a required scope.
-func (id *Identity) HasScope(required string) bool {
+func (id *Identity) HasScope(required Scope) bool {
 	for _, s := range id.Scopes {
-		if s == required || s == "*" {
+		if s == required || s == scopeWildcard {
 			return true
 		}
 	}
@@ -38,7 +38,7 @@ type Evaluator interface {
 	ValidateToken(ctx context.Context, rawToken string) (*Identity, error)
 
 	// CheckAccess enforces that the provided identity meets the required scopes.
-	CheckAccess(ctx context.Context, id *Identity, requiredScopes ...string) error
+	CheckAccess(ctx context.Context, id *Identity, requiredScopes ...Scope) error
 }
 
 // HATEOASGenerator inspects a user token and returns the available REST methods.

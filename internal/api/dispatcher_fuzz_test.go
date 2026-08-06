@@ -11,9 +11,8 @@ import (
 
 func FuzzDispatcher(f *testing.F) {
 	repo := &MockRepository{Count: 1}
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	f.Add("group1", "runbook1")
 	f.Add("", "")

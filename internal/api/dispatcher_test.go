@@ -69,21 +69,6 @@ func (i *MockIterator) Item() pkginventory.InventoryItem {
 func (i *MockIterator) Error() error { return nil }
 func (i *MockIterator) Close() error { return nil }
 
-type MockAuthEvaluator struct {
-	Allow bool
-}
-
-func (m *MockAuthEvaluator) ValidateToken(ctx context.Context, tokenStr string) (*auth.Identity, error) {
-	return &auth.Identity{Subject: "user"}, nil
-}
-
-func (m *MockAuthEvaluator) CheckAccess(ctx context.Context, id *auth.Identity, requiredScopes ...string) error {
-	if m.Allow {
-		return nil
-	}
-	return errors.New("unauthorized")
-}
-
 // mockBus is a minimal event.Bus fake: Dispatcher only ever calls Publish,
 // never Subscribe. It replaces a previous MockJetStream that embedded the
 // entire jetstream.JetStream interface just to override one method -- an
@@ -112,10 +97,9 @@ func (m *mockBus) Close() error {
 
 func TestDispatcher_ReleaseGate(t *testing.T) {
 	repo := &MockRepository{Count: 10000} // 10,000 devices!
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
 
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	req := httptest.NewRequest("POST", "/dispatch?group=routers&runbook=pb-1", nil)
 	// Inject the mock identity that AuthMiddleware normally would
@@ -199,32 +183,10 @@ func decodeDispatchResponse(t *testing.T, rr *httptest.ResponseRecorder) map[str
 	return resp
 }
 
-func TestDispatcher_UnauthorizedDeviceCountsAsFailed(t *testing.T) {
-	repo := &MockRepository{Count: 3}
-	eval := &MockAuthEvaluator{Allow: false}
-	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
-
-	rr := httptest.NewRecorder()
-	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
-
-	resp := decodeDispatchResponse(t, rr)
-	if int(resp["dispatched"].(float64)) != 0 {
-		t.Errorf("expected 0 dispatched, got %v", resp["dispatched"])
-	}
-	if int(resp["failed"].(float64)) != 3 {
-		t.Errorf("expected 3 failed, got %v", resp["failed"])
-	}
-	if bus.Publishes != 0 {
-		t.Errorf("expected 0 publishes for an unauthorized identity, got %d", bus.Publishes)
-	}
-}
-
 func TestDispatcher_MissingIPCountsAsFailed(t *testing.T) {
 	repo := &noIPMockRepository{}
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
@@ -265,9 +227,8 @@ func (m *failingMockBus) Close() error { return nil }
 
 func TestDispatcher_PublishFailureCountsAsFailed(t *testing.T) {
 	repo := &MockRepository{Count: 5}
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &failingMockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
@@ -307,9 +268,8 @@ func TestDispatcher_PublishFailureCountsAsFailed(t *testing.T) {
 // built on one would pass while proving nothing about the real path.
 func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
 	repo := &MockRepository{Count: 1}
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() {
@@ -347,9 +307,8 @@ func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
 // successfully, without fabricating a trace ID.
 func TestDispatcher_OmitsTraceIDWhenAbsentFromContext(t *testing.T) {
 	repo := &MockRepository{Count: 1}
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))

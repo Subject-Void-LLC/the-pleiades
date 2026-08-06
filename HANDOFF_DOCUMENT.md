@@ -4,6 +4,157 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 12: Zero-Trust Middleware** (`.SPECIFICATION/IMPLEMENTATION.md`), all nine
+previously-open checklist items. Research was direct reading of `internal/auth`, `internal/api`, both
+composition roots, `PATTERNS.md`'s Chain of Responsibility and Audit Trail entries, and the prior two
+sessions' own handoff text, plus one targeted grep sweep for a production caller of
+`auth.Admission.Evaluate`/`auth.AdmissionChain.Evaluate` outside `internal/auth`'s own tests. That grep
+returned nothing, which is the one finding that shaped the whole session.
+
+**The honest headline, stated plainly because this phase's own Adversarial Pattern Justification line
+asks for it, the same way Phase 11's did:** this phase was named "Zero-Trust Middleware," and its one
+already-checked item ("Inject the Phase 8 RBAC Evaluator into the `chi` routing chain") described
+authentication, not authorization. `api.AuthMiddleware` validated a token and put an identity in
+context; nothing downstream ever asked whether that identity was allowed to do anything.
+`auth.AdmissionChain`/`auth.Admission`, the real mechanism Phase 8 built for exactly this and
+`PATTERNS.md` already described in the present tense ("every API request is stripped, token-validated,
+and checked against scope before it ever touches application logic"), had zero production callers
+anywhere in the repository. Two real, live gaps followed directly from that, both found and fixed before
+being checked off, per this repository's own rule:
+
+1. **`GET /api/v1/jobs/{id}/logs` authenticated every caller and authorized none of them**
+   (`FAILURE_PATTERNS.md` #65). Any validly signed token, including one with an empty `Scopes` slice,
+   could stream any job's live logs by UUID.
+2. **An unauthorized `runbook:execute` dispatch returned HTTP 200** (`FAILURE_PATTERNS.md` #66).
+   `internal/api/dispatcher.go`'s per-device loop called `auth.CheckAccess` on an invariant argument
+   (identical for every device on every call) and, on failure, incremented a failure counter and
+   continued rather than rejecting the request.
+
+A third, unrelated-in-mechanism but same-in-shape gap was found auditing "is there a second unguarded
+entry point": **`cmd/demo` mounted a production SSE handler on a bare `chi.NewRouter()` with no auth, no
+tracing, and no rate limiting** (`FAILURE_PATTERNS.md` #67), and its own advertised URL had returned
+`400` for a full phase because its hardcoded job ID was never migrated to a UUID after
+`FAILURE_PATTERNS.md` #63 required one. And a fourth, one layer down from all three: **the "five real
+forged JWTs, correctly rejected" audit Phase 39 and this phase's own prior checklist text both cited had
+never been persisted as a test anywhere in this repository** (`FAILURE_PATTERNS.md` #68) - true when
+checked by hand, unprovable to the next reader or to CI.
+
+**What was built, by area:**
+
+1. **`internal/auth/scopes.go`** (new). `type Scope string` plus the four constants
+   (`ScopeInventoryRead`/`Write`, `ScopeRunbookExecute`, `ScopeJobRead`) this platform's admission chain
+   actually checks. `Identity.Scopes`, `Evaluator.CheckAccess`, and `AdmissionRequest.RequiredScope` all
+   retyped from bare `string` to `Scope`, converting once at the JWT claim boundary (`jwt.go`), per
+   `AGENTS.md`'s own typing rule.
+2. **`internal/api/authz.go`** (new). `Admitter` (the one-method slice of `auth.Admission` this file
+   needs, mirroring `TokenValidator`'s own Interface Segregation shape) and `RequireScope`, the
+   middleware that is `auth.Admission.Evaluate`'s first production caller anywhere in this repository. A
+   missing identity is 401 (the chain was bypassed); a denial is 403; nothing before this file ever
+   returned either status for an authorization reason.
+3. **`internal/api/router.go`** (rewritten). `RouterConfig.Routes` is now `[]Route`
+   (`Method`/`Pattern`/`Scope`/`Handler`), not a `func(chi.Router)` callback, and `NewRouter` now returns
+   `(*chi.Mux, error)`. Construction fails closed on every shape this package considers unsafe to serve:
+   a nil `Auth` with no explicit `AllowUnauthenticated` opt-out, a non-empty `Routes` with a nil
+   `Admission`, an empty `Route.Scope`, or a duplicate `Method`+`Pattern`. This is the same
+   fail-closed-at-construction idiom `NewJWTEvaluator`/`NewStaticKeyProvider` already use, applied to the
+   router itself for the first time.
+4. **`internal/auth/authtest`** (new package). `Issuer`, a real token minter backed by a real, freshly
+   generated HMAC secret and the real `auth.NewStaticKeyProvider`/`auth.NewJWTEvaluator` path, replacing
+   `api.IdentityKeyForTest` everywhere outside `internal/api`'s own test binary.
+   `internal/archtest/testonly_test.go`'s new `TestAuthtestNeverImportedByProductionCode` enforces that
+   no production package ever depends on it, the enforcement a `_test.go` build tag could not give
+   (`authtest` cannot be a `_test.go` file at all, since a `_test.go` file cannot be imported across
+   package boundaries, which is the exact cross-package problem it exists to solve for `tests/e2e`).
+   `IdentityKeyForTest` itself moved out of `middleware.go` (always-linked production code) into
+   `internal/api/export_test.go` (linked only into `package api`'s own test binary), for the in-package
+   tests that still use it.
+5. **`cmd/controller/main.go`, `cmd/demo/main.go`**. Both build a real `auth.Admission{Chain:
+   auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)}, Recorder: auth.NewSlogRecorder(logger)}` and
+   pass it through `RouterConfig.Admission`; both convert their route registration to the new declarative
+   table with an explicit `Scope` per route. `cmd/demo` additionally moved off its own bare
+   `chi.NewRouter()` entirely, mints one real signed admin token at startup via the same
+   `NewStaticKeyProvider`/`NewJWTEvaluator` path (not `authtest`, which production code must never
+   import), and fixed its job ID to a real UUID.
+6. **`internal/api/dispatcher.go`**. The per-device `auth.CheckAccess("runbook:execute")` call is gone,
+   not moved: it was an invariant, identical for every device on every call, and `api.RequireScope` now
+   enforces the same scope once, at the boundary, before this handler ever runs. `api.NewDispatcher` no
+   longer takes an `auth.Evaluator` at all.
+7. **Tests** (all new unless noted): `internal/auth/jwt_forgery_test.go` (six forged-token cases -
+   `alg: none`, RS256-against-HMAC algorithm confusion, expired, not-yet-valid, tampered signature,
+   stripped signature - run against the real `ValidateToken`), `internal/api/middleware_forgery_test.go`
+   (the `alg: none` and algorithm-confusion cases re-run through the real `AuthMiddleware`, the
+   request-path boundary the prior session's checklist text said did not yet exist to audit),
+   `internal/api/{authz_test,authz_bench_test,router_validation_test}.go`, `internal/archtest/
+   testonly_test.go`. Rewritten: `internal/api/{router_test,router_bench_test,router_fuzz_test,
+   defaults_test}.go` (the `Routes []Route` signature change, plus `TestRouter_
+   RequireScopeEnforcesDeclaredScope`, the router-level release gate proving 401/403/200 against a real
+   `authtest`-minted token), `internal/api/dispatcher_test.go` and siblings (dropped `MockAuthEvaluator`
+   and the now-meaningless `TestDispatcher_UnauthorizedDeviceCountsAsFailed`), `internal/auth/{chain_test,
+   ent_team_lookup_test}.go` (retyped `Scopes`/`RequiredScope` literals), `tests/e2e/integration_test.go`
+   (dropped its own `mockEvaluator`, now authenticates through the real `AuthMiddleware` with a real
+   `authtest`-minted token rather than `api.IdentityKeyForTest`).
+
+**Verification.** `go build ./... && go vet ./...` clean; `gofmt -l` clean on every file this session
+touched. `GOFLAGS="-p=4" go test ./... -race -count=1` clean across the whole repository, including the
+real-container tests (`FAILURE_PATTERNS.md` #61's own recorded mitigation; #69, a second, unrelated race
+this session hit and fixed with the identical mitigation, is new). **Real end-to-end proof against the
+actual built binaries and real infrastructure (RULE 0), not only `go test`:** `TestGrandIntegration`
+(`tests/e2e`, real Postgres+NATS via testcontainers, a real dispatch authenticated end to end with a real
+`authtest`-minted token, PASS in 11.3s) and `TestController_JWKS_RealServer_AcceptsValidRejectsForged`
+(`cmd/controller`, the real built `pleiades-controller` binary against a real NATS container, PASS in
+5.5s). Per this session's own explicit decision with the user, no additional manual `curl` transcript was
+taken against a hand-started binary: the automated tests above already exercise the identical real
+binary and real broker a manual run would, and were judged sufficient rather than duplicated by hand,
+unlike Phase 11's own gate. Fuzz: `FuzzAPIRouter` (extended with an arbitrary `Authorization` header)
+~219,000 executions/21s, zero crashes. Benchmarks, real numbers on this machine: `BenchmarkRequireScope`
+~263 ns/op; `BenchmarkAPIMiddleware_SecuredRoute` (the full chain with a real secured route mounted) ~8.1
+µs/op against `BenchmarkAPIMiddleware`'s own ~9.1 µs/op baseline with no application route at all -
+within noise of each other, so `RequireScope` adds no measurable cost on top of the pipeline Phase 11
+already built. No credible published AWX/Tower figure exists for either (`AGENTS.md`'s benchmarking
+rule). `make gosec`: 6 findings, all individually waived, zero new; one pre-existing waiver's line range
+re-pointed (`154-159` -> `171-176`) to follow the code it describes after this phase deleted the lines
+above it, per `gosec-waivers.json`'s own "must be re-reviewed, not silently re-added" rule.
+`make govulncheck`: 0 reachable vulnerabilities; `go.mod` already pins `golang-jwt/jwt/v5 v5.3.1`, past
+the fix for CVE-2025-30204 (a `ParseUnverified` DoS the user asked to be checked against by name); the
+one non-reachable module finding (`golang.org/x/crypto`'s deprecated `openpgp`, GO-2026-5932) is
+transitive and unrelated to auth. `make coverage` (run under `GOFLAGS="-p=4"`, see `FAILURE_PATTERNS.md`
+#69): `internal/api` 94.5% (floor raised 93.5 -> 94.0), `internal/auth` 90.9% (floor raised 90.0 -> 90.5),
+`internal/auth/authtest` excluded (test-double token issuer, the same class as `pkg/inventory/
+inventorytest`). The same four pre-existing `coverage-floor.json` regressions from `FAILURE_PATTERNS.md`
+#60 recurred at identical percentages, unrelated to this phase; one new package
+(`internal/catalog/pleiades/builtin/wait`) reported with no floor yet, informational only, also unrelated.
+
+**One security question the user raised directly, checked against this codebase rather than answered
+from memory:** three real `golang-jwt`/`dgrijalva-jwt-go` CVEs (CVE-2025-30204, CVE-2024-51744,
+CVE-2020-26160). `go.mod` is already past the fix for the first; `internal/auth`'s `ValidateToken` never
+selectively unwraps a specific error (it fails closed on any non-nil error uniformly), so the trap shape
+of the second cannot occur here; `dgrijalva/jwt-go` does not appear anywhere in `go.mod`/`go.sum`, direct
+or transitive, so the third is inapplicable. `internal/auth/jwt_forgery_test.go` now gives the underlying
+claim ("this codebase rejects a forged JWT") a persisted regression test rather than a one-time manual
+check, per `LESSONS_LEARNED.md` #76.
+
+**Follow-ups named, not built:** `auth.NewScopeRule` (the Team/RoleBinding/`ScopeResolver` axis) is
+still not appended to either production `AdmissionChain`. It needs a `ScopeTarget` (which Group/Device/
+Organization a request is against), and an HTTP route has none to give it until a handler resolves one;
+Phase 14 owns it, once it holds a device, per this session's own `IMPLEMENTATION.md` correction to that
+phase's `HasCapability` item. No issuer/audience pinning on `NewJWTEvaluator`'s own construction path is
+unchanged from before this phase (`FAILURE_PATTERNS.md` #20): no token-issuing code exists anywhere in
+this repository yet to define a real issuer/audience to pin against.
+
+**Files changed:** `internal/auth/{evaluator,jwt,chain}.go`, `internal/auth/scopes.go` (new),
+`internal/auth/authtest/issuer.go` (new package), `internal/auth/jwt_forgery_test.go` (new),
+`internal/auth/{chain_test,ent_team_lookup_test}.go`, `internal/api/{router,dispatcher,middleware}.go`,
+`internal/api/authz.go` (new), `internal/api/export_test.go` (new),
+`internal/api/{authz_test,authz_bench_test,router_validation_test,middleware_forgery_test}.go` (new),
+`internal/api/{router_test,router_bench_test,router_fuzz_test,defaults_test}.go`,
+`internal/api/{dispatcher_test,dispatcher_bench_test,dispatcher_fuzz_test,dispatcher_selector_test}.go`,
+`internal/api/testdata/fuzz/FuzzAPIRouter/00e15d22123489fd`, `internal/archtest/testonly_test.go` (new),
+`cmd/controller/main.go`, `cmd/demo/main.go`, `tests/e2e/integration_test.go`,
+`.SPECIFICATION/{IMPLEMENTATION,PATTERNS}.md`, `coverage-floor.json`, `gosec-waivers.json`,
+`FAILURE_PATTERNS.md` (#65-#69 new), `LESSONS_LEARNED.md` (#76 new).
+
+## Previous session: Phase 11, API Gateway & Telemetry
+
 **This session closed Phase 11: API Gateway & Telemetry** (`.SPECIFICATION/IMPLEMENTATION.md`), all
 fourteen previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
 Justification, Schema/Injection Hardening, and Release Gate items. Research was one Explore agent over

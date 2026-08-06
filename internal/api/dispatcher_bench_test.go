@@ -11,9 +11,8 @@ import (
 
 func BenchmarkDispatcher(b *testing.B) {
 	repo := &MockRepository{Count: 100} // Benchmark batch of 100
-	eval := &MockAuthEvaluator{Allow: true}
 	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, eval, bus)
+	dispatcher := api.NewDispatcher(repo, bus)
 
 	req := httptest.NewRequest("POST", "/dispatch?group=routers&runbook=pb-1", nil)
 	ctx := context.WithValue(req.Context(), api.IdentityKeyForTest, &auth.Identity{Subject: "user"})

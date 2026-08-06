@@ -98,9 +98,9 @@ func TestAdmission_RealSQLite_FullChain(t *testing.T) {
 
 	// The token carries the right permission scope, but the Team's
 	// binding for this specific device is an explicit Deny.
-	id := &auth.Identity{Subject: "netops@example.com", Role: auth.RoleOperator, Scopes: []string{"runbook:execute"}}
+	id := &auth.Identity{Subject: "netops@example.com", Role: auth.RoleOperator, Scopes: []auth.Scope{auth.ScopeRunbookExecute}}
 	req := auth.AdmissionRequest{
-		RequiredScope: "runbook:execute",
+		RequiredScope: auth.ScopeRunbookExecute,
 		Target:        auth.ScopeTarget{OrganizationID: org.ID, DeviceID: device.ID},
 	}
 

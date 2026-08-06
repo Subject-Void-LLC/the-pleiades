@@ -230,20 +230,3 @@ func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
 		})
 	}
 }
-
-// IdentityKeyForTest exposes the internal identity key so a test in
-// another package can build an already-authenticated request without
-// standing up a token issuer.
-//
-// This is the production test hook Phase 12's own checklist owns removing
-// (it lets any caller, including non-test code, bypass AuthMiddleware
-// entirely). It survives this phase unchanged and deliberately: moving it
-// behind an export_test.go seam is not enough on its own, because
-// tests/e2e is a different package and would lose access, so the real fix
-// is a test-only token issuer that Phase 12 is the right place to build.
-//
-// Its sibling TraceIDKeyForTest is gone, forced by this phase rather than
-// chosen: there is no longer a trace ID context key to expose. The trace
-// ID now comes from the OpenTelemetry span context, so a test seeds it by
-// starting a real span (see TraceIDFromContext).
-const IdentityKeyForTest = identityKey
