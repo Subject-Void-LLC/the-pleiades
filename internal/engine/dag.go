@@ -56,6 +56,25 @@ type Metadata struct {
 type WorkflowDef struct {
 	ID string `json:"id" yaml:"id"`
 
+	// Hosts names this runbook's default target, exactly like an Ansible
+	// play's own hosts:: a device name or an inventory tag string, resolved
+	// the same way a task's Params["target"] already is (TargetResolver,
+	// action.go). It is a default, not an override: a task that sets its
+	// own non-empty Params["target"] still wins, the same "most specific
+	// level wins" hierarchical policy AGENTS.md's Architecture Principles
+	// already establish for every other multi-level setting in this
+	// codebase. This keeps the one capability per-task target has and
+	// Ansible's single-hosts-per-play model does not: a task with no
+	// target at all (a controller-side action) still runs controller-side
+	// even when Hosts is set, and a task can still name a different device
+	// than the rest of the runbook, matching PLAN.md Section 14's mixed
+	// target-side/controller-side/hybrid execution contexts in one play.
+	// See TaskTarget (action.go), the single place this default/override
+	// resolution happens, reused by both the executor and every
+	// validate.Rule that resolves a target. Empty means every task must
+	// name its own target explicitly, exactly today's behavior.
+	Hosts string `json:"hosts,omitempty" yaml:"hosts,omitempty"`
+
 	// Type is the runbook-type discriminator. It reuses the field name
 	// PLAN.md Section 23 already specifies for distinguishing native
 	// versus Ansible content in a shared GitOps repository, and both this
@@ -208,6 +227,12 @@ type Task struct {
 type DAG struct {
 	ID       string
 	Metadata Metadata
+
+	// Hosts is def.Hosts, carried through unchanged from the WorkflowDef
+	// this DAG was compiled from. See WorkflowDef.Hosts for the
+	// default/override semantics and TaskTarget (action.go) for where it
+	// is applied.
+	Hosts string
 
 	// Version is a content-hash digest of the fully-resolved WorkflowDef
 	// this DAG was compiled from (computed in buildFromDef, after
@@ -415,6 +440,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 		ID:         def.ID,
 		Version:    version,
 		Metadata:   def.Metadata,
+		Hosts:      def.Hosts,
 		PreTasks:   def.PreTasks,
 		Tasks:      def.Tasks,
 		PostTasks:  def.PostTasks,

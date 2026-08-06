@@ -316,6 +316,59 @@ func TestExecutor_UnknownTargetIsError(t *testing.T) {
 	}
 }
 
+// TestExecutor_RunbookHostsIsDefaultTarget confirms a task with no
+// params.target of its own runs against the runbook-level hosts: default
+// (WorkflowDef.Hosts), and that a task with its own params.target still
+// overrides it, dispatching to a different device than the default names.
+// This is TaskTarget's (action.go) default/override contract exercised
+// through the real executor, not just the unit test on TaskTarget itself.
+func TestExecutor_RunbookHostsIsDefaultTarget(t *testing.T) {
+	sw1 := &inventorytest.Stub{StubID: "sw1", StubName: "sw1", StubState: inventory.StateActive}
+	sw2 := &inventorytest.Stub{StubID: "sw2", StubName: "sw2", StubState: inventory.StateActive}
+	resolver := mapResolver{"sw1": {sw1}, "sw2": {sw2}}
+
+	var mu sync.Mutex
+	var executedAgainst []string
+	recording := deviceRecordingActionExecutor{onExecute: func(device inventory.InventoryItem) {
+		mu.Lock()
+		defer mu.Unlock()
+		if device != nil {
+			executedAgainst = append(executedAgainst, string(device.ID()))
+		}
+	}}
+
+	dag := buildDAG(t, `{
+		"id": "hosts-default",
+		"hosts": "sw1",
+		"tasks": [
+			{"name": "uses the default", "fqcn": "noop"},
+			{"name": "overrides the default", "fqcn": "noop", "params": {"target": "sw2"}}
+		]
+	}`)
+
+	x := engine.NewExecutor(resolver, recording, lock.NewInProcessManager(), event.NewInProcessBus(), engine.NewInProcessWorkflowContext(), 0)
+
+	result, err := x.Run(context.Background(), dag)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %+v", result.Nodes)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"sw1", "sw2"}
+	if len(executedAgainst) != len(want) {
+		t.Fatalf("expected the executor to run against %v, got %v", want, executedAgainst)
+	}
+	for i, id := range want {
+		if executedAgainst[i] != id {
+			t.Errorf("executedAgainst[%d] = %q, want %q", i, executedAgainst[i], id)
+		}
+	}
+}
+
 // TestExecutor_RefusesNonActiveDevice is the runtime half of the chain
 // audit's lifecycle finding (IMPLEMENTATION.md Phase W5):
 // LifecycleState.CanExecute had zero production callers anywhere, so a

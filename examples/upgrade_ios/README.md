@@ -65,6 +65,12 @@ Pleiades is built as a strict superset of Ansible, and it shows here:
   (Pleiades' are CEL underneath, not Jinja, see below). Pleiades adds `when_or:` (list ORed
   instead of ANDed) and `when_cel:` (one raw CEL expression, for logic `when`/`when_or` cannot
   express) as its own extensions, but a plain `when:` reads identically in both files.
+- `hosts:` at the top of the runbook is Ansible's own play-level `hosts:`: both files here set
+  `hosts: sw1` once instead of repeating `target: sw1` on every task. It is a default, not a
+  hard override: a task's own `params.target` (module-as-key sugar's bare `target:`) still wins
+  when a task sets one, so a runbook can still mix a task with no target at all (a
+  controller-side action, like `set_metadata` here) or one aimed at a different device with the
+  rest sharing the `hosts:` default, in the same runbook.
 
 ## Two ways to write a Pleiades task
 

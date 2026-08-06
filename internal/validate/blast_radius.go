@@ -1,6 +1,10 @@
 package validate
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+)
 
 // BlastRadius summarizes how large an impact running a runbook right now
 // would have, in terms of the current inventory: how many distinct devices
@@ -37,7 +41,8 @@ type BlastRadius struct {
 // world's current inventory. It walks world.DAG.Nodes, the same flattened
 // map CapabilityRule walks (every task in the runbook, including every
 // block/rescue/always descendant, keyed by synthesized ID), resolves every
-// task's non-empty Params["target"] via world.Resolve, and accumulates:
+// task's non-empty effective target (engine.TaskTarget) via world.Resolve,
+// and accumulates:
 //
 //   - the distinct set of resolved devices, keyed by InventoryItem.ID() so
 //     a device targeted by more than one task is never double-counted; and
@@ -53,7 +58,7 @@ func CalculateBlastRadius(world WorldView) BlastRadius {
 	tiers := make(map[string]struct{})
 
 	for _, task := range world.DAG.Nodes {
-		target, _ := task.Params["target"].(string)
+		target := engine.TaskTarget(world.DAG, task)
 		if target == "" {
 			continue
 		}

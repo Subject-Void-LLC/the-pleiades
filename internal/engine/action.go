@@ -22,6 +22,29 @@ type TargetResolver interface {
 	Resolve(target string) []inventory.InventoryItem
 }
 
+// TaskTarget returns task's effective target: task's own Params["target"]
+// when it is a non-empty string, otherwise dag.Hosts, the runbook-level
+// default (WorkflowDef.Hosts's own doc comment). This is the one place
+// that implements the default/override resolution, reused identically by
+// the executor (resolveDevices, executor.go) and by every validate.Rule
+// that resolves a target (capability_rule.go, blast_radius.go,
+// lifecycle_rule.go), so the two-level fallback lives in exactly one place
+// rather than four copies of the same lookup drifting apart.
+//
+// A non-string Params["target"] (e.g. a YAML list) falls through to
+// dag.Hosts exactly like an absent one: the unchecked type assertion
+// here matches every existing call site's own long-standing behavior
+// (FAILURE_PATTERNS.md #11 already tracks that a malformed target is
+// silently indistinguishable from an absent one; fixing that is a
+// separate, not yet applied, change, not something this helper's
+// introduction takes on incidentally).
+func TaskTarget(dag *DAG, task *Task) string {
+	if target, ok := task.Params["target"].(string); ok && target != "" {
+		return target
+	}
+	return dag.Hosts
+}
+
 // ActionResult is what one fqcn action reports after running once,
 // either against one resolved device or, for a controller-side task with
 // no target, against none at all (PLAN.md Section 14's Execution

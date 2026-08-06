@@ -4,6 +4,81 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session added a runbook-level `hosts:` default**, not a tracked `IMPLEMENTATION.md` phase item:
+a user-driven request to move `examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe*.yaml` from
+repeating `target: sw1` on every task to a single `hosts: sw1` at the top, mirroring an Ansible play's own
+`hosts:`. `PLAN.md` (lines 397-412, 795-804) had already sketched `hosts:` in the classic
+list-of-plays shape, but it was never implemented; `WorkflowDef` had no such field.
+
+**Design decision, made with the user before writing code (via `AskUserQuestion`):** `hosts:` is a
+default, not a hard override. A task's own `Params["target"]` wins when set; `dag.Hosts` is the
+fallback. This was chosen over a hard-replace semantic because the engine already lets a single runbook
+mix a controller-side task (no target at all) with target-side tasks naming different devices task by
+task (`PLAN.md` Section 14's mixed execution contexts), and a hard replace would have taken that away.
+It also matches `AGENTS.md`'s own "most specific level wins" hierarchical-policy principle, already
+established for every other multi-level setting in this codebase, applied here for the first time to
+runbook-vs-task.
+
+**What was built:**
+
+1. **`internal/engine/dag.go`.** `WorkflowDef.Hosts string` (`hosts,omitempty` in both YAML and JSON) and
+   `DAG.Hosts string`, carried through unchanged in `buildFromDef`. Both are plain strings: `Params` still
+   has no template rendering, so `hosts: "{{ some_var }}"` is not reachable from this change (`docs/
+   hephaestus.md` still names a Jinja-compatible renderer as a planned, unbuilt shared primitive).
+2. **`internal/engine/action.go`.** `TaskTarget(dag *DAG, task *Task) string`, the single place the
+   default/override resolution happens: task's own `Params["target"]` if a non-empty string, else
+   `dag.Hosts`. This replaces four independent copies of the same `task.Params["target"].(string)`
+   assertion that previously lived in `executor.go` (`resolveDevices`) and three `internal/validate`
+   rules — a real duplication, not a hypothetical one, so consolidating it into one function was in scope
+   for this change rather than a separate cleanup. A non-string `Params["target"]` still falls back to
+   `dag.Hosts` exactly like an absent one: `FAILURE_PATTERNS.md` #11 (a malformed target silently reads as
+   absent) is unchanged by this session, still open, and deliberately not folded into this change.
+3. **`internal/engine/executor.go`** (`resolveDevices`) and **`internal/validate/{capability_rule,
+   blast_radius,lifecycle_rule}.go`** now call `TaskTarget` instead of their own inline assertion.
+   `lifecycle_rule.go` gained its first `internal/engine` import as a result.
+4. **`examples/upgrade_ios/pleiades/runbooks/{upgrade_ios_xe,upgrade_ios_xe_sugar}.yaml`**: `hosts: sw1`
+   added once at the top, `target: sw1` removed from every task (9 tasks per file). Confirmed both files
+   still compile to DAGs that `pleiades validate` reports identical findings against, the invariant
+   `examples/upgrade_ios/README.md` already documents for this file pair.
+5. **`examples/upgrade_ios/README.md`**: one new bullet under "What is identical" documenting `hosts:`
+   and its default/override relationship to a task's own `target:`.
+6. **Tests** (all new): `internal/engine/action_test.go` (`TestTaskTarget`, table-driven over the
+   default/override/malformed cases), `internal/engine/tasktree_test.go` (`TestWorkflowDef_Hosts_
+   JSONRoundTrip`/`YAMLRoundTrip`, `TestDAGBuilder_Hosts`), `internal/engine/executor_test.go`
+   (`TestExecutor_RunbookHostsIsDefaultTarget`, a real `Executor.Run` proving both the fallback and the
+   override dispatch to the right device), `internal/validate/{capability_rule_test,lifecycle_rule_test}.go`
+   (`Test*Rule_FallsBackToRunbookHosts`), `internal/validate/blast_radius_test.go` (two new table cases).
+
+**Verification.** `go build ./... && go vet ./...` clean. `gofmt -l` clean on every file this session
+touched (the same pre-existing, unrelated `executor_fuzz_test.go` finding Phase 10's own handoff entry
+below already names recurred here too — confirmed via `git diff --stat` showing no session change to
+that file — left alone, not this session's to fix). `go test ./internal/engine/... ./internal/validate/...
+./cmd/pleiades/... -race -count=1` clean. `go run ./tools/coverage-check` clean, no package regressed
+below its `coverage-floor.json` floor. `go run ./tools/gosec-check` clean (7 pre-existing findings, all
+individually waived, zero new). `pleiades validate` run by hand against both example runbooks: identical
+`[collection] ... declared but not yet implemented` findings on both, same as before this session, and
+no lifecycle/capability/blast-radius findings on either, confirming `hosts: sw1` resolves `sw1` correctly
+end to end through the real `WorldView.Resolve`.
+
+**Follow-ups named, not built:** `FAILURE_PATTERNS.md` #11 (malformed `target` silently reads as absent)
+is now one call site instead of four but is still unfixed. Template rendering for `hosts:`/`params:`
+(a Jinja-compatible renderer) is still the pre-existing, separately-tracked gap `docs/hephaestus.md`
+already names.
+
+**Files changed:** `internal/engine/{dag,action,executor}.go`, `internal/engine/{action_test,
+tasktree_test,executor_test}.go`, `internal/validate/{capability_rule,blast_radius,lifecycle_rule}.go`,
+`internal/validate/{capability_rule_test,blast_radius_test,lifecycle_rule_test}.go`, `examples/
+upgrade_ios/pleiades/runbooks/{upgrade_ios_xe,upgrade_ios_xe_sugar}.yaml`, `examples/upgrade_ios/
+README.md`.
+
+## Previous session: Phase 10, Workflow DAG Builder
+
+**What was built:** see "Phase 10: Workflow DAG Builder session" immediately below for the complete
+file-by-file summary. Everything from "Previous session: Phase 9, Google CEL Engine" onward describes
+earlier sessions and is unchanged.
+
+### Phase 10: Workflow DAG Builder session
+
 **This session closed Phase 10: Workflow DAG Builder** (`.SPECIFICATION/IMPLEMENTATION.md`), all five
 previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
 Justification, Schema/Injection Hardening, and Release Gate items. Planning followed this project's own

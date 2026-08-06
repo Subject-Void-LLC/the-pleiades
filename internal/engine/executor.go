@@ -406,16 +406,17 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	})...)
 }
 
-// resolveDevices resolves task's Params["target"], returning (nil, nil)
-// for a controller-side task with no target at all. A non-empty target
-// that resolves to no device is an error: capability_rule.go only checks
-// target existence for an fqcn that requires a capability, so a target
-// typo on an unconstrained fqcn (including "noop") would otherwise pass
-// validation silently and then do nothing at all at execution time,
+// resolveDevices resolves task's effective target (TaskTarget: task's own
+// Params["target"], falling back to r.dag.Hosts), returning (nil, nil) for
+// a controller-side task with no target at all, from either source. A
+// non-empty target that resolves to no device is an error: capability_rule.go
+// only checks target existence for an fqcn that requires a capability, so a
+// target typo on an unconstrained fqcn (including "noop") would otherwise
+// pass validation silently and then do nothing at all at execution time,
 // exactly the kind of silent drop this codebase's own FAILURE_PATTERNS.md
 // already tracks as a defect class elsewhere.
 func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
-	target, _ := task.Params["target"].(string)
+	target := TaskTarget(r.dag, task)
 	if target == "" {
 		return nil, nil
 	}

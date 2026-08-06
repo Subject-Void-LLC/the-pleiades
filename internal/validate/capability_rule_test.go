@@ -91,6 +91,48 @@ func TestCapabilityRule_NamedTaskInMessage(t *testing.T) {
 	}
 }
 
+// TestCapabilityRule_FallsBackToRunbookHosts confirms a task with no
+// params.target of its own is checked against the runbook-level hosts:
+// default (engine.TaskTarget's default/override contract), and that a
+// task's own target still overrides it.
+func TestCapabilityRule_FallsBackToRunbookHosts(t *testing.T) {
+	webOnly := &inventorytest.Stub{
+		StubName:  "webserver1",
+		StubTags:  []inventory.Tag{"web"},
+		Caps:      []capability.Name{capability.NameSSHTransport},
+		StubState: inventory.StateActive,
+	}
+	sshCapable := &inventorytest.Stub{
+		StubName:  "router1",
+		Caps:      []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS},
+		StubState: inventory.StateActive,
+	}
+
+	dag := &engine.DAG{
+		ID:    "t",
+		Hosts: "webserver1",
+		Nodes: map[string]*engine.Task{
+			"tasks[0]": {FQCN: "ios_backup"}, // no params.target: falls back to Hosts
+			"tasks[1]": {FQCN: "ios_backup", Params: map[string]interface{}{"target": "router1"}},
+		},
+		Adjacency: map[string][]engine.EdgeConfig{},
+	}
+
+	world := validate.WorldView{Items: []inventory.InventoryItem{webOnly, sshCapable}, DAG: dag}
+	report := validate.Validate(world)
+
+	if !report.HasErrors() {
+		t.Fatal("expected a finding for the task that fell back to the capability-lacking runbook default")
+	}
+	msg := report.String()
+	if !strings.Contains(msg, "webserver1") {
+		t.Errorf("expected the message to name the device reached via the runbook-level hosts: default, got: %s", msg)
+	}
+	if strings.Contains(msg, "tasks[1]") {
+		t.Errorf("expected the task with its own target overriding hosts: to pass, but it was flagged: %s", msg)
+	}
+}
+
 func TestCapabilityRule_TableDriven(t *testing.T) {
 	sshDevice := &inventorytest.Stub{
 		StubName:  "sshhost",

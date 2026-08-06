@@ -5,6 +5,7 @@
 #
 # Run with: pleiades run runbooks/upgrade_ios_xe.yaml
 id: upgrade-ios-xe
+hosts: sw1
 metadata:
   service_effecting: true
   mcp: true
@@ -17,7 +18,6 @@ pretasks:
   - name: Get Config
     fqcn: net.cli.command
     params:
-      target: sw1
       command: "show running-config"
     register: running_config
     # hide the running config from the run report, since it may contain secrets
@@ -26,14 +26,12 @@ pretasks:
   - name: Record the currently running version
     fqcn: net.cli.command
     params:
-      target: sw1
       command: "show version | include Version"
     register: pre_facts
 
   - name: Check free space on flash before pulling a new image
     fqcn: net.cli.command
     params:
-      target: sw1
       command: "dir flash:"
     register: flash_dir
 
@@ -43,13 +41,11 @@ tasks:
       - name: Back up the running config before touching anything
         fqcn: net.ios.config
         params:
-          target: sw1
           backup: true
 
       - name: Pull the new image onto flash
         fqcn: net.cli.command
         params:
-          target: sw1
           command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
           prompt:
             - "Destination filename"
@@ -60,7 +56,6 @@ tasks:
       - name: Verify the image checksum before trusting it
         fqcn: net.cli.command
         params:
-          target: sw1
           command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
         register: md5_check
 
@@ -68,7 +63,6 @@ tasks:
         fqcn: net.ios.config
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
         params:
-          target: sw1
           lines:
             - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
           save_when: modified
@@ -77,7 +71,6 @@ tasks:
         fqcn: net.cli.command
         when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
         params:
-          target: sw1
           command: reload
           prompt:
             - "confirm"
@@ -127,7 +120,6 @@ posttasks:
   - name: Re-check the running version
     fqcn: net.cli.command
     params:
-      target: sw1
       command: "show version | include Version"
     register: post_facts
 
