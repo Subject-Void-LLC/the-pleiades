@@ -80,8 +80,8 @@ func parseWorkflowYAML(payload []byte) (WorkflowDef, error) {
 	}
 
 	var def WorkflowDef
-	if err := yaml.Unmarshal(payload, &def); err != nil {
-		return WorkflowDef{}, fmt.Errorf("failed to unmarshal YAML: %w", err)
+	if err := normalizeWorkflowYAML(payload, &def); err != nil {
+		return WorkflowDef{}, err
 	}
 	return def, nil
 }

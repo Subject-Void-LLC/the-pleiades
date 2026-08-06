@@ -31,6 +31,7 @@ import (
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/pkg"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/pkg/apt"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/pkg/dnf"
+	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/pleiades/builtin/wait"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/svc"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/svc/systemd"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/svc/windows"

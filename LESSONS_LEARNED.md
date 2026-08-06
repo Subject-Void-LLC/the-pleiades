@@ -814,3 +814,68 @@ story, per `.AGENTS/AGENTS.md`.
     input per iteration to keep measuring the cold path, or rewrite the benchmark's own doc comment to
     honestly describe the amortized/cached path it now measures - do not leave the old claim standing next
     to new behavior that quietly stopped supporting it.
+
+68. **A "closed by construction" discriminator needs an explicit exemption list the moment one case
+    legitimately crosses it, and the doc comment claiming closure must be edited in the same change.**
+    `internal/validate/collection_rule.go`'s `CollectionRule` used to route purely on
+    `strings.Contains(fqcn, ".")`: dotted meant "look it up in `pkg/collection`," undotted meant "engine
+    keyword or legacy builtin, skip it," and the doc comment stated this would always hold because
+    `pkg/collection.Register` itself refuses an undotted name. Giving `set_metadata` a second, dotted
+    spelling (`pleiades.builtin.set_metadata`, `internal/engine/action.go`'s hardcoded switch, deliberately
+    kept out of `pkg/collection` since no dispatcher in this codebase calls a registered method's real
+    implementation yet) broke that closure: the dot check alone would now misfile a real, working builtin
+    as an unregistered collection name. The fix is a small, named `dottedBuiltinExemptions` set checked
+    before the dot test, not a change to the dot test itself - and the old doc comment's "will remain a
+    bare, undotted word" claim had to be corrected in the same commit, since leaving it standing would have
+    left the comment actively contradicting the code three lines below it the moment someone read both.
+
+69. **`tools/gencatalog`'s `go generate` target is not incrementally safe: it re-runs `forge new-collection`
+    for every catalog entry, and the real CLI refuses to overwrite a file that already exists.** Renaming
+    one `internal/forge/catalogdata` entry (`wait.port` -> `pleiades.builtin.wait.port`) and then running
+    `go generate ./internal/forge/catalogdata` failed immediately on an unrelated, already-generated entry
+    (`exec.command`) before ever reaching the renamed one, because the tool loops over all ~70 entries and
+    calls the real `pleiades forge new-collection` binary once per entry with no "skip if unchanged" check.
+    Making this work would require deleting the entire generated `internal/catalog/` tree first, a large,
+    unnecessary blast radius for a one-entry rename. The targeted fix: call the real CLI directly for just
+    the new entry (`pleiades forge new-collection pleiades.builtin.wait.port --capabilities ... --transports
+    ... --engine-version ...`, mirroring `newCollectionArgs`'s own argument-building exactly), which writes
+    only the two new files since nothing already occupies that path; delete the old entry's now-orphaned
+    generated files by hand (`gencatalog` never calls `os.Remove` on stale output); and separately
+    regenerate `internal/catalog/builtins.go` (the one step in `gencatalog` that does not go through the
+    CLI at all - it recomputes the aggregator's import list directly from `catalogdata.Collections` and
+    always overwrites). A full wholesale `go generate` run is for a from-scratch catalog build, not a
+    single-entry rename.
+
+70. **"Masked at the moment of registration" is a property of *when* a task marks its own output secret,
+    not of *what shape* the marked field name can take - the two are independent axes and only one of
+    them needed to change.** A request to mask a value "at instantiation, like a password" sounded at
+    first like it might require a new mechanism distinct from `Task.SecretFields` (`secret_fields:`,
+    since renamed `RegisterMask`/`register_mask:`), which already runs `markRegisterMask` before
+    `Register`/`Merge` and before this same task's own `publish` call (`executor.go`) - the exact "no
+    exposure window" timing already asked for. The only real gap was that `SecretFields`/`SecretMaskSpec`
+    both matched flat, top-level `Stats` keys only, and the requested syntax wanted dotted, nested paths
+    (`parent.nested_secret`). Solving that meant extending the existing same-task mechanism with a path
+    walker (`resolveRegisterMaskPath`), not building a third one: `secret_mask.go`'s own doc comment had
+    already named "a nested-path syntax" as "a clean additive follow-up if a real need for one appears" -
+    this was that need appearing, for one of the two mechanisms, not both. Deliberately not extending
+    `SecretMaskSpec` (the retroactive, different-task case) to the same nested-path support keeps the two
+    mechanisms' scope honest rather than unifying them because the syntax looked similar on the surface.
+
+71. **A masking feature that silently fails to mask is worse than one that never shipped, and a real
+    hand-written usage example is what caught it, not the tests written for the feature.** `register_mask`
+    landed with paths resolved literally against `ActionResult.Stats` (a flat map with no key named after
+    the task's own register), matching the deliberately-dropped-prefix design this session had picked. A
+    genuine usage example added afterward wrote `register_mask: running_config.stdout` on a task registered
+    as `running_config` - the natural spelling, mirroring `when_cel`'s own `stat.<register>` addressing
+    used two tasks later in the same file - and it silently resolved to nothing: `Stats["running_config"]`
+    does not exist, so the path was a benign "not found" skip, and the secret it was meant to protect
+    would have leaked in cleartext with the runbook reporting no error at all. Every test written *for* the
+    feature passed, because every one of them was written against the same bare-path assumption the bug
+    shared. The fix, `markRegisterMask` stripping an exact `<Task.Register>.` prefix before resolving, so
+    both spellings reach the same field. **The lesson is procedural, not just the specific bug:** a
+    security- or secrecy-relevant feature's own test suite, written by the same reasoning that designed the
+    feature, cannot catch a design assumption that reasoning got wrong - it takes an independent, real
+    usage example (here, one the user wrote by hand for a different purpose entirely) to surface that class
+    of gap. A silent no-op is the worst failure mode this specific feature can have, worse than a hard
+    error, so a real dogfood usage pass belongs in the checklist before calling a masking feature done, not
+    only a green test suite the feature's own author wrote.

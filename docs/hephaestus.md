@@ -218,6 +218,18 @@ a module's name, and scaffolding them as collections would be a mistake.
 | `ansible.builtin.import_tasks` | An engine keyword, resolved at parse time. **Built (Phase 34)** | Static inclusion is compatible with building the DAG up front: `internal/engine/import_tasks.go` splices a referenced file's own task list into an ordinary block task before the DAG builder ever sees it, with no dependency on either unbuilt subsystem above. |
 | `ansible.builtin.include_tasks` | Unresolved. See the honest limits below | Runtime inclusion fights plan-time validation. |
 
+This table of four is not exhaustive of every native-only name, only of the ones with no
+Ansible module counterpart at all. `set_metadata` (`ansible.builtin.set_stats`'s native
+equivalent, `internal/engine/action.go`) and `pleiades.builtin.wait.port`
+(`internal/forge/catalogdata/collections_gating.go`) are a different case: both are real,
+catalog-registered (or, for `set_metadata`, hardcoded-builtin) entries, ported 1:1 from an
+Ansible module like everything else in this catalog, but namespaced under a reserved
+`pleiades.builtin.` prefix rather than a `net.*`/`pkg.*`/etc. domain name, since nothing about
+either one is vendor- or domain-specific the way the rest of the catalog is. `set_metadata`
+answers to both the bare and dotted spelling indefinitely; `wait.port`'s own siblings,
+`wait.path` and `wait.search`, are deliberately not yet renamed under this same prefix, an
+accepted, visible inconsistency rather than a scope expansion to "fix" it.
+
 ### The catalog
 
 Twenty seven collections (Go packages) cover the thirty six modules. **Correction (2026-08-05):** this

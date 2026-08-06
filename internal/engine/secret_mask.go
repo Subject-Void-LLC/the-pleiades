@@ -14,6 +14,14 @@ package engine
 // is already flat. A nested-path syntax is a clean additive follow-up if a
 // real need for one appears; building it speculatively now would be scope
 // this feature was not asked for.
+//
+// That real need did appear, but only for Task.RegisterMask
+// (dag.go), the different, same-task mechanism this type's own doc
+// comment above already distinguishes: RegisterMask now supports dotted
+// paths (executor_secrets.go's resolveRegisterMaskPath), SecretMaskSpec
+// deliberately still does not. The two are not unified into one
+// mechanism and do not share a path-resolution implementation; this
+// asymmetry is intentional, not a follow-up left undone.
 type SecretMaskSpec struct {
 	// Register is the earlier task's Register name whose result this spec
 	// reads from. A name that no task in the DAG ever registers is a

@@ -123,18 +123,35 @@ type Task struct {
 	// later tasks to reference, mirroring Ansible's register:.
 	Register string `json:"register,omitempty" yaml:"register,omitempty"`
 
-	// SecretFields names top-level keys of this task's own ActionResult.Stats
-	// (once computed) whose values must be treated as secret from this point
-	// on: masked out of every later published event and out of a caller's
-	// own printed output, wherever that value reappears for the rest of the
-	// run. This is Ansible parity Ansible itself does not have (there is no
-	// per-value secrecy in a registered result, only a whole-task no_log),
-	// for the case where a value's secrecy is only known at runtime (a
-	// generated password, a dynamically issued token): see
-	// internal/credential.Mask, which this reuses, for the "known,
-	// pre-registered secret" case this is deliberately not. See
-	// executor_secrets.go for how these are collected and applied.
-	SecretFields []string `json:"secret_fields,omitempty" yaml:"secret_fields,omitempty"`
+	// RegisterMask names fields of this task's own ActionResult.Stats (once
+	// computed), dotted paths into nested values allowed, whose values must
+	// be treated as secret from this point on: masked out of every later
+	// published event and out of a caller's own printed output, wherever
+	// that value reappears for the rest of the run. Named for what it does,
+	// register_mask: applied at the moment this task's own result is
+	// registered, before Merge or publish ever see it (executor.go's
+	// markRegisterMask call site), the same "secret from the instant it is
+	// produced" guarantee a password field gets. A path may optionally be
+	// prefixed with this task's own Register name (e.g. Register
+	// "running_config", path "running_config.stdout"), mirroring when_cel's
+	// stat.<register> addressing; markRegisterMask strips that exact prefix
+	// before resolving, so both the prefixed and bare ("stdout") spelling
+	// reach the identical field, and neither is silently a no-op. StringList
+	// (not a plain []string) so a single path can be written as a bare
+	// scalar, matching When/WhenOr's own scalar-or-list convenience, since a
+	// hand-typed one-mask task is the common case. This is Ansible parity
+	// Ansible itself does not have (there is no per-value secrecy in a
+	// registered result, only a whole-task no_log), for the case where a
+	// value's secrecy is only known at runtime (a generated password, a
+	// dynamically issued token): see internal/credential.Mask, which this
+	// reuses, for the "known, pre-registered secret" case this is
+	// deliberately not. See executor_secrets.go for how these are collected
+	// and applied, and secret_mask.go's SecretMaskSpec for the different,
+	// deliberately separate retroactive case (marking an earlier task's
+	// already-registered result secret, flat top-level fields only, no
+	// nested-path support): the two do not share an implementation, and
+	// RegisterMask's nested-path support does not extend to SecretMaskSpec.
+	RegisterMask StringList `json:"register_mask,omitempty" yaml:"register_mask,omitempty"`
 
 	// SecretMask retroactively marks fields of an earlier task's already
 	// registered result as secret, evaluated once for this task (not once
@@ -244,8 +261,13 @@ func NewBuilder(celEvaluator Evaluator) *Builder {
 // import_tasks task in payload fails with a clear error; use
 // BuildFromYAMLFile for a runbook that uses import_tasks.
 func (b *Builder) Build(payload []byte) (*DAG, error) {
+	normalized, err := normalizeWorkflowJSON(payload)
+	if err != nil {
+		return nil, err
+	}
+
 	var def WorkflowDef
-	if err := json.Unmarshal(payload, &def); err != nil {
+	if err := json.Unmarshal(normalized, &def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
 	return b.buildFromDef(def, "")

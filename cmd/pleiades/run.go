@@ -166,7 +166,7 @@ func runRunbook(args []string) error {
 		switch {
 		case node.Err != nil:
 			// Masked through result.Secrets: a later task's failure can
-			// echo a value an earlier secret_fields/secret_mask task
+			// echo a value an earlier register_mask/secret_mask task
 			// marked secret (its own stdout accidentally repeating a
 			// generated password, for example), and by the time this
 			// prints, Run has already returned the complete secret set,
@@ -202,7 +202,7 @@ func runRunbook(args []string) error {
 // register name, then device ID, then key, for deterministic output.
 // Every value is masked through credential.Mask using result.Secrets
 // before printing: a set_metadata task can echo back a value an earlier
-// secret_fields/secret_mask task marked secret just as easily as any other
+// register_mask/secret_mask task marked secret just as easily as any other
 // task's output can.
 func printMetadata(metadata map[string]interface{}, secrets []string) {
 	registers := make([]string, 0, len(metadata))

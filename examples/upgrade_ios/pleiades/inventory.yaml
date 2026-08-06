@@ -1,0 +1,24 @@
+# Pleiades static inventory (Walk tier, PLAN.md Section 7).
+# Credentials are not stored here: run
+#   pleiades add-credential sw1 --username svc-netauto
+#   pleiades add-credential sw2 --username svc-netauto
+# once per device (it prompts for the password/enable secret and writes
+# it to the encrypted secret store). Ansible's equivalent lives in
+# ../ansible/group_vars/catalyst_lab.yml plus an ansible-vault file.
+hosts:
+  - id: sw1
+    name: sw1
+    type: cisco_switch
+    tags:
+      - catalyst_lab
+    properties:
+      host: 10.10.20.11
+      port: 22
+  - id: sw2
+    name: sw2
+    type: cisco_switch
+    tags:
+      - catalyst_lab
+    properties:
+      host: 10.10.20.12
+      port: 22

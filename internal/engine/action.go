@@ -79,14 +79,20 @@ type builtinActionExecutor struct{}
 //     role Ansible's own debug module plays, and the only way to prove
 //     conditional branching end to end (Phase W5's Release Gate) before
 //     Phase W6 adds a real transport to produce a real value to branch on.
-//   - "set_metadata", mirroring Ansible's set_stats module: requires a
-//     non-empty task.Params["data"] map, reported verbatim as
-//     ActionResult.Stats with IsMetadata set, for RunResult.Metadata's
-//     final run report. Never reports Changed: setting metadata never
-//     alters device state. Deliberately does not implement set_stats'
-//     aggregate/per_host flags (overwrite semantics only): nothing asked
-//     for them, and top-level keys only, matching every ActionResult.Stats
-//     shape this codebase produces today.
+//   - "set_metadata", also reachable as "pleiades.builtin.set_metadata"
+//     (both spellings dispatch identically, indefinitely), mirroring
+//     Ansible's set_stats module: requires a non-empty task.Params["data"]
+//     map, reported verbatim as ActionResult.Stats with IsMetadata set,
+//     for RunResult.Metadata's final run report. Never reports Changed:
+//     setting metadata never alters device state. Deliberately does not
+//     implement set_stats' aggregate/per_host flags (overwrite semantics
+//     only): nothing asked for them, and top-level keys only, matching
+//     every ActionResult.Stats shape this codebase produces today. The
+//     dotted spelling exists so a runbook can namespace every genuinely
+//     native (non-Ansible-ported) fqcn under "pleiades.builtin.", the same
+//     namespace internal/validate/collection_rule.go's exemption list
+//     names; see that file's doc comment for why this one builtin stays a
+//     hardcoded switch case rather than a real pkg/collection method.
 //
 // Every other fqcn returns an explicit "not implemented" error rather than
 // a fake success, the same honesty rule the Forge catalog's stub decision
@@ -108,7 +114,7 @@ func (builtinActionExecutor) Execute(_ context.Context, task *Task, _ inventory.
 			result.Stats = task.Params
 		}
 		return result, nil
-	case "set_metadata":
+	case "set_metadata", "pleiades.builtin.set_metadata":
 		data, ok := task.Params["data"].(map[string]interface{})
 		if !ok || len(data) == 0 {
 			return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty params.data map", task.FQCN)

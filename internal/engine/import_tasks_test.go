@@ -88,6 +88,46 @@ tasks:
 	}
 }
 
+// TestBuildFromYAMLFile_ImportTasksModuleAsKeySugar proves module-as-key
+// sugar syntax (task_syntax.go) is rewritten inside an import_tasks file
+// too, not just the top-level runbook: resolveOneImport parses the
+// imported file's bare task list through its own decode path
+// (normalizeWorkflowYAMLTaskList), separate from parseWorkflowYAML's, and
+// both must apply the same normalization.
+func TestBuildFromYAMLFile_ImportTasksModuleAsKeySugar(t *testing.T) {
+	dir := t.TempDir()
+	writeRunbookFile(t, dir, "common.yaml", `
+- name: show version
+  net.cli.command:
+    command: "show version"
+`)
+	main := writeRunbookFile(t, dir, "main.yaml", `
+id: import-sugar
+tasks:
+  - name: shared setup
+    fqcn: import_tasks
+    params:
+      file: common.yaml
+`)
+
+	builder := newTestBuilder(t)
+	dag, err := builder.BuildFromYAMLFile(main)
+	if err != nil {
+		t.Fatalf("BuildFromYAMLFile(main.yaml): %v", err)
+	}
+
+	task, ok := dag.Nodes["tasks[0].block[0]"]
+	if !ok {
+		t.Fatalf("expected spliced-in node tasks[0].block[0], got nodes: %v", dag.Nodes)
+	}
+	if task.FQCN != "net.cli.command" {
+		t.Errorf("expected fqcn %q, got %q", "net.cli.command", task.FQCN)
+	}
+	if task.Params["command"] != "show version" {
+		t.Errorf("expected params.command %q, got %v", "show version", task.Params)
+	}
+}
+
 // TestBuildFromYAMLFile_ImportTasksNestedChain proves an imported file can
 // itself use import_tasks, resolved against the same base directory as
 // the top-level runbook.

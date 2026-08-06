@@ -12,8 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // maxImportDepth bounds how many import_tasks hops a single chain may
@@ -132,7 +130,7 @@ func resolveOneImport(task *Task, baseDir string, resolving map[string]bool, dep
 	}
 
 	var imported []Task
-	if err := yaml.Unmarshal(data, &imported); err != nil {
+	if err := normalizeWorkflowYAMLTaskList(data, &imported); err != nil {
 		return nil, fmt.Errorf("import_tasks: parsing %q: %w", full, err)
 	}
 

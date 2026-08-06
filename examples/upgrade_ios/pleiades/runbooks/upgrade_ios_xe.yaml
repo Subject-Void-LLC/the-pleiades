@@ -1,0 +1,148 @@
+# Upgrade a Cisco Catalyst lab switch to IOS-XE 17.03.04.
+# Compare task for task against ../../ansible/upgrade_ios_xe.yml.
+# See ../../README.md for what actually executes today versus what this
+# demonstrates as the target runbook shape.
+#
+# Run with: pleiades run runbooks/upgrade_ios_xe.yaml
+id: upgrade-ios-xe
+metadata:
+  service_effecting: true
+  mcp: true
+  mcp_impact: "This runbook will reload the switch, which will cause a brief outage."
+  mcp_impact_duration: "The reload will take approximately 2-3 minutes."
+  mcp_description: "This runbook upgrades an IOS switch, which includes important security and stability fixes."
+
+pretasks:
+
+  - name: Get Config
+    fqcn: net.cli.command
+    params:
+      target: sw1
+      command: "show running-config"
+    register: running_config
+    # hide the running config from the run report, since it may contain secrets
+    register_mask: running_config.stdout
+
+  - name: Record the currently running version
+    fqcn: net.cli.command
+    params:
+      target: sw1
+      command: "show version | include Version"
+    register: pre_facts
+
+  - name: Check free space on flash before pulling a new image
+    fqcn: net.cli.command
+    params:
+      target: sw1
+      command: "dir flash:"
+    register: flash_dir
+
+tasks:
+  - name: Upgrade sw1
+    block:
+      - name: Back up the running config before touching anything
+        fqcn: net.ios.config
+        params:
+          target: sw1
+          backup: true
+
+      - name: Pull the new image onto flash
+        fqcn: net.cli.command
+        params:
+          target: sw1
+          command: "copy http://10.10.10.5/images/cat9k_iosxe.17.03.04.SPA.bin flash:cat9k_iosxe.17.03.04.SPA.bin"
+          prompt:
+            - "Destination filename"
+          answer:
+            - "\r"
+          check_all: true
+
+      - name: Verify the image checksum before trusting it
+        fqcn: net.cli.command
+        params:
+          target: sw1
+          command: "verify /md5 flash:cat9k_iosxe.17.03.04.SPA.bin 5f4dcc3b5aa765d61d8327deb882cf99"
+        register: md5_check
+
+      - name: Point the boot variable at the new image and save
+        fqcn: net.ios.config
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+        params:
+          target: sw1
+          lines:
+            - "boot system flash:cat9k_iosxe.17.03.04.SPA.bin"
+          save_when: modified
+
+      - name: Reload the switch
+        fqcn: net.cli.command
+        when_cel: 'stat.md5_check["sw1"].stdout.matches("Verified")'
+        params:
+          target: sw1
+          command: reload
+          prompt:
+            - "confirm"
+          answer:
+            - "\r"
+          sendonly: true
+
+    rescue:
+      - name: Record the failure for the run report
+        fqcn: pleiades.builtin.set_metadata
+        params:
+          data:
+            upgrade_failed: true
+            note: "sw1 failed before reload; running config is unchanged, boot variable was not committed"
+
+      # Would ideally quote the pre-upgrade version captured by "Record the
+      # currently running version" (register: pre_facts) so the operator
+      # knows exactly what to roll back to. That is not possible yet:
+      # params is a literal map with no templating (same gap the README's
+      # "No Jinja templating in params" section documents for hosts:), so
+      # a static, host-specific message is the honest ceiling today.
+      - name: Display rollback instructions for the operator
+        fqcn: pleiades.builtin.set_metadata
+        params:
+          data:
+            rollback_instructions: >-
+              Automatic rollback is not implemented yet (docs/rollback_journal_design.md).
+              To recover sw1 by hand: reconnect to 10.10.20.11 over console or SSH, run
+              "show boot" to confirm the boot variable. If it already points at
+              cat9k_iosxe.17.03.04.SPA.bin, run "no boot system
+              flash:cat9k_iosxe.17.03.04.SPA.bin" then "write memory" and reload. The
+              pre-upgrade running version this attempt started from is in this run's own
+              "pre_facts" data (see the pretasks above) but cannot be quoted here directly;
+              check that task's own output. The pre-upgrade config backup task in this same
+              block may not have run either; restore config from your own change-management
+              backup if it drifted.
+
+posttasks:
+  - name: Wait for the switch to come back on SSH
+    fqcn: pleiades.builtin.wait.port
+    params:
+      host: 10.10.20.11
+      port: 22
+      delay: 60
+      timeout: 600
+
+  - name: Re-check the running version
+    fqcn: net.cli.command
+    params:
+      target: sw1
+      command: "show version | include Version"
+    register: post_facts
+
+  - name: Record that the upgrade landed
+    fqcn: pleiades.builtin.set_metadata
+    when_cel: 'stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
+    params:
+      data:
+        upgrade_succeeded: true
+        version: "17.03.04"
+
+  - name: Record that the upgrade did not land
+    fqcn: pleiades.builtin.set_metadata
+    when_cel: '!stat.post_facts["sw1"].stdout.matches("17\\.03\\.04")'
+    params:
+      data:
+        upgrade_succeeded: false
+        note: "still not running 17.03.04 after reload"

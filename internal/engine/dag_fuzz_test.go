@@ -36,6 +36,16 @@ func FuzzDAGBuilder(f *testing.F) {
 	// Metadata section present.
 	f.Add([]byte(`{"id":"r9","metadata":{"service_effecting":true},"tasks":[{"name":"a","fqcn":"noop"}]}`))
 
+	// Module-as-key sugar (task_syntax.go), JSON path: valid, ambiguous,
+	// conflicting, and non-map, mirroring yaml_fuzz_test.go's seeds so the
+	// JSON normalizer gets the same adversarial coverage as the YAML one.
+	f.Add([]byte(`{"id":"s1","tasks":[{"name":"a","net.cli.command":{"command":"x"}}]}`))
+	f.Add([]byte(`{"id":"s2","tasks":[{"name":"a","net.cli.command":{"command":"x"},"net.ios.config":{"lines":[]}}]}`))
+	f.Add([]byte(`{"id":"s3","tasks":[{"name":"a","fqcn":"noop","net.cli.command":{"command":"x"}}]}`))
+	f.Add([]byte(`{"id":"s4","tasks":[{"name":"a","net.cli.command":"not a map"}]}`))
+	f.Add([]byte(`{"id":"s5","tasks":[{"name":"a","net.cli.command":[1,2,3]}]}`))
+	f.Add([]byte(`{"id":"s6","tasks":[{"name":"a","noop":null}]}`))
+
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		// Just ensure it doesn't panic on arbitrary byte slices
 		builder.Build(payload)

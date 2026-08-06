@@ -103,8 +103,8 @@ type NodeResult struct {
 type RunResult struct {
 	Nodes []NodeResult
 
-	// Secrets is every value a secret_fields or secret_mask task
-	// annotation discovered during this run (see Task.SecretFields,
+	// Secrets is every value a register_mask or secret_mask task
+	// annotation discovered during this run (see Task.RegisterMask,
 	// Task.SecretMask), in no particular order. A caller that prints or
 	// logs this run's own output (cmd/pleiades/run.go) should mask through
 	// credential.Mask using this exact, complete slice after Run has
@@ -192,7 +192,7 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 
 // run holds the state scoped to a single Executor.Run call: the dag being
 // walked, the worker-pool semaphore this call's device executions share,
-// and the secret-tracking accumulators secret_fields/secret_mask feed.
+// and the secret-tracking accumulators register_mask/secret_mask feed.
 // Keeping this separate from Executor itself means Executor has no
 // per-run mutable state, so a single Executor value stays safe to reuse
 // (or even to call Run on concurrently) across more than one dag; a fresh
@@ -461,11 +461,11 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		return result
 	}
 
-	// secret_fields marks fields of this task's own just-computed result as
+	// register_mask marks fields of this task's own just-computed result as
 	// secret, before Register/Merge below records it anywhere: this way a
 	// masked value is unmasked in WorkflowContext (when_cel must always see
 	// real values) but is already tracked for every later output boundary.
-	if err := r.markSecretFields(cmd, actionResult); err != nil {
+	if err := r.markRegisterMask(cmd, actionResult); err != nil {
 		result.Err = fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err)
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
 		return result
@@ -525,7 +525,7 @@ type nodeEvent struct {
 // publication is an observability side effect, matching Bus.Publish's own
 // fire-and-forget contract, and must never fail a node's real outcome.
 //
-// message is masked through every secret_fields/secret_mask value known to
+// message is masked through every register_mask/secret_mask value known to
 // r.secrets as of this exact call, before it ever reaches the payload.
 // This is necessarily best-effort, not complete: an event published before
 // a later task marks something secret cannot be retroactively scrubbed.

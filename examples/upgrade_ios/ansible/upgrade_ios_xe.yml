@@ -1,0 +1,100 @@
+---
+# Ansible playbook: upgrade a Cisco Catalyst lab switch to IOS-XE 17.03.04.
+# Compare task for task against ../pleiades/runbooks/upgrade_ios_xe.yaml.
+#
+# Run with:
+#   ansible-playbook -i inventory.ini upgrade_ios_xe.yml --ask-vault-pass
+
+- name: Upgrade catalyst_lab switches to IOS-XE 17.03.04
+  hosts: catalyst_lab
+  gather_facts: false
+  vars:
+    target_version: "17.03.04"
+    target_image: cat9k_iosxe.17.03.04.SPA.bin
+    target_md5: 5f4dcc3b5aa765d61d8327deb882cf99
+    image_server: http://10.10.10.5/images
+
+  pre_tasks:
+    - name: Record the currently running version
+      cisco.ios.ios_facts:
+        gather_subset: hardware
+      register: pre_facts
+
+    - name: Fail fast if this switch is already on the target version
+      ansible.builtin.assert:
+        that:
+          - pre_facts.ansible_net_version != target_version
+        fail_msg: "{{ inventory_hostname }} is already running {{ target_version }}, nothing to do"
+        success_msg: "Currently running {{ pre_facts.ansible_net_version }}, upgrading to {{ target_version }}"
+
+    - name: Check free space on flash before pulling a new image
+      ansible.netcommon.cli_command:
+        command: "dir flash:"
+      register: flash_dir
+
+  tasks:
+    - name: Upgrade block
+      block:
+        - name: Back up the running config before touching anything
+          cisco.ios.ios_config:
+            backup: true
+            backup_options:
+              filename: "{{ inventory_hostname }}-pre-upgrade.cfg"
+              dir_path: ./backups
+
+        - name: Pull the new image onto flash
+          ansible.netcommon.cli_command:
+            command: "copy {{ image_server }}/{{ target_image }} flash:{{ target_image }}"
+            prompt:
+              - "Destination filename"
+            answer:
+              - "\r"
+            check_all: true
+
+        - name: Verify the image checksum before trusting it
+          ansible.netcommon.cli_command:
+            command: "verify /md5 flash:{{ target_image }} {{ target_md5 }}"
+          register: md5_check
+          failed_when: "'Verified' not in md5_check.stdout"
+
+        - name: Point the boot variable at the new image and save
+          cisco.ios.ios_config:
+            lines:
+              - "boot system flash:{{ target_image }}"
+            save_when: modified
+
+        - name: Reload the switch
+          ansible.netcommon.cli_command:
+            command: reload
+            prompt:
+              - "confirm"
+            answer:
+              - "\r"
+            sendonly: true
+
+      rescue:
+        - name: Surface the failure loudly, nothing here is auto-rolled-back
+          ansible.builtin.fail:
+            msg: >-
+              Upgrade failed on {{ inventory_hostname }} before reload.
+              Running config is unchanged and the boot variable was not committed.
+
+  post_tasks:
+    - name: Wait for the switch to come back on SSH
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        delay: 60
+        timeout: 600
+
+    - name: Re-gather facts on the upgraded switch
+      cisco.ios.ios_facts:
+        gather_subset: hardware
+      register: post_facts
+
+    - name: Confirm the upgrade actually landed
+      ansible.builtin.assert:
+        that:
+          - post_facts.ansible_net_version == target_version
+        fail_msg: "Still running {{ post_facts.ansible_net_version }} after reload, upgrade did not take"
+        success_msg: "Confirmed running {{ target_version }}"

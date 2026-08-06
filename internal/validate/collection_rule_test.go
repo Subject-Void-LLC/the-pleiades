@@ -147,3 +147,18 @@ func TestCollectionRule_NamedTaskInMessage(t *testing.T) {
 		t.Errorf("expected the message to still include the task's synthesized ID, got: %s", findings[0].Message)
 	}
 }
+
+// TestCollectionRule_PleiadesBuiltinSetMetadataExempted proves the dotted
+// "pleiades.builtin.set_metadata" spelling of the set_metadata builtin is
+// exempted from CollectionRule exactly like its bare "set_metadata"
+// spelling, despite containing a dot: it is a hardcoded engine builtin
+// (internal/engine/action.go), never a real pkg/collection registration,
+// so treating it as an unregistered collection name would be wrong.
+func TestCollectionRule_PleiadesBuiltinSetMetadataExempted(t *testing.T) {
+	world := validate.WorldView{DAG: dagWithOneTask("pleiades.builtin.set_metadata", "")}
+
+	findings := validate.CollectionRule(world)
+	if len(findings) != 0 {
+		t.Fatalf("expected pleiades.builtin.set_metadata to be exempted, got findings: %v", findings)
+	}
+}

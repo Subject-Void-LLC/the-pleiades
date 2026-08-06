@@ -295,12 +295,12 @@ func TestCLI_RunReportsSetMetadata(t *testing.T) {
 	}
 }
 
-// TestCLI_RunMasksSecretFields exercises secret_fields through the real
+// TestCLI_RunMasksRegisterMask exercises register_mask through the real
 // binary: a value marked secret must never appear in cleartext anywhere
 // in the CLI's own printed output, including a later, unrelated task's
 // own failure message that happens to echo it back, only the mask
 // placeholder should.
-func TestCLI_RunMasksSecretFields(t *testing.T) {
+func TestCLI_RunMasksRegisterMask(t *testing.T) {
 	dir := t.TempDir()
 	if out, err := runPleiades(t, dir, "init"); err != nil {
 		t.Fatalf("init failed: %v\n%s", err, out)
@@ -313,7 +313,7 @@ func TestCLI_RunMasksSecretFields(t *testing.T) {
 		"  - name: mark-secret\n" +
 		"    fqcn: noop\n" +
 		"    register: creds\n" +
-		"    secret_fields: [password]\n" +
+		"    register_mask: [password]\n" +
 		"    params:\n" +
 		"      password: \"" + secret + "\"\n" +
 		"  - name: leak-secret\n" +
