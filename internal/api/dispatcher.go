@@ -10,6 +10,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
 
@@ -65,7 +66,7 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Obtain an Iterator for the target group
-	iter, err := d.repo.GetGroup(r.Context(), groupName)
+	iter, err := d.repo.GetGroup(r.Context(), pkginventory.Selector{GroupName: groupName})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to query inventory: %v", err), http.StatusInternalServerError)
 		return

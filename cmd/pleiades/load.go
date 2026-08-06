@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
@@ -32,11 +31,11 @@ func loadWorld(dir, runbookPath string) ([]pkginventory.InventoryItem, *engine.D
 	inventoryPath := filepath.Join(dir, inventory.DefaultInventoryFilename)
 	repo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 
-	// GetGroup's groupName is Walk tier's honest no-op: neither Repository
+	// GetGroup's Selector is Walk tier's honest no-op: neither Repository
 	// implementation has real grouping infrastructure yet (see
-	// fileRepository.GetGroup's own doc comment), so an empty string is
+	// fileRepository.GetGroup's own doc comment), so the zero value is
 	// passed rather than inventing a group concept this call cannot act on.
-	it, err := repo.GetGroup(ctx, "")
+	it, err := repo.GetGroup(ctx, pkginventory.Selector{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load inventory: %w", err)
 	}
@@ -50,22 +49,20 @@ func loadWorld(dir, runbookPath string) ([]pkginventory.InventoryItem, *engine.D
 		return nil, nil, fmt.Errorf("failed to load inventory: %w", err)
 	}
 
-	// runbookPath is a CLI argument the invoking user supplies to their own
-	// process, crossing no trust boundary the CLI did not already have
-	// (the same as `cat` or `ansible-playbook` itself); see Phase W1's own
-	// Schema/Injection Hardening item (IMPLEMENTATION.md) for the full
-	// reasoning.
-	payload, err := os.ReadFile(runbookPath) // #nosec G304 -- intentional, see comment above
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read runbook %s: %w", runbookPath, err)
-	}
-
 	eval, err := engine.NewCELEvaluator()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to init CEL evaluator: %w", err)
 	}
 
-	dag, err := engine.NewBuilder(eval).BuildFromYAML(payload)
+	// runbookPath is a CLI argument the invoking user supplies to their own
+	// process, crossing no trust boundary the CLI did not already have
+	// (the same as `cat` or `ansible-playbook` itself); see Phase W1's own
+	// Schema/Injection Hardening item (IMPLEMENTATION.md) for the full
+	// reasoning. BuildFromYAMLFile reads runbookPath itself and resolves
+	// any import_tasks task's relative file reference against its
+	// directory, replacing a manual os.ReadFile + BuildFromYAML pair that
+	// had no base directory to give import_tasks (Phase 34).
+	dag, err := engine.NewBuilder(eval).BuildFromYAMLFile(runbookPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build DAG from %s: %w", runbookPath, err)
 	}

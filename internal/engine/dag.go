@@ -240,21 +240,31 @@ func NewBuilder(celEvaluator Evaluator) *Builder {
 }
 
 // Build parses a raw JSON payload, validates references, compiles CEL expressions,
-// and ensures the graph is acyclic.
+// and ensures the graph is acyclic. It has no file context, so an
+// import_tasks task in payload fails with a clear error; use
+// BuildFromYAMLFile for a runbook that uses import_tasks.
 func (b *Builder) Build(payload []byte) (*DAG, error) {
 	var def WorkflowDef
 	if err := json.Unmarshal(payload, &def); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
-	return b.buildFromDef(def)
+	return b.buildFromDef(def, "")
 }
 
 // buildFromDef is the one domain-level compilation path shared by every
-// surface format. BuildFromYAML (yaml.go) decodes into the same WorkflowDef
-// and calls this too, so a hand-written YAML runbook and a JSON-built one
-// produce the identical *DAG: there is exactly one runbook-to-DAG path, not
-// two that can drift apart.
-func (b *Builder) buildFromDef(def WorkflowDef) (*DAG, error) {
+// surface format. BuildFromYAML/BuildFromYAMLFile (yaml.go) decode into
+// the same WorkflowDef and call this too, so a hand-written YAML runbook
+// and a JSON-built one produce the identical *DAG: there is exactly one
+// runbook-to-DAG path, not two that can drift apart. baseDir is the
+// directory an import_tasks task's relative file reference resolves
+// against (see resolveImportTasks, import_tasks.go); an empty baseDir
+// means no file context is available, which is fine unless def actually
+// uses import_tasks.
+func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
+	if err := resolveImportTasks(&def, baseDir); err != nil {
+		return nil, err
+	}
+
 	switch def.Type {
 	case "", "native":
 		// Default. Proceed normally.

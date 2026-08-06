@@ -22,7 +22,7 @@ type MockRepository struct {
 	Count int
 }
 
-func (m *MockRepository) GetGroup(ctx context.Context, groupName string) (inventory.Iterator, error) {
+func (m *MockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
 	return &MockIterator{count: m.Count, current: 0}, nil
 }
 
@@ -160,7 +160,7 @@ func (i *noIPMockIterator) Close() error { return nil }
 
 type noIPMockRepository struct{}
 
-func (m *noIPMockRepository) GetGroup(ctx context.Context, groupName string) (inventory.Iterator, error) {
+func (m *noIPMockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
 	return &noIPMockIterator{}, nil
 }
 

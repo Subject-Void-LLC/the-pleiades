@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 )
 
 // BenchmarkFileRepositorySave measures one full Save round trip: reading
@@ -78,7 +79,7 @@ func BenchmarkFileRepositoryGetGroup(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		iter, err := repo.GetGroup(ctx, "all")
+		iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 		if err != nil {
 			b.Fatalf("GetGroup: %v", err)
 		}

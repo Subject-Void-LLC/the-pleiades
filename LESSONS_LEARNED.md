@@ -652,3 +652,61 @@ story, per `.AGENTS/AGENTS.md`.
     against the new caller's actual shape, not just against whether the new caller's *inputs* look
     superficially similar to prior callers' -- a precondition that has never been violated is not the
     same as a precondition that has been verified.
+
+55. **A source filename ending in `_GOOS.go` or `_GOARCH.go` is an implicit build constraint in Go, with
+    no `//go:build` line required, and `go build ./pkg` succeeding proves nothing about whether every
+    file in it was actually compiled.** `capabilities_windows.go` silently matched the reserved GOOS value
+    `windows` and was excluded from every build and test on this project's real (`linux/amd64`)
+    platform since the day it was written; the package still built and its own tests still passed,
+    because Go doesn't need the excluded file to make the rest of the package valid
+    (FAILURE_PATTERNS.md #51). Two verification habits would have caught this immediately and neither was
+    in routine use: `go list -f '{{.GoFiles}}' ./pkg/...` (or `.IgnoredGoFiles}}'` to see exactly what got
+    left out) after adding a new file to an existing package, and picking a filename topic suffix by
+    checking it against Go's own reserved GOOS/GOARCH list first, not just against this project's own
+    naming convention for sibling files (`capabilities_cloud.go`, `capabilities_exec.go`, etc., none of
+    which happen to collide, entirely by luck). "The package built" and "the file I just added is part of
+    the package" are not the same claim; only `go list`'s own file inventory proves the second one.
+
+56. **A generated, per-package `init()`-registration pattern needs its own composition-root aggregator
+    from day one, proven by an integration-level test, not by each generated package's own isolated
+    unit test.** Every one of Phase 34's 71 generated Collection packages' own test passed
+    (`collection.Lookup` finds itself, inside its own test binary, which imports itself by definition) while
+    the shared `pkg/collection` registry stayed completely empty in the one binary that actually mattered,
+    because nothing else in the codebase had any other reason to import any of them
+    (FAILURE_PATTERNS.md #52, structurally the same shape as #27's dormant SQLite driver). The general
+    rule this project already half-knows from `internal/inventory/builtins.go`'s device-type pattern:
+    any "many packages self-register via `init()`" design needs exactly one more thing, a blank-import
+    aggregator that something in the real binary actually imports, built and wired in the same change
+    that introduces the first generated package, not discovered later by a test that happens to check
+    the aggregate rather than each part in isolation. When the aggregator can be derived mechanically
+    from the same data driving generation (as it can here), generate it too, rather than hand-maintaining
+    an import list that drifts the moment someone edits the data table and forgets the aggregator exists.
+
+57. **`go test ./...`'s default cross-package concurrency means a test that mutates the real module tree
+    can race a different package's `go list`-based architecture test, and the fix is not always worth
+    building.** Three independent packages' end-to-end tests (two pre-existing, one added this phase)
+    each write and then remove a real temporary package directory under `internal/` to prove a CLI
+    surface against the actual module (RULE 0); `internal/archtest`'s tests shell out to `go list
+    .../internal/...` over that same live tree. Neither category of test is wrong on its own, and neither
+    can see the other's existence, but running many packages' test binaries concurrently (Go's own
+    default) can transiently interleave a directory create/delete with a `go list` walk of the same
+    path (FAILURE_PATTERNS.md #53). Not every real, reproducible-in-principle race is worth fixing with
+    new infrastructure: cross-process synchronization between otherwise-unrelated test packages is real
+    engineering cost for a failure mode a repeat run already resolves, and this project already has an
+    established, accepted remedy for exactly this shape of flake ("run `make ci` twice"). Recognize when
+    a finding belongs in the record as a known, accepted risk rather than as a blocking defect to
+    engineer around.
+
+58. **A fixture that sets a field the code under test never reads is not evidence a feature works; it is
+    evidence the test doesn't fail.** `TestGrandIntegration` tagged devices with a `group` property and
+    dispatched to that group name, and had passed on every run since it was written, not because
+    group-scoped dispatch worked, but because the dispatch path it exercised never looked at that property
+    at all (FAILURE_PATTERNS.md #54). A green test only proves a feature works if its assertion is
+    actually coupled to the code path under test; a fixture value that happens to match the code path's
+    real read set by coincidence, rather than because the code path consumes it, keeps passing right up
+    until a real implementation lands and the coincidence stops holding. When a checklist item says a
+    piece of state is "currently discarded" or "not yet wired up" (Phase 7's own checklist said exactly
+    this about `GetGroup`'s `groupName`), grep for every existing test that already passes a
+    non-empty/non-default value into that argument before implementing the fix: a pre-existing, currently
+    "passing" test is the first place a masked defect exposes itself once the real implementation starts
+    reading what it used to ignore.

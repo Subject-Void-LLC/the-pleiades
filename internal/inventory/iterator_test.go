@@ -9,6 +9,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -45,7 +46,7 @@ func TestIteratorMemoryFlatline(t *testing.T) {
 	runtime.ReadMemStats(&m1)
 
 	// 3. Iterate
-	iter, err := repo.GetGroup(ctx, "all")
+	iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 	if err != nil {
 		t.Fatalf("failed to get group iterator: %v", err)
 	}

@@ -55,16 +55,18 @@ func NewFileRepository(inventoryPath string, factory *ItemFactory) Repository {
 
 // GetGroup returns an Iterator over every host in the inventory file. Walk
 // tier has no real grouping infrastructure yet anywhere in this codebase:
-// entRepository.GetGroup (ent_repository.go) fetches everything too and
-// says so honestly in its own comment ("For simplicity in the Iterator
-// implementation, we fetch everything for now"). Filtering by groupName
-// here would mean inventing filtering infrastructure that exists nowhere
-// else in the platform yet, so this does the same honest thing rather
-// than fake-supporting a groupName argument it cannot act on.
+// HostSpec (yaml_plugin.go) has no group-membership field at all, unlike
+// the ent-backed adapter, which now pushes sel.GroupName down to SQL via a
+// real Group edge (ent_repository.go). Honoring sel.GroupName here would
+// mean inventing filtering infrastructure that exists nowhere else in the
+// platform yet, so this does the same honest thing rather than
+// fake-supporting a Selector field it cannot act on:
+// TestFileRepository_Selector_GroupNameIgnored pins this down so a future
+// change cannot silently start erroring on it instead.
 //
 // Items it yields carry Version but not History, matching the Repository
 // interface's documented list-view contract (iterator.go).
-func (r *fileRepository) GetGroup(ctx context.Context, groupName string) (Iterator, error) {
+func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error) {
 	hosts, err := ReadHosts(r.hostsPath)
 	if err != nil {
 		return nil, err

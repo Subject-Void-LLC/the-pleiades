@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 )
 
 // sidecarPathFor performs one successful Save against repo/hostsPath so
@@ -65,7 +66,7 @@ func TestFileRepository_MissingHostsFile_Errors(t *testing.T) {
 	path := filepath.Join(dir, "hosts.yaml") // deliberately never written
 	repo := inventory.NewFileRepository(path, inventory.NewItemFactory())
 
-	if _, err := repo.GetGroup(ctx, "all"); err == nil {
+	if _, err := repo.GetGroup(ctx, pkginventory.Selector{}); err == nil {
 		t.Error("expected GetGroup to error when hosts.yaml does not exist")
 	}
 	if _, err := repo.GetByName(ctx, "anything"); err == nil {
@@ -82,7 +83,7 @@ func TestFileRepository_UnsupportedDeviceType_Errors(t *testing.T) {
 		{ID: "id-1", Name: "mystery-1", Type: "not_a_real_type"},
 	})
 
-	if _, err := repo.GetGroup(ctx, "all"); err == nil {
+	if _, err := repo.GetGroup(ctx, pkginventory.Selector{}); err == nil {
 		t.Error("expected GetGroup to error building an unsupported device type")
 	}
 	if _, err := repo.GetByName(ctx, "mystery-1"); err == nil {
@@ -187,7 +188,7 @@ func TestFileRepository_MalformedSidecar_Errors(t *testing.T) {
 		t.Fatalf("corrupting sidecar: %v", err)
 	}
 
-	if _, err := repo.GetGroup(ctx, "all"); err == nil {
+	if _, err := repo.GetGroup(ctx, pkginventory.Selector{}); err == nil {
 		t.Error("expected GetGroup to error on a malformed sidecar file")
 	}
 	if _, err := repo.GetByName(ctx, "web-1"); err == nil {
@@ -241,7 +242,7 @@ func TestFileRepository_UnrecognizedSidecarState_Errors(t *testing.T) {
 		t.Fatalf("corrupting sidecar: %v", err)
 	}
 
-	if _, err := repo.GetGroup(ctx, "all"); err == nil {
+	if _, err := repo.GetGroup(ctx, pkginventory.Selector{}); err == nil {
 		t.Error("expected GetGroup to reject an unrecognized stored state")
 	}
 	if _, err := repo.GetByName(ctx, "web-1"); err == nil {
@@ -305,7 +306,7 @@ func TestFileRepository_GetGroup_HonorsContextCancellation(t *testing.T) {
 	repo, path := newTestFileRepo(t)
 	seedHost(t, path, "id-1", "web-1")
 
-	iter, err := repo.GetGroup(context.Background(), "all")
+	iter, err := repo.GetGroup(context.Background(), pkginventory.Selector{})
 	if err != nil {
 		t.Fatalf("GetGroup: %v", err)
 	}

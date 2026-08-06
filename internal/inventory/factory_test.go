@@ -60,7 +60,7 @@ func TestFactoryHydration(t *testing.T) {
 	// exercises the same conversion the API dispatcher relies on, not a
 	// factory call constructed by hand.
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
-	iter, err := repo.GetGroup(ctx, "all")
+	iter, err := repo.GetGroup(ctx, baseinventory.Selector{})
 	if err != nil {
 		t.Fatalf("failed to get group iterator: %v", err)
 	}

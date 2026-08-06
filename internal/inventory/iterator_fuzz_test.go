@@ -8,10 +8,14 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 )
 
-// FuzzIteratorPagination fuzzes the iteration boundaries to ensure the offset logic
-// never goes out of bounds or panics under varying DB payload sizes and arbitrary limits.
+// FuzzIteratorPagination fuzzes the iteration boundaries to ensure the
+// keyset-based batching (entIterator.Next, ent_repository.go) never goes
+// out of bounds, panics, skips, or duplicates a device_id under varying DB
+// payload sizes, including exact batch-size multiples and their
+// neighbors.
 func FuzzIteratorPagination(f *testing.F) {
 	f.Add(uint(0))
 	f.Add(uint(1))
@@ -44,24 +48,33 @@ func FuzzIteratorPagination(f *testing.F) {
 		factory := inventory.NewItemFactory()
 		repo := inventory.NewEntRepository(client, factory)
 
-		iter, err := repo.GetGroup(ctx, "all")
+		iter, err := repo.GetGroup(ctx, pkginventory.Selector{})
 		if err != nil {
 			t.Fatalf("failed to get group iterator: %v", err)
 		}
 		defer iter.Close()
 
-		count := uint(0)
+		// Collecting every yielded device_id, not just a count, is what
+		// actually proves "never skips or duplicates a device_id": a
+		// count-only check cannot distinguish "every row seen once" from
+		// "some row seen twice and a different row never seen," which a
+		// count comparison alone would miss whenever those two errors
+		// happen to cancel out.
+		seen := make(map[string]bool, dbRows)
 		for iter.Next(ctx) {
-			_ = iter.Item()
-			count++
+			id := string(iter.Item().ID())
+			if seen[id] {
+				t.Fatalf("device_id %q yielded more than once (dbRows=%d)", id, dbRows)
+			}
+			seen[id] = true
 		}
 
 		if err := iter.Error(); err != nil {
 			t.Fatalf("iterator error: %v", err)
 		}
 
-		if count != dbRows {
-			t.Fatalf("fuzz iteration count mismatch! expected %d got %d", dbRows, count)
+		if uint(len(seen)) != dbRows {
+			t.Fatalf("fuzz iteration count mismatch! expected %d distinct device_ids, got %d", dbRows, len(seen))
 		}
 	})
 }

@@ -36,11 +36,11 @@ var ErrVersionConflict = errors.New("inventory item was modified by another writ
 // is the pluggable port every tier's inventory backend satisfies: an
 // ent-backed repository at Crawl and above, a YAML-backed one at Walk.
 type Repository interface {
-	// GetGroup returns an Iterator to safely stream all devices within a
-	// group. Items it yields carry their stored version but not their
+	// GetGroup returns an Iterator to safely stream every device matching
+	// sel. Items it yields carry their stored version but not their
 	// audit trail: loading history for every row of a list view would be
 	// a query per device for data a list view does not display.
-	GetGroup(ctx context.Context, groupName string) (Iterator, error)
+	GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error)
 
 	// GetByName returns a single item by its unique name, including its
 	// full audit trail. This is the read counterpart to Save: it is how a

@@ -302,7 +302,7 @@ func TestRepositoryConformance_GetGroupListViewOmitsHistory(t *testing.T) {
 				t.Fatalf("Save: %v", err)
 			}
 
-			it, err := repo.GetGroup(ctx, "all")
+			it, err := repo.GetGroup(ctx, pkginventory.Selector{})
 			if err != nil {
 				t.Fatalf("GetGroup: %v", err)
 			}

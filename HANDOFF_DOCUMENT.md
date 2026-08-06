@@ -4,115 +4,353 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session implemented Phase 33: The Scaffolds in full**, the fourth phase of Part VII (The Forge
-of Hephaestus) to close, after a Plan-mode design review (three parallel Explore-agent research passes
-plus one Plan-agent design validation, both driven from this session directly rather than a saved plan
-file reused from an earlier phase). All nine checklist items are now `[x]`. This phase builds the two
-generators Phase 34 will invoke ~27+ times to dogfood-generate the actual module catalog:
-`internal/inventory/devicescaffold` and `internal/forge/collectionscaffold`, plus their `pleiades forge
-new-device`/`new-collection` CLI wiring.
+**This session implemented Phase 7: The Iterator Pattern in full**, jumping back from Part VII (The
+Forge of Hephaestus, closed through Phase 34) to close a Part II gap that had sat partially done since an
+earlier session (`inventory.Iterator` and its ent hookup were already `[x]`; keyset pagination, the
+`Selector`/`GetGroup` fix, and all four verification gates were not). Planning followed this project's
+own established ritual: three parallel Explore-agent research passes (the real Go code, this project's own
+spec docs, and Postgres/ent test conventions) fed a synthesis, direct reads of every load-bearing file
+verified the research rather than trusting it, one Plan agent pressure-tested the resulting design against
+the real repo, and its own findings (a call-site count that was wrong by 9, an import-aliasing trap, a
+sampling-noise risk in the pprof design) were folded in before any plan file was written. All checklist
+items are now `[x]`.
 
-**Two real, verified gaps in the checklist's own premises, corrected in place rather than built
-around:** the checklist named `ItemFactory.Register` as the device registration mechanism in three
-places; that method was retired during the Phase 6 registry retrofit and does not exist. The real
-mechanism, unchanged by this phase, is `record.RegisterType`, reachable only via
-`internal/inventory/builtins.go`'s blank-import list — `NewItemFactory()` itself hardcodes nothing, it
-builds from `record.AllTypes()`. Separately, `pkg/collection` (Phase 31) turned out to be pure
-planning-time metadata with no execution-side consumer anywhere in this codebase: no dispatcher calls a
-registered Collection method's real implementation, so a generated collection stub, while real,
-buildable, and testable Go code, is not reachable from any execution path yet. Both gaps are corrected
-with dated notes in `IMPLEMENTATION.md`, `docs/hephaestus.md`, and `CODE_SCAFFOLD.md`, and the second
-one is additionally documented in every generated collection package's own header, the same "must say
-so, not pretend" duty the checklist's device-scaffold bullet already named.
+**Two checklist premises were checked against the real code before being trusted, and one was wrong.**
+The "ctx shadowed by a context stored at construction" item's bug is real in history
+(`git show de98a9a:internal/inventory/ent_repository.go`) but was already fixed by an unrelated commit
+(`609dadd`) two sessions before this one landed; today's `entIterator` has no `ctx` field. Checked off with
+a note, not re-implemented. The `device_id` column this phase paginates on, by contrast, really was
+already built for exactly this moment: `internal/ent/schema/device.go`'s field and index doc comments
+literally say "a future keyset-paginated listing (Phase 7) can/will page on this column," so this phase
+needed zero ent schema change or migration, pure Go logic over existing schema.
 
-**What was built:** `internal/forge/genutil` (new, shared by both scaffolds): `ValidateSegment`
-(`^[a-z][a-z0-9_]*$`, stricter than `internal/classification`'s own `^[a-z0-9_]+$` because a segment
-here becomes a Go identifier, not just a map key — a leading digit is legal for one and not the other),
-`go/token.IsKeyword`-based keyword rejection, a segment-count and per-segment-length bound, and
-`ToExportedIdent` (snake_case to PascalCase). `internal/inventory/devicescaffold` and
-`internal/forge/collectionscaffold` (new, mirrored shape): a `Config` type with a `Validate()` using
-`genutil` plus `capability.Lookup`, `text/template` sources reproducing the hand-written
-`devices/cisco/router.go` pattern and the `pkg/collection`/`pkg/sdk.RunbookContext` pattern respectively
-(this is the first in-repo code generator; no `text/template` usage existed anywhere before this
-phase), and a pure `Generate(cfg) ([]GeneratedFile, error)` doing no filesystem I/O, formatting output
-via `go/format.Source` rather than a shelled-out `gofmt` binary. The device template adds the `var _
-inventory.InventoryItem = (*T)(nil)` compile-time assertion neither hand-written package has today. New
-directory `internal/catalog/`, added to `CODE_SCAFFOLD.md`'s own tree with a justifying comment (per
-`.AGENTS/AGENTS.md`'s Map Verification protocol), is where `collectionscaffold` writes, nested by
-namespace segment (`pkg.apt.install` → `internal/catalog/pkg/apt/install.go`).
+**The literal named bug (`GetGroup` discards its group argument) is fixed by pushing a real `Group`
+edge down to SQL, not the JSONB-field approach `PATTERNS.md`'s own Specification entry incorrectly
+described.** `entRepository.GetGroup(ctx, sel inventory.Selector)` applies
+`device.HasGroupsWith(group.NameEQ(sel.GroupName))` when `GroupName` is non-empty, closing the deferral
+Phase 1's own session note recorded explicitly ("`Group`/`Organization` are honestly scoped as
+schema-only substrate this phase... `Repository` exposes no traversal for either yet"). `Selector`
+(`pkg/inventory/selector.go`, new) is a deliberately narrow, single-field value object, not the full
+AND/OR/NOT predicate tree `CODE_SCAFFOLD.md`'s aspirational storage sketch warns a Selector must not be
+("It is NOT a group name string, which cannot express Section 3 overlapping groups") — that warning is
+about `PLAN.md` Section 22.3's future Virtual Groups syntax, a different, later phase's job, addressed
+head-on in `IMPLEMENTATION.md`'s own Pattern Entry Gate note rather than silently sidestepped.
 
-**A real, previously-unnoticed CLI bug was found and fixed while wiring `forge new-collection`, not
-worked around:** `cmd/pleiades/addhost.go`'s shared `splitPositional` (used by `add-host`,
-`add-credential`, and now both new `forge new-*` subcommands) assumed every flag takes a following
-value, which silently swallowed a real flag as a bare boolean flag's "value" the moment a caller had one
-followed by another flag — `forge new-collection --requires-elevation --engine-version ">=1.0.0"` was
-the case that surfaced it. Fixed with a `boolFlags map[string]bool` parameter; `add-credential`'s
-pre-existing `--passphrase` bool flag had the identical latent bug, closed as a byproduct rather than
-left in place once the general fix was made. See `FAILURE_PATTERNS.md` #50, `LESSONS_LEARNED.md` #54.
+**A call-site count that looked complete at 4 was actually 13, caught by the Plan agent's pressure-test
+before any code was written, not discovered mid-implementation.** `internal/inventory/factory_test.go`
+(the exact test `IMPLEMENTATION.md`'s Phase W4 note cites as closed Release-Gate evidence),
+`file_repository_test.go`, `file_repository_bench_test.go`, and `file_repository_errors_test.go` (8 call
+sites across the last three, none of which imported `pkg/inventory` before this phase) all called
+`GetGroup` too. Three different, already-established import-alias conventions coexist in this package's
+test files (`pkginventory`, `baseinventory` in `factory_test.go`, `pkginv` in `ent_save_test.go`, none of
+which this phase touched); each file's own existing convention was matched rather than a single alias
+imposed everywhere.
 
-**Adversarial Pattern Justification:** both scaffolds' `Generate` functions only ever return paths under
-their own fixed base directory (`internal/inventory/devices/`, `internal/catalog/`), proven for
-arbitrary input by fuzzing, never touching `internal/inventory/factory.go`, `builtins.go`, or any
-existing `pkg/collection` entry. `internal/inventory/devicescaffold/release_gate_test.go` proves this
-positively: it generates into a real temporary sibling package inside the actual checkout, then builds
-and runs a *second*, independent temporary harness package that blank-imports only the generated
-package (the one real composition-root edit) and resolves it through
-`inventory.NewItemFactoryWithConstructors(record.AllTypes())`.
+**A previously-green integration test was proven to have never actually tested what it appeared to.**
+`tests/e2e/integration_test.go`'s `TestGrandIntegration` (real Postgres, real NATS, `testcontainers-go`)
+failed the moment `GetGroup` started really filtering: it had tagged devices with a `properties["group"]`
+key nothing had ever read, and passed only because the old code streamed everything regardless. Fixed by
+attaching the seeded devices to a real ent `Group`, the mechanism a `Selector` now actually matches
+against; passes against a real Postgres container. `FAILURE_PATTERNS.md` #54, `LESSONS_LEARNED.md` #58.
 
-**Schema/Injection Hardening:** the one new boundary class is generated-source injection (user strings
-embedded into real `.go` files this phase's generators write). Closed at two layers: every segment that
-becomes a path component or Go identifier is `genutil`-validated before any template executes (so `..`,
-`/`, quote, and backtick characters are unreachable, not merely escaped), and every string embedded as a
-Go string literal rather than an identifier goes through `strconv.Quote` as defense in depth. No
-deserialization, CEL, SQL, NATS subject, or auth/token boundary is introduced. `make gosec` found no new
-finding (7 pre-existing, all individually waived, matching every prior phase).
+**The Release Gate's literal wording ("`pprof` proves... completely flat") is met literally, not just in
+spirit.** The pre-existing `TestIteratorMemoryFlatline` proved flatness via `runtime.MemStats`, a coarser
+two-point signal, not `pprof`. New `TestIteratorHeapProfileStaysFlat` calls
+`pprof.Lookup("heap").WriteTo(w, 1)` (Go's documented debug=1 legacy text format, not
+`pprof.WriteHeapProfile`, which always writes the unparseable-without-a-new-dependency protobuf format at
+debug=0) at five checkpoints across a real 50,000-device stream, with `runtime.MemProfileRate` set to 1
+for the duration of the test so the normally-sampled heap profiler reports exact, not noisy, numbers.
+Measured spread on a real run: 0.00 MB.
 
-**Fuzz/Stress:** `FuzzValidateSegment` (`internal/forge/genutil`, 1.5M+ execs/15s, zero failures);
-`FuzzGenerate` in both `devicescaffold` (710K+ execs/15s) and `collectionscaffold` (748K+ execs/15s),
-each proving accepted input never escapes its base directory and always parses as valid Go via
-`go/parser`; `FuzzRunForgeNewDevice`/`FuzzRunForgeNewCollection` (new, `cmd/pleiades`) calling the
-subcommand functions directly rather than through `run()`/`runForge`, since `cli_fuzz_test.go`'s
-existing generic harness splices `--dir <tmp>` in at a position that makes any `forge`-prefixed seed hit
-the unknown-subcommand path before reaching real flag parsing — both ran clean (11.7K and 5.1K execs
-respectively; slower per-exec since each iteration performs real filesystem writes into a `t.TempDir()`).
+**What was built:** see "The Phase 7 session" immediately below for the complete file-by-file summary.
+Everything from "The Phase 34 session" onward describes earlier sessions and is unchanged.
 
-**Release Gate:** proven at two independent layers, both against the real `go` toolchain and the real
-repository tree, never in-process alone. Library layer: both scaffold packages' own
-`release_gate_test.go` generate into a real temporary package, `go build`/`go test` it as a subprocess,
-and clean up via `t.Cleanup` (confirmed via `git status` showing no leftover paths after a run). CLI
-layer: `cmd/pleiades/e2e_test.go`'s new `TestCLI_ForgeNewDevice_EndToEnd` and
-`TestCLI_ForgeNewCollection_EndToEnd` drive the actual built `pleiades` binary against the real
-repository root, then `go build`/`go test` the generated package as a subprocess. `make ci` (build,
-vet, fmt, `test-race`, `gosec`, `govulncheck`, `coverage`) passed clean end to end, run twice to rule
-out a transient failure seen once from a standalone `make coverage` invocation (not reproduced inside
-`make ci` itself, and not related to any file this phase touched). Coverage: `internal/forge/genutil`
-96.0%, `internal/forge/collectionscaffold` 90.2%, `internal/inventory/devicescaffold` 88.6% (both
-scaffold packages' only uncovered lines are `format.Source`/`template.Execute` error-wrapping branches,
-unreachable through the public `Generate` API once `Config.Validate()` already guarantees safe,
-template-compatible input — an honestly recorded gap, not forced to 90% with a contrived test, matching
-this project's own established precedent for a defensively unreachable branch). `cmd/pleiades` rose
-from 33.5% to 43.9%, floor raised to 43.0.
+### The Phase 7 session
 
-**Files changed:** `internal/forge/genutil/` (new: `identifiers.go`, `identifiers_test.go`,
-`identifiers_fuzz_test.go`), `internal/inventory/devicescaffold/` (new: `devicescaffold.go`,
-`config.go`, `templates.go`, `generate.go`, `generate_test.go`, `generate_fuzz_test.go`,
-`release_gate_test.go`), `internal/forge/collectionscaffold/` (new: same seven-file shape),
-`cmd/pleiades/forge_new_device.go`, `forge_new_device_test.go`, `forge_new_device_fuzz_test.go` (all
-new), `cmd/pleiades/forge_new_collection.go`, `forge_new_collection_test.go`,
-`forge_new_collection_fuzz_test.go` (all new), `cmd/pleiades/forge_scaffold_io.go` (new, shared
-file-write/`--capabilities`-parsing helpers), `cmd/pleiades/forge.go` (two `forgeCommands` entries,
-`printForgeUsage` updated), `cmd/pleiades/addhost.go` (`splitPositional` gained `boolFlags`, doc comment
-generalized), `cmd/pleiades/addcredential.go` (`splitPositional` call site updated, closing its own
-latent bug), `cmd/pleiades/addhost_test.go` (new `TestSplitPositional_BoolFlagTakesNoFollowingValue`),
-`cmd/pleiades/e2e_test.go` (`TestCLI_ForgeHelp` updated for real subcommands, two new release-gate
-tests), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 33 checked off in full, including the
-`ItemFactory.Register` correction), `docs/hephaestus.md` (status line, workflow table, command surface,
-"Create a Collection"/"Create an inventory device type" sections all updated), `.SPECIFICATION/CODE_SCAFFOLD.md`
-(`internal/forge/`/`internal/catalog/` tree entries, `internal/adapters/native/` annotation corrected,
-`RunbookContext` Section G corrected), `coverage-floor.json` (four new/changed floors),
-`FAILURE_PATTERNS.md` (#50 new), `LESSONS_LEARNED.md` (#54 new). See "The Phase 33 session" immediately
-below for full detail. Everything from "The Phase 32 session" onward describes earlier sessions and is
-unchanged.
+**Scope: Phase 7 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), picked up after Part VII (The Forge of
+Hephaestus) closed through Phase 34, per the user's explicit direction to come back to it. See "Current
+Status" above for the complete summary; this heading exists so future sessions can find this session's
+detail without re-reading the whole file.
+
+**Research and design, before any code:** three parallel Explore-agent research passes (the real
+`inventory.Iterator`/`Repository`/`entIterator`/`fileRepository` code and every real caller, this
+project's own spec docs — `PLAN.md`, `PATTERNS.md`, `CODE_SCAFFOLD.md`, every other `IMPLEMENTATION.md`
+phase referencing this substrate — and this repo's Postgres/ent test conventions, benchmark style, and
+`runtime/pprof` usage, or lack of it) fed a synthesized design. Every load-bearing claim from that
+synthesis was then re-verified by directly reading the actual files (`iterator.go`, `ent_repository.go`,
+`file_repository.go`, `pkg/inventory/item.go`, `dispatcher.go`, `dispatcher_test.go`, all four existing
+iterator test files, `device.go`/`group.go` ent schemas, the generated `device`/`group` predicate and
+order helpers), not trusted from the research agents' summaries alone. One Plan agent then pressure-tested
+the resulting design against the real repo (see "Current Status" above for its key findings) before the
+plan file was written and approved.
+
+**What was built, by area:**
+
+- **`pkg/inventory/selector.go`** (new). `Selector{GroupName string}`, zero value selects every device.
+  Deliberately narrow: a real, SQL-pushdown-capable Specification-shaped value object, not yet
+  `PLAN.md` Section 22.3's future composable AND/OR/NOT predicate tree.
+- **`internal/inventory/iterator.go`**: `Repository.GetGroup`'s second parameter changed from
+  `groupName string` to `sel inventory.Selector`.
+- **`internal/inventory/ent_repository.go`**: `entRepository.GetGroup` now applies
+  `Order(device.ByDeviceID())` once at construction and, when `sel.GroupName != ""`,
+  `Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))` (an `EXISTS` subquery, not a join — no
+  duplicate-row risk). `entIterator`'s `offset int` field became `cursor string` (last-seen `device_id`);
+  `Next` now batches via `Clone().Limit(batchSize)` plus a conditional `Where(device.DeviceIDGT(cursor))`,
+  replacing `Limit(batchSize).Offset(offset)`. No "exhausted" flag added — EOF is still "the batch fetch
+  returned zero rows," the same idempotent shape the pre-existing code already had.
+- **`internal/inventory/file_repository.go`**: `fileRepository.GetGroup` signature changed identically;
+  behavior did not, since `HostSpec` has no group-membership field at all. Doc comment updated to explain
+  why, and `TestFileRepository_Selector_GroupNameIgnored` (`file_repository_test.go`) pins the behavior
+  down so a future change cannot silently start erroring on it.
+- **13 call sites updated** (production: `internal/api/dispatcher.go` — new aliased `pkginventory`
+  import, `cmd/pleiades/load.go`; tests: `dispatcher_test.go`'s two mocks, and 9 call sites across
+  `internal/inventory`'s `iterator_test.go`, `iterator_bench_test.go`, `iterator_fuzz_test.go`,
+  `repository_conformance_test.go`, `factory_test.go` (its own `baseinventory` alias),
+  `file_repository_test.go`, `file_repository_bench_test.go`, `file_repository_errors_test.go`).
+- **New tests**: `internal/inventory/ent_repository_selector_test.go`
+  (`TestEntRepository_GetGroup_FiltersBySelectorGroupName` — a named group returns exactly its members,
+  an empty selector returns everything, a nonexistent group fails closed to zero devices, never open to
+  the whole fleet; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` — 1,500 devices with
+  explicit sequential `device_id`s, a mid-stream delete of an already-yielded row and an insert ahead of
+  the cursor, asserting zero duplicates/skips). `internal/api/dispatcher_selector_test.go`
+  (`TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` — the same proof at the real
+  HTTP-handler level, against a real ent-backed `Repository`, not the package's hand-written mocks).
+  `internal/inventory/iterator_pprof_test.go` (`TestIteratorHeapProfileStaysFlat`, detailed above).
+  `FuzzIteratorPagination`'s doc comment updated to describe the keyset mechanism it now fuzzes; its
+  assertions were already sufficient (exact count match already proves no skip/duplicate in the
+  single-writer case).
+- **`tests/e2e/integration_test.go`** fixed, not just updated: see "Current Status" above.
+- **Docs corrected**, matching this project's own "correct the map before/alongside the code" convention:
+  `PLAN.md` Section 25's keyset-pagination row (`Build by: Phase 23` → `Phase 7`, dated
+  `Correction (2026-08-05)`, Phase 23 remains a consumer). `PATTERNS.md`'s Specification entry (flipped
+  from "POTENTIALLY" to "YES, narrowly," and its "Why" text corrected — group membership was never
+  actually a JSONB field match, that was only ever a considered-and-rejected approach named in
+  `GetGroup`'s own old comment). `PATTERNS.md`'s Repository entry (its quoted `GetGroup() (Iterator,
+  error)` signature was already stale before this phase). `CODE_SCAFFOLD.md` Section C, narrowly (a new
+  dated correction: `Selector`/`GetGroup` stay on `internal/inventory`, not the aspirational
+  `internal/storage.DeviceRepository.Stream`; `internal/ent` is imported directly from
+  `internal/inventory` today; the aspirational `StateStore` consolidation itself is left alone since no
+  phase claims it as a deliverable).
+- **`gosec-waivers.json`**: one waiver's line range shifted (145-150 → 146-151) when the new
+  `pkginventory` import line was added to `dispatcher.go`; no code at that finding changed.
+
+**Real, end-to-end verification against the actual built binary and a real Postgres container, not just
+`go test`** (RULE 0): `TestDispatcher_GetGroupSelector_FiltersAgainstRealRepository` drives the real
+`entRepository`/`entIterator`/`Dispatcher.DispatchRunbook` chain through real HTTP requests, two real ent
+`Group`s, proving a named group dispatches to exactly its members and a nonexistent group dispatches to
+zero, never the whole fleet. `TestGrandIntegration` (`tests/e2e`) proves the identical property against a
+real Postgres container end to end, through the real NATS-backed agent pull loop.
+
+**Fuzz/Stress:** `FuzzIteratorPagination` adapted to the keyset code, ~10,700 executions in 20s, zero
+failures. `BenchmarkIterator` (10,000 devices via keyset batching): ~63ms/op. No credible existing
+AWX/Tower/raw-Postgres keyset-pagination throughput figure exists to cite (`AGENTS.md`'s benchmarking
+rule); stated plainly rather than fabricated, matching `internal/ent/embedded_bench_test.go`'s own
+`[REFERENCE]` convention.
+
+**Adversarial Pattern Justification:** the old `Limit(batchSize).Offset(offset)` query had no `ORDER BY`
+at all, a defect independent of concurrency (SQL defines no row order without one, so two sequential
+unordered queries are not even guaranteed to agree with each other on an untouched table). Not empirically
+reproduced against the old code: its failure mode is implementation-defined per the SQL standard, so a
+test forcing it to misbehave in one fixed direction would really only be asserting an accident of
+SQLite's own undocumented rowid ordering, not a general property. The new keyset query is deterministic
+by construction; `TestEntIterator_KeysetPaginationSurvivesConcurrentWrites` is the direct evidence.
+
+**Schema/Injection Hardening:** the one new boundary, `dispatcher.go`'s HTTP `group` query parameter now
+flowing into `device.HasGroupsWith(group.NameEQ(sel.GroupName))`, is fully parameterized by ent's
+generated query builder (no string concatenation; confirmed by reading the generated code) — audited,
+clean, no `FAILURE_PATTERNS.md` entry needed for the boundary itself.
+
+**Release Gate:** verified against real code paths above, plus `go build ./... && go vet ./...` clean,
+`gofmt -l` clean, `make gosec` (7 findings, all individually waived, none new beyond the line-shift
+above), `make govulncheck` (0 called vulnerabilities), and `make coverage`/`coverage-check` (78 packages
+measured, none below floor). Coverage: `internal/inventory` 81.8% → 82.5% (floor raised to 82.0);
+`internal/api` 82.1% → 90.7% (floor raised to 90.0, the new real end-to-end dispatcher test's own
+contribution); `pkg/inventory` unchanged at 97.7% (`Selector`'s zero-value struct added no coverable
+branching statements).
+
+`go test ./... -race -count=1`: every package this phase actually touched passes reliably, repeatedly,
+in isolation (`internal/inventory`, `internal/api`, `pkg/inventory`, `cmd/pleiades`, `tests/e2e`, each
+re-run individually multiple times with zero failures). The full concurrent `./...` run itself flaked on
+five separate invocations across this session, twice via `coverage-check`'s own internal `go test`
+call and three times via a direct `-race` run: `cmd/pleiades`'s `TestCLI_ForgeNewCollection_EndToEnd`
+(four of the five, always with the exact `FAILURE_PATTERNS.md` #53 signature -- `internal/catalog/test/
+e2egateNNNNN`: "cannot find package") and, once, `internal/api`'s unrelated `TestStreamLogs_ToleratesAckFailure`
+(an SSE ack-timing test, 5/5 clean when re-run alone). Neither test is touched by this phase's diff;
+`TestCLI_ForgeNewCollection_EndToEnd`'s failure mode is the pre-existing, already-documented race between
+a real-tree-mutating e2e test and `internal/archtest`'s `go list` scan, and the lone `internal/api` flake
+is consistent with system load during a many-container concurrent run, not a real regression -- both
+categories this project already treats as a known, accepted risk with an established "run again" remedy,
+not something this phase's own verification papers over.
+
+**Adversarial review, before this phase was considered done.** An independent review agent (not the
+implementer) audited the full diff against the real repo and found five real gaps, all fixed before this
+session ended, none requiring a design change: (1) `entIterator`'s `cursor == ""` sentinel could not
+distinguish "before the first row" from a legitimately empty `device_id` written outside this ent client
+(the schema's `NotEmpty()` is an application-level check, not a DB `CHECK` constraint), which would have
+looped `Next` forever on such a row; replaced with an explicit `started bool` field. (2) `entIterator.Next`
+never checked `ctx.Err()` on its buffered fast path, a real divergence from `fileIterator.Next`'s identical
+check given `fileRepository.go`'s own doc comment claims both adapters "must behave identically to
+callers"; added, with `TestEntIterator_HonorsContextCancellation` as the regression test. (3)
+`TestIteratorHeapProfileStaysFlat` could not actually detect its own target regression (a dropped batch
+`Limit` holding the whole 50,000-row result set resident): comparing checkpoints only to each other, not to
+a pre-iteration baseline, would show near-zero spread even with the whole set loaded, since every
+checkpoint would sit on the same elevated plateau together; added a baseline-relative growth ceiling.
+(4) `TestEntRepository_GetGroup_FiltersBySelectorGroupName`'s "named group" case asserted set membership,
+not per-name count, so it could not distinguish two real devices from one device double-counted -- exactly
+the duplicate-row failure mode the adjacent code comment claims immunity from; switched to a count-per-name
+map. (5) `FuzzIteratorPagination`'s doc comment claimed proof against skips and duplicates, but the body
+only compared a count, which cannot detect a skip-plus-duplicate pair that cancels out; switched to
+collecting distinct `device_id`s into a set. The review also surfaced two real, deliberate scope
+boundaries worth being explicit about rather than silent: `Selector{GroupName}` matches direct Group
+membership only, not `PLAN.md` Section 3's group nesting (nothing in this codebase populates
+`Group.children`/`parents` edges yet, so there is no live case to build traversal against); and a device
+inserted with a `device_id` sorting *behind* the current cursor is not retroactively surfaced, the
+inherent trade-off of any keyset cursor. Both are now stated directly in `ent_repository.go`'s own
+comments rather than left implicit.
+
+**Files changed:** `pkg/inventory/selector.go` (new), `internal/inventory/iterator.go`,
+`internal/inventory/ent_repository.go`, `internal/inventory/file_repository.go`,
+`internal/inventory/ent_repository_selector_test.go` (new), `internal/inventory/iterator_pprof_test.go`
+(new), `internal/inventory/{iterator_test.go,iterator_bench_test.go,iterator_fuzz_test.go,
+repository_conformance_test.go,factory_test.go,file_repository_test.go,file_repository_bench_test.go,
+file_repository_errors_test.go}`, `internal/api/dispatcher.go`, `internal/api/dispatcher_test.go`,
+`internal/api/dispatcher_selector_test.go` (new), `cmd/pleiades/load.go`, `tests/e2e/integration_test.go`,
+`.SPECIFICATION/IMPLEMENTATION.md` (Phase 7 checked off in full), `.SPECIFICATION/PLAN.md` (Section 25
+dated correction), `.SPECIFICATION/PATTERNS.md` (Specification and Repository entries corrected),
+`.SPECIFICATION/CODE_SCAFFOLD.md` (Section C dated correction), `coverage-floor.json` (`internal/inventory`
+and `internal/api` floors raised), `gosec-waivers.json` (one line-range shift), `FAILURE_PATTERNS.md`
+(#54 new), `LESSONS_LEARNED.md` (#58 new). See "The Phase 34 session" immediately below for full detail.
+Everything from "The Phase 33 session" onward describes earlier sessions and is unchanged.
+
+### The Phase 34 session
+
+**Scope: Phase 34 in full** (`.SPECIFICATION/IMPLEMENTATION.md`), the fifth phase of Part VII (The Forge
+of Hephaestus) to close. See "Current Status" above for the complete summary; this heading exists so
+future sessions can find this session's detail without re-reading the whole file.
+
+**What was built, by area:**
+
+- **`internal/forge/catalogdata`** (new package, 11 files: `doc.go` with the `//go:generate go run
+  ../../../tools/gencatalog` directive, `collections.go` aggregating 8 per-table-section files into
+  the exported `Collections` slice, `devices.go`). The single source of truth for the real catalog;
+  editing it and re-running `go generate ./internal/forge/catalogdata` is this project's own established
+  "edit the schema and regenerate" discipline (`internal/ent/generate.go`'s precedent), applied here for
+  the first time to something other than ent.
+- **`tools/gencatalog`** (new, `main.go` + `main_test.go`). Builds the real `pleiades` binary
+  (`buildPleiadesBinary`, into a temp dir, cleaned up via a returned closure) and drives it through
+  `forge new-collection`/`new-device` once per `catalogdata` entry (`newCollectionArgs`/`newDeviceArgs`
+  construct the exact flag sets from each `Config`, `runPleiades` shells out via `exec.Command`).
+  `validateCatalogEntries` runs every entry's own `Validate()` before touching the CLI or filesystem at
+  all, so a data-table typo fails fast, named, before any partial (non-idempotent, since `forge new-*`
+  refuses to overwrite) CLI run leaves half a catalog behind. Also regenerates
+  `internal/catalog/builtins.go` (`writeCatalogBuiltins`, deduplicated and sorted from the same data,
+  via `go/format.Source`, never hand-maintained). Own tests: pure-function argument-construction tests
+  (no I/O), a `writeCatalogBuiltins` test against a synthetic small set, and one real end-to-end test
+  (`TestGencatalog_DogfoodsRealCLI_EndToEnd`, `-short`-skippable) that drives the actual binary to
+  generate one synthetic collection and device into the real repository tree, cleans up via
+  `t.Cleanup`, and `go build`/`test`s the result, mirroring `cmd/pleiades/e2e_test.go`'s own release-gate
+  test shape.
+- **The real catalog, generated** (`internal/catalog/`, 27 packages, 71 methods, 142 files plus the
+  regenerated `builtins.go`; `internal/inventory/devices/{windows,aws}/`, 2 new device packages).
+  Every file is Phase 33's own unmodified template output; this phase supplied only the data
+  (`catalogdata`) and drove the CLI (`gencatalog`) that produced it. `internal/inventory/builtins.go`
+  gained two blank imports (`devices/aws`, `devices/windows`) by hand, the one manual step the scaffold
+  itself never performs.
+- **`internal/engine/import_tasks.go`** (new). `resolveImportTasks`/`resolveImportTasksInList`/
+  `resolveOneImport`/`resolveImportPath`: a parse-time pre-pass, called as the first step of
+  `buildFromDef` (`dag.go`, which gained a `baseDir string` parameter), that recursively rewrites any
+  task with `fqcn: import_tasks` into an ordinary block task (`Block` = the referenced file's own,
+  recursively-resolved task list; `FQCN`/`Params` cleared) before `synthesizeChain`/`collectSubtree`
+  ever see it, requiring no change to either. `resolveImportPath` fails closed against an empty or
+  absolute path and requires the resolved result to stay under the runbook's own base directory via
+  `filepath.Rel` (no `..`-prefixed result accepted), the same closed-by-construction style
+  `internal/forge/genutil.ValidateSegment` already uses; a `resolving` map catches an import cycle, and
+  `maxImportDepth` (32) bounds a long, non-cyclic chain. `internal/engine/yaml.go` gained a shared
+  `parseWorkflowYAML` helper (factored out of `BuildFromYAML` rather than duplicated) and a new
+  `BuildFromYAMLFile(path)` that reads the file itself and passes `filepath.Dir(path)` as the base
+  directory; `Build`/`BuildFromYAML` keep their existing signatures, passing `""`, and an `import_tasks`
+  task reaching either fails with a clear, actionable error instead of silently misresolving a relative
+  path. `cmd/pleiades/load.go`'s `loadWorld` now calls `BuildFromYAMLFile` directly, collapsing its own
+  manual `os.ReadFile` + `BuildFromYAML` pair.
+- **`internal/validate/collection_rule.go`** (new). `CollectionRule` mirrors `capability_rule.go`'s
+  exact shape: skips any `task.FQCN` with no dot (every legacy built-in and engine keyword, closed by
+  construction, since `pkg/collection.Register` itself refuses to register an undotted name), otherwise
+  calls `collection.Lookup` and reports "not a registered collection name" or "declared but not yet
+  implemented." Independent of `CapabilityRule`, which keys off the separate `engine.ActionCapability`
+  map and has no notion of `pkg/collection` names.
+- **`cmd/pleiades/catalog_builtins.go`** (new, one blank import of `internal/catalog`), the composition-root
+  fix for defect (2) above.
+
+**Real, end-to-end verification against the actual built binary, not just `go test`** (RULE 0): `pleiades
+validate` against a runbook calling `pkg.apt.install` and a typo'd `totally.fake.name` produced
+`[collection] node "tasks[0]" ...: calls "pkg.apt.install", which is declared but not yet implemented`
+and `[collection] node "tasks[1]" ...: calls "totally.fake.name", which is not a registered collection
+name`, exit code 1; a runbook using `import_tasks` to pull in a sibling file produced `validate: no
+issues found`, exit code 0, and built the identical `*DAG` a hand-written inline `block:` would (the
+actual regression test, not just a manual check).
+
+**Fuzz/Stress:** `FuzzImportTasksPath` (`internal/engine`, seeded with `../../../etc/passwd`, an
+absolute path, `..\..\windows\...`, an empty string, a NUL byte, and a planted sentinel file just
+outside the runbook directory that must never appear in a successfully built DAG), 15s/~58K executions,
+zero failures. `internal/validate/collection_rule_test.go`'s `TestCollectionRule_StressAllCatalogNames`
+builds one task per real `catalogdata.Collections` entry (so it cannot drift out of sync with the actual
+catalog) and asserts exactly one Finding each, plus a negative control over every legacy/engine-keyword
+fqcn asserting zero. `internal/archtest/catalog_test.go` loads every one of the 71 manifests and both
+device types through the real registries the generated files and their builtins aggregators feed.
+
+**Adversarial Pattern Justification:** "no stub can report success" is structural (Phase 33's single,
+unmodified template has exactly one `return` in every stub body, an error), proven per-package by each
+generated file's own `Test<X>_NotImplemented`. "Every declared capability exists in `pkg/capability`" is
+enforced three times over: `collectionscaffold.Config.Validate()`, `collection.Register()`'s own
+`capability.Lookup` check, and, the strongest form, `catalogdata`'s typed `capability.Name` constants
+making an unknown capability a compile error rather than a runtime one. The dispatcher question was
+considered and deliberately not built: `pkg/collection.Descriptor` carries no function reference at
+all, `sdk.RunbookContext` has zero implementations anywhere, and a real fqcn-keyed dispatcher
+(`internal/engine`'s transport-binding executor) already exists on an incompatible raw-command shape;
+building a second, incompatible dispatch mechanism next to it would itself be a new pattern, which this
+phase's own Pattern Entry Gate forbids, and the Release Gate's literal wording is satisfied today for
+free by the existing fallback's honest error.
+
+**Schema/Injection Hardening:** the 71 stubs and 2 device types introduce no new boundary at all (a stub
+touches no `params` before erroring; a device type is a structurally inert placeholder). The one real
+new boundary, `import_tasks`' file path (Phase 39's "filesystem paths" category), audited clean: no
+`FAILURE_PATTERNS.md` entry was needed for the boundary itself, closed by construction and proven by the
+fuzz target and named escape/cycle regression tests above. Three unrelated, real findings were made and
+fixed elsewhere during this phase's own construction and verification (see "Three real,
+previously-unnoticed defects" above; `FAILURE_PATTERNS.md` #51-53).
+
+**Release Gate:** verified against the real built binary (see above), plus `go build ./... && go vet
+./...` clean, `go test ./...`/`go test -race ./...` passing (`make ci` run twice end to end, both clean;
+one intervening plain `go test ./...` did hit `FAILURE_PATTERNS.md` #53's documented, accepted,
+non-deterministic flake, not reproduced under `-race` or on either full `make ci` run), `make gosec`
+(7 pre-existing findings, all individually waived, none new: `tools/gencatalog/main.go`'s two
+subprocess-launching calls, the `go build` step and the built binary invocation, both carry an inline
+`#nosec G204` justification, mirroring `cmd/pleiades/forge_scaffold_io.go`'s existing convention, rather
+than a `gosec-waivers.json` entry), `make govulncheck` (0 called vulnerabilities), and `make coverage`
+(78 packages
+measured, none below floor; `cmd/runner` remains unrecorded, pre-existing, out of this phase's scope).
+Coverage: all 27 generated catalog packages and `internal/forge/catalogdata` at 100.0%;
+`internal/inventory/devices/{windows,aws}` at 80.0% (the devicescaffold template's own known
+structural-skeleton gap, unchanged by this phase, not hand-patched since the output is generated and
+never hand-edited); `tools/gencatalog` at 70.8%; `cmd/pleiades` rose from 43.0% to 44.2%, floor raised
+to 44.0.
+
+**Files changed:** `internal/forge/catalogdata/` (new, 11 files), `tools/gencatalog/` (new, `main.go`,
+`main_test.go`), `internal/catalog/` (new, 142 generated files plus regenerated `builtins.go`),
+`internal/inventory/devices/aws/` and `.../windows/` (new, 2 files each), `internal/inventory/builtins.go`
+(two blank imports added), `pkg/capability/capabilities_windows.go` renamed to `capabilities_win.go`
+(`git mv`, no content change), `internal/engine/import_tasks.go`, `import_tasks_test.go`,
+`import_tasks_fuzz_test.go` (all new), `internal/engine/dag.go` (`buildFromDef` gained a `baseDir`
+parameter), `internal/engine/yaml.go` (`parseWorkflowYAML` factored out, new `BuildFromYAMLFile`),
+`cmd/pleiades/load.go` (`loadWorld` uses `BuildFromYAMLFile`), `cmd/pleiades/catalog_builtins.go` (new),
+`internal/validate/collection_rule.go` and `collection_rule_test.go` (new), `internal/archtest/catalog_test.go`
+(new), `.SPECIFICATION/IMPLEMENTATION.md` (Phase 34 checked off in full, two dated corrections),
+`docs/hephaestus.md` (status line, workflow table, the catalog's own hedge retired, two new device types
+documented, both real defects documented in place, command surface unchanged), `.SPECIFICATION/CODE_SCAFFOLD.md`
+(`internal/forge/catalogdata`, `internal/catalog/`, `internal/inventory/devices/`, and a new top-level
+`tools/` entry), `coverage-floor.json` (32 new/changed floors), `FAILURE_PATTERNS.md` (#51-53 new),
+`LESSONS_LEARNED.md` (#55-57 new). See "The Phase 33 session" immediately below for full detail.
+Everything from "The Phase 32 session" onward describes earlier sessions and is unchanged.
 
 ### The Phase 33 session
 

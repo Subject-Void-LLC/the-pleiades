@@ -39,9 +39,9 @@
     },
     {
       "file": "internal/api/dispatcher.go",
-      "line": "145-150",
+      "line": "146-151",
       "rule_id": "G104",
-      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in router.go and hateoas.go above. Phase 2 rewired this handler to publish through event.Bus (a real, different fix) but did not undertake a general response-encoding-error audit."
+      "reason": "Owned by Phase 14 (The Dispatcher) / Phase 39, not this phase's own checklist. json.Encode error ignored writing the dispatch-accepted response, the same low-risk after-headers-sent pattern already waived in router.go and hateoas.go above. Phase 2 rewired this handler to publish through event.Bus (a real, different fix) but did not undertake a general response-encoding-error audit. Line numbers shifted by one (145-150 -> 146-151) when Phase 7 added a new pkginventory import line above; no code at this finding changed."
     }
   ]
 }
