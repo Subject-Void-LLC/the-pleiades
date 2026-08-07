@@ -122,20 +122,27 @@ func main() {
 		log.Fatalf("failed to mint demo token: %v", err)
 	}
 
-	// admission is the same Chain of Responsibility cmd/controller wires:
-	// a demo binary bypassing authorization while every real composition
-	// root enforces it would itself be exactly the kind of second,
-	// unguarded entry point this fix is closing.
+	// One chain, two consumers, exactly as cmd/controller wires it: a demo
+	// binary bypassing authorization while every real composition root
+	// enforces it would itself be exactly the kind of second, unguarded
+	// entry point this fix is closing. admission enforces and records;
+	// hateoas advertises against the same rules, unrecorded.
+	chain := auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)}
 	admission := auth.Admission{
-		Chain:    auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)},
+		Chain:    chain,
 		Recorder: auth.NewSlogRecorder(nil),
+	}
+	hateoas, err := auth.NewAdmissionHATEOASGenerator(chain)
+	if err != nil {
+		log.Fatalf("failed to build HATEOAS generator: %v", err)
 	}
 
 	r, err := api.NewRouter(api.RouterConfig{
 		Auth:      api.AuthMiddleware(evaluator),
 		Admission: admission,
+		HATEOAS:   hateoas,
 		Routes: []api.Route{
-			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Handler: streamer.StreamLogs},
+			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Rel: auth.RelLogs, Handler: streamer.StreamLogs},
 		},
 	})
 	if err != nil {

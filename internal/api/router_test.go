@@ -45,6 +45,29 @@ func alwaysAuthenticated(next http.Handler) http.Handler {
 	})
 }
 
+// allowAllRule is an AdmissionRule that permits everything, so a test
+// whose subject is routing or telemetry rather than authorization gets a
+// generator that never filters anything out.
+type allowAllRule struct{}
+
+func (allowAllRule) Check(_ context.Context, _ *auth.Identity, _ auth.AdmissionRequest) (auth.Effect, error) {
+	return auth.EffectAllow, nil
+}
+
+// allowAllGenerator builds the real auth.NewAdmissionHATEOASGenerator over
+// an always-allow chain, rather than a hand-written stub implementing the
+// port. The generator is production code with real behavior (the subset
+// re-intersection, the nil-identity branch), and a stub here would let a
+// regression in it pass every router test in this file.
+func allowAllGenerator(t testing.TB) auth.HATEOASGenerator {
+	t.Helper()
+	gen, err := auth.NewAdmissionHATEOASGenerator(auth.AdmissionChain{allowAllRule{}})
+	if err != nil {
+		t.Fatalf("building test HATEOAS generator: %v", err)
+	}
+	return gen
+}
+
 // Auth defaults to alwaysAuthenticated and Admission to an always-allow
 // fakeAdmitter, so a registered Route reaches its handler by default. A
 // test that wants to exercise real authentication or authorization
@@ -67,6 +90,7 @@ func newTestRouter(t *testing.T, buf *bytes.Buffer, mutate func(cfg *api.RouterC
 		Registry:   reg,
 		Auth:       alwaysAuthenticated,
 		Admission:  &fakeAdmitter{},
+		HATEOAS:    allowAllGenerator(t),
 	}
 	if mutate != nil {
 		mutate(&cfg)
@@ -153,7 +177,7 @@ func TestRouter_MetricLabelUsesRoutePatternNotPath(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, reg := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
 		cfg.Routes = []api.Route{
-			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}},
 		}
@@ -210,7 +234,7 @@ func TestRouter_RecovererTurnsPanicIntoObserved500(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, reg := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
 		cfg.Routes = []api.Route{
-			{Method: http.MethodGet, Pattern: "/boom", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodGet, Pattern: "/boom", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				panic("handler exploded")
 			}},
 		}
@@ -294,7 +318,7 @@ func TestRouter_EveryApplicationRouteIsVersioned(t *testing.T) {
 	var logBuf bytes.Buffer
 	router, _ := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
 		cfg.Routes = []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusAccepted)
 			}},
 		}
@@ -323,7 +347,7 @@ func TestRouter_OperationalEndpointsBypassAuthAndRateLimit(t *testing.T) {
 		}
 		cfg.RateLimiter = api.NewRateLimiter(api.RateLimiterConfig{RequestsPerSecond: 1, Burst: 1})
 		cfg.Routes = []api.Route{
-			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeInventoryRead, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }},
+			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }},
 		}
 	})
 
@@ -364,7 +388,7 @@ func TestRouter_RequireScopeEnforcesDeclaredScope(t *testing.T) {
 		cfg.Auth = api.AuthMiddleware(issuer.Evaluator())
 		cfg.Admission = admission
 		cfg.Routes = []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}},
 		}

@@ -47,7 +47,7 @@ func NewLogStreamer(js jetstream.JetStream) *LogStreamer {
 func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 	if _, err := uuid.Parse(jobID); err != nil {
-		http.Error(w, "job id must be a UUID", http.StatusBadRequest)
+		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}
 
@@ -62,13 +62,13 @@ func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 			slog.String("job_id", jobID),
 			slog.String("error", err.Error()),
 		)
-		http.Error(w, "failed to create log consumer", http.StatusInternalServerError)
+		RespondError(w, r, http.StatusInternalServerError, "failed to create log consumer")
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		RespondError(w, r, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 
@@ -122,7 +122,7 @@ func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	})
 	if err != nil {
-		http.Error(w, "Failed to start consumer", http.StatusInternalServerError)
+		RespondError(w, r, http.StatusInternalServerError, "failed to start consumer")
 		return
 	}
 

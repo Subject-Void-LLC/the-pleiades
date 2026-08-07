@@ -1805,3 +1805,179 @@ tree during its own test, even one it shares no import with. `-p 4` (or lower) i
 answer for a full-suite run in this environment whenever a failure's signature is "fails sometimes, passes
 in isolation, passes on immediate retry, touches a package the diff never touched" - reach for it before
 re-deriving the diagnosis from scratch a third time.
+
+## 70. Wrapping `http.ResponseWriter` silently dropped `http.Flusher`, so mounting the HATEOAS middleware would have killed the SSE log stream; the only reason it never did is that nothing ever mounted it
+
+**Symptom:** none observed in production, and that is the finding. `internal/api/hateoas.go`'s
+`HATEOASMiddleware` had passing unit tests, a benchmark, and a fuzz target, and `PATTERNS.md`'s HATEOAS
+entry described it in the present tense. A probe run against the real middleware
+(`TestProbe_RecorderDropsFlusher`, deleted with the code it probed) reports `Flusher=false` for a handler
+running behind it, against a control of `Flusher=true` for the identical assertion with the middleware
+removed. `internal/api/logs.go`'s `StreamLogs` does `flusher, ok := w.(http.Flusher)` and answers
+`500 "Streaming unsupported"` when that assertion fails, so the first `GET /api/v1/jobs/{id}/logs`
+served through this middleware would have returned 500 instead of a stream.
+
+**Root cause:** `hateoasRecorder` embeds the `http.ResponseWriter` *interface*, not the concrete value
+behind it. Go promotes exactly the embedded interface's own method set: `Header`, `Write`, `WriteHeader`.
+Every optional interface the real writer also satisfies (`http.Flusher`, `http.Hijacker`, `io.ReaderFrom`,
+`http.Pusher`) is invisible to a type assertion on the wrapper. This is not a bug in the wrapper's logic,
+it is a property of wrapping: a decorator cannot forward an interface it does not know to declare, and
+`net/http` deliberately made those interfaces optional and open-ended.
+
+**Fix:** stop wrapping. Link generation moved into an encoder seam (`api.Respond`) the handler calls
+directly, so a streaming handler holds the real `http.ResponseWriter` and never meets a wrapper at all.
+The middleware, its recorder, and its three test files were deleted rather than repaired: forwarding
+`Flusher` would have fixed one assertion and left `Hijacker` and `ReaderFrom` still broken, and a
+buffering middleware is structurally incompatible with a streaming handler on the same router regardless
+of how many interfaces it forwards.
+
+**Lesson:** a middleware that wraps `http.ResponseWriter` is lossy by construction, and the loss is
+invisible to every test that does not exercise the specific optional interface it dropped. Before adding
+one, ask what else on the same router asserts something about its writer. When the answer is "a streaming
+handler," the right shape is a seam the handler calls, not a decorator that intercepts it. A passing test
+suite is not evidence here, because the interface loss is only observable from a handler that asks.
+
+## 71. A response-rewriting middleware round-tripped every body through `map[string]interface{}`, silently corrupting integers, dropping links from collections, and clobbering handler-set keys
+
+**Symptom:** four distinct wrong answers from one probe table (`TestProbe_NonObjectAndCollision`), all
+against the real middleware:
+
+- `{"count":9007199254740993}` was served to the client as `{"count":9007199254740992}`. The value
+  changed in transit.
+- A top-level JSON array, `[{"id":"a"},{"id":"b"}]`, came back byte-identical with **no `_links` at
+  all**. Every collection response was silently unlinked.
+- A handler that set its own `"_links":"handler-owned"` had it replaced outright, with no error and no
+  log.
+- A handler declaring `Content-Type: application/json; charset=utf-8`, which is a legal spelling of the
+  same media type, got **no links**.
+
+**Root cause:** the middleware buffered the handler's entire body, then `json.Unmarshal`ed it into a
+`map[string]interface{}`, mutated that map, and re-marshaled. Each symptom falls out of that one
+decision. `encoding/json` decodes every JSON number into `float64` when the target is `interface{}`, and
+`float64` has 53 bits of mantissa, so any integer past 2^53 is rounded on the way in and the rounded
+value is what gets re-marshaled. A JSON array does not unmarshal into a map, so the error branch fell
+through to raw passthrough, which looks identical to success. `data["_links"] = links` is a map
+assignment, which overwrites rather than conflicts. And the media-type guard was
+`Header().Get("Content-Type") != "application/json"`, an exact string compare against a header that
+carries parameters.
+
+**Fix:** the encoder seam marshals the handler's own typed struct exactly once and never decodes it.
+`_links` is a typed field on the response DTO (`Links []Link` with a `json:"_links,omitempty"` tag), not
+a map entry, so a collision is not something to detect, it is something the type system makes
+unrepresentable. Collections carry their links on the enclosing object rather than needing a top-level
+array. No media-type sniffing is involved, because the seam knows it is writing JSON.
+
+**Lesson:** decoding a body you are about to re-encode is not a transformation, it is a lossy round trip,
+and everything it loses (numeric precision, key order, type fidelity) is lost silently and far from the
+code that caused it. If a layer needs to add a field to a response, give it the typed value before
+encoding rather than the bytes afterward. "Parse, modify, re-serialize" on data you already had in typed
+form is a smell, not a technique.
+
+## 72. A caller-controlled request path was reflected straight back into the response body as a hypermedia `href`
+
+**Symptom:** `TestProbe_HrefReflection` issued `GET /api/v1/devices/%22evil%22` and the middleware
+answered with `_links` entries whose `href` was `/api/v1/devices/"evil"`, the caller's own decoded input.
+Every link the middleware emitted, including `self`, used `r.URL.Path` verbatim.
+
+**Root cause:** `links := []Link{{Rel: "self", Href: r.URL.Path, ...}}`, and the action links repeated
+the same value. `r.URL.Path` is whatever the client sent, decoded, with no relationship to any route the
+server actually serves. `encoding/json` escapes `<`, `>`, `&`, and quotes on the way out, so this is not
+a script-injection into the body; the defect is that the *value* of a hypermedia affordance, the thing a
+client is invited to follow, was chosen by the caller rather than by the server.
+
+**Fix:** every href is now built from the server's own matched chi route pattern with each URL parameter
+re-escaped through `url.PathEscape`. The URL's structure is always the server's; only the parameter
+values come from the request, and they are escaped as values. A path that matched no route produces no
+links rather than a link to itself.
+
+**Lesson:** the same rule #63 drew for NATS subjects applies to any string the server hands back for a
+client to act on: a value is not safe because of who usually produces it. `r.URL.Path` is caller input
+that happens to look like server output, which is the most confusing possible shape for a tainted value,
+and the matched route pattern is the untainted thing that was available the whole time.
+
+## 73. The authorization generator's error was discarded, so a policy-backend outage would have been indistinguishable from a caller who is legitimately allowed to do nothing
+
+**Symptom:** not reachable today, because the only implementation of the port was a test mock that
+cannot fail. It becomes reachable the moment any real implementation exists, which is what this phase
+builds.
+
+**Root cause:** `allowedMethods, _ := generator.GetAllowedMethods(r.Context(), r.URL.Path)`. On error,
+`allowedMethods` is nil, the loop that appends action links runs zero times, and the response is a
+well-formed `200` carrying only a `self` link. A client, or a UI deciding which buttons to render, sees
+exactly what it would see for a correctly-evaluated caller with no permissions. The two facts are
+different and the wire could not tell them apart.
+
+**Fix:** the error is handled. On a generator failure the response omits the `_links` key entirely and
+logs at `Error`. An absent `_links` means "could not be computed"; an empty `_links` array means
+"computed, and you may do nothing." Those are now distinct on the wire, and a client that hides every
+action on an absent array is choosing to fail closed rather than being told a falsehood.
+
+**Lesson:** `x, _ :=` on an authorization decision converts an outage into a silent denial, which is the
+one failure mode that looks exactly like correct operation. Any port whose answer drives what a caller
+is shown must distinguish "no" from "could not determine," and the wire format has to carry that
+distinction or the caller cannot act on it.
+
+## 74. A roadmap checklist item asserted a status-code bug the code did not have, and the phase that inherited it nearly fixed a symptom that does not reproduce
+
+**Symptom:** `.SPECIFICATION/IMPLEMENTATION.md`'s Phase 13 checklist read: "Fix the recorder, which
+captures the status code but never forwards it, and never triggers an implicit write. Any handler
+returning a non-200 status is currently reported as 200." A probe table run against the real middleware
+(`TestProbe_RecorderStatusForwarding`) reports the opposite in every case: a handler writing `404` is
+observed by the client as `404`, `500` as `500`, `201` as `201`, and a handler that only writes a body as
+`200`. The stated symptom does not reproduce under any input tried.
+
+**Root cause:** `hateoasRecorder.WriteHeader` does record-without-forwarding, which is what the item's
+author presumably read. But all four of the middleware's exit branches then call
+`w.WriteHeader(rec.statusCode)` on the real writer before writing the body, so the status is forwarded
+after the fact on every path. Reading the recorder's method in isolation gives the item's conclusion;
+reading the middleware that owns it does not. The item was written from the former.
+
+**Fix:** the item is rewritten to state that its premise was wrong, rather than checked off as though a
+bug were fixed. The real defects at that boundary are #70 through #73, none of which the item named.
+The code is deleted regardless, for #70's reasons, so nothing was "fixed" here and claiming otherwise
+would put a false entry in the roadmap's own history.
+
+**Lesson:** the same shape as `LESSONS_LEARNED.md` #72 ("an Expected pattern list is a draft prediction
+to verify, not a mandate to satisfy"), now demonstrated for a defect claim rather than a pattern claim. A
+roadmap item that describes a bug is a hypothesis with a plausible-sounding mechanism attached, and the
+cost of believing it is not just wasted work: it is a phase writeup asserting it fixed something, which
+is a false record that survives long after the code does. Reproduce the stated symptom first. If it does
+not reproduce, that is the finding.
+
+## 75. A JWT signature-forgery test tampered with base64 padding bits instead of the signature, so one run in sixteen "caught" a forgery that had never been forged
+
+**Symptom:** `TestValidateToken_RejectsTamperedSignature` (`internal/auth/jwt_forgery_test.go`, added
+by Phase 12) failed during Phase 13's full-suite run with "expected a tampered signature to be
+rejected, got a validated identity". Nothing in Phase 13's diff touches `internal/auth/jwt.go`, the
+evaluator, or that test. Re-running the test 400 times in one process passed every time, which looked
+like a fluke and was not: `generateTestToken` stamps `exp` at second granularity, so all 400 iterations
+inside one `go test` invocation sign the *same* claims and produce the *same* signature. The test only
+varies across runs that land in different wall-clock seconds, which is why it reads as rare and random.
+
+**Root cause:** the `flipLastChar` helper swapped the final character of the base64url signature segment
+for the first *textually* different character in the alphabet, and its own doc comment claimed this
+"guaranteed to decode to different bytes." It is not. An HMAC-SHA256 signature is 32 bytes, which
+`base64.RawURLEncoding` encodes as 43 characters. 43 characters carry 258 bits; the signature carries
+256. The final character's low 2 bits are therefore padding the decoder discards. Characters whose
+values differ only in those 2 bits decode to identical bytes: 'A' (0) and 'B' (1) are one such pair, and
+'A' is exactly what the helper's alphabet scan returns for any segment not already ending in 'A'.
+Enumerated exhaustively over all 256 possible final signature bytes, **16 of them (6.2%) produce a
+"tampered" token that decodes to the byte-identical original signature.** In those cases the token was
+never altered, `ValidateToken` accepted it entirely correctly, and the test reported that as a forgery
+slipping past the validator.
+
+**Fix:** `tamperSignature` decodes the segment, flips one bit of the signature bytes themselves,
+asserts the bytes actually changed, and re-encodes. Tampering with the decoded value rather than its
+encoding removes the entire class of question. `TestTamperSignature_AlwaysChangesTheDecodedBytes`
+enumerates all 256 final bytes and is the persisted regression test, so the property is now asserted
+deterministically rather than sampled once per run.
+
+**Lesson:** a security test that fails intermittently is not flaky infrastructure to be retried, it is a
+test whose own setup is wrong, and the direction of the failure says which way. This one failed
+"closed" (reporting a forgery that did not exist), which is loud. The same defect failing the other way,
+a test that silently stops forging anything and passes, would have reported a validator was rejecting
+attacks it had never been shown. When a helper's doc comment states a guarantee ("guaranteed to decode
+to different bytes"), that guarantee is an assertion the helper should make at runtime, not a claim in
+prose: prose cannot fail a build. And any test that manipulates an encoded representation to change the
+value underneath it needs to verify the *decoded* value changed, because encodings with padding,
+canonicalization, or case-insensitivity all admit edits that change the text and nothing else.

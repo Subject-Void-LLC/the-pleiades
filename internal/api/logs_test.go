@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -251,9 +252,27 @@ func TestStreamLogs_RejectsSubjectInjectingJobIDs(t *testing.T) {
 			}
 			// The body must be the fixed message and nothing else: a
 			// rejection that quotes the rejected input back is how a
-			// refused injection becomes a reflected one.
-			if got := strings.TrimSpace(rr.Body.String()); got != "job id must be a UUID" {
-				t.Errorf("error body is %q, want the fixed rejection message with no caller input in it", got)
+			// refused injection becomes a reflected one. Phase 13 moved
+			// every error body onto the JSON encoder seam (respond.go),
+			// so this now decodes rather than string-compares, but the
+			// property under test is unchanged and is asserted more
+			// strictly below: the rejected input appears nowhere in the
+			// response at all.
+			// Exact equality, not a substring check: the body must be
+			// this fixed document and nothing else, which is a stricter
+			// statement of "no caller input in it" than searching for
+			// the input would be. (A substring search cannot express it
+			// at all for a degenerate input like a single space, which
+			// occurs in the fixed message too.)
+			const wantBody = `{"error":"job id must be a UUID"}`
+			if got := strings.TrimSpace(rr.Body.String()); got != wantBody {
+				t.Errorf("error body is %q, want exactly %q", got, wantBody)
+			}
+			var body struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+				t.Fatalf("error body is not JSON: %q: %v", rr.Body.String(), err)
 			}
 		})
 	}

@@ -40,10 +40,3 @@ type Evaluator interface {
 	// CheckAccess enforces that the provided identity meets the required scopes.
 	CheckAccess(ctx context.Context, id *Identity, requiredScopes ...Scope) error
 }
-
-// HATEOASGenerator inspects a user token and returns the available REST methods.
-type HATEOASGenerator interface {
-	// GetAllowedMethods returns a list of HTTP verbs (GET, POST) the user
-	// is permitted to execute against the specified endpoint.
-	GetAllowedMethods(ctx context.Context, endpoint string) ([]string, error)
-}

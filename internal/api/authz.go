@@ -45,7 +45,7 @@ func RequireScope(admitter Admitter, scope auth.Scope) func(http.Handler) http.H
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, ok := IdentityFromContext(r.Context())
 			if !ok {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -60,7 +60,7 @@ func RequireScope(admitter Admitter, scope auth.Scope) func(http.Handler) http.H
 				// targets exist. auth.Recorder (wired into admitter, not
 				// this middleware) is where the real reason goes, for an
 				// operator to read.
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				RespondError(w, r, http.StatusForbidden, "forbidden")
 				return
 			}
 

@@ -1,9 +1,11 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -143,7 +145,7 @@ func TestValidateToken_RejectsTamperedSignature(t *testing.T) {
 	if len(parts) != 3 {
 		t.Fatalf("expected a 3-segment JWT, got %d segments", len(parts))
 	}
-	tampered := parts[0] + "." + parts[1] + "." + flipLastChar(parts[2])
+	tampered := parts[0] + "." + parts[1] + "." + tamperSignature(t, parts[2])
 
 	if _, err := eval.ValidateToken(context.Background(), tampered); err == nil {
 		t.Fatal("expected a tampered signature to be rejected, got a validated identity")
@@ -171,20 +173,75 @@ func TestValidateToken_RejectsStrippedSignature(t *testing.T) {
 	}
 }
 
-// flipLastChar swaps the final character of s for a different one from
-// the base64url alphabet, so the returned string is guaranteed to decode
-// to different bytes rather than risk picking the same character back by
-// chance.
-func flipLastChar(s string) string {
-	if s == "" {
-		return s
+// tamperSignature decodes a JWT's base64url signature segment, flips one
+// bit of the signature itself, and re-encodes it, so the returned segment
+// is guaranteed to carry different signature bytes.
+//
+// It replaces a helper that swapped the final *character* of the segment
+// for a textually different one and claimed in its own doc comment that
+// this guaranteed different decoded bytes. It did not, and the test built
+// on it failed roughly one run in sixteen (FAILURE_PATTERNS.md #75). A
+// 32-byte HMAC-SHA256 signature encodes to 43 base64url characters, which
+// carry 258 bits, so the final character's low 2 bits are padding the
+// decoder discards. A segment ending in "A" became "B", which differs only
+// in those discarded bits: the decoded signature was byte-identical, the
+// token was never actually tampered with, and ValidateToken accepted it
+// correctly while the test read that as a forgery slipping through.
+//
+// Tampering with the decoded bytes rather than their encoding removes the
+// whole class of question. It also asserts the change landed, because a
+// forgery test that silently stops forging anything is worse than no test:
+// it reports a security property it never exercised.
+func tamperSignature(t *testing.T, segment string) string {
+	t.Helper()
+
+	raw, err := base64.RawURLEncoding.DecodeString(segment)
+	if err != nil {
+		t.Fatalf("decoding signature segment %q: %v", segment, err)
 	}
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	last := s[len(s)-1]
-	for _, c := range alphabet {
-		if byte(c) != last {
-			return s[:len(s)-1] + string(c)
+	if len(raw) == 0 {
+		t.Fatal("signature segment decoded to zero bytes, so there is nothing to tamper with")
+	}
+
+	tampered := make([]byte, len(raw))
+	copy(tampered, raw)
+	tampered[len(tampered)-1] ^= 0x01
+
+	if bytes.Equal(tampered, raw) {
+		t.Fatal("tampering did not change the signature bytes")
+	}
+	return base64.RawURLEncoding.EncodeToString(tampered)
+}
+
+// TestTamperSignature_AlwaysChangesTheDecodedBytes is the persisted
+// regression test for FAILURE_PATTERNS.md #75.
+//
+// The helper this replaced failed roughly one run in sixteen, silently and
+// only sometimes, which is the worst shape a security test can fail in: it
+// reported "a forged token was accepted" when what had actually happened
+// was that the test never forged anything. Asserting the property directly,
+// across every possible final signature byte, turns a probabilistic failure
+// into a deterministic one.
+//
+// It enumerates the last byte specifically because that is where the old
+// bug lived: base64url encodes a 32-byte signature into 43 characters
+// carrying 258 bits, so the final character's low 2 bits are discarded on
+// decode, and any "tampering" confined to them is not tampering at all.
+func TestTamperSignature_AlwaysChangesTheDecodedBytes(t *testing.T) {
+	for b := 0; b < 256; b++ {
+		original := make([]byte, 32)
+		original[31] = byte(b)
+		segment := base64.RawURLEncoding.EncodeToString(original)
+
+		tampered, err := base64.RawURLEncoding.DecodeString(tamperSignature(t, segment))
+		if err != nil {
+			t.Fatalf("tampered segment for final byte 0x%02x does not decode: %v", b, err)
+		}
+		if bytes.Equal(tampered, original) {
+			t.Fatalf("tampering a signature whose final byte is 0x%02x produced identical bytes, so the forgery test built on it would assert nothing", b)
+		}
+		if len(tampered) != len(original) {
+			t.Fatalf("tampering changed the signature length from %d to %d; the test's own premise is a length-preserving bit flip", len(original), len(tampered))
 		}
 	}
-	return s
 }

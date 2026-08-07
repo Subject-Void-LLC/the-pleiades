@@ -62,3 +62,14 @@ func (r *readOnlyRepository) Create(_ context.Context, item inventory.InventoryI
 func (r *readOnlyRepository) Save(_ context.Context, item inventory.InventoryItem) error {
 	return fmt.Errorf("refusing to save %s: %w", item.Name(), ErrInventoryReadOnly)
 }
+
+// Retire refuses, naming the item for the same reason Create does.
+//
+// This is the method that makes putting Retire on the Repository port,
+// rather than reaching around it, load bearing. Retirement is the least
+// reversible thing this platform can do to an inventory item, so a
+// non-mutating run that silently performed one would break the exact
+// promise NewReadOnlyRepository exists to make.
+func (r *readOnlyRepository) Retire(_ context.Context, name string) error {
+	return fmt.Errorf("refusing to retire %s: %w", name, ErrInventoryReadOnly)
+}

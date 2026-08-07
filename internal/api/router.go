@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
@@ -46,6 +47,24 @@ type Route struct {
 	// api.RequireScope, mounted per route rather than once for the whole
 	// subtree, since two routes can require two different scopes.
 	Scope auth.Scope
+
+	// Rel is the hypermedia relation name this route appears under in a
+	// response's _links array, and, with Scope, is what the OPTIONS
+	// handler filters the Allow header by.
+	//
+	// It is not optional, for the same reason Scope is not: a route with
+	// no declared relation is a route the API cannot describe to a
+	// client, and leaving it to a handler author to remember is how half
+	// a route table ends up undiscoverable. validateRoutes refuses to
+	// build a router without it.
+	//
+	// It is declared here rather than derived from Method because a
+	// derivation cannot tell two POSTs on one resource apart
+	// ("/jobs/{id}/cancel" versus "/jobs/{id}/retry"), which is exactly
+	// the case hypermedia exists for, and because it would silently
+	// rename the relation every client keys on the day a route moved
+	// from PUT to PATCH.
+	Rel auth.LinkRel
 
 	// Handler is the application handler. It runs only after tracing,
 	// metrics, logging, auth, the rate limiter, and RequireScope have all
@@ -122,6 +141,24 @@ type RouterConfig struct {
 	// structural property rather than a rule each new route must
 	// remember.
 	Routes []Route
+
+	// HATEOAS decides which of a resource's declared affordances a given
+	// caller may actually exercise, for both the _links array Respond
+	// emits and the Allow header OPTIONS returns. Required whenever
+	// Routes is non-empty.
+	//
+	// It is required rather than optional deliberately. The alternative,
+	// "a nil generator degrades to a self link only," is exactly what the
+	// middleware this phase deleted did, and it is the vacuous pass
+	// Phase 13's Adversarial gate is written against: a route table that
+	// declares relations with nothing able to resolve them is the same
+	// silent gap Phase 12 closed for Scope, moved one layer down.
+	//
+	// Build it from the same auth.AdmissionChain value Admission wraps.
+	// That is what makes a link and a 403 unable to disagree: they are
+	// one evaluation against one rule list, not two implementations of
+	// the same question. See auth.NewAdmissionHATEOASGenerator.
+	HATEOAS auth.HATEOASGenerator
 }
 
 // NewRouter builds the Front Controller: one chi.Mux that owns routing and
@@ -157,6 +194,12 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 	r.Get("/readyz", readyzHandler(cfg.Logger, cfg.Readiness))
 	r.Handle("/metrics", promhttp.HandlerFor(cfg.Registry, promhttp.HandlerOpts{Registry: cfg.Registry}))
 
+	// One builder, built once, shared by every request. It is the single
+	// source of truth behind both the _links array Respond emits and the
+	// Allow header OPTIONS returns, which is what makes the two unable to
+	// disagree.
+	builder := newLinkBuilder(cfg.Routes, cfg.HATEOAS)
+
 	r.Route(APIVersionPrefix, func(api chi.Router) {
 		if cfg.Auth != nil {
 			api.Use(cfg.Auth)
@@ -164,9 +207,19 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 		if cfg.RateLimiter != nil {
 			api.Use(RateLimitMiddleware(cfg.RateLimiter))
 		}
+		// After Auth, so the builder's own consumers can read the
+		// identity Auth resolved; before the routes, so every handler
+		// under this subtree can call Respond.
+		api.Use(withLinkBuilder(builder))
+
 		for _, route := range cfg.Routes {
 			api.With(RequireScope(cfg.Admission, route.Scope)).Method(route.Method, route.Pattern, route.Handler)
 		}
+
+		// Registered after the application routes so an OPTIONS handler
+		// never shadows one, and guarded by validateRoutes, which refuses
+		// a Route that claims the OPTIONS method for itself.
+		registerOptions(api, builder, cfg.Routes)
 	})
 
 	return r, nil
@@ -201,25 +254,54 @@ func (cfg *RouterConfig) validate() error {
 	if len(cfg.Routes) > 0 && cfg.Admission == nil {
 		return fmt.Errorf("api: RouterConfig.Routes is non-empty but Admission is nil, so no declared Route.Scope could ever be enforced")
 	}
+	if len(cfg.Routes) > 0 && cfg.HATEOAS == nil {
+		return fmt.Errorf("api: RouterConfig.Routes is non-empty but HATEOAS is nil, so every response would advertise no affordances and every Allow header would be empty")
+	}
 	return validateRoutes(cfg.Routes)
 }
 
-// validateRoutes rejects a Route table containing an empty Scope (an
-// authorization gap indistinguishable from an oversight) or two Routes
-// registered on the same Method and Pattern (chi itself would let the
-// second silently shadow the first, which is a route table quietly
-// serving the wrong handler under its own name).
+// validateRoutes rejects every Route table shape this package cannot serve
+// honestly:
+//
+//   - an empty Scope, an authorization gap indistinguishable from an
+//     oversight;
+//   - an empty Rel, a route no response can describe and no Allow header
+//     can name;
+//   - two Routes on the same Method and Pattern, which chi would let
+//     silently shadow one another, so a route table serves the wrong
+//     handler under its own name;
+//   - two Routes sharing a Rel on one Pattern, which would put two
+//     indistinguishable entries in one _links array;
+//   - a Route claiming OPTIONS, which the router owns on every pattern
+//     (see registerOptions) and which a handler-supplied one would shadow;
+//   - a wildcard Pattern, which has no stable href to build a link from.
 func validateRoutes(routes []Route) error {
-	seen := make(map[string]bool, len(routes))
+	seenRoute := make(map[string]bool, len(routes))
+	seenRel := make(map[string]bool, len(routes))
 	for _, route := range routes {
 		if route.Scope == "" {
 			return fmt.Errorf("api: Route %s %s declares no Scope", route.Method, route.Pattern)
 		}
+		if route.Rel == "" {
+			return fmt.Errorf("api: Route %s %s declares no Rel, so no response could describe it and no Allow header could name it", route.Method, route.Pattern)
+		}
+		if route.Method == http.MethodOptions {
+			return fmt.Errorf("api: Route %s %s declares the OPTIONS method, which the router owns on every pattern", route.Method, route.Pattern)
+		}
+		if strings.Contains(route.Pattern, "*") {
+			return fmt.Errorf("api: Route %s %s uses a wildcard pattern, which has no stable href to build a link from", route.Method, route.Pattern)
+		}
 		key := route.Method + " " + route.Pattern
-		if seen[key] {
+		if seenRoute[key] {
 			return fmt.Errorf("api: Route %s is registered more than once", key)
 		}
-		seen[key] = true
+		seenRoute[key] = true
+
+		relKey := route.Pattern + " " + string(route.Rel)
+		if seenRel[relKey] {
+			return fmt.Errorf("api: Route pattern %s declares the relation %q more than once, so its _links array would carry two entries a client cannot tell apart", route.Pattern, route.Rel)
+		}
+		seenRel[relKey] = true
 	}
 	return nil
 }
