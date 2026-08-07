@@ -235,7 +235,7 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 		return nil, fmt.Errorf("failed to compile runbook %q: %w", id, err)
 	}
 
-	rb := &Runbook{ID: id, Required: requiredCapabilities(dag)}
+	rb := &Runbook{ID: id, Required: requiredCapabilities(dag), Interruptible: dag.Metadata.IsInterruptible()}
 
 	d.mu.Lock()
 	d.cache[id] = cacheEntry{runbook: rb, modTime: modTime}

@@ -59,6 +59,18 @@ type Runbook struct {
 	// two calls could see spurious differences that have nothing to do
 	// with the runbook itself.
 	Required []capability.Name
+
+	// Interruptible is engine.Metadata.IsInterruptible()'s own resolved
+	// answer for this runbook (dir_source.go's Get applies the default
+	// there, once, so every caller of this package gets a concrete bool
+	// rather than needing to know engine.Metadata.Interruptible's own
+	// nil-means-true convention). PLAN.md Section 16: "Un-abortable tasks
+	// (interruptible: false) finish execution, and the Controller
+	// quarantines the device instead of re-issuing the lock." A Runner
+	// reads this to decide whether to self-abort an in-flight execution
+	// on lost lease heartbeat (internal/runner's executeWithLease) or let
+	// it run to completion.
+	Interruptible bool
 }
 
 // Source resolves a runbook ID to its compiled Runbook. It is the seam a

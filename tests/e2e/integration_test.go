@@ -18,6 +18,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
@@ -131,7 +132,7 @@ func TestGrandIntegration(t *testing.T) {
 
 	// 5. Start Runner Agent
 	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, nil, nil)
+	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	defer cancelAgent()
 	go agent.Run(agentCtx)

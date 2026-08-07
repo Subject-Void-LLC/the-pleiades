@@ -24,9 +24,34 @@ import (
 // looks like a self-inflicted DDoS rather than a graceful recovery.
 // Randomizing each retry's delay slightly spreads that reconnect storm
 // out instead of leaving every caller retry at the exact same instant.
+// maxAttemptShift bounds the exponent actually used in base*2^attempt.
+// Shifting an int64 by 63 or more bits overflows into a negative value
+// (attempt==63, the sign bit) or zero (attempt>=64, Go's shift semantics
+// for a count that reaches the operand's own bit width), and both feed a
+// non-positive sleep into the max clamp below, which only fires on
+// d > max: a non-positive d is never greater than a positive max, so the
+// clamp is silently bypassed instead of returning max, producing an
+// effectively-immediate retry instead of the intended ceiling. 1<<62 is
+// already far larger than any realistic base/max ratio this platform
+// configures, so capping the shift here, before it ever executes, keeps
+// every later step (the shift itself, the float64 multiply, the
+// float64->time.Duration conversion) inside a range this formula was
+// actually designed for, rather than relying on the final comparison to
+// catch an already-corrupted value.
+const maxAttemptShift = 62
+
 func Backoff(base, max time.Duration, attempt int) time.Duration {
-	// Exponential backoff: base * 2^attempt.
-	sleep := float64(base) * float64(int64(1)<<attempt)
+	if attempt < 0 {
+		attempt = 0
+	}
+	shift := attempt
+	if shift > maxAttemptShift {
+		shift = maxAttemptShift
+	}
+
+	// Exponential backoff: base * 2^attempt, attempt capped per
+	// maxAttemptShift's own doc comment.
+	sleep := float64(base) * float64(int64(1)<<uint(shift)) // #nosec G115 -- shift is bounded to [0, maxAttemptShift] immediately above
 
 	// Add 0-10% jitter on top of the doubled delay, so retries spread
 	// out instead of firing in lockstep. math/rand, not crypto/rand: this
@@ -37,7 +62,12 @@ func Backoff(base, max time.Duration, attempt int) time.Duration {
 	sleep += jitter
 
 	d := time.Duration(sleep)
-	if d > max {
+	// d <= 0 is the belt-and-suspenders half of maxAttemptShift's own
+	// defense: even with the shift capped, an unusually large base could
+	// still overflow the float64->time.Duration conversion. A non-positive
+	// result is never legitimate output of this formula, so it is treated
+	// as "cap reached" exactly like d > max already is.
+	if d <= 0 || d > max {
 		return max
 	}
 	return d

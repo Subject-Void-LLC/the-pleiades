@@ -1,6 +1,8 @@
 package retry_test
 
 import (
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -99,4 +101,81 @@ func TestBackoff_ZeroAttemptNeverBelowBase(t *testing.T) {
 	if got < base {
 		t.Fatalf("Backoff() = %v, want >= base %v", got, base)
 	}
+}
+
+// TestBackoff_HighAttemptClampsToMax is the regression test for the shift
+// overflow bug: base*2^attempt shifts an int64 by attempt bits before any
+// clamping exists, so attempt==63 overflows into a negative value (the
+// sign bit) and attempt>=64 shifts all the way to zero. Both used to
+// produce a non-positive Duration, which is never greater than max, so
+// the max clamp was silently bypassed instead of firing -- an
+// effectively-immediate retry at exactly the attempt counts a real,
+// long-idle Runner (Agent.Run's retries counter has no ceiling) would
+// eventually reach. Every attempt in this table must still clamp to
+// exactly max, many samples each since jitter makes a single sample
+// insufficient to catch a rare negative excursion.
+func TestBackoff_HighAttemptClampsToMax(t *testing.T) {
+	base := 100 * time.Millisecond
+	maxDelay := 10 * time.Second
+
+	for _, attempt := range []int{62, 63, 64, 65, 100, 1000, math.MaxInt32} {
+		t.Run(fmt.Sprintf("attempt=%d", attempt), func(t *testing.T) {
+			for i := 0; i < 200; i++ {
+				got := retry.Backoff(base, maxDelay, attempt)
+				if got != maxDelay {
+					t.Fatalf("Backoff(%v, %v, %d) = %v, want exactly the cap %v", base, maxDelay, attempt, got, maxDelay)
+				}
+			}
+		})
+	}
+}
+
+// TestBackoff_NeverReturnsNonPositive sweeps attempt across every
+// boundary value where the shift-before-clamp bug could resurface
+// (including negative attempts, which the fixed function now clamps to 0
+// rather than shifting by a negative count, undefined in Go), asserting
+// the one invariant this function must never violate: a positive base and
+// a positive max must always produce a positive result no larger than max.
+func TestBackoff_NeverReturnsNonPositive(t *testing.T) {
+	base := 10 * time.Millisecond
+	maxDelay := 5 * time.Second
+
+	for _, attempt := range []int{-100, -1, 0, 1, 2, 30, 61, 62, 63, 64, 65, 200, math.MaxInt32, math.MinInt32} {
+		got := retry.Backoff(base, maxDelay, attempt)
+		if got <= 0 || got > maxDelay {
+			t.Fatalf("Backoff(%v, %v, %d) = %v, want in (0, %v]", base, maxDelay, attempt, got, maxDelay)
+		}
+	}
+}
+
+// FuzzBackoff proves Backoff's one load-bearing invariant, 0 < got <=
+// max, holds across arbitrary attempt values, including the ones a
+// human-written table might not think to include. base and max are also
+// fuzzed, restricted to a strictly-positive range: base<=0 or max<=0
+// describe a caller misconfiguration this function has never claimed to
+// handle, not a case its own invariant covers.
+func FuzzBackoff(f *testing.F) {
+	f.Add(100*int64(time.Millisecond), 10*int64(time.Second), 0)
+	f.Add(100*int64(time.Millisecond), 10*int64(time.Second), 62)
+	f.Add(100*int64(time.Millisecond), 10*int64(time.Second), 63)
+	f.Add(100*int64(time.Millisecond), 10*int64(time.Second), 64)
+	f.Add(100*int64(time.Millisecond), 10*int64(time.Second), 1000)
+	f.Add(int64(1), int64(1), -1)
+	f.Add(int64(1), int64(1), math.MaxInt32)
+
+	f.Fuzz(func(t *testing.T, baseNanos, maxNanos int64, attempt int) {
+		if baseNanos <= 0 || maxNanos <= 0 {
+			return
+		}
+		base := time.Duration(baseNanos)
+		maxDelay := time.Duration(maxNanos)
+
+		got := retry.Backoff(base, maxDelay, attempt)
+		if got <= 0 {
+			t.Fatalf("Backoff(%v, %v, %d) = %v, must be > 0", base, maxDelay, attempt, got)
+		}
+		if got > maxDelay {
+			t.Fatalf("Backoff(%v, %v, %d) = %v, must be <= max %v", base, maxDelay, attempt, got, maxDelay)
+		}
+	})
 }

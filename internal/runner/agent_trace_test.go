@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -49,8 +50,7 @@ func TestAgent_ContinuesTraceFromMessageHeaders(t *testing.T) {
 	apiSpan.End()
 
 	msg := &tracingMockMsg{
-		MockMsg: &MockMsg{data: wireWrapDispatchPayload(
-			`{"job_id":"job-1","runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)},
+		MockMsg: &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-1"))},
 		headers: headers,
 	}
 
@@ -58,6 +58,7 @@ func TestAgent_ContinuesTraceFromMessageHeaders(t *testing.T) {
 		&MockConsumer{PayloadMsgs: []jetstream.Msg{msg}},
 		&MockAdapter{},
 		nil,
+		lock.NewInProcessManager(),
 		5,
 		nil,
 		tp.Tracer("runner"),
@@ -67,7 +68,7 @@ func TestAgent_ContinuesTraceFromMessageHeaders(t *testing.T) {
 	defer cancel()
 	_ = agent.Run(ctx)
 
-	if !msg.ack {
+	if !msg.ack.Load() {
 		t.Fatal("the job was not acknowledged, so no consumer span could have completed")
 	}
 
@@ -96,8 +97,8 @@ func TestAgent_ContinuesTraceFromMessageHeaders(t *testing.T) {
 	for _, attr := range consumerSpan.Attributes() {
 		attrs[string(attr.Key)] = attr.Value.Emit()
 	}
-	if attrs["pleiades.job.id"] != "job-1" {
-		t.Errorf("span attribute pleiades.job.id is %q, want %q", attrs["pleiades.job.id"], "job-1")
+	if attrs["pleiades.job.id"] != testJobID {
+		t.Errorf("span attribute pleiades.job.id is %q, want %q", attrs["pleiades.job.id"], testJobID)
 	}
 	if attrs["pleiades.device.name"] != "router-1" {
 		t.Errorf("span attribute pleiades.device.name is %q, want %q", attrs["pleiades.device.name"], "router-1")
@@ -118,8 +119,7 @@ func TestAgent_StartsAnOwnTraceWhenHeadersCarryNone(t *testing.T) {
 	})
 
 	msg := &tracingMockMsg{
-		MockMsg: &MockMsg{data: wireWrapDispatchPayload(
-			`{"job_id":"job-2","runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)},
+		MockMsg: &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-2"))},
 		headers: nats.Header{},
 	}
 
@@ -127,6 +127,7 @@ func TestAgent_StartsAnOwnTraceWhenHeadersCarryNone(t *testing.T) {
 		&MockConsumer{PayloadMsgs: []jetstream.Msg{msg}},
 		&MockAdapter{},
 		nil,
+		lock.NewInProcessManager(),
 		5,
 		nil,
 		tp.Tracer("runner"),
@@ -136,7 +137,7 @@ func TestAgent_StartsAnOwnTraceWhenHeadersCarryNone(t *testing.T) {
 	defer cancel()
 	_ = agent.Run(ctx)
 
-	if !msg.ack {
+	if !msg.ack.Load() {
 		t.Fatal("a job with no trace context was not executed")
 	}
 	for _, span := range recorder.Ended() {

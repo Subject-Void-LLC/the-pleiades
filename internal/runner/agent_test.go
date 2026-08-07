@@ -4,16 +4,68 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// testJobID is a syntactically valid UUID (uuid.Parse accepts it) used
+// across this package's tests wherever a DispatchPayload needs a job_id
+// that survives handleMessage's own uuid.Parse validation (agent.go's
+// Schema/Injection Hardening check on the wire.DispatchPayload.JobID
+// field, FAILURE_PATTERNS.md #84). Its value carries no other
+// significance.
+const testJobID = "11111111-1111-4111-8111-111111111111"
+
+// dispatchPayloadJSON builds one wire.DispatchPayload's JSON body for a
+// test fixture, with distinct deviceID and testJobID as the shared job
+// this fixture's device belongs to -- mirroring
+// wire.DispatchPayload.JobID's own real-world invariant ("every device
+// targeted by a single DispatchRunbook call shares the same JobID").
+// Giving every fixture device a distinct id, rather than every message in
+// a batch sharing one empty deviceID, matters once executeWithLease
+// (agent_exec.go) acquires a real per-device lock: two messages that
+// share a deviceID now genuinely contend for the same lease, exactly the
+// way two real dispatches against the same real device would, which a
+// shared, empty deviceID would misrepresent as universal contention
+// instead of the no-contention case a batch of distinct real devices
+// actually is.
+func dispatchPayloadJSON(deviceID string) string {
+	// interruptible:true is explicit, not an omission this fixture leaves
+	// to Go's own bool zero value: a real DispatchPayload on the wire is
+	// never missing this key (internal/dispatch/worker_devices.go always
+	// sets it from the resolved runbook.Runbook.Interruptible, which
+	// itself defaults to true absent an explicit metadata.interruptible:
+	// false in the source runbook), so a fixture that omitted it would
+	// model a shape no real producer ever sends -- and would silently
+	// pick the *opposite* default from a real interruptible runbook the
+	// instant executeWithLease started treating Interruptible=false
+	// differently from true (agent_exec.go's execCtx/detachedValueContext
+	// split), which is exactly what happened here before this comment was
+	// added: every test built on this fixture stopped observing outer
+	// ctx cancellation, because they were all unknowingly exercising the
+	// non-interruptible path.
+	return fmt.Sprintf(`{"job_id":%q,"runbook_id":"pb-1","device_id":%q,"device_name":"router-1","device_host":"10.0.0.1","interruptible":true}`,
+		testJobID, deviceID)
+}
+
+// interruptiblePayloadJSON is dispatchPayloadJSON plus an explicit
+// interruptible value, for tests exercising executeWithLease's own
+// self-abort-vs-run-to-completion branch (agent_exec.go), which reads
+// wire.DispatchPayload.Interruptible directly.
+func interruptiblePayloadJSON(deviceID string, interruptible bool) string {
+	return fmt.Sprintf(`{"job_id":%q,"runbook_id":"pb-1","device_id":%q,"device_name":"router-1","device_host":"10.0.0.1","interruptible":%t}`,
+		testJobID, deviceID, interruptible)
+}
 
 // wireWrapDispatchPayload builds the wire-format bytes handleMessage
 // actually decodes: an Event envelope (internal/event) whose Data field
@@ -73,9 +125,17 @@ func (m *MockMessageBatch) Error() error {
 
 type MockMsg struct {
 	jetstream.Msg
-	data    []byte
-	ack     bool
-	term    bool
+	data []byte
+	// ack and term are atomic.Bool, not plain bool: the bounded worker
+	// pool (agent_run.go) means a real Ack/Term call now genuinely races
+	// a concurrent test-goroutine read of the same MockMsg (e.g.
+	// TestAgent_ReleaseGate's own completion poll, which must observe
+	// progress while other workers are still executing, not only after
+	// Run has fully returned). A plain bool here would be exactly the
+	// kind of "safe in every test that happened not to read concurrently"
+	// bug AGENTS.md's own -race requirement exists to catch.
+	ack     atomic.Bool
+	term    atomic.Bool
 	ackErr  error
 	termErr error
 }
@@ -85,12 +145,12 @@ func (m *MockMsg) Data() []byte {
 }
 
 func (m *MockMsg) Ack() error {
-	m.ack = true
+	m.ack.Store(true)
 	return m.ackErr
 }
 
 func (m *MockMsg) Term() error {
-	m.term = true
+	m.term.Store(true)
 	return m.termErr
 }
 
@@ -126,7 +186,7 @@ func TestAgent_ReleaseGate(t *testing.T) {
 	mockMsgs := make([]*MockMsg, 10000)
 
 	for i := 0; i < 10000; i++ {
-		mockMsgs[i] = &MockMsg{data: wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)}
+		mockMsgs[i] = &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON(fmt.Sprintf("device-%d", i)))}
 		msgs = append(msgs, mockMsgs[i])
 	}
 
@@ -134,32 +194,55 @@ func TestAgent_ReleaseGate(t *testing.T) {
 	logger := slog.Default()
 	// js is nil: MockAdapter never returns an error, so handleMessage's
 	// DLQ path (the only code that touches js) is never reached here.
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, logger, nil)
+	// lock.NewInProcessManager() is a real Manager, not a mock: every one
+	// of these 10,000 devices has its own distinct DeviceID
+	// (dispatchPayloadJSON), so the bounded worker pool (agent_run.go)
+	// can genuinely drain them concurrently with no real contention,
+	// proving "without duplicating execution" against real lock
+	// acquire/release, not just against a count.
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, logger, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	go func() {
-		// Wait enough time for agent to process the batch, then cancel
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-	}()
+	runErr := make(chan error, 1)
+	go func() { runErr <- agent.Run(ctx) }()
 
-	err := agent.Run(ctx)
-	if err != context.Canceled {
+	// Poll for completion rather than sleeping a fixed guess: the pooled,
+	// lock-acquiring path (agent_exec.go) does real per-message work now
+	// (a goroutine, a lock acquire/release, a ticker), so a duration
+	// tuned for the old serial, lock-free loop would be an arbitrary
+	// guess at throughput, not a real bound the Release Gate's own text
+	// ("pulls the 5 events... without duplicating execution") requires.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if countAcked(mockMsgs) == 10000 {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	cancel()
+
+	if err := <-runErr; err != context.Canceled {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 
-	// Verify all 10,000 messages were ACKed
-	ackCount := 0
-	for _, m := range mockMsgs {
-		if m.ack {
-			ackCount++
-		}
-	}
-
-	if ackCount != 10000 {
+	if ackCount := countAcked(mockMsgs); ackCount != 10000 {
 		t.Errorf("expected 10000 messages to be acked, got %d", ackCount)
 	}
+}
+
+// countAcked counts how many of msgs have been Ack'd. Shared by
+// TestAgent_ReleaseGate's completion poll and its final assertion, so the
+// two cannot silently drift apart on what "acked" means.
+func countAcked(msgs []*MockMsg) int {
+	count := 0
+	for _, m := range msgs {
+		if m.ack.Load() {
+			count++
+		}
+	}
+	return count
 }
 
 // MockAdapter is the shared runner.ExecutionAdapter stub for this package's
@@ -190,7 +273,7 @@ func (erroringAdapter) Execute(ctx context.Context, payload wire.DispatchPayload
 func TestNewAgent_DefaultsNilLoggerToSlogDefault(t *testing.T) {
 	consumer := &MockConsumer{}
 	// Must not panic on a nil logger; NewAgent substitutes slog.Default().
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, nil, nil)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -201,24 +284,14 @@ func TestNewAgent_DefaultsNilLoggerToSlogDefault(t *testing.T) {
 
 func TestAgent_HandleMessage_ToleratesAckFailure(t *testing.T) {
 	msg := &MockMsg{
-		data:   wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`),
+		data:   wireWrapDispatchPayload(dispatchPayloadJSON("device-1")),
 		ackErr: errors.New("deliberate ack failure"),
 	}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
 	// Must not panic even though Ack itself fails.
-	if err := agent.Run(ctx); err != context.Canceled {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if !msg.ack {
-		t.Error("expected Ack to have been attempted")
-	}
+	runAgentUntil(t, agent, msg.ack.Load, 10*time.Second)
 }
 
 func TestAgent_HandleMessage_ToleratesTermFailureOnMalformedMessage(t *testing.T) {
@@ -227,40 +300,24 @@ func TestAgent_HandleMessage_ToleratesTermFailureOnMalformedMessage(t *testing.T
 		termErr: errors.New("deliberate term failure"),
 	}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
 	// Must not panic even though Term itself fails.
-	if err := agent.Run(ctx); err != context.Canceled {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if !msg.term {
-		t.Error("expected Term to have been attempted")
-	}
+	runAgentUntil(t, agent, msg.term.Load, 10*time.Second)
 }
 
 func TestAgent_HandleMessage_AdapterFailureRoutesThroughDeadLetterHandling(t *testing.T) {
-	msg := &MockMsg{data: wireWrapDispatchPayload(`{"runbook_id":"pb-1","device_name":"router-1","device_ip":"10.0.0.1"}`)}
+	msg := &nakTrackingMsg{MockMsg: &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-1"))}}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
 	// js is nil: msg.Metadata() reports NumDelivered=1 against maxDeliver=5,
 	// so HandleDeliveryFailure takes the NakWithDelay branch (also
 	// overridden on MockMsg), never the dead-letter-republish branch that
 	// would need a working js.Publish.
-	agent := runner.NewAgent(consumer, erroringAdapter{}, nil, 5, slog.Default(), nil)
+	agent := runner.NewAgent(consumer, erroringAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-	if err := agent.Run(ctx); err != context.Canceled {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if msg.ack {
+	runAgentUntil(t, agent, msg.naked.Load, 10*time.Second)
+
+	if msg.ack.Load() {
 		t.Error("expected the message not to be acked after an adapter failure")
 	}
 }
@@ -272,17 +329,7 @@ func TestAgent_HandleMessage_MalformedDispatchPayloadInsideValidEnvelope(t *test
 	// bytes -> Event).
 	msg := &MockMsg{data: []byte(`{"id":"e1","data":"not an object"}`)}
 	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
-	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, 5, slog.Default(), nil)
+	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-	if err := agent.Run(ctx); err != context.Canceled {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if !msg.term {
-		t.Error("expected the message to be terminated, not acked, for a malformed inner payload")
-	}
+	runAgentUntil(t, agent, msg.term.Load, 10*time.Second)
 }

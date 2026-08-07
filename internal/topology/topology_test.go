@@ -2,6 +2,7 @@ package topology_test
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
@@ -47,6 +48,34 @@ func TestLogSubject(t *testing.T) {
 				t.Errorf("LogSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestResultSubject is LogSubject's own mirror for
+// internal/runner's Write-Ahead-Log flush subject (PLAN.md Section 16's
+// State Desync Mitigation).
+func TestResultSubject(t *testing.T) {
+	tests := []struct {
+		name  string
+		jobID string
+		want  string
+	}{
+		{"uuid job id", "abc-123", "pleiades.jobs.results.abc-123"},
+		{"empty job id", "", "pleiades.jobs.results."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := topology.ResultSubject(tt.jobID); got != tt.want {
+				t.Errorf("ResultSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
+			}
+		})
+	}
+
+	// ResultSubject must fall under StreamSubjectRoot ("pleiades.>"), the
+	// same guarantee every other subject this package builds already has,
+	// so it needs no separate stream or EnsureStream change.
+	if got := topology.ResultSubject("job-1"); !strings.HasPrefix(got, "pleiades.") {
+		t.Errorf("ResultSubject(%q) = %q, does not fall under StreamSubjectRoot %q", "job-1", got, topology.StreamSubjectRoot)
 	}
 }
 

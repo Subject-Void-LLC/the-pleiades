@@ -39,6 +39,34 @@ type Metadata struct {
 	// ServiceEffecting marks a runbook as one whose execution can affect
 	// live service, as opposed to a purely read-only or diagnostic run.
 	ServiceEffecting bool `json:"service_effecting,omitempty" yaml:"service_effecting,omitempty"`
+
+	// Interruptible marks whether execution of this runbook may be safely
+	// self-aborted by a Runner that has lost its heartbeat with the
+	// Controller before the Controller's own lock TTL expires (PLAN.md
+	// Section 16's Network Partitions mitigation: "If a Runner loses
+	// heartbeat with the Controller, it self-aborts execution before the
+	// Controller TTL expires. Exception: Un-abortable tasks
+	// (interruptible: false) finish execution, and the Controller
+	// quarantines the device instead of re-issuing the lock.").
+	//
+	// nil (the field omitted entirely) means interruptible, the safe
+	// default: PLAN.md Section 16 frames interruptible: false as the
+	// named exception, which only makes sense if the unmarked case is the
+	// common, abortable one. A plain bool's zero value (false) would
+	// silently invert that default for every runbook that never sets this
+	// field, which is why this is a pointer rather than a bool, unlike
+	// ServiceEffecting above (whose safe default *is* false, so a plain
+	// bool costs it nothing). Use IsInterruptible, not this field
+	// directly, so no caller has to re-derive the nil-means-true rule
+	// itself.
+	Interruptible *bool `json:"interruptible,omitempty" yaml:"interruptible,omitempty"`
+}
+
+// IsInterruptible reports whether m's runbook is safe to self-abort,
+// applying Interruptible's own documented "nil means true" default in
+// exactly one place.
+func (m Metadata) IsInterruptible() bool {
+	return m.Interruptible == nil || *m.Interruptible
 }
 
 // WorkflowDef represents a user runbook. The yaml and json tags agree
