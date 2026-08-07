@@ -374,21 +374,42 @@ func main() {
 
 	dispatcher := api.NewDispatcher(repo, bus)
 	streamer := api.NewLogStreamer(js)
+	devices := api.NewDeviceHandler(repo, logger)
 
-	// admission is Phase 8's own Chain of Responsibility, given its first
-	// production caller by Phase 12: every request into the versioned API
-	// subtree is evaluated against it, not only authenticated. The chain
-	// carries one rule today, NewTokenScopeRule, the token-scope axis. The
-	// Team/RoleBinding axis (NewScopeRule/auth.ScopeResolver) is
-	// deliberately not appended here: it needs a ScopeTarget (which
-	// Group/Device/Organization the request is against), and an HTTP
-	// route has none to give it until a handler resolves one, which is
-	// Phase 14's own concern once it holds a device. Recorder is the
-	// Audit Trail entry PATTERNS.md already names: every decision, allow
-	// or deny, is logged.
+	// chain is Phase 8's own Chain of Responsibility. It carries one rule
+	// today, NewTokenScopeRule, the token-scope axis. The Team/RoleBinding
+	// axis (NewScopeRule/auth.ScopeResolver) is deliberately not appended
+	// here: it needs a ScopeTarget (which Group/Device/Organization the
+	// request is against), and an HTTP route has none to give it until a
+	// handler resolves one, which is Phase 14's own concern once it holds
+	// a device.
+	//
+	// It is built once, as its own value, because two things consume it
+	// and they must be the same evaluation. That is the single most
+	// important line in this wiring, so it is stated plainly: admission
+	// enforces, hateoas advertises, and because both run this identical
+	// rule list, a link this API offers and a 403 it returns cannot
+	// disagree. Building two chains here would reintroduce exactly the
+	// drift a server-side permission table always develops.
+	chain := auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)}
+
+	// admission wraps the chain with the Audit Trail entry PATTERNS.md
+	// names: every enforcement decision, allow or deny, is recorded.
 	admission := auth.Admission{
-		Chain:    auth.AdmissionChain{auth.NewTokenScopeRule(evaluator)},
+		Chain:    chain,
 		Recorder: auth.NewSlogRecorder(logger),
+	}
+
+	// hateoas takes the bare chain, deliberately unrecorded. A link
+	// computation probes every affordance a resource declares, so routing
+	// it through admission would emit one audit line per candidate per
+	// request and log every affordance a caller merely lacks as a denial
+	// at Warn. That buries the real denials, the ones where somebody
+	// actually attempted something, under speculative ones nobody
+	// attempted. Nobody asked to delete a device by loading a page.
+	hateoas, err := auth.NewAdmissionHATEOASGenerator(chain)
+	if err != nil {
+		fatal("failed to build HATEOAS generator", err)
 	}
 
 	// Routes are registered as a declarative table rather than a callback
@@ -408,9 +429,12 @@ func main() {
 		RateLimiter: rateLimiter,
 		Auth:        api.AuthMiddleware(evaluator),
 		Admission:   admission,
+		HATEOAS:     hateoas,
 		Routes: []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: dispatcher.DispatchRunbook},
-			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Handler: streamer.StreamLogs},
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelExecute, Handler: dispatcher.DispatchRunbook},
+			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Rel: auth.RelLogs, Handler: streamer.StreamLogs},
+			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: devices.Get},
+			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: devices.Delete},
 		},
 	})
 	if err != nil {

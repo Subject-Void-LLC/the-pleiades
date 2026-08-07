@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -95,15 +94,4 @@ func readyzHandler(logger *slog.Logger, checks []ReadinessCheck) http.HandlerFun
 
 		writeJSON(w, status, body)
 	}
-}
-
-// writeJSON writes v as a JSON body with the given status code. The
-// encode error is deliberately ignored: by the time it could fire the
-// status line and headers are already on the wire, so there is nothing
-// left to tell the client, and every value passed here is a struct of
-// strings that cannot fail to marshal.
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

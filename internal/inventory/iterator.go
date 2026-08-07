@@ -93,6 +93,33 @@ type Repository interface {
 	// Save is a no-op returning nil when the item has no unsaved changes,
 	// so a caller may call it unconditionally after a mutation pass.
 	Save(ctx context.Context, item inventory.InventoryItem) error
+
+	// Retire transitions the item stored under name to
+	// inventory.StateArchived, recording the transition as a Revision, and
+	// returns ErrItemNotFound when no such item exists.
+	//
+	// This is what the API's DELETE verb performs, and it is deliberately
+	// a lifecycle transition rather than a row removal. Every Revision is
+	// Immutable() by schema (internal/ent/schema/revision.go) and the
+	// revisions edge carries no cascade, so deleting a device would mean
+	// either destroying the audit trail the schema exists to protect or
+	// violating its foreign key. PLAN.md's lifecycle already models
+	// retirement directly (StateDecommissioning, StateArchived), and
+	// LifecycleState.CanExecute() already refuses every state but Active,
+	// so an archived device stops being a valid runbook target the moment
+	// this returns.
+	//
+	// It is idempotent, because the HTTP verb it backs is: retiring an
+	// already-archived item changes nothing, records no second Revision,
+	// and returns nil rather than an error. A caller that needs to know
+	// whether it was the one to retire the item should read State first.
+	//
+	// It is deliberately on this port rather than reached around it.
+	// NewReadOnlyRepository's whole argument is that a wrapper cannot be
+	// forgotten in one branch of one adapter; a delete path outside the
+	// port would silently void the simulate-first guarantee for the one
+	// operation that is hardest to undo.
+	Retire(ctx context.Context, name string) error
 }
 
 // versioned is satisfied by any item that can report the version it was

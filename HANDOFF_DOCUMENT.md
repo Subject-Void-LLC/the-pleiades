@@ -4,6 +4,152 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 13: HATEOAS Generator** (`.SPECIFICATION/IMPLEMENTATION.md`), all nine
+previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Branch is
+`feature/HATEOAS-Generator`, based on `e820e9d` (`origin/main`, which already contained Phase 12 via
+PR #3). **Nothing is committed.** The working tree carries the whole phase.
+
+**Read this first if you are picking up mid-stream.** The session's opening finding was wrong and was
+retracted: an initial survey concluded "Phase 12 is not in this tree" and planned a merge around it.
+Phase 12 was already merged upstream; the local checkout was simply stale and a `git pull` resolved it.
+That is not recorded in `FAILURE_PATTERNS.md` and should not be, because a stale checkout is not a
+repository defect. It is mentioned here only so the next reader does not go looking for the
+branch surgery an earlier plan described.
+
+**The honest headline, since this phase's own Adversarial gate asks for it:** the pattern
+`PATTERNS.md` described as live had never run. `auth.HATEOASGenerator`'s only implementation in the
+repository was a test mock, so a composition root could pass only `nil`; `api.HATEOASMiddleware` had
+zero production callers across two phases; and the Release Gate's own parenthetical already admitted it
+passed by omitting every link rather than the one it names. All of that is closed rather than argued
+away, and the gate is now strengthened in four independent ways so the same vacuous pass cannot recur.
+
+**One roadmap item was wrong and is corrected rather than "fixed."** The checklist asserted the
+recorder "captures the status code but never forwards it," so "any handler returning a non-200 status
+is currently reported as 200." A probe run against the real middleware reported the opposite in every
+case: 404 arrived as 404, 500 as 500, 201 as 201. All four exit branches did forward. Reading
+`hateoasRecorder.WriteHeader` in isolation gives the item's conclusion; reading the middleware that
+owns it does not. Recorded as `FAILURE_PATTERNS.md` #74, because a phase writeup claiming a fix that
+never happened is a false record that outlives the code.
+
+**Six real defects found, all recorded before being fixed:**
+
+1. **`FAILURE_PATTERNS.md` #70, the one that mattered most.** `hateoasRecorder` embeds the
+   `http.ResponseWriter` *interface*, which promotes exactly three methods, so `http.Flusher` is
+   dropped. `internal/api/logs.go` type-asserts `http.Flusher` and answers `500 "Streaming
+   unsupported"` when it fails. **Mounting the HATEOAS middleware would have killed the SSE log
+   endpoint**; the only reason it never did is that nothing ever mounted it. Proven with a control
+   (the same assertion without the middleware sees a `Flusher`). This is the whole argument for
+   choosing an encoder seam over Decorator, and it is why the middleware was deleted rather than
+   repaired: forwarding `Flusher` would still have dropped `Hijacker` and `ReaderFrom`.
+2. **#71.** Every body round-tripped through `map[string]interface{}`: `{"count":9007199254740993}`
+   was served as `...992`, top-level arrays got no `_links` at all, a handler-supplied `_links` was
+   silently overwritten, and `application/json; charset=utf-8` was skipped by an exact-match compare.
+3. **#72.** The caller's raw `r.URL.Path` was reflected into the body as the `href` of every link, so
+   the URL a hypermedia client is invited to follow was chosen by the caller. Same shape as #63's NATS
+   subject rule, one boundary over.
+4. **#73.** The generator's error was discarded (`x, _ :=`), making an authorization-backend outage
+   indistinguishable from a caller legitimately allowed nothing.
+5. **#74.** The roadmap item above.
+6. **#75, adjacent rather than this phase's own, and worth reading.** Phase 12's
+   `TestValidateToken_RejectsTamperedSignature` failed during this session's first full-suite run,
+   against code this phase never touched. Its helper flipped the last *character* of the base64url
+   signature and claimed in its own doc comment that this guaranteed different decoded bytes. It does
+   not: a 32-byte HMAC encodes to 43 characters carrying 258 bits, so the final character's low 2 bits
+   are padding the decoder discards, and `A` to `B` differs only there. Enumerated exhaustively, **16
+   of 256 possible final signature bytes (6.2%) produce a "tampered" token that decodes byte-identical
+   to the original**, meaning nothing was forged and `ValidateToken` correctly accepted a valid token.
+   It reads as rare because `generateTestToken` stamps `exp` at second granularity, so `-count=400`
+   inside one process re-tests one identical token and always passes. Fixed by tampering with the
+   decoded bytes and asserting they changed, plus a regression test enumerating all 256 cases.
+
+**What was built, by area:**
+
+1. **`internal/auth/hateoas.go`** (new). The redefined port. `LinkRel` (a typed, closed relation
+   vocabulary, for the same reason `Scope` is typed), `Affordance`, and
+   `HATEOASGenerator.Permitted(ctx, *Identity, []Affordance) ([]LinkRel, error)`. **The return type is
+   the design.** It is a subset of what was offered, so an implementation may only select: it cannot
+   widen a scope, retarget a resource, or invent a relation, and it is never handed a URL and never
+   returns one. `NewAdmissionHATEOASGenerator` is the first real implementation and fails closed on an
+   empty chain.
+2. **The one-chain wiring, which is the load-bearing decision.** `cmd/controller` builds a single
+   `auth.AdmissionChain` value and gives it to two consumers: `auth.Admission` (recorded) for
+   `api.RequireScope`, and the bare chain (unrecorded) for the generator. Enforcement and advertising
+   are therefore the same evaluation over the same rules, and a link and a 403 cannot disagree.
+   **The generator deliberately does not get the recorded wrapper**: probing every affordance per
+   request would emit N audit lines and log every unheld permission as a `Warn` denial, burying the
+   denials where somebody actually attempted something. Nobody asked to delete a device by loading a
+   page. `TestHATEOAS_AffordanceProbingIsNotAudited` asserts one request records exactly one decision.
+3. **`internal/api/respond.go`** (new). The encoder seam. `Respond` marshals the handler's own typed
+   value once and never decodes it, so #71's entire class is gone. `_links` is a typed field
+   (`api.LinkSet`), not a map entry, so collision is unrepresentable. **The pointer in `LinkSet` is
+   load bearing**: absent means "could not be computed", `[]` means "computed, you may do nothing", and
+   a plain slice with `omitempty` would collapse those together, which is #73.
+4. **`internal/api/links.go`** (new). One `linkBuilder`, built once in `NewRouter`, immutable
+   afterwards, indexed by route pattern. It is the single source of truth behind both `_links` and the
+   `Allow` header, so the two cannot drift. Every href is built from the matched chi route pattern with
+   parameters re-escaped, never from `r.URL.Path`.
+5. **`internal/api/options.go`** (new). `OPTIONS` per pattern plus a replacement for chi's
+   `MethodNotAllowed`, whose built-in emits the unfiltered method set. Authenticated but deliberately
+   not behind `RequireScope`: a viewer asking what it may do must be answered, not 403'd.
+6. **`internal/api/devices.go`** (new) and **`inventory.Repository.Retire`**. The Release Gate had no
+   handler behind it and no phase owned adding one. `GET`/`DELETE /api/v1/inventory/devices/{name}`.
+   `DELETE` is a retirement to `StateArchived`, not a row removal, because every `Revision` is
+   `Immutable()` and the edge carries no cascade. `Retire` is implemented in both adapters, refused by
+   `NewReadOnlyRepository`, and covered by four conformance tests across both backends.
+7. **Resource-state filtering (`api.LinkFilter`).** An already-archived device offers no `delete` link
+   to anyone, regardless of scope. This is what makes the phase HATEOAS rather than a server-side
+   rendering of the caller's permission table, and it fell out of the gate test failing honestly.
+8. **Every write path migrated** off `http.Error` and the `map[string]interface{}` dispatch response.
+
+**One trap worth naming for whoever touches the device handlers next.** `deviceDTO` omits the property
+bag entirely, and that is a security decision, not an oversight. `cmd/controller` installs
+`crypto.DeviceEnvelopePropertiesInterceptor`, so `Properties()` returns **decrypted** values on every
+read; emitting them would ship enable secrets and API keys to any caller holding `inventory:read`.
+PLAN.md Section 25 assigns the masking ruleset to Phase 22 and none exists today. Do not add the
+property bag before that lands.
+
+**A second trap, measured rather than assumed.** chi decodes `%00` in a URL parameter into a real NUL
+byte, but leaves `%0a`, `%0d`, and `%2f` as literal three-character text. So NUL is the one control
+character that actually reaches a handler, which is why the name guard checks for a real NUL and not
+for the string `"%00"`. `TestDeviceHandler_PercentEncodedControlsArriveEncoded` pins this so a future
+chi or `net/url` upgrade that changes it fails loudly instead of silently widening what gets through.
+
+**Deliberately deferred, with the reason:** no collection endpoint (`inventory.Selector` carries only
+`GroupName`, so paging would mean extending the Section 25 keyset primitive and both adapters; the gate
+needs one device, not a list). `api.Link` and `auth.LinkRel` stay in `internal/` (Phase 15 owns
+`pkg/wire`, and they must move together because `pkg/` may not import `internal/`). No CORS: OPTIONS is
+authenticated, so a browser preflight gets 401, and Phase 19 is the first phase with a real browser
+client.
+
+**Verification.** `go build ./... && go vet ./...` clean; `gofmt -l` clean. `go test ./... -race
+-count=1` clean across the repository (`-p 2`; one run at `-p 4` hit `FAILURE_PATTERNS.md` #69's
+`go list` tree-walk race in `internal/archtest`, unrelated to this diff and confirmed transient by an
+immediate clean re-run). `make gosec`: **waivers drop from 6 to 1**, because the four on the deleted
+`hateoas.go` and the one on `dispatcher.go` were retired rather than re-pointed; the survivor is the
+pre-existing `logs.go` `G705`. `make govulncheck`: 0 vulnerabilities. `make coverage`: `internal/api`
+95.1% (floor raised 94.0 -> 95.0), `internal/auth` 91.4% (90.5 -> 91.0), `internal/inventory` 82.4%
+(82.0 -> 82.4). The same four pre-existing `coverage-floor.json` regressions from
+`FAILURE_PATTERNS.md` #60 (`internal/forge/genutil`, `internal/inventory/record`, `pkg/collection`,
+`tools/gencatalog`) recur at identical percentages, unrelated to this phase, exactly as in Phase 11's
+own run. Fuzz: `FuzzHrefConstruction` ~168,000 executions/26s and `FuzzRespondEnvelope` ~237,000
+executions/26s, zero crashes. Benchmarks (real numbers, this machine): `BenchmarkRespondWithLinks`
+10.6/11.0/11.9 µs/op at 1/2/4 affordances against `BenchmarkAPIMiddleware_SecuredRoute` at 7.3 µs/op,
+so hypermedia costs ~3.2 µs on the first affordance and ~425 ns per additional one;
+`BenchmarkOptionsHandler` 9.0 µs/op; `BenchmarkAdmissionGenerator_Permitted` 142 ns/1.5 µs/6.3 µs at
+2/8/32 candidates. **That curve is not linear at the low end and the reason is worth knowing:** a
+denied candidate costs roughly ten times an allowed one, because `AdmissionChain.Evaluate` builds a
+formatted error per denial, and a low-privilege caller probing a wide resource is mostly denials. That
+allocation is the first thing to attack if this ever appears in a profile.
+
+**One unrelated fix included, keep it out of the Phase 13 commits.** `make fmt` was already red on
+`main` before this session touched anything: a misaligned map literal in
+`internal/engine/executor_fuzz_test.go` from `c8b364a` (Phase 10). Since `fmt` is in the `ci` chain,
+`make ci` was failing on `main`. Fixed as an isolated three-line change, which belongs in its own
+commit per `AGENTS.md`'s one-logical-change rule.
+
+## Previous session: Phase 12, Zero-Trust Middleware (and Phase 11 notes below)
+
 **This session closed Phase 12: Zero-Trust Middleware** (`.SPECIFICATION/IMPLEMENTATION.md`), all nine
 previously-open checklist items. Research was direct reading of `internal/auth`, `internal/api`, both
 composition roots, `PATTERNS.md`'s Chain of Responsibility and Audit Trail entries, and the prior two

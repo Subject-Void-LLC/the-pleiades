@@ -962,3 +962,55 @@ story, per `.AGENTS/AGENTS.md`.
     session found the same shape a second time one layer down: a forged-token corpus that had genuinely
     been run once, correctly, left no test file behind, so "was verified" and "was asserted in a
     checklist" were indistinguishable until someone re-ran it (`FAILURE_PATTERNS.md` #65, #68).
+
+77. **Wrapping `http.ResponseWriter` is lossy by construction, and the loss is invisible to every test
+    that does not exercise the specific optional interface it dropped.** An embedded `http.ResponseWriter`
+    promotes exactly three methods, so `http.Flusher`, `http.Hijacker`, `io.ReaderFrom`, and `http.Pusher`
+    all vanish through any decorator that wraps one. Phase 13's deleted HATEOAS middleware had passing
+    unit, benchmark, and fuzz tests and would still have turned the SSE log endpoint into a 500 the first
+    time it was mounted, because that handler type-asserts `http.Flusher` and the wrapper does not satisfy
+    it (`FAILURE_PATTERNS.md` #70). Before adding a middleware that wraps the writer, ask what else on the
+    same router asserts something about its own writer; when the answer includes a streaming handler, the
+    right shape is a seam the handler calls rather than a decorator that intercepts it. Forwarding the one
+    interface you noticed is not a fix, because the next optional interface is still dropped and the next
+    handler to need one will fail the same way.
+
+78. **Compute an affordance and enforce it from the same object, or the two will drift.** Any system that
+    tells a client what it may do, and separately decides whether to allow it, has two implementations of
+    one question. Phase 13 makes them one by construction: the composition root builds a single
+    `auth.AdmissionChain` value, hands it to `api.RequireScope` (which enforces) and to
+    `auth.NewAdmissionHATEOASGenerator` (which advertises), and a link and a 403 cannot disagree because
+    they are the same evaluation over the same rule list. This generalizes past hypermedia to any
+    "preview" or "capabilities" endpoint: the preview must call the decider, never re-derive its logic,
+    and the test that matters asserts equivalence across every identity rather than checking each side
+    separately.
+
+79. **A speculative authorization probe is not an access decision and must not be recorded as one.**
+    Computing which actions to offer means asking the admission chain about every candidate, most of which
+    a given caller lacks. Routing that through the audited path would emit one audit line per candidate
+    per request and log every unheld permission as a denial at `Warn`, burying the denials that represent
+    somebody actually attempting something under speculative ones nobody attempted. Nobody asked to delete
+    a device by loading a page. The mechanical form of this rule: if a component both enforces and
+    answers "what could I do", the enforcing path takes the recording wrapper and the advertising path
+    takes the bare decider, and a test asserts the request records exactly one decision.
+
+80. **Never reflect a caller-controlled path back as a URL the client is invited to act on.** Build every
+    self and action URL from the server's own matched route template with each parameter re-escaped, so
+    the URL's structure is always the server's and only the values are the caller's. The deleted
+    middleware used `r.URL.Path` verbatim, which is caller input that happens to look like server output,
+    the most confusing possible shape for a tainted value (`FAILURE_PATTERNS.md` #72). The matched route
+    pattern was available the whole time and is the untainted equivalent. This is the same rule
+    `FAILURE_PATTERNS.md` #63 drew for NATS subjects, applied to a second boundary: a value is not safe
+    because of who usually produces it.
+
+81. **A security test that fails intermittently is not flaky infrastructure, it is a test whose own setup
+    is wrong, and the direction of the failure tells you how much luck you had.** A JWT forgery test
+    "tampered" with a signature by changing the last base64url character, which for one signature in
+    sixteen changed only padding bits the decoder discards, so the token was never altered and the
+    validator correctly accepted it (`FAILURE_PATTERNS.md` #75). That failed loudly, claiming a forgery
+    had slipped through. The identical defect in a test that silently stops forging anything would have
+    passed, and would have reported that a validator rejects attacks it was never shown. Two mechanical
+    rules follow. When a helper's doc comment states a guarantee, the helper should assert that guarantee
+    at runtime, because prose cannot fail a build. And when a test manipulates an encoded representation
+    to change the value underneath, it must verify the decoded value changed: encodings with padding,
+    canonicalization, or case-insensitivity all admit edits that change the text and nothing else.

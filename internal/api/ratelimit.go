@@ -163,7 +163,7 @@ func RateLimitMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 			// bucket's own refill interval, so a well-behaved client backs
 			// off by roughly the right amount instead of guessing.
 			w.Header().Set("Retry-After", strconv.Itoa(rl.retryAfterSeconds()))
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			RespondError(w, r, http.StatusTooManyRequests, "too many requests")
 		})
 	}
 }

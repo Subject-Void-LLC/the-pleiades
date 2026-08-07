@@ -2,8 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
@@ -70,7 +69,7 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	// already turned into a 403 upstream.
 	id, ok := IdentityFromContext(r.Context())
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -78,14 +77,20 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	runbookID := r.URL.Query().Get("runbook")
 
 	if groupName == "" || runbookID == "" {
-		http.Error(w, "Missing 'group' or 'runbook' query parameter", http.StatusBadRequest)
+		RespondError(w, r, http.StatusBadRequest, "missing 'group' or 'runbook' query parameter")
 		return
 	}
 
 	// 2. Obtain an Iterator for the target group
 	iter, err := d.repo.GetGroup(r.Context(), pkginventory.Selector{GroupName: groupName})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to query inventory: %v", err), http.StatusInternalServerError)
+		// The repository's own error text is logged, not returned: it can
+		// name tables, columns, and hosts, which an authenticated caller
+		// holding only runbook:execute has no business reading.
+		loggerFrom(r).ErrorContext(r.Context(), "failed to query inventory for dispatch",
+			slog.String("group", groupName),
+			slog.String("error", err.Error()))
+		RespondError(w, r, http.StatusInternalServerError, "internal error")
 		return
 	}
 	defer iter.Close()
@@ -162,16 +167,36 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := iter.Error(); err != nil {
-		http.Error(w, fmt.Sprintf("Iterator failed during stream: %v", err), http.StatusInternalServerError)
+		// The iterator's own message is logged, never returned: it can
+		// name tables, columns, and hosts, and this endpoint is reachable
+		// by any caller holding runbook:execute.
+		loggerFrom(r).ErrorContext(r.Context(), "inventory iterator failed mid-dispatch",
+			slog.String("job_id", jobID),
+			slog.String("error", err.Error()))
+		RespondError(w, r, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "dispatched",
-		"job_id":     jobID,
-		"dispatched": dispatchedCount,
-		"failed":     errCount,
-	})
+	// A typed struct rather than the map[string]interface{} this used to
+	// build. FAILURE_PATTERNS.md #71 records what a map costs on the way
+	// out: every integer in it round-tripped through float64, so a
+	// dispatch count past 2^53 would have been served wrong. A typed
+	// struct is marshaled once, from the Go values themselves.
+	resp := dispatchResponse{
+		Status:     "dispatched",
+		JobID:      jobID,
+		Dispatched: dispatchedCount,
+		Failed:     errCount,
+	}
+	Respond(w, r, http.StatusOK, &resp)
+}
+
+// dispatchResponse is the body a successful dispatch returns.
+type dispatchResponse struct {
+	LinkSet
+
+	Status     string `json:"status"`
+	JobID      string `json:"job_id"`
+	Dispatched int    `json:"dispatched"`
+	Failed     int    `json:"failed"`
 }

@@ -32,6 +32,12 @@ type contextKey string
 
 const identityKey contextKey = "identity"
 
+// loggerKey carries the request-scoped *slog.Logger
+// StructuredLoggerMiddleware installs, so a handler can report a
+// server-side failure through the logger the router was configured with
+// rather than through the process-wide default.
+const loggerKey contextKey = "logger"
+
 // traceIDHeader is the response header carrying the trace ID of the span
 // that served a request, so an operator holding an HTTP response can find
 // the trace it belongs to without reading logs first.
@@ -67,6 +73,15 @@ func TraceIDFromContext(ctx context.Context) (string, bool) {
 func IdentityFromContext(ctx context.Context) (*auth.Identity, bool) {
 	id, ok := ctx.Value(identityKey).(*auth.Identity)
 	return id, ok && id != nil
+}
+
+// loggerFromContext returns the request-scoped logger
+// StructuredLoggerMiddleware placed in ctx, if any. Absence is not an
+// error: a handler a test invokes directly still has to be able to
+// respond, and loggerFrom (respond.go) supplies the fallback.
+func loggerFromContext(ctx context.Context) (*slog.Logger, bool) {
+	logger, ok := ctx.Value(loggerKey).(*slog.Logger)
+	return logger, ok && logger != nil
 }
 
 // TracingMiddleware starts one OpenTelemetry server span per request,
@@ -124,13 +139,18 @@ func TracingMiddleware(tracer trace.Tracer, propagator propagation.TextMapPropag
 // It logs on completion only: the "request started" line the previous
 // implementation also wrote doubled log volume while carrying no field the
 // completion line does not already have.
+// It also places logger in the request context. A handler that needs to
+// report a server-side failure it cannot tell the client about (Respond's
+// own marshal and short-write branches, respond.go) would otherwise have
+// to reach for slog.Default(), which is the process-wide logger the
+// router was explicitly configured not to assume.
 func StructuredLoggerMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			start := time.Now()
 
-			next.ServeHTTP(ww, r.WithContext(r.Context()))
+			next.ServeHTTP(ww, r.WithContext(context.WithValue(r.Context(), loggerKey, logger)))
 
 			attrs := []any{
 				slog.String("method", r.Method),
@@ -217,12 +237,12 @@ func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if len(authHeader) <= len(bearerPrefix) || authHeader[:len(bearerPrefix)] != bearerPrefix {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			identity, err := validator.ValidateToken(r.Context(), authHeader[len(bearerPrefix):])
 			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				RespondError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			ctx := context.WithValue(r.Context(), identityKey, identity)

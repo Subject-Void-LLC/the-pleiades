@@ -47,8 +47,9 @@ func BenchmarkAPIMiddleware_SecuredRoute(b *testing.B) {
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Auth:      alwaysAuthenticated,
 		Admission: &fakeAdmitter{},
+		HATEOAS:   allowAllGenerator(b),
 		Routes: []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}},
 		},

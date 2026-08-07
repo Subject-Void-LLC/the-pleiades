@@ -49,8 +49,9 @@ func FuzzAPIRouter(f *testing.F) {
 		Registry:  prometheus.NewRegistry(),
 		Auth:      api.AuthMiddleware(alwaysValidEvaluator{}),
 		Admission: alwaysAllowAdmitter{},
+		HATEOAS:   allowAllGenerator(f),
 		Routes: []api.Route{
-			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Handler: func(w http.ResponseWriter, r *http.Request) {
+			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}},
 		},

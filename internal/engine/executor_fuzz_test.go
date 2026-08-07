@@ -88,9 +88,9 @@ func FuzzRegisterMaskPath(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, path string) {
 		task := map[string]any{
-			"name":     "mark",
-			"fqcn":     "noop",
-			"register": "creds",
+			"name":          "mark",
+			"fqcn":          "noop",
+			"register":      "creds",
 			"register_mask": []string{path},
 			"params": map[string]any{
 				// "secret" is a long-enough leaf string (a non-map
