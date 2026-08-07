@@ -36,7 +36,7 @@ const defaultLockTTL = 5 * time.Minute
 // nodeExecution is the Command object (PATTERNS.md's Command entry) for
 // one task's execution against one resolved device, or against no device
 // at all for a controller-side task (PLAN.md Section 14's Execution
-// Contexts). It mirrors runner.DispatchPayload's role at whole-runbook
+// Contexts). It mirrors wire.DispatchPayload's role at whole-runbook
 // granularity: a self-contained request value, decoupled from whatever
 // dispatches it, so the exact same value could in principle be handed to
 // a future durable queue consumer instead of a local goroutine without
@@ -368,8 +368,10 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		cmds = append(cmds, nodeExecution{NodeID: nodeID, Task: task})
 	} else {
 		for _, d := range devices {
-			if !d.State().CanExecute() {
-				reason := fmt.Sprintf("device %q is %s, not active", d.Name(), d.State())
+			// LifecycleAdmits (admission.go) is this exact check, relocated
+			// so a future non-Executor caller can reuse it verbatim instead
+			// of re-deriving the identical reason wording.
+			if ok, reason := LifecycleAdmits(d); !ok {
 				r.publish(nodeID, task, d.Name(), "skipped", reason)
 				results = append(results, NodeResult{NodeID: nodeID, Device: string(d.ID()), Skipped: true, SkipReason: reason})
 				continue

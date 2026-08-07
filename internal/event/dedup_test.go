@@ -197,11 +197,30 @@ func TestNewIdempotentBus_SuccessfulDeliveryIsNotRepeated(t *testing.T) {
 		t.Fatal("timed out waiting for the first delivery")
 	}
 
-	// Give the decorator time to mark the key seen (Publish returns before
-	// the async in-process handler goroutine necessarily finishes running,
-	// but the wait above already confirms the handler itself ran, and
-	// MarkSeen happens synchronously right after inside that same handler
-	// invocation, before this second publish is even sent).
+	// Receiving from called only proves the caller-supplied handler body
+	// ran (dedup.go's wrapped closure sends on it before calling
+	// store.MarkSeen, not after), so the mark-seen write is not guaranteed
+	// to have landed yet: wrapped keeps running in its own goroutine after
+	// this test goroutine wakes up. Poll the same store idempotentBus
+	// itself consults (SeenRecently) until the write is actually visible,
+	// rather than assuming a fixed ordering that is not part of the
+	// documented contract; a fixed sleep would just trade a rare failure
+	// for a slow, still-technically-racy test.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		seen, err := store.SeenRecently(context.Background(), evt.IdempotencyKey)
+		if err != nil {
+			t.Fatalf("seen recently: %v", err)
+		}
+		if seen {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the first delivery's mark-seen write to become visible")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
 	if err := inner.Publish(context.Background(), "pleiades.events.dedup.skip", evt); err != nil {
 		t.Fatalf("publish 2 (duplicate): %v", err)
 	}

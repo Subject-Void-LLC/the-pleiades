@@ -11,6 +11,7 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"
@@ -27,7 +28,7 @@ type alwaysFailAdapter struct {
 	attempts chan struct{}
 }
 
-func (a *alwaysFailAdapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+func (a *alwaysFailAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	a.attempts <- struct{}{}
 	return errors.New("deliberate execution failure")
 }
@@ -89,7 +90,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	defer cancelAgent()
 	go agent.Run(agentCtx)
 
-	payload := runner.DispatchPayload{JobID: "dlq-job", RunbookID: "pb-1", DeviceName: "dev-1", DeviceIP: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "dlq-job", RunbookID: "pb-1", DeviceName: "dev-1", DeviceHost: "10.0.0.1"}
 	evt, err := event.WrapPayload("dispatch-1", "runbook.dispatched", payload)
 	if err != nil {
 		t.Fatalf("wrap payload: %v", err)
@@ -145,7 +146,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	if err := json.Unmarshal(envelope.Payload, &dlqEvt); err != nil {
 		t.Fatalf("unmarshal dead-lettered event: %v", err)
 	}
-	var dlqPayload runner.DispatchPayload
+	var dlqPayload wire.DispatchPayload
 	if err := json.Unmarshal(dlqEvt.Data, &dlqPayload); err != nil {
 		t.Fatalf("unmarshal dead-lettered payload: %v", err)
 	}

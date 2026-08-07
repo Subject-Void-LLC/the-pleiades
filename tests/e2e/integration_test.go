@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,9 +14,11 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth/authtest"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
 	_ "github.com/lib/pq"
@@ -70,8 +74,8 @@ func TestGrandIntegration(t *testing.T) {
 	// the mechanism a Selector{GroupName: "edge"} dispatch now actually
 	// matches against.
 	t.Log("Seeding inventory...")
-	rtr1 := client.Device.Create().SetName("rtr1").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.1"}).SaveX(ctx)
-	rtr2 := client.Device.Create().SetName("rtr2").SetType("cisco_router").SetProperties(map[string]interface{}{"ip": "10.0.0.2"}).SaveX(ctx)
+	rtr1 := client.Device.Create().SetName("rtr1").SetType("cisco_router").SetProperties(map[string]interface{}{"host": "10.0.0.1"}).SaveX(ctx)
+	rtr2 := client.Device.Create().SetName("rtr2").SetType("cisco_router").SetProperties(map[string]interface{}{"host": "10.0.0.2"}).SaveX(ctx)
 	client.Group.Create().SetName("edge").AddDevices(rtr1, rtr2).SaveX(ctx)
 
 	// 3. Spin up NATS Container with JetStream
@@ -132,10 +136,40 @@ func TestGrandIntegration(t *testing.T) {
 	defer cancelAgent()
 	go agent.Run(agentCtx)
 
-	// 6. Start API Dispatcher
-	dispatcher := api.NewDispatcher(repo, bus)
+	// 6. Build a real runbook.Source and durable JobStore, and subscribe
+	// internal/dispatch.Worker to job.requested, mirroring
+	// cmd/controller/main.go's own composition root (RULE 0): Phase 14
+	// moved per-device fan-out out of the HTTP request path and into this
+	// background worker, so DispatchRunbook itself now only persists a Job
+	// and publishes one job.requested event; the Worker subscribed here is
+	// what actually streams the "edge" group, admits or skips each
+	// device, and publishes the per-device wire.DispatchPayload the
+	// Runner Agent above consumes.
+	runbookDir := t.TempDir()
+	// "ios_backup" requires capability.NameCiscoIOS
+	// (engine.ActionCapability); devices/cisco.Router grants that
+	// capability to every "cisco_router"-typed device automatically
+	// (router.go's own NewRouter), so both devices seeded above satisfy
+	// it without any extra fixture wiring.
+	runbookYAML := "id: ping\ntasks:\n  - name: backup\n    fqcn: ios_backup\n"
+	if err := os.WriteFile(filepath.Join(runbookDir, "ping.yaml"), []byte(runbookYAML), 0o644); err != nil {
+		t.Fatalf("failed to write runbook fixture: %s", err)
+	}
+	runbooks, err := runbook.NewDirSource(runbookDir)
+	if err != nil {
+		t.Fatalf("failed to init runbook source: %s", err)
+	}
 
-	// 7. Make API Request, authenticated with a real signed token through
+	jobStore := dispatch.NewEntJobStore(client)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
+		t.Fatalf("failed to subscribe job fan-out worker: %s", err)
+	}
+
+	// 7. Start API Dispatcher
+	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
+
+	// 8. Make API Request, authenticated with a real signed token through
 	// the real AuthMiddleware rather than a hand-injected identity: this
 	// package cannot reach api.IdentityKeyForTest (an export_test.go
 	// symbol, visible only inside package api's own test binary), which
@@ -156,25 +190,57 @@ func TestGrandIntegration(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, httpReq)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d. Body: %s", rr.Code, rr.Body.String())
+	// A launch is now 202 Accepted, not 200: DispatchRunbook only persists
+	// a Job and publishes job.requested here, it does not wait for
+	// fan-out (dispatcher.go's own jobAcceptedResponse doc comment).
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d. Body: %s", rr.Code, rr.Body.String())
 	}
 
 	var resp struct {
-		JobID      string `json:"job_id"`
-		Dispatched int    `json:"dispatched"`
+		Status string `json:"status"`
+		JobID  string `json:"job_id"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse dispatch response: %s", err)
 	}
-
-	if resp.Dispatched != 2 {
-		t.Fatalf("expected 2 dispatched, got %d", resp.Dispatched)
+	if resp.Status != "accepted" {
+		t.Fatalf("expected response status %q, got %q", "accepted", resp.Status)
 	}
 
-	t.Logf("Dispatched JobID: %s", resp.JobID)
+	t.Logf("Launched JobID: %s", resp.JobID)
 
-	// 8. Verify the Runner picked them up and streamed logs
+	// 9. Fan-out happens asynchronously in internal/dispatch.Worker now,
+	// off this request entirely, so this test polls the JobStore directly
+	// until the Worker's own job.requested handler reaches a terminal
+	// state. This is a test-side wait mechanism, not the production
+	// mechanism under test (a caller would instead poll GET /jobs/{id});
+	// polling is bounded so a real regression fails this test outright
+	// instead of hanging it.
+	var job *dispatch.Job
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		job, _, err = jobStore.Get(ctx, resp.JobID)
+		if err != nil {
+			t.Fatalf("failed to poll job %s: %s", resp.JobID, err)
+		}
+		if job.State == "completed" || job.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job %s did not reach a terminal state within the deadline, last state %q", resp.JobID, job.State)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if job.State != "completed" {
+		t.Fatalf("expected job state %q, got %q", "completed", job.State)
+	}
+	if job.DispatchedCount != 2 {
+		t.Fatalf("expected 2 dispatched, got %d", job.DispatchedCount)
+	}
+
+	// 10. Verify the Runner picked them up and streamed logs
 	time.Sleep(2 * time.Second) // Give the agent time to execute
 
 	logConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.LogViewerConsumerConfig(resp.JobID))

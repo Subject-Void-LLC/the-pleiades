@@ -50,6 +50,16 @@ func TestLogSubject(t *testing.T) {
 	}
 }
 
+// TestJobRequestedSubject proves JobRequestedSubject's fixed return value,
+// mirroring TestDispatchSubject exactly: like DispatchSubject, it takes no
+// argument and always returns the same subject, so there is nothing to
+// table-drive, only the one value to pin down.
+func TestJobRequestedSubject(t *testing.T) {
+	if got, want := topology.JobRequestedSubject(), "pleiades.jobs.requested"; got != want {
+		t.Errorf("JobRequestedSubject() = %q, want %q", got, want)
+	}
+}
+
 func TestDeadLetterSubject(t *testing.T) {
 	tests := []struct {
 		name     string

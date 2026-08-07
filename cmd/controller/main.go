@@ -41,6 +41,29 @@
 // new key next to the database would permanently orphan every row
 // already encrypted under the old one. Fail closed at startup instead,
 // the same shape this file already uses for JWT_SECRET.
+//
+// This is also Phase 14's own composition root, "The Dispatcher"
+// (.SPECIFICATION/IMPLEMENTATION.md; PLAN.md Section 28.4). api.Dispatcher
+// no longer streams a target group and publishes one event per device
+// inline inside an HTTP request; it now only resolves the requested
+// runbook, persists a Job, and publishes a single job.requested event,
+// answering 202 Accepted immediately. Two new dependencies exist here to
+// support that shift, both wired the same fail-closed-at-startup way
+// every other dependency in this file already is: a runbook.Source
+// (runbook.NewDirSource, rooted at RUNBOOK_DIR, defaulting to
+// inventory.DefaultRunbookDir), which resolves a runbook id to its
+// compiled capability requirements from real YAML files on disk rather
+// than the "no runbook storage at all" gap that predated this phase; and
+// a dispatch.JobStore (dispatch.NewEntJobStore, over the same already-open
+// Device client every other repository in this process shares), which
+// persists the Job and JobTask rows both api.Dispatcher (write-only, at
+// launch) and the new api.JobHandler (read-only, at GET /jobs/{id}) share.
+// A dispatch.Worker is subscribed to topology.JobRequestedSubject()
+// alongside them: it is the durable consumer that actually performs the
+// per-device fan-out a Job's launch only records the intent for, running
+// entirely off the HTTP request path so a 10,000-device dispatch no
+// longer holds a request open for as long as the slowest publish and no
+// longer loses its progress if the process dies mid-fan-out.
 package main
 
 import (
@@ -59,12 +82,15 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/election"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus"
@@ -372,9 +398,51 @@ func main() {
 		fatal("failed to get jetstream", err)
 	}
 
-	dispatcher := api.NewDispatcher(repo, bus)
+	// runbookDir defaults to inventory.DefaultRunbookDir ("runbooks"), the
+	// same scaffolding convention cmd/pleiades's own scaffolded projects
+	// already use, though runbook.NewDirSource accepts any directory an
+	// operator points RUNBOOK_DIR at. Constructed and fatal()'d exactly
+	// like every other startup dependency in this file: a misconfigured
+	// or unreadable runbook directory is a startup-time failure the
+	// operator must fix, never a condition discovered lazily on a
+	// caller's first dispatch request.
+	runbookDir := getenv("RUNBOOK_DIR", inventory.DefaultRunbookDir)
+	runbooks, err := runbook.NewDirSource(runbookDir)
+	if err != nil {
+		fatal("failed to init runbook source", err)
+	}
+
+	// jobStore persists Job and JobTask rows over the same already-open
+	// Device client every other repository in this process shares. It
+	// backs both api.Dispatcher (which only ever creates a Job and reads
+	// nothing back) and api.JobHandler (which only ever reads), and it is
+	// what worker below claims fan-out ownership through.
+	jobStore := dispatch.NewEntJobStore(client)
+
+	// worker is the durable job.requested consumer (internal/dispatch's
+	// own doc comment: PLAN.md Section 28.4's "a durable worker performs
+	// the actual per-device fan-out later, off the HTTP request path
+	// entirely"). It depends on the same repo and bus every other piece
+	// of this composition root already holds, plus runbooks and jobStore
+	// just constructed above, so a job.requested event handed to
+	// HandleJobRequested has everything it needs to resolve the job,
+	// stream the target group, admit or skip each device, and publish a
+	// wire.DispatchPayload per admitted device.
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	// Subscribe launches its own goroutine and returns quickly
+	// (internal/event/consumer.go), so this call does not block startup;
+	// a failure here is handled the same fatal() way every other startup
+	// error in this file is, since a controller that could not subscribe
+	// its own fan-out worker would accept dispatch launches it can never
+	// actually carry out.
+	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
+		fatal("failed to subscribe job fan-out worker", err)
+	}
+
+	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
 	streamer := api.NewLogStreamer(js)
 	devices := api.NewDeviceHandler(repo, logger)
+	jobs := api.NewJobHandler(jobStore)
 
 	// chain is Phase 8's own Chain of Responsibility. It carries one rule
 	// today, NewTokenScopeRule, the token-scope axis. The Team/RoleBinding
@@ -432,6 +500,7 @@ func main() {
 		HATEOAS:     hateoas,
 		Routes: []api.Route{
 			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelExecute, Handler: dispatcher.DispatchRunbook},
+			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: jobs.Get},
 			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Rel: auth.RelLogs, Handler: streamer.StreamLogs},
 			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: devices.Get},
 			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: devices.Delete},

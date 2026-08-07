@@ -73,14 +73,22 @@ func FuzzAPIRouter(f *testing.F) {
 	f.Add("GET", "/api/v1/jobs/abc", "", "B")
 
 	f.Fuzz(func(t *testing.T, method, path, traceparent, authorization string) {
-		// httptest.NewRequest panics on a URI the fuzzer invents that
-		// net/http cannot parse at all; that is the test harness's own
-		// limitation, not a finding about the router.
-		defer func() {
-			_ = recover()
-		}()
-
-		req := httptest.NewRequest(method, path, nil)
+		// http.NewRequest is used here instead of httptest.NewRequest
+		// deliberately: httptest.NewRequest panics on a method or URI the
+		// fuzzer invents that net/http cannot parse at all, which used to
+		// require a blanket recover() to survive. IMPLEMENTATION.md flags
+		// exactly that shape as structurally preventing a fuzz target from
+		// reporting the panics it exists to find (internal/api/
+		// hateoas_fuzz_test.go's own comment documents the identical
+		// house fix). http.NewRequest reports the same condition as an
+		// ordinary error instead of panicking, so it can be skipped like
+		// any other input this test harness itself cannot express, rather
+		// than absorbed by a recover() that would also swallow a genuine
+		// panic inside the router.
+		req, err := http.NewRequest(method, path, nil)
+		if err != nil {
+			t.Skip()
+		}
 		if traceparent != "" {
 			req.Header.Set("traceparent", traceparent)
 		}

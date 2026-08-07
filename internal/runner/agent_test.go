@@ -10,6 +10,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -170,7 +171,7 @@ func TestAgent_ReleaseGate(t *testing.T) {
 // still owns building a real adapter, not this no-op stand-in.
 type MockAdapter struct{}
 
-func (m *MockAdapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+func (m *MockAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	return nil
 }
 
@@ -182,7 +183,7 @@ func (m *MockAdapter) Execute(ctx context.Context, payload runner.DispatchPayloa
 // complements, not replaces.
 type erroringAdapter struct{}
 
-func (erroringAdapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+func (erroringAdapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	return errors.New("deliberate execution failure")
 }
 

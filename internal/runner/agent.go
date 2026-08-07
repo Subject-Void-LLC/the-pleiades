@@ -8,6 +8,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/retry"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -15,17 +16,17 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-// DispatchPayload mirrors the one defined in api/dispatcher.go.
-type DispatchPayload struct {
-	JobID      string `json:"job_id"`
-	RunbookID  string `json:"runbook_id"`
-	DeviceName string `json:"device_name"`
-	DeviceIP   string `json:"device_ip"`
-}
-
-// ExecutionAdapter executes a runbook against a target device.
+// ExecutionAdapter executes a runbook against a target device. The
+// payload it receives is wire.DispatchPayload, the shared DTO
+// pkg/wire now owns: this package used to define its own local
+// DispatchPayload type, hand-kept in sync with the near-identical one
+// api/dispatcher.go separately defined, a duplication pkg/wire's own doc
+// comment names as the exact bug shape (a stale DeviceIP field naming an
+// "ip" property no device type in this codebase ever populates, and a
+// DeviceName field one of the two duplicates populated from the wrong
+// accessor) this move exists to make impossible to repeat.
 type ExecutionAdapter interface {
-	Execute(ctx context.Context, payload DispatchPayload) error
+	Execute(ctx context.Context, payload wire.DispatchPayload) error
 }
 
 // Agent is the executor node that pulls jobs from NATS and runs them.
@@ -153,7 +154,7 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		return
 	}
 
-	var payload DispatchPayload
+	var payload wire.DispatchPayload
 	if err := json.Unmarshal(evt.Data, &payload); err != nil {
 		a.logger.Error("dropping malformed message", slog.String("error", err.Error()))
 		// Terminated, not Ack'd: a permanently malformed payload will

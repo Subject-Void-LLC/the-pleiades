@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 )
 
 // mockBus is a minimal event.Bus fake: Adapter only ever calls Publish,
@@ -40,11 +40,11 @@ func TestNativeAdapter_Execute(t *testing.T) {
 	bus := &mockBus{}
 	adapter := NewAdapter(bus)
 
-	payload := runner.DispatchPayload{
+	payload := wire.DispatchPayload{
 		JobID:      "test-job-123",
 		RunbookID:  "ping",
 		DeviceName: "router1",
-		DeviceIP:   "10.0.0.1",
+		DeviceHost: "10.0.0.1",
 	}
 
 	err := adapter.Execute(context.Background(), payload)
@@ -91,11 +91,11 @@ func (failingBus) Close() error { return nil }
 func TestNativeAdapter_Execute_ToleratesPublishFailure(t *testing.T) {
 	adapter := NewAdapter(failingBus{})
 
-	payload := runner.DispatchPayload{
+	payload := wire.DispatchPayload{
 		JobID:      "test-job-456",
 		RunbookID:  "ping",
 		DeviceName: "router1",
-		DeviceIP:   "10.0.0.1",
+		DeviceHost: "10.0.0.1",
 	}
 
 	// Execute must still report success: a log-publish failure is not the

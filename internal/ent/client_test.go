@@ -58,7 +58,7 @@ func TestGraphTraversal(t *testing.T) {
 	coreSwitch, err := client.Device.Create().
 		SetName("core-sw-01").
 		SetType("network_device").
-		SetProperties(map[string]interface{}{"ip": "10.0.0.1", "role": "core"}).
+		SetProperties(map[string]interface{}{"host": "10.0.0.1", "role": "core"}).
 		Save(ctx)
 	if err != nil {
 		t.Fatalf("failed creating core switch: %v", err)
@@ -68,7 +68,7 @@ func TestGraphTraversal(t *testing.T) {
 	accessSwitch, err := client.Device.Create().
 		SetName("access-sw-01").
 		SetType("network_device").
-		SetProperties(map[string]interface{}{"ip": "10.0.1.1", "role": "access"}).
+		SetProperties(map[string]interface{}{"host": "10.0.1.1", "role": "access"}).
 		SetParent(coreSwitch).
 		Save(ctx)
 	if err != nil {

@@ -88,6 +88,60 @@ var (
 		Columns:    GroupsColumns,
 		PrimaryKey: []*schema.Column{GroupsColumns[0]},
 	}
+	// JobsColumns holds the columns for the "jobs" table.
+	JobsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "job_id", Type: field.TypeString, Unique: true},
+		{Name: "runbook_id", Type: field.TypeString},
+		{Name: "group_name", Type: field.TypeString},
+		{Name: "actor", Type: field.TypeString},
+		{Name: "state", Type: field.TypeEnum, Enums: []string{"pending", "fanning_out", "completed", "failed"}, Default: "pending"},
+		{Name: "dispatched_count", Type: field.TypeInt, Default: 0},
+		{Name: "skipped_count", Type: field.TypeInt, Default: 0},
+		{Name: "failed_count", Type: field.TypeInt, Default: 0},
+		{Name: "failure_reason", Type: field.TypeString, Nullable: true},
+		{Name: "fence", Type: field.TypeInt64, Default: 0},
+	}
+	// JobsTable holds the schema information for the "jobs" table.
+	JobsTable = &schema.Table{
+		Name:       "jobs",
+		Columns:    JobsColumns,
+		PrimaryKey: []*schema.Column{JobsColumns[0]},
+	}
+	// JobTasksColumns holds the columns for the "job_tasks" table.
+	JobTasksColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "device_id", Type: field.TypeString},
+		{Name: "device_name", Type: field.TypeString},
+		{Name: "outcome", Type: field.TypeEnum, Enums: []string{"dispatched", "skipped", "failed"}},
+		{Name: "reason", Type: field.TypeString, Nullable: true},
+		{Name: "job_tasks", Type: field.TypeInt},
+	}
+	// JobTasksTable holds the schema information for the "job_tasks" table.
+	JobTasksTable = &schema.Table{
+		Name:       "job_tasks",
+		Columns:    JobTasksColumns,
+		PrimaryKey: []*schema.Column{JobTasksColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "job_tasks_jobs_tasks",
+				Columns:    []*schema.Column{JobTasksColumns[7]},
+				RefColumns: []*schema.Column{JobsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "jobtask_outcome_job_tasks",
+				Unique:  false,
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[7]},
+			},
+		},
+	}
 	// OrganizationsColumns holds the columns for the "organizations" table.
 	OrganizationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -286,6 +340,8 @@ var (
 		DevicesTable,
 		FactsTable,
 		GroupsTable,
+		JobsTable,
+		JobTasksTable,
 		OrganizationsTable,
 		RevisionsTable,
 		RoleBindingsTable,
@@ -301,6 +357,7 @@ func init() {
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
 	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable

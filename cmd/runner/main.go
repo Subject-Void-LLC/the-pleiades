@@ -14,7 +14,7 @@
 // Deliberately out of scope: choosing between native.Adapter and
 // ansible.ReceptorAdapter at runtime (PATTERNS.md's Strangler Fig entry).
 // ansible.ReceptorAdapter does not implement runner.ExecutionAdapter today
-// (it has no Execute(ctx, DispatchPayload) error method, only
+// (it has no Execute(ctx, wire.DispatchPayload) error method, only
 // StreamMockJob, a UI-scaffolding helper cmd/demo uses directly); a real
 // adapter-selection mechanism is future work, not invented here to fill a
 // binary that only has one real choice to make regardless.

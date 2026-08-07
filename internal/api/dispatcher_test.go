@@ -6,287 +6,205 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// --- Mocks ---
+// This file covers Dispatcher.DispatchRunbook's own contract under Phase
+// 14's asynchronous shape: a valid launch returns 202 Accepted with a
+// Location header and a job_id, an unresolvable runbook is a 404 (new
+// coverage this phase adds: before internal/runbook existed there was no
+// runbook storage at all to be unresolvable against), and the two query
+// parameters are still required exactly as before. The per-device fan-out
+// this handler used to perform inline is now internal/dispatch.Worker's own
+// concern, covered by internal/dispatch/worker_test.go and, end to end
+// against a real repository, by dispatcher_selector_test.go and
+// dispatcher_release_test.go in this package.
 
-type MockRepository struct {
-	Count int
+// jobAcceptedBody is the wire shape a successful launch returns, decoded
+// exactly as a real client would decode it rather than through the
+// server's own unexported jobAcceptedResponse type.
+type jobAcceptedBody struct {
+	Status string `json:"status"`
+	JobID  string `json:"job_id"`
 }
 
-func (m *MockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
-	return &MockIterator{count: m.Count, current: 0}, nil
-}
-
-// GetByName, Create, Save, and Retire exist to satisfy the Repository
-// port. The dispatcher under test only ever streams a group, so these fail
-// loudly rather than returning a zero value: a test that starts depending
-// on them should say so out loud instead of silently exercising a stub
-// that does nothing.
-
-func (m *MockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
-	return nil, errors.New("MockRepository.GetByName is not implemented for these tests")
-}
-
-func (m *MockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
-	return errors.New("MockRepository.Create is not implemented for these tests")
-}
-
-func (m *MockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {
-	return errors.New("MockRepository.Save is not implemented for these tests")
-}
-
-func (m *MockRepository) Retire(ctx context.Context, name string) error {
-	return errors.New("MockRepository.Retire is not implemented for these tests")
-}
-
-type MockIterator struct {
-	count   int
-	current int
-}
-
-func (i *MockIterator) Next(ctx context.Context) bool {
-	if i.current < i.count {
-		i.current++
-		return true
+func decodeJobAccepted(t *testing.T, rr *httptest.ResponseRecorder) jobAcceptedBody {
+	t.Helper()
+	var body jobAcceptedBody
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response %q: %v", rr.Body.String(), err)
 	}
-	return false
+	return body
 }
 
-func (i *MockIterator) Item() pkginventory.InventoryItem {
-	return &inventorytest.Stub{
-		StubName: "test-device",
-		Props:    map[string]pkginventory.PropertyValue{"ip": "10.0.0.1"},
-	}
-}
+// TestDispatchRunbook_ValidRequestReturns202Accepted proves the launch
+// itself: a request naming a real, resolvable runbook returns 202
+// Accepted, a Location header naming the new job resource, and a body
+// carrying that same job id. It also confirms the Job was actually
+// persisted (State "pending", since no Worker is subscribed in this test)
+// and that exactly one job.requested event was published, since a launch
+// that answered 202 without either of those would be lying to the caller.
+func TestDispatchRunbook_ValidRequestReturns202Accepted(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
 
-func (i *MockIterator) Error() error { return nil }
-func (i *MockIterator) Close() error { return nil }
-
-// mockBus is a minimal event.Bus fake: Dispatcher only ever calls Publish,
-// never Subscribe. It replaces a previous MockJetStream that embedded the
-// entire jetstream.JetStream interface just to override one method -- an
-// artifact of Dispatcher depending on a raw driver interface instead of
-// the Bus port it depends on now.
-type mockBus struct {
-	Publishes int
-	LastEvent event.Event
-	LastCtx   context.Context
-}
-
-func (m *mockBus) Publish(ctx context.Context, topic string, evt event.Event) error {
-	m.Publishes++
-	m.LastEvent = evt
-	m.LastCtx = ctx
-	return nil
-}
-
-func (m *mockBus) Subscribe(ctx context.Context, topic string, handler func(event.Event) error) error {
-	return nil
-}
-
-func (m *mockBus) Close() error {
-	return nil
-}
-
-func TestDispatcher_ReleaseGate(t *testing.T) {
-	repo := &MockRepository{Count: 10000} // 10,000 devices!
-	bus := &mockBus{}
-
-	dispatcher := api.NewDispatcher(repo, bus)
-
-	req := httptest.NewRequest("POST", "/dispatch?group=routers&runbook=pb-1", nil)
-	// Inject the mock identity that AuthMiddleware normally would
-	ctx := context.WithValue(req.Context(), api.IdentityKeyForTest, &auth.Identity{Subject: "user"})
-	req = req.WithContext(ctx)
-
+	req := dispatchTestRequest(t, "routers", "pb-1")
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got %v", rr.Code)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusAccepted, rr.Body.String())
 	}
 
-	var resp map[string]interface{}
-	json.Unmarshal(rr.Body.Bytes(), &resp)
-
-	if int(resp["dispatched"].(float64)) != 10000 {
-		t.Errorf("expected 10000 messages to be dispatched, got %v", resp["dispatched"])
+	body := decodeJobAccepted(t, rr)
+	if body.Status != "accepted" {
+		t.Errorf("status field = %q, want %q", body.Status, "accepted")
+	}
+	if body.JobID == "" {
+		t.Fatal("job_id is empty")
 	}
 
-	if bus.Publishes != 10000 {
-		t.Errorf("expected Bus.Publish to be called 10000 times, got %d", bus.Publishes)
+	wantLocation := api.APIVersionPrefix + "/jobs/" + body.JobID
+	if got := rr.Header().Get("Location"); got != wantLocation {
+		t.Errorf("Location header = %q, want %q", got, wantLocation)
+	}
+
+	job, _, err := jobs.Get(req.Context(), body.JobID)
+	if err != nil {
+		t.Fatalf("the launched job was not persisted: %v", err)
+	}
+	if job.State != "pending" {
+		t.Errorf("persisted job State = %q, want %q (no Worker is subscribed in this test)", job.State, "pending")
+	}
+	if job.RunbookID != "pb-1" || job.GroupName != "routers" {
+		t.Errorf("persisted job = %+v, want RunbookID=pb-1 GroupName=routers", job)
+	}
+
+	if got := bus.countTopic(topology.JobRequestedSubject()); got != 1 {
+		t.Errorf("job.requested publishes = %d, want 1", got)
 	}
 }
 
-// noIPMockIterator yields a single device with no "ip" property, so
-// DispatchRunbook's own "typed Properties accessor" guard (the fix for
-// the panic-on-missing-ip bug its own comment documents) can be proven
-// directly, not just assumed safe because every other test's device
-// happens to have one.
-type noIPMockIterator struct {
-	yielded bool
-}
+// TestDispatchRunbook_UnknownRunbookReturns404 is new coverage this phase
+// adds: before internal/runbook existed, the "runbook" query parameter
+// only ever labeled a fixed NATS subject, so there was no way for it to
+// name something that does not exist. Now that a real runbook.Source
+// backs it, an id with no matching file must be refused before any Job is
+// created or anything is published, not merely accepted and left to fail
+// silently downstream.
+func TestDispatchRunbook_UnknownRunbookReturns404(t *testing.T) {
+	runbooks := newTestRunbookSource(t) // no ids seeded: every id is unresolvable.
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
 
-func (i *noIPMockIterator) Next(ctx context.Context) bool {
-	if i.yielded {
-		return false
-	}
-	i.yielded = true
-	return true
-}
-
-func (i *noIPMockIterator) Item() pkginventory.InventoryItem {
-	return &inventorytest.Stub{StubName: "no-ip-device", Props: map[string]pkginventory.PropertyValue{}}
-}
-
-func (i *noIPMockIterator) Error() error { return nil }
-func (i *noIPMockIterator) Close() error { return nil }
-
-type noIPMockRepository struct{}
-
-func (m *noIPMockRepository) GetGroup(ctx context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
-	return &noIPMockIterator{}, nil
-}
-
-func (m *noIPMockRepository) GetByName(ctx context.Context, name string) (pkginventory.InventoryItem, error) {
-	return nil, errors.New("not implemented for this test")
-}
-
-func (m *noIPMockRepository) Create(ctx context.Context, item pkginventory.InventoryItem) error {
-	return errors.New("not implemented for this test")
-}
-
-func (m *noIPMockRepository) Save(ctx context.Context, item pkginventory.InventoryItem) error {
-	return errors.New("not implemented for this test")
-}
-
-func (m *noIPMockRepository) Retire(ctx context.Context, name string) error {
-	return errors.New("not implemented for this test")
-}
-
-func dispatchTestRequest(t *testing.T) *http.Request {
-	t.Helper()
-	req := httptest.NewRequest("POST", "/dispatch?group=routers&runbook=pb-1", nil)
-	ctx := context.WithValue(req.Context(), api.IdentityKeyForTest, &auth.Identity{Subject: "user"})
-	return req.WithContext(ctx)
-}
-
-func decodeDispatchResponse(t *testing.T, rr *httptest.ResponseRecorder) map[string]interface{} {
-	t.Helper()
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	return resp
-}
-
-func TestDispatcher_MissingIPCountsAsFailed(t *testing.T) {
-	repo := &noIPMockRepository{}
-	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, bus)
-
+	req := dispatchTestRequest(t, "routers", "does-not-exist")
 	rr := httptest.NewRecorder()
-	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
+	dispatcher.DispatchRunbook(rr, req)
 
-	resp := decodeDispatchResponse(t, rr)
-	if int(resp["dispatched"].(float64)) != 0 {
-		t.Errorf("expected 0 dispatched, got %v", resp["dispatched"])
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
-	if int(resp["failed"].(float64)) != 1 {
-		t.Errorf("expected 1 failed, got %v", resp["failed"])
+	var body struct {
+		Error string `json:"error"`
 	}
-	if bus.Publishes != 0 {
-		t.Errorf("expected 0 publishes for a device with no ip property, got %d", bus.Publishes)
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response %q: %v", rr.Body.String(), err)
 	}
-}
-
-// failingMockBus is an event.Bus whose Publish always errors, proving
-// DispatchRunbook's own publish-failure branch counts the device as
-// failed rather than panicking or aborting the whole batch -- this is the
-// exact fix this phase made for real (the previous code published to a
-// subject no stream covered, so this branch was silently exercised on
-// every single request in production; see FAILURE_PATTERNS.md #17's
-// "Update").
-type failingMockBus struct {
-	Publishes int
-}
-
-func (m *failingMockBus) Publish(ctx context.Context, topic string, evt event.Event) error {
-	m.Publishes++
-	return errors.New("deliberate publish failure")
-}
-
-func (m *failingMockBus) Subscribe(ctx context.Context, topic string, handler func(event.Event) error) error {
-	return nil
-}
-
-func (m *failingMockBus) Close() error { return nil }
-
-func TestDispatcher_PublishFailureCountsAsFailed(t *testing.T) {
-	repo := &MockRepository{Count: 5}
-	bus := &failingMockBus{}
-	dispatcher := api.NewDispatcher(repo, bus)
-
-	rr := httptest.NewRecorder()
-	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK even when every publish fails (per-device failure, not a batch abort), got %v", rr.Code)
+	if body.Error != "runbook not found" {
+		t.Errorf("error message = %q, want %q", body.Error, "runbook not found")
 	}
 
-	resp := decodeDispatchResponse(t, rr)
-	if int(resp["dispatched"].(float64)) != 0 {
-		t.Errorf("expected 0 dispatched, got %v", resp["dispatched"])
-	}
-	if int(resp["failed"].(float64)) != 5 {
-		t.Errorf("expected 5 failed, got %v", resp["failed"])
-	}
-	if bus.Publishes != 5 {
-		t.Errorf("expected Bus.Publish to be attempted for all 5 devices, got %d", bus.Publishes)
+	// An unresolvable runbook must fail before anything durable happens:
+	// no event published, and (implicitly, since no job id was ever
+	// returned to check) no Job row left behind for a caller who will
+	// never learn its id.
+	if got := bus.count(); got != 0 {
+		t.Errorf("publishes = %d, want 0: an unresolvable runbook must never reach the publish step", got)
 	}
 }
 
-// TestDispatcher_PropagatesTraceIDFromContext proves the trace-propagation
-// branch in DispatchRunbook: when a real OpenTelemetry span is recording
-// on the request context (as TracingMiddleware makes it in the real
-// router), DispatchRunbook bridges that span's trace ID onto the context
-// it publishes with via event.WithTraceID, and grafts the live span itself
-// onto that context so the Bus adapter can inject W3C trace context into
-// the outgoing message headers.
-//
-// The published Event's own TraceID field is stamped by Bus.Publish itself
-// from that context (see stampEnvelope), not by Dispatcher directly, so
-// this checks the context Publish receives, the thing Dispatcher actually
-// controls, rather than the Event field a real adapter -- not this test's
-// minimal mockBus -- is the one that sets.
+// TestDispatchRunbook_MissingQueryParamsReturns400 proves the group and
+// runbook query parameters are still required exactly as they were before
+// this phase's asynchronous rewrite: this validation runs before the
+// runbook is even resolved, so it is unaffected by anything internal/
+// runbook or internal/dispatch added.
+func TestDispatchRunbook_MissingQueryParamsReturns400(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		group     string
+		runbookID string
+	}{
+		{"missing group", "", "pb-1"},
+		{"missing runbook", "routers", ""},
+		{"missing both", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runbooks := newTestRunbookSource(t, "pb-1")
+			jobs := newTestJobStore(t)
+			bus := newCapturingBus()
+			dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+
+			req := dispatchTestRequest(t, tc.group, tc.runbookID)
+			rr := httptest.NewRecorder()
+			dispatcher.DispatchRunbook(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			var body struct {
+				Error string `json:"error"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decoding response %q: %v", rr.Body.String(), err)
+			}
+			if body.Error != "missing 'group' or 'runbook' query parameter" {
+				t.Errorf("error message = %q, want the fixed rejection message", body.Error)
+			}
+			if got := bus.count(); got != 0 {
+				t.Errorf("publishes = %d, want 0", got)
+			}
+		})
+	}
+}
+
+// TestDispatchRunbook_PropagatesTraceIDFromContext proves the
+// trace-propagation branch survives the rewrite to an async launch: when a
+// real OpenTelemetry span is recording on the request context (as
+// TracingMiddleware makes it in the real router), DispatchRunbook bridges
+// that span's trace ID onto the context it publishes the one job.requested
+// event with, and grafts the live span itself onto that context so the Bus
+// adapter can inject W3C trace context into the outgoing message headers.
 //
 // The span is started through a real SDK tracer rather than a fake context
 // value: a no-op tracer mints an all-zero, invalid span context, so a test
 // built on one would pass while proving nothing about the real path.
-func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
-	repo := &MockRepository{Count: 1}
-	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, bus)
+func TestDispatchRunbook_PropagatesTraceIDFromContext(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
 
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
+		if err := tp.Shutdown(t.Context()); err != nil {
 			t.Errorf("shutting down tracer provider: %v", err)
 		}
 	})
 
-	req := dispatchTestRequest(t)
+	req := dispatchTestRequest(t, "routers", "pb-1")
 	ctx, span := tp.Tracer("test").Start(req.Context(), "test-request")
 	defer span.End()
 	req = req.WithContext(ctx)
@@ -295,36 +213,204 @@ func TestDispatcher_PropagatesTraceIDFromContext(t *testing.T) {
 	rr := httptest.NewRecorder()
 	dispatcher.DispatchRunbook(rr, req)
 
-	if bus.Publishes != 1 {
-		t.Fatalf("expected 1 publish, got %d", bus.Publishes)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusAccepted, rr.Body.String())
 	}
-	gotTraceID, ok := event.TraceIDFromContext(bus.LastCtx)
+	if got := bus.count(); got != 1 {
+		t.Fatalf("publishes = %d, want 1", got)
+	}
+
+	gotTraceID, ok := event.TraceIDFromContext(bus.lastContext())
 	if !ok || gotTraceID != wantTraceID {
 		t.Errorf("expected the publish context to carry TraceID %q, got (%q, %v)", wantTraceID, gotTraceID, ok)
 	}
 	// The live span must survive onto the publish context too, not just
 	// its ID: without it the Bus adapter has nothing to inject and the
 	// trace stops at the bus boundary.
-	if got := trace.SpanContextFromContext(bus.LastCtx).TraceID().String(); got != wantTraceID {
+	if got := trace.SpanContextFromContext(bus.lastContext()).TraceID().String(); got != wantTraceID {
 		t.Errorf("expected the publish context to carry the live span (trace %q), got %q", wantTraceID, got)
 	}
 }
 
-// TestDispatcher_OmitsTraceIDWhenAbsentFromContext proves the other half
-// of the same branch: a request with no recording span still dispatches
-// successfully, without fabricating a trace ID.
-func TestDispatcher_OmitsTraceIDWhenAbsentFromContext(t *testing.T) {
-	repo := &MockRepository{Count: 1}
-	bus := &mockBus{}
-	dispatcher := api.NewDispatcher(repo, bus)
+// TestDispatchRunbook_OmitsTraceIDWhenAbsentFromContext proves the other
+// half of the same branch: a request with no recording span still
+// dispatches successfully, without fabricating a trace ID.
+func TestDispatchRunbook_OmitsTraceIDWhenAbsentFromContext(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
 
 	rr := httptest.NewRecorder()
-	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t))
+	dispatcher.DispatchRunbook(rr, dispatchTestRequest(t, "routers", "pb-1"))
 
-	if bus.Publishes != 1 {
-		t.Fatalf("expected 1 publish, got %d", bus.Publishes)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusAccepted, rr.Body.String())
 	}
-	if _, ok := event.TraceIDFromContext(bus.LastCtx); ok {
+	if got := bus.count(); got != 1 {
+		t.Fatalf("publishes = %d, want 1", got)
+	}
+	if _, ok := event.TraceIDFromContext(bus.lastContext()); ok {
 		t.Error("expected no TraceID in the publish context when absent from the request context")
+	}
+}
+
+// TestDispatchRunbook_NoIdentityInContextReturns401 proves the guard at the
+// very top of DispatchRunbook: reaching this handler with no Identity in
+// context (a direct unit-test call bypassing AuthMiddleware, or a second
+// router mounting this handler unguarded) is answered 401, the same
+// "middleware absence, not an authorization failure" case
+// TestRequireScope_NoIdentityIs401 (authz_test.go) already proves for the
+// router boundary itself. Nothing is created or published: this check runs
+// before any of that.
+func TestDispatchRunbook_NoIdentityInContextReturns401(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+
+	// Built directly with httptest.NewRequest, not dispatchTestRequest:
+	// dispatchTestRequest always stamps dispatchTestIdentity onto the
+	// context, which is exactly the setup step this test needs to omit.
+	req := httptest.NewRequest(http.MethodPost, "/dispatch?group=routers&runbook=pb-1", nil)
+	rr := httptest.NewRecorder()
+	dispatcher.DispatchRunbook(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+	if got := bus.count(); got != 0 {
+		t.Errorf("publishes = %d, want 0: a request with no Identity must never reach the publish step", got)
+	}
+}
+
+// TestDispatchRunbook_RunbookResolutionInternalErrorReturns500 proves the
+// "err, not ErrNotFound" branch of the runbook-resolution step: a real
+// runbook.DirSource asked to compile a file that exists but is not valid
+// runbook YAML returns a real compile error distinct from ErrNotFound
+// (dir_source.go's own Get), and DispatchRunbook must map that to a
+// generic 500 (never leaking the compiler's own error text, which can name
+// a file path) rather than the 404 the previous test proves for a genuinely
+// missing runbook. Per RULE 0, this exercises the real
+// runbook.NewDirSource/Get path rather than a hand-rolled Source double,
+// the same way TestDispatchRunbook_UnknownRunbookReturns404 exercises the
+// real ErrNotFound branch.
+func TestDispatchRunbook_RunbookResolutionInternalErrorReturns500(t *testing.T) {
+	dir := t.TempDir()
+	// Syntactically invalid YAML (an unterminated flow sequence), so
+	// parseWorkflowYAML fails inside Get with a real compile error, never
+	// ErrNotFound: the file exists and is readable, it just does not
+	// parse.
+	if err := os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
+		t.Fatalf("writing broken runbook fixture: %v", err)
+	}
+	runbooks, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+	jobs := newTestJobStore(t)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+
+	req := dispatchTestRequest(t, "routers", "broken")
+	rr := httptest.NewRecorder()
+	dispatcher.DispatchRunbook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response %q: %v", rr.Body.String(), err)
+	}
+	if body.Error != "internal error" {
+		t.Errorf("error message = %q, want the generic %q (the compiler's own error text must never reach the client)", body.Error, "internal error")
+	}
+	if got := bus.count(); got != 0 {
+		t.Errorf("publishes = %d, want 0", got)
+	}
+}
+
+// TestDispatchRunbook_JobPersistFailureReturns500 proves the "job create
+// failed" branch: a real dispatch.JobStore whose underlying *ent.Client has
+// already been closed (a real, representative failure mode, a lost database
+// connection, not a hand-rolled JobStore double per RULE 0) makes
+// jobs.Create return a real error, and DispatchRunbook must map that to a
+// generic 500 without ever publishing the job.requested event a caller
+// could otherwise poll for forever against a Job that was never actually
+// persisted.
+func TestDispatchRunbook_JobPersistFailureReturns500(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	client := newSerializedSQLiteClient(t, "dispatcher-job-persist-failure")
+	if err := client.Close(); err != nil {
+		t.Fatalf("closing client ahead of the real test: %v", err)
+	}
+	jobs := dispatch.NewEntJobStore(client)
+	bus := newCapturingBus()
+	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+
+	req := dispatchTestRequest(t, "routers", "pb-1")
+	rr := httptest.NewRecorder()
+	dispatcher.DispatchRunbook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+	if got := bus.count(); got != 0 {
+		t.Errorf("publishes = %d, want 0: a job that failed to persist must never be published as requested", got)
+	}
+}
+
+// publishFailingBus is a minimal event.Bus whose Publish always fails.
+// event.NewInProcessBus's own real Publish implementation can only ever
+// fail from a canceled context, and DispatchRunbook's publish step always
+// builds pubCtx fresh from context.Background() (never inheriting the
+// request context's cancellation), so no real Bus implementation in this
+// codebase can be driven into this branch; a minimal stub honoring the
+// event.Bus interface is this file's own adapter_test.go precedent
+// (failingBus) for the identical situation, matching AGENTS.md's "mock
+// interfaces, not concrete types" allowance.
+type publishFailingBus struct{}
+
+func (publishFailingBus) Publish(ctx context.Context, topic string, evt event.Event) error {
+	return errors.New("deliberate publish failure")
+}
+
+func (publishFailingBus) Subscribe(ctx context.Context, topic string, handler func(event.Event) error) error {
+	return nil
+}
+
+func (publishFailingBus) Close() error { return nil }
+
+// TestDispatchRunbook_PublishFailureReturns500 proves the last failure
+// branch: the Job row is already durably persisted by the time Publish is
+// attempted (step 3 runs before step 4, dispatcher.go's own numbered
+// comments), so a publish failure must still answer 500 rather than the
+// 202 a caller would wrongly read as "the worker will pick this up",
+// leaving a Job stuck in "pending" with no job.requested event ever sent
+// for it, exactly the crash-between-steps scenario DispatchRunbook's own
+// step-3 comment describes.
+func TestDispatchRunbook_PublishFailureReturns500(t *testing.T) {
+	runbooks := newTestRunbookSource(t, "pb-1")
+	jobs := newTestJobStore(t)
+	dispatcher := api.NewDispatcher(runbooks, jobs, publishFailingBus{})
+
+	req := dispatchTestRequest(t, "routers", "pb-1")
+	rr := httptest.NewRecorder()
+	dispatcher.DispatchRunbook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: body %s", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response %q: %v", rr.Body.String(), err)
+	}
+	if body.Error != "internal error" {
+		t.Errorf("error message = %q, want %q", body.Error, "internal error")
 	}
 }
