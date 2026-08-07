@@ -1981,3 +1981,178 @@ to different bytes"), that guarantee is an assertion the helper should make at r
 prose: prose cannot fail a build. And any test that manipulates an encoded representation to change the
 value underneath it needs to verify the *decoded* value changed, because encodings with padding,
 canonicalization, or case-insensitivity all admit edits that change the text and nothing else.
+
+## 76. `DispatchRunbook`'s per-device loop read the management address from a property key ("ip") no device type in the codebase ever populates, so every real dispatch silently skipped every device while the endpoint still answered 200
+
+**Symptom:** before this phase's rewrite, `POST /api/v1/dispatch?group=...&runbook=...`
+(`internal/api/dispatcher.go`'s old, pre-Phase-14 `DispatchRunbook`) returned `200
+{"status":"dispatched","dispatched":0,"failed":N}` for any non-empty group, regardless of how many real
+devices it held. Nothing in the response, the logs, or the NATS traffic told a caller this apart from a
+group whose runbook genuinely required no action against any device in it; the endpoint looked healthy
+on every single call it ever served.
+
+**Root cause:** the loop read `deviceIP, ok := device.Properties().String("ip")` and, on a miss,
+ran `errCount++; continue` rather than dispatching, moving on to the next device without recording
+which key it had gone looking for. Every concrete device type this codebase ships (`internal/inventory/devices/cisco.Router`/`Switch`,
+`internal/inventory/devices/linux.Server`) stores its management address under the property key
+`"host"`, read back through each type's own `SSHHost()` method; none of them has ever populated `"ip"`.
+The lookup therefore missed on every device, on every call, by construction, not by misconfiguration.
+Because a missing property and a genuine publish failure both incremented the same `errCount`, the
+response's `failed` field could not tell a caller which one had actually happened either.
+
+**Fix:** `internal/dispatch.Worker.HandleJobRequested`, the fan-out this phase moves entirely off the
+HTTP request, reads `device.Properties().String("host")`, the key every real device type actually
+populates, and `pkg/wire.DispatchPayload` renames the field itself from `DeviceIP` to `DeviceHost` so the
+wire type can no longer be filled from the wrong key by construction. A device with no `"host"` property
+is now recorded as its own explicit `OutcomeSkipped` task, with a reason naming the missing property,
+distinguishable in the job's task list from a genuine publish failure (`OutcomeFailed`) rather than
+folded into one undifferentiated counter.
+
+**Lesson:** a property-key lookup that always misses reads, from outside the function, identically to a
+lookup that legitimately found nothing to do; `errCount++; continue` on a missing property and
+`errCount++; continue` on a real publish failure produce the same response shape, which is exactly how
+this shipped past whatever review it got. When a wire field is filled from
+`device.Properties().String(key)`, the test proving it has to plant that key under its real name on a
+real concrete device type (RULE 0), not merely assert that some property produces some payload; asserting
+against a fixture that hand-sets whatever key the code under test happens to read would have passed on
+both the buggy and the fixed version.
+
+## 77. The dispatch payload's `DeviceName` field was populated from `device.ID()`, not `device.Name()`, so a dispatched device's own display name never actually reached the wire
+
+**Symptom:** nothing failed a build or a type check: `device.ID()` and `device.Name()` both return
+`string`-shaped values, so a field named `DeviceName` silently accepted whichever one a call site handed
+it. The defect was only visible by comparing what `DeviceName` actually held against
+`pkg/inventory.InventoryItem.Name()`'s own documented meaning, not by reading the field's type or its
+JSON tag.
+
+**Root cause:** the old handler (`internal/api/dispatcher.go`, pre-Phase-14) wrote `deviceName :=
+string(device.ID())` and used that one local both as the payload's `DeviceName` field and as half of the
+event's idempotency key (`jobID+":"+deviceName`). `pkg/inventory.InventoryItem` declares `ID()` and
+`Name()` as two distinct methods with two distinct meanings; nothing in the type system enforced that a
+field named `DeviceName` actually came from `Name()`, so the plausible-looking `device.ID()` call
+compiled cleanly, matched no test's assertion, and shipped.
+
+**Fix:** `pkg/wire.DispatchPayload` carries `DeviceID` and `DeviceName` as two separate fields, and
+`internal/dispatch.Worker` populates each from its own matching accessor (`string(device.ID())` and
+`device.Name()`, respectively), so a publisher has a distinct place to put each value rather than one
+field two different call sites could each be tempted to fill from whichever accessor happened to
+compile. `TestWorker_HandleJobRequested_DispatchesHealthyDevice` (`internal/dispatch/worker_test.go`),
+whose own doc comment names it "the direct regression test for the original ID-into-Name bug", builds a
+fixture device whose id (`"dev-id-123"`) and display name (`"router-display-name"`) deliberately differ
+and asserts the published payload's `DeviceID` and `DeviceName` are both correct and distinct from each
+other: a fixture where the two values happen to coincide would pass under both the old, wrong code and
+the fix, and would prove nothing.
+
+**Lesson:** two accessors with related but different meanings (`ID()` vs `Name()`) landing in one call
+site's local variable (`deviceName := device.ID()`) is a self-inflicted trap: the variable's own name
+asserts a fact its initializer contradicts, and every later read of that variable inherits the false
+assertion silently, with nothing left in the code to notice. Give the two values their own fields and
+their own accessors from the start, and write the regression test against a fixture where the two values
+genuinely differ; a fixture where they coincide cannot distinguish a fix from the bug it was meant to
+catch.
+
+## 78. A runbook id read straight from an HTTP query parameter had no allow-list before it reached `filepath.Join`, so `internal/runbook`'s new filesystem-backed `Source` needed its own injection boundary built from nothing
+
+**Symptom:** before `internal/runbook` existed, `internal/api/dispatcher.go`'s old `DispatchRunbook`
+accepted a `runbook` query parameter and used it only to label an outgoing NATS payload; there was no
+runbook storage behind it at all, and therefore no path-construction boundary of any kind for that string
+to reach. The moment this phase gives a runbook id a real filesystem-backed lookup
+(`internal/runbook.DirSource`), the same caller-controlled string that used to be inert became an input
+to `filepath.Join`, with nothing yet validating it before that call.
+
+**Root cause:** an id such as `"../../etc/passwd"`, or one starting with `/`, has no structural reason to
+be rejected by `filepath.Join(dir, id+".yaml")` on its own; `filepath.Join` cleans the resulting path, but
+cleaning a traversal does not stop it from resolving outside `dir`, it only normalizes the escape into a
+shorter, still-escaping form.
+
+**Fix:** `dirSource.Get` (`internal/runbook/dir_source.go`) validates `id` against `validRunbookID`, an
+allow-list regex (`^[A-Za-z0-9_-]{1,64}$`) applied before any path is constructed at all, so no
+caller-controlled byte ever reaches `filepath.Join`. A second, belt-and-suspenders check re-verifies that
+the resolved absolute path still has `dir`'s own absolute path as a prefix; given the regex above this
+branch should be structurally unreachable, and it is kept anyway as a total check on this package's one
+real injection boundary, so it does not depend on `validRunbookID` never changing in some way that
+reopens the gap later. `TestDirSource_Get_RejectsHostileIDs` (`dir_source_test.go`) exercises
+`"../../etc/passwd"`, an absolute path, and other hostile ids directly against the real `Get`
+implementation, not a mocked path-builder.
+
+**Lesson:** a query parameter that is inert today (used only to label a message, never to touch a
+filesystem) can become a real injection boundary the moment a later phase gives it somewhere to read
+from, and the validation has to be built at that moment, not assumed to already exist because the string
+"looked" constrained by convention. Reject before the first `filepath.Join`, not after inspecting the
+joined result, and keep a second, cheap, total check downstream of it anyway: a check that depends on an
+allow-list never changing is one future refactor away from silently reopening the exact gap it closed.
+
+## 79. `dispatch.JobStore.BeginFanOut`'s idempotency guard had no way back, so a Controller crash between claiming a job and completing it stranded that job in `"fanning_out"` forever
+
+**Symptom:** none observable in the first-shipped version's own test suite, all of which exercised a
+single, uninterrupted `Worker.HandleJobRequested` call to completion. Only an adversarial review asking
+"what happens if the process dies mid-fan-out" surfaced it: `internal/dispatch/job.go`'s `JobStore`
+originally offered `BeginFanOut(ctx, jobID) (began bool, err error)`, a one-shot conditional update
+(`state = "pending" -> "fanning_out"`) with no corresponding path back to `"pending"` or any other
+revisitable state.
+
+**Root cause:** NATS JetStream's at-least-once delivery is exactly what should let a fresh `Worker`
+instance pick up and finish a job whose original handler crashed before acking. But `BeginFanOut`'s own
+guard could not distinguish "a redelivery of a job someone is still actively, correctly working" from "a
+redelivery of a job whose original worker died", because both cases look identical from the database's
+point of view: `state = "fanning_out"`. Every redelivery, crash-caused or not, saw `began = false` and
+returned immediately, doing nothing. No reaper, lease timeout, or periodic sweep existed anywhere in the
+repository to revisit a `"fanning_out"` job. `GET /api/v1/jobs/{id}` on such a job never reports
+`"completed"` or `"failed"`; it reports `"fanning_out"` forever.
+
+**Fix:** `BeginFanOut` gained a `staleAfter time.Duration` parameter (`internal/dispatch/ent_store.go`)
+and now reclaims a job whose `state` is `"fanning_out"` **and** whose `updated_at` heartbeat has not
+advanced in at least `staleAfter`, via one WHERE-guarded conditional update
+(`job.Or(job.StateEQ(job.StatePending), job.And(job.StateEQ(job.StateFanningOut),
+job.UpdatedAtLTE(cutoff)))`), never a read-then-write. `RecordTask` refreshes that heartbeat (throttled
+to once per minute, so an actively-progressing fan-out is never mistaken for an abandoned one).
+`Worker.fanOutLeaseTTL` is the one value both the reclaim's `staleAfter` and, per #80 below, the
+handler's own context deadline are derived from, so "how long before a stalled job becomes reclaimable"
+and "how long before this handler gives up on its own" cannot drift apart into two different numbers
+nobody reconciled. `TestWorker_HandleJobRequested_StaleFanOutIsReclaimed` reproduces the crash scenario
+directly: `BeginFanOut` claims a job, the "crash" is simulated by never calling `Complete`, and a second,
+independent `Worker` instance is proven to reclaim and finish it.
+
+**Lesson:** an idempotency guard that only ever answers "has this already started" is half of a
+crash-recovery story; the other half, "how do I know the thing that started it is actually dead, not just
+still working", needs its own explicit answer (a heartbeat, a lease, a TTL) or the guard itself becomes
+the single point of failure it was built to protect against. See #80: this fix, on its own, opened a
+second, narrower gap of the identical shape.
+
+## 80. `BeginFanOut`'s `staleAfter` reclaim (#79's own fix) was a lease with no fencing token, so a `Worker` that was merely slow, not dead, could keep writing after being reclaimed and silently corrupt the job's terminal record
+
+**Symptom:** found by the same adversarial review pass that reviewed #79's own fix, before it ever
+shipped to production. `dispatch.JobStore.Complete` and `Fail` (`internal/dispatch/ent_store.go`, now
+`ent_store_terminal.go`) performed an unconditional `Job.Update().Where(job.JobIDEQ(jobID))` with no
+state predicate at all, unlike `BeginFanOut`'s own guarded update right next to them.
+
+**Root cause:** #79's `staleAfter` reclaim answers "is the original claimant probably dead" with a
+timestamp alone, which cannot actually prove it: a `Worker` blocked past `staleAfter` on one slow
+downstream call (a stalled `iter.Next`, a degraded NATS publish) is still alive and still running, and
+nothing stops it from eventually finishing its own, now-stale view of the fan-out and calling
+`Complete`/`Fail` exactly as a legitimate sole owner would. Because those two methods carried no guard of
+their own, whichever of the two workers (the original, now-superseded one, or the one that reclaimed)
+called `Complete`/`Fail` *last* silently won, overwriting the other's tallies and state with no error and
+no record that a collision ever happened. `TestEntJobStore_Complete`/`TestEntJobStore_Fail` each called
+their method exactly once, so this was invisible to the existing suite.
+
+**Fix:** a `fence int64` column on `Job` (`internal/ent/schema/job.go`), atomically incremented
+(`AddFence(1)`, inside the same conditional write, never a separate read-modify-write) every time
+`BeginFanOut` claims or reclaims ownership. `RecordTask`, `Complete`, and `Fail` all now take the fence
+value the caller believes it holds and condition their own write on `job.FenceEQ(fence)` (`Complete`/
+`Fail` additionally re-check `job.StateEQ(job.StateFanningOut)` as a second, independent guard against
+the exact double-terminal-write #79's own gap allowed). A stale fence returns `ErrFenced`, a
+`errors.Is`-checkable sentinel distinct from `ErrJobNotFound`; `Worker.HandleJobRequested` stops cleanly
+(logs, acks, returns `nil`) the instant it sees `ErrFenced`, rather than treating it as a failure worth
+retrying, since retrying changes nothing once superseded.
+`TestEntJobStore_StaleReclaimFencesOutOriginalCaller` proves both halves directly: the original caller's
+post-reclaim `RecordTask`/`Complete`/`Fail` calls all get `ErrFenced`, and the reclaiming caller's own
+calls, presenting the fresh fence, succeed normally.
+
+**Lesson:** a lease (a timestamp plus a timeout) tells a second party when it is *entitled* to take over;
+it does not, by itself, stop the first party from continuing to act as if it still owns what it lost. Any
+lease-based reclaim needs a fencing token, a value bumped on every claim that every subsequent write must
+present, or a party that is slow rather than dead can keep mutating shared state after another party has
+already, correctly, taken over. The two halves of a redelivery story, "who may start" (#79) and "who may
+still write" (#80), are two different guarantees and were fixed as two different, sequential findings for
+exactly that reason: closing the first does not imply the second is closed too.

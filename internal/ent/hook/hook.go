@@ -45,6 +45,30 @@ func (f GroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupMutation", m)
 }
 
+// The JobFunc type is an adapter to allow the use of ordinary
+// function as Job mutator.
+type JobFunc func(context.Context, *ent.JobMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f JobFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.JobMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.JobMutation", m)
+}
+
+// The JobTaskFunc type is an adapter to allow the use of ordinary
+// function as JobTask mutator.
+type JobTaskFunc func(context.Context, *ent.JobTaskMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f JobTaskFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.JobTaskMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.JobTaskMutation", m)
+}
+
 // The OrganizationFunc type is an adapter to allow the use of ordinary
 // function as Organization mutator.
 type OrganizationFunc func(context.Context, *ent.OrganizationMutation) (ent.Value, error)

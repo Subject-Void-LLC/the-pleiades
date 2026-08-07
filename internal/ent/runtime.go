@@ -8,6 +8,8 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/jobtask"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
@@ -97,6 +99,74 @@ func init() {
 	groupDescName := groupFields[0].Descriptor()
 	// group.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	group.NameValidator = groupDescName.Validators[0].(func(string) error)
+	jobMixin := schema.Job{}.Mixin()
+	jobMixinFields0 := jobMixin[0].Fields()
+	_ = jobMixinFields0
+	jobFields := schema.Job{}.Fields()
+	_ = jobFields
+	// jobDescCreatedAt is the schema descriptor for created_at field.
+	jobDescCreatedAt := jobMixinFields0[0].Descriptor()
+	// job.DefaultCreatedAt holds the default value on creation for the created_at field.
+	job.DefaultCreatedAt = jobDescCreatedAt.Default.(func() time.Time)
+	// jobDescUpdatedAt is the schema descriptor for updated_at field.
+	jobDescUpdatedAt := jobMixinFields0[1].Descriptor()
+	// job.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	job.DefaultUpdatedAt = jobDescUpdatedAt.Default.(func() time.Time)
+	// job.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	job.UpdateDefaultUpdatedAt = jobDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// jobDescJobID is the schema descriptor for job_id field.
+	jobDescJobID := jobFields[0].Descriptor()
+	// job.DefaultJobID holds the default value on creation for the job_id field.
+	job.DefaultJobID = jobDescJobID.Default.(func() string)
+	// job.JobIDValidator is a validator for the "job_id" field. It is called by the builders before save.
+	job.JobIDValidator = jobDescJobID.Validators[0].(func(string) error)
+	// jobDescRunbookID is the schema descriptor for runbook_id field.
+	jobDescRunbookID := jobFields[1].Descriptor()
+	// job.RunbookIDValidator is a validator for the "runbook_id" field. It is called by the builders before save.
+	job.RunbookIDValidator = jobDescRunbookID.Validators[0].(func(string) error)
+	// jobDescActor is the schema descriptor for actor field.
+	jobDescActor := jobFields[3].Descriptor()
+	// job.ActorValidator is a validator for the "actor" field. It is called by the builders before save.
+	job.ActorValidator = jobDescActor.Validators[0].(func(string) error)
+	// jobDescDispatchedCount is the schema descriptor for dispatched_count field.
+	jobDescDispatchedCount := jobFields[5].Descriptor()
+	// job.DefaultDispatchedCount holds the default value on creation for the dispatched_count field.
+	job.DefaultDispatchedCount = jobDescDispatchedCount.Default.(int)
+	// jobDescSkippedCount is the schema descriptor for skipped_count field.
+	jobDescSkippedCount := jobFields[6].Descriptor()
+	// job.DefaultSkippedCount holds the default value on creation for the skipped_count field.
+	job.DefaultSkippedCount = jobDescSkippedCount.Default.(int)
+	// jobDescFailedCount is the schema descriptor for failed_count field.
+	jobDescFailedCount := jobFields[7].Descriptor()
+	// job.DefaultFailedCount holds the default value on creation for the failed_count field.
+	job.DefaultFailedCount = jobDescFailedCount.Default.(int)
+	// jobDescFence is the schema descriptor for fence field.
+	jobDescFence := jobFields[9].Descriptor()
+	// job.DefaultFence holds the default value on creation for the fence field.
+	job.DefaultFence = jobDescFence.Default.(int64)
+	jobtaskMixin := schema.JobTask{}.Mixin()
+	jobtaskMixinFields0 := jobtaskMixin[0].Fields()
+	_ = jobtaskMixinFields0
+	jobtaskFields := schema.JobTask{}.Fields()
+	_ = jobtaskFields
+	// jobtaskDescCreatedAt is the schema descriptor for created_at field.
+	jobtaskDescCreatedAt := jobtaskMixinFields0[0].Descriptor()
+	// jobtask.DefaultCreatedAt holds the default value on creation for the created_at field.
+	jobtask.DefaultCreatedAt = jobtaskDescCreatedAt.Default.(func() time.Time)
+	// jobtaskDescUpdatedAt is the schema descriptor for updated_at field.
+	jobtaskDescUpdatedAt := jobtaskMixinFields0[1].Descriptor()
+	// jobtask.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	jobtask.DefaultUpdatedAt = jobtaskDescUpdatedAt.Default.(func() time.Time)
+	// jobtask.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	jobtask.UpdateDefaultUpdatedAt = jobtaskDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// jobtaskDescDeviceID is the schema descriptor for device_id field.
+	jobtaskDescDeviceID := jobtaskFields[0].Descriptor()
+	// jobtask.DeviceIDValidator is a validator for the "device_id" field. It is called by the builders before save.
+	jobtask.DeviceIDValidator = jobtaskDescDeviceID.Validators[0].(func(string) error)
+	// jobtaskDescDeviceName is the schema descriptor for device_name field.
+	jobtaskDescDeviceName := jobtaskFields[1].Descriptor()
+	// jobtask.DeviceNameValidator is a validator for the "device_name" field. It is called by the builders before save.
+	jobtask.DeviceNameValidator = jobtaskDescDeviceName.Validators[0].(func(string) error)
 	organizationMixin := schema.Organization{}.Mixin()
 	organizationMixinFields0 := organizationMixin[0].Fields()
 	_ = organizationMixinFields0

@@ -151,6 +151,15 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		"JWT_ISSUER=pleiades-controller",
 		"JWT_AUDIENCE=pleiades-api",
 		"MASTER_ENCRYPTION_KEY="+masterEncryptionKey,
+		// Phase 14 ("The Dispatcher") made main() construct a
+		// runbook.Source at startup and fatal() if RUNBOOK_DIR (default
+		// "runbooks", relative to the process's cwd) does not exist and
+		// is not readable. This subprocess's cwd is this test binary's
+		// own package directory, which has no such directory, so a real,
+		// empty, readable one is pointed to explicitly: this test never
+		// dispatches an actual runbook, only proves the JWKS auth path,
+		// so an empty directory is all main() needs to start.
+		"RUNBOOK_DIR="+t.TempDir(),
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start controller: %v", err)

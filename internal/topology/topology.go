@@ -38,6 +38,12 @@ const (
 	dispatchSubject    = "pleiades.jobs.dispatch"
 	logSubjectPrefix   = "pleiades.jobs.logs."
 	dlqSubjectPrefix   = "pleiades.dlq."
+	// jobRequestedSubject is the one subject a Job launch (a later stage
+	// in this session, replacing internal/api/dispatcher.go's synchronous
+	// handler) publishes to, and internal/dispatch.Worker.HandleJobRequested
+	// subscribes to, to hand off a persisted Job's durable fan-out. See
+	// JobRequestedSubject.
+	jobRequestedSubject = "pleiades.jobs.requested"
 
 	// DispatchDurableName is the durable consumer name every Runner
 	// replica shares when pulling dispatch jobs, so JetStream's own
@@ -87,6 +93,15 @@ func DispatchSubject() string {
 // "jobs.logs.<id>".
 func LogSubject(jobID string) string {
 	return logSubjectPrefix + jobID
+}
+
+// JobRequestedSubject returns the one subject a persisted Job's launch
+// publishes to in order to hand its durable fan-out off to a Worker (Phase
+// 14, The Dispatcher; internal/dispatch). It replaces the old synchronous
+// in-HTTP-handler fan-out internal/api/dispatcher.go's DispatchRunbook
+// used to perform inline.
+func JobRequestedSubject() string {
+	return jobRequestedSubject
 }
 
 // DeadLetterSubject returns the subject a message is republished to once it

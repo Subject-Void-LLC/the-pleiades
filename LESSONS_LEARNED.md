@@ -1014,3 +1014,33 @@ story, per `.AGENTS/AGENTS.md`.
     at runtime, because prose cannot fail a build. And when a test manipulates an encoded representation
     to change the value underneath, it must verify the decoded value changed: encodings with padding,
     canonicalization, or case-insensitivity all admit edits that change the text and nothing else.
+
+82. **A wire field must be named for the property key it actually reads, never for the value someone
+    hopes is there.** `DispatchPayload`'s old `DeviceIP` field was filled from
+    `device.Properties().String("ip")`, a key no device type in this codebase has ever populated; every
+    real device stores its management address under `"host"` instead (`FAILURE_PATTERNS.md` #76). The
+    field's own name asserted a fact about its contents that its initializer never actually verified, and
+    that is exactly what let a completely non-functional dispatch path, one that silently skipped every
+    real device while the endpoint still answered `200`, read as correct in the diff, in review, and in
+    any test that only checked the response shape rather than the property key a real fixture device
+    carries. A plausible-sounding field name is not evidence the value is real; the accessor or property
+    key that actually fills a field is the only evidence that counts, and the field should be named after
+    that, not after the concept it is hoped to represent. `pkg/wire.DispatchPayload.DeviceHost` cannot be
+    filled from anything but the `"host"` key without the field itself changing name, which is the
+    property the old `DeviceIP` name never had.
+
+83. **An idempotency guard that only answers "has this started" is not a crash-recovery story, and a
+    lease that reclaims by timestamp alone is not a fencing token.** `dispatch.JobStore.BeginFanOut`
+    needed two separate, sequential fixes to actually survive a crash (`FAILURE_PATTERNS.md` #79-80): a
+    `staleAfter` reclaim so a dead claimant's job could be picked back up at all, and only after that was
+    reviewed, a `fence` column so a claimant that was merely slow, not dead, could not keep writing after
+    a second party had already, correctly, reclaimed its work. These are two different guarantees.
+    "Who may start the work" is answered by a one-shot conditional claim, the shape most idempotent
+    consumer code stops at. "Who may still write the result" is a separate question a claim alone never
+    answers, because a lease tells a second party when it is entitled to take over without doing anything
+    to stop the first party from continuing to act as if it still owns what it lost. Any reclaim-by-
+    timeout mechanism needs a monotonically increasing token bumped on every claim, required on every
+    subsequent write, and rejected when stale, or two owners racing to finish the same unit of work will
+    silently produce whichever one wrote last, with no error and no record a collision ever happened.
+    Design the fencing token in the same change that adds the reclaim, not as a follow-up once someone
+    notices the reclaim alone was not enough.

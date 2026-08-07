@@ -15,6 +15,12 @@ type Fact func(*sql.Selector)
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
 
+// Job is the predicate function for job builders.
+type Job func(*sql.Selector)
+
+// JobTask is the predicate function for jobtask builders.
+type JobTask func(*sql.Selector)
+
 // Organization is the predicate function for organization builders.
 type Organization func(*sql.Selector)
 

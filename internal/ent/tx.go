@@ -18,6 +18,10 @@ type Tx struct {
 	Fact *FactClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// Job is the client for interacting with the Job builders.
+	Job *JobClient
+	// JobTask is the client for interacting with the JobTask builders.
+	JobTask *JobTaskClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
@@ -162,6 +166,8 @@ func (tx *Tx) init() {
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
+	tx.Job = NewJobClient(tx.config)
+	tx.JobTask = NewJobTaskClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)

@@ -120,6 +120,15 @@ func startController(t *testing.T, natsURL, jwtSecret, masterEncryptionKey strin
 		"LISTEN_ADDR=127.0.0.1:"+strconv.Itoa(port),
 		"JWT_SECRET="+jwtSecret,
 		"MASTER_ENCRYPTION_KEY="+masterEncryptionKey,
+		// Phase 14 ("The Dispatcher") made main() construct a
+		// runbook.Source at startup and fatal() if RUNBOOK_DIR (default
+		// "runbooks", relative to the process's cwd) does not exist and
+		// is not readable. This subprocess's cwd is this test binary's
+		// own package directory, which has no such directory, so a real,
+		// empty, readable one is pointed to explicitly: this test is
+		// entirely about election/failover timing, never a runbook
+		// dispatch, so an empty directory is all main() needs to start.
+		"RUNBOOK_DIR="+t.TempDir(),
 	)
 
 	stdout, err := cmd.StdoutPipe()

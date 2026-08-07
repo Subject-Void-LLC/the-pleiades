@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 )
 
@@ -40,7 +40,7 @@ type LogEvent struct {
 }
 
 // Execute simulates running a native Go runbook (e.g. Ping).
-func (a *Adapter) Execute(ctx context.Context, payload runner.DispatchPayload) error {
+func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	// Simulate Ping Execution - Step 1: Start
 	a.streamLog(ctx, payload.JobID, LogEvent{
 		Timestamp: time.Now().Format(time.RFC3339),
@@ -60,7 +60,12 @@ func (a *Adapter) Execute(ctx context.Context, payload runner.DispatchPayload) e
 		EventData: struct {
 			Message string `json:"message"`
 		}{
-			Message: "pong from " + payload.DeviceName + " (" + payload.DeviceIP + ")",
+			// DeviceHost, never the old DeviceIP: this is the property
+			// every concrete device type in this codebase actually
+			// populates (pkg/wire.DispatchPayload's own doc comment), so
+			// this now reads a real address instead of the old field,
+			// which named a property ("ip") no device type ever set.
+			Message: "pong from " + payload.DeviceName + " (" + payload.DeviceHost + ")",
 		},
 	})
 

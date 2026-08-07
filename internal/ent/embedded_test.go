@@ -31,7 +31,7 @@ func TestOpenEmbeddedDurability(t *testing.T) {
 	created, err := client.Device.Create().
 		SetName("core-sw-01").
 		SetType("network_device").
-		SetProperties(map[string]interface{}{"ip": "10.0.0.1"}).
+		SetProperties(map[string]interface{}{"host": "10.0.0.1"}).
 		Save(ctx)
 	if err != nil {
 		client.Close()

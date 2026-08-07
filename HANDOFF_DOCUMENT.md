@@ -4,6 +4,167 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**This session closed Phase 14: The Dispatcher** (`.SPECIFICATION/IMPLEMENTATION.md`), every previously
+open checklist item plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern Justification,
+Schema/Injection Hardening, and Release Gate items, and relocated the one item that does not belong to
+this phase (the per-device lock) to Phase 15's own checklist rather than silently dropping it. Branch is
+`feature/The-Dispatcher`. **Nothing is committed.** The working tree carries the whole phase.
+
+**Read this first if you are picking up mid-stream: one commonly-assumed deferred item is wrong, and the
+real state is better than it, not worse.** It would be easy to assume `cmd/runner` is still an empty
+directory with no `main`, because `.SPECIFICATION/IMPLEMENTATION.md`'s own Phase 15 checklist still says
+exactly that. It is stale, and this session did not touch it: `cmd/runner/main.go` already existed,
+already builds, and already wires a real `runner.Agent` pulling from the shared dispatch consumer group
+against a real `native.Adapter`, predating this session entirely (this session's only edit to that file
+is a one-line doc-comment fix so it still names `wire.DispatchPayload` correctly after the type moved).
+More importantly, the far end of this phase's own fan-out is not merely message-count-proven: `tests/
+e2e/integration_test.go`'s `TestGrandIntegration` was updated for the new async Job-launch shape and
+passes end to end against real Postgres and NATS containers (`go test ./tests/e2e/... -run
+TestGrandIntegration -v`, 10.6s this session), with the real `runner.Agent` (the identical code
+`cmd/runner` wires) actually consuming both devices' `wire.DispatchPayload` messages and completing them,
+confirmed by 6 real log events fetched off the bus, not a count asserted against a mock. What remains
+genuinely unproven is narrower than "the Runner never ran": `native.Adapter.Execute` is still three
+`time.Sleep` calls publishing a fabricated `pong` (Phase 16's own open item, "Nothing in this repository
+has ever contacted a device"), so "picked up and executed" here means "picked up and simulated," never a
+real SSH session to a real device.
+
+**The honest headline, since this phase's own Adversarial gate asks for it:** before this session,
+`DispatchRunbook`'s per-device loop read a device's management address from a property key, `"ip"`, that
+no device type in this codebase has ever populated. Every real dispatch therefore silently skipped every
+device while the endpoint still answered `200 {"dispatched":0,...}`, indistinguishable from a group that
+legitimately needed no work. Nothing about that shape was inherited into the fan-out this session built:
+`internal/dispatch.Worker` reads the real `"host"` key, and `pkg/wire.DispatchPayload` deletes the
+`DeviceIP` field outright rather than leaving it reachable. That single key mismatch, plus a second bug
+in the same duplicated type (`DeviceName` populated from `device.ID()`, not `device.Name()`), are why the
+DTO's move into `pkg/wire` is treated as a real fix in this session's own work, not a mechanical rename.
+
+**Three real defects found, all recorded in `FAILURE_PATTERNS.md` before being fixed:**
+
+1. **#76, the one that mattered most.** The `"ip"`-vs-`"host"` property key mismatch described above.
+   Because a missing property and a genuine publish failure both incremented the same undifferentiated
+   `errCount`, the response could not tell a caller which one had actually happened either. Fixed by
+   `internal/dispatch.Worker` reading `"host"` and recording a missing property as its own
+   `OutcomeSkipped` task naming the property, distinct from `OutcomeFailed`.
+2. **#77.** `DeviceName` was populated from `device.ID()`, not `device.Name()`, in the pre-Phase-14
+   duplicated `DispatchPayload` type. Nothing failed a build or a type check, since both accessors return
+   `string`; the defect was only visible by comparing what the field actually held against
+   `InventoryItem.Name()`'s documented meaning. Fixed by giving `DeviceID` and `DeviceName` their own
+   fields in `wire.DispatchPayload`, each filled from its own matching accessor, and a regression test
+   (`TestWorker_HandleJobRequested_DispatchesHealthyDevice`) whose fixture device's id and name
+   deliberately differ, so a fixture where they happened to coincide could not mask the bug.
+3. **#78.** The runbook id a dispatch request carries was, before this session, inert: no runbook
+   storage existed, so the string was never used for anything but a label. The moment `internal/runbook
+   .DirSource` gave it a real filesystem lookup, the same caller-controlled string became an input to
+   `filepath.Join` with nothing yet validating it. Fixed by `validRunbookID`
+   (`^[A-Za-z0-9_-]{1,64}$`), applied before any path is constructed, plus a belt-and-suspenders
+   absolute-path-prefix re-check. `TestDirSource_Get_RejectsHostileIDs` exercises `"../../etc/passwd"`,
+   an absolute path, and other hostile ids against the real `Get`, not a mocked path-builder.
+
+Also recorded, `LESSONS_LEARNED.md` #82: a wire field must be named for the property key it actually
+reads, never for the value someone hopes is there, the architectural rule #76 and #77 both fall out of.
+
+**What was built, by area:**
+
+1. **`internal/api/dispatcher.go`** (rewritten). `DispatchRunbook` no longer streams a device group or
+   publishes a per-device event itself. It resolves the requested runbook, persists a `dispatch.Job` row,
+   publishes exactly one `job.requested` event, and answers `202 Accepted` with a `Location` header
+   naming the new job resource. `NewDispatcher` no longer takes an `inventory.Repository` or an
+   `auth.Evaluator`: neither is used by anything left in this handler once the per-device loop moved out.
+2. **`internal/dispatch`** (new package). `Worker.HandleJobRequested` (`worker.go`) is the durable
+   `job.requested` consumer and the actual fan-out: it claims a job via `BeginFanOut`'s WHERE-guarded
+   conditional transition (Idempotent Consumer, safe under NATS at-least-once redelivery), streams the
+   target group without materializing it, admits or skips each device via `engine.LifecycleAdmits`/
+   `CapabilityAdmits`, and publishes one `wire.DispatchPayload` per admitted device. `job.go` defines the
+   domain `Job`/`JobTask`/`Outcome` types and the `JobStore` port; `ent_store.go` is the one real,
+   ent-backed implementation.
+3. **`internal/ent/schema/job.go`, `job_task.go`** (new schemas, regenerated). `Job` carries a
+   `state` enum (`pending`/`fanning_out`/`completed`/`failed`, `"failed"` added as its own terminal state
+   rather than reusing `"completed"` with zero tallies, so a runbook that could not even be resolved is
+   distinguishable from one that legitimately ran against an empty group) and the three terminal tallies.
+   `JobTask` is one immutable row per device considered, with a `reason` field the schema's own comment
+   marks as forbidden from ever carrying a device's decrypted `Properties()` value.
+4. **`pkg/wire/dispatch.go`** (new package). `DispatchPayload` is now the one definition crossing the
+   wire, replacing the two hand-synchronized duplicates in `internal/api` and `internal/runner`; see the
+   defects above for the two real bugs the move fixed. `internal/runner/agent.go` and
+   `internal/adapters/native/adapter.go` were updated to the shared type (mechanical changes only,
+   neither package's own behavior was rebuilt this session).
+5. **`internal/engine/admission.go`** (new). `LifecycleAdmits` and `CapabilityAdmits`, factored out of
+   `executor.go`'s own inline device-admission checks so `internal/dispatch.Worker` (a different package,
+   with no `WorldView`/DAG in hand) can ask the identical two questions, in the identical wording, without
+   re-deriving either check. This is what closes the "Call `HasCapability` before dispatch" and lifecycle
+   items below without inventing a third, dispatcher-local copy of either.
+6. **`internal/runbook`** (new package). `DirSource` (`dir_source.go`) resolves a runbook id to a
+   compiled `*engine.DAG` plus its required capabilities, reading real YAML off disk through
+   `engine.Builder.BuildFromYAML` (the identical compiler `cmd/pleiades` uses, per RULE 0), with a
+   Flyweight cache keyed on the source file's mtime. This is also where defect #78 above lives and is
+   fixed.
+7. **`internal/api/jobs.go`** (new). `GET /api/v1/jobs/{id}`, the client-facing read side of the new
+   async shape: a launch returns `202` immediately, and a caller polls this resource for progress and the
+   final per-device tallies. `JobRepository` is the narrow, read-only slice of `dispatch.JobStore` this
+   handler needs, following `devices.go`'s own Interface Segregation precedent.
+8. **`cmd/controller/main.go`** (wired). Builds `runbook.NewDirSource` (`RUNBOOK_DIR`, defaulting to
+   `inventory.DefaultRunbookDir`) and `dispatch.NewEntJobStore` over the same already-open `ent.Client`,
+   subscribes `dispatch.NewWorker(...).HandleJobRequested` to `topology.JobRequestedSubject()`, and
+   registers both `POST /jobs/dispatch` and `GET /jobs/{id}` on the router, all fail-closed at startup
+   the same way every other dependency in this file already is.
+9. **`internal/topology/topology.go`**: `JobRequestedSubject()`, the one new subject this phase's own
+   Job-launch-to-Worker handoff needs.
+10. **`tests/e2e/integration_test.go`**: `TestGrandIntegration` updated to launch through the new async
+    shape and poll the job resource to a terminal state before asserting on log events, rather than
+    asserting a synchronous `200` response's own `dispatched` count. See the "read this first" note above
+    for what this proves.
+
+**One trap worth naming for whoever touches the per-device lock item next (Phase 15).** It would be easy
+to acquire a `lock.Manager` lease inside `Worker.HandleJobRequested` at fan-out time and call the item
+closed. Don't, and don't reach for "`cmd/runner` doesn't run yet" as the reason either, since it does
+(see the "read this first" note above). The real reason is what a running Runner's own "done" signal
+means today: `native.Adapter.Execute` is still simulated, never a real action against a real device
+(Phase 16's own open item), and this session's own Phase 15 predecessor still acks a failed job rather
+than retrying it, so even today's simulated completion is not yet a trustworthy release trigger. A lease
+acquired or released against either would be guarding nothing real. PLAN.md Section 13 places locks in
+the backend precisely because multiple execution environments may target the same device; Phase 16 is the
+first point where a lock would be held against something real. The full note is on Phase 15's own
+relocated checklist item in `IMPLEMENTATION.md`.
+
+**A second trap, the one #76 and #77 both are instances of.** A field or a local variable's name is not
+evidence of what it actually holds; only the accessor or property key that fills it is. Both bugs
+compiled cleanly and passed every existing test, because both existing tests happened to feed the exact
+value the buggy code expected rather than the value a real device would actually carry (RULE 0's own
+concern, restated at the wire-DTO layer this time).
+
+**Deliberately deferred, with the reason:** the per-device lock, relocated to Phase 15 rather than closed
+here (see the trap above and Phase 15's own checklist item). No collection endpoint for listing jobs:
+`GET /api/v1/jobs/{id}` is the only job-reading route this phase registers; a list would need the same
+Section 25 keyset-pagination primitive Phase 13's own deferred-items note already named for devices, and
+this phase's Release Gate needs one job's progress, not a list of them. `internal/dispatch.Worker` cannot
+graft a live OpenTelemetry span across the `job.requested` handoff the way `dispatcher.go`'s own HTTP
+handler can pull one from `r.Context()`: `event.Bus.Subscribe`'s handler signature exposes only the
+decoded `Event`, never the transport's raw headers, and reaching into a concrete NATS type to recover one
+would violate this package's own port boundary (documented in `worker.go` as a known, accepted
+limitation, not an oversight).
+
+**Verification.** `go build ./...` and `go vet ./...` clean. `gofmt -l` clean on every file this phase
+touched. `go test ./internal/dispatch/... ./pkg/wire/... ./internal/runbook/... ./internal/api/... -race
+-count=1` clean, including `TestDispatcher_ReleaseGate` (23.3s) and the fuzz targets
+(`FuzzDispatchRunbook`, `FuzzWorkerDeviceProperties`). `go test ./tests/e2e/... -run TestGrandIntegration
+-v` passes end to end against real Postgres and NATS containers (10.6s; see the "read this first" note).
+`make gosec`: 1 finding, individually waived (`internal/api/logs.go` `G705`, pre-existing, unchanged from
+Phase 13). `make govulncheck`: 0 vulnerabilities called by this repository's own code. Coverage, measured
+directly per package rather than trusted from the full-suite tool (`internal/election`'s own coverage
+number was observed to vary 87.5%/97.5% run to run in this sandbox on code this phase never touched, a
+timing-sensitive branch, not a regression): `internal/dispatch` 71.4%, `internal/runbook` 75.4%,
+`internal/api` 96.6% (floor 95.0, unchanged), all three recorded into `coverage-floor.json` this session
+(`internal/dispatch` and `internal/runbook` are new packages, `pkg/wire` has no statements to measure and
+is recorded at the vacuous 100.0). Benchmarks (real numbers, this machine): `BenchmarkDispatchRunbook`
+(the launch path alone: resolve, persist, publish, respond) 64.2/64.9/68.8 µs/op across three runs;
+`BenchmarkWorker_DeviceFanOut` (the full per-job fan-out cost: a real SQLite-backed `JobStore` write per
+step, real admission checks, one real bus publish per device, 50 devices) ~4.67 ms/op (~93 µs/device)
+against `BenchmarkAnsiblePlaybookFanOutComparable`, a real `ansible-playbook` subprocess run as the
+reference platform this project's own Performance Benchmarking rule requires, at ~1.19 s/op, roughly 256x
+slower than this platform's own fan-out at this scale.
+
+## Previous session: Phase 13, HATEOAS Generator
+
 **This session closed Phase 13: HATEOAS Generator** (`.SPECIFICATION/IMPLEMENTATION.md`), all nine
 previously-open checklist items plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
 Justification, Schema/Injection Hardening, and Release Gate items. Branch is

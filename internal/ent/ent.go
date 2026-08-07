@@ -15,6 +15,8 @@ import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/jobtask"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
@@ -83,6 +85,8 @@ func checkColumn(t, c string) error {
 			device.Table:       device.ValidColumn,
 			fact.Table:         fact.ValidColumn,
 			group.Table:        group.ValidColumn,
+			job.Table:          job.ValidColumn,
+			jobtask.Table:      jobtask.ValidColumn,
 			organization.Table: organization.ValidColumn,
 			revision.Table:     revision.ValidColumn,
 			rolebinding.Table:  rolebinding.ValidColumn,
