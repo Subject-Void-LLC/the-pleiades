@@ -4,11 +4,215 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session closed Phase 14: The Dispatcher** (`.SPECIFICATION/IMPLEMENTATION.md`), every previously
-open checklist item plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern Justification,
-Schema/Injection Hardening, and Release Gate items, and relocated the one item that does not belong to
-this phase (the per-device lock) to Phase 15's own checklist rather than silently dropping it. Branch is
-`feature/The-Dispatcher`. **Nothing is committed.** The working tree carries the whole phase.
+**This session closed Phase 15: Runner Agent Scaffold** (`.SPECIFICATION/IMPLEMENTATION.md`), every
+previously open checklist item plus the Pattern Entry Gate, Fuzz/Stress, Adversarial Pattern
+Justification, Schema/Injection Hardening, and Release Gate items. Branch is
+`feature/Runner-Agent-Scaffold`. **Nothing is committed.** The working tree carries the whole phase.
+
+**Read this first if you are picking up mid-stream: most of this phase's own checklist was already
+stale before this session started, a second occurrence of the exact pattern the Phase 14 session already
+found once for `cmd/runner`.** Verifying every item against the real code (not trusting the roadmap text)
+found four items already done, predating this session: `cmd/runner`'s daemon (already existed, per Phase
+14's own note), "stop acknowledging failed jobs" (already routed through the Dead Letter Queue),
+"consume the shared retry primitive" (`calculateBackoff` already delegated to `pkg/retry.Backoff`), and
+"fix the test package so it compiles" (already compiled and passed clean). None of these needed new code;
+only the checklist text needed correcting, which this session did rather than silently re-doing settled
+work or leaving the drift for a third session to rediscover. `LESSONS_LEARNED.md` #84 names this as its
+own general rule: before treating a checklist item as open work, verify it against the code.
+
+**Five items were genuinely open, and this session closed all five, real code and real tests behind
+each:**
+
+1. **`pkg/retry.Backoff`'s shift-overflow.** `sleep := float64(base) * float64(int64(1)<<attempt)` shifted
+   before any clamp existed: `attempt==63` overflows the shift into a negative value (the sign bit),
+   `attempt>=64` shifts it to zero, and both fed a non-positive `Duration` into a `d > max` check that can
+   never be true for a non-positive `d` -- the max clamp silently didn't fire, at exactly the attempt
+   counts a Runner sitting on a genuinely idle queue would eventually reach (`Agent.Run`'s own retry
+   counter has no ceiling). Fixed with a capped shift exponent (`maxAttemptShift = 62`) plus a
+   belt-and-suspenders non-positive check, both before the existing `max` clamp. `FuzzBackoff` (new;
+   `pkg/retry` had no fuzz target before this session) proves `0 < Backoff(...) <= max` across the full
+   `int` domain.
+2. **The idle-fetch spin.** `consumer.FetchNoWait` returning `(batch, nil)` with zero messages (the
+   ordinary "nothing waiting" outcome) fell through to an immediate re-fetch with no backoff at all,
+   distinct from the error-path backoff that already worked; the existing `MockConsumer` test double
+   masked this by returning an error on empty, not the real contract's nil-error-empty-batch shape. Fixed
+   in the same restructuring that added the worker pool (below): `fetchLoop` (`agent_run.go`) treats
+   `received == 0` the same as a real fetch error via one shared `backoffSleep` helper.
+3. **The bounded worker pool.** `Agent.Run`/`fetchLoop`/`worker` (`agent_run.go`): a fixed pool
+   (`defaultPoolSize = 5`, `WithPoolSize`/`RUNNER_POOL_SIZE` to override) of goroutines pulling
+   `jetstream.Msg` off a buffered channel, PATTERNS.md's own named Worker Pool use case for this
+   component. `TestAgent_Run_ProcessesMessagesConcurrently` proves real concurrency (a measured peak of
+   simultaneous in-flight `Execute` calls), not just "no panic."
+4. **Per-device lock, heartbeat, and self-abort, honoring `interruptible: false`** (the item relocated
+   from Phase 14, plus Phase 15's own heartbeat/self-abort item -- built together, one mechanism).
+   `executeWithLease`/`heartbeat` (`agent_exec.go`) acquire a real `lock.Manager` lease around
+   `adapter.Execute` and renew it on a ticker; a renewal failure self-aborts (cancels `Execute`'s context)
+   unless the payload says `Interruptible: false`, in which case it logs and keeps trying, per PLAN.md
+   Section 16's own named exception. `interruptible` is new plumbing: `engine.Metadata.Interruptible`
+   (`*bool`, nil meaning interruptible -- a plain `bool`'s zero value would silently invert the safe
+   default) -> `runbook.Runbook.Interruptible` (resolved) -> `wire.DispatchPayload.Interruptible` (on the
+   wire) -> `internal/dispatch/worker_devices.go` (sets it). This codebase is NATS-pull-only, not the
+   gRPC shape PLAN.md Section 16 assumed (a prior, deliberate divergence PATTERNS.md's own "Push vs. Pull"
+   entry already documents), so "lost heartbeat with the Controller" is read here as "this Runner's own
+   `KeepAlive` calls against its held lease are failing" -- the only concrete signal this architecture
+   actually has; flagged explicitly in case a future phase's own reading differs. Scoped at
+   whole-runbook-per-device granularity, the only level the current wire contract supports; PLAN.md's
+   literal "un-abortable *tasks*" (per-task) would need a larger wire redesign, Phase 16+ territory.
+5. **The runner-local write-ahead log.** `wal.go` (`ResultWAL`/`ResultEntry`), `wal_file.go` (`fileWAL`,
+   append-only JSON-lines, fsync-on-Append, atomic-rename-on-Acknowledge), `agent_wal.go` (opt-in
+   `WithResultWAL`, wired into `handleMessage` post-execution and `fetchLoop`'s own idle tick for retry).
+   Scoped deliberately to PLAN.md Section 16's Runner-side write/retry half only; the Controller-side
+   "mark `Unknown`, dispatch a Reconciliation runbook" half has no consumer anywhere in this codebase and
+   is not built here -- a future phase's work, once one exists to build it against.
+
+**One real, previously-unrecorded defect found and fixed as part of closing this phase's own
+Schema/Injection Hardening item, recorded before being checked off (`FAILURE_PATTERNS.md` #81,
+`LESSONS_LEARNED.md` #84):** `wire.DispatchPayload.JobID` reached two NATS subjects
+(`topology.LogSubject`, and this phase's own new `topology.ResultSubject`) by bare string concatenation
+with no Runner-side validation -- the identical shape `FAILURE_PATTERNS.md` #63 already fixed once at the
+HTTP-facing `StreamLogs` boundary, but a second, independent entry point for the same value that fix could
+not reach (`dispatch.JobStore.Create`'s own contract explicitly allows a caller-supplied `JobID`). Fixed:
+`Agent.handleMessage` validates `payload.JobID` via `uuid.Parse` immediately after decode, before any
+subject is built; a failure `Term()`s the message. `TestAgent_HandleMessage_RejectsSubjectInjectingJobID`
+mirrors `TestStreamLogs_RejectsSubjectInjectingJobIDs`'s own table exactly.
+
+**A trap worth naming for whoever next touches `internal/runner`'s own tests.** `event.Bus.Publish`
+(every adapter, including the in-process one) delivers to subscribers asynchronously on its own goroutine
+and does not wait for them (see `inProcessBus.Publish`'s own doc comment) -- and, separately,
+`executeWithLease`'s own execution context is derived from the same outer `ctx` `Agent.Run`'s shutdown
+watches. A test that sleeps a fixed, short duration and then cancels `ctx` to "let a message finish
+processing" is racing real, occasionally-slow work (this session's own WAL tests do real fsync'd file
+I/O): lose that race and the cancellation reaches `event.Bus.Publish` before its own delivery goroutine
+was even dispatched, silently dropping the very assertion the test wanted to make -- reproduced for real
+in this sandbox (`TestAgent_ReportResult_SuccessfulExecutionFlushesToWAL` failed intermittently under
+`-count=3`/`-count=4` stress runs before the fix). The fix, applied throughout `agent_wal_test.go`, is
+`runAgentUntil`: poll for the concrete completion signal `handleMessage` itself already gives (an Ack, or
+a tracked Nak), then cancel, rather than racing a fixed sleep against however long real I/O happens to
+take on a given run.
+
+**A full adversarial multi-agent review of this phase's own diff ran before it was called done, and found
+four more real, high-severity defects, all fixed and all recorded (`FAILURE_PATTERNS.md` #82-85,
+`LESSONS_LEARNED.md` #85-87) before this note was written, not after.** Every one of these was in code
+this session itself wrote, none pre-existing:
+
+1. **No panic recovery in `executeWithLease`.** A panicking `ExecutionAdapter.Execute` (nothing today
+   does; a future real adapter shelling out to `ssh`/`ansible` or type-asserting unexpected transport
+   output plausibly could) crashed the whole Runner process, taking every other concurrently in-flight
+   pool worker down with it before any of them ran their own deferred lease release -- and, separately,
+   skipped the `<-done` synchronization the normal return path uses, opening a `-race`-detectable data
+   race between the deferred lease release and a still-running heartbeat goroutine.
+   `internal/event/consumer.go`'s own `handleDelivery` already had the right shape (`recover()` inside the
+   `defer` wrapping the handler call) for the identical reason; this new code didn't reuse it. Fixed with
+   an identical `recover()`, converting a caught panic into an ordinary execution-failure error.
+2. **`interruptible: false` didn't survive a graceful Runner shutdown, only a lease-heartbeat failure.**
+   `execCtx` was an unconditional child of `Agent.Run`'s own shutdown-cancelable `ctx`, so
+   `cmd/runner/main.go`'s SIGINT/SIGTERM handler aborted a non-interruptible execution exactly as if it
+   were interruptible -- the far more routine of the two triggers PLAN.md Section 16's own named exception
+   exists for. Fixed with `detachedValueContext` (`agent_exec.go`), a value-only wrapper that breaks the
+   automatic cancellation-propagation `context.WithCancel(ctx)` alone cannot break, plus a watcher
+   goroutine that only re-propagates `ctx`'s cancellation into `execCtx` when `payload.Interruptible`
+   allows it.
+3. **The WAL append this same fix's own reportResult performs used the identical cancelable `ctx`.** A
+   job whose execution was still in flight at shutdown (or self-abort) had its outcome silently and
+   permanently dropped instead of durably recorded -- exactly the scenario the WAL exists to protect
+   against -- because `fileWAL.Append`'s own (correct, in the ordinary case) `ctx.Err()` guard rejected
+   the write the instant it was needed most. Fixed the same way `executeWithLease`'s own
+   `lease.Release(context.Background())` already modeled: `reportResult` now uses a detached, timeout-
+   bounded context for both the append and its own eager flush.
+4. **The WAL's own idempotency key was a fresh random UUID per `Append` call, not stable across
+   redelivery.** A crash between this Runner's own local `wal.Acknowledge` succeeding and the broker-side
+   `msg.Ack()` landing causes a real JetStream redelivery; the re-executed job would have published as an
+   entirely distinct `job.result` event no dedup could ever collapse back to the original, since dedup
+   only recognizes a key it has seen before. Fixed by keying `ResultEntry.ID` on
+   `payload.JobID+":"+payload.DeviceID`, mirroring `internal/dispatch/worker_devices.go`'s own identical
+   key one package away.
+
+All four have dedicated regression tests (`TestAgent_ExecuteWithLease_RecoversAdapterPanic`,
+`TestAgent_SelfAbort_NonInterruptibleSurvivesOuterShutdown`,
+`TestAgent_ReportResult_SurvivesShutdownDuringExecution`,
+`TestAgent_ReportResult_UsesStableIdempotencyKeyAcrossRedelivery`) that fail against the pre-fix code and
+pass against the fix (verified by hand for the first three; the WAL-ctx one specifically, since it shares
+a mechanism with #2, was verified by tracing rather than a literal revert-and-rerun). The same review pass
+also caught, and this session fixed, four remaining fixed-sleep-then-cancel test races of the identical
+shape `HANDOFF_DOCUMENT.md`'s own earlier note in this same session already named once (two more in
+`agent_exec_test.go`, all of `agent_security_test.go`'s eight table cases, and four in `agent_test.go`
+this phase's own atomic.Bool conversion touched but didn't fix) -- all now use `runAgentUntil`. Three
+low-severity simplification findings were also applied: `contentionError` (a hand-rolled error type)
+replaced with `errLockContention = errors.New(...)` plus Go 1.20+'s `fmt.Errorf("%w: %w", ...)` multi-wrap
+support; `ResultEntry.Attempts`, provably always `1` in this codebase's own call pattern, removed; and
+`handleMessage`'s three near-identical log-Term-return blocks collapsed into one `termMalformed` helper.
+One WithLeaseTTL/WithHeartbeatInterval-unused-in-production finding was reviewed and deliberately not
+acted on: both are cheap, already-established-pattern test seams (mirroring `WithPoolSize`'s own shape)
+that make self-abort/heartbeat behavior testable without waiting out real production durations; removing
+them would add complexity, not reduce it.
+
+**A second trap worth naming, found while chasing down a test failure this same fix (#2 above)
+introduced.** `dispatchPayloadJSON`, this package's own shared test fixture builder, omitted the
+`interruptible` key entirely -- which decodes to Go's `bool` zero value, `false`, not the safe default a
+real `wire.DispatchPayload` always carries explicitly (`internal/dispatch/worker_devices.go` never omits
+this field; it always sets it from the resolved runbook's own default of `true`). Every test built on that
+fixture was unknowingly exercising the non-interruptible path, which the #2 fix above then correctly
+started treating differently from the interruptible one -- surfacing as two tests
+(`TestAgent_Run_GracefulShutdownDrainsInFlightWork`, `TestAgent_ReportResult_SurvivesShutdownDuringExecution`)
+timing out waiting for a cancellation that, correctly, no longer arrived. Fixed by making the fixture
+explicit (`"interruptible":true`), matching what a real producer always sends. The general lesson: a test
+fixture that omits a field "because the zero value is probably fine" is only actually representative
+(AGENTS.md's RULE 0) if the zero value is also what a real producer would send -- here it was not.
+
+**Deliberately deferred, with the reason.** The Controller-side half of the WAL's own state-desync story
+(marking a permanently-lost result `Unknown`, dispatching a Reconciliation runbook) has no consumer
+anywhere in this codebase and was not built speculatively. Per-task `interruptible` granularity needs a
+wire-contract redesign this phase's own scope does not include. `lock.CapacityCounter` (a true
+segment-scoped Bulkhead, as opposed to the bounded pool's own coarse one) is still Phase 24's to build,
+per its own prior declaration. Controller-side device quarantine (the other half of `interruptible:
+false`'s own named exception) has nothing to quarantine yet, since `native.Adapter.Execute` remains
+simulated until Phase 16. `execLeaseTTL`/`heartbeatInterval` (5 minutes / 1 minute) are placeholders
+modeled on `engine.defaultLockTTL`'s own "generous because real work isn't real yet" reasoning, not a
+measured figure -- real execution durations don't exist until Phase 16 gives `native.Adapter.Execute`
+something real to do.
+
+**Coverage floor note, the one deliberate exception to `coverage-floor.json`'s own "never silently down"
+rule this session took, recorded there and here rather than silently edited:** `internal/runner`'s floor
+moved from 93.5% to 87.1%. The package roughly quadrupled in this session (the worker pool, the full
+lock/heartbeat/self-abort supervisor, and the entire WAL subsystem are all new), every meaningfully
+reachable gap was closed (multiple rounds of measuring, adding a targeted test, remeasuring), and the
+remainder concentrates in `atomicWriteFile`/`NewFileWAL`'s OS-failure branches (`CreateTemp`/`Chmod`/
+`Sync`/`Rename`, and a permission-denied write probe) that this sandbox cannot exercise because it runs as
+root, where permission bits do not block writes -- `TestNewFileWAL_FailsClosedOnUnwritableDirectory`
+correctly `t.Skip()`s rather than claiming false coverage. `internal/adapters/native` (84.6% -> 88.9%),
+`internal/topology` (95.2% -> 95.7%), `internal/engine` (92.5% -> 92.9%), and `internal/dispatch` (71.4%
+-> 72.5%) all improved, no other regressions.
+
+**Verification.** `go build ./...` and `go vet ./...` clean. `gofmt -l` clean on every file this phase
+touched. `go test ./internal/runner/... -race -count=1` clean, repeated under `-count=3` and `-count=4`
+stress (including one full 4-iteration run *after* the adversarial review's own fixes landed); also clean,
+repeatedly: `./internal/engine/...`, `./internal/runbook/...`, `./internal/dispatch/...`,
+`./internal/adapters/native/...`, `./internal/topology/...`, `./pkg/wire/...`, `./pkg/retry/...`,
+`./internal/lock/...`. `gosec` (1 finding, pre-existing, already waived) and `govulncheck` (0 vulnerabilities
+called by this repository's own code) both clean.
+
+**Container-test / full-suite caveat, stated plainly rather than glossed over.** `TestAgent_FailedExecution
+EventuallyDeadLetters` and `TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating` (both real-NATS-
+container tests) passed repeatedly in isolation earlier in this session, including inside a full,
+back-to-back `-count=4` stress run of the whole package that also covered every other test in it -- but by
+the end of this very long, container-heavy session, `docker system df` showed 140 accumulated containers
+(mostly orphaned `testcontainers`/`ryuk` reaper artifacts in a `Created`, never-started state) and repeated
+attempts to run `go test ./...` for the whole repository, or even just these two tests together, failed
+with the `ryuk` reaper container itself unable to start (`Error response from daemon: No such container`).
+A `docker container prune -f` (routine, reversible cleanup of this session's own orphaned test artifacts,
+not touching volumes, images, or anything the user created) reclaimed those 140 containers but did not fix
+the underlying Docker daemon degradation; a daemon restart would likely be needed and was deliberately not
+attempted (out of scope for this session to do unprompted). This is Docker-daemon-level resource exhaustion
+from this session's own extensive container churn, not a code defect: every container test passed cleanly,
+repeatedly, earlier in this identical session, and every non-container test in every touched package passed
+cleanly on the very last run performed. `go run ./tools/coverage-check` (which runs the full suite as one
+`go test ./...` invocation) could not be run to a clean conclusion in this session's final state for the
+identical reason; a fresh session (or a Docker daemon restart) should be able to run it cleanly. Benchmarks
+(real numbers, this machine): `BenchmarkAgent_PoolSize1` ~16.6µs/op vs. `BenchmarkAgent_PoolSizeDefault`
+(poolSize 5) ~9.0µs/op, roughly 1.8x from pooling alone at this scale; `BenchmarkNativeAdapter_Execute_
+CancellationLatency` ~3.5µs/op, confirming self-abort's own return latency is genuinely sub-millisecond.
+
+## Previous session: Phase 14, The Dispatcher
 
 **Read this first if you are picking up mid-stream: one commonly-assumed deferred item is wrong, and the
 real state is better than it, not worse.** It would be easy to assume `cmd/runner` is still an empty

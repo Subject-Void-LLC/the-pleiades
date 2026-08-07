@@ -92,9 +92,13 @@ func (i *fakeIterator) Close() error                     { return nil }
 
 // newTestRunbookSource builds a real runbook.Source (RULE 0: no hand-
 // rolled fake Source, DirSource is cheap to point at a temp directory)
-// over a fixture directory containing one runbook, id "pb-1", requiring
+// over a fixture directory containing two runbooks, both requiring
 // capability.NameCiscoIOS via the real "ios_backup" fqcn
-// (engine.ActionCapability's own binding).
+// (engine.ActionCapability's own binding): "pb-1", with no metadata
+// section (Interruptible defaults to true), and "pb-no-abort", declaring
+// metadata.interruptible: false, so tests can dispatch against either to
+// prove that value actually reaches the published wire.DispatchPayload
+// (worker_devices.go).
 func newTestRunbookSource(t *testing.T) runbook.Source {
 	t.Helper()
 
@@ -102,6 +106,12 @@ func newTestRunbookSource(t *testing.T) runbook.Source {
 	content := "id: pb-1\ntasks:\n  - name: step\n    fqcn: ios_backup\n"
 	path := filepath.Join(dir, "pb-1.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write runbook fixture: %v", err)
+	}
+
+	noAbortContent := "id: pb-no-abort\nmetadata:\n  interruptible: false\ntasks:\n  - name: step\n    fqcn: ios_backup\n"
+	noAbortPath := filepath.Join(dir, "pb-no-abort.yaml")
+	if err := os.WriteFile(noAbortPath, []byte(noAbortContent), 0o644); err != nil {
 		t.Fatalf("failed to write runbook fixture: %v", err)
 	}
 
@@ -370,8 +380,45 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	if payload.JobID != jobID || payload.RunbookID != "pb-1" {
 		t.Errorf("payload JobID/RunbookID = %q/%q, want %q/%q", payload.JobID, payload.RunbookID, jobID, "pb-1")
 	}
+	if !payload.Interruptible {
+		t.Error("payload.Interruptible = false, want true (pb-1 declares no metadata section, so the safe default applies)")
+	}
 	if got, want := bus.lastTopic(), topology.DispatchSubject(); got != want {
 		t.Errorf("published topic = %q, want %q", got, want)
+	}
+}
+
+// TestWorker_HandleJobRequested_DispatchesInterruptibleFalse proves
+// runbook.Runbook.Interruptible (itself resolved from
+// engine.Metadata.IsInterruptible(), internal/runbook/dir_source.go)
+// actually reaches the published wire.DispatchPayload
+// (worker_devices.go's admitAndDispatchDevice), not just that the field
+// exists on the wire type: dispatching pb-no-abort (metadata.
+// interruptible: false in its own fixture YAML, newTestRunbookSource)
+// must publish a payload with Interruptible=false, the opposite of the
+// default proven above.
+func TestWorker_HandleJobRequested_DispatchesInterruptibleFalse(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := capableDevice("dev-id-456", "router-2", "10.0.0.10")
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+
+	evt := requestJob(t, ctx, store, "pb-no-abort", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	if bus.count() != 1 {
+		t.Fatalf("Publish was called %d times, want 1", bus.count())
+	}
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	if payload.Interruptible {
+		t.Error("payload.Interruptible = true, want false (pb-no-abort declares metadata.interruptible: false)")
 	}
 }
 

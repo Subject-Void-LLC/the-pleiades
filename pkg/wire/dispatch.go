@@ -87,4 +87,16 @@ type DispatchPayload struct {
 	// old DeviceIP field, which named a property ("ip") no device type in
 	// this codebase actually populates.
 	DeviceHost string `json:"device_host"`
+
+	// Interruptible carries runbook.Runbook.Interruptible's own resolved
+	// value (itself engine.Metadata.IsInterruptible()'s answer) across
+	// the wire, so the Runner can decide whether to self-abort this
+	// execution on lost lease heartbeat without a second lookup back to
+	// the Controller (PLAN.md Section 16's Network Partitions
+	// mitigation). No omitempty, matching every other field on this
+	// struct: an absent key on the wire would decode to Go's own bool
+	// zero value (false, "not interruptible"), silently inverting the
+	// safe default engine.Metadata's own nil-means-true convention
+	// establishes upstream of this struct.
+	Interruptible bool `json:"interruptible"`
 }

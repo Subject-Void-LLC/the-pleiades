@@ -1044,3 +1044,72 @@ story, per `.AGENTS/AGENTS.md`.
     silently produce whichever one wrote last, with no error and no record a collision ever happened.
     Design the fencing token in the same change that adds the reclaim, not as a follow-up once someone
     notices the reclaim alone was not enough.
+
+84. **A validated boundary at one entry point to a value does not validate every other entry point the
+    same value later reaches; trace a value through every consumer, not just the one an earlier fix
+    already covered.** `FAILURE_PATTERNS.md` #63 validated a job ID at the one HTTP handler
+    (`StreamLogs`) that read it straight off a URL parameter before building a NATS subject from it.
+    `FAILURE_PATTERNS.md` #81 found the identical unvalidated-concatenation shape, reaching the identical
+    class of subject-injection bug, at a second, independent entry point for the same underlying value:
+    `wire.DispatchPayload.JobID`, decoded off the wire on the Runner side, with no format check between
+    `dispatch.JobStore.Create`'s own contract (which explicitly allows overriding the generated default)
+    and the two subjects (`LogSubject`, `ResultSubject`) it is later concatenated into. Fixing one
+    producer of a value, or one consumer of it, does not retroactively make every other producer or
+    consumer safe; the only complete fix traces a value forward to every place it is used unvalidated, not
+    backward to how it happened to get there this time. Where a value can cross a process or package
+    boundary more than once (an HTTP request, a decoded wire payload, a database round trip), each
+    crossing is its own trust boundary and needs its own check, even if an earlier fix already covered a
+    different crossing of the conceptually "same" value.
+
+85. **A handler your own code does not control (a plugin, an adapter, anything implementing an interface
+    a future caller could satisfy however it likes) needs a `recover()` at the boundary that calls it, not
+    just careful cleanup code that assumes it returns normally.** `internal/runner.executeWithLease`
+    (`FAILURE_PATTERNS.md` #82) wrote its own post-execution cleanup (stop the heartbeat, wait for it to
+    finish, then release the lease) as ordinary statements after the call to `a.adapter.Execute`, the exact
+    shape that is correct for a normal return and silently skipped entirely by a panic, since a panic
+    unwinds straight past any code that was merely *next*, not registered as a `defer`. The one part of
+    that cleanup already wrapped in a `defer` (the lease release) still ran, but without the heartbeat
+    synchronization the non-deferred statements were supposed to guarantee, opening a data race between
+    that deferred release and a heartbeat goroutine that never got told to stop. `internal/event`'s own
+    `handleDelivery` already had the right shape (`recover()` inside the one `defer` wrapping the handler
+    call) for the identical reason -- a handler this codebase does not control must not be trusted to
+    return normally -- and the new code should have looked for and reused that precedent instead of
+    re-deriving a narrower one. Any code invoking a pluggable interface implementation should ask "what
+    happens here if this call panics instead of returning" as a first-class design question, not an
+    afterthought discovered by an adversarial reviewer.
+
+86. **A context canceled by the very event you need to react to cannot also be the context that reaction
+    depends on staying alive.** Two related bugs in `internal/runner.executeWithLease`
+    (`FAILURE_PATTERNS.md` #83, #84) both had this same shape. `execCtx` was built as a direct child of
+    `Agent.Run`'s own shutdown-cancelable context, so a graceful shutdown canceled it unconditionally --
+    defeating `interruptible: false`'s entire purpose, which is to survive exactly that cancellation, not
+    just a lease-heartbeat failure. Separately, `reportResult` durably recorded a job's outcome using that
+    same context, so the outcome of a job canceled *by* that context's own cancellation could never be
+    recorded, at precisely the moment recording it mattered most. Both were fixed the same way `executeWithLease`'s
+    own `lease.Release(context.Background())` had already modeled, one function away, before either bug was
+    introduced: cleanup, durability, or exception-handling work that must survive a cancellation signal
+    cannot itself be a direct descendant of that signal. When a value needs to carry a parent context's
+    *values* (a trace span, an actor identity) without inheriting its *cancellation*, a small value-only
+    wrapper context is the correct tool, not `context.WithCancel(parent)` alone, which always propagates
+    both. Before wiring any context into a cleanup or "must survive this" code path, ask specifically
+    whether that context's own cancellation could be caused by the very condition the code exists to
+    handle -- if so, it is the wrong context to use there, and an existing precedent for the fix, once
+    introduced anywhere in the codebase (as it was here), should be checked for and reused every other
+    place the identical shape of problem appears, not independently re-discovered by a second reviewer.
+
+87. **An idempotency key must be derived from the logical operation, not minted fresh per attempt at
+    recording it, or two attempts describing the same real-world event become indistinguishable from two
+    different events.** `internal/runner`'s write-ahead log (`FAILURE_PATTERNS.md` #85) generated a random
+    UUID every time an execution outcome was appended, reasoning (implicitly, by never considering the
+    question) that the entry being appended was self-evidently new. It was not: a JetStream redelivery of
+    an already-executed, already-locally-acknowledged job re-enters the exact same code path and appends
+    what is, from the real world's point of view, the identical outcome a second time. `internal/event`'s
+    own `DefaultIdempotencyKeyDerivation` doc comment already stated the general rule this violated (dedup
+    only ever recognizes a key it has seen before, so a fresh random key can never be recognized as a
+    duplicate of anything) and `internal/dispatch/worker_devices.go` already modeled the correct fix
+    (`JobID+":"+DeviceID`, a key derived from the operation's own identity, stable across as many retries
+    or redeliveries as that same operation produces) one package away. Any code that appends, publishes, or
+    persists something on behalf of an operation that could plausibly be retried or redelivered needs to
+    ask what makes two attempts at recording the *same* operation produce the *same* key, before reaching
+    for a fresh randomly-generated one as the default -- randomness is the right choice for identifying a
+    truly new thing, and the wrong one for identifying a retry of an old one.

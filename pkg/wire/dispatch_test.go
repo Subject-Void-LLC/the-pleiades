@@ -40,18 +40,19 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 		{
 			name: "all fields populated",
 			in: DispatchPayload{
-				JobID:      "job-123",
-				RunbookID:  "runbook-456",
-				DeviceID:   "device-789",
-				DeviceName: "core-switch-1",
-				DeviceHost: "10.0.0.1",
+				JobID:         "job-123",
+				RunbookID:     "runbook-456",
+				DeviceID:      "device-789",
+				DeviceName:    "core-switch-1",
+				DeviceHost:    "10.0.0.1",
+				Interruptible: true,
 			},
-			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1"}`,
+			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true}`,
 		},
 		{
 			name:     "zero value",
 			in:       DispatchPayload{},
-			wantJSON: `{"job_id":"","runbook_id":"","device_id":"","device_name":"","device_host":""}`,
+			wantJSON: `{"job_id":"","runbook_id":"","device_id":"","device_name":"","device_host":"","interruptible":false}`,
 		},
 		{
 			name: "device name and device id deliberately differ",
@@ -70,7 +71,26 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceName: "name-only-value",
 				DeviceHost: "192.168.1.1",
 			},
-			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1"}`,
+			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1","interruptible":false}`,
+		},
+		{
+			name: "interruptible false is explicit on the wire, not merely absent",
+			// Interruptible has no omitempty (unlike a hypothetical
+			// convenience shortcut): PLAN.md Section 16's safe default is
+			// "interruptible" (true), decided upstream in
+			// engine.Metadata.IsInterruptible(); an omitted key here would
+			// decode to Go's own bool zero value, false, silently inverting
+			// that default for whatever Runner reads it. This case proves
+			// false always appears explicitly, never by omission.
+			in: DispatchPayload{
+				JobID:         "job-2",
+				RunbookID:     "rb-2",
+				DeviceID:      "device-2",
+				DeviceName:    "device-2-name",
+				DeviceHost:    "10.0.0.2",
+				Interruptible: false,
+			},
+			wantJSON: `{"job_id":"job-2","runbook_id":"rb-2","device_id":"device-2","device_name":"device-2-name","device_host":"10.0.0.2","interruptible":false}`,
 		},
 	}
 
@@ -107,14 +127,15 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 // wire keys have to match by contract, not merely by both ends sharing
 // the same struct definition.
 func TestDispatchPayload_UnmarshalFromWireKeys(t *testing.T) {
-	const raw = `{"job_id":"j1","runbook_id":"r1","device_id":"d1","device_name":"n1","device_host":"h1"}`
+	const raw = `{"job_id":"j1","runbook_id":"r1","device_id":"d1","device_name":"n1","device_host":"h1","interruptible":true}`
 
 	want := DispatchPayload{
-		JobID:      "j1",
-		RunbookID:  "r1",
-		DeviceID:   "d1",
-		DeviceName: "n1",
-		DeviceHost: "h1",
+		JobID:         "j1",
+		RunbookID:     "r1",
+		DeviceID:      "d1",
+		DeviceName:    "n1",
+		DeviceHost:    "h1",
+		Interruptible: true,
 	}
 
 	var got DispatchPayload

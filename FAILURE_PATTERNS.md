@@ -2156,3 +2156,170 @@ present, or a party that is slow rather than dead can keep mutating shared state
 already, correctly, taken over. The two halves of a redelivery story, "who may start" (#79) and "who may
 still write" (#80), are two different guarantees and were fixed as two different, sequential findings for
 exactly that reason: closing the first does not imply the second is closed too.
+
+## 81. `wire.DispatchPayload.JobID` reached two NATS subjects by bare string concatenation on the Runner side, with no format validation, the identical shape #63 had already fixed once at the HTTP-facing boundary
+
+**Symptom:** found while building Phase 15 (Runner Agent Scaffold)'s write-ahead-log result reporting,
+before it shipped: `native.Adapter.streamLog` (pre-existing) builds `topology.LogSubject(payload.JobID)`,
+and the new WAL flush path (`internal/runner/agent_wal.go`) was about to build
+`topology.ResultSubject(entry.JobID)` from the identical field, both by bare `prefix + jobID`
+concatenation. NATS subject wildcards (`>`, `*`) and the `.` token separator are ordinary characters in an
+ordinary Go string; a `JobID` of `">"` would build the filter subject `pleiades.jobs.logs.>` and stream
+every job's logs, the exact vulnerability shape `FAILURE_PATTERNS.md` #63 already found and fixed once,
+at `internal/api/logs.go`'s `StreamLogs` handler.
+
+**Root cause:** #63's own fix validated the HTTP-facing entry point (`StreamLogs`'s own `{id}` URL
+parameter) but not every other place the identical value later flows to. `wire.DispatchPayload.JobID` is
+a second, independent entry point for the same underlying value: `internal/dispatch.JobStore.Create`'s
+own contract explicitly allows a caller-supplied `JobID` to override the generated default (documented in
+`ent_store.go`), so nothing in the type system or the store's own contract actually guarantees every
+`JobID` a Runner ever decodes off the wire is a server-generated UUID, even though every real producer
+today happens to be one. A value being safe *in practice*, because of who happens to produce it today, is
+not the same as the boundary itself being validated; #63's own Lesson names this trap directly, and this
+is a second entry point falling into the identical trap the first fix did not, and could not, reach.
+
+**Fix:** `internal/runner/agent.go`'s `handleMessage` validates `payload.JobID` with `uuid.Parse`
+immediately after decoding `wire.DispatchPayload`, before the value is used anywhere else in the
+function, including the call into `executeWithLease`/`adapter.Execute` (which reaches `LogSubject`
+indirectly) and the WAL append/flush path (which reaches the new `ResultSubject`). A failing `JobID` is
+`Term()`'d, matching the two malformed-payload branches immediately above it in the same function: a
+hostile or malformed `JobID` can never become valid no matter how many times the message is redelivered.
+`TestAgent_HandleMessage_RejectsSubjectInjectingJobID` (`internal/runner/agent_security_test.go`) mirrors
+`TestStreamLogs_RejectsSubjectInjectingJobIDs`'s own table exactly (`>`, `*`, a wildcard suffix, an
+embedded `.`, empty, a space, an embedded newline, a non-UUID string), asserting `Term`, never `Ack`,
+against the real `Agent.Run`/`handleMessage` path.
+
+**Lesson:** see `LESSONS_LEARNED.md` #84.
+
+## 82. `executeWithLease` had no panic recovery, so a panicking `ExecutionAdapter.Execute` crashed the whole Runner process and could race its own deferred lease release against a still-running heartbeat goroutine
+
+**Symptom:** found by an adversarial multi-agent review of Phase 15 (Runner Agent Scaffold) before it
+shipped, and empirically reproduced: a temporary `ExecutionAdapter` whose `Execute` panics, run through a
+real `Agent.Run`, crashed the test process outright with the panic propagating straight through
+`executeWithLease` -> `handleMessage` -> `worker`, no `recover()` anywhere in the chain.
+
+**Root cause:** `executeWithLease`'s normal return path explicitly ran `cancelExec(); <-done; return err`
+as ordinary statements, not deferred code, after `a.adapter.Execute(...)` returned. A panic inside
+`Execute` skips every ordinary statement that would have followed it in the same function, including that
+explicit `<-done` wait, and only the two already-registered deferred calls (`cancelExec()`, and
+`lease.Release(context.Background())`) still ran, in LIFO order, during the panic's own unwind. Nothing
+recovered the panic itself, so it propagated past `executeWithLease` and crashed the process, taking every
+other concurrently in-flight pool worker down with it before any of them could run their own deferred
+`lease.Release` -- each of their devices would then stay locked in the backing `lock.Manager` (a NATS
+JetStream KV store in production, which outlives this one process) for up to `execLeaseTTL`, even after a
+supervisor restarted the Runner. Separately, because the panic path skipped the `<-done` synchronization
+the normal path relies on to guarantee the heartbeat goroutine has stopped calling `lease.KeepAlive`
+before `lease.Release` touches the same lease value, a heartbeat tick in flight at the exact moment of a
+panic could race the deferred `Release` against `lock.NewNatsLockManager`'s own unsynchronized
+`natsLease.revision`/`deadline` fields -- a genuine, `-race`-detectable data race reachable specifically
+through this one panic path, that the already-tested normal return path does not have.
+`internal/event/consumer.go`'s `handleDelivery` already wraps its own handler call in an identical
+`recover()` for the identical reason (a handler this codebase does not control must not crash the process
+that invokes it); `internal/runner`'s new pull-based `Agent` path never reused or mirrored that
+protection.
+
+**Fix:** `executeWithLease` (`internal/runner/agent_exec.go`) now has a single deferred cleanup function
+that runs `cancelExec(); <-done` unconditionally -- on both a normal return and a panic unwind, since a
+registered `defer` always runs, unlike ordinary statements after the call that panicked -- and then calls
+`recover()`, converting a caught panic into an ordinary `error` return (`execErr`, a named return value)
+exactly like any other adapter execution failure, so the message is still routed through the normal
+Nak/DLQ path rather than the process crashing. `TestAgent_ExecuteWithLease_RecoversAdapterPanic`
+(`internal/runner/agent_exec_test.go`) proves the test process survives at all (the historical bug would
+have crashed it), the panicking message is Nak'd like any other execution failure, and the device lease
+is genuinely released (a fresh `Acquire` for the same device succeeds immediately afterward).
+
+**Lesson:** see `LESSONS_LEARNED.md` #85.
+
+## 83. `executeWithLease`'s per-execution context was an unconditional child of `Agent.Run`'s own shutdown-cancelable context, so `interruptible: false` only survived a lease-heartbeat failure, never a graceful Runner shutdown -- the far more routine trigger the PLAN.md exception actually exists for
+
+**Symptom:** found by the same adversarial review pass, before it shipped, and confirmed against the real
+call chain and an already-shipped test. `cmd/runner/main.go` cancels `Agent.Run`'s own `ctx` on
+SIGINT/SIGTERM (an ordinary restart or redeploy, not a network partition). `executeWithLease` built
+`execCtx` as `context.WithCancel(ctx)`, a direct child of that same context, so canceling `ctx` canceled
+`execCtx` too, regardless of `payload.Interruptible`. `TestAgent_Run_GracefulShutdownDrainsInFlightWork`
+(already shipped, proving a different, correct property) happened to use a fixture whose JSON omitted the
+`interruptible` key entirely, decoding `wire.DispatchPayload.Interruptible` to Go's own `bool` zero value,
+`false` -- and that test's own passing assertion, that the in-flight execution *is* aborted on outer `ctx`
+cancellation, was silently encoding the bug as intended behavior.
+
+**Root cause:** `payload.Interruptible` was only ever consulted inside `heartbeat`'s own
+`KeepAlive`-failure branch. Go's `context.WithCancel(parent)` unconditionally propagates the parent's own
+cancellation to the child with no way to gate that propagation on an application-level flag, and nothing
+in `executeWithLease` introduced a seam to do so. PLAN.md Section 16's own named exception,
+"Un-abortable tasks (`interruptible: false`) finish execution," and `executeWithLease`'s own doc comment
+promising the identical behavior, were therefore honored against exactly one of the two triggers Section
+16 actually describes (a lost lease heartbeat), never against the other, more routine one (the Runner
+process itself shutting down).
+
+**Fix:** `execCtx` (`internal/runner/agent_exec.go`) is now built over `detachedValueContext{parent: ctx}`,
+a small wrapper that still delegates `Value()` lookups to `ctx` (so the active OpenTelemetry span
+`handleMessage` already started is still carried through) but reports itself as never canceled and having
+no deadline, breaking the automatic cancellation-propagation chain `context.WithCancel(ctx)` alone cannot
+break. A watcher goroutine then explicitly propagates `ctx`'s own cancellation into `execCtx` only when
+`payload.Interruptible` is true, mirroring `heartbeat`'s own identical gate on the same flag, so both real
+triggers (a lease-heartbeat failure and an outer Runner shutdown) now honor `interruptible: false`
+consistently. `TestAgent_SelfAbort_NonInterruptibleSurvivesOuterShutdown`
+(`internal/runner/agent_exec_test.go`) cancels the outer `Agent.Run` context directly, not a heartbeat, and
+proves a non-interruptible execution is unaffected by it -- the scenario the existing
+`TestAgent_Run_GracefulShutdownDrainsInFlightWork` could not have caught, since it exercises the opposite
+(interruptible) case.
+
+**Lesson:** see `LESSONS_LEARNED.md` #86.
+
+## 84. `reportResult` appended to the Runner's own write-ahead log using the same context `Agent.Run`'s shutdown cancels, so a job whose execution was still in flight at shutdown had its outcome silently and permanently dropped instead of durably recorded
+
+**Symptom:** found by the same adversarial review pass, before it shipped, and confirmed by tracing the
+real call chain end to end. `cmd/runner/main.go`'s SIGINT/SIGTERM handler cancels the same `ctx` passed to
+`Agent.Run`; that `ctx` reaches `handleMessage` unchanged, and `native.Adapter.Execute`'s own
+cancellation-aware `sleepOrDone` (added this same phase specifically so cancellation reaches it promptly)
+returns `context.Canceled` promptly instead of finishing. `handleMessage` classifies that as a genuine
+execution failure and calls `reportResult(ctx, payload, execErr)` with the identical, already-canceled
+`ctx`. `fileWAL.Append`'s own `if err := ctx.Err(); err != nil { return ... }` guard (a deliberate,
+correct check against a genuinely stale caller context in the ordinary case) then rejected the write
+outright, at exactly the moment the WAL exists to catch: the process going away with a real, already-
+determined outcome that had not yet been durably recorded.
+
+**Root cause:** `reportResult` used `ctx`, the same context object whose cancellation can be *caused by*
+the very outcome it is trying to record (a self-abort, or a graceful shutdown mid-execution). Durability
+work that must survive the cancellation that triggered it cannot itself be a child of that cancellation --
+`executeWithLease`'s own `lease.Release(context.Background())` had already established this exact pattern
+for the identical reason, one file away, but `reportResult` did not follow it.
+
+**Fix:** `reportResult` (`internal/runner/agent_wal.go`) now performs both the `wal.Append` call and its
+own eager `flushOne` attempt against a fresh `context.WithTimeout(context.Background(), walDurabilityTimeout)`
+(10 seconds), never `ctx`, mirroring `executeWithLease`'s own precedent exactly.
+`TestAgent_ReportResult_SurvivesShutdownDuringExecution` (`internal/runner/agent_wal_test.go`) reproduces
+the exact scenario (cancel the outer `Agent.Run` context while a `WithResultWAL`-configured execution is
+mid-flight) and proves the resulting `"failed: context canceled"` outcome is now durably recorded and
+delivered, where it was silently lost before.
+
+**Lesson:** see `LESSONS_LEARNED.md` #86.
+
+## 85. The Runner's write-ahead log minted a fresh random idempotency key on every `Append` call instead of a key stable across a JetStream redelivery of the identical job, so a crash-then-redeliver-then-reexecute sequence could publish the same logical outcome twice with no dedup catching it
+
+**Symptom:** found by the same adversarial review pass, before it shipped, and empirically reproduced with
+a temporary test feeding the identical dispatch through two separate `Agent` instances sharing one WAL
+directory (modeling redelivery of an already-locally-acknowledged job): two distinct `job.result` events
+were received for the one `JobID`, with two different, unrelated IDs, proving no dedup collapsed them.
+
+**Root cause:** `reportResult` (`internal/runner/agent_wal.go`) always built a bare `ResultEntry{...}`
+with `ID` left at its zero value, and `fileWAL.Append`'s own `if entry.ID == "" { entry.ID =
+uuid.New().String() }` fallback then minted a fresh random UUID on every single call. That ID doubles as
+the outgoing publish's own idempotency key (`event.WithIdempotencyKey`), so a redelivery of the identical
+dispatch -- re-entering `handleMessage` from scratch after a crash between this Runner's own local
+`wal.Acknowledge` succeeding and the broker-side `msg.Ack()` landing -- called `reportResult` again with a
+second, entirely unrelated random ID. `event.DefaultIdempotencyKeyDerivation`'s own doc comment
+(`internal/event/dedup.go`) already names exactly this class of mistake: dedup only ever recognizes a key
+it has seen before, so two different random IDs describing the logically same outcome can never collapse
+into one.
+
+**Fix:** `reportResult` now sets `ID: payload.JobID + ":" + payload.DeviceID` explicitly, a key that stays
+identical across any number of redeliveries of the same dispatch, mirroring
+`internal/dispatch/worker_devices.go`'s own identical `JobID+":"+DeviceID` key for the identical reason.
+`fileWAL.Append` needed no change: it already honored a caller-supplied, non-empty `ID` as-is.
+`TestAgent_ReportResult_UsesStableIdempotencyKeyAcrossRedelivery`
+(`internal/runner/agent_wal_test.go`) runs the identical wire payload through two separate `Agent`
+instances (standing in for two delivery attempts of the same message) and proves both resulting entries
+share the one stable key.
+
+**Lesson:** see `LESSONS_LEARNED.md` #87.

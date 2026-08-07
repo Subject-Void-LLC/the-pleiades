@@ -34,10 +34,11 @@ const (
 	// configured with. Every subject this package builds falls under it.
 	StreamSubjectRoot = "pleiades.>"
 
-	eventSubjectPrefix = "pleiades.events."
-	dispatchSubject    = "pleiades.jobs.dispatch"
-	logSubjectPrefix   = "pleiades.jobs.logs."
-	dlqSubjectPrefix   = "pleiades.dlq."
+	eventSubjectPrefix  = "pleiades.events."
+	dispatchSubject     = "pleiades.jobs.dispatch"
+	logSubjectPrefix    = "pleiades.jobs.logs."
+	resultSubjectPrefix = "pleiades.jobs.results."
+	dlqSubjectPrefix    = "pleiades.dlq."
 	// jobRequestedSubject is the one subject a Job launch (a later stage
 	// in this session, replacing internal/api/dispatcher.go's synchronous
 	// handler) publishes to, and internal/dispatch.Worker.HandleJobRequested
@@ -93,6 +94,16 @@ func DispatchSubject() string {
 // "jobs.logs.<id>".
 func LogSubject(jobID string) string {
 	return logSubjectPrefix + jobID
+}
+
+// ResultSubject returns the subject a given job's Runner-buffered
+// execution result publishes to once internal/runner's Write-Ahead-Log
+// flush succeeds (PLAN.md Section 16's State Desync Mitigation). It falls
+// under StreamSubjectRoot exactly like every other subject this package
+// declares, so no separate stream or EnsureStream change is needed for
+// it.
+func ResultSubject(jobID string) string {
+	return resultSubjectPrefix + jobID
 }
 
 // JobRequestedSubject returns the one subject a persisted Job's launch

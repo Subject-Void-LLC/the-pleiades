@@ -56,6 +56,45 @@ func TestDirSource_Get_ResolvesRequiredCapabilities(t *testing.T) {
 	}
 }
 
+// TestDirSource_Get_ResolvesInterruptible proves Runbook.Interruptible is
+// engine.Metadata.IsInterruptible()'s own resolved answer, computed once
+// in Get rather than left for a caller to re-derive from a raw *bool: a
+// runbook with no metadata section defaults to interruptible (true), and
+// one explicitly declaring interruptible: false resolves to false, both
+// through the real engine.Builder.BuildFromYAML compile path (RULE 0),
+// not a hand-built DAG.
+func TestDirSource_Get_ResolvesInterruptible(t *testing.T) {
+	dir := t.TempDir()
+	writeRunbook(t, dir, "default-interruptible", "noop")
+
+	abortPath := filepath.Join(dir, "no-abort.yaml")
+	abortContent := "id: no-abort\nmetadata:\n  interruptible: false\ntasks:\n  - name: step\n    fqcn: noop\n"
+	if err := os.WriteFile(abortPath, []byte(abortContent), 0o644); err != nil {
+		t.Fatalf("failed to write fixture: %v", err)
+	}
+
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+
+	rb, err := src.Get(context.Background(), "default-interruptible")
+	if err != nil {
+		t.Fatalf("Get(default-interruptible): %v", err)
+	}
+	if !rb.Interruptible {
+		t.Error("expected a runbook with no metadata section to default to Interruptible=true")
+	}
+
+	rb, err = src.Get(context.Background(), "no-abort")
+	if err != nil {
+		t.Fatalf("Get(no-abort): %v", err)
+	}
+	if rb.Interruptible {
+		t.Error("expected a runbook declaring interruptible: false to resolve Interruptible=false")
+	}
+}
+
 // TestDirSource_Get_UnknownID_ReturnsErrNotFound proves a valid-shaped id
 // that simply has no backing file resolves to an error satisfying
 // errors.Is(err, runbook.ErrNotFound), the contract Source.Get promises.

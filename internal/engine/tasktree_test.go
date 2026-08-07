@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
@@ -215,6 +216,118 @@ func TestMetadata_AbsentSectionBuildsZeroValue(t *testing.T) {
 		}
 		if dag.Metadata.ServiceEffecting {
 			t.Errorf("expected ServiceEffecting to default to false, got true")
+		}
+	})
+}
+
+// TestMetadata_IsInterruptible is the table-driven proof of
+// Metadata.IsInterruptible's own documented "nil means true" default: a
+// plain bool could not represent "unset" as distinct from "explicitly
+// false", which is exactly the distinction PLAN.md Section 16's
+// interruptible: false exception depends on.
+func TestMetadata_IsInterruptible(t *testing.T) {
+	yes, no := true, false
+
+	tests := []struct {
+		name string
+		in   engine.Metadata
+		want bool
+	}{
+		{"nil pointer defaults to interruptible", engine.Metadata{Interruptible: nil}, true},
+		{"explicit true", engine.Metadata{Interruptible: &yes}, true},
+		{"explicit false", engine.Metadata{Interruptible: &no}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.in.IsInterruptible(); got != tt.want {
+				t.Errorf("IsInterruptible() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestMetadata_Interruptible_JSONRoundTrip confirms Metadata.Interruptible
+// round-trips through JSON as a real *bool, not silently collapsing
+// "absent" and "explicitly false" into the same decoded value: an absent
+// interruptible key decodes to a nil pointer (IsInterruptible() true), and
+// an explicit false decodes to a non-nil pointer to false
+// (IsInterruptible() false) -- two states a plain bool field could not
+// distinguish.
+func TestMetadata_Interruptible_JSONRoundTrip(t *testing.T) {
+	no := false
+	original := engine.WorkflowDef{
+		ID:       "interruptible-false",
+		Metadata: engine.Metadata{Interruptible: &no},
+		Tasks:    []engine.Task{{Name: "a", FQCN: "noop"}},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("failed to marshal WorkflowDef: %v", err)
+	}
+	if !strings.Contains(string(data), `"interruptible":false`) {
+		t.Fatalf("marshaled JSON %s does not contain an explicit \"interruptible\":false key", data)
+	}
+
+	var decoded engine.WorkflowDef
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal WorkflowDef: %v", err)
+	}
+	if decoded.Metadata.IsInterruptible() {
+		t.Error("expected IsInterruptible() to be false after round-tripping an explicit false through JSON")
+	}
+}
+
+// TestMetadata_Interruptible_AbsentMeansTrue confirms a runbook with no
+// metadata.interruptible key at all builds with Metadata.Interruptible
+// nil, and therefore IsInterruptible() true, both from JSON and YAML --
+// the safe default PLAN.md Section 16 requires (interruptible: false is
+// the named exception, which only makes sense if the unmarked case is the
+// common, abortable one).
+func TestMetadata_Interruptible_AbsentMeansTrue(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	t.Run("JSON", func(t *testing.T) {
+		payload := []byte(`{"id": "no-metadata", "tasks": [{"name": "a", "fqcn": "noop"}]}`)
+		dag, err := builder.Build(payload)
+		if err != nil {
+			t.Fatalf("failed to build DAG: %v", err)
+		}
+		if dag.Metadata.Interruptible != nil {
+			t.Errorf("expected Interruptible to be nil when absent, got %v", *dag.Metadata.Interruptible)
+		}
+		if !dag.Metadata.IsInterruptible() {
+			t.Error("expected IsInterruptible() to default to true")
+		}
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		payload := []byte("id: no-metadata\ntasks:\n  - name: a\n    fqcn: noop\n")
+		dag, err := builder.BuildFromYAML(payload)
+		if err != nil {
+			t.Fatalf("failed to build DAG: %v", err)
+		}
+		if dag.Metadata.Interruptible != nil {
+			t.Errorf("expected Interruptible to be nil when absent, got %v", *dag.Metadata.Interruptible)
+		}
+		if !dag.Metadata.IsInterruptible() {
+			t.Error("expected IsInterruptible() to default to true")
+		}
+	})
+
+	t.Run("YAML explicit interruptible: false", func(t *testing.T) {
+		payload := []byte("id: no-abort\nmetadata:\n  interruptible: false\ntasks:\n  - name: a\n    fqcn: noop\n")
+		dag, err := builder.BuildFromYAML(payload)
+		if err != nil {
+			t.Fatalf("failed to build DAG: %v", err)
+		}
+		if dag.Metadata.Interruptible == nil || *dag.Metadata.Interruptible {
+			t.Fatalf("expected Interruptible to decode to a non-nil false, got %v", dag.Metadata.Interruptible)
+		}
+		if dag.Metadata.IsInterruptible() {
+			t.Error("expected IsInterruptible() to be false for an explicit interruptible: false")
 		}
 	})
 }

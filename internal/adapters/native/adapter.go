@@ -40,6 +40,15 @@ type LogEvent struct {
 }
 
 // Execute simulates running a native Go runbook (e.g. Ping).
+//
+// Each simulated step's sleep honors ctx via sleepOrDone rather than a
+// bare time.Sleep, so a caller's context cancellation (internal/runner's
+// executeWithLease, self-aborting on lost lock lease heartbeat per
+// PLAN.md Section 16) actually stops this Execute call promptly instead
+// of running out its full ~1s of simulated work regardless of
+// cancellation -- without this, the self-abort mechanism would be
+// unprovable against the one real (if still simulated) adapter this
+// codebase has.
 func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	// Simulate Ping Execution - Step 1: Start
 	a.streamLog(ctx, payload.JobID, LogEvent{
@@ -49,7 +58,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		Task:      "Executing Native Collection: " + payload.RunbookID,
 	})
 
-	time.Sleep(500 * time.Millisecond)
+	if err := sleepOrDone(ctx, 500*time.Millisecond); err != nil {
+		return err
+	}
 
 	// Simulate Ping Execution - Step 2: Ping
 	a.streamLog(ctx, payload.JobID, LogEvent{
@@ -69,7 +80,9 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		},
 	})
 
-	time.Sleep(500 * time.Millisecond)
+	if err := sleepOrDone(ctx, 500*time.Millisecond); err != nil {
+		return err
+	}
 
 	// Simulate Ping Execution - Step 3: Complete
 	a.streamLog(ctx, payload.JobID, LogEvent{
@@ -85,6 +98,19 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	})
 
 	return nil
+}
+
+// sleepOrDone waits d or returns ctx's own error if ctx is canceled
+// first, the standard cancelable-sleep idiom this codebase already uses
+// elsewhere for the identical shape of problem (e.g.
+// internal/election.releaseBestEffort's own bounded-context pattern).
+func sleepOrDone(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // streamLog wraps evt in the DRY envelope and publishes it to

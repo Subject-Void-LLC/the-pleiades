@@ -86,11 +86,12 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	}
 
 	payload := wire.DispatchPayload{
-		JobID:      job.JobID,
-		RunbookID:  job.RunbookID,
-		DeviceID:   string(device.ID()),
-		DeviceName: device.Name(),
-		DeviceHost: host,
+		JobID:         job.JobID,
+		RunbookID:     job.RunbookID,
+		DeviceID:      string(device.ID()),
+		DeviceName:    device.Name(),
+		DeviceHost:    host,
+		Interruptible: rb.Interruptible,
 	}
 
 	dispatchEvt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)

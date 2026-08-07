@@ -26,10 +26,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/adapters/native"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
@@ -45,6 +47,23 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envInt reads key as an integer, returning fallback if key is unset or
+// does not parse as one. Used for RUNNER_POOL_SIZE, which runner.
+// WithPoolSize itself already treats a non-positive value as "keep the
+// default," so an unset or malformed env var and an explicit 0 both fall
+// through to the same safe behavior.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func main() {
@@ -97,9 +116,38 @@ func main() {
 		log.Fatalf("failed to create dispatch consumer: %v", err)
 	}
 
+	// lockMgr backs Agent's own per-device execution lease (PLAN.md
+	// Section 13: "Locks live in the backend... a device can only have
+	// one exclusive execution running against it at a time"), acquired
+	// around every job this Agent executes (internal/runner's
+	// executeWithLease). A distinct NATS connection from event.NewNatsBus
+	// and the raw jetstream one above, the same documented
+	// multi-connection tradeoff cmd/controller's own lockMgr construction
+	// already accepts.
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL)
+	if err != nil {
+		log.Fatalf("failed to init lock manager: %v", err)
+	}
+
+	poolSize := envInt("RUNNER_POOL_SIZE", 0) // 0 means "unset"; NewAgent's own WithPoolSize ignores n<=0 and keeps defaultPoolSize
+	agentOpts := []runner.AgentOption{runner.WithPoolSize(poolSize)}
+
+	// WAL result buffering (PLAN.md Section 16's State Desync
+	// Mitigation) is opt-in: only constructed, and only fail-closed at
+	// startup, when an operator actually asks for it via RUNNER_WAL_DIR.
+	// A Runner that never sets this env var behaves exactly as if
+	// WithResultWAL did not exist.
+	if walDir := getenv("RUNNER_WAL_DIR", ""); walDir != "" {
+		wal, err := runner.NewFileWAL(walDir)
+		if err != nil {
+			log.Fatalf("failed to init result wal: %v", err)
+		}
+		agentOpts = append(agentOpts, runner.WithResultWAL(wal, bus))
+	}
+
 	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, topology.MaxDeliverDefault, logger,
-		tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner"))
+	agent := runner.NewAgent(consumer, adapter, js, lockMgr, topology.MaxDeliverDefault, logger,
+		tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner"), agentOpts...)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -112,6 +160,15 @@ func main() {
 	logger.Info("runner agent starting", slog.String("nats_url", natsURL), slog.String("durable", topology.DispatchDurableName))
 	if err := agent.Run(ctx); err != nil && err != context.Canceled {
 		log.Fatalf("agent run failed: %v", err)
+	}
+
+	// Safe to close only after agent.Run has returned: Run's own
+	// sync.WaitGroup drain (agent_run.go) guarantees every worker's
+	// executeWithLease has already run its deferred lease.Release by the
+	// time Run returns, so no in-flight lock use can still be relying on
+	// this connection.
+	if err := lockMgr.Close(); err != nil {
+		logger.Error("lock manager close failed", slog.String("error", err.Error()))
 	}
 
 	if err := bus.Close(); err != nil {
