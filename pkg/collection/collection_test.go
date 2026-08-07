@@ -79,6 +79,31 @@ func TestRegister_RejectsUnknownCapability(t *testing.T) {
 	}
 }
 
+// TestRegister_RejectsImplementedWithoutInvoke is the guardrail
+// collection.go's Register documents: a Manifest claiming
+// StatusImplemented with a nil Invoke would otherwise panic the first time
+// a runbook dispatched to it, so Register refuses it at registration time
+// instead.
+func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
+	d := collection.Descriptor{
+		Name:     "test.implemented_without_invoke",
+		Manifest: collection.Manifest{Status: collection.StatusImplemented},
+		Invoke:   nil,
+	}
+
+	err := collection.Register(d)
+	if err == nil {
+		t.Fatal("Register with StatusImplemented and a nil Invoke: expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), string(collection.StatusImplemented)) {
+		t.Errorf("error %q does not name the status that requires an implementation", err.Error())
+	}
+
+	if _, ok := collection.Lookup(d.Name); ok {
+		t.Error("descriptor claiming StatusImplemented with no Invoke was registered despite the rejection")
+	}
+}
+
 func TestRegister_RejectsDuplicate(t *testing.T) {
 	d := collection.Descriptor{Name: "test.duplicate", Manifest: collection.Manifest{Status: collection.StatusDeclared}}
 
