@@ -26,3 +26,4 @@ vendor/
 /runner
 /pleiades
 /docs-lint
+/gendocs
