@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // generateCapabilities emits outDir/capabilities.md: every registered

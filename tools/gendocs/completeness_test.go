@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestImplementedMethodsHaveCompleteDocs is the completeness gate the plan

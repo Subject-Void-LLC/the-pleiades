@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 )
 
 // entUnitOfWork implements UnitOfWork on top of *ent.Client's own

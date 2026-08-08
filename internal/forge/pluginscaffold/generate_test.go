@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 )
 
 // parseGenerated parses content as Go source, failing the test with the
@@ -240,21 +240,21 @@ func TestConfig_Accessors(t *testing.T) {
 			in:          "catalyst_center",
 			wantPackage: "catalystcenter",
 			wantType:    "CatalystCenter",
-			wantImport:  "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/catalystcenter",
+			wantImport:  "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter",
 		},
 		{
 			name:        "single word",
 			in:          "netbox",
 			wantPackage: "netbox",
 			wantType:    "Netbox",
-			wantImport:  "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/netbox",
+			wantImport:  "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/netbox",
 		},
 		{
 			name:        "three words",
 			in:          "acme_widget_controller",
 			wantPackage: "acmewidgetcontroller",
 			wantType:    "AcmeWidgetController",
-			wantImport:  "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/acmewidgetcontroller",
+			wantImport:  "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/acmewidgetcontroller",
 		},
 	}
 

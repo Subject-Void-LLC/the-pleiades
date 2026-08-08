@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 )
 
 // Job is the model entity for the Job schema.

@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	// Aliased entjob: this file's existing tests already name their local
 	// *dispatch.Job variable "job", so importing internal/ent/job under its
 	// default name would shadow every one of those existing local
 	// variables rather than the other way around.
-	entjob "github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
+	entjob "github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	_ "github.com/mattn/go-sqlite3"
 )
 

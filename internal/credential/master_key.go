@@ -3,7 +3,7 @@ package credential
 import (
 	"path/filepath"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
 
 // masterKeyEnvVar is the environment variable an operator can set to

@@ -8,7 +8,7 @@ package catalogdata_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 )
 
 func TestCollections_NoDuplicatesAndAllValid(t *testing.T) {

@@ -11,18 +11,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/catalystcenter"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	pkginv "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 
 	// The device types this plugin classifies into must be registered for
 	// the factory to hydrate them.
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/catalyst"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
 )
 
 // These are this plugin's own tests. The cross-plugin assertions that keep

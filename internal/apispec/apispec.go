@@ -14,8 +14,8 @@ package apispec
 import (
 	"net/http"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // Param documents one path or query parameter an Endpoint reads.

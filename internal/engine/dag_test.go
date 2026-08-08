@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // TestDAGBuilder_LinearTasks confirms a simple tasks: list compiles with

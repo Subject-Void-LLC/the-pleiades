@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 )
 
 // FuzzPayloadEnvelope tests the CloudEvent wrapper against arbitrary

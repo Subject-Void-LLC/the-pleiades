@@ -9,8 +9,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 )
 
 // JobTask is the model entity for the JobTask schema.

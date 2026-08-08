@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api/wellknown"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 	"github.com/go-chi/chi/v5"
 )
 

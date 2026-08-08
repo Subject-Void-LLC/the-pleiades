@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/google/uuid"
 )
 

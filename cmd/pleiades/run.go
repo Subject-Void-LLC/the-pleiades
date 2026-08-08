@@ -7,12 +7,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
-	sshtransport "github.com/SubjectVoidLLC/the-pleiades/internal/transport/ssh"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
 // runRunbook loads the inventory and a runbook, validates them, prints

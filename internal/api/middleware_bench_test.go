@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 )
 
 func BenchmarkAuthMiddleware(b *testing.B) {

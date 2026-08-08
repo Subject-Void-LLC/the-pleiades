@@ -3,8 +3,8 @@ package inventory
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // ResolveHostType returns the device type h should hydrate as: h.Type

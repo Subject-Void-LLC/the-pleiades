@@ -21,14 +21,14 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestCapabilityHierarchyIsClosed proves every registered capability's

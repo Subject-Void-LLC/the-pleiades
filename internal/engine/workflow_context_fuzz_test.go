@@ -3,7 +3,7 @@ package engine_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // FuzzInProcessWorkflowContext proves Merge and Read never panic on

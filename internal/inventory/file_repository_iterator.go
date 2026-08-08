@@ -3,7 +3,7 @@ package inventory
 import (
 	"context"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // fileIterator implements Iterator over an in-memory slice already loaded

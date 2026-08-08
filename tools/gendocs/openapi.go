@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 )
 
 // generateOpenAPI emits outDir/openapi.json (OpenAPI 3.1) and the

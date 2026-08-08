@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // FuzzGenerate proves that Generate either rejects a malformed Vendor or

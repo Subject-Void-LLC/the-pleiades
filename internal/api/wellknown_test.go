@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api/wellknown"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api/wellknown"
 )
 
 // TestWellKnownRoutes proves every generated document is served at its

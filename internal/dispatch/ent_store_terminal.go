@@ -10,7 +10,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 )
 
 // Complete transitions jobID to "completed" and stamps its final tallies.

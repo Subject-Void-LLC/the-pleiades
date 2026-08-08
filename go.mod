@@ -1,4 +1,4 @@
-module github.com/SubjectVoidLLC/the-pleiades
+module github.com/Subject-Void-LLC/the-pleiades
 
 go 1.25.0
 

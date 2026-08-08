@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ansible"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ansible"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 )
 
 // mockBus is a minimal event.Bus fake: ReceptorAdapter only ever calls

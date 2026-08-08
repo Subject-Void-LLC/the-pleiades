@@ -11,7 +11,7 @@
 // this codebase, and a second one is a defect, not a variation.
 package collection
 
-import "github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 
 // Status records whether a registered Collection method has a real
 // implementation yet, or only a declared Manifest whose stub returns an

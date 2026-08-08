@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
 
 // FuzzAESDecryption hammers the GCM Open function with garbage byte arrays.

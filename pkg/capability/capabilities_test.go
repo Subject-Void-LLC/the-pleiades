@@ -3,7 +3,7 @@ package capability_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 type sshDevice struct{}

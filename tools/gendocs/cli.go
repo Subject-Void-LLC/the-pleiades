@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 )
 
 // generateCLI emits outDir/cli.md: every command in clispec.Root,

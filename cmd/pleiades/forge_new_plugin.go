@@ -8,7 +8,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 )
 
 // runForgeNewPlugin emits a new inventory sync plugin package: a syncplugin

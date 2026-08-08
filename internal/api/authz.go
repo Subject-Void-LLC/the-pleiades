@@ -10,7 +10,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // Admitter is the narrow slice of auth.Admission RequireScope needs: one

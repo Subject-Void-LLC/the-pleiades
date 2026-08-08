@@ -31,8 +31,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
 // segmentPattern is the legal shape of one classification path segment,

@@ -3,8 +3,8 @@ package inventory_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 )
 
 func BenchmarkFactoryHydration(b *testing.B) {

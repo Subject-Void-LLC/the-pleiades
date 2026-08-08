@@ -12,21 +12,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	// Aliased entjob: this file's existing tests already name local
 	// variables "job" (e.g. requestJob's own *dispatch.Job), so importing
 	// internal/ent/job under its default name would shadow those instead
 	// of the other way around.
-	entjob "github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
+	entjob "github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )

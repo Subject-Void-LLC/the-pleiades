@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // validRunbookID matches a runbook id that is safe to use in a filesystem

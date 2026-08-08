@@ -10,12 +10,12 @@ package archtest
 import (
 	"testing"
 
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog"   // triggers every generated Collection package's init()
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory" // triggers builtins.go's device-type init()s
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"   // triggers every generated Collection package's init()
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory" // triggers builtins.go's device-type init()s
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestCatalogCollections_AllRegistered proves every catalogdata.Collections

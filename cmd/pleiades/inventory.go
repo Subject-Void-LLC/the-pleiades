@@ -13,11 +13,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/catalystcenter"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // inventoryCommands maps each `inventory` subcommand to its handler,

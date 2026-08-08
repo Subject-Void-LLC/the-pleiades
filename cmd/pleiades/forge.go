@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 )
 
 // forgeCommands maps each forge subcommand name to its handler, the same

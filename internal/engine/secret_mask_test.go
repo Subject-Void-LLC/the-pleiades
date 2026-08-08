@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // TestDAGBuilder_RegisterMaskAndSecretMaskRoundTrip confirms register_mask

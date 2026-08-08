@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 )
 
 // BenchmarkClassify measures the per-host cost of classification against

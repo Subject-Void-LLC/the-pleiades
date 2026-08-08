@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/registry"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // Method is a Collection method's real implementation: the function a

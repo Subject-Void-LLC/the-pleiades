@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Retire transitions the host named name to inventory.StateArchived and

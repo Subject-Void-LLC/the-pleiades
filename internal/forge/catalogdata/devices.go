@@ -4,8 +4,8 @@
 package catalogdata
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // Devices is every device type Phase 34 generates via `pleiades forge

@@ -8,7 +8,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
 )
 
 // runForgeNewDevice emits a new vendor device-type package mirroring

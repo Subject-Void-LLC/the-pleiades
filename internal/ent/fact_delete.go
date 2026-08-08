@@ -8,8 +8,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 )
 
 // FactDelete is the builder for deleting a Fact entity.

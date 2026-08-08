@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/genutil"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // Config is the input to Generate: everything needed to emit one new

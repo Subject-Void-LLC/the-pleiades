@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 func TestEventSubject(t *testing.T) {

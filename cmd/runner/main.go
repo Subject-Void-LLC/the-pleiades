@@ -29,12 +29,12 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/adapters/native"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -147,7 +147,7 @@ func main() {
 
 	adapter := native.NewAdapter(bus)
 	agent := runner.NewAgent(consumer, adapter, js, lockMgr, topology.MaxDeliverDefault, logger,
-		tracerProvider.Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner"), agentOpts...)
+		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

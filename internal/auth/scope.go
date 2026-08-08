@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
 // Effect is whether a RoleBinding permits or forbids access at its scope.

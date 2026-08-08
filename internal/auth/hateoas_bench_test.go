@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // BenchmarkAdmissionGenerator_Permitted prices the affordance probe in

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
 
 // BenchmarkAESGCM throughput test for single-key AES-256-GCM. This is the

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 )
 
 // sqliteBulkInsertBatch is the row count per CreateBulk call these

@@ -3,10 +3,10 @@ package catalyst_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/catalyst"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	pkginv "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // newCenter builds a Center from the given properties.

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // repoRoot locates the module root from this test file's own package
@@ -69,7 +69,7 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 		}
 	}
 
-	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("relgate%d", os.Getpid())
+	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("relgate%d", os.Getpid())
 	runGo(t, root, "build", pkgImportPath)
 	runGo(t, root, "test", "-v", pkgImportPath)
 }

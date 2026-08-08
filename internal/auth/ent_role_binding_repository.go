@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 )
 
 // entRoleBindingRepository adapts RoleBindingRepository to internal/ent,

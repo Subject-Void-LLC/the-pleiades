@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 )
 
 func mustEnvelopeService(t *testing.T, currentKey []byte, currentVersion string, previousKey []byte, previousVersion string) *crypto.EnvelopeService {

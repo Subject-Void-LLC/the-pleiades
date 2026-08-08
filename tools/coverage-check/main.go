@@ -29,7 +29,7 @@ import (
 const tolerance = 0.05
 
 var (
-	pkgPattern     = regexp.MustCompile(`github\.com/SubjectVoidLLC/the-pleiades/\S*`)
+	pkgPattern     = regexp.MustCompile(`github\.com/Subject-Void-LLC/the-pleiades/\S*`)
 	percentPattern = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
 )
 

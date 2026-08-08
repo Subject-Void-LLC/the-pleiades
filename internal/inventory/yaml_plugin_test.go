@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // The former TestStaticYAMLPlugin_Load moved with the plugin itself, to

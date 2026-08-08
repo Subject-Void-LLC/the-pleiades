@@ -3,7 +3,7 @@ package validate
 import (
 	"sort"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // BlastRadius summarizes how large an impact running a runbook right now

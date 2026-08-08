@@ -27,8 +27,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/transport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 )
 
 // Default tuning values applied when the corresponding Options field is

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runner"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 )
 
 // TestNewFileWAL_FailsClosedOnUnwritableDirectory proves NewFileWAL fails

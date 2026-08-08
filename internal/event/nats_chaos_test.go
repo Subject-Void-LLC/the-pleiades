@@ -6,7 +6,7 @@ import (
 	"time"
 
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/testcontainers/testcontainers-go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"

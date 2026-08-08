@@ -28,7 +28,7 @@ import (
 	// cmd/pleiades/catalog_builtins.go carries for the same reason:
 	// without it, pkg/collection.Lookup finds nothing, and this tool
 	// would have no Manifest to read for any FQCN in catalogdata.
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
 )
 
 //go:generate go run .

@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/catalystcenter"
 )
 
 // devicePage renders a fake page of n devices starting at index start, in

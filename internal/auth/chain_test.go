@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 type fakeAdmissionRule struct {

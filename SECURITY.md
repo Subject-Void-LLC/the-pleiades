@@ -7,7 +7,7 @@ before it becomes a real incident.
 ## Reporting a vulnerability
 
 Do not open a public GitHub issue for a security vulnerability. Instead, use
-[GitHub's private vulnerability reporting](https://github.com/SubjectVoidLLC/the-pleiades/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/Subject-Void-LLC/the-pleiades/security/advisories/new)
 for this repository.
 
 Include what you'd include for any bug report: affected version or commit, a

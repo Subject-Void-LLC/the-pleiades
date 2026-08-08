@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 )
 
 // The DeviceFunc type is an adapter to allow the use of ordinary

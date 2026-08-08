@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // These tests drive Reconcile directly with a controllable plugin, so every

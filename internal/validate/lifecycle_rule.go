@@ -3,7 +3,7 @@ package validate
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // LifecycleRule is the plan-time half of enforcing PLAN.md Section 11's

@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
 // runInit scaffolds a new Walk-tier project: a static inventory file, a

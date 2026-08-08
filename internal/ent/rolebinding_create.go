@@ -10,8 +10,8 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 )
 
 // RoleBindingCreate is the builder for creating a RoleBinding entity.

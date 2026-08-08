@@ -29,8 +29,8 @@ package syncplugin
 import (
 	"context"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 )
 
 // Plugin is the four-stage contract every inventory source satisfies. The

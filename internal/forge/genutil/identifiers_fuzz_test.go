@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/genutil"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
 )
 
 // FuzzValidateSegment proves that no input accepted by ValidateSegment can

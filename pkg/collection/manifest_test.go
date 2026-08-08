@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestManifest_RoundTrip is this phase's Release Gate: a hand-written

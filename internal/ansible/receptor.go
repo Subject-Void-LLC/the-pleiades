@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/google/uuid"
 )
 

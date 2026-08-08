@@ -5,12 +5,12 @@ package enttest
 import (
 	"context"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	// required by schema hooks.
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/ent/runtime"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/ent/runtime"
 
 	"entgo.io/ent/dialect/sql/schema"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 )
 
 type (

@@ -8,5 +8,5 @@
 package main
 
 import (
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
 )

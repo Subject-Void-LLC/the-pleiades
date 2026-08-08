@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 )
 
 // BenchmarkInProcessPublish measures the publish-to-handler-invoked round

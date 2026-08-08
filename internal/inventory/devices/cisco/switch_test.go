@@ -3,9 +3,9 @@ package cisco_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // TestNewSwitch_ConstructsFromRecord is a starter test,

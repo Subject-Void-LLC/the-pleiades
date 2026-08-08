@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -142,7 +142,7 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		logger = slog.Default()
 	}
 	if tracer == nil {
-		tracer = noop.NewTracerProvider().Tracer("github.com/SubjectVoidLLC/the-pleiades/internal/runner")
+		tracer = noop.NewTracerProvider().Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner")
 	}
 	a := &Agent{
 		consumer:       consumer,

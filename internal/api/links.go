@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/go-chi/chi/v5"
 )
 

@@ -3,7 +3,7 @@ package topology_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 func TestDedupBucketConfig(t *testing.T) {

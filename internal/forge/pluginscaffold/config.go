@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/genutil"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
 )
 
 // Config is the input to Generate: everything needed to emit one new
@@ -70,7 +70,7 @@ func (c Config) PackagePath() string {
 // ImportPath returns the full Go import path of the generated package, which
 // is what the plugins composition root blank-imports.
 func (c Config) ImportPath() string {
-	return "github.com/SubjectVoidLLC/the-pleiades/" + c.PackagePath()
+	return "github.com/Subject-Void-LLC/the-pleiades/" + c.PackagePath()
 }
 
 // Validate reports whether cfg is safe to generate from. It fails closed on

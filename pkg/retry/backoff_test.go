@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/retry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 )
 
 // TestBackoff_DoublesPerAttempt proves the exponential curve: for a

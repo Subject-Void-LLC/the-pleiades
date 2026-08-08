@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"

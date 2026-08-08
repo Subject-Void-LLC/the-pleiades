@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )

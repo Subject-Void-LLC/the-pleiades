@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 func TestNewCollectionArgs(t *testing.T) {
@@ -276,16 +276,16 @@ func TestWriteCatalogBuiltins_DedupesAndSorts(t *testing.T) {
 	content := string(data)
 
 	wantImports := []string{
-		`"github.com/SubjectVoidLLC/the-pleiades/internal/catalog/exec"`,
-		`"github.com/SubjectVoidLLC/the-pleiades/internal/catalog/pkg/apt"`,
-		`"github.com/SubjectVoidLLC/the-pleiades/internal/catalog/svc"`,
+		`"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec"`,
+		`"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/apt"`,
+		`"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc"`,
 	}
 	for _, want := range wantImports {
 		if !strings.Contains(content, want) {
 			t.Errorf("expected generated builtins.go to import %s, got:\n%s", want, content)
 		}
 	}
-	if strings.Count(content, `"github.com/SubjectVoidLLC/the-pleiades/internal/catalog/svc"`) != 1 {
+	if strings.Count(content, `"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc"`) != 1 {
 		t.Errorf("expected the svc package to be imported exactly once despite two entries sharing it, got:\n%s", content)
 	}
 	// exec sorts before pkg/apt sorts before svc: assert that order.
@@ -355,8 +355,8 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 		t.Fatalf("runPleiades new-device: %v", err)
 	}
 
-	collectionImport := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + suffix
-	deviceImport := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/" + suffix
+	collectionImport := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + suffix
+	deviceImport := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + suffix
 	for _, pkg := range []string{collectionImport, deviceImport} {
 		for _, subcmd := range []string{"build", "test"} {
 			cmd := exec.Command("go", subcmd, pkg)
