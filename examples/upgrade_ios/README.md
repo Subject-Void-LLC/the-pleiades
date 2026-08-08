@@ -16,9 +16,11 @@ examples/upgrade_ios/
 
 Both upgrade a Catalyst switch named `sw1` from whatever it is running today to IOS-XE
 17.03.04: back up the config, copy the new image to flash, verify its checksum, point the
-boot variable at it, reload, then confirm the new version came up. This is the same
-scenario `docs/cisco_lab_scenario.md` walks through at the architecture level; these two
-files are what actually authoring it looks like.
+boot variable at it, reload, then confirm the new version came up.
+
+For the general keyword map, module-to-FQCN map, and AWX/AAP object map this example is
+built from, see [Migrating from Ansible, AWX, and AAP](../../docs/03-migrating-from-ansible.md).
+This README covers only what is specific to these two files.
 
 ## Task-by-task
 
@@ -36,11 +38,9 @@ files are what actually authoring it looks like.
 | Re-check version | `cisco.ios.ios_facts` | `net.cli.command` |
 | Record run report data | `ansible.builtin.set_stats` | `pleiades.builtin.set_metadata` |
 
-The `net.*` names come straight out of `docs/hephaestus.md`'s migration table: `net.ios.config`
-is `cisco.ios.ios_config`, `net.cli.command` is `ansible.netcommon.cli_command`. There is no
-`cisco.ios.ios_facts` or `cisco.ios.ios_command` equivalent in the native catalog, so both
-"record the version" steps use the generic `net.cli.command` with `show version`, the same way
-you would reach for `ansible.netcommon.cli_command` if you did not want to pull in the whole
+There is no `cisco.ios.ios_facts` or `cisco.ios.ios_command` equivalent in the native catalog, so
+both "record the version" steps use the generic `net.cli.command` with `show version`, the same
+way you would reach for `ansible.netcommon.cli_command` if you did not want to pull in the whole
 `cisco.ios` collection just to run one show command.
 
 `pleiades.builtin.wait.port` and `pleiades.builtin.set_metadata` are different from every other
@@ -50,27 +50,6 @@ domain name. `set_metadata` is also reachable as the bare `set_metadata` (both s
 identically, indefinitely); `wait.port`'s sibling methods, `wait.path` and `wait.search`, are not
 yet renamed under this namespace, an intentionally left inconsistency rather than an oversight
 (see `internal/forge/catalogdata/collections_gating.go`).
-
-## What is identical
-
-Pleiades is built as a strict superset of Ansible, and it shows here:
-
-- `pre_tasks` / `tasks` / `post_tasks` on the Ansible side map straight onto `pretasks` /
-  `tasks` / `posttasks` on the Pleiades side, same three-phase shape, same ordering.
-- `block:` / `rescue:` work the same way in both: group the risky steps, catch failure with a
-  handler, same nesting.
-- `register:` works the same way in both: name a task's result so a later step can read it.
-- Conditions on individual tasks are the same idea in both. Ansible's `when:` and Pleiades'
-  `when:` both take one CEL/Jinja-free boolean expression or a list of them ANDed together
-  (Pleiades' are CEL underneath, not Jinja, see below). Pleiades adds `when_or:` (list ORed
-  instead of ANDed) and `when_cel:` (one raw CEL expression, for logic `when`/`when_or` cannot
-  express) as its own extensions, but a plain `when:` reads identically in both files.
-- `hosts:` at the top of the runbook is Ansible's own play-level `hosts:`: both files here set
-  `hosts: sw1` once instead of repeating `target: sw1` on every task. It is a default, not a
-  hard override: a task's own `params.target` (module-as-key sugar's bare `target:`) still wins
-  when a task sets one, so a runbook can still mix a task with no target at all (a
-  controller-side action, like `set_metadata` here) or one aimed at a different device with the
-  rest sharing the `hosts:` default, in the same runbook.
 
 ## Two ways to write a Pleiades task
 
@@ -106,8 +85,8 @@ than a silent guess at which one you meant.
 Pleiades runbooks have no `vars:` section and no string interpolation in `params:` at all
 (`internal/engine`'s `Task.Params` is a literal `map[string]interface{}`, nothing renders it).
 The Pleiades runbook repeats the literal image filename and checksum in every task instead.
-`docs/hephaestus.md` is explicit that a real template renderer is still a planned shared
-primitive, not built yet, so this is a current gap, not a design choice you should copy.
+A real template renderer is a planned shared primitive, not built yet, so this is a current
+gap, not a design choice you should copy.
 
 **No block-level `when`.** Ansible lets you put `when:` on the whole `block:` and it gates
 every task inside at once, which is how you would normally write "skip the whole upgrade if
@@ -148,17 +127,19 @@ which prompts for the password and writes it to Pleiades' own encrypted secret s
 **Concepts with no Ansible equivalent.** None of these show up in the YAML because they are
 not YAML: RBAC scoping of who can run this against `group:catalyst_lab`, the lock manager
 serializing concurrent runs against the same switch, blast-radius computation before dispatch,
-and the OTEL trace tying one "Run" click to every step across every device. `docs/
-cisco_lab_scenario.md` walks through all of these for this exact scenario; they live in the
-platform around the runbook, not in the file itself.
+and the OTEL trace tying one "Run" click to every step across every device. They live in the
+platform around the runbook, not in the file itself; see
+[Start here](../../docs/01-start-here.md) for what is real and tested today.
 
 ## Current status: this does not execute yet
 
 Everything above describes the *shape* of the two files, not a claim that the Pleiades one
 runs today. `net.cli.command`, `net.ios.config`, and `pleiades.builtin.wait.port` are registered
 in the Forge collection catalog with the right capability and manifest metadata (so `pleiades
-validate` can check them, and IDE tooling can discover them), but no dispatcher wires a declared
-collection method to a real SSH transport yet. Running `pleiades validate` against this exact
+validate` can check them, and IDE tooling can discover them). The real dispatcher
+(`engine.NewCollectionActionExecutor`) does reach every one of them, and refuses each with an
+explicit "declared but not yet implemented" error rather than a silent no-op: no method in this
+runbook has a real implementation behind it yet. Running `pleiades validate` against this exact
 runbook reports that honestly instead of pretending:
 
 ```
@@ -170,9 +151,9 @@ pleiades: validation failed
 
 `pleiades.builtin.set_metadata` does not show up in that output at all, and that is also honest,
 not a gap: unlike `net.cli.command`/`net.ios.config`/`wait.port`, `set_metadata` is a real,
-working, tested builtin today (`internal/engine/action.go`), so it is deliberately exempted from
-the "declared but not yet implemented" check rather than routed through the same unbuilt
-dispatcher every other collection name still needs.
+working, tested builtin today (`internal/engine/action.go`), reached through the engine's builtin
+action path rather than the Collection dispatcher, so it is deliberately exempted from the
+"declared but not yet implemented" check every Collection FQCN still gets.
 
 and `pleiades run` refuses to execute for the same reason ("validation failed, not
 executing"). `rescue:` has the same kind of gap one level down: the schema accepts it and
@@ -183,9 +164,11 @@ real meaning"). None of this is a mistake in this example. It is what
 implemented rather than silently claim success.
 
 If you want a runbook that actually executes against the current binary, `pleiades init`
-scaffolds one (`runbooks/sample.yaml`, `fqcn: noop`). This example exists to show the DSL you
-will write once the Phase 34 collection dispatcher lands, compared honestly against the Ansible
-playbook it is meant to replace.
+scaffolds one (`runbooks/sample.yaml`, `fqcn: noop`), or see
+[the Walk-tier quickstart](../../docs/02-get-started.md), which runs a real `ssh_exec` task
+against a real device. This example shows the DSL you will write once each declared method it
+uses above is really implemented, compared honestly against the Ansible playbook it is meant to
+replace.
 
 ## Try it
 

@@ -13,9 +13,8 @@ const (
 // NetworkCLICapable is satisfied by any network device exposing a
 // CLI/API surface a Collection can send structured commands to, without
 // committing to a specific protocol or vendor. NetconfCapable,
-// JunosCapable, and AristaEOSCapable are its floor-level children
-// (PLAN.md Section 8 names all three together as capabilities "as
-// specific as a capability ever gets").
+// JunosCapable, and AristaEOSCapable are its floor-level children: as
+// specific as a capability ever gets.
 type NetworkCLICapable interface {
 	// CLIPrompt returns the device's CLI prompt string.
 	CLIPrompt() string
@@ -77,13 +76,12 @@ type FileTransferCapable interface {
 // capability.Resolves answer "yes" to a question about the controller
 // that is only true of the switches behind it.
 //
-// It also sits exactly at the vendor-API-family floor PLAN.md Section 8
-// requires and no lower. A Catalyst Center's software version, its
-// deployment size, and the specific hardware models it manages are all
-// platform-target data matched against classification facts, never new
-// capabilities: growing the vocabulary per model or per release is the
-// unchecked-boolean-claim anti-pattern the capability floor exists to
-// prevent.
+// It also sits exactly at the vendor-API-family floor and no lower. A
+// Catalyst Center's software version, its deployment size, and the
+// specific hardware models it manages are all platform-target data
+// matched against classification facts, never new capabilities: growing
+// the vocabulary per model or per release is the unchecked-boolean-claim
+// anti-pattern the capability floor exists to prevent.
 type CatalystAPICapable interface {
 	// CatalystBaseURL returns the controller's API base URL.
 	CatalystBaseURL() string

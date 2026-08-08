@@ -7,6 +7,7 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var packagesCollections = []collectionscaffold.Config{
@@ -16,6 +17,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Installs a package using the target's own package manager, whichever it is."},
 	},
 	{
 		Name:              "pkg.remove",
@@ -23,6 +25,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a package using the target's own package manager, whichever it is."},
 	},
 	{
 		Name:              "pkg.upgrade",
@@ -30,6 +33,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Upgrades a package using the target's own package manager, whichever it is."},
 	},
 	{
 		Name:              "pkg.apt.install",
@@ -37,6 +41,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Installs a package via APT."},
 	},
 	{
 		Name:              "pkg.apt.remove",
@@ -44,6 +49,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a package via APT."},
 	},
 	{
 		Name:              "pkg.apt.upgrade",
@@ -51,6 +57,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Upgrades a package via APT."},
 	},
 	{
 		Name:              "pkg.dnf.install",
@@ -58,6 +65,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Installs a package via DNF."},
 	},
 	{
 		Name:              "pkg.dnf.remove",
@@ -65,6 +73,7 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a package via DNF."},
 	},
 	{
 		Name:              "pkg.dnf.upgrade",
@@ -72,5 +81,6 @@ var packagesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Upgrades a package via DNF."},
 	},
 }

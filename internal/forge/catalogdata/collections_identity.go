@@ -5,6 +5,7 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var identityCollections = []collectionscaffold.Config{
@@ -14,6 +15,7 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Creates a POSIX user account on the target."},
 	},
 	{
 		Name:              "identity.user.remove",
@@ -21,6 +23,7 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a POSIX user account from the target."},
 	},
 	{
 		Name:              "identity.user.modify",
@@ -28,6 +31,7 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Modifies an existing POSIX user account on the target."},
 	},
 	{
 		Name:              "identity.group.create",
@@ -35,6 +39,7 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Creates a POSIX group on the target."},
 	},
 	{
 		Name:              "identity.group.remove",
@@ -42,6 +47,7 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a POSIX group from the target."},
 	},
 	{
 		Name:              "identity.group.modify",
@@ -49,5 +55,6 @@ var identityCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Modifies an existing POSIX group on the target."},
 	},
 }

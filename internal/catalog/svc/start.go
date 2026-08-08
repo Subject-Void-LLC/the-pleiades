@@ -3,21 +3,21 @@
 // (internal/forge/collectionscaffold).
 //
 // This package's init registers "svc.start" into the shared pkg/collection
-// registry via collection.MustRegister. That registry is planning-time
-// metadata only: it lets a runbook task's required capability and
-// platform target resolve at plan time, and it is what Phase 34's own
-// validation rule checks a runbook call against. It does NOT dispatch
-// calls to Start below. No dispatcher anywhere in this
-// codebase yet consumes pkg/collection or pkg/sdk.RunbookContext to
-// actually invoke a registered method: the only real action executor
-// today, internal/engine/action.go, dispatches on a hardcoded switch over
-// bare task.FQCN strings and never touches either package. Start
-// is real, buildable, testable Go code, but it is not reachable from any
-// execution path until a later phase builds that dispatcher. Its exact
-// signature below (context.Context, sdk.RunbookContext, map[string]any) is
-// this generator's own reasonable placeholder, not an established
-// contract: no phase before this one defines what Go function shape a
-// Collection method's real implementation must have.
+// registry via collection.MustRegister. That registry is more than
+// planning-time metadata: a runbook task naming "svc.start" reaches
+// engine.NewCollectionActionExecutor's real dispatch path
+// (cmd/pleiades/run.go), which looks this Manifest's Status up and
+// refuses with its own "declared but not implemented" error before ever
+// calling Start below: a declared stub is never invoked, by
+// design, not because nothing reaches it. Start's own
+// "not implemented" return only ever executes if something calls it
+// directly (a test does exactly this) or once a later change sets
+// Invoke to it and flips Status to StatusImplemented, at which point the
+// dispatcher's short-circuit no longer applies and this becomes the
+// method's real body. Its signature below (context.Context,
+// sdk.RunbookContext, inventory.InventoryItem, map[string]any) is not a
+// placeholder: it matches collection.Method exactly, the established
+// contract every real implementation must satisfy.
 //
 // Because this package lives under internal/, it is reachable only from
 // code inside this module or a fork of it: Go's internal/ visibility rule
@@ -34,6 +34,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/sdk"
 )
 
@@ -58,6 +59,9 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusDeclared,
+			Doc: collection.Doc{
+				Summary: "Starts a service using the target's own service manager, whichever it is.",
+			},
 		},
 	})
 }
@@ -65,10 +69,11 @@ func init() {
 // Start implements the "svc.start" collection method.
 //
 // TODO(forge): not implemented. Returns an explicit error, never success:
-// a stub that reports success is worse than a method that does not exist,
-// because it makes a failed runbook look like a successful one. See this
-// package's own doc comment for the signature's provisional status and
-// the reachability gap.
-func Start(ctx context.Context, rc sdk.RunbookContext, params map[string]any) error {
-	return fmt.Errorf("svc.start: not implemented")
+// a stub that reports success is worse than a method that does not
+// exist, because it makes a failed runbook look like a successful one.
+// A runbook task naming this FQCN never actually reaches this function
+// today; see this package's own doc comment for exactly why and what
+// changes that.
+func Start(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
+	return collection.Result{}, fmt.Errorf("svc.start: not implemented")
 }

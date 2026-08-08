@@ -500,7 +500,7 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("forge new-collection failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "planning-time metadata only") {
+	if !strings.Contains(out, "declared but not implemented") {
 		t.Errorf("expected the reachability honesty note in output, got:\n%s", out)
 	}
 
@@ -511,4 +511,92 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 
 	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
 	runGoBuildAndTest(t, root, pkgImportPath)
+}
+
+// TestCLI_Doc_MatchesGeneratedReferencePage is Phase 68's own named
+// Release Gate criterion: "pleiades doc net.catalyst.device_facts and the
+// generated Markdown page for that FQCN report identical Summary, Params,
+// and Status fields." Both cmd/pleiades/doc.go and tools/gendocs read the
+// same collection.Lookup registry, so they cannot structurally diverge in
+// content, only in rendering; this test proves that empirically against
+// the real committed docs/reference/modules/net/catalyst/device_facts.md
+// file and the real built binary's own terminal output, rather than
+// leaving "one source, two renderers" an assumption.
+func TestCLI_Doc_MatchesGeneratedReferencePage(t *testing.T) {
+	root := repoRoot(t)
+	dir := t.TempDir()
+
+	out, err := runPleiades(t, dir, "doc", "net.catalyst.device_facts")
+	if err != nil {
+		t.Fatalf("doc net.catalyst.device_facts failed: %v\n%s", err, out)
+	}
+
+	pagePath := filepath.Join(root, "docs", "reference", "modules", "net", "catalyst", "device_facts.md")
+	page, err := os.ReadFile(pagePath) // #nosec G304 -- fixed, repo-relative path built from repoRoot(t), not user input
+	if err != nil {
+		t.Fatalf("reading generated reference page: %v", err)
+	}
+
+	// Fields both renderers draw from the identical Manifest: the summary
+	// sentence, the "implemented" status, every parameter name, and every
+	// return field name. A mismatch here means the two fell out of sync
+	// with the registry, or with each other, not a rendering-format
+	// difference (Markdown table cells vs plain-text columns), which this
+	// check deliberately does not compare.
+	for _, want := range []string{
+		"Gathers every device a Cisco Catalyst Center manages, as facts.",
+		"insecure_skip_verify",
+		"page_size",
+		"device_count",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pleiades doc output missing %q (present in the generated page)", want)
+		}
+		if !strings.Contains(string(page), want) {
+			t.Errorf("generated reference page missing %q (present in pleiades doc output)", want)
+		}
+	}
+	// printDocEntry (doc.go) only ever prints a status line for a
+	// declared method; an implemented one prints none at all, so its
+	// absence here is the positive signal, not a literal "implemented"
+	// string. writeModulePage (modules.go) badges an implemented method
+	// "beta" in the page's own front matter for the identical reason.
+	// Both must agree that this FQCN is implemented, expressed in each
+	// renderer's own idiom.
+	if strings.Contains(out, "declared, not implemented") {
+		t.Error("pleiades doc reports net.catalyst.device_facts as declared, but its Manifest.Status is implemented")
+	}
+	if !strings.Contains(string(page), "status: beta") {
+		t.Error("generated reference page's front matter is not \"status: beta\", the badge writeModulePage gives an implemented method")
+	}
+}
+
+// TestCLI_DocList proves `pleiades doc --list` is reachable through the
+// real built binary, not just in-process (doc_test.go covers runDoc's
+// own logic in detail; this is the RULE 0 subprocess check that the
+// binary's "doc" dispatch entry and catalog_builtins.go's blank import
+// both actually wire up together).
+func TestCLI_DocList(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runPleiades(t, dir, "doc", "--list", "net.catalyst")
+	if err != nil {
+		t.Fatalf("doc --list net.catalyst should succeed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "net.catalyst.device_facts") {
+		t.Errorf("expected doc --list net.catalyst to list net.catalyst.device_facts, got:\n%s", out)
+	}
+}
+
+// TestCLI_Version proves `pleiades version` is reachable through the real
+// built binary and prints something a user would recognize as a version
+// line.
+func TestCLI_Version(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runPleiades(t, dir, "version")
+	if err != nil {
+		t.Fatalf("version should succeed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "pleiades") {
+		t.Errorf("expected version output to mention pleiades, got:\n%s", out)
+	}
 }

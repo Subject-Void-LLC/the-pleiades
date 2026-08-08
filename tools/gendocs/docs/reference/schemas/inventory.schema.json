@@ -1,0 +1,52 @@
+{
+  "$id": "https://pleiades.dev/schemas/inventory.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The Walk-tier inventory.yaml format.",
+  "properties": {
+    "hosts": {
+      "items": {
+        "properties": {
+          "classify": {
+            "description": "Classification path, provenance only once type is resolved.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "Stable device ID, a UUID if written by `pleiades add-host`.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "description": "A registered device type key, e.g. \"linux_server\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "hosts"
+  ],
+  "title": "Pleiades static inventory",
+  "type": "object"
+}

@@ -1,0 +1,31 @@
+# Pleiades static inventory (Walk tier: no server, no database, no broker).
+# Add hosts by hand below, or run: pleiades add-host <name> --type <type>
+hosts:
+    - id: 4d6e9c14-0785-49d2-b821-51a81b54b1cc
+      name: plain
+      type: linux_server
+      tags:
+        - lab
+        - baseline
+      properties:
+        host: 127.0.0.1
+        port: 2221
+    - id: 00ea5e66-0215-4df8-ac00-a53e9372ef7c
+      name: nginx-bootstrap
+      type: linux_server
+      tags:
+        - lab
+        - webserver
+      properties:
+        host: 127.0.0.1
+        port: 2222
+    - id: 0184b0f9-3031-4538-a413-7a0bfefc8ceb
+      name: wordpress
+      type: linux_server
+      tags:
+        - lab
+        - webserver
+        - cms
+      properties:
+        host: 127.0.0.1
+        port: 2223

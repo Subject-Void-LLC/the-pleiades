@@ -6,8 +6,8 @@
 // Before this rewrite, this package and internal/inventory both defined a
 // CiscoIOSCapable interface with different method sets, and neither was
 // implemented by any concrete type. That is the exact collision
-// namespacing exists to prevent (PLAN.md Section 1b, Section 8). There is
-// now exactly one definition of each capability, here.
+// namespacing exists to prevent. There is now exactly one definition of
+// each capability, here.
 //
 // The vocabulary registry below is built on pkg/registry.Registry
 // (Phase 6's Section 25 "typed generic Registry"), so exactly one Registry
@@ -17,9 +17,9 @@ package capability
 
 import "github.com/SubjectVoidLLC/the-pleiades/pkg/registry"
 
-// Name is a capability identifier. It is always typed at the call site;
-// PLAN.md Section 1b requires this, since collections resolve against
-// capabilities, not concrete device types.
+// Name is a capability identifier. It is always typed at the call site,
+// since collections resolve against capabilities, not concrete device
+// types.
 type Name string
 
 // The blessed capability vocabulary. Each has a Descriptor registered in

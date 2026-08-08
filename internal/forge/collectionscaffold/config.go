@@ -6,6 +6,7 @@ import (
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/genutil"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 // Config is the input to Generate: everything needed to emit one new
@@ -13,10 +14,10 @@ import (
 type Config struct {
 	// Name is the full dotted namespaced method name, for example
 	// "pkg.apt.install". It must contain at least one dot -- exactly what
-	// pkg/collection.Register itself requires (PLAN.md Section 2 allows a
-	// bare-domain namespace like "pkg" alone, so a two-segment name such
-	// as "pkg.install" is legal here too, not just three-or-more-segment
-	// names).
+	// pkg/collection.Register itself requires. A bare-domain namespace
+	// like "pkg" alone is allowed, so a two-segment name such as
+	// "pkg.install" is legal here too, not just three-or-more-segment
+	// names.
 	Name string
 
 	// Capabilities feeds Manifest.RequiredCapabilities. Each name must
@@ -36,6 +37,15 @@ type Config struct {
 	// string (see pkg/collection.Manifest's own doc comment for why no
 	// semver library is involved).
 	EngineVersion string
+
+	// Doc feeds Manifest.Doc. Every registered method should carry at
+	// least a Summary; a declared stub carries nothing more, since
+	// there is no real behavior yet for Params or Returns to describe.
+	// tools/gendocs reads this field directly from catalogdata, so it
+	// is this scaffold's one field with no corresponding CLI flag on
+	// `forge new-collection`: real Doc content is written by hand into
+	// catalogdata, not typed on a command line.
+	Doc collection.Doc
 }
 
 // segments splits Name on every dot.
@@ -83,7 +93,7 @@ func (c Config) FunctionName() string {
 func (c Config) Validate() error {
 	segs := c.segments()
 	if len(segs) < 2 {
-		return fmt.Errorf("collectionscaffold: %q is not namespaced (PLAN.md Section 2 requires <namespace>.<method>)", c.Name)
+		return fmt.Errorf("collectionscaffold: %q is not namespaced (requires <namespace>.<method>)", c.Name)
 	}
 	if err := genutil.ValidateSegments(segs); err != nil {
 		return fmt.Errorf("collectionscaffold: invalid name %q: %w", c.Name, err)

@@ -16,7 +16,7 @@ const DefaultRunbookDir = "runbooks"
 // DefaultSampleRunbook is the starter runbook Scaffold writes.
 const DefaultSampleRunbook = "sample.yaml"
 
-const starterInventory = `# Pleiades static inventory (Walk tier, PLAN.md Section 7).
+const starterInventory = `# Pleiades static inventory (Walk tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts: []
 `

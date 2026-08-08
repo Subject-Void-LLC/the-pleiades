@@ -18,10 +18,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// reservedTaskKeys are Task's own YAML/JSON key names (dag.go's Task
+// ReservedTaskKeys are Task's own YAML/JSON key names (dag.go's Task
 // struct tags). Any other key on a task map is either module-as-key
 // sugar's module name, or an author's mistake; see normalizeTaskNode.
-var reservedTaskKeys = map[string]bool{
+// Exported so the documentation generator (tools/gendocs) can build the
+// task-key reference from this exact list: the reference cannot drift
+// from what the parser actually accepts, because both read the same map.
+var ReservedTaskKeys = map[string]bool{
 	"name":             true,
 	"fqcn":             true,
 	"params":           true,
@@ -140,7 +143,7 @@ func normalizeTaskNode(task *yaml.Node, label string) error {
 		case "parallel":
 			hasParallel = true
 		}
-		if !reservedTaskKeys[key.Value] {
+		if !ReservedTaskKeys[key.Value] {
 			nonReserved = append(nonReserved, kv{key, task.Content[i+1]})
 		}
 	}
@@ -282,7 +285,7 @@ func normalizeTaskMapJSON(task map[string]interface{}, label string) error {
 
 	var nonReservedKeys []string
 	for key := range task {
-		if !reservedTaskKeys[key] {
+		if !ReservedTaskKeys[key] {
 			nonReservedKeys = append(nonReservedKeys, key)
 		}
 	}

@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "task": {
+      "additionalProperties": true,
+      "properties": {
+        "always": {
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "type": "array"
+        },
+        "block": {
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "type": "array"
+        },
+        "fqcn": {
+          "description": "The action this task performs: an engine keyword or a namespaced Collection method.",
+          "type": "string"
+        },
+        "lock_acquisition": {
+          "description": "When this task's device locks are acquired.",
+          "enum": [
+            "per_device_as_reached",
+            "all_at_plan_time"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "Free-form label.",
+          "type": "string"
+        },
+        "parallel": {
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "type": "array"
+        },
+        "params": {
+          "description": "Arguments passed to fqcn. Never templated.",
+          "type": "object"
+        },
+        "register": {
+          "description": "Name to store this task's result under.",
+          "type": "string"
+        },
+        "register_mask": {
+          "description": "Field(s) of this task's own registered result to mask, dotted paths allowed.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "rescue": {
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "type": "array"
+        },
+        "secret_mask": {
+          "description": "Retroactively masks fields of an earlier task's registered result.",
+          "properties": {
+            "fields": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "register": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "register",
+            "fields"
+          ],
+          "type": "object"
+        },
+        "when": {
+          "description": "Ansible-compatible conditional, ANDed if a list.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "when_cel": {
+          "description": "One raw CEL expression.",
+          "type": "string"
+        },
+        "when_or": {
+          "description": "Conditional, ORed if a list. No Ansible equivalent.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://pleiades.dev/schemas/runbook.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The native Pleiades automation format. Not an Ansible playbook: a top-level YAML list is rejected.",
+  "properties": {
+    "hosts": {
+      "description": "Default target for a task that does not set its own.",
+      "type": "string"
+    },
+    "id": {
+      "description": "The runbook's own identifier. Embedded into a NATS subject, so restricted to this character set.",
+      "pattern": "^[A-Za-z0-9_-]*$",
+      "type": "string"
+    },
+    "metadata": {
+      "properties": {
+        "service_effecting": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "posttasks": {
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "type": "array"
+    },
+    "pretasks": {
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "type": "array"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "#/$defs/task"
+      },
+      "type": "array"
+    },
+    "type": {
+      "description": "Runbook-type discriminator. \"ansible\" is reserved and non-actionable today.",
+      "enum": [
+        "native",
+        "ansible",
+        ""
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "tasks"
+  ],
+  "title": "Pleiades runbook",
+  "type": "object"
+}

@@ -18,9 +18,7 @@ import (
 )
 
 // APIVersionPrefix is the one versioned surface every application route
-// lives under. PATTERNS.md's API Versioning entry requires it, and its
-// Backend for Frontend entry ("NO") names this single versioned surface as
-// the reason no per-client gateway is needed.
+// lives under, and the reason no per-client gateway is needed.
 //
 // The operational endpoints below are deliberately not under it. /healthz,
 // /readyz, and /metrics are contracts with the orchestrator and the
@@ -193,6 +191,8 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 	r.Get("/healthz", healthzHandler)
 	r.Get("/readyz", readyzHandler(cfg.Logger, cfg.Readiness))
 	r.Handle("/metrics", promhttp.HandlerFor(cfg.Registry, promhttp.HandlerOpts{Registry: cfg.Registry}))
+	registerWellKnown(r)
+	registerOpenAPI(r)
 
 	// One builder, built once, shared by every request. It is the single
 	// source of truth behind both the _links array Respond emits and the

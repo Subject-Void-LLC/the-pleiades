@@ -1,16 +1,29 @@
-# React + Vite
+# Pleiades web UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The Crawl-tier web console: a React 19 + Vite single-page app served alongside the
+Controller. Talks to the Controller's REST API under `/api/v1` (see
+`internal/api/router.go`).
 
-Currently, two official plugins are available:
+**Status: mostly a mockup.** Of the six routes below, only `/jobs/:id` does anything
+real.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Route | File | State |
+|---|---|---|
+| `/` | `src/views/Dashboard.tsx` | Placeholder, hardcoded numbers |
+| `/inventories` | `src/views/Inventories.tsx` | Placeholder |
+| `/runbooks` | `src/views/Runbooks.tsx` | Placeholder |
+| `/jobs/:id` | `src/views/JobDetails.tsx` | Real: an SSE log stream viewer with search and autoscroll |
+| `/governance` | `src/views/Governance.tsx` | Placeholder |
+| `/credentials` | `src/views/Credentials.tsx` | Placeholder |
 
-## React Compiler
+## Running it
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev       # local dev server with HMR
+npm run build     # production build
+npm run lint      # oxlint
+```
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The dev server expects a Controller running and reachable; see the repository root
+`docs/` for how to start one.

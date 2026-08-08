@@ -34,14 +34,15 @@ func TestLookup_Miss(t *testing.T) {
 }
 
 // TestRegister_RejectsBareName is this phase's Release Gate: a bare
-// method name is rejected with a message citing Section 2.
+// method name is rejected with a message naming the actual requirement,
+// not a citation into an internal document a user never receives.
 func TestRegister_RejectsBareName(t *testing.T) {
 	err := collection.Register(collection.Descriptor{Name: "install"})
 	if err == nil {
 		t.Fatal("Register(bare name): expected an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "Section 2") {
-		t.Errorf("error %q does not cite PLAN.md Section 2", err.Error())
+	if !strings.Contains(err.Error(), "not namespaced") {
+		t.Errorf("error %q does not explain the namespacing requirement", err.Error())
 	}
 
 	if _, ok := collection.Lookup("install"); ok {

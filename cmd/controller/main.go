@@ -80,6 +80,7 @@ import (
 	"time"
 
 	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/SubjectVoidLLC/the-pleiades/internal/apispec"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/crypto"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
@@ -498,12 +499,17 @@ func main() {
 		Auth:        api.AuthMiddleware(evaluator),
 		Admission:   admission,
 		HATEOAS:     hateoas,
+		// Each Route pairs apispec's documented Method/Pattern/Scope/Rel
+		// with this process's own real handler method value: the same
+		// data tools/gendocs reads to emit the OpenAPI document and the
+		// generated API reference page, so neither can ever describe a
+		// route this server does not actually serve, or vice versa.
 		Routes: []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelExecute, Handler: dispatcher.DispatchRunbook},
-			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: jobs.Get},
-			{Method: http.MethodGet, Pattern: "/jobs/{id}/logs", Scope: auth.ScopeJobRead, Rel: auth.RelLogs, Handler: streamer.StreamLogs},
-			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: devices.Get},
-			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: devices.Delete},
+			apispec.DispatchRunbook.Route(dispatcher.DispatchRunbook),
+			apispec.GetJob.Route(jobs.Get),
+			apispec.StreamJobLogs.Route(streamer.StreamLogs),
+			apispec.GetDevice.Route(devices.Get),
+			apispec.DeleteDevice.Route(devices.Delete),
 		},
 	})
 	if err != nil {

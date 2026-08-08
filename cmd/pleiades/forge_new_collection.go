@@ -16,10 +16,9 @@ import (
 // a pkg/collection manifest registration and a stub built on
 // pkg/sdk.RunbookContext. See internal/forge/collectionscaffold for the
 // actual generation logic, and its generated package's own doc comment
-// (repeated in this command's success message below) for the reachability
-// caveat: pkg/collection is planning-time metadata only, so the generated
-// stub is not reachable from any execution path until a later phase
-// builds a dispatcher that consumes it.
+// (repeated in this command's success message below) for exactly how a
+// runbook task calling the new FQCN reaches the real dispatcher and is
+// refused there, by design, until the method is really implemented.
 func runForgeNewCollection(args []string) error {
 	name, rest, err := splitPositional(args, map[string]bool{"requires-elevation": true})
 	if err != nil {
@@ -63,6 +62,6 @@ func runForgeNewCollection(args []string) error {
 		fmt.Printf("wrote %s\n", written)
 	}
 
-	fmt.Printf("%q is registered as planning-time metadata only: no dispatcher in this codebase yet calls a Collection method's real implementation, see the generated package's own doc comment.\n", cfg.Name)
+	fmt.Printf("%q is registered and reachable through the real dispatcher, which refuses it with \"declared but not implemented\" until it is really implemented; see the generated package's own doc comment.\n", cfg.Name)
 	return nil
 }

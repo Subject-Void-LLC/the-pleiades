@@ -5,6 +5,7 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var execCollections = []collectionscaffold.Config{
@@ -13,11 +14,13 @@ var execCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameCommandExec},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Runs one command directly, with no shell involved."},
 	},
 	{
 		Name:          "exec.shell",
 		Capabilities:  []capability.Name{capability.NameShellExec},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Runs a command through the target's shell, so pipes and redirects work."},
 	},
 }

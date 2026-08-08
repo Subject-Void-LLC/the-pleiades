@@ -1,5 +1,6 @@
-// Command pleiades is the Walk-tier composition root (PLAN.md Section 7).
-// It links the inventory, engine, and validation packages directly and
+// Command pleiades is the Walk-tier composition root: the offline,
+// single-binary entry point with no server, database, or broker. It
+// links the inventory, engine, and validation packages directly and
 // does not dial a Controller: at Walk there is no Controller to dial.
 // This file and its subcommand siblings only parse arguments and delegate;
 // every subcommand's real logic lives in the internal package that already
@@ -10,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
 )
 
 // commandFunc is one subcommand's entry point. It receives the arguments
@@ -27,6 +30,8 @@ var commands = map[string]commandFunc{
 	"run":            runRunbook,
 	"forge":          runForge,
 	"inventory":      runInventory,
+	"doc":            runDoc,
+	"version":        runVersion,
 }
 
 // errUnknownCommand signals that a dispatch table (this file's own
@@ -77,16 +82,7 @@ func run(args []string) int {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `usage: pleiades <command> [flags]
-
-commands:
-  init            scaffold a new project in the current directory
-  add-host        add a host to the static inventory
-  add-credential  store an encrypted SSH credential for a device
-  validate        check a runbook against the inventory
-  run             build, validate, and print the plan for a runbook
-  inventory       sync devices from an external source (see 'pleiades inventory --help')
-  forge           authoring and migration tooling (see 'pleiades forge --help')
-
-Walk tier: no server, no database, no broker. See PLAN.md Section 7.`)
+	fmt.Fprint(os.Stderr, "usage: pleiades <command> [flags]\n\ncommands:\n")
+	fmt.Fprint(os.Stderr, clispec.RenderList(clispec.Root.Subcommands))
+	fmt.Fprintln(os.Stderr, "\nWalk tier: no server, no database, no broker. See docs/ in the repository\nfor the full documentation.")
 }

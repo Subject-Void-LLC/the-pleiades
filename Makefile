@@ -1,4 +1,4 @@
-.PHONY: build vet fmt fmt-fix test test-race gosec govulncheck arch coverage ci
+.PHONY: build vet fmt fmt-fix test test-race gosec govulncheck arch coverage docs-lint ci
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -65,10 +65,34 @@ arch:
 coverage:
 	go run ./tools/coverage-check
 
+# docs-lint (tools/docs-lint) fails the build when a gitignored internal
+# document (.SPECIFICATION/, .AGENTS/, PLAN.md, PATTERNS.md,
+# IMPLEMENTATION.md) is cited anywhere a real user could see it: docs/,
+# the CLI's own --help text, and the packages the documentation
+# generation pipeline folds into generated reference pages. No waiver
+# file, unlike gosec-check: there is no legitimate reason for a citation
+# into a file the shipped binary does not contain.
+docs-lint:
+	go run ./tools/docs-lint
+
+# docs-gen-check proves the committed docs/reference/ and
+# internal/api/wellknown/ trees are exactly what tools/gendocs produces
+# from the current source, the same "regenerate and diff" discipline the
+# plan's Part 4 Step 6 asks for. Deliberately scoped to `./tools/gendocs`
+# alone rather than `go generate ./...`: internal/forge/catalogdata/doc.go
+# carries a go:generate directive for tools/gencatalog, which shells out to
+# `forge new-collection` and refuses to overwrite files that already exist
+# (see LESSONS_LEARNED.md #69). Running that generator a second time over
+# an already-generated tree fails the build instead of proving anything.
+docs-gen-check:
+	go generate ./tools/gendocs
+	git diff --exit-code -- docs/reference internal/api/wellknown
+	test -z "$$(git ls-files --others --exclude-standard -- docs/reference internal/api/wellknown)"
+
 # ci is what a pull request must pass. -race, not plain test, is
 # deliberately included here (not just in a separate target) because the
 # Phase 0 item lists `go test -race ./...` as one thing CI must run, and
 # splitting it out would make it easy to merge a PR that only ran the
 # non-race target.
-ci: build vet fmt test-race gosec govulncheck coverage
+ci: build vet fmt test-race gosec govulncheck coverage docs-lint docs-gen-check
 	@echo "ci: all checks passed"
