@@ -28,6 +28,15 @@ type templateData struct {
 	Transports        []string
 	RequiresElevation bool
 	EngineVersion     string
+
+	// DocSummary feeds a declared stub's Manifest.Doc.Summary, rendered
+	// only when non-empty. It carries just the one field a generated
+	// stub can honestly have: Params, Returns, and Examples describe
+	// real behavior, and a declared method has none yet. A method
+	// hand-implemented after generation adds those fields by hand,
+	// outside this template's reach, the same way it already adds
+	// Status: StatusImplemented and Invoke.
+	DocSummary string
 }
 
 var funcMap = template.FuncMap{
@@ -58,6 +67,7 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		Transports:        cfg.Transports,
 		RequiresElevation: cfg.RequiresElevation,
 		EngineVersion:     cfg.EngineVersion,
+		DocSummary:        cfg.Doc.Summary,
 	}
 	for _, c := range cfg.Capabilities {
 		data.Capabilities = append(data.Capabilities, string(c))

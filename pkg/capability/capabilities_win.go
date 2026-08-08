@@ -7,7 +7,7 @@ const (
 )
 
 // WindowsCapable is satisfied by standard Windows devices, parallel to
-// LinuxCapable on the identity layer (PLAN.md Section 1b).
+// LinuxCapable on the identity layer.
 type WindowsCapable interface {
 	// WindowsEdition returns the detected Windows edition (e.g.
 	// "Server 2022 Datacenter").

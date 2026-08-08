@@ -13,14 +13,12 @@
 // generator accepts is guaranteed to register successfully the first time
 // its package is imported.
 //
-// Reachability is a real, honestly-documented gap, not an oversight:
-// pkg/collection is planning-time metadata only. No dispatcher anywhere in
-// this codebase yet consumes pkg/collection or pkg/sdk.RunbookContext to
-// actually call a registered method; the only real action executor
-// (internal/engine/action.go) dispatches on a hardcoded switch over bare
-// task.FQCN strings. A generated stub is real, buildable, testable Go
-// code, but it is not reachable from any execution path until a later
-// phase builds that dispatcher. See the generated package's own doc
-// comment for the full explanation, repeated there so it travels with the
-// generated code, not just this generator.
+// A generated package's registration is genuinely reachable: a runbook
+// task naming its FQCN reaches engine.NewCollectionActionExecutor's real
+// dispatch path (cmd/pleiades/run.go), which refuses with its own
+// "declared but not implemented" error because the generated Manifest's
+// Status is StatusDeclared, before ever calling the generated stub
+// function itself. See the generated package's own doc comment for the
+// full explanation, repeated there so it travels with the generated
+// code, not just this generator.
 package collectionscaffold

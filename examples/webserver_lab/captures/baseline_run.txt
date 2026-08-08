@@ -1,0 +1,15 @@
+plan for runbooks/baseline_check.yaml (3 nodes, 3 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  Confirm hostname and OS release
+  Check disk usage
+  Confirm the service account can use sudo
+
+executing:
+  tasks[0] [4d6e9c14-0785-49d2-b821-51a81b54b1cc]: changed
+  tasks[1] [4d6e9c14-0785-49d2-b821-51a81b54b1cc]: changed
+  tasks[2] [4d6e9c14-0785-49d2-b821-51a81b54b1cc]: changed
+
+run complete

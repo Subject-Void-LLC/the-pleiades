@@ -25,3 +25,5 @@ vendor/
 /controller
 /runner
 /pleiades
+/docs-lint
+/gendocs

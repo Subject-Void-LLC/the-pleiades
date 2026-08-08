@@ -34,14 +34,15 @@ func TestLookup_Miss(t *testing.T) {
 }
 
 // TestRegister_RejectsBareName is this phase's Release Gate: a bare
-// method name is rejected with a message citing Section 2.
+// method name is rejected with a message naming the actual requirement,
+// not a citation into an internal document a user never receives.
 func TestRegister_RejectsBareName(t *testing.T) {
 	err := collection.Register(collection.Descriptor{Name: "install"})
 	if err == nil {
 		t.Fatal("Register(bare name): expected an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "Section 2") {
-		t.Errorf("error %q does not cite PLAN.md Section 2", err.Error())
+	if !strings.Contains(err.Error(), "not namespaced") {
+		t.Errorf("error %q does not explain the namespacing requirement", err.Error())
 	}
 
 	if _, ok := collection.Lookup("install"); ok {
@@ -76,6 +77,31 @@ func TestRegister_RejectsUnknownCapability(t *testing.T) {
 
 	if _, ok := collection.Lookup(d.Name); ok {
 		t.Error("descriptor with an unknown capability was registered despite the rejection")
+	}
+}
+
+// TestRegister_RejectsImplementedWithoutInvoke is the guardrail
+// collection.go's Register documents: a Manifest claiming
+// StatusImplemented with a nil Invoke would otherwise panic the first time
+// a runbook dispatched to it, so Register refuses it at registration time
+// instead.
+func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
+	d := collection.Descriptor{
+		Name:     "test.implemented_without_invoke",
+		Manifest: collection.Manifest{Status: collection.StatusImplemented},
+		Invoke:   nil,
+	}
+
+	err := collection.Register(d)
+	if err == nil {
+		t.Fatal("Register with StatusImplemented and a nil Invoke: expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), string(collection.StatusImplemented)) {
+		t.Errorf("error %q does not name the status that requires an implementation", err.Error())
+	}
+
+	if _, ok := collection.Lookup(d.Name); ok {
+		t.Error("descriptor claiming StatusImplemented with no Invoke was registered despite the rejection")
 	}
 }
 

@@ -44,6 +44,39 @@ func TestValidateSegment(t *testing.T) {
 	}
 }
 
+func TestValidateIdentSegment(t *testing.T) {
+	tests := []struct {
+		name    string
+		segment string
+		wantErr bool
+	}{
+		{name: "valid short", segment: "cisco", wantErr: false},
+		{name: "valid with digits and underscore", segment: "junos_router9", wantErr: false},
+		{name: "empty", segment: "", wantErr: true},
+		{name: "leading digit", segment: "3com", wantErr: true},
+		{name: "uppercase", segment: "Cisco", wantErr: true},
+		{name: "embedded dot", segment: "foo.bar", wantErr: true},
+		{name: "path traversal", segment: "..", wantErr: true},
+		{name: "over length", segment: strings.Repeat("a", 65), wantErr: true},
+		{name: "max length exactly", segment: strings.Repeat("a", 64), wantErr: false},
+		// The one real behavioral difference from ValidateSegment: a Go
+		// keyword is accepted here, since this segment never becomes a
+		// package name (it is title-cased into an exported identifier, or
+		// stored as data).
+		{name: "go keyword switch is allowed", segment: "switch", wantErr: false},
+		{name: "go keyword type is allowed", segment: "type", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := genutil.ValidateIdentSegment(tt.segment)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateIdentSegment(%q) error = %v, wantErr %v", tt.segment, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateSegments(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -84,6 +117,9 @@ func TestToExportedIdent(t *testing.T) {
 		{snake: "install", want: "Install"},
 		{snake: "a", want: "A"},
 		{snake: "junos_router9", want: "JunosRouter9"},
+		{snake: "leading__double_underscore", want: "LeadingDoubleUnderscore"},
+		{snake: "_leading_underscore", want: "LeadingUnderscore"},
+		{snake: "trailing_underscore_", want: "TrailingUnderscore"},
 	}
 
 	for _, tt := range tests {

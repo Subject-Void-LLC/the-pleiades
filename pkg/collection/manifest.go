@@ -7,9 +7,8 @@
 // already exists and already has two consumers (pkg/capability's
 // capability vocabulary, internal/inventory/record's device-type table).
 // This package is its third consumer, not a second Registry
-// implementation: PLAN.md Section 25's own rule is that a listed
-// primitive has exactly one implementation in the codebase, and a second
-// one is a defect, not a variation.
+// implementation: a shared primitive has exactly one implementation in
+// this codebase, and a second one is a defect, not a variation.
 package collection
 
 import "github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
@@ -64,10 +63,10 @@ type ExecutionContext struct {
 //
 // The moment a runbook task calls the method this Manifest describes,
 // RequiredCapabilities and PlatformTargets become that task's plan-time
-// constraint automatically (PLAN.md Section 8's audience split: a runbook
-// author never hand-writes a requires: block for the common case). A
-// runbook or task-level requirement may narrow that constraint further
-// (PLAN.md Section 25's intersection merge mode) but can never loosen it.
+// constraint automatically: a runbook author never hand-writes a
+// requires: block for the common case. A runbook or task-level
+// requirement may narrow that constraint further, via intersection, but
+// can never loosen it.
 type Manifest struct {
 	// SupportedTransports names the transports this method can run over
 	// (for example "ssh"). It is a plain string set rather than a
@@ -96,4 +95,9 @@ type Manifest struct {
 	EngineVersion string `json:"engineVersion,omitempty"`
 
 	Status Status `json:"status"`
+
+	// Doc is this method's human-facing reference documentation. See
+	// the Doc type's own comment for what a declared method carries
+	// versus an implemented one.
+	Doc Doc `json:"doc,omitempty"`
 }

@@ -10,6 +10,7 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var extendedCollections = []collectionscaffold.Config{
@@ -19,6 +20,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Opens a port or service in firewalld."},
 	},
 	{
 		Name:              "fw.firewalld.deny",
@@ -26,6 +28,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Closes a port or service in firewalld."},
 	},
 	{
 		Name:              "fw.firewalld.reload",
@@ -33,6 +36,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Reloads firewalld to apply pending rule changes."},
 	},
 	{
 		Name:              "fs.mount",
@@ -40,6 +44,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Mounts a filesystem on the target, and optionally persists it to fstab."},
 	},
 	{
 		Name:              "fs.unmount",
@@ -47,6 +52,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Unmounts a filesystem on the target, and optionally removes it from fstab."},
 	},
 	{
 		Name:              "win.feature.install",
@@ -54,6 +60,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Installs a Windows feature or role."},
 	},
 	{
 		Name:              "win.feature.remove",
@@ -61,18 +68,21 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a Windows feature or role."},
 	},
 	{
 		Name:          "archive.create",
 		Capabilities:  []capability.Name{capability.NamePOSIXFileSystem},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Creates an archive (tar or zip) from files on the target."},
 	},
 	{
 		Name:          "archive.extract",
 		Capabilities:  []capability.Name{capability.NameFileTransfer},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Extracts an archive (tar or zip) on the target."},
 	},
 	{
 		Name:              "container.docker.run",
@@ -80,6 +90,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Runs a Docker container on the target."},
 	},
 	{
 		Name:              "container.docker.stop",
@@ -87,6 +98,7 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Stops a running Docker container on the target."},
 	},
 	{
 		Name:              "container.docker.remove",
@@ -94,25 +106,30 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Removes a Docker container from the target."},
 	},
 	{
 		Name:          "cloud.aws.ec2.create",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Creates an EC2 instance via the AWS API."},
 	},
 	{
 		Name:          "cloud.aws.ec2.terminate",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Terminates an EC2 instance via the AWS API."},
 	},
 	{
 		Name:          "cloud.aws.s3.create_bucket",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Creates an S3 bucket via the AWS API."},
 	},
 	{
 		Name:          "cloud.aws.s3.delete_bucket",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Deletes an S3 bucket via the AWS API."},
 	},
 }

@@ -23,10 +23,10 @@ import (
 // to satisfy once Part X's OCI distribution exists.
 //
 // It returns Result rather than a bare error so a method can report whether
-// it changed anything, which is the Ansible changed/ok distinction PLAN.md
-// Section 14's convergence principle depends on. Facts and stats flow
-// through the RunbookContext instead, since a method may emit many of those
-// and they are not the method's return value.
+// it changed anything, which is the Ansible changed/ok distinction the
+// engine's convergence principle depends on. Facts and stats flow through
+// the RunbookContext instead, since a method may emit many of those and
+// they are not the method's return value.
 type Method func(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (Result, error)
 
 // Result is what a Method reports.
@@ -86,7 +86,7 @@ var collections = registry.New[Descriptor]()
 func Register(d Descriptor) error {
 	namespace, method, ok := strings.Cut(d.Name, ".")
 	if !ok || namespace == "" || method == "" {
-		return fmt.Errorf("collection: %q is not namespaced (PLAN.md Section 2 requires <namespace>.<method>)", d.Name)
+		return fmt.Errorf("collection: %q is not namespaced (requires <namespace>.<method>)", d.Name)
 	}
 
 	for _, name := range d.Manifest.RequiredCapabilities {

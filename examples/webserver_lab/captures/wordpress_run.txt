@@ -1,0 +1,17 @@
+plan for runbooks/wordpress_check.yaml (4 nodes, 3 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  Confirm Apache is active
+  Confirm MariaDB is active
+  Confirm the WordPress install responds
+  Confirm wp-config.php exists
+
+executing:
+  tasks[0] [0184b0f9-3031-4538-a413-7a0bfefc8ceb]: changed
+  tasks[1] [0184b0f9-3031-4538-a413-7a0bfefc8ceb]: changed
+  tasks[2] [0184b0f9-3031-4538-a413-7a0bfefc8ceb]: changed
+  tasks[3] [0184b0f9-3031-4538-a413-7a0bfefc8ceb]: changed
+
+run complete

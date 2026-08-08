@@ -1,7 +1,7 @@
 // Command pleiades's `inventory sync` subcommand lives here: the
-// user-facing surface over PLAN.md Section 6a's sync plugins. Like every
-// other subcommand file it parses flags and delegates; the reconciliation
-// itself belongs to internal/inventory/syncplugin.
+// user-facing surface over the sync plugin port in
+// internal/inventory/syncplugin. Like every other subcommand file it
+// parses flags and delegates; the reconciliation itself belongs there.
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
 	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
 	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins"
 	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/catalystcenter"
@@ -51,13 +52,10 @@ func runInventory(args []string) error {
 
 // printInventoryUsage prints the inventory namespace's usage block.
 func printInventoryUsage() {
-	fmt.Fprintln(os.Stderr, `usage: pleiades inventory <command> [flags]
-
-commands:
-  sync     pull devices from an external source into the local inventory
-  plugins  list the available inventory sync plugins
-
-See PLAN.md Section 6a for the sync plugin model.`)
+	invSpec, _ := clispec.Find(clispec.Root, "inventory")
+	fmt.Fprint(os.Stderr, "usage: pleiades inventory <command> [flags]\n\ncommands:\n")
+	fmt.Fprint(os.Stderr, clispec.RenderList(invSpec.Subcommands))
+	fmt.Fprintln(os.Stderr, "\nSee docs/ in the repository for the sync plugin model.")
 }
 
 // runInventoryPlugins lists every registered sync plugin, so a user can

@@ -41,7 +41,7 @@ func TestCreate_NotImplemented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := group.Create(context.Background(), nil, tt.params)
+			_, err := group.Create(context.Background(), nil, nil, tt.params)
 			if err == nil {
 				t.Fatal("expected an explicit not-implemented error, got nil")
 			}

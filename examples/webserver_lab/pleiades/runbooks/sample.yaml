@@ -1,0 +1,5 @@
+# Sample runbook. Run it with: pleiades run runbooks/sample.yaml
+id: sample
+tasks:
+  - name: check
+    fqcn: noop

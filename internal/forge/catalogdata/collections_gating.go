@@ -7,12 +7,14 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var gatingCollections = []collectionscaffold.Config{
 	{
 		Name:          "http.request",
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Makes an HTTP request and reports its status code and body."},
 	},
 	{
 		// Namespaced under pleiades.builtin, not the bare "wait.port" its
@@ -29,23 +31,27 @@ var gatingCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameNetworkAddressable},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Waits for a TCP port on the target to start (or stop) accepting connections."},
 	},
 	{
 		Name:          "wait.path",
 		Capabilities:  []capability.Name{capability.NameNetworkAddressable},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Waits for a file path on the target to exist (or stop existing)."},
 	},
 	{
 		Name:          "wait.search",
 		Capabilities:  []capability.Name{capability.NameNetworkAddressable},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Waits for a pattern to appear in a file's contents on the target."},
 	},
 	{
 		Name:          "facts.gather",
 		Capabilities:  []capability.Name{capability.NameFactGatherer},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
+		Doc:           collection.Doc{Summary: "Gathers baseline system facts from the target (OS, kernel, distribution)."},
 	},
 }

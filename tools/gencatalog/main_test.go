@@ -173,6 +173,85 @@ func TestValidateCatalogEntries_CatchesInvalidEntry(t *testing.T) {
 	}
 }
 
+// TestValidateCatalogEntries_CatchesInvalidDeviceAndPlugin exercises the
+// device and plugin validation loops independently of the collection loop
+// above, so a regression in either is caught even when every collection
+// entry is valid.
+func TestValidateCatalogEntries_CatchesInvalidDeviceAndPlugin(t *testing.T) {
+	collections := []collectionscaffold.Config{
+		{Name: "pkg.apt.install"},
+	}
+	devices := []devicescaffold.Config{
+		{Vendor: "bad vendor", TypeKey: "ok_thing"}, // embedded space: invalid
+	}
+	plugins := []pluginscaffold.Config{
+		{Name: "ok_plugin", Description: ""}, // empty description: invalid
+	}
+
+	err := validateCatalogEntries(collections, devices, plugins)
+	if err == nil {
+		t.Fatal("expected an error for the invalid device and plugin entries")
+	}
+	if !strings.Contains(err.Error(), "bad vendor") {
+		t.Errorf("expected the error to name the bad vendor, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ok_plugin") {
+		t.Errorf("expected the error to name the bad plugin, got: %v", err)
+	}
+}
+
+func TestFindModuleRoot_ErrorsWhenNoGoModInAnyParent(t *testing.T) {
+	// findModuleRoot walks up from os.Getwd(), so proving the "not found"
+	// branch means actually chdir'ing somewhere with no go.mod anywhere
+	// above it up to the filesystem root.
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir(%q): %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Fatalf("restoring cwd to %q: %v", orig, err)
+		}
+	})
+
+	if _, err := findModuleRoot(); err == nil {
+		t.Fatal("findModuleRoot from a directory with no go.mod above it: expected an error, got nil")
+	}
+}
+
+func TestBuildPleiadesBinary_ErrorsOnBuildFailure(t *testing.T) {
+	// root has no go.mod and no cmd/pleiades package, so the build this
+	// function shells out to must fail.
+	root := t.TempDir()
+
+	_, _, err := buildPleiadesBinary(root)
+	if err == nil {
+		t.Fatal("buildPleiadesBinary against a directory with no cmd/pleiades package: expected an error, got nil")
+	}
+}
+
+func TestRunPleiades_ErrorsForNonexistentBinary(t *testing.T) {
+	err := runPleiades(filepath.Join(t.TempDir(), "no-such-binary"), t.TempDir(), "forge", "new-collection", "test.x")
+	if err == nil {
+		t.Fatal("runPleiades against a nonexistent binary: expected an error, got nil")
+	}
+}
+
+func TestWriteCatalogBuiltins_ErrorsWhenDestDirMissing(t *testing.T) {
+	// root's internal/catalog directory is never created, so the WriteFile
+	// this function does must fail.
+	root := t.TempDir()
+
+	err := writeCatalogBuiltins(root, []collectionscaffold.Config{{Name: "svc.start"}})
+	if err == nil {
+		t.Fatal("writeCatalogBuiltins with a missing destination directory: expected an error, got nil")
+	}
+}
+
 func TestWriteCatalogBuiltins_DedupesAndSorts(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "internal", "catalog"), 0o755); err != nil {

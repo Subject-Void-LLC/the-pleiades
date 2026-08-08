@@ -246,7 +246,7 @@ tasks:
 
 // TestModuleAsKeySugar_ConflictsWithExplicitParallel_Errors is the
 // parallel: counterpart of TestModuleAsKeySugar_ConflictsWithExplicitBlock_Errors,
-// proving reservedTaskKeys (task_syntax.go) recognizes "parallel" the same
+// proving ReservedTaskKeys (task_syntax.go) recognizes "parallel" the same
 // way it already recognizes "block", not just at the DAG-validation layer
 // (tasktree.go's validateTask) but at the sugar-normalization layer this
 // file owns: without this, the sugar rewriter would misread parallel:'s

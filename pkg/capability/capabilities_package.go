@@ -9,7 +9,7 @@ const (
 // PackageManagerCapable is satisfied by any device with some package
 // manager, without committing to which one. Collection authors targeting
 // this broad level get downward resolution to whichever specific manager
-// (apt, dnf, ...) the device actually declares (PLAN.md Section 8).
+// (apt, dnf, ...) the device actually declares.
 type PackageManagerCapable interface {
 	// PackageManagerName returns the package manager's identifying name
 	// (e.g. "apt", "dnf").
@@ -17,8 +17,8 @@ type PackageManagerCapable interface {
 }
 
 // AptCapable is satisfied by devices managed through APT. This is a floor
-// capability (PLAN.md Section 8): no narrower per-distro or per-version
-// interface exists below it.
+// capability: no narrower per-distro or per-version interface exists
+// below it.
 type AptCapable interface {
 	PackageManagerCapable
 

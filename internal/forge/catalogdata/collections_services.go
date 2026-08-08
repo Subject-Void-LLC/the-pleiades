@@ -10,6 +10,7 @@ package catalogdata
 import (
 	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
 )
 
 var servicesCollections = []collectionscaffold.Config{
@@ -19,6 +20,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Starts a service using the target's own service manager, whichever it is."},
 	},
 	{
 		Name:              "svc.stop",
@@ -26,6 +28,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Stops a service using the target's own service manager, whichever it is."},
 	},
 	{
 		Name:              "svc.restart",
@@ -33,6 +36,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Restarts a service using the target's own service manager, whichever it is."},
 	},
 	{
 		Name:              "svc.enable",
@@ -40,6 +44,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Enables a service to start at boot, using the target's own service manager."},
 	},
 	{
 		Name:              "svc.disable",
@@ -47,6 +52,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Disables a service from starting at boot, using the target's own service manager."},
 	},
 	{
 		Name:              "svc.systemd.start",
@@ -54,6 +60,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Starts a systemd unit."},
 	},
 	{
 		Name:              "svc.systemd.stop",
@@ -61,6 +68,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Stops a systemd unit."},
 	},
 	{
 		Name:              "svc.systemd.restart",
@@ -68,6 +76,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Restarts a systemd unit."},
 	},
 	{
 		Name:              "svc.systemd.enable",
@@ -75,6 +84,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Enables a systemd unit to start at boot."},
 	},
 	{
 		Name:              "svc.systemd.disable",
@@ -82,6 +92,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Disables a systemd unit from starting at boot."},
 	},
 	{
 		Name:              "svc.systemd.daemon_reload",
@@ -89,6 +100,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"ssh"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Reloads systemd's unit files, after one on disk has changed."},
 	},
 	{
 		Name:              "svc.windows.start",
@@ -96,6 +108,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Starts a Windows service."},
 	},
 	{
 		Name:              "svc.windows.stop",
@@ -103,6 +116,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Stops a Windows service."},
 	},
 	{
 		Name:              "svc.windows.restart",
@@ -110,6 +124,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Restarts a Windows service."},
 	},
 	{
 		Name:              "svc.windows.enable",
@@ -117,6 +132,7 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Sets a Windows service's start type to automatic."},
 	},
 	{
 		Name:              "svc.windows.disable",
@@ -124,5 +140,6 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
+		Doc:               collection.Doc{Summary: "Sets a Windows service's start type to disabled."},
 	},
 }

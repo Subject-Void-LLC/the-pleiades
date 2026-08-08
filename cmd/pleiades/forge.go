@@ -1,14 +1,14 @@
-// Command pleiades's forge subcommand family lives here. The Forge of
-// Hephaestus (docs/hephaestus.md) is the authoring and migration tooling
-// namespace: everything a user does before a runbook runs. This file only
-// dispatches; every forge subcommand's real logic lives in its own file
-// and, per Phase 30 (.SPECIFICATION/IMPLEMENTATION.md Part VII), owns no
-// business logic here.
+// Command pleiades's forge subcommand family lives here: the authoring
+// and migration tooling namespace, everything a user does before a
+// runbook runs. This file only dispatches; every forge subcommand's real
+// logic lives in its own file, and this file owns no business logic.
 package main
 
 import (
 	"fmt"
 	"os"
+
+	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
 )
 
 // forgeCommands maps each forge subcommand name to its handler, the same
@@ -50,14 +50,8 @@ func runForge(args []string) error {
 // printForgeUsage prints the forge namespace's own usage block to stderr,
 // the same convention printUsage() uses for the top-level command.
 func printForgeUsage() {
-	fmt.Fprintln(os.Stderr, `usage: pleiades forge <command> [flags]
-
-commands:
-  new-device      generate a new vendor device-type package
-  new-collection  generate a new namespaced Collection method package
-  new-plugin      generate a new inventory sync plugin package
-
-See docs/hephaestus.md for the full planned Forge command surface, and
-.SPECIFICATION/IMPLEMENTATION.md Part VII for the phases that populate
-this namespace.`)
+	forge, _ := clispec.Find(clispec.Root, "forge")
+	fmt.Fprint(os.Stderr, "usage: pleiades forge <command> [flags]\n\ncommands:\n")
+	fmt.Fprint(os.Stderr, clispec.RenderList(forge.Subcommands))
+	fmt.Fprintln(os.Stderr, "\nSee docs/ in the repository for the full Forge command surface.")
 }

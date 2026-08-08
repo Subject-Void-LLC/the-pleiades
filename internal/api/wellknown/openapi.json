@@ -1,0 +1,546 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "See docs/10-running-in-production.md for token issuance. A route with no matching scope in the token, and no admin role, is refused with 403.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "The five routes cmd/controller/main.go registers under /api/v1. Generated from internal/apispec, the same table the real router builds from.",
+    "title": "Pleiades control plane API",
+    "version": "unreleased"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/inventory/devices/{name}": {
+      "delete": {
+        "description": "Moves the device to the decommissioning lifecycle state (\"retires\" it); this is not a hard delete of its history.",
+        "operationId": "delete_device",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The device was retired."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is empty, too long, or contains a control character."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:write"
+            ]
+          }
+        ],
+        "summary": "Retire an inventory device",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Reads a device's current lifecycle state, version, tags, and capabilities.",
+        "operationId": "get_device",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "capabilities": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "executable": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                      "type": "string"
+                    },
+                    "tags": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "name is empty, too long, or contains a control character."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "Get one inventory device",
+        "x-link-relation": "self"
+      }
+    },
+    "/jobs/dispatch": {
+      "post": {
+        "description": "Validates the request, resolves the runbook, persists a pending Job, and publishes one job.requested event. Responds immediately; the actual per-device fan-out happens later, off this request entirely. Poll GET /jobs/{id} for progress and final per-device tallies.",
+        "operationId": "dispatch_runbook",
+        "parameters": [
+          {
+            "description": "Inventory group name to target.",
+            "in": "query",
+            "name": "group",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Runbook ID to dispatch.",
+            "in": "query",
+            "name": "runbook",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "job_id": {
+                      "description": "The server-generated job ID. Poll GET /jobs/{job_id} with it.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "description": "Always \"accepted\".",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job was persisted and will fan out asynchronously."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Missing 'group' or 'runbook' query parameter."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No identity on the request context."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No runbook with that ID exists."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job could not be persisted or published."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:execute"
+            ]
+          }
+        ],
+        "summary": "Dispatch a runbook asynchronously",
+        "x-link-relation": "execute"
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "description": "Reads a dispatch.Job together with every JobTask recorded against it so far. Dispatched/skipped/failed tallies read 0 until state reaches \"completed\"; the tasks array is where a caller reads live per-device progress before then.",
+        "operationId": "get_job",
+        "parameters": [
+          {
+            "description": "The job ID, a UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "dispatched": {
+                      "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
+                      "type": "integer"
+                    },
+                    "failed": {
+                      "type": "integer"
+                    },
+                    "group_name": {
+                      "type": "string"
+                    },
+                    "job_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "runbook_id": {
+                      "type": "string"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "tasks": {
+                      "items": {
+                        "properties": {
+                          "device_id": {
+                            "type": "string"
+                          },
+                          "device_name": {
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job's current state."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a UUID."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No job with that ID exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "job:read"
+            ]
+          }
+        ],
+        "summary": "Get a job's current state",
+        "x-link-relation": "self"
+      }
+    },
+    "/jobs/{id}/logs": {
+      "get": {
+        "description": "id is validated as a UUID before use: it is concatenated into a NATS subject, and an unvalidated value could widen a wildcard subject to stream every job in the system. A fresh, ephemeral JetStream consumer scoped to exactly this job ID is created per request, so each concurrent viewer sees only the job it asked for. Each SSE frame's data is the raw JSON event payload the engine publishes per task status change, best-effort masked through every secret known at the moment that event was published (see docs/10-running-in-production.md's data handling section for the precise, non-retroactive scope of that masking).",
+        "operationId": "stream_job_logs",
+        "parameters": [
+          {
+            "description": "The job ID, a UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An open SSE stream. Never terminates on its own; the client closes it."
+          },
+          "400": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a UUID."
+          },
+          "500": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The JetStream consumer could not be created."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "job:read"
+            ]
+          }
+        ],
+        "summary": "Stream a job's live progress over Server-Sent Events",
+        "x-link-relation": "logs"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Relative to the controller's own origin.",
+      "url": "/api/v1"
+    }
+  ]
+}

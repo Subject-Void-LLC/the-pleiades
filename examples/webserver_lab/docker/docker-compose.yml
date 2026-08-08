@@ -1,0 +1,30 @@
+# Three real, SSH-reachable Ubuntu targets, each a common real-world
+# webserver pattern, used to capture genuine `pleiades` terminal output
+# for docs/ rather than writing a transcript by hand. Never part of the
+# shipped product; a documentation-authoring fixture only.
+#
+#   plain            baseline linux_server, SSH only, nothing installed
+#   nginx-bootstrap   standard "install and enable a webserver" pattern
+#   wordpress         LAMP-stack CMS pattern: Apache + PHP + MariaDB + WP
+#
+# Usage: docker compose -f examples/webserver_lab/docker/docker-compose.yml up -d --build
+services:
+  plain:
+    build: ./plain
+    ports:
+      - "2221:22"
+    restart: unless-stopped
+
+  nginx-bootstrap:
+    build: ./nginx-bootstrap
+    ports:
+      - "2222:22"
+      - "8081:80"
+    restart: unless-stopped
+
+  wordpress:
+    build: ./wordpress
+    ports:
+      - "2223:22"
+      - "8082:80"
+    restart: unless-stopped

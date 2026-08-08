@@ -1,0 +1,15 @@
+plan for runbooks/nginx_check.yaml (3 nodes, 3 inventory hosts loaded):
+service-effecting: false
+blast radius: 1 devices
+
+tasks:
+  Confirm nginx is active
+  Confirm nginx serves the default page
+  Report the nginx version
+
+executing:
+  tasks[0] [00ea5e66-0215-4df8-ac00-a53e9372ef7c]: changed
+  tasks[1] [00ea5e66-0215-4df8-ac00-a53e9372ef7c]: changed
+  tasks[2] [00ea5e66-0215-4df8-ac00-a53e9372ef7c]: changed
+
+run complete
