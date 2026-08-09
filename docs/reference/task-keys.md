@@ -13,7 +13,7 @@ Every key a runbook author can write. The key list itself is generated from the 
 | `id` | The runbook's own identifier. Required. Restricted to `[A-Za-z0-9_-]`, since it is embedded into a NATS subject. |
 | `hosts` | Default target for every task that does not set its own. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. |
 | `type` | Runbook-type discriminator. `native` (the default) or the empty string; `ansible` is reserved and non-actionable today. |
-| `metadata` | Runbook-level metadata. Its only field today is `service_effecting`; blast radius itself is always computed, never authored. |
+| `metadata` | Runbook-level metadata. `service_effecting` marks a run as affecting live service, as opposed to purely read-only or diagnostic; blast radius itself is always computed, never authored. `interruptible` (default true when omitted) marks whether a Runner that loses its heartbeat with the Controller may safely self-abort this runbook before the Controller's own lock TTL expires; set it `false` for a task that must finish once started. |
 | `pretasks` | Tasks that run before `tasks`. Optional. |
 | `tasks` | The runbook's main task list. Required. |
 | `posttasks` | Tasks that run after `tasks`. Optional. |
