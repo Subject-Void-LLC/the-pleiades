@@ -468,6 +468,80 @@ func TestDAGBuilder_ParallelExclusivity(t *testing.T) {
 	}
 }
 
+// TestDAGBuilder_ConditionOrSecretMaskOnGroupTaskIsError is the regression
+// test for the defect this codebase's own dag.go:303-306 comment already
+// documented but no validation caught: a block or parallel task's own id
+// never enters dag.Adjacency (synthesizeOne splices in its children's
+// entry/exit instead), so a when/when_or/when_cel or secret_mask written
+// directly on the group task compiled and validated cleanly and then
+// never fired. Swept across both group kinds and all four annotations
+// deliberately, since fixing only one instance of this shape (as an
+// earlier session did for the sibling rescue/always-without-block defect)
+// would repeat the exact failure this test exists to close out.
+func TestDAGBuilder_ConditionOrSecretMaskOnGroupTaskIsError(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	child := `{"name":"c","fqcn":"noop"}`
+	cases := map[string]string{
+		"when on block":           `{"id":"x","tasks":[{"name":"bad","when":"true","block":[` + child + `]}]}`,
+		"when_or on block":        `{"id":"x","tasks":[{"name":"bad","when_or":["true"],"block":[` + child + `]}]}`,
+		"when_cel on block":       `{"id":"x","tasks":[{"name":"bad","when_cel":"true","block":[` + child + `]}]}`,
+		"secret_mask on block":    `{"id":"x","tasks":[{"name":"bad","secret_mask":{"register":"r","fields":["f"]},"block":[` + child + `]}]}`,
+		"when on parallel":        `{"id":"x","tasks":[{"name":"bad","when":"true","parallel":[` + child + `]}]}`,
+		"when_or on parallel":     `{"id":"x","tasks":[{"name":"bad","when_or":["true"],"parallel":[` + child + `]}]}`,
+		"when_cel on parallel":    `{"id":"x","tasks":[{"name":"bad","when_cel":"true","parallel":[` + child + `]}]}`,
+		"secret_mask on parallel": `{"id":"x","tasks":[{"name":"bad","secret_mask":{"register":"r","fields":["f"]},"parallel":[` + child + `]}]}`,
+	}
+
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := builder.Build([]byte(payload))
+			if err == nil {
+				t.Fatalf("expected %s to be rejected", name)
+			}
+			if !strings.Contains(err.Error(), "tasks[0]") {
+				t.Errorf("expected error to name tasks[0], got: %v", err)
+			}
+		})
+	}
+}
+
+// TestDAGBuilder_ConditionOnGroupChildStillCompiles confirms the fix above
+// is scoped to the group task's own annotation and does not disturb the
+// documented workaround (docs/03-migrating-from-ansible.md's "Borrowed
+// vocabulary" section): repeating when_cel on each child task inside a
+// block or parallel group compiles cleanly, exactly as it did before this
+// fix, since a child's own id is wired into the graph and its condition is
+// genuinely evaluated.
+func TestDAGBuilder_ConditionOnGroupChildStillCompiles(t *testing.T) {
+	eval, _ := engine.NewCELEvaluator()
+	builder := engine.NewBuilder(eval)
+
+	payload := []byte(`{
+		"id": "runbook-child-condition",
+		"tasks": [
+			{"name": "guarded block", "block": [
+				{"name": "b0", "fqcn": "noop", "when_cel": "true"}
+			]},
+			{"name": "guarded parallel", "parallel": [
+				{"name": "p0", "fqcn": "noop", "when_cel": "true"}
+			]}
+		]
+	}`)
+
+	dag, err := builder.Build(payload)
+	if err != nil {
+		t.Fatalf("expected a child's own when_cel to compile cleanly, got: %v", err)
+	}
+	if dag.Conditions["tasks[0].block[0]"] == nil {
+		t.Errorf("expected the block child's condition to be compiled")
+	}
+	if dag.Conditions["tasks[1].parallel[0]"] == nil {
+		t.Errorf("expected the parallel child's condition to be compiled")
+	}
+}
+
 // TestDAGBuilder_Version confirms DAG.Version is a stable, deterministic
 // "sha256:<hex>" digest of the fully-resolved definition: identical input
 // hashes identically every time, and any real content change (not just

@@ -303,7 +303,13 @@ type DAG struct {
 	// appears as a source or target in Adjacency; a parallel task's
 	// children splice in the same way, between its own synthetic
 	// fan-out/join pair (synthesizeParallel), so the parallel task's own
-	// ID never appears here either. Rescue and Always children are
+	// ID never appears here either. A consequence validateTask now
+	// enforces at write time rather than leaving implicit here: a
+	// when/when_or/when_cel or secret_mask set directly on a block or
+	// parallel task would compile into Conditions/Nodes but never be
+	// consulted, since nothing in the executor's walk ever visits that
+	// ID; validateTask rejects it instead, naming the child tasks inside
+	// as where it belongs. Rescue and Always children are
 	// deliberately NOT part of this chain: EdgeType (this file) now gives
 	// "run this on failure" a real vocabulary to be expressed as an edge,
 	// but Executor does not yet interpret it (see EdgeType's own doc
