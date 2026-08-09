@@ -9,8 +9,13 @@ import (
 
 // generateOpenAPI emits outDir/openapi.json (OpenAPI 3.1) and the
 // identical bytes into internal/api/wellknown (writeSchema's own
-// two-copy convention), built entirely from apispec.Endpoints: the same
-// table cmd/controller/main.go builds its real api.Route slice from.
+// two-copy convention), built entirely from apispec.Endpoints. Every
+// operation's method, pattern, scope, and link relation come off the same
+// Endpoint value cmd/controller/main.go turns into an api.Route, so this
+// document cannot describe a route the server serves differently. It can,
+// however, describe a route the server never registered at all: nothing
+// compares this slice against cmd/controller's own Routes table (see
+// internal/apispec's package doc for why, and for what closing it takes).
 // Because Scope and Rel are already mandatory per Endpoint
 // (apispec.Endpoint mirrors api.Route's own validateRoutes requirement),
 // this document carries two artifacts nobody hand-maintains elsewhere:
@@ -24,7 +29,7 @@ func generateOpenAPI(outDir string) error {
 		"openapi": "3.1.0",
 		"info": map[string]any{
 			"title":       "Pleiades control plane API",
-			"description": "The five routes cmd/controller/main.go registers under " + api.APIVersionPrefix + ". Generated from internal/apispec, the same table the real router builds from.",
+			"description": "Every route declared in internal/apispec, the package cmd/controller/main.go also builds its real router from, served under " + api.APIVersionPrefix + ". A listed route's method, pattern, scope, and link relation are the ones the server enforces. That a listed route is registered at all is not checked by anything, so confirm a route against a running controller before building on it.",
 			"version":     "unreleased",
 		},
 		"servers": []any{

@@ -50,7 +50,7 @@ func generateStatus(outDir string) error {
 	}
 
 	b.WriteString("## Declared, not yet implemented\n\n")
-	b.WriteString("Registered, capability-checked, reachable through the real dispatcher. Calling one " +
+	b.WriteString("Registered and reachable through the real dispatcher. Calling one " +
 		"refuses with an explicit \"declared but not implemented\" error rather than running.\n\n")
 	for _, fqcn := range declared {
 		fmt.Fprintf(&b, "- `%s`\n", fqcn)

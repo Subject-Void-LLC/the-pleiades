@@ -75,8 +75,14 @@ validate: no issues found
 ```
 
 `validate` checks the runbook against the inventory without touching any device:
-every task's FQCN resolves, every required capability is satisfied by its target, and
-every conditional expression compiles.
+every task's FQCN resolves to a registered, implemented method, and every conditional
+expression compiles.
+
+It does not check capabilities for catalog FQCNs. Only the two legacy action names
+`ssh_exec` and `ios_backup` get a device capability check, so a task calling
+`net.catalyst.device_facts` against a Linux host passes `validate` and then fails
+during the run. See
+[Implementation status](01-start-here.md#implementation-status).
 
 ### 6. Run it
 

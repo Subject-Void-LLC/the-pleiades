@@ -28,7 +28,7 @@ when a term is unfamiliar.
 | **Task** | One step in a runbook. Names an action by FQCN and passes it `params`. |
 | **FQCN** | Fully-qualified collection name, `<namespace>.<method>`, e.g. `net.catalyst.device_facts`. Always namespaced; a bare, undotted name is rejected at registration time. |
 | **Collection** | A namespaced Go package implementing one FQCN. Declares what capability and transport it needs. |
-| **Capability** | What a device *can do*, not what it *is*. A task requires a capability (e.g. `AptCapable`); a device advertises one by structurally implementing the matching Go interface. Checked at plan time, before anything runs. |
+| **Capability** | What a device *can do*, not what it *is*. A task requires a capability (e.g. `AptCapable`); a device advertises one by structurally implementing the matching Go interface. Only two legacy action names are checked before a run; see [Implementation status](#implementation-status). |
 | **Inventory item** | A managed device: a name, a type, a set of properties, a lifecycle state, a version, and a history of changes. |
 | **Lifecycle state** | Where a device sits in its own lifecycle (`active`, `quarantined`, and six others). Only `active` devices can execute a task. |
 | **Transport** | How a task's command actually reaches a device. Selected automatically from the device's capabilities; a runbook author never writes `connection: local` or picks a transport by hand. |
@@ -48,7 +48,7 @@ one before it, and nothing is gated behind a higher tier that does not need it.
 | Tier | What it adds | Infrastructure required |
 |---|---|---|
 | **Walk** | The `pleiades` CLI. Scaffold a project, manage a static inventory, store credentials, validate and run runbooks. | None. A single binary, no server, no database, no broker. |
-| **Crawl** | A Controller, a Runner, and the web UI, talking over a real API. | A NATS JetStream broker and a datastore for the Controller. |
+| **Crawl** | A Controller and a Runner talking over a real API, plus a web UI that does not reach that API yet. | A NATS JetStream broker and a datastore for the Controller. |
 | **Run** | GitOps-synced platform config, promotion gates, and the Ansible interoperability layer for running unconverted playbooks. | Everything Crawl needs, plus a Git-backed config repository. |
 
 Today, Walk is the tier that works end to end. See the next section for exactly what
@@ -83,15 +83,35 @@ completely separate from the Walk-tier CLI's own execution path above, which is 
 and unaffected by this gap.
 
 **The module catalog has 75 declared methods across 16 namespaces; 4 are
-implemented.** Every FQCN is registered, capability-checked, and reachable through the
-real dispatcher: calling one produces an explicit `"declared but not implemented"`
-refusal rather than a silent no-op or a fabricated success, whether the call comes
-from the CLI, the Controller, or a future runner. Only the four `net.catalyst.*`
-methods, against Cisco Catalyst Center's REST API, are real today. See the
+implemented.** Every FQCN is registered and reachable through the real dispatcher:
+calling one produces an explicit `"declared but not implemented"` refusal rather than
+a silent no-op or a fabricated success, whether the call comes from the CLI, the
+Controller, or a future runner. Only the four `net.catalyst.*` methods, against Cisco
+Catalyst Center's REST API, are real today. See the
 [module catalog](reference/modules/index.md) for every method, by namespace.
 
-**The web UI is mostly a mockup.** Of its six routes, one (a live SSE job log viewer)
-is real; the rest show hardcoded placeholder content.
+**Plan-time capability checking covers two legacy action names, not the catalog.**
+`pleiades validate` compares a task's required capability against its target device
+for exactly `ssh_exec` and `ios_backup`. Those are the only two entries in a
+hand-written table (`internal/engine/action_capability.go`), and every other FQCN is
+skipped. Registration checks that a method's declared capability names are real names
+in the vocabulary, but no validator compares them to a device. So a runbook calling
+`net.catalyst.device_facts` against a `linux_server` host prints
+`validate: no issues found` and exits 0, then fails partway into the run with
+`device "web1" does not have CatalystAPICapable`. The Controller's dispatcher builds
+its capability check from that same two-entry table, so it is blind the same way.
+Treat a capability mismatch as an error you find by running, not one `validate` finds
+for you.
+
+**The whole web UI is a mockup, including its job log viewer.** Five of its six
+routes render hardcoded content and make no network request at all. The sixth, an SSE
+log stream viewer, does hold real streaming code, but three separate defects stop it
+from reaching a real Controller: it requests the hardcoded job ID `"123"` instead of
+the one in its own URL, it points at port 8081 while the Controller listens on 8080
+by default and nothing proxies between the two, and it connects with the browser's
+`EventSource`, which cannot send the `Authorization` header every `/api/v1` route
+requires. See [Control plane and API](09-control-plane-and-api.md#web-ui) for the
+specifics. To watch a job today, call the API with `curl`, or use the CLI.
 
 ## Limitations
 

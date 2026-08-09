@@ -10,7 +10,7 @@
     }
   },
   "info": {
-    "description": "The five routes cmd/controller/main.go registers under /api/v1. Generated from internal/apispec, the same table the real router builds from.",
+    "description": "Every route declared in internal/apispec, the package cmd/controller/main.go also builds its real router from, served under /api/v1. A listed route's method, pattern, scope, and link relation are the ones the server enforces. That a listed route is registered at all is not checked by anything, so confirm a route against a running controller before building on it.",
     "title": "Pleiades control plane API",
     "version": "unreleased"
   },

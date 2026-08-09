@@ -61,7 +61,7 @@ turning a new extension on.
 
 A Collection method is a `pkg/collection.Descriptor`: a namespaced `Name`
 (`<namespace>.<method>`, always dotted, a bare name is rejected at registration
-time), a `Manifest` (the plan-time contract: required capabilities, supported
+time), a `Manifest` (the declared contract: required capabilities, supported
 transports, execution context, platform targets, engine version, and `Status`), and
 an `Invoke` function matching:
 
@@ -120,8 +120,19 @@ assertion the other two pass, that is the suite doing its job.
 ## Testing your extension
 
 `pleiades validate` against a runbook naming your new FQCN is the fastest signal: it
-confirms registration succeeded, the manifest is well-formed, and (once implemented)
-capability matching resolves correctly. Beyond that, follow this repository's own
+confirms registration succeeded (a name without a namespace, or an unknown capability
+name, panics at process start instead) and that the method no longer refuses as
+declared but not implemented.
+
+`validate` does not confirm capability matching, before or after your method is
+implemented. No validator reads a manifest's `RequiredCapabilities`:
+`internal/validate.CapabilityRule` keys off `engine.ActionCapability`, a two-entry
+table holding only the legacy `ssh_exec` and `ios_backup`, and skips every other
+FQCN. So `validate` will pass your method against a device that cannot run it. Check
+that yourself, with a test that targets a device lacking the capability and asserts
+the failure your method returns.
+
+Beyond that, follow this repository's own
 `make ci` (`build vet fmt test-race gosec govulncheck coverage docs-lint
 docs-gen-check`) and `coverage-floor.json`'s ratchet: a new package starts
 untracked (informational, not a failing gate) and is expected to get a real floor

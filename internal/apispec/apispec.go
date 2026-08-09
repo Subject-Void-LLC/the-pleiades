@@ -2,9 +2,22 @@
 // data, once, the way internal/clispec does for the CLI command tree and
 // pkg/collection.Manifest does for the module catalog: cmd/controller's
 // real router and tools/gendocs' generated OpenAPI document both build
-// from this same Endpoints slice, so a route's method, pattern, required
-// scope, and link relation can never drift between what the server
-// actually serves and what a generated page claims it serves.
+// from the Endpoint values declared here, so a route present in both
+// cannot drift in its method, pattern, required scope, or link relation.
+// Route below is the whole mechanism: the router receives those four
+// fields copied off the same value the generated document renders.
+//
+// Set membership is a different question, and nothing here enforces it.
+// Only tools/gendocs ranges over the Endpoints slice; cmd/controller names
+// each Endpoint one at a time in its own Routes table, and no test compares
+// the two sets. An Endpoint added to this slice and never registered there
+// builds clean, vets clean, and trips no test, while the generated document
+// advertises a route the server does not serve. Closing that hole means
+// having cmd/controller build its Routes by ranging over Endpoints, pairing
+// each one with a handler by Name and refusing to start if any Endpoint has
+// none. That is a change to the composition root, not to this package,
+// which is why the gap is documented here rather than quietly implied to be
+// covered.
 //
 // Living under internal/ rather than inside cmd/controller is what lets
 // tools/gendocs (a separate main package) read it too, the same reason

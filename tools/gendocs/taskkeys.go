@@ -15,6 +15,13 @@ import (
 // checked for an exact match (see generateTaskKeys): a key here the
 // parser no longer recognizes, or a key the parser recognizes with no
 // description here, both fail the build rather than silently drift.
+//
+// That pairing proves the key NAMES match, and nothing more. No check
+// compares a Description against what the engine does with the key, so a
+// description can confidently state behavior that does not exist: the
+// rescue and always rows below were wrong for exactly that reason.
+// Changing a Description is a documentation claim, and it has to be
+// verified by hand against the code that reads the key.
 type taskKeyDoc struct {
 	Key         string
 	Description string
@@ -31,9 +38,9 @@ var taskKeyDescriptions = []taskKeyDoc{
 	{"register_mask", "Masks a field (or a dotted nested path) of this task's own registered result the instant it registers, before anything downstream can see it unmasked."},
 	{"secret_mask", "`{register, fields}`: masks a named, already-registered result's top-level fields. Unlike `register_mask`, does not support dotted paths."},
 	{"lock_acquisition", "`per_device_as_reached` (default) or `all_at_plan_time`: when this task's device lock is acquired relative to the rest of the run."},
-	{"block", "Groups tasks so `rescue`/`always` can catch or clean up after a failure among them, mirroring Ansible's own block/rescue/always."},
-	{"rescue", "Tasks run if any task in the sibling `block` fails. Only meaningful alongside `block`."},
-	{"always", "Tasks run after the sibling `block`, whether or not it failed. Only meaningful alongside `block`."},
+	{"block", "Groups its child tasks into one ordered sub-list, mirroring Ansible's own `block:`. The children run in order, in the position the block itself occupies. Its `rescue`/`always` siblings are accepted but never run: see the two rows below."},
+	{"rescue", "**Accepted, validated, printed in the plan, and never executed.** The builder registers rescue tasks as graph nodes but wires no edges to them (`internal/engine/tasktree.go`), and the executor follows edges only (`internal/engine/executor.go`), so a `block` whose child fails runs no rescue handler: the run just fails. Do not rely on it to recover from a failure."},
+	{"always", "**Accepted, validated, printed in the plan, and never executed**, for the same reason as `rescue`, and this is the more dangerous of the two. When the sibling `block` succeeds, the run prints `run complete` and exits 0 while every `always` task is skipped in silence, so nothing tells you the cleanup did not happen. Until this is implemented, put cleanup steps at the end of the `block` itself."},
 	{"parallel", "Native fan-out/join: runs its child tasks concurrently. Mutually exclusive with `fqcn` and `block`; may not carry `rescue`/`always`."},
 }
 
@@ -65,8 +72,11 @@ func generateTaskKeys(outDir string) error {
 	var b strings.Builder
 	b.WriteString(frontMatter("beta"))
 	b.WriteString("# Runbook and task keys\n\n")
-	b.WriteString("Every key a runbook author can write, generated against the parser's own accepted key " +
-		"list so this page cannot drift from what actually validates.\n\n")
+	b.WriteString("Every key a runbook author can write. The key list itself is generated from the " +
+		"parser's own list of accepted keys, so this page cannot name a key that fails validation, or " +
+		"leave out one that passes. That check covers key names only. Each description below is " +
+		"hand-written, and nothing verifies a description against the engine, so a key that validates " +
+		"does not always do something: `rescue` and `always` validate and never run.\n\n")
 
 	b.WriteString("## Runbook scope\n\n")
 	b.WriteString(taskKeyTable(runbookKeyDescriptions))

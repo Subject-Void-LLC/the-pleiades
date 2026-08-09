@@ -1,21 +1,30 @@
-// Command gendocs regenerates docs/reference/ from the same registries
-// the engine, `pleiades validate`, and the real dispatcher read: the live
+// Command gendocs regenerates docs/reference/ from the registries the
+// engine, `pleiades validate`, and the real dispatcher read: the live
 // pkg/collection registry (populated by the blank import below), the
-// pkg/capability vocabulary, internal/forge/catalogdata's device and
-// plugin tables, and engine.ReservedTaskKeys. A generated page is
-// committed like any other generated source: never hand-edited. If a
-// page reads wrong, the fix belongs in the data (catalogdata, a
-// Manifest.Doc block) or in this tool's own rendering, never in the
-// generated Markdown itself.
+// pkg/capability vocabulary, the live inventory syncplugin registry
+// (plugins.go), internal/forge/catalogdata's device table, and
+// engine.ReservedTaskKeys. A generated page is committed like any other
+// generated source: never hand-edited. If a page reads wrong, the fix
+// belongs in the data (catalogdata, a Manifest.Doc block) or in this
+// tool's own rendering, never in the generated Markdown itself.
+//
+// The one table not read from a registry is handWrittenDevices in
+// devices.go, guarded by completeness_test.go; see that variable's own doc
+// comment for why it exists and what fails if it drifts.
 //
 // Usage, after editing internal/forge/catalogdata or a Manifest.Doc
-// block:
-//
-//	go generate ./tools/gendocs
-//
-// or directly:
+// block, from the repository root:
 //
 //	go run ./tools/gendocs
+//
+// Run it from the repository root and nowhere else. outputDir below and
+// writeSchema's wellKnownDir are both repo-root-relative, so this tool
+// writes its pages under whatever directory it is started in. That is
+// also why this file carries no go:generate directive, deliberately: go
+// generate runs a directive in its own package's directory, so
+// `go generate ./tools/gendocs` wrote a full copy of docs/reference and
+// internal/api/wellknown under tools/gendocs/ instead, where the
+// docs-gen-check target's own `git diff` never looked at them.
 package main
 
 import (
@@ -30,8 +39,6 @@ import (
 	// would have no Manifest to read for any FQCN in catalogdata.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
 )
-
-//go:generate go run .
 
 // outputDir is docs/reference/, relative to the repository root this
 // tool is expected to run from (matching tools/gencatalog's own
@@ -86,9 +93,16 @@ func run() error {
 func writeReferenceIndex() error {
 	content := frontMatter("beta") + `# Reference
 
-Generated from the same registries the engine, ` + "`pleiades validate`" + `, and the real dispatcher
-read. Never hand-edited; regenerate with ` + "`go generate ./tools/gendocs`" + ` after changing
-` + "`internal/forge/catalogdata`" + ` or a Collection method's ` + "`Manifest.Doc`" + ` block.
+Generated from the registries the engine, ` + "`pleiades validate`" + `, and the real dispatcher
+read. Never hand-edited; regenerate by running ` + "`go run ./tools/gendocs`" + ` from the repository
+root after changing ` + "`internal/forge/catalogdata`" + ` or a Collection method's ` + "`Manifest.Doc`" + `
+block.
+
+**One exception, stated plainly.** The ` + "`cisco_router`" + ` and ` + "`linux_server`" + ` rows on the
+[device types](devices.md) page are typed into the generator, not read from the device
+registry, because both types predate the Forge. A test in the generator fails if either
+row stops matching what a real binary hydrates, so those two rows cannot drift in
+silence. They are still the one place on these pages where a human wrote the data.
 
 - [Module catalog](modules/index.md)
 - [Capability vocabulary](capabilities.md)

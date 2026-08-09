@@ -22,24 +22,29 @@ tested today; nothing here is aspirational. Read this section before the rest.
   `time.Sleep` and a fabricated "pong" response. The Walk-tier CLI's own execution
   path is unrelated to this and is not affected by it.
 - **The module catalog has 75 declared methods; 4 are implemented.** Every
-  `<namespace>.<method>` collection name is registered, capability-checked, and
+  `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. Only the four
   `net.catalyst.*` methods (against Cisco Catalyst Center) are real today.
 
 ## What makes this different
 
-- **Type safety moves left.** Capability interfaces catch a mismatched module/device
-  pairing at plan time, not three tasks into a 200-task run.
+- **Type safety moves left.** Capabilities, transports and conditionals are declared
+  as typed data, so `pleiades validate` catches a bad FQCN or an uncompilable
+  condition before a run starts. Device capability matching is not there yet: it
+  covers only two legacy action names, so a module pointed at a device that cannot
+  run it still fails during the run. See `docs/01-start-here.md`.
 - **Inventory is a versioned artifact**, not a row in a table: every device carries a
   lifecycle state, a source, and a history.
 - **CEL conditionals**, compiled before execution, including `when_or` and a raw-CEL
   escape hatch (`when_cel`) for logic a bare `when:` cannot express.
-- **Per-device distributed locks** with a configurable acquisition policy, not a
-  single coarse job-level lock.
+- **Per-device locks** with a configurable acquisition policy, not a single coarse
+  job-level lock. The distributed lock manager exists but only the `controller` and
+  `runner` binaries use it: the CLI's locking is in-process only and does not exclude
+  a second `pleiades run`. See `docs/10-running-in-production.md`.
 - **A single static Go binary**, not a Python virtualenv or a container execution
   environment.
-- **A strict superset of Ansible's own vocabulary**: `hosts:`, `block`/`rescue`,
+- **A strict superset of Ansible's own vocabulary**: `hosts:`, `block`,
   `register`, and `when:` all mean what they already mean, with native extensions
   added alongside them, never renamed out from under a migrating user.
 

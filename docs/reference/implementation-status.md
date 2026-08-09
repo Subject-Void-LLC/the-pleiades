@@ -17,7 +17,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 
 ## Declared, not yet implemented
 
-Registered, capability-checked, reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
+Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
 - `exec.command`
 - `exec.shell`

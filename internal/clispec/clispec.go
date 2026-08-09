@@ -148,7 +148,7 @@ var Root = Command{
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "refuse every write to the local inventory, reporting what would have changed"},
 						{Name: "insecure-skip-verify", Type: "bool", Default: "false", Doc: "skip TLS certificate verification against the upstream system"},
 					},
-					Examples: []string{"pleiades inventory sync --plugin catalystcenter --endpoint https://dnac.example.com"},
+					Examples: []string{"pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com"},
 				},
 				{
 					Name:     "plugins",
