@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 )
 
 // BenchmarkInProcessLockAcquisition measures the latency of acquiring and

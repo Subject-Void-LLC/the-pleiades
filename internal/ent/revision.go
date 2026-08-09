@@ -10,8 +10,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/revision"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 )
 
 // Revision is the model entity for the Revision schema.

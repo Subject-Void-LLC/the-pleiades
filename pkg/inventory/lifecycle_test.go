@@ -3,7 +3,7 @@ package inventory_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestParseLifecycleState_RoundTripsEveryState asserts Parse is the exact

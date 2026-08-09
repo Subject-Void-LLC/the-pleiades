@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // This file covers PLAN.md Section 21.2's OPTIONS pre-flight: "Every

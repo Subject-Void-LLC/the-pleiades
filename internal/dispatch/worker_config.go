@@ -9,9 +9,9 @@ package dispatch
 import (
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
 
 // Worker consumes job.requested events and performs the durable fan-out
@@ -28,7 +28,7 @@ type Worker struct {
 	// fanOutLeaseTTL is this Worker's own fan-out lease window: both the
 	// staleAfter duration passed to JobStore.BeginFanOut and the bound on
 	// HandleJobRequested's own per-invocation context (see that method's
-	// own doc comment, worker.go). Defaults to defaultFanOutLeaseTTL;
+	// own doc comment, worker.go). Defaults to DefaultFanOutLeaseTTL;
 	// overridable via WithFanOutLeaseTTL.
 	fanOutLeaseTTL time.Duration
 }
@@ -40,14 +40,14 @@ type Worker struct {
 // is published to and where job.requested itself is consumed from. opts
 // applies optional, non-default configuration (see WorkerOption); every
 // existing caller (e.g. cmd/controller/main.go) can omit it entirely and
-// gets defaultFanOutLeaseTTL.
+// gets DefaultFanOutLeaseTTL.
 func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, opts ...WorkerOption) *Worker {
 	w := &Worker{
 		store:          store,
 		repo:           repo,
 		runbooks:       runbooks,
 		bus:            bus,
-		fanOutLeaseTTL: defaultFanOutLeaseTTL,
+		fanOutLeaseTTL: DefaultFanOutLeaseTTL,
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -60,7 +60,7 @@ func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Sourc
 type WorkerOption func(*Worker)
 
 // WithFanOutLeaseTTL overrides a Worker's fan-out lease window from its
-// production default (defaultFanOutLeaseTTL) to ttl. It exists chiefly for
+// production default (DefaultFanOutLeaseTTL) to ttl. It exists chiefly for
 // tests that need to prove BeginFanOut's stale-reclaim behavior or
 // HandleJobRequested's own context-timeout behavior (see that method's
 // own doc comment, worker.go) without waiting out the real, production
@@ -71,17 +71,32 @@ func WithFanOutLeaseTTL(ttl time.Duration) WorkerOption {
 	}
 }
 
-// defaultFanOutLeaseTTL is how long a job may sit in "fanning_out" with no
+// DefaultFanOutLeaseTTL is how long a job may sit in "fanning_out" with no
 // RecordTask heartbeat before JobStore.BeginFanOut treats it as abandoned,
 // most likely by a Worker process that crashed, was OOM-killed, or was
 // restarted after claiming the fan-out but before calling Complete or
-// Fail, and lets a redelivered job.requested reclaim and re-run it. It
-// must comfortably exceed the time a healthy, actively-dispatching Worker
-// can plausibly go between two consecutive per-device RecordTask calls
-// (each one refreshes the heartbeat), so a slow but alive fan-out is never
-// mistaken for a stuck one. This is the value every Worker uses unless
-// overridden via WithFanOutLeaseTTL.
-const defaultFanOutLeaseTTL = 10 * time.Minute
+// Fail. It must comfortably exceed the time a healthy, actively-dispatching
+// Worker can plausibly go between two consecutive per-device RecordTask
+// calls (each one refreshes the heartbeat), so a slow but alive fan-out is
+// never mistaken for a stuck one. This is the value every Worker uses
+// unless overridden via WithFanOutLeaseTTL.
+//
+// **Reaching that stale state does not, on its own, get reclaimed by a
+// redelivered job.requested**, despite what an earlier version of this
+// comment claimed: JetStream's own redelivery budget (internal/topology's
+// MaxDeliverDefault redeliveries at consumerAckWait apart) is far shorter
+// than this value, production ten minutes, so the message dead-letters
+// long before a job becomes eligible for reclaim, and no further delivery
+// of it ever arrives. Reaper (reaper.go) is what actually triggers the
+// reclaim, by re-publishing job.requested itself once
+// JobStore.ListStaleFanOuts reports a job past this same window.
+//
+// Exported so a composition root can pass the identical value to both
+// NewWorker (via WithFanOutLeaseTTL, or by leaving it at this default) and
+// NewReaper: the two must agree, since ListStaleFanOuts and BeginFanOut
+// both need to consider the same job stale at the same point for the
+// reclaim to actually happen when the Reaper expects it to.
+const DefaultFanOutLeaseTTL = 10 * time.Minute
 
 // jobRequestedPayload is the small local payload this package's own
 // job.requested publisher (a later stage in this session, not this file)

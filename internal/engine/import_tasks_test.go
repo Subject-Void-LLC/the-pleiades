@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // writeRunbookFile writes content to name under dir and returns the full

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // ErrInventoryReadOnly is returned by Create and Save on a Repository

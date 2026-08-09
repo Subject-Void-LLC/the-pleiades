@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // factReader is the engine-side view of a RunbookContext: everything a

@@ -56,21 +56,50 @@ executed against by a path that happened to skip validation.
 
 ### Locking
 
-Every device-targeting task acquires a distributed lock on its target device before
-running, so two concurrent runs never touch the same device at once. `lock_acquisition:`
-controls *when*: `per_device_as_reached` (the default) acquires each device's lock only
-once execution actually reaches that task; `all_at_plan_time` acquires every targeted
-device's lock up front, before the first task runs, so a run that would eventually
-contend for a device fails fast at the start instead of partway through. Locking is
-per-device, not a single job-level lock: two runbooks touching disjoint device sets
-proceed fully in parallel.
+**The Walk-tier CLI's locking is in-process only. Two `pleiades run` invocations do
+not exclude each other.** `cmd/pleiades/run.go` wires `lock.NewInProcessManager`,
+whose own doc comment says it "only guards against concurrent access within this
+process." Every `pleiades run` is a separate process that starts with its own empty
+lock table, so a lock one run holds is invisible to every other run. Two runs on the
+same machine can configure the same device at the same second. This lock manager holds
+a plain in-memory map and touches neither the network nor the filesystem, so two
+machines cannot exclude each other either.
+This is measured, not inferred: two `pleiades run` processes started one second apart
+against the same device were both connecting to it at the same instant, each with its
+own socket, and neither reported any contention.
+
+A real distributed lock manager does exist (`lock.NewNatsLockManager`, backed by NATS
+JetStream). Only the `controller` and `runner` binaries construct it, and the
+distributed execution plane is a stub that does not reach a real device (see
+[Start here](01-start-here.md)). So the tier that has distributed locking runs nothing
+real today, and the tier that runs for real has no distributed locking.
+
+**What to do instead:** serialize device access outside Pleiades. Run one
+`pleiades run` at a time per device set. If more than one person or scheduler can start
+a run, gate it with your own mutual exclusion: a CI concurrency group, a change window,
+or a `flock` on a shared path. Do not rely on Pleiades to stop two operators from
+touching one router.
+
+`lock_acquisition:` controls *when* a task takes its locks, and its scope is a single
+task, not the whole run. `per_device_as_reached` (the default) locks each device only
+as execution reaches it, so one contended device does not stop that task's other
+devices. `all_at_plan_time` locks every device that *that one task* targets up front,
+all-or-nothing: if any one of them is contended, that task runs against none of them.
+It does not lock the run's whole device set before the first task, so the name oversells
+it. A later task set to `all_at_plan_time` still fails only once execution reaches it,
+after earlier tasks have already changed earlier devices. Both strategies lock per
+device, never a whole job, so two tasks targeting disjoint device sets never block each
+other.
 
 ### Safety versus dry-run
 
 `pleiades validate` is the closest thing to a dry-run today: it loads the inventory
-and runbook, runs every registered validation rule (capability matching, lifecycle
-gating, collection reachability, and more), and reports every finding without
-executing anything. There is no separate `--dry-run` or `--check` flag on `run`
+and runbook, runs every registered validation rule (lifecycle
+gating, collection reachability, conditional compilation, and more), and reports every finding without
+executing anything. Capability matching is the one rule that barely runs: it covers
+only the two legacy action names `ssh_exec` and `ios_backup`, never a catalog FQCN,
+so `validate` passes a task pointed at a device that cannot run it. See
+[Start here](01-start-here.md#implementation-status). There is no separate `--dry-run` or `--check` flag on `run`
 itself, and no mechanism yet that reports *what would change* without actually
 changing it (Ansible's `--check` mode has no Pleiades equivalent). `pleiades run`
 always validates first and refuses to execute if validation reports any error.

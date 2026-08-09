@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // runbookContext is the Walk-tier sdk.RunbookContext handed to a Collection

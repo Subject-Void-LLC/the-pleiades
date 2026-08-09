@@ -4,7 +4,7 @@
 // constraint every generated manifest shares today.
 package catalogdata
 
-import "github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
+import "github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 
 // engineVersion is the minimum core engine version constraint recorded on
 // every generated Collection manifest. This project has no versioned

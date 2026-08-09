@@ -4,7 +4,7 @@ status: beta
 
 # Runbook and task keys
 
-Every key a runbook author can write, generated against the parser's own accepted key list so this page cannot drift from what actually validates.
+Every key a runbook author can write. The key list itself is generated from the parser's own list of accepted keys, so this page cannot name a key that fails validation, or leave out one that passes. That check covers key names only. Each description below is hand-written, and nothing verifies a description against the engine, so a key that validates does not always do something: `rescue` and `always` validate and never run.
 
 ## Runbook scope
 
@@ -13,7 +13,7 @@ Every key a runbook author can write, generated against the parser's own accepte
 | `id` | The runbook's own identifier. Required. Restricted to `[A-Za-z0-9_-]`, since it is embedded into a NATS subject. |
 | `hosts` | Default target for every task that does not set its own. A task's own `params.target` (or module-as-key sugar's bare `target:`) still wins when set. |
 | `type` | Runbook-type discriminator. `native` (the default) or the empty string; `ansible` is reserved and non-actionable today. |
-| `metadata` | Runbook-level metadata. Its only field today is `service_effecting`; blast radius itself is always computed, never authored. |
+| `metadata` | Runbook-level metadata. `service_effecting` marks a run as affecting live service, as opposed to purely read-only or diagnostic; blast radius itself is always computed, never authored. `interruptible` (default true when omitted) marks whether a Runner that loses its heartbeat with the Controller may safely self-abort this runbook before the Controller's own lock TTL expires; set it `false` for a task that must finish once started. |
 | `pretasks` | Tasks that run before `tasks`. Optional. |
 | `tasks` | The runbook's main task list. Required. |
 | `posttasks` | Tasks that run after `tasks`. Optional. |
@@ -32,7 +32,7 @@ Every key a runbook author can write, generated against the parser's own accepte
 | `register_mask` | Masks a field (or a dotted nested path) of this task's own registered result the instant it registers, before anything downstream can see it unmasked. |
 | `secret_mask` | `{register, fields}`: masks a named, already-registered result's top-level fields. Unlike `register_mask`, does not support dotted paths. |
 | `lock_acquisition` | `per_device_as_reached` (default) or `all_at_plan_time`: when this task's device lock is acquired relative to the rest of the run. |
-| `block` | Groups tasks so `rescue`/`always` can catch or clean up after a failure among them, mirroring Ansible's own block/rescue/always. |
-| `rescue` | Tasks run if any task in the sibling `block` fails. Only meaningful alongside `block`. |
-| `always` | Tasks run after the sibling `block`, whether or not it failed. Only meaningful alongside `block`. |
+| `block` | Groups its child tasks into one ordered sub-list, mirroring Ansible's own `block:`. The children run in order, in the position the block itself occupies. Its `rescue`/`always` siblings are accepted but never run: see the two rows below. |
+| `rescue` | **Accepted, validated, printed in the plan, and never executed.** The builder registers rescue tasks as graph nodes but wires no edges to them (`internal/engine/tasktree.go`), and the executor follows edges only (`internal/engine/executor.go`), so a `block` whose child fails runs no rescue handler: the run just fails. Do not rely on it to recover from a failure. |
+| `always` | **Accepted, validated, printed in the plan, and never executed**, for the same reason as `rescue`, and this is the more dangerous of the two. When the sibling `block` succeeds, the run prints `run complete` and exits 0 while every `always` task is skipped in silence, so nothing tells you the cleanup did not happen. Until this is implemented, put cleanup steps at the end of the `block` itself. |
 | `parallel` | Native fan-out/join: runs its child tasks concurrently. Mutually exclusive with `fqcn` and `block`; may not carry `rescue`/`always`. |

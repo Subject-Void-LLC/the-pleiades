@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 )
 
 // BenchmarkRateLimiter_Allow measures the hot path: one caller already in

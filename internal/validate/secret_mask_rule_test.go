@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
 // dagWithSecretMask builds a two-node *engine.DAG: tasks[0] registers

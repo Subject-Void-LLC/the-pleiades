@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // TestWorldView_Resolve_UncachedConstruction confirms a WorldView built

@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )

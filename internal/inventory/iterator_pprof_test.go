@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
 

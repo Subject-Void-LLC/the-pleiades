@@ -3,10 +3,10 @@ package record_test
 import (
 	"testing"
 
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestBuiltinTypesSelfRegister proves the real cisco/linux init() calls ran

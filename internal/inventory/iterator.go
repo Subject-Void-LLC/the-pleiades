@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Iterator provides memory-safe streaming of inventory items. It acts as a

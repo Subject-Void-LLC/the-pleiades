@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/catalystcenter"
 )
 
 // FuzzDeviceResponseParsing feeds adversarial bodies through the real

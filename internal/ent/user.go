@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
 // User is the model entity for the User schema.

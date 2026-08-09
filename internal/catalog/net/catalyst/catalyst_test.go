@@ -9,19 +9,19 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/net/catalyst"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
-	pkginv "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/sdk"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/catalyst"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 
 	// The device types these tests hydrate have to be registered, and only
 	// each vendor package's own init does that. linux is here to supply a
 	// device that genuinely lacks CatalystAPICapable, which is the negative
 	// case the capability guard exists for.
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/catalyst"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
 )
 
 // These tests replay JSON captured from the real Cisco DevNet sandbox

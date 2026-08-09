@@ -15,7 +15,7 @@
 // hand-rolled map sitting next to the shared one.
 package capability
 
-import "github.com/SubjectVoidLLC/the-pleiades/pkg/registry"
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
 
 // Name is a capability identifier. It is always typed at the call site,
 // since collections resolve against capabilities, not concrete device

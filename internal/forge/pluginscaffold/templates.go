@@ -53,9 +53,9 @@ import (
 	"context"
 	"fmt"
 
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // Name is this plugin's registration key and the value stamped into the
@@ -153,9 +153,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/{{.PackageName}}"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/{{.PackageName}}"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // Test{{.TypeName}}_Registered proves the plugin is reachable through the

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
 func TestMode_String(t *testing.T) {

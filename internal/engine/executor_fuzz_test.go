@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 )
 
 // FuzzExecutorRun proves Executor.Run never panics and never deadlocks

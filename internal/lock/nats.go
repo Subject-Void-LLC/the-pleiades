@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/retry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"

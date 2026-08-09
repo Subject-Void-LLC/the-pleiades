@@ -3,9 +3,9 @@ package syncplugin
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Classification is what Classify resolves one discovered Record into: the

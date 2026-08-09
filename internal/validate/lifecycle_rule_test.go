@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
 )
 
 // TestLifecycleRule_ReleaseGate is the plan-time half of Phase W3's

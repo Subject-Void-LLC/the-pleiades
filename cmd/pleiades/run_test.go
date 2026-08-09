@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // TestPrintTaskList_Parallel confirms printTaskList (run.go) prints a

@@ -9,8 +9,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 )
 
 // Team is the model entity for the Team schema.

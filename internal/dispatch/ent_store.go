@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 )
 
 // heartbeatRefreshInterval is the minimum real time RecordTask lets pass
@@ -185,6 +185,23 @@ func (s *entJobStore) BeginFanOut(ctx context.Context, jobID string, staleAfter 
 		return false, 0, fmt.Errorf("job %s: %w", jobID, ErrJobNotFound)
 	}
 	return false, 0, nil
+}
+
+// ListStaleFanOuts returns every job's JobID currently "fanning_out" whose
+// updated_at is at or before cutoff, the exact same predicate BeginFanOut's
+// own reclaim branch evaluates (see that method's own comment on cutoff),
+// as a read-only scan rather than a claim. See JobStore.ListStaleFanOuts.
+func (s *entJobStore) ListStaleFanOuts(ctx context.Context, staleAfter time.Duration) ([]string, error) {
+	cutoff := time.Now().Add(-staleAfter)
+
+	ids, err := s.client.Job.Query().
+		Where(job.StateEQ(job.StateFanningOut), job.UpdatedAtLTE(cutoff)).
+		Select(job.FieldJobID).
+		Strings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list stale fanning_out jobs: %w", err)
+	}
+	return ids, nil
 }
 
 // RecordTask persists task as jobID's outcome for one device and refreshes

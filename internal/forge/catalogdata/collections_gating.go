@@ -5,9 +5,9 @@
 package catalogdata
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 var gatingCollections = []collectionscaffold.Config{

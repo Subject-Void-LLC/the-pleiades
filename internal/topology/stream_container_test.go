@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"

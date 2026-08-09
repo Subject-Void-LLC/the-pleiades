@@ -35,14 +35,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth/authtest"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/topology"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/wire"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	_ "github.com/mattn/go-sqlite3"
 )
 

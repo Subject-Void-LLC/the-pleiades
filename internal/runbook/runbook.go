@@ -25,7 +25,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // Runbook is the compiled, capability-resolved view of a single runbook: an

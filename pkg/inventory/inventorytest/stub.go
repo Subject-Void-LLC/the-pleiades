@@ -6,8 +6,8 @@ package inventorytest
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Stub is a minimal, overridable InventoryItem. The zero value is a valid,

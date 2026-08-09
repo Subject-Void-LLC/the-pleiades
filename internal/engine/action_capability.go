@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // ActionCapability is the single, shared fqcn-to-required-capability

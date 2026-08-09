@@ -2,7 +2,7 @@
 
 package runtime
 
-// The schema-stitching logic is generated in github.com/SubjectVoidLLC/the-pleiades/internal/ent/runtime.go
+// The schema-stitching logic is generated in github.com/Subject-Void-LLC/the-pleiades/internal/ent/runtime.go
 
 const (
 	Version = "v0.14.6"                                         // Version of ent codegen.

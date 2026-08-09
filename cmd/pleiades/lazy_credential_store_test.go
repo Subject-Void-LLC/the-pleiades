@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
 // TestLazyCredentialStore_DoesNotTouchDiskUntilLookup confirms

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
 

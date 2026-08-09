@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/runbook"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // writeRunbook writes a minimal, valid runbook YAML file named id+".yaml"

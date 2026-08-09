@@ -48,7 +48,7 @@ individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported
-through [GitHub's private vulnerability reporting](https://github.com/SubjectVoidLLC/the-pleiades/security/advisories/new)
+through [GitHub's private vulnerability reporting](https://github.com/Subject-Void-LLC/the-pleiades/security/advisories/new)
 if no other private channel is available, or by contacting the maintainers directly.
 All complaints will be reviewed and investigated promptly and fairly.
 

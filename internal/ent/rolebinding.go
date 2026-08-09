@@ -9,8 +9,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 )
 
 // RoleBinding is the model entity for the RoleBinding schema.

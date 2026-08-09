@@ -12,7 +12,7 @@ package transport
 import (
 	"context"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
 // Target identifies where to connect: a host and a port, nothing more.

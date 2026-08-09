@@ -3,7 +3,7 @@ package lock_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 )
 
 func TestModeString(t *testing.T) {

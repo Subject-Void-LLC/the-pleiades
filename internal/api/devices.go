@@ -17,9 +17,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/go-chi/chi/v5"
 )
 

@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"time"
 
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Outcome is what reconciliation decided about one discovered device.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
 // entTeamLookup adapts TeamLookup to internal/ent. subject is matched

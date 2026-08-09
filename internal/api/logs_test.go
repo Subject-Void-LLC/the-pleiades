@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go/jetstream"
 )

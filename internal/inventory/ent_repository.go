@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/storage"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 type entRepository struct {

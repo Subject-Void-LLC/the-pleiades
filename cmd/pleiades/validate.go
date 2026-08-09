@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
 // runValidate loads the inventory and a runbook, then runs the shared

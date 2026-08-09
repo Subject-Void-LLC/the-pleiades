@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // generateStatus emits outDir/implementation-status.md: the full
@@ -50,7 +50,7 @@ func generateStatus(outDir string) error {
 	}
 
 	b.WriteString("## Declared, not yet implemented\n\n")
-	b.WriteString("Registered, capability-checked, reachable through the real dispatcher. Calling one " +
+	b.WriteString("Registered and reachable through the real dispatcher. Calling one " +
 		"refuses with an explicit \"declared but not implemented\" error rather than running.\n\n")
 	for _, fqcn := range declared {
 		fmt.Fprintf(&b, "- `%s`\n", fqcn)

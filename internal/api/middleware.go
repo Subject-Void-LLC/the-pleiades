@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/otel/attribute"

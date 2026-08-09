@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
 // testKey builds a deterministic 32-byte AES-256 key filled with fill,

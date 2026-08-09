@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
 // BenchmarkResolve_Override measures the per-call cost of resolving a

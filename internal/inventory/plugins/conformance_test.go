@@ -12,13 +12,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/catalystcenter"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/plugins/staticyaml"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // This is the sync plugin conformance suite, the direct analogue of

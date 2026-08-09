@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"

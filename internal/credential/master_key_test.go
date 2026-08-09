@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
 // writeMasterKeyFile writes raw directly as the master key file's

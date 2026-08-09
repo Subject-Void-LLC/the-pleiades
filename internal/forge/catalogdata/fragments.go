@@ -1,6 +1,6 @@
 package catalogdata
 
-import "github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 
 // Fragments names every reusable collection.Fragment a Doc.Fragments
 // entry can reference, the analogue of Ansible's

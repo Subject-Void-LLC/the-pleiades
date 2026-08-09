@@ -11,12 +11,12 @@ import (
 	// pkg/collection.Lookup below would report "not registered" instead
 	// of exercising the real declared-but-unimplemented path this rule
 	// exists to catch, RULE 0's "same config the platform runs" standard.
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/catalog"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/validate"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestCollectionRule_UnregisteredName is half of Phase 34's Release Gate:

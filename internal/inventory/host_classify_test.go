@@ -3,9 +3,9 @@ package inventory_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 func TestResolveHostCapabilities_ExplicitTypeReturnsNil(t *testing.T) {

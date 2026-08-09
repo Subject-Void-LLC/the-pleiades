@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // TestConfig_Validate covers the constraints that hold for every source,

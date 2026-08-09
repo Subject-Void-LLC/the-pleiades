@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TargetResolver resolves a task's Params["target"] string into the

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 )
 
 func TestDefaultIdempotencyKeyDerivation_IsEventID(t *testing.T) {

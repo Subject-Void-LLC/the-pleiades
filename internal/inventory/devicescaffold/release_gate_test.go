@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // repoRoot locates the module root from this test file's own package
@@ -67,7 +67,7 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 		}
 	}
 
-	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/" + vendor
+	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + vendor
 	runGo(t, root, "build", pkgImportPath)
 	runGo(t, root, "test", pkgImportPath)
 
@@ -89,8 +89,8 @@ import (
 	"testing"
 
 	_ %q
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 )
 
 func TestResolvesEndToEnd(t *testing.T) {
@@ -113,7 +113,7 @@ func TestResolvesEndToEnd(t *testing.T) {
 		t.Fatalf("WriteFile(%s): %v", harnessFile, err)
 	}
 
-	harnessImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/" + harnessName
+	harnessImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/" + harnessName
 	runGo(t, root, "test", "-run", "TestResolvesEndToEnd", "-v", harnessImportPath)
 }
 

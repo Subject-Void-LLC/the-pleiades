@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/goleak"
 )

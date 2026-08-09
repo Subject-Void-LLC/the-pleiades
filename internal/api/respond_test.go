@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // This file covers the encoder seam that replaced Phase 13's

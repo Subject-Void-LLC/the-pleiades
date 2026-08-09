@@ -17,7 +17,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/telemetry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/nats-io/nats.go"
 )
 

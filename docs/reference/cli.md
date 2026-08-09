@@ -96,7 +96,7 @@ pull devices from an external source into the local inventory
 | --read-only | `bool` | `false` | refuse every write to the local inventory, reporting what would have changed |
 | --insecure-skip-verify | `bool` | `false` | skip TLS certificate verification against the upstream system |
 
-`pleiades inventory sync --plugin catalystcenter --endpoint https://dnac.example.com`
+`pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com`
 
 ### pleiades inventory plugins
 

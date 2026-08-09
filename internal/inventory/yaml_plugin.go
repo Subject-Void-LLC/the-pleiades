@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"go.yaml.in/yaml/v3"
 )
 

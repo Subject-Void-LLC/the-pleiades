@@ -45,10 +45,10 @@ const deviceTemplateSource = `// Package {{.Vendor}} holds the concrete device t
 package {{.Vendor}}
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/policy"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/policy"
 )
 
 func init() {
@@ -108,9 +108,9 @@ const deviceTestTemplateSource = `package {{.Vendor}}_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/{{.Vendor}}"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/{{.Vendor}}"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // Test{{.ConstructorName}}_ConstructsFromRecord is a starter test,

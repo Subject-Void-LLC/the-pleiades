@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // loadWorld loads the static inventory and parses a YAML runbook into a

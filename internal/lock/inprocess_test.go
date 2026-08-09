@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 )
 
 // TestInProcessManagerBasicContract table-drives the basic single-manager

@@ -17,8 +17,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/transport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 )
 
 // The shared container's fixed test credential. This is a throwaway

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // generateModules emits one reference page per FQCN registered in

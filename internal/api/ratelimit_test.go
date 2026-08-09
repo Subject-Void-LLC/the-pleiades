@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/api"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 )
 
 // TestRateLimiter_Allow is the table-driven core: a bucket admits its

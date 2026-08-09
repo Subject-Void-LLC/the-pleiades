@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/clispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
 )
 
 // commandFunc is one subcommand's entry point. It receives the arguments

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"golang.org/x/term"
 )
 

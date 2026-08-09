@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // sidecarPathFor performs one successful Save against repo/hostsPath so

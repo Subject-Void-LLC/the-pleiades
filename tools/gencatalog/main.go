@@ -19,17 +19,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devicescaffold"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // modulePath is this repository's own module path, needed to build the
 // full import path of each generated catalog package for
 // writeCatalogBuiltins.
-const modulePath = "github.com/SubjectVoidLLC/the-pleiades"
+const modulePath = "github.com/Subject-Void-LLC/the-pleiades"
 
 func main() {
 	if err := run(); err != nil {

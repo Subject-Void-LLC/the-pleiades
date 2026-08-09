@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // allNamesSorted returns every registered Name in a stable order, so a

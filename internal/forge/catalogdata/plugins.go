@@ -5,7 +5,7 @@
 package catalogdata
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 )
 
 // Plugins is every inventory sync plugin generated via `pleiades forge

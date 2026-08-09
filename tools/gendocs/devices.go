@@ -6,17 +6,24 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 )
 
 // handWrittenDevices names the two device types that predate the Forge
 // (cisco.Router, linux.Server) and so are absent from catalogdata.Devices
-// (see that file's own doc comment). Their capability lists are read
-// once from their real source and recorded here rather than reflected
-// over at runtime: reflecting would mean constructing a live instance of
-// each concrete type just to call Capabilities(), for two entries that
-// never change independently of a hand-edit this generator's own
-// completeness gate (Wave 3d) would catch if they ever drifted.
+// (see that file's own doc comment). Their capability lists are recorded
+// here by hand rather than reflected over at runtime, which makes this the
+// one table behind a generated reference page that a human wrote.
+//
+// completeness_test.go is what stops it from drifting.
+// TestDeviceRowsMatchLiveRegistry fails if the live device registry holds a
+// type no row here would list, or the reverse.
+// TestHandWrittenDeviceCapabilitiesMatchTheirTypes hydrates each of these
+// two types through its real constructor and fails if the capabilities it
+// hands back are not the ones recorded below. Both tests were written after
+// an audit found an earlier version of this comment claiming a completeness
+// gate that had never been built, which is why they are named here: a
+// comment that points at a specific test can be checked.
 var handWrittenDevices = []struct {
 	Vendor       string
 	TypeKey      string

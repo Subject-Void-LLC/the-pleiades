@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	baseinventory "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	baseinventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	_ "github.com/mattn/go-sqlite3"
 )
 

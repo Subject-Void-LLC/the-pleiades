@@ -3,7 +3,7 @@ package validate
 import (
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // CapabilityRule is the first production caller of InventoryItem's

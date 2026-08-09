@@ -10,8 +10,8 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/fact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 )
 
 // Fact is the model entity for the Fact schema.

@@ -8,8 +8,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/group"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 )
 
 // GroupDelete is the builder for deleting a Group entity.

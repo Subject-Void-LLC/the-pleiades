@@ -15,11 +15,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/classification"
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/syncplugin"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Name is this plugin's registration key and the value stamped into the

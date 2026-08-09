@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Record is the storage-agnostic input to ItemFactory.Build. Each

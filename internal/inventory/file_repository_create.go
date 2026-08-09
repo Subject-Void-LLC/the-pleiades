@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Create appends a new host to the inventory file and its sidecar entry to

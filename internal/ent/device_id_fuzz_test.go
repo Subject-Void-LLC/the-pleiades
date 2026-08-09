@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/device"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	_ "github.com/mattn/go-sqlite3"
 )
 

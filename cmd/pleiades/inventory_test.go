@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	inv "github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
+	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
 // newSyncProject scaffolds a project with a stored credential, the state a

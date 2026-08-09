@@ -16,7 +16,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 	// Registers the "sqlite3" database/sql driver this file's stdsql.Open
 	// call names. Every existing test reaches OpenEmbedded only through a
 	// _test.go file that imports this driver itself, so this gap was

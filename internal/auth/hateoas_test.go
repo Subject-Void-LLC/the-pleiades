@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/auth/authtest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 )
 
 // newRealChain builds the AdmissionChain a composition root actually

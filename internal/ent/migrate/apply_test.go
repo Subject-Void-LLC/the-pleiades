@@ -10,8 +10,8 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	entmigrate "github.com/SubjectVoidLLC/the-pleiades/internal/ent/migrate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	entmigrate "github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate"
 	_ "github.com/mattn/go-sqlite3"
 )
 

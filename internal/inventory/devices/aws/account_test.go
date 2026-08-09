@@ -3,9 +3,9 @@ package aws_test
 import (
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/aws"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory/record"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // TestNewAccount_ConstructsFromRecord is a starter test,

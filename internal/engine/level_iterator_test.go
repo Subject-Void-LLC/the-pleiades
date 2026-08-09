@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 )
 
 // TestLevelIterator_LinearChain confirms that over the only shape the

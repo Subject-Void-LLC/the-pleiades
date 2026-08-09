@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // generateCapabilities emits outDir/capabilities.md: every registered
@@ -38,7 +38,21 @@ func generateCapabilities(outDir string) error {
 	b.WriteString("# Capability vocabulary\n\n")
 	b.WriteString("What a device *can do*, not what it *is*. A Collection method declares which " +
 		"capabilities it requires; a device advertises one by structurally implementing the matching Go " +
-		"interface. Checked at plan time, before anything runs.\n\n")
+		"interface.\n\n")
+
+	// Honesty paragraph, hand written rather than derived: the vocabulary
+	// below is real and registered, but nothing validates a Collection
+	// method's RequiredCapabilities against a target device.
+	// internal/validate.CapabilityRule reads engine.ActionCapability, a
+	// two-entry table holding only "ssh_exec" and "ios_backup", and skips
+	// every other fqcn. Delete this paragraph when that is wired up, and not
+	// before: without it this page promises a plan-time check that does not
+	// run for any of the catalog's methods.
+	b.WriteString("**Nothing compares these to your inventory before a run yet.** `pleiades validate` " +
+		"checks a target device's capabilities for exactly two legacy action names, `ssh_exec` and " +
+		"`ios_backup`. For every catalog FQCN the required capability is documentation only: a mismatch " +
+		"surfaces during the run, not at plan time. See " +
+		"[Implementation status](../01-start-here.md#implementation-status).\n\n")
 
 	rows := make([][]string, 0, len(names))
 	for _, n := range names {

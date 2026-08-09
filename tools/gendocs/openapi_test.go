@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 )
 
 func TestOpenAPIPaths_OnePathItemPerPattern(t *testing.T) {

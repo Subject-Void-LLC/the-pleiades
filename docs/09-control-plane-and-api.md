@@ -27,9 +27,20 @@ The five real routes are generated documentation, not hand-maintained prose:
 `/api/v1/openapi.json`) and [the CLI reference](reference/cli.md) share the same
 "generate from one source" discipline every other reference page in this set does.
 Both `cmd/controller`'s real router and the generated OpenAPI document build from
-`internal/apispec.Endpoints`, so a route's method, pattern, required scope, and
-hypermedia relation can never drift between what the server actually serves and what
-the generated document claims it serves.
+the same `internal/apispec` endpoint values, so for a route that appears in both,
+the method, pattern, required scope, and hypermedia relation cannot drift: the
+router asks each endpoint for its own `Route`, which copies all four fields off the
+exact value the document is rendered from.
+
+**Which routes are on the list is not enforced.** The generator walks the
+`apispec.Endpoints` slice, while `cmd/controller` names its five endpoints one at a
+time in its own route table. Nothing compares the two sets. Add a sixth endpoint to
+the slice, forget to register it, and the build says nothing: `go build` and `go vet`
+both pass, no test notices, and the served document then advertises a route no
+handler was ever mounted for. The request falls through to the router's not-found
+path instead of reaching any handler. So trust a listed route's method, pattern,
+scope, and relation. Do not read the list itself as proof that every route on it
+exists; call a route against a running controller before you build on it.
 
 | Method | Pattern | Scope | Relation |
 |---|---|---|---|
@@ -122,19 +133,33 @@ Precisely:
 - Each concurrent viewer gets a fresh, ephemeral JetStream consumer scoped to
   exactly the requested job ID, so two viewers watching two different jobs never see
   each other's events.
-- Each SSE frame is `data: <json>\n\n`, where the JSON is the same per-task status
-  event the engine publishes during a run (timestamp, status, host, task label, and
-  a message), best-effort masked through every `register_mask`/`secret_mask` value
-  known at the moment that specific event was published. See
+- Each SSE frame is `data: <json>\n\n`, where the JSON is a full event envelope
+  (`id`, `type`, `timestamp`) with the per-task status event nested under `data`:
+  timestamp, status, host, task label, and a message. Nothing on this stream is
+  masked. The `register_mask`/`secret_mask` machinery runs inside the engine and
+  on the CLI's own printed output, and neither of this subject's two publishers
+  goes through it. See
   [Running in production](10-running-in-production.md)'s data handling section for
-  the precise, non-retroactive scope of that masking: it is real, but it is not a
-  guarantee that every byte on this stream is scrubbed.
+  what masking does cover, and assume anything a publisher puts on this stream
+  reaches the viewer unscrubbed.
 - The stream never terminates on its own; the client closes it.
 
-Today this stream carries real event traffic only for the Walk-tier CLI's execution
-path. The Crawl-tier distributed path (a job dispatched to a `runner` over NATS)
-does not yet run real tasks (see [Start here](01-start-here.md)), so a job dispatched
-through this API has nothing substantive to stream yet either.
+**This stream carries no real task results today, on any path.** The Walk-tier
+CLI is not even one of its publishers: `pleiades run` builds its engine on an
+in-process bus (`event.NewInProcessBus`, in `cmd/pleiades/run.go`), never opens a
+NATS connection, and publishes its per-task status events under
+`pleiades.events.workflow.<dag-id>.node.<node-id>`, while this handler only ever
+reads `pleiades.jobs.logs.<job-id>`. The two subject spaces do not overlap, and
+the two buses never meet.
+
+Exactly two things publish to `pleiades.jobs.logs.<job-id>`, and neither one
+touches a device. A `runner` that picks up a dispatched job runs it through
+`internal/adapters/native`, whose `Execute` sleeps and fabricates a `"pong from
+<device>"` line (see [Start here](01-start-here.md)). `cmd/demo` generates fake
+Ansible events to scaffold the web UI. So a job dispatched through this API does
+stream frames, and the UUID check and per-viewer consumer isolation above are
+real, but the task results inside those frames are invented. Do not read this
+stream as evidence that a device was reached.
 
 ## MCP tool provider
 
@@ -143,6 +168,32 @@ codebase today; treat any mention of one as aspirational until this line is remo
 
 ## Web UI
 
-Mostly a mockup. Of its routes, one (a live SSE job log viewer) is real; the rest
-show hardcoded placeholder content. Treat it as `experimental` and prefer the API
+A mockup, all six routes. Five render hardcoded content and issue no network request
+at all. The sixth is an SSE job log viewer whose streaming code is real, and it
+cannot reach this API for three independent reasons, each enough on its own:
+
+- **It requests the wrong job.** `web/src/views/JobDetails.tsx` sets
+  `const jobId = "123"` instead of reading the `:id` that its own `/jobs/:id` route
+  declares, so every visit asks for job `"123"`. This endpoint requires a UUID (see
+  [the SSE job log stream](#the-sse-job-log-stream) above), so even an authenticated
+  version of that request answers `400 {"error":"job id must be a UUID"}`.
+- **It calls the wrong address, and nothing forwards.** The URL is hardcoded to
+  `http://localhost:8081`. `cmd/controller` listens on `:8080` unless `LISTEN_ADDR`
+  overrides it, `web/vite.config.ts` declares no `server.proxy`, and `web/nginx.conf`
+  serves static files with no `/api` location at all. Port 8081 belongs to `cmd/demo`,
+  which wires the same authentication middleware this router does, so aiming there
+  does not help either.
+- **`EventSource` cannot authenticate.** Every route under `/api/v1` requires
+  `Authorization: Bearer <token>`. An `EventSource` cannot be given request headers:
+  its constructor takes a URL and a `withCredentials` flag, nothing more. This API
+  reads a token from nowhere else either, no cookie and no query parameter, so the
+  request arrives anonymous and is rejected 401 before any handler runs. That 401
+  carries no `Access-Control-Allow-Origin` header, so a browser will not release the
+  response to the page: the failure surfaces as a bare error event, not as the 401 it
+  was. The `Access-Control-Allow-Origin: *` that the log handler does set is set
+  inside the handler, which an unauthenticated request never reaches.
+
+The endpoint itself is sound: an authenticated `GET` with a real job UUID answers
+`200 text/event-stream` and an `event: init` frame. Nothing the UI sends gets past
+any of the three problems above. Treat the UI as `experimental` and prefer the API
 directly, or the CLI, for anything that matters today.

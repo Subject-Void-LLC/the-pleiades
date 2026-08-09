@@ -10,10 +10,10 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/organization"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/rolebinding"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/team"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/user"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
 // TeamCreate is the builder for creating a Team entity.

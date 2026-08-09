@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 )
 
 // TestOutcome_String is table-driven per AGENTS.md, covering every

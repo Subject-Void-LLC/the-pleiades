@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/collection"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // TestCatalogEntries proves the registry catalog_builtins.go's blank

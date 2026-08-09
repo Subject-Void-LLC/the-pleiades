@@ -468,7 +468,7 @@ func TestCLI_ForgeNewDevice_EndToEnd(t *testing.T) {
 		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
 	}
 
-	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/" + vendor
+	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/" + vendor
 	runGoBuildAndTest(t, root, pkgImportPath)
 }
 
@@ -509,7 +509,7 @@ func TestCLI_ForgeNewCollection_EndToEnd(t *testing.T) {
 		t.Fatalf("expected %s to exist: %v", sourcePath, statErr)
 	}
 
-	pkgImportPath := "github.com/SubjectVoidLLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
+	pkgImportPath := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + fmt.Sprintf("e2egate%d", os.Getpid())
 	runGoBuildAndTest(t, root, pkgImportPath)
 }
 

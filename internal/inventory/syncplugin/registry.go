@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/registry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
 )
 
 // Constructor builds a fresh Plugin instance. Registration stores a

@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )

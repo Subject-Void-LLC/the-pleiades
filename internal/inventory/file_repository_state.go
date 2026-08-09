@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"go.yaml.in/yaml/v3"
 )
 

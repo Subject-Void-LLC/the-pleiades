@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/forge/collectionscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 )
 
 // runForgeNewCollection emits a new namespaced Collection method package:

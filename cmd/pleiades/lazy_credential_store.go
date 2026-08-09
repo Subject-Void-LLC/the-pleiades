@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
 // lazyCredentialStore defers resolving the AES-256 master key and

@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/retry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 )
 
 // realDial is the default dialFunc (ssh.go): a real TCP dial followed by

@@ -24,7 +24,7 @@ import (
 // modulePath is this repository's own module path (go.mod), used to tell
 // this module's packages apart from third-party ones in a dependency
 // list.
-const modulePath = "github.com/SubjectVoidLLC/the-pleiades"
+const modulePath = "github.com/Subject-Void-LLC/the-pleiades"
 
 // concreteDriverPrefixes are the import path prefixes this test treats as
 // "a concrete driver" per Section 25's own Enforcement note, which names

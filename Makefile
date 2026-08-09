@@ -78,14 +78,20 @@ docs-lint:
 # docs-gen-check proves the committed docs/reference/ and
 # internal/api/wellknown/ trees are exactly what tools/gendocs produces
 # from the current source, the same "regenerate and diff" discipline the
-# plan's Part 4 Step 6 asks for. Deliberately scoped to `./tools/gendocs`
-# alone rather than `go generate ./...`: internal/forge/catalogdata/doc.go
-# carries a go:generate directive for tools/gencatalog, which shells out to
-# `forge new-collection` and refuses to overwrite files that already exist
-# (see LESSONS_LEARNED.md #69). Running that generator a second time over
-# an already-generated tree fails the build instead of proving anything.
+# plan's Part 4 Step 6 asks for. It runs the one generator directly rather
+# than through `go generate`, for two reasons. First, `go generate ./...`
+# would also fire internal/forge/catalogdata/doc.go's directive for
+# tools/gencatalog, which shells out to `forge new-collection` and refuses
+# to overwrite files that already exist (see LESSONS_LEARNED.md #69), so
+# running it over an already-generated tree fails the build instead of
+# proving anything. Second, `go generate` runs a directive in its own
+# package's directory, and gendocs writes to repo-root-relative paths:
+# invoking it that way wrote a full copy of docs/reference and
+# internal/api/wellknown under tools/gendocs/ and left the two trees the
+# git diff below inspects untouched. This target passed for as long as it
+# regenerated nothing.
 docs-gen-check:
-	go generate ./tools/gendocs
+	go run ./tools/gendocs
 	git diff --exit-code -- docs/reference internal/api/wellknown
 	test -z "$$(git ls-files --others --exclude-standard -- docs/reference internal/api/wellknown)"
 

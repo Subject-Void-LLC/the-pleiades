@@ -15,14 +15,24 @@ and Limitations sections are the honest baseline everything below builds on.
 
 ## What transfers, and what does not
 
-**Transfers directly, same meaning:** `hosts:`, `block:`/`rescue:`, `register:`,
+**Transfers directly, same meaning:** `hosts:`, `block:`, `register:`,
 `when:` (list form ANDs, same as Ansible), `pretasks:`/`tasks:`/`posttasks:` (Ansible's
 `pre_tasks:`/`tasks:`/`post_tasks:`, same three-phase shape and ordering).
+
+**Parses and validates, but never runs:** `rescue:` and `always:`. The schema accepts
+both, `pleiades validate` checks both, and `pleiades run` prints both in the plan, but
+the executor never reaches them. A `block:` whose child fails runs no rescue handler:
+the run just fails. `always:` is the more dangerous of the two, because a `block:` that
+succeeds still prints `run complete` and exits 0 while its `always:` tasks are skipped
+in silence, so nothing warns you the cleanup did not happen. Keep cleanup and recovery
+steps inside the `block:` itself, in order, until these are implemented.
 
 **Genuinely new, no Ansible equivalent:** `when_or:` (list ORed instead of ANDed),
 `when_cel:` (one raw CEL expression), `register_mask:` and `secret_mask:` (per-field
 secrecy on a registered result, not just a whole-task `no_log: true`),
-`lock_acquisition:` (per-device distributed locking, not a job-level lock), `parallel:`
+`lock_acquisition:` (per-device, per-task locking, not a job-level lock; the CLI's
+locking is in-process only and does not exclude a second `pleiades run`, see
+[Running in production](10-running-in-production.md#locking)), `parallel:`
 (native fan-out/join).
 
 **Does not exist yet, and a runbook cannot express it:** Jinja templating anywhere in
@@ -57,12 +67,12 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. |
 | `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. |
-| — | `when_or:` | New. A list ORed instead of ANDed. |
-| — | `when_cel:` | New. One raw CEL expression, for a condition `when`/`when_or` cannot express. |
-| — | `register_mask:` | New. Masks a field of this task's own registered result the instant it registers. |
-| — | `secret_mask:` | New. Retroactively masks a named, already-registered result's fields. |
-| — | `lock_acquisition:` | New. `per_device_as_reached` (default) or `all_at_plan_time`. |
-| — | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. |
+| none | `when_or:` | New. A list ORed instead of ANDed. |
+| none | `when_cel:` | New. One raw CEL expression, for a condition `when`/`when_or` cannot express. |
+| none | `register_mask:` | New. Masks a field of this task's own registered result the instant it registers. |
+| none | `secret_mask:` | New. Retroactively masks a named, already-registered result's fields. |
+| none | `lock_acquisition:` | New. `per_device_as_reached` (default) or `all_at_plan_time`. |
+| none | `parallel:` | New. Native fan-out/join; mutually exclusive with `fqcn:`/`block:`. |
 | `name:` | `name:` | Same, free-form label. |
 | module name as a task key (e.g. `ansible.builtin.copy:`) | `fqcn:` + `params:`, or module-as-key sugar | See [Two ways to write a task](../examples/upgrade_ios/README.md#two-ways-to-write-a-pleiades-task). |
 | `vars:` (play or task level) | *(not supported)* | No template rendering exists; see [What transfers](#what-transfers-and-what-does-not). |
@@ -105,7 +115,7 @@ underneath. Where it matters:
 ## Module to FQCN map
 
 Sourced from the real catalog: every `<namespace>.<method>` name below is registered
-today, capability-checked, and reachable through the real dispatcher. The
+today and reachable through the real dispatcher. The
 authoritative, always-current version of just the Pleiades side is
 [the generated module catalog](reference/modules/index.md); this table adds the
 Ansible-side name for migration purposes and is maintained by hand alongside it, not
@@ -118,6 +128,13 @@ Only the four `net.catalyst.*` rows are `implemented` today; every other FQCN be
 `declared`: registered, validated, and refused at call time with an explicit "not
 implemented yet" error rather than a silent no-op. See
 [Implementation status](reference/implementation-status.md) for the exact list.
+
+**The Capability column is documentation, not a check.** It records the capability
+each method's manifest declares it needs. Nothing compares that to your inventory:
+`pleiades validate` checks capabilities only for the two legacy action names
+`ssh_exec` and `ios_backup`. Point any FQCN below at a device that lacks the listed
+capability and `validate` still reports no issues; the mismatch surfaces during the
+run instead. See [Start here](01-start-here.md#implementation-status).
 
 **Execution**
 
@@ -178,7 +195,7 @@ verified against Cisco's public DevNet sandbox.
 
 **Extended infrastructure**
 
-| Ansible | Pleiades FQCN | Capability | Context |
+| Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
 | `ansible.posix.firewalld` | `fw.firewalld.allow`, `.deny`, `.reload` | `FirewalldCapable` | target side |
 | `ansible.posix.mount` | `fs.mount`, `fs.unmount` | `LinuxCapable` | target side |
@@ -189,13 +206,44 @@ verified against Cisco's public DevNet sandbox.
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
 | `amazon.aws.s3_bucket` | `cloud.aws.s3.create_bucket`, `.delete_bucket` | `AWSAPICapable` | controller side |
 
-The two cloud entries are the clearest controller-side cases: they call an API, not a
-device over SSH. Ansible needs `delegate_to: localhost` to express this; Pleiades
-makes execution context a first-class manifest field, so no such hack is needed.
+The two cloud entries are the clearest controller-side cases: they call an API, not
+a device over SSH, and their manifests declare no transport at all.
+
+**The "Intended side" column is hand-written prose, not a manifest field.** It
+records where each method is meant to run. Nothing in the code stores that value,
+reads it, or checks it. `pkg/collection.ExecutionContext` is the only manifest field
+that sounds like it would, and it holds exactly one boolean, `RequiresElevation`.
+Two places in the shipping code read that boolean, and both are documentation
+renderers: `pleiades doc` and the generated
+[module catalog](reference/modules/index.md) pages. The dispatcher does not read it,
+and neither does `pleiades validate`. The table above proves the point:
+`fw.firewalld.*` ("target side") and `container.docker.*` ("hybrid") carry the same
+`executionContext` value, the same transport, and the same status, and differ only
+in a capability name. So do `archive.create` ("target side") and `archive.extract`
+("hybrid"). Identical manifests cannot produce two different column values, because
+the column is not generated from them.
+
+**Execution side is decided at run time, from one thing only: whether the task ends
+up with a target.** `TaskTarget` (`internal/engine/action.go`) takes the task's own
+`params.target` when it is a non-empty string, and otherwise falls back to the
+runbook's `hosts:`. An empty result means the task runs once, against no device. A
+non-empty one means it runs once per device that target resolves to. With two hosts
+tagged `webtier`, a task that sets no target of its own runs twice under
+`hosts: webtier` (`blast radius: 2 devices`) and once, against no device, when
+`hosts:` is absent (`blast radius: 0 devices`).
+
+**So a runbook that sets `hosts:` cannot mark one task controller-side.** A task has
+no `delegate_to` key, no `context` key, and no `run_once` key. Adding one is a build
+error, not a hint: the runbook fails to load with `sets both fqcn: and an
+unrecognized key "delegate_to"`. Writing `params.target: ""` does not help either,
+because an empty string falls back to `hosts:` exactly like an absent key, so the
+task still fans out per device. To keep a task controller-side today, leave `hosts:`
+off the runbook and give every target-side task its own `params.target`. Ansible's
+`delegate_to: localhost` has no Pleiades equivalent yet.
 
 **Gating and facts**
 
-| Ansible | Pleiades FQCN | Capability | Context |
+| Ansible | Pleiades FQCN | Capability | Intended side (not enforced) |
 |---|---|---|---|
 | `ansible.builtin.uri` | `http.request` | none | controller side |
 | `ansible.builtin.wait_for` | `pleiades.builtin.wait.port`, `wait.path`, `wait.search` | `NetworkAddressableCapable` | hybrid |
@@ -226,15 +274,15 @@ plainly rather than implying a rough match exists.
 | AWX / AAP object | Pleiades equivalent | Status |
 |---|---|---|
 | Job template | A runbook, dispatched via `POST /api/v1/jobs/dispatch` | `beta`: the API and dispatcher are real; the job does not yet reach a real device (see [Start here](01-start-here.md)) |
-| Inventory | `inventory.yaml`, or a synced inventory via a sync plugin | `beta` (static), `experimental` (sync plugins; only `catalyst_center`, itself `declared`, exists beyond the built-in `static_yaml` plugin) |
+| Inventory | `inventory.yaml`, or a synced inventory via a sync plugin | `beta` (static), `experimental` (sync plugins; only `catalyst_center` exists beyond the built-in `static_yaml`, and it registers as `implemented`, not `declared`: an authenticated, paged REST sync against Cisco Catalyst Center) |
 | Credential | A `pleiades add-credential` entry in the local encrypted store | `beta`, Walk tier only. No credential *types* (only username+password/key), no injector engine |
-| Workflow (a DAG of job templates) | A single runbook's own `block`/`rescue`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
-| Survey | — | `design`, not built |
-| Approval node | — | `design`, not built |
-| Schedule (RRULE) | — | `design`, not built |
-| Notification template | — | `design`, not built |
-| Execution environment | — | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
-| Instance group | — | `design`, not built. No capacity/admission control exists yet |
+| Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
+| Survey | none | `design`, not built |
+| Approval node | none | `design`, not built |
+| Schedule (RRULE) | none | `design`, not built |
+| Notification template | none | `design`, not built |
+| Execution environment | none | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
+| Instance group | none | `design`, not built. No capacity/admission control exists yet |
 | RBAC (organizations, teams, roles) | The control plane's own RBAC | `beta`, real and tested, but the object model has not been checked against AWX's own for parity |
 
 ## Inventory migration
@@ -242,8 +290,10 @@ plainly rather than implying a rough match exists.
 `pleiades init` scaffolds an empty `inventory.yaml`. `pleiades add-host <name> --type
 <type> [--set key=value ...] [--tags ...]` adds one device at a time by hand;
 `pleiades inventory sync --plugin <name>` pulls devices from an external source (today,
-only `catalyst_center`, which is itself `declared`). Nothing reads an Ansible dynamic
-inventory script or a Galaxy inventory plugin directly. There is no bulk import path
+only `catalyst_center`, which registers as `implemented`, not `declared`: its
+implementation authenticates, pages the upstream device list, classifies each record, and
+reconciles the result into the project's `inventory.yaml`). Nothing reads an
+Ansible dynamic inventory script or a Galaxy inventory plugin directly. There is no bulk import path
 from an existing AWX inventory today: migrating one means walking its host list and
 issuing one `add-host` per device, or writing a new sync plugin
 (`pleiades forge new-plugin`) against wherever AWX's inventory source actually is.

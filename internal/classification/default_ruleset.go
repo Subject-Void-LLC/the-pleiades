@@ -1,6 +1,6 @@
 package classification
 
-import "github.com/SubjectVoidLLC/the-pleiades/pkg/capability"
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 
 // DefaultRuleSet returns the built-in classification rules PLAN.md Section
 // 7 promises every `pleiades init` scaffold ships with ("built-in

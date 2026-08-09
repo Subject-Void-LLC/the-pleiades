@@ -12,9 +12,9 @@ package inventory
 // One import covers every device type in a vendor package, so
 // devices/cisco's entry now registers both cisco_router and cisco_switch.
 import (
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/aws"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/catalyst"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/cisco"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/linux"
-	_ "github.com/SubjectVoidLLC/the-pleiades/internal/inventory/devices/windows"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 )

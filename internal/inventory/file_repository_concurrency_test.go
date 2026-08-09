@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/inventory"
-	pkginv "github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	pkginv "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestFileRepository_ConcurrentSaveDifferentHosts races N goroutines that

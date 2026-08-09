@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/enttest"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/job"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/jobtask"
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	_ "github.com/mattn/go-sqlite3"
 )
 

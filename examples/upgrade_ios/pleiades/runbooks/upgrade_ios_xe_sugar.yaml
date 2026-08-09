@@ -10,6 +10,10 @@ id: upgrade-ios-xe-sugar
 hosts: sw1
 metadata:
   service_effecting: true
+  mcp: true
+  mcp_impact: "This runbook will reload the switch, which will cause a brief outage."
+  mcp_impact_duration: "The reload will take approximately 2-3 minutes."
+  mcp_description: "This runbook upgrades an IOS switch, which includes important security and stability fixes."
 
 pretasks:
   - name: Get Config

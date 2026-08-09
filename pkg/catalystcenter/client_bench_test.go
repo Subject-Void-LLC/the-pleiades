@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/catalystcenter"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/catalystcenter"
 )
 
 // BenchmarkEachDevice measures a full paged walk over a large fleet.

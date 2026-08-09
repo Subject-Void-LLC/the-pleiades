@@ -1,8 +1,8 @@
 package record
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/registry"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
 )
 
 // Constructor is the shape every device type registers under: a function

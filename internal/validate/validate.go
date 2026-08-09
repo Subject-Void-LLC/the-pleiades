@@ -5,8 +5,8 @@
 package validate
 
 import (
-	"github.com/SubjectVoidLLC/the-pleiades/internal/engine"
-	"github.com/SubjectVoidLLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // WorldView bundles the parsed inventory and the parsed DAG so a Rule can

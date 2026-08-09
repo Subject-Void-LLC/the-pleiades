@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SubjectVoidLLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	_ "github.com/mattn/go-sqlite3"
 )
 
