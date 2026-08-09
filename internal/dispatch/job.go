@@ -204,6 +204,31 @@ type JobStore interface {
 	// ErrJobNotFound, only when jobID names no job at all.
 	BeginFanOut(ctx context.Context, jobID string, staleAfter time.Duration) (claimed bool, fence int64, err error)
 
+	// ListStaleFanOuts returns the JobID of every job currently
+	// "fanning_out" whose updated_at has not advanced in at least
+	// staleAfter, the identical predicate BeginFanOut's own reclaim branch
+	// evaluates, exposed here as a read-only scan rather than a claim.
+	//
+	// This exists because BeginFanOut's reclaim, on its own, is reachable
+	// only from inside Worker.HandleJobRequested, which only runs in
+	// response to a job.requested delivery. A Worker that dies between
+	// BeginFanOut and Complete/Fail leaves nothing to ever deliver that
+	// event again: JetStream's redelivery budget (MaxDeliverDefault
+	// redeliveries at consumerAckWait apart, internal/topology) is far
+	// shorter than any realistic staleAfter, so the message dead-letters
+	// long before the job becomes eligible for reclaim, and BeginFanOut's
+	// reclaim branch is provably never reached by natural redelivery
+	// alone. ListStaleFanOuts is what a periodic reaper (Reaper,
+	// reaper.go) calls to find a job in that state and re-publish
+	// job.requested for it itself, giving BeginFanOut's own,
+	// already-correct reclaim logic a trigger that does not depend on
+	// NATS ever redelivering anything.
+	//
+	// Callers must pass the same staleAfter a real BeginFanOut(ctx, id,
+	// staleAfter) call would use for these jobs' own Worker, or this scan
+	// and that claim can disagree about which jobs are actually eligible.
+	ListStaleFanOuts(ctx context.Context, staleAfter time.Duration) ([]string, error)
+
 	// RecordTask persists task as jobID's outcome for one device and
 	// refreshes jobID's own updated_at timestamp, the heartbeat
 	// BeginFanOut's staleAfter reclaim reads to tell a job a Worker is

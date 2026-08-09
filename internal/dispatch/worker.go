@@ -38,7 +38,7 @@ import (
 // block this handler forever, which is also precisely what lets this
 // Worker's own heartbeat go stale long enough for a second delivery's
 // BeginFanOut to legitimately reclaim the job out from under it (see
-// defaultFanOutLeaseTTL's own doc comment and JobStore.BeginFanOut's
+// DefaultFanOutLeaseTTL's own doc comment and JobStore.BeginFanOut's
 // staleAfter reclaim). Tying the bound to that same fanOutLeaseTTL,
 // rather than some other arbitrary duration, keeps the two consistent: a
 // hang that would outlive its own lease anyway should be canceled here

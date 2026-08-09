@@ -228,6 +228,77 @@ func TestEntJobStore_BeginFanOut_ReclaimsStaleFanningOut(t *testing.T) {
 	}
 }
 
+// TestEntJobStore_ListStaleFanOuts proves the read-only scan Reaper
+// (reaper.go) depends on returns exactly the jobs BeginFanOut's own
+// reclaim branch would agree are eligible, and nothing else: a fresh
+// fanning_out job (still within its lease) is excluded, and a pending job
+// that never began fan-out at all is excluded too, even though both share
+// nothing in common with a stale fanning_out row except existing.
+func TestEntJobStore_ListStaleFanOuts(t *testing.T) {
+	ctx := t.Context()
+	store, client := newTestStore(t)
+
+	// never-started: still "pending", never claimed.
+	neverStarted := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user"}
+	if err := store.Create(ctx, neverStarted); err != nil {
+		t.Fatalf("Create(neverStarted) returned unexpected error: %v", err)
+	}
+
+	// fresh: claimed moments ago, well within any realistic staleAfter.
+	fresh := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user"}
+	if err := store.Create(ctx, fresh); err != nil {
+		t.Fatalf("Create(fresh) returned unexpected error: %v", err)
+	}
+	if began, _, err := store.BeginFanOut(ctx, fresh.JobID, time.Hour); err != nil || !began {
+		t.Fatalf("BeginFanOut(fresh) = (%v, %v), want (true, nil)", began, err)
+	}
+
+	// stale: claimed, then its heartbeat backdated well past staleAfter,
+	// standing in for a Worker that crashed mid-fan-out and never came
+	// back.
+	stale := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user"}
+	if err := store.Create(ctx, stale); err != nil {
+		t.Fatalf("Create(stale) returned unexpected error: %v", err)
+	}
+	if began, _, err := store.BeginFanOut(ctx, stale.JobID, time.Hour); err != nil || !began {
+		t.Fatalf("BeginFanOut(stale) = (%v, %v), want (true, nil)", began, err)
+	}
+	if _, err := client.Job.Update().
+		Where(entjob.JobIDEQ(stale.JobID)).
+		SetUpdatedAt(time.Now().Add(-2 * time.Hour)).
+		Save(ctx); err != nil {
+		t.Fatalf("failed to backdate stale job's updated_at: %v", err)
+	}
+
+	// completed: a fan-out that finished normally, not eligible no matter
+	// how old.
+	completed := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "user"}
+	if err := store.Create(ctx, completed); err != nil {
+		t.Fatalf("Create(completed) returned unexpected error: %v", err)
+	}
+	began, fence, err := store.BeginFanOut(ctx, completed.JobID, time.Hour)
+	if err != nil || !began {
+		t.Fatalf("BeginFanOut(completed) = (%v, %v), want (true, nil)", began, err)
+	}
+	if err := store.Complete(ctx, completed.JobID, fence, 1, 0, 0); err != nil {
+		t.Fatalf("Complete(completed) returned unexpected error: %v", err)
+	}
+	if _, err := client.Job.Update().
+		Where(entjob.JobIDEQ(completed.JobID)).
+		SetUpdatedAt(time.Now().Add(-2 * time.Hour)).
+		Save(ctx); err != nil {
+		t.Fatalf("failed to backdate completed job's updated_at: %v", err)
+	}
+
+	got, err := store.ListStaleFanOuts(ctx, time.Hour)
+	if err != nil {
+		t.Fatalf("ListStaleFanOuts returned unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != stale.JobID {
+		t.Fatalf("ListStaleFanOuts = %v, want exactly [%q]", got, stale.JobID)
+	}
+}
+
 // TestEntJobStore_StaleReclaimFencesOutOriginalCaller is the direct proof
 // of the fencing-token fix (Finding 2): once a stale reclaim bumps a job's
 // fence, the ORIGINAL caller's RecordTask, Complete, and Fail calls, still

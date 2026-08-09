@@ -29,6 +29,15 @@
 // caller here either, unchanged from before this phase -- that remains
 // cmd/runner's concern.
 //
+// **Correction, a later session's fan-out reaper fix: a second,
+// independent LeaderElector (reaperElector, fanOutReaperLeaseKey) now
+// does gate real work.** dispatch.Reaper.Run is
+// the first real consumer of election.LeaderElector.IsLeader anywhere in
+// this repository, ahead of Phase 23. It exists because
+// dispatch.JobStore.BeginFanOut's own staleAfter reclaim was unreachable
+// in production: see dispatch.DefaultFanOutLeaseTTL's own doc comment for
+// why a redelivered job.requested alone never triggers it.
+//
 // This is also Phase 5's own composition root: internal/crypto's DEK/KEK
 // envelope encryption (PLAN.md Section 17) is registered on the Device
 // entity here, its first real, running, non-test caller anywhere in this
@@ -107,6 +116,14 @@ const serviceName = "pleiades-controller"
 // from its caller precisely so no key is hardcoded into the reusable
 // primitive (PLAN.md Section 25's "Leader elector" Build-Once Contract).
 const schedulerLeaseKey = "pleiades-scheduler-leader"
+
+// fanOutReaperLeaseKey is the well-known key every controller replica
+// contends for to become the one holder of the fan-out reaper lease, kept
+// distinct from schedulerLeaseKey above: internal/election.LeaderElector's
+// own doc comment requires two different keys for two logically distinct
+// elections, and there is no reason a replica's reaper leadership should
+// be coupled to its (still-unclaimed, Phase 23) scheduler leadership.
+const fanOutReaperLeaseKey = "pleiades-fanout-reaper-leader"
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -440,6 +457,42 @@ func main() {
 		fatal("failed to subscribe job fan-out worker", err)
 	}
 
+	// reaperElector is a second, independent LeaderElector (a distinct key
+	// from elector/schedulerLeaseKey below, sharing the same lockMgr:
+	// internal/election's own doc comment guarantees two LeaderElectors
+	// with different keys never contend with each other even against one
+	// Manager). Exactly one replica's Reaper.Run ever sees isLeader true at
+	// a time, bounding JobStore.ListStaleFanOuts's own query load to once
+	// per interval across the whole deployment regardless of replica
+	// count.
+	reaperElector := election.NewLeaderElector(lockMgr, fanOutReaperLeaseKey,
+		election.WithOnAcquired(func() {
+			slog.Info("Acquired Fan-Out Reaper Lease", slog.String("key", fanOutReaperLeaseKey))
+		}),
+	)
+	reaperElectorDone := make(chan struct{})
+	go func() {
+		defer close(reaperElectorDone)
+		reaperElector.Run(ctx)
+	}()
+
+	// reaper is what actually triggers dispatch.JobStore.BeginFanOut's own
+	// staleAfter reclaim: worker.go's own doc comment on
+	// dispatch.DefaultFanOutLeaseTTL explains why a redelivered
+	// job.requested alone never reaches it (JetStream's redelivery budget
+	// dead-letters the message long before DefaultFanOutLeaseTTL elapses).
+	// dispatch.DefaultFanOutLeaseTTL is passed explicitly here, the exact
+	// same value worker above uses implicitly (it was built with no
+	// WithFanOutLeaseTTL override): the two must agree for a job either one
+	// considers stale to actually be the same job, so if worker above is
+	// ever given an explicit override, this call must change to match.
+	reaper := dispatch.NewReaper(jobStore, bus, dispatch.DefaultFanOutLeaseTTL)
+	reaperDone := make(chan struct{})
+	go func() {
+		defer close(reaperDone)
+		reaper.Run(ctx, reaperElector.IsLeader)
+	}()
+
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
 	streamer := api.NewLogStreamer(js)
 	devices := api.NewDeviceHandler(repo, logger)
@@ -576,11 +629,17 @@ func main() {
 		slog.Error("graceful shutdown failed", slog.String("error", err.Error()))
 	}
 
-	// Wait for the elector's own bounded release (internal/election's own
+	// Wait for both electors' own bounded release (internal/election's own
 	// releaseTimeout) to finish before closing lockMgr: closing the
-	// underlying NATS connection while that release call is still in
-	// flight would make it fail.
+	// underlying NATS connection while either release call is still in
+	// flight would make it fail. reaperDone carries no lockMgr dependency
+	// of its own (Reaper.Run's only cleanup is its ticker, stopped via a
+	// deferred call), but is waited on here too so no goroutine this
+	// composition root started is still running, and possibly still
+	// logging, after main returns.
 	<-electorDone
+	<-reaperElectorDone
+	<-reaperDone
 	if err := lockMgr.Close(); err != nil {
 		slog.Error("lock manager close failed", slog.String("error", err.Error()))
 	}
