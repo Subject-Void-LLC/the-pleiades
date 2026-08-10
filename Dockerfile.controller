@@ -8,5 +8,9 @@ RUN go build -o controller cmd/controller/main.go
 FROM alpine:3.24.1
 WORKDIR /app
 COPY --from=builder /app/controller .
+# RUNBOOK_DIR is resolved at startup and the controller exits if the
+# directory is missing, so the image has to contain one. A deployment
+# mounts its real runbooks over this path.
+RUN mkdir -p /app/runbooks
 EXPOSE 8080
 CMD ["./controller"]

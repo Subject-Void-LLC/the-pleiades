@@ -8,4 +8,8 @@ RUN go build -o runner cmd/runner/main.go
 FROM alpine:3.24.1
 WORKDIR /app
 COPY --from=builder /app/runner .
+# The runner resolves RUNBOOK_DIR the same way the controller does, and
+# production shares one runbook directory between them, so the image needs
+# the same path to exist.
+RUN mkdir -p /app/runbooks
 CMD ["./runner"]

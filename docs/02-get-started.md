@@ -176,9 +176,13 @@ a matching migration generated, so on any deployment, not just this lab, the ent
 dispatch endpoint was unreachable. Fixed by running the tool built for exactly this:
 
 ```console
-$ go run internal/ent/migrate/gen/main.go add_jobs
+$ go run internal/ent/migrate/gen/main.go sqlite add_jobs
 wrote internal/ent/migrate/migrations/sqlite/0004_add_jobs.sql
 ```
+
+The generator takes the dialect first, because the controller supports both
+PostgreSQL and SQLite and a schema change has to be generated for each. Run it
+once per dialect.
 
 Kept here rather than smoothed over, because it is the second time in this same
 documentation effort that a real run surfaced a real defect (see
@@ -193,10 +197,22 @@ docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4 -js
 export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export JWT_SECRET="a-real-secret-at-least-32-bytes-long"
 export NATS_URL="nats://127.0.0.1:4222"
-export DB_PATH="./controller.db"
+export DB_DSN="sqlite://./controller.db"
 
 ./controller
 ```
+
+`DB_DSN` names the database. A `postgres://` URL points the controller at a real
+PostgreSQL server, which is what a multi-user deployment runs:
+
+```bash
+export DB_DSN="postgres://pleiades:password@127.0.0.1:5432/pleiades?sslmode=disable"
+```
+
+A `sqlite://` URL, or a bare filesystem path, uses an on-disk SQLite file instead,
+which needs no server and suits a single-process trial like this one. The older
+`DB_PATH` variable still works and still means SQLite. Setting both `DB_DSN` and
+`DB_PATH` is a startup error rather than a silent preference for one of them.
 
 ```console
 {"level":"INFO","msg":"controller listening","addr":":8080"}
