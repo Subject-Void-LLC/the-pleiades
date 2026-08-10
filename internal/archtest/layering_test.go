@@ -76,15 +76,54 @@ type listedPackage struct {
 	ImportPath string
 	Imports    []string
 	Deps       []string
+
+	// Error is go list -e's per-package load failure, populated instead
+	// of aborting the whole listing. goList drops any package carrying
+	// one; see its own comment for why that is safe here.
+	Error *listedPackageError
 }
 
-// goList runs `go list -json <deps flag> <pattern>` and decodes its
+// listedPackageError is the shape go list -json puts in a package's
+// Error field. Only the message is kept: nothing here inspects it, and
+// it exists so the field can be distinguished from absent.
+type listedPackageError struct {
+	Err string
+}
+
+// goList runs `go list -json -e <deps flag> <pattern>` and decodes its
 // newline-delimited-JSON-object output (go list's -json emits one JSON
-// value per package, concatenated, not a JSON array).
+// value per package, concatenated, not a JSON array). Packages that
+// failed to load are dropped rather than inspected.
+//
+// The -e is load-bearing, and the reason is a real intermittent CI
+// failure rather than caution. Several tests in this module generate a
+// scaffolded package into the live repository tree and delete it again
+// on cleanup, because the generated starter test imports the package by
+// its own internal/... path and so genuinely cannot compile from a
+// throwaway module outside this one (internal/forge/collectionscaffold,
+// internal/inventory/devicescaffold, tools/gencatalog and cmd/pleiades
+// all do this, each under its own process-unique directory name). `go
+// test ./...` runs packages in parallel, so one of those packages can be
+// mid-create or mid-delete at the exact moment this listing walks the
+// tree, and without -e a single such directory aborts the entire listing:
+//
+//	go list -json -deps github.com/...: exit status 1
+//	    cannot find package "." in:
+//	    	.../internal/catalog/test/relgate62784
+//
+// which fails an architecture test for a reason that has nothing to do
+// with architecture, on a schedule nobody controls.
+//
+// Dropping unloadable packages costs no real coverage. `make ci` runs
+// `build` and `vet` over the whole module before it runs any test, and
+// both fail loudly on a package that genuinely does not load, so a
+// committed package can never reach this point broken. A package that
+// fails to load *here* and nowhere else is by construction one of the
+// transient scaffolding directories above.
 func goList(t *testing.T, withDeps bool, pattern string) []listedPackage {
 	t.Helper()
 
-	args := []string{"list", "-json"}
+	args := []string{"list", "-json", "-e"}
 	if withDeps {
 		args = append(args, "-deps")
 	}
@@ -104,6 +143,12 @@ func goList(t *testing.T, withDeps bool, pattern string) []listedPackage {
 		var p listedPackage
 		if err := dec.Decode(&p); err != nil {
 			t.Fatalf("decoding go list output: %v", err)
+		}
+		if p.Error != nil {
+			// A transient scaffolding directory caught mid-write or
+			// mid-delete by a concurrently running test; see this
+			// function's own comment.
+			continue
 		}
 		pkgs = append(pkgs, p)
 	}

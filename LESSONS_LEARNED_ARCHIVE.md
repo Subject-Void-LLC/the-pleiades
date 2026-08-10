@@ -1159,3 +1159,87 @@ story, per `.AGENTS/AGENTS.md`.
     path (a runbook with no `hosts:`, exactly what a real dispatch produces) could fail. A fixture that
     is more convenient than production is a fixture that cannot find this class of bug.
     (`internal/engine/executor.go`'s `resolveDevices`, `internal/adapters/native/resolver.go`.)
+
+90. **A branch reached only by winning a race is not a covered branch, and a coverage floor measured
+    against one is a scheduled CI failure.** `internal/election` sat at a 90.0% floor while its measured
+    coverage swung from 85.0% to 100% across identical runs of identical code, because five arms of
+    `LeaderElector.Run` (both `ctx.Err()` shutdown-race arms, the acquire `default` arm, the failed
+    best-effort release, and the tick/cancel `continue`) had no test that drove them on purpose. They
+    were reached, when they were reached, as a side effect of which way a real NATS store happened to
+    lose a timing race in the container test. The number that resulted was a measurement of machine load,
+    not of the test suite, and a loaded CI runner rolls the dice differently from an idle laptop. The
+    failure therefore attached itself to whatever pull request was open when it fired, which is how one
+    standing defect gets experienced as "CI keeps failing on our changes" and why nobody could reproduce
+    it on demand. Two rules follow. First, if a branch exists because of a race, the test for it must
+    *create* the race rather than wait for it: here, canceling the elector's own context from inside the
+    mock's `KeepAlive`/`Acquire` call makes the cancellation guaranteed-visible the instant the call
+    returns, which turns two irreducibly timing-dependent arms into ordinary deterministic ones with no
+    sleep involved. Second, a ratchet floor must sit below the *deterministic minimum*, not below the
+    best observed run; a floor set against a lucky measurement is indistinguishable from a floor set
+    correctly until the day it is not. Note which direction the dependency ran: coverage here was being
+    propped up by an integration test with real containers, so the number silently encoded "Docker was
+    fast enough today." After the fix the same 97.5% holds under `-short` with the container test
+    skipped entirely, which is the real evidence that the coverage belongs to the tests rather than to
+    the environment. Knowing when to stop also matters: the one remaining uncovered arm needs `select`
+    to choose a ready `ticker.C` over an equally ready `ctx.Done()`, which Go randomizes by design, and
+    forcing it would have meant injecting a clock into production code to serve a coverage number. It
+    was left uncovered on purpose, with the floor placed below it.
+    (`internal/election/election_test.go`, `coverage-floor.json`, `tools/coverage-check`.)
+
+91. **The module tree is shared mutable state, and `go test ./...` runs packages in parallel. A test
+    that writes into it and a test that reads all of it are a data race with no race detector
+    watching.** `internal/archtest` ran `go list -json -deps <module>/...` while
+    `internal/forge/collectionscaffold` was creating and deleting a scaffolded package under
+    `internal/catalog/test/relgate<PID>`, and `go list` matches directories in one phase and loads them
+    in a second, so a directory that held `.go` files at match time and none at load time -- the window
+    `os.RemoveAll` opens -- aborted the entire listing. The architecture test then failed with `cannot
+    find package "."`, naming a directory that does not exist in the repository. Three properties made
+    this expensive to find and worth writing down. It only reproduced under `./...`, because running
+    either package alone removes the concurrency; it named a path nobody could grep for, because the
+    directory is PID-suffixed and already deleted by the time anyone reads the log; and it presented as
+    an *architecture* failure, which sends you reading import graphs rather than looking for a
+    filesystem race. Note also that writing into the live tree was not laziness: the scaffold's
+    generated test imports the package by its own `internal/...` path, and Go's internal-package rule
+    makes that unimportable from a throwaway module, so a temp-module fixture genuinely cannot express
+    what the release gate proves. When the shared resource cannot be removed, the reader has to
+    tolerate it -- `go list -e` reports per-package load failures instead of aborting -- and the
+    tolerance is only safe because something earlier and stricter (`make ci` runs `build` and `vet`
+    over the whole module before any test) already guarantees a committed package cannot be broken
+    here. The general rule: before adding a test that shells out to a tool which reads the *whole*
+    repository, ask which other tests write to it, and remember that "no other test writes to the repo"
+    stops being true the first time someone adds a code generator with a release gate. A corollary
+    showed up in the same file: `collectionscaffold`'s cleanup removed the shared parent
+    `internal/catalog/test` rather than its own subdirectory, which could delete a concurrently
+    building sibling's package; `tools/gencatalog` had already hit that and left a warning comment, and
+    the sibling call site had simply never been brought in line. A hazard documented in one call site's
+    comment is not fixed anywhere else.
+    (`internal/archtest/layering_test.go`'s `goList`,
+    `internal/forge/collectionscaffold/release_gate_test.go`.)
+
+92. **A test pinned to a different version of a dependency than the deployment runs is not testing the
+    deployment, and `latest` on either side means nobody knows which version was tested.** This
+    repository's container-backed tests named the NATS image at seventeen call sites across eleven
+    packages, with no shared constant, and had drifted into three versions simultaneously: `nats:2.10`
+    in the Phase 16 SSH mesh Release Gate, `internal/event`, `internal/runner` and `internal/topology`;
+    `nats:2.11` in `internal/election`, `internal/lock` and both `cmd/controller` gates; and
+    `nats:latest` in `tests/e2e`. `docker-compose.yml` also ran `latest`, so the deployment and the
+    end-to-end test shared a fourth, moving version that no Release Gate had ever exercised, while the
+    tests making the strongest claims -- that the mesh really reaches a real device, that leader
+    election really prevents split brain -- were validating against a NATS four minor versions behind
+    what a user would actually get. Nothing had failed yet, which is the point worth recording: this
+    class of defect is invisible until the day a version-specific behavior change lands, and then it
+    presents as a production bug that every test passed. The fix is structural, not vigilance: one
+    pinned version per dependency, declared once (`internal/testsupport`), with the deployment
+    descriptor asserted equal to it by a test, because a descriptor in YAML cannot import a Go constant
+    and a second copy nobody checks is how the drift started. `latest` is not a version; it is
+    "whatever the registry published before CI pulled it," which simultaneously makes a green build
+    unreproducible tomorrow and lets an upstream release turn CI red on a commit that changed nothing.
+    Two refinements matter in practice. First, distinguish harness patience from production semantics:
+    a container *startup timeout* mirrors nothing in production (no production system boots a fresh
+    broker per operation) and should be uniform and generous, whereas lease TTLs, ack policies and
+    retry windows *are* production semantics and must never be shrunk to make tests faster. Second, a
+    deliberate version pin is not drift: `internal/lock`'s bucket-config case pins `nats:2.10` inline
+    because that version specifically rejects a config the test asserts is rejected, and sweeping it
+    into the shared constant would have silently destroyed the assertion while leaving the test green.
+    Centralize the accidents; leave the deliberate exceptions at the call site with a comment saying
+    why. (`internal/testsupport`, `docker-compose.yml`, `internal/lock/nats_test.go`.)

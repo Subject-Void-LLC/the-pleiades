@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -33,9 +35,9 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 	ctx := context.Background()
 
 	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.11"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 	)
 	if err != nil {
 		t.Fatalf("failed to start container: %v", err)
@@ -124,6 +126,16 @@ type mockLease struct {
 	keepAliveCalls int
 	failAfterCalls int // KeepAlive fails starting on this call number (0 = never fails)
 
+	// onKeepAliveFail runs inside KeepAlive, immediately before it
+	// returns its simulated failure, so a test can make some other
+	// state change land *before* Run observes that failure. Its one
+	// use is canceling the elector's own ctx, which is what makes the
+	// "renewal failed because we are shutting down" branch reachable
+	// deterministically instead of only when a real store happens to
+	// lose that race (see
+	// TestLeaderElector_RenewalFailureDuringShutdownStepsDownSilently).
+	onKeepAliveFail func()
+
 	releaseDelay time.Duration
 	releaseErr   error
 	released     bool
@@ -135,8 +147,12 @@ func (l *mockLease) KeepAlive(ctx context.Context) error {
 	l.mu.Lock()
 	l.keepAliveCalls++
 	fail := l.failAfterCalls > 0 && l.keepAliveCalls >= l.failAfterCalls
+	onFail := l.onKeepAliveFail
 	l.mu.Unlock()
 	if fail {
+		if onFail != nil {
+			onFail()
+		}
 		return errors.New("simulated renewal failure")
 	}
 	return nil
@@ -164,12 +180,34 @@ func (l *mockLease) wasReleased() bool {
 
 // mockManager is a lock.Manager test double that always hands out the
 // same scripted mockLease, so a test can control exactly how that
-// lease's KeepAlive/Release calls behave.
+// lease's KeepAlive/Release calls behave. acquireErr and onAcquire
+// additionally let a test script the acquisition side: every branch of
+// Run's own acquire switch (won, contended, shutting down, genuinely
+// broken) is reachable from here without depending on a real store
+// happening to produce that outcome.
 type mockManager struct {
 	lease *mockLease
+
+	// acquireErr, when non-nil, is returned instead of lease, so a test
+	// picks which arm of Run's acquire switch it exercises: lock.ErrLockHeld
+	// for the contended steady state, any other error for the
+	// store-is-broken arm.
+	acquireErr error
+
+	// onAcquire runs inside Acquire, immediately before it returns, for
+	// the same reason mockLease.onKeepAliveFail exists: it lets a test
+	// cancel the elector's ctx mid-call so the "acquire failed because we
+	// are shutting down" arm is reached deterministically.
+	onAcquire func()
 }
 
 func (m *mockManager) Acquire(ctx context.Context, itemID string, ttl time.Duration, opts lock.AcquireOptions) (lock.Lease, error) {
+	if m.onAcquire != nil {
+		m.onAcquire()
+	}
+	if m.acquireErr != nil {
+		return nil, m.acquireErr
+	}
 	return m.lease, nil
 }
 
@@ -271,5 +309,184 @@ func TestLeaderElector_GracefulShutdownReleasesWithinBoundedTime(t *testing.T) {
 	}
 	if !lease.wasReleased() {
 		t.Fatal("expected the lease to be released on graceful shutdown")
+	}
+}
+
+// The four tests below exist for a reason worth stating explicitly,
+// because it is not the usual one: each covers a branch of Run that was
+// already being reached before they existed, but only *incidentally*,
+// as a side effect of whichever way a real NATS store happened to lose
+// a timing race in TestLeaderElection_ThreeReplicas above. That made
+// this package's measured coverage swing between 85.0% and 97.5% from
+// run to run against a fixed floor, so `make ci` failed at the coverage
+// ratchet on a schedule nobody controlled and no code change caused. A
+// branch reached by luck is not a tested branch: these drive each one
+// through a scripted test double, so the same statements are covered on
+// every run, on a loaded CI runner exactly as on an idle laptop.
+
+// waitFor blocks until cond returns true, failing the test if that has
+// not happened within timeout. It replaces the fixed-duration sleeps the
+// older tests in this file use: a test that waits for the condition it
+// actually cares about neither wastes time on a fast machine nor flakes
+// on a slow one.
+func waitFor(t *testing.T, timeout time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %v waiting for %s", timeout, what)
+}
+
+// waitForReturn fails the test unless Run's goroutine has already
+// returned, or returns within timeout.
+func waitForReturn(t *testing.T, done <-chan struct{}, timeout time.Duration, what string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatalf("Run did not return within %v after %s", timeout, what)
+	}
+}
+
+// TestLeaderElector_RenewalFailureToleratesAFailingRelease proves the
+// best-effort release really is best-effort: when the post-renewal-
+// failure Release call itself fails (the stale-revision CAS race
+// releaseBestEffort's own doc comment documents as accepted), the
+// elector still steps down rather than treating a failed cleanup as a
+// reason to keep believing it is the leader.
+func TestLeaderElector_RenewalFailureToleratesAFailingRelease(t *testing.T) {
+	lease := &mockLease{
+		failAfterCalls: 1,
+		releaseErr:     errors.New("simulated stale-revision release failure"),
+	}
+	mgr := &mockManager{lease: lease}
+	e := election.NewLeaderElector(mgr, "failing-release-key")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+
+	waitFor(t, 5*time.Second, "the stale lease to be released", lease.wasReleased)
+	waitFor(t, 5*time.Second, "the elector to step down", func() bool { return !e.IsLeader() })
+
+	cancel()
+	waitForReturn(t, done, 5*time.Second, "ctx cancellation")
+}
+
+// TestLeaderElector_RenewalFailureDuringShutdownStepsDownSilently
+// covers the branch that distinguishes "the store broke" from "we are
+// shutting down": a renewal that fails *because* ctx was canceled while
+// the call was in flight must release, step down, and return, without
+// logging the store-side failure warning that a genuine renewal failure
+// earns.
+func TestLeaderElector_RenewalFailureDuringShutdownStepsDownSilently(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Canceling from inside KeepAlive is what makes this deterministic:
+	// Run re-checks ctx.Err() the instant KeepAlive returns, so the
+	// cancellation is guaranteed to already be visible by then.
+	lease := &mockLease{failAfterCalls: 1, onKeepAliveFail: cancel}
+	mgr := &mockManager{lease: lease}
+	e := election.NewLeaderElector(mgr, "renewal-shutdown-race-key")
+
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+
+	waitForReturn(t, done, 5*time.Second, "a renewal failure racing with shutdown")
+
+	if !lease.wasReleased() {
+		t.Fatal("expected the lease to be released when a renewal failed during shutdown")
+	}
+	if e.IsLeader() {
+		t.Fatal("expected IsLeader to be false after stepping down during shutdown")
+	}
+}
+
+// TestLeaderElector_AcquireFailureIsLoggedAndRetried covers the acquire
+// switch's default arm: an error that is neither "someone else holds it"
+// nor "we are shutting down" means the lock store itself is unreachable.
+// The elector must keep running and keep retrying rather than exiting or
+// falsely reporting leadership.
+func TestLeaderElector_AcquireFailureIsLoggedAndRetried(t *testing.T) {
+	var attempts atomic.Int32
+	mgr := &mockManager{
+		acquireErr: errors.New("simulated unreachable lock store"),
+		onAcquire:  func() { attempts.Add(1) },
+	}
+	e := election.NewLeaderElector(mgr, "acquire-error-key")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+
+	// Two attempts, not one: the second is what proves a failed acquire
+	// leaves the loop running and retrying rather than exiting.
+	waitFor(t, 10*time.Second, "two failed acquire attempts", func() bool { return attempts.Load() >= 2 })
+
+	if e.IsLeader() {
+		t.Fatal("expected IsLeader to be false when every acquire attempt failed")
+	}
+
+	cancel()
+	waitForReturn(t, done, 5*time.Second, "ctx cancellation")
+}
+
+// TestLeaderElector_ContendedAcquireIsNotAnError covers the acquire
+// switch's lock.ErrLockHeld arm: the ordinary steady state of every
+// non-leader replica. It is deliberately silent and must never be
+// mistaken for a failure, so the loop keeps polling and never claims
+// leadership.
+func TestLeaderElector_ContendedAcquireIsNotAnError(t *testing.T) {
+	var attempts atomic.Int32
+	mgr := &mockManager{
+		acquireErr: lock.ErrLockHeld,
+		onAcquire:  func() { attempts.Add(1) },
+	}
+	e := election.NewLeaderElector(mgr, "contended-key")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+
+	waitFor(t, 10*time.Second, "two contended acquire attempts", func() bool { return attempts.Load() >= 2 })
+
+	if e.IsLeader() {
+		t.Fatal("expected IsLeader to be false while another replica holds the lease")
+	}
+
+	cancel()
+	waitForReturn(t, done, 5*time.Second, "ctx cancellation")
+}
+
+// TestLeaderElector_AcquireFailureDuringShutdownIsNotAnError covers the
+// acquire switch's ctx.Err() arm, the acquisition-side twin of
+// TestLeaderElector_RenewalFailureDuringShutdownStepsDownSilently: an
+// acquire that fails because ctx was canceled mid-call is an ordinary
+// shutdown race, not a store-side error worth logging as one.
+func TestLeaderElector_AcquireFailureDuringShutdownIsNotAnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mgr := &mockManager{
+		acquireErr: errors.New("simulated acquire failure racing with shutdown"),
+		onAcquire:  cancel,
+	}
+	e := election.NewLeaderElector(mgr, "acquire-shutdown-race-key")
+
+	done := make(chan struct{})
+	go func() { e.Run(ctx); close(done) }()
+
+	waitForReturn(t, done, 5*time.Second, "an acquire failure racing with shutdown")
+
+	if e.IsLeader() {
+		t.Fatal("expected IsLeader to be false when acquisition never succeeded")
 	}
 }

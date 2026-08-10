@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -24,9 +25,9 @@ func TestEnsureStream(t *testing.T) {
 	ctx := context.Background()
 
 	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 	)
 	if err != nil {
 		t.Fatalf("failed to start container: %v", err)

@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -73,7 +74,7 @@ func startSSHContainer(t *testing.T) (string, int) {
 	t.Helper()
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        "lscr.io/linuxserver/openssh-server:latest",
+		Image:        testsupport.SSHDImage,
 		ExposedPorts: []string{"2222/tcp"},
 		Env: map[string]string{
 			"PUID":            "1000",
@@ -82,7 +83,7 @@ func startSSHContainer(t *testing.T) (string, int) {
 			"USER_NAME":       releaseGateSSHUser,
 			"USER_PASSWORD":   releaseGateSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -172,9 +173,9 @@ func newReleaseGateHarness(t *testing.T) *releaseGateHarness {
 	}
 
 	natsC, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 	)
 	if err != nil {
 		t.Fatalf("failed to start nats container: %v", err)

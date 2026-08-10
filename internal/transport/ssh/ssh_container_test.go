@@ -18,6 +18,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 )
 
@@ -78,7 +79,7 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 	sharedContainerOnce.Do(func() {
 		ctx := context.Background()
 		req := testcontainers.ContainerRequest{
-			Image:        "lscr.io/linuxserver/openssh-server:latest",
+			Image:        testsupport.SSHDImage,
 			ExposedPorts: []string{"2222/tcp"},
 			Env: map[string]string{
 				"PUID":            "1000",
@@ -92,7 +93,7 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 			// logged only once sshd is already listening. A fixed sleep
 			// would be neither deterministic nor an honest readiness
 			// check.
-			WaitingFor: wait.ForLog("done.").WithStartupTimeout(3 * time.Minute),
+			WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 		}
 		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: req,
@@ -296,7 +297,7 @@ func TestSSHContainer_StoppedContainerRetriesThenBreakerOpens(t *testing.T) {
 
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        "lscr.io/linuxserver/openssh-server:latest",
+		Image:        testsupport.SSHDImage,
 		ExposedPorts: []string{"2222/tcp"},
 		Env: map[string]string{
 			"PUID":            "1000",
@@ -305,7 +306,7 @@ func TestSSHContainer_StoppedContainerRetriesThenBreakerOpens(t *testing.T) {
 			"USER_NAME":       containerSSHUser,
 			"USER_PASSWORD":   containerSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -199,9 +200,9 @@ func TestControllerLeaderElection_ReleaseGate(t *testing.T) {
 
 	ctx := context.Background()
 	natsContainer, err := nats.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.11"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 	)
 	if err != nil {
 		t.Fatalf("failed to start container: %v", err)

@@ -93,6 +93,9 @@ story, per `.AGENTS/AGENTS.md`.
 87. **An idempotency key must be derived from the logical operation, not minted fresh per attempt at recording it, or two attempts describing the same real-world event become indistinguishable from two different events.**
 88. **A document that has already solved a structural problem writes the solution down. Read its own policy before restructuring it.**
 89. **"No value was specified" and "no value is needed" are different states, and collapsing them at the point of lookup silently disables whatever was supposed to supply the default.**
+90. **A branch reached only by winning a race is not a covered branch, and a coverage floor measured against one is a scheduled CI failure.**
+91. **The module tree is shared mutable state, and `go test ./...` runs packages in parallel: a test that writes into it and a test that reads all of it are a data race with no race detector watching.**
+92. **A test pinned to a different version of a dependency than the deployment runs is not testing the deployment, and `latest` on either side means nobody knows which version was tested.**
 
 ---
 

@@ -239,6 +239,13 @@ func (b *capturingBus) lastContext() context.Context {
 // failure modes.
 func pollJobUntilTerminal(t testing.TB, ctx context.Context, store dispatch.JobStore, jobID string, timeout time.Duration) *dispatch.Job {
 	t.Helper()
+	// timeout is what the work should take on a normal machine; the race
+	// detector makes it about an order of magnitude slower, and `make ci`
+	// runs `go test -race`. Scaling here, rather than asking every call
+	// site to remember, is what stops a budget written against a plain
+	// `go test` run from failing the build CI actually judges. See
+	// racebudget_race_test.go for the measurements behind the factor.
+	timeout *= raceTimeScale
 	deadline := time.Now().Add(timeout)
 	const pollInterval = 5 * time.Millisecond
 	for {

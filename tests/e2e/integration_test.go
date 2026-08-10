@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	_ "github.com/lib/pq"
 	"github.com/nats-io/nats.go"
@@ -39,7 +40,7 @@ func TestGrandIntegration(t *testing.T) {
 
 	// 1. Spin up Postgres Container
 	pgContainer, err := testpg.Run(ctx,
-		"postgres:15-alpine",
+		testsupport.PostgresImage,
 		testpg.WithDatabase("pleiades"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("password"),
@@ -81,10 +82,10 @@ func TestGrandIntegration(t *testing.T) {
 
 	// 3. Spin up NATS Container with JetStream
 	req := testcontainers.ContainerRequest{
-		Image:        "nats:latest",
+		Image:        testsupport.NATSImage,
 		ExposedPorts: []string{"4222/tcp"},
 		Cmd:          []string{"-js"},
-		WaitingFor:   wait.ForLog("Server is ready"),
+		WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
 	}
 	natsContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

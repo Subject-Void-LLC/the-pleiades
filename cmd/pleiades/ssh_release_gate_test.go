@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -41,7 +42,7 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 	t.Helper()
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
-		Image:        "lscr.io/linuxserver/openssh-server:latest",
+		Image:        testsupport.SSHDImage,
 		ExposedPorts: []string{"2222/tcp"},
 		Env: map[string]string{
 			"PUID":            "1000",
@@ -50,7 +51,7 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 			"USER_NAME":       releaseGateSSHUser,
 			"USER_PASSWORD":   releaseGateSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(3 * time.Minute),
+		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

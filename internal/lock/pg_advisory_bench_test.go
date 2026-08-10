@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	_ "github.com/lib/pq"
 	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
@@ -26,7 +27,7 @@ func BenchmarkPostgresAdvisoryLock(b *testing.B) {
 	ctx := context.Background()
 
 	pgContainer, err := testpg.Run(ctx,
-		"postgres:15-alpine",
+		testsupport.PostgresImage,
 		testpg.WithDatabase("pleiades_bench"),
 		testpg.WithUsername("pleiades"),
 		testpg.WithPassword("password"),

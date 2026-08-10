@@ -188,7 +188,7 @@ for the first). Running the thing is what finds what prose alone does not.
 ### Start the mesh
 
 ```bash
-docker run -d --name pleiades-nats -p 4222:4222 nats:latest -js
+docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4 -js
 
 export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export JWT_SECRET="a-real-secret-at-least-32-bytes-long"

@@ -2364,3 +2364,125 @@ alternative fix, having the Runner set `dag.Hosts` to the dispatched device's na
 job would be a genuine data race across concurrent jobs on one Runner.
 
 **Lesson:** see `LESSONS_LEARNED.md` #89.
+
+## 87. `internal/election`'s coverage was nondeterministic across identical runs, swinging from 85.0% to 100% against a fixed 90.0% floor, so `make ci` failed at the coverage ratchet on runs where no code had changed
+
+**Symptom:** `make ci` failed at the `coverage` target on a Phase 16 branch, reporting
+`internal/election: 87.5% dropped below its floor of 90.0%`, for a package Phase 16 never touched.
+Re-running the identical commit produced 85.0%, 92.5%, 95.0%, 97.5% and 100% on different runs. The
+failure looked like it belonged to whatever branch happened to be open at the time, which is what made
+it read as "we keep pushing code that fails CI" rather than as one standing defect.
+
+**Root cause:** five branches of `LeaderElector.Run` had no test that drove them on purpose. They were
+reached only *incidentally*, as a side effect of which way the real NATS JetStream store happened to
+lose a timing race inside `TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover`: the
+`ctx.Err()` arms of both the renewal and the acquire paths, the acquire switch's `default` (store
+unreachable) arm, the `slog.Warn` inside `releaseBestEffort`'s own failed-release branch, and the
+`continue` guard for a tick racing cancellation. Every one of those is by construction a race arm, so
+which of them executed varied with machine load. Coverage measured the outcome of a dice roll. A
+loaded CI runner rolls differently from an idle laptop, which is why the failure was far more frequent
+in CI than locally and why it never reproduced on demand.
+
+**Fix:** `mockLease` gained an `onKeepAliveFail` hook and `mockManager` gained `acquireErr` and an
+`onAcquire` hook, so each arm is now driven deliberately by a scripted test double instead of being
+waited for. Canceling the elector's own context from *inside* the mock's `KeepAlive`/`Acquire` call is
+what makes the two shutdown-race arms deterministic: `Run` re-checks `ctx.Err()` the instant the call
+returns, so the cancellation is guaranteed already visible, with no sleep and no dependence on
+scheduling. Five tests cover the failed-release, store-unreachable, contended, renewal-during-shutdown
+and acquire-during-shutdown arms. Measured coverage went from a 85.0-100% spread to a hard 97.5%
+minimum (100% when the one remaining race arm, the tick/cancel `continue`, happens to land, which is
+now pure upside). The same 97.5% holds under `-short`, which skips the container test entirely, so
+coverage no longer depends on Docker or on NATS timing at all. The floor was then ratcheted 90.0 ->
+95.0, leaving one statement of headroom below the deterministic minimum rather than sitting on it.
+
+The tick/cancel `continue` guard was deliberately left uncovered rather than chased: reaching it
+requires `select` to choose `ticker.C` while `ctx.Done()` is also ready, which Go decides at random by
+design, and the only way to force it would be injecting a clock into production code purely to satisfy
+a coverage number.
+
+**Lesson:** see `LESSONS_LEARNED.md` #90.
+
+## 88. `internal/archtest` shelled out to a whole-module `go list` while sibling tests were creating and deleting scaffolded packages inside that same module tree, so an architecture test failed intermittently for a reason unrelated to architecture
+
+**Symptom:** `make ci` failed at the `coverage` target, whose own `go test ./... -cover -count=1` reported:
+
+```
+--- FAIL: TestAuthtestNeverImportedByProductionCode (0.50s)
+    testonly_test.go:28: go list -json -deps github.com/Subject-Void-LLC/the-pleiades/...: exit status 1
+        cannot find package "." in:
+        	/home/noot/auto-roboto/internal/catalog/test/relgate62784
+```
+
+Roughly one run in three, on identical code. `go test ./internal/archtest/...` on its own never
+failed, and the immediately preceding `go test -race ./...` in the same `make ci` had passed. The
+named directory does not exist in the repository: `relgate62784` is `relgate` plus the test process's
+own PID.
+
+**Root cause:** two tests in different packages, run concurrently by `go test ./...`, over one shared
+mutable resource: the module tree itself. `internal/forge/collectionscaffold`'s `TestGenerate_ReleaseGate`
+generates a scaffolded Collection into a real directory under `internal/catalog/test/relgate<PID>`,
+builds and tests it, then deletes it. It writes into the live tree rather than a throwaway module
+because the scaffold's *generated test* imports the package by its own `internal/...` path, which Go's
+internal-package rule makes unimportable from any module other than this one. Three other tests do the
+same thing for the same reason (`internal/inventory/devicescaffold`, `tools/gencatalog`,
+`cmd/pleiades`). Meanwhile `internal/archtest`'s `goList` runs `go list -json -deps <module>/...`, and
+`go list` matches packages in two phases: it walks and matches directories, then loads them. A
+directory that held `.go` files at match time and none at load time -- precisely the window
+`os.RemoveAll` opens as it unlinks a package's files -- produces `cannot find package "."`, and
+without `-e` one such directory aborts the entire listing. Six of `archtest`'s own listings are
+exposed, since `<module>/...`, `<module>/internal/...` and the catalog prefix all glob the scratch
+paths.
+
+A second, independent defect sat in the same place: `collectionscaffold`'s cleanup removed
+`internal/catalog/test`, the *shared parent*, not its own `relgate<PID>` directory. `tools/gencatalog`
+and `cmd/pleiades` write sibling packages under that same parent and run concurrently with it, so that
+cleanup could delete a sibling's generated package out from under the `go build` compiling it.
+`tools/gencatalog`'s own cleanup already carried a comment warning about exactly this hazard; the
+sibling call site had never been brought in line.
+
+**Fix:** `goList` now passes `-e`, so `go list` reports a per-package load failure in that package's
+own `Error` field and exits 0 instead of aborting, and drops any package carrying one. This costs no
+coverage: `make ci` runs `build` and `vet` over the whole module before any test, both of which fail
+loudly on a package that genuinely does not load, so a committed package cannot reach `archtest`
+broken; a package that fails to load only here is by construction one of the transient scaffold
+directories. `collectionscaffold`'s cleanup was scoped to its own `pkgDir`. Verified by reproducing
+the exact condition (a zero-byte `.go` file under `internal/catalog/test/`, which makes the bare
+`go list` exit 1) and confirming `archtest` passes with it present.
+
+**Lesson:** see `LESSONS_LEARNED.md` #91.
+
+## 89. `internal/api`'s dispatcher Release Gate sized its wall-clock budget against a plain `go test` run while `make ci` judges the `-race` build, leaving 20% headroom on an idle machine and none under load
+
+**Symptom:** `make ci` failed in `test-race`:
+
+```
+--- FAIL: TestDispatcher_ReleaseGate (61.20s)
+    dispatcher_release_test.go:217: job ... did not reach a terminal state within 1m0s (last observed state "fanning_out")
+```
+
+followed by a cascade of `sql: database is closed` errors from the in-process event handler. Those
+errors are a red herring worth naming, because they invite a hunt for a database lifecycle bug that
+does not exist: `t.Fatalf` had already run the test's cleanup, closing the store while the dispatcher's
+own goroutines were still fanning out. The database closing is the *consequence* of the timeout, not
+its cause.
+
+**Root cause:** the budget was a flat `60*time.Second` for a job fanned out to 10,000 devices with each
+outcome recorded individually. Measured on an otherwise idle machine, that package runs in about 5
+seconds without the race detector and about 50 with it -- roughly a tenfold slowdown, leaving about 20%
+headroom in the best case the race build ever sees. `make ci` runs `go test -race ./...`, which is also
+running a dozen other packages concurrently, several of them starting Docker containers, so the real
+CI margin was negative. The number was correct for the configuration a developer runs by reflex (`go
+test ./internal/api/`) and wrong for the only configuration that gates a merge.
+
+**Fix:** `pollJobUntilTerminal` now multiplies its caller's timeout by `raceTimeScale`, a constant
+defined twice under `//go:build race` / `//go:build !race` (10 and 1). Scaling inside the helper rather
+than at each call site keeps a call site expressing the thing a reader can reason about -- how long
+this work should take on a normal machine -- and means a newly added caller cannot forget the detector
+exists; the sibling call in `dispatcher_selector_test.go`, at a much tighter 5 seconds, was covered by
+the same change without being touched. The factor is the measured ratio, not a guess. The budget is a
+ceiling rather than a duration, so the happy path costs nothing: the poll returns as soon as the job is
+terminal.
+
+**Lesson:** see `LESSONS_LEARNED.md` #90, of which this is a second instance in a different shape: the
+first was a branch covered only when a race was won, this one a deadline sized under a configuration
+CI never runs.

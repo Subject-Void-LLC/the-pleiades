@@ -70,7 +70,18 @@ make coverage           # go run ./tools/coverage-check — ratchet against cove
 make arch               # go test ./internal/archtest/...  — Section 25 layering rules as a real test
 make docs-lint          # go run ./tools/docs-lint — fails if a gitignored internal doc is cited anywhere a user could see it
 make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
+make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
+make hooks              # once per clone: point core.hooksPath at .githooks so `git push` runs `make ci` first
 ```
+
+`make ci` is the *whole* CI job: `.github/workflows/ci.yml` checks out, sets up Go from
+`go.mod`, runs `make tools`, and then runs `make ci`. There is no CI-only step and no
+CI-only tool version — `gosec` and `govulncheck` are pinned once in the `Makefile`
+(`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed by `make tools` on both sides, so
+a local `make ci` and the CI job run byte-identical scanners. Never
+`go install`  either tool by hand at `@latest`: a newer scanner than the pin reports
+findings CI will not, and an older one misses findings CI will. The one thing a local run
+still cannot predict is `govulncheck`'s live advisory database.
 
 Single test / single package:
 
@@ -84,9 +95,9 @@ Required one-time tool setup (`.AGENTS/AGENTS.md`'s IDE & LSP Tooling section):
 
 ```bash
 go install golang.org/x/tools/gopls@latest
-go install github.com/securego/gosec/v2/cmd/gosec@latest
-go install golang.org/x/vuln/cmd/govulncheck@latest
 # ensure $(go env GOPATH)/bin is on PATH persistently (not just this shell) — see AGENTS.md
+
+make hooks   # once per clone: run `make ci` before every push, so CI failures land here first
 ```
 
 Prefer `gopls references` / `gopls definition` over `grep` for any claim about Go call

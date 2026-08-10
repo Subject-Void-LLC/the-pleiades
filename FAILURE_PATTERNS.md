@@ -87,6 +87,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 84. `reportResult` appended to the Runner's own write-ahead log using the same context `Agent.Run`'s shutdown cancels, so a job whose execution was still in flight at shutdown had its outcome silently and permanently dropped instead of durably recorded
 85. The Runner's write-ahead log minted a fresh random idempotency key on every `Append` call instead of a key stable across a JetStream redelivery of the identical job
 86. The DAG executor treated a task naming no target as controller-side and returned before ever consulting the resolver, so a mesh-dispatched runbook's already-chosen device never reached the Collection method, so a crash-then-redeliver-then-reexecute sequence could publish the same logical outcome twice with no dedup catching it
+87. `internal/election`'s coverage was nondeterministic across identical runs, swinging from 85.0% to 100% against a fixed 90.0% floor, because five race arms were only ever covered incidentally by a real-NATS timing race, so `make ci` failed at the coverage ratchet on runs where no code had changed
+88. `internal/archtest` shelled out to a whole-module `go list` while sibling tests created and deleted scaffolded packages inside that same tree, so a directory caught mid-delete aborted the whole listing and failed an architecture test for a reason unrelated to architecture; `collectionscaffold`'s cleanup separately removed the shared parent directory rather than its own
+89. `internal/api`'s dispatcher Release Gate sized its 60-second fan-out budget against a plain `go test` run, but `make ci` judges the `-race` build, which is about ten times slower and runs alongside a dozen other packages, so the margin was 20% at best and negative under real CI load
 
 ---
 

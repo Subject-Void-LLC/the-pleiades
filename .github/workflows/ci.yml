@@ -19,10 +19,22 @@ jobs:
       # editing this repository, but is not something CI itself invokes;
       # gosec and govulncheck are the two CI actually runs (Makefile's
       # `ci` target), so only those two are installed here.
-      - name: Install gosec and govulncheck
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+      #
+      # The versions deliberately are not named here. `make tools`
+      # installs the ones pinned in the Makefile (GOSEC_VERSION,
+      # GOVULNCHECK_VERSION), which is also what a developer's own
+      # `make ci` installs, so this job and a local run cannot check with
+      # different scanners. These steps previously installed @latest,
+      # which meant a new scanner release could turn this job red on a
+      # commit that changed nothing, and that a local pass said nothing
+      # reliable about what would happen here. Bumping a version is a
+      # commit against the Makefile, reviewed like any other change.
+      #
+      # This step is redundant with `make ci` (which depends on `tools`)
+      # and is kept only so that a tool installation failure shows up as
+      # its own red step rather than inside the ci step's output.
+      - name: Install pinned gosec and govulncheck
+        run: make tools
 
       # internal/lock, internal/event, and internal/transport/ssh's own
       # conformance/container tests dial real, ephemeral Docker containers
