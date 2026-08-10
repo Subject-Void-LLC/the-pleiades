@@ -40,20 +40,57 @@ import (
 //go:embed migrations/sqlite/*.sql
 var sqliteMigrations embed.FS
 
+// postgresMigrations embeds every committed Postgres migration file, for
+// the same reason.
+//
+// This set starts at one squashed 0001_initial.sql rather than mirroring
+// SQLite's four-file history, and that is correct rather than a lost
+// history: a migration ledger is per database, ent can only ever diff
+// against the schema it desires today, and no Postgres database has ever
+// been migrated by this project. The two dialects diverge in file count
+// here and stay in lockstep from here on, since every later schema change
+// is generated for both.
+//
+//go:embed migrations/postgres/*.sql
+var postgresMigrations embed.FS
+
 // migrationSource pairs an embedded filesystem with the directory inside
-// it holding one dialect's migration files.
+// it holding one dialect's migration files, plus the one statement whose
+// text genuinely differs between dialects.
 type migrationSource struct {
 	fsys embed.FS
 	dir  string
+
+	// insertVersion is the parameterized statement recording one
+	// migration as applied. It lives here, beside the dialect it belongs
+	// to, because placeholder syntax is dialect-specific and
+	// database/sql does not normalize it: lib/pq rejects "?" outright
+	// ("pq: syntax error at or near ,"), and it rejects it inside the
+	// same transaction as the migration's own DDL, so the DDL rolls back
+	// too and the failure reads as broken DDL rather than as a wrong
+	// placeholder. Every dialect's statement stays parameterized; only
+	// the placeholder spelling changes.
+	insertVersion string
 }
 
 // migrationSources maps a driver dialect name (entgo.io/ent/dialect's
-// SQLite/Postgres/MySQL constants) to its embedded migration files. Only
-// SQLite has one today: no Postgres composition root exists anywhere in
-// this repository yet (cmd/controller is a later phase's job), so there
-// is nothing real to generate and verify Postgres DDL against.
+// SQLite/Postgres/MySQL constants) to its embedded migration files.
+//
+// Both dialects' files are produced by internal/ent/migrate/gen, never
+// hand written, and parity_test.go asserts the two sets stay in step, so
+// regenerating one dialect and forgetting the other fails the build
+// instead of drifting silently.
 var migrationSources = map[string]migrationSource{
-	"sqlite3": {fsys: sqliteMigrations, dir: "migrations/sqlite"},
+	"sqlite3": {
+		fsys:          sqliteMigrations,
+		dir:           "migrations/sqlite",
+		insertVersion: `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+	},
+	"postgres": {
+		fsys:          postgresMigrations,
+		dir:           "migrations/postgres",
+		insertVersion: `INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)`,
+	},
 }
 
 // Apply brings db up to the latest schema version for dialectName by
@@ -97,7 +134,7 @@ func Apply(ctx context.Context, dialectName string, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("migrate: reading %s: %w", name, err)
 		}
-		if err := applyOne(ctx, db, name, string(script)); err != nil {
+		if err := applyOne(ctx, db, src.insertVersion, name, string(script)); err != nil {
 			return err
 		}
 	}
@@ -207,7 +244,18 @@ func checkGate(known []string, applied map[string]bool) error {
 // applyOne executes one migration's SQL and records it as applied in a
 // single transaction, so a failure partway through a migration's own
 // statements never leaves it half-applied and unrecorded.
-func applyOne(ctx context.Context, db *sql.DB, name, script string) error {
+//
+// insertVersion is the calling dialect's own version-record statement
+// (see migrationSource), taking the migration name and the applied-at
+// time as its two parameters. It is passed in rather than written here
+// because its placeholder spelling is the one part of this function that
+// is not portable across dialects.
+//
+// script may hold many statements. Both supported drivers execute a
+// multi-statement script in a single zero-argument ExecContext: SQLite
+// natively, and lib/pq through the simple query protocol, which it
+// selects precisely because no arguments are bound here.
+func applyOne(ctx context.Context, db *sql.DB, insertVersion, name, script string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("migrate: beginning transaction for %s: %w", name, err)
@@ -224,10 +272,7 @@ func applyOne(ctx context.Context, db *sql.DB, name, script string) error {
 	if _, err := tx.ExecContext(ctx, script); err != nil {
 		return fmt.Errorf("migrate: applying %s: %w", name, err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-		name, time.Now().UTC(),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, insertVersion, name, time.Now().UTC()); err != nil {
 		return fmt.Errorf("migrate: recording %s as applied: %w", name, err)
 	}
 	if err := tx.Commit(); err != nil {

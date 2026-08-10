@@ -33,8 +33,21 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Read for the first time as of Phase 18. Before that this line was
+      # dead: the controller only ever opened a SQLite file, so this
+      # compose stack ran on an ephemeral file inside the container while
+      # the healthchecked postgres service below sat unused.
       - DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
       - NATS_URL=nats://nats:4222
+      # Both of these are required at startup and the controller exits if
+      # either is missing, so without them this service could never have
+      # come up at all. The values are throwaway local-development
+      # defaults, not secrets: MASTER_ENCRYPTION_KEY must be base64 of
+      # exactly 32 bytes, and JWT_SECRET must be at least 32 bytes. A real
+      # deployment supplies its own through its own secret store.
+      - MASTER_ENCRYPTION_KEY=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
+      - JWT_SECRET=local-development-only-not-a-real-secret
+      - RUNBOOK_DIR=/app/runbooks
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,6 +60,7 @@ services:
       dockerfile: Dockerfile.runner
     environment:
       - NATS_URL=nats://nats:4222
+      - RUNBOOK_DIR=/app/runbooks
     depends_on:
       nats:
         condition: service_healthy

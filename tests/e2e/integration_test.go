@@ -1,287 +1,159 @@
+//go:build integration
+
+// This file is Phase 18's Release Gate: the Grand Integration Test.
+//
+// What it proves, in one sentence: a real HTTP caller, authenticated by a
+// real signed token against the real router, causes a real PostgreSQL
+// row, a real NATS message per targeted device carrying that device's
+// real attributes, real execution by a separate real Runner process, and
+// a real terminal record readable back out of the database.
+//
+// Layers it must not mock, and does not: the HTTP server (the real
+// cmd/controller binary, a real socket, the real chi router with its real
+// auth, rate limiting and per-route scope enforcement); the token (really
+// signed, really verified); the database (real PostgreSQL, real versioned
+// migrations, real envelope encryption); the message bus (real NATS
+// JetStream with the real stream and consumer topology); and the Runner
+// (the real cmd/runner binary joining the real durable consumer group).
+//
+// Layers it deliberately does not exercise, and why. There is no real SSH
+// target, because the runbook fixture names the builtin "noop" action
+// which needs no transport, and reaching a real device over real SSH is
+// a claim cmd/runner's own SSH release gate already carries. There is no
+// JWKS or RS256, already proven by cmd/controller's JWKS release gate.
+// There is no multi-replica leader election, already proven by
+// cmd/controller's leader election release gate. Duplicating any of those
+// here would cost minutes and prove nothing new.
 package e2e
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	_ "github.com/lib/pq"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-	"github.com/testcontainers/testcontainers-go"
-	testpg "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// TestGrandIntegration drives one runbook launch through the entire mesh
+// and checks every observable consequence of it.
+//
+// Read the assertion helpers in integration_assert_test.go alongside
+// this: each one documents what would have to break for it to fail, which
+// is the standard this phase's Adversarial gate sets. An assertion that
+// cannot fail is not a test.
 func TestGrandIntegration(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping E2E integration test in short mode")
+		t.Skip("skipping the grand integration test in short mode")
 	}
 
-	ctx := context.Background()
+	h := startHarness(t)
 
-	// 1. Spin up Postgres Container
-	pgContainer, err := testpg.Run(ctx,
-		testsupport.PostgresImage,
-		testpg.WithDatabase("pleiades"),
-		testpg.WithUsername("pleiades"),
-		testpg.WithPassword("password"),
-		testpg.BasicWaitStrategies(),
-	)
-	if err != nil {
-		t.Fatalf("failed to start postgres container: %s", err)
-	}
-	defer pgContainer.Terminate(ctx)
+	// The issuer signs with the exact secret the controller subprocess
+	// was given, which is the whole reason authtest grew a
+	// secret-taking constructor: a random binary secret cannot survive an
+	// environment variable.
+	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
 
-	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to get pg connection string: %s", err)
-	}
+	adminToken := issuer.Token(t, &auth.Identity{Subject: "e2e-admin", Role: auth.RoleAdmin})
 
-	// 2. Init DB and Repository
-	client, err := ent.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("failed to open ent client: %s", err)
-	}
-	defer client.Close()
+	// A separate issuer with a different secret, used only to prove that
+	// signature verification actually runs. Without this case, the
+	// missing-header 401 below would still pass even if verification were
+	// a no-op.
+	forgedIssuer := authtest.NewWithSecret(t, "a-completely-different-signing-secret-32b", harnessJWTIssuer, harnessJWTAudience)
+	forgedToken := forgedIssuer.Token(t, &auth.Identity{Subject: "e2e-admin", Role: auth.RoleAdmin})
 
-	if err := client.Schema.Create(ctx); err != nil {
-		t.Fatalf("failed to create schema: %s", err)
-	}
-
-	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
-
-	// Seed an inventory group. Phase 7 made GetGroup's Selector push a
-	// real Group edge down to SQL rather than a decorative "group"
-	// properties key nothing ever filtered on (entRepository.GetGroup),
-	// so the two devices are attached to a real Group named "edge" here,
-	// the mechanism a Selector{GroupName: "edge"} dispatch now actually
-	// matches against.
-	t.Log("Seeding inventory...")
-	rtr1 := client.Device.Create().SetName("rtr1").SetType("cisco_router").SetProperties(map[string]interface{}{"host": "10.0.0.1"}).SaveX(ctx)
-	rtr2 := client.Device.Create().SetName("rtr2").SetType("cisco_router").SetProperties(map[string]interface{}{"host": "10.0.0.2"}).SaveX(ctx)
-	client.Group.Create().SetName("edge").AddDevices(rtr1, rtr2).SaveX(ctx)
-
-	// 3. Spin up NATS Container with JetStream
-	req := testcontainers.ContainerRequest{
-		Image:        testsupport.NATSImage,
-		ExposedPorts: []string{"4222/tcp"},
-		Cmd:          []string{"-js"},
-		WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout),
-	}
-	natsContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
+	// Zero trust, exercised before anything succeeds, so a job row
+	// appearing later cannot be attributed to one of these.
+	t.Run("rejects an unauthenticated launch", func(t *testing.T) {
+		status, body := h.dispatch(t, "", targetGroup, harnessRunbookID)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("an unauthenticated dispatch returned %d, want 401. Body: %s", status, body)
+		}
 	})
-	if err != nil {
-		t.Fatalf("failed to start nats container: %s", err)
-	}
-	defer natsContainer.Terminate(ctx)
 
-	natsEndpoint, err := natsContainer.Endpoint(ctx, "")
-	if err != nil {
-		t.Fatalf("failed to get nats endpoint: %s", err)
-	}
-
-	nc, err := nats.Connect("nats://" + natsEndpoint)
-	if err != nil {
-		t.Fatalf("failed to connect to nats: %s", err)
-	}
-	defer nc.Close()
-
-	js, err := jetstream.New(nc)
-	if err != nil {
-		t.Fatalf("failed to get jetstream: %s", err)
-	}
-
-	// 4. Setup the single Pleiades stream and the shared dispatch consumer,
-	// both topology-owned (internal/topology) rather than hand-declared
-	// here: this used to create two independent streams ("RUNBOOKS",
-	// "JOBS") with the pre-Phase-2 subject literals
-	// ("runbooks.dispatch", "jobs.logs.>"), which is exactly the drift
-	// topology.EnsureStream/DispatchConsumerConfig now prevent.
-	bus, err := event.NewNatsBus(ctx, "nats://"+natsEndpoint)
-	if err != nil {
-		t.Fatalf("failed to init event bus: %s", err)
-	}
-	if _, err := topology.EnsureStream(ctx, js); err != nil {
-		t.Fatalf("failed to ensure stream: %s", err)
-	}
-
-	consumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.DispatchConsumerConfig())
-	if err != nil {
-		t.Fatalf("failed to create consumer: %s", err)
-	}
-
-	// 5. Build a real runbook.Source, shared by both the Runner Agent below
-	// (which needs it to resolve a dispatched RunbookID to a compiled
-	// *engine.DAG, Phase 16's own native.Adapter) and the Worker built in
-	// step 6 (which needs it for capability admission), mirroring
-	// cmd/controller and cmd/runner sharing one RUNBOOK_DIR convention in
-	// production rather than each resolving runbooks independently.
-	//
-	// The fqcn is "noop", not "ios_backup": "ios_backup" is declared in
-	// engine.ActionCapability but has no implementation anywhere in this
-	// codebase, so dispatching it through a real adapter (as opposed to
-	// the fake one this test exercised before Phase 16) genuinely fails.
-	// "noop" needs no capability and no transport, and is exactly what
-	// proves the real dispatch-to-execution path end to end without also
-	// depending on a capability yet to be built.
-	runbookDir := t.TempDir()
-	runbookYAML := "id: ping\ntasks:\n  - name: step\n    fqcn: noop\n"
-	if err := os.WriteFile(filepath.Join(runbookDir, "ping.yaml"), []byte(runbookYAML), 0o644); err != nil {
-		t.Fatalf("failed to write runbook fixture: %s", err)
-	}
-	runbooks, err := runbook.NewDirSource(runbookDir)
-	if err != nil {
-		t.Fatalf("failed to init runbook source: %s", err)
-	}
-
-	// 5b. Start Runner Agent, with a real native.Adapter (Phase 16, Native
-	// Go Execution Adapter): the fake adapter this test used to exercise
-	// never inspected task content at all, so it could not have caught a
-	// dispatch naming an fqcn with no real implementation the way the
-	// comment above now documents.
-	adapter, err := native.NewAdapter(bus, runbooks, nil)
-	if err != nil {
-		t.Fatalf("failed to init native adapter: %s", err)
-	}
-	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
-	agentCtx, cancelAgent := context.WithCancel(ctx)
-	defer cancelAgent()
-	go agent.Run(agentCtx)
-
-	// 6. Build the durable JobStore and subscribe internal/dispatch.Worker
-	// to job.requested, mirroring cmd/controller/main.go's own composition
-	// root (RULE 0): Phase 14 moved per-device fan-out out of the HTTP
-	// request path and into this background worker, so DispatchRunbook
-	// itself now only persists a Job and publishes one job.requested
-	// event; the Worker subscribed here is what actually streams the
-	// "edge" group, admits or skips each device, and publishes the
-	// per-device wire.DispatchPayload the Runner Agent above consumes.
-	jobStore := dispatch.NewEntJobStore(client)
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil)
-	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
-		t.Fatalf("failed to subscribe job fan-out worker: %s", err)
-	}
-
-	// 7. Start API Dispatcher
-	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
-
-	// 8. Make API Request, authenticated with a real signed token through
-	// the real AuthMiddleware rather than a hand-injected identity: this
-	// package cannot reach api.IdentityKeyForTest (an export_test.go
-	// symbol, visible only inside package api's own test binary), which
-	// is exactly the cross-package gap HANDOFF_DOCUMENT.md's Phase 11
-	// session named authtest as the fix for. Going through the real
-	// middleware here is also strictly more representative of what a
-	// caller actually experiences (AGENTS.md RULE 0) than constructing an
-	// *auth.Identity by hand ever was.
-	issuer := authtest.New(t, "pleiades-e2e-issuer", "pleiades-e2e-audience")
-	handler := api.AuthMiddleware(issuer.Evaluator())(http.HandlerFunc(dispatcher.DispatchRunbook))
-
-	httpReq := httptest.NewRequest("POST", "/api/v1/jobs/dispatch?group=edge&runbook=ping", nil)
-	httpReq.Header.Set("Authorization", issuer.BearerToken(t, &auth.Identity{
-		Subject: "admin1",
-		Role:    auth.RoleAdmin,
-	}))
-
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, httpReq)
-
-	// A launch is now 202 Accepted, not 200: DispatchRunbook only persists
-	// a Job and publishes job.requested here, it does not wait for
-	// fan-out (dispatcher.go's own jobAcceptedResponse doc comment).
-	if rr.Code != http.StatusAccepted {
-		t.Fatalf("expected status 202, got %d. Body: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp struct {
-		Status string `json:"status"`
-		JobID  string `json:"job_id"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse dispatch response: %s", err)
-	}
-	if resp.Status != "accepted" {
-		t.Fatalf("expected response status %q, got %q", "accepted", resp.Status)
-	}
-
-	t.Logf("Launched JobID: %s", resp.JobID)
-
-	// 9. Fan-out happens asynchronously in internal/dispatch.Worker now,
-	// off this request entirely, so this test polls the JobStore directly
-	// until the Worker's own job.requested handler reaches a terminal
-	// state. This is a test-side wait mechanism, not the production
-	// mechanism under test (a caller would instead poll GET /jobs/{id});
-	// polling is bounded so a real regression fails this test outright
-	// instead of hanging it.
-	var job *dispatch.Job
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		job, _, err = jobStore.Get(ctx, resp.JobID)
-		if err != nil {
-			t.Fatalf("failed to poll job %s: %s", resp.JobID, err)
+	t.Run("rejects a forged token", func(t *testing.T) {
+		status, body := h.dispatch(t, forgedToken, targetGroup, harnessRunbookID)
+		if status != http.StatusUnauthorized {
+			t.Fatalf("a dispatch signed with the wrong secret returned %d, want 401. Body: %s", status, body)
 		}
-		if job.State == "completed" || job.State == "failed" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("job %s did not reach a terminal state within the deadline, last state %q", resp.JobID, job.State)
-		}
-		time.Sleep(50 * time.Millisecond)
+	})
+
+	// Neither rejected request may have reached the handler. Checking the
+	// database is what proves that: a 401 on its own only proves a number
+	// was written to the response.
+	h.assertNoJobsPersisted(t)
+
+	// Observers are created before the launch, so nothing depends on
+	// winning a race with the publisher.
+	dispatchObserver := h.observeDispatches(t)
+
+	// The launch itself.
+	status, body := h.dispatch(t, adminToken, targetGroup, harnessRunbookID)
+	if status != http.StatusAccepted {
+		t.Fatalf("dispatch returned %d, want 202. Body: %s\n%s", status, body, h.controller.output())
+	}
+	if got := requireStringField(t, body, "status"); got != "accepted" {
+		t.Fatalf("dispatch response status = %q, want %q", got, "accepted")
+	}
+	jobID := requireStringField(t, body, "job_id")
+
+	h.assertJobIDIsServerMinted(t, jobID)
+
+	// The API's own view, polled the way a real client is told to poll it.
+	job := h.pollJobUntilTerminal(t, adminToken, jobID)
+	h.assertJobView(t, job, jobID)
+
+	// The same facts, read straight out of PostgreSQL, which is the thing
+	// the Release Gate's own wording asks for and the previous version of
+	// this test never did.
+	h.assertJobInDatabase(t, jobID)
+
+	// The per-device messages, decoded and checked field by field against
+	// what was seeded.
+	h.assertDispatchPayloads(t, dispatchObserver, jobID)
+
+	// Proof the Runner process actually executed, rather than the
+	// controller merely having published.
+	h.assertJobLogEvents(t, jobID)
+
+	// Negative controls.
+	h.assertNoDeadLetters(t)
+	h.assertPropertiesEncryptedAtRest(t)
+}
+
+// TestGrandIntegration_UnknownGroupFailsClosed proves a launch naming a
+// group that does not exist completes with nothing dispatched.
+//
+// What would have to break for this to fail: GetGroup's membership
+// predicate ceasing to fail closed, so that an unmatched selector
+// returned the whole fleet instead of nothing. That is the single most
+// dangerous failure this inventory layer has, since it would silently
+// turn a targeted change into a fleet-wide one.
+func TestGrandIntegration_UnknownGroupFailsClosed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the grand integration test in short mode")
 	}
 
+	h := startHarness(t)
+	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
+	adminToken := issuer.Token(t, &auth.Identity{Subject: "e2e-admin", Role: auth.RoleAdmin})
+
+	status, body := h.dispatch(t, adminToken, "no-such-group", harnessRunbookID)
+	if status != http.StatusAccepted {
+		t.Fatalf("dispatch against an unknown group returned %d, want 202. Body: %s", status, body)
+	}
+	jobID := requireStringField(t, body, "job_id")
+
+	job := h.pollJobUntilTerminal(t, adminToken, jobID)
 	if job.State != "completed" {
-		t.Fatalf("expected job state %q, got %q", "completed", job.State)
+		t.Fatalf("job state = %q, want completed", job.State)
 	}
-	if job.DispatchedCount != 2 {
-		t.Fatalf("expected 2 dispatched, got %d", job.DispatchedCount)
+	if job.Dispatched != 0 || job.Skipped != 0 || job.Failed != 0 {
+		t.Fatalf("an unknown group produced dispatched=%d skipped=%d failed=%d, want all zero; a selector that failed open would have dispatched to the whole fleet",
+			job.Dispatched, job.Skipped, job.Failed)
 	}
-
-	// 10. Verify the Runner picked them up and streamed logs
-	time.Sleep(2 * time.Second) // Give the agent time to execute
-
-	logConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, topology.LogViewerConsumerConfig(resp.JobID))
-	if err != nil {
-		t.Fatalf("failed to create log consumer: %s", err)
+	if len(job.Tasks) != 0 {
+		t.Fatalf("an unknown group produced %d tasks, want 0: %s", len(job.Tasks), describeTasks(job))
 	}
-
-	// 2 devices x 2 events each (native.Adapter's own Execute publishes
-	// exactly "started" and "task.completed", replacing the fake
-	// adapter's own 3-event-per-device simulation).
-	const wantLogEvents = 4
-	msgs, err := logConsumer.Fetch(wantLogEvents, jetstream.FetchMaxWait(2*time.Second))
-	if err != nil {
-		t.Fatalf("failed to fetch logs: %s", err)
-	}
-
-	count := 0
-	for _ = range msgs.Messages() {
-		count++
-	}
-
-	if count != wantLogEvents {
-		t.Fatalf("expected %d log events, got %d", wantLogEvents, count)
-	}
-
-	t.Log("Grand Integration Test Passed!")
 }

@@ -91,6 +91,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 88. `internal/archtest` shelled out to a whole-module `go list` while sibling tests created and deleted scaffolded packages inside that same tree, so a directory caught mid-delete aborted the whole listing and failed an architecture test for a reason unrelated to architecture; `collectionscaffold`'s cleanup separately removed the shared parent directory rather than its own
 89. `internal/api`'s dispatcher Release Gate sized its 60-second fan-out budget against a plain `go test` run, but `make ci` judges the `-race` build, which is about ten times slower and runs alongside a dozen other packages, so the margin was 20% at best and negative under real CI load
 90. A legacy Ansible adapter designed against PLAN.md's own prose, without running a real ansible-playbook first, would have targeted a callback plugin that does not exist and an inventory format that fails to parse
+91. A test container the production code path never used, hiding a database configuration that existed nowhere
+92. A dialect map that made a migration runner look portable while one statement inside it was not
+93. A compose file setting a configuration key no code read, in front of a service nothing used
 
 ---
 

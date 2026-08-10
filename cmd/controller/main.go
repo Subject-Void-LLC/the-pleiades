@@ -213,6 +213,36 @@ func loadEnvelopeService() (*crypto.EnvelopeService, error) {
 // yet, so that stronger enforcement is not built here: an operator can
 // choose JWKS today by setting JWKS_URL, but nothing yet forces the
 // choice. Stated plainly as a deferred gap, not silently skipped.
+// resolveDatabaseDSN decides which database this process talks to.
+//
+// DB_DSN is the real knob and names any backend internal/ent.OpenDatabase
+// supports, which is what lets a deployment choose PostgreSQL without
+// this binary knowing anything about dialects. DB_PATH is kept as the
+// SQLite shorthand it always was, so an existing single-file deployment,
+// both cmd/controller release gates, and the getting-started guide all
+// keep working unchanged.
+//
+// Setting both is a startup error rather than a silent precedence rule.
+// An operator who sets both has two different intentions written down
+// and deserves to be told, rather than to discover months later which one
+// this code happened to prefer.
+func resolveDatabaseDSN() (string, error) {
+	dsn := os.Getenv("DB_DSN")
+	path := os.Getenv("DB_PATH")
+
+	switch {
+	case dsn != "" && path != "":
+		return "", fmt.Errorf("DB_DSN and DB_PATH are both set; DB_DSN names any supported backend and DB_PATH is the SQLite shorthand, so set exactly one")
+	case dsn != "":
+		return dsn, nil
+	case path != "":
+		return "sqlite://" + path, nil
+	default:
+		// The historical default: a SQLite file beside the binary.
+		return "sqlite://controller.db", nil
+	}
+}
+
 func loadKeyProvider() (auth.KeyProvider, error) {
 	if jwksURL := os.Getenv("JWKS_URL"); jwksURL != "" {
 		return auth.NewJWKSKeyProvider(jwksURL)
@@ -308,7 +338,10 @@ func readinessChecks(nc *nats.Conn, client *ent.Client) []api.ReadinessCheck {
 // Encryption."
 func main() {
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
-	dbPath := getenv("DB_PATH", "controller.db")
+	dbDSN, err := resolveDatabaseDSN()
+	if err != nil {
+		fatal("failed to resolve database configuration", err)
+	}
 	listenAddr := getenv("LISTEN_ADDR", ":8080")
 	jwtIssuer := getenv("JWT_ISSUER", "pleiades-controller")
 	jwtAudience := getenv("JWT_AUDIENCE", "pleiades-api")
@@ -351,9 +384,9 @@ func main() {
 		fatal("failed to init telemetry", err)
 	}
 
-	client, err := ent.OpenEmbedded(ctx, dbPath)
+	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dbDSN})
 	if err != nil {
-		fatal("failed to open embedded store", err)
+		fatal("failed to open the controller database", err)
 	}
 	defer client.Close()
 

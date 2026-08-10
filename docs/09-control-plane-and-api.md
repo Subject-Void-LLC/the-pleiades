@@ -13,9 +13,12 @@ limits that still apply to credential storage.
 
 ## Architecture
 
-`cmd/controller` is the API Gateway composition root: one process, embedding SQLite
-today (no Postgres migration path exists yet), talking to NATS JetStream for events
-and log streaming, and serving the versioned API described below. A Front Controller
+`cmd/controller` is the API Gateway composition root: one process, storing state in
+either PostgreSQL or an embedded SQLite file (whichever `DB_DSN` names), talking to
+NATS JetStream for events and log streaming, and serving the versioned API described
+below. PostgreSQL is what a multi-user deployment runs; SQLite needs no server and
+suits a single-process trial. Both go through the same versioned migrations and are
+held to one shared conformance suite, so neither is a second-class path. A Front Controller
 pattern owns request handling: every route passes through tracing, metrics,
 structured logging, rate limiting, authentication, and scope authorization, in that
 order, before its own handler ever runs.

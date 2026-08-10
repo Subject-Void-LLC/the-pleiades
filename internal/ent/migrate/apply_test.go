@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,13 +61,26 @@ func TestApply_AppliesAndIsIdempotent(t *testing.T) {
 }
 
 // TestApply_UnsupportedDialectFailsClosed proves Apply refuses a dialect
-// with no embedded migrations rather than silently doing nothing. No
-// Postgres composition root exists anywhere in this repository yet, so
-// "postgres" is exactly such a dialect today.
+// with no embedded migrations rather than silently doing nothing.
+//
+// The example dialect is MySQL, not Postgres. Postgres used to be the
+// unsupported one, but it now has a real embedded migration set, and
+// leaving this test pointed at it would have kept it green for the wrong
+// reason: it runs against a SQLite database, so applying Postgres DDL
+// would still error, at the DDL rather than at the dialect lookup this
+// test exists to check. MySQL has no composition root and no migration
+// set anywhere in this repository, so it is genuinely unsupported.
 func TestApply_UnsupportedDialectFailsClosed(t *testing.T) {
 	db := openRawTestDB(t)
-	if err := entmigrate.Apply(context.Background(), dialect.Postgres, db); err == nil {
+	err := entmigrate.Apply(context.Background(), dialect.MySQL, db)
+	if err == nil {
 		t.Fatalf("expected an error for a dialect with no embedded migrations")
+	}
+	// Assert on the reason, not just on failure, so this cannot pass
+	// because of an unrelated error the way the Postgres version would
+	// have.
+	if !strings.Contains(err.Error(), "no embedded migrations for dialect") {
+		t.Fatalf("expected a no-embedded-migrations error, got: %v", err)
 	}
 }
 

@@ -97,6 +97,10 @@ story, per `.AGENTS/AGENTS.md`.
 91. **The module tree is shared mutable state, and `go test ./...` runs packages in parallel: a test that writes into it and a test that reads all of it are a data race with no race detector watching.**
 92. **A test pinned to a different version of a dependency than the deployment runs is not testing the deployment, and `latest` on either side means nobody knows which version was tested.**
 93. **A specification's own prose describing a third-party CLI tool's interface can describe a version of that tool that no longer exists; verify against a real, currently-installed instance of the exact dependency before designing a parser or an invocation around it.**
+94. **A test fixture that no production code path reaches proves nothing, and its presence actively disguises the gap by making the test look thorough.**
+95. **Prove an assertion can fail before believing it passes; a negative control that does not fail may have found real defense in depth, so keep opening layers until it does.**
+96. **A test that reaches its subject through a subprocess build has no import edge, so Go's test cache will replay a stale pass: such targets must pass `-count=1`.**
+97. **A gitignored document has no `git checkout` to undo it: copy it before any scripted edit, bound every search to the section being edited, and never anchor a replacement on a string that is merely a prefix of the same line elsewhere.**
 
 ---
 

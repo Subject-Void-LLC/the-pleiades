@@ -1271,3 +1271,75 @@ story, per `.AGENTS/AGENTS.md`.
     current behavior, and the fix in both cases was to actually run the real dependency and design against
     what it does, not what the spec's prose assumed it still did. (`internal/adapters/legacy/stdout_parser.go`,
     `internal/adapters/legacy/inventory.go`, Phase 17: Legacy Ansible Adapter.)
+
+## 94. A test fixture that no production code path reaches proves nothing, and its presence disguises the gap
+
+Phase 18 found `tests/e2e` running a real PostgreSQL container against a codebase where no
+binary could speak PostgreSQL. The container made the test look like the most thorough one in
+the repository while it validated a database configuration that existed nowhere.
+
+The rule is not "avoid containers". It is that the value of a fixture is entirely determined by
+which production call path reaches it. Before trusting an expensive fixture, trace the path from
+a real composition root to the thing the fixture provides. If no such path exists, the fixture
+is set dressing, and it is worse than nothing because it buys unearned confidence.
+
+The corollary is about defaults: `client.Schema.Create` versus the versioned migration runner
+looked equivalent from inside the test, and only differed in that one of them was what
+production actually ran. When a test reaches for a convenience API, check whether the real
+system reaches for the same one.
+
+## 95. Prove an assertion can fail before believing it passes, and expect defense in depth to make that harder than you think
+
+Phase 18's adversarial pass deliberately broke the code each headline assertion guarded, to
+confirm the assertion noticed. Disabling the inventory group predicate produced exactly the
+designed failure: `dispatched=4` instead of `2`, with the untargeted devices named.
+
+The zero-trust assertion was far more interesting. Unmounting the authentication middleware did
+not make the unauthenticated-request assertion fail, because `RequireScope` independently
+rejects a request with no identity in context. Opening that second gate did not make it fail
+either, because the dispatch handler itself performs a third, independent identity check. Only
+after opening all three did an unauthenticated dispatch return 202 and the assertion fail.
+
+Two lessons. First, a negative control that does not produce a failure has not proven the
+assertion is weak; it may have discovered real defense in depth, which is a stronger result
+than the control failing would have been. Second, keep going until the assertion actually
+fails, because until it does you have not learned whether it can.
+
+## 96. A test that reaches another package by building a subprocess has no dependency edge, so the test cache will replay a stale pass
+
+`tests/e2e` builds `cmd/controller` and `cmd/runner` with `go build` inside `TestMain` rather
+than importing them. Go's test cache keys on the package's own inputs and its import graph, and
+a subprocess build appears in neither, so editing the controller and re-running the test
+replays a cached PASS from before the edit. This was hit for real during Phase 18's adversarial
+pass: a deliberately broken controller reported `ok (cached)`.
+
+Any test whose subject is reached through a subprocess, a container image built from local
+source, or a generated artifact must run with `-count=1`, and the target that runs it should
+pass that flag rather than relying on whoever types the command to remember.
+
+## 97. A gitignored document has no undo, so scripted surgery on one needs a copy taken first and a search bounded to the section being edited
+
+Phase 18 corrupted `.SPECIFICATION/IMPLEMENTATION.md` while checking off its own items. A script
+replaced a checklist item by slicing between two markers found with `str.index`, which returns the
+FIRST match in the whole document. Both end markers ("Adversarial Pattern Justification", "Provide
+Commit Message") appear in every phase, so the match landed in an earlier phase, `end` came out lower
+than `start`, and `src[:start] + new + src[end:]` re-appended everything between them. The file went
+from roughly 9,700 lines to 16,830, with Phases 15 through 18 duplicated four times over.
+
+Two independent mistakes, both worth naming. The first is the search: any marker used to bound an edit
+in a large, repetitive document must either be proven unique or, far better, be searched for inside a
+slice already narrowed to the section being edited. The repair script does the latter, cutting the
+Phase 18 section out by heading first and asserting it contains exactly one phase heading before
+touching anything.
+
+The second is subtler and did the quieter damage. A follow-up `str.replace` used a search string that
+was a complete line in Phase 18 but only a PREFIX of the same line in Phases 16 and 17, where the item
+continued with more text. `replace` is a substring operation and hit all three, silently rewriting two
+unrelated phases' checkboxes from `[x]` to `[ ]`. Anchor a replacement on something that terminates the
+region it means to match, or bound it the same way.
+
+What made this expensive rather than trivial is that `.SPECIFICATION/` is gitignored, matching
+`.[A-Z]*`. There was no `git checkout` to fall back on and no clean copy anywhere: the only other copy
+on disk was a stale 1,671-line worktree. Take a copy into a scratch directory before any scripted edit
+to a gitignored file. It costs one command and it is the difference between an undo and an
+archaeology exercise.
