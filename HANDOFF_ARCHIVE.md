@@ -4,11 +4,7 @@ Full session-by-session history for `HANDOFF_DOCUMENT.md`, most recent supersede
 
 ---
 
-# Handoff Document
-
-Rewrite the "Current Status" section when stopping mid-task or handing off, per `.AGENTS/AGENTS.md`.
-
-## Current Status (this session)
+## Previous session: Phase 72 split into Phase 72/75/76/77
 
 **This session split Phase 72 in `.SPECIFICATION/IMPLEMENTATION.md`, the question the previous session's
 own handoff note ended on.** Branch is still `feature/The-Transport-Layer`. **Nothing is committed.** No

@@ -1,0 +1,12 @@
+No config file found; using defaults
+
+PLAY [all] *********************************************************************
+
+TASK [conditionally skipped] ***************************************************
+skipping: [hostA] => {"false_condition": false}
+skipping: [hostB] => {"false_condition": false}
+
+PLAY RECAP *********************************************************************
+hostA                      : ok=0    changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+hostB                      : ok=0    changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+

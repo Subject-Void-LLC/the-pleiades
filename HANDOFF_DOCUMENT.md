@@ -4,65 +4,71 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session split Phase 72 in `.SPECIFICATION/IMPLEMENTATION.md`, the question the previous session's
-own handoff note ended on.** Branch is still `feature/The-Transport-Layer`. **Nothing is committed.** No
-Go code changed; the work is specification only, and `.SPECIFICATION/` is gitignored, so this file and
-`LESSONS_LEARNED.md` (unchanged this session) are the only trace of it in `git status`.
+**This session built Phase 17 (Legacy Ansible Adapter) in full**, the next unbuilt phase after Phase 16
+(Native Go Execution Adapter, landed on `main` at the start of this session). Branch is still `main`.
+**Nothing is committed** (the user asked for a plan, approved it, and the session proceeded to
+implement; committing was never requested). Real Go code changed, real tests pass, real containers ran.
 
-**Why:** the previous session's own note flagged it: "Phase 72 is now large enough to question. At 54
-items it spans the breaker consolidation, the `Target` hop chain, three WinRM execution modes, SFTP,
-`internal/psdiag`, the CI matrix, and `windows.Server`'s missing accessors." A single Release Gate
-covering four independently-shippable concerns cannot close until all four do, which meant SFTP and
-`internal/psdiag`'s fixture work sat blocked behind a WinRM library defect neither one has anything to do
-with.
+**What's real.** `internal/adapters/legacy` (renamed and rebuilt from the old `internal/ansible`, whose
+`ReceptorAdapter.StreamMockJob` fabricated events from three hardcoded arrays): a real
+`ContainerOrchestrator` port with one real `testcontainers-go`-backed Docker implementation; a real
+STDOUT parser targeting Ansible's actual `ansible.builtin.default` text callback at `-v` (not the `json`
+callback PLAN.md's own prose might suggest, which does not exist in any maintained Ansible -- verified
+empirically, `FAILURE_PATTERNS.md` #90); a real `inventory.json` generator targeting Ansible's actual
+"yaml" inventory plugin schema (also verified empirically, not the dynamic-inventory-script shape that
+turned out not to parse); a real playbook resolver; and `legacy.Adapter`, which ties all of it together
+and genuinely implements `runner.ExecutionAdapter`, making PATTERNS.md's Strangler Fig claim true for the
+first time (it was false from Phase 2 through Phase 16). The Release Gate
+(`cmd/runner/ansible_release_gate_test.go`) dispatches a real job through a real NATS broker to a real
+`runner.Agent` holding a real `legacy.Adapter`, which provisions a real container (built from the new,
+committed `Dockerfile.legacy-ansible-runner`) on a shared Docker network with a second ephemeral `sshd`
+container, runs a real playbook over a real SSH connection, and asserts the real parsed `wire.JobEvent`s
+-- including a genuine wrong-password negative control. `internal/adapters/legacy` measures 90.3%
+coverage. `make build vet fmt`, `go test -race` (including the release gate), `make gosec govulncheck
+docs-lint docs-gen-check` all pass clean, no new findings.
 
-**What changed.** Phase 72 kept its number and narrowed to the shared foundations: the circuit breaker
-extraction, `retry.Do`, the `transport.Target` hop chain, and the CI matrix. Three new phases took the
-next free numbers after Phase 74, following the exact rule Part IX's own preamble already states for
-Phase 70 and Phase 71, and the same rule the previous session already applied once to place Phase 72
-through Phase 74 themselves: nothing already numbered is renumbered, new work takes the next free number
-and is placed thematically.
+**What's explicitly not real, so the next session does not assume otherwise.** `cmd/runner/main.go`
+still only composes `native.Adapter` -- nothing routes a real dispatch to `legacy.Adapter` yet, since no
+Phase 21 Launchable Kind registry exists to choose per job. One device per dispatch, never a whole play's
+host list (Phase 24's own open problem). Events are a post-hoc batch parse, not Phase 25's future live
+stream. No GitOps auto-discovery, no Galaxy/pip dependency caching, no Kubernetes container groups (Phase
+26). Host key verification is disabled inside the container. A passphrase-protected SSH key is rejected,
+not handled. The full list, with reasoning, is Phase 17's own closing note in
+`.SPECIFICATION/IMPLEMENTATION.md`.
 
-1. **Phase 75, WinRM, the Three Execution Modes.** The three typed execution modes, the WinRM adapter,
-   `windows.Server`'s missing accessors, and `WindowsShellCapable`.
-2. **Phase 76, `internal/psdiag`, the Blocked-Script Diagnosis.** The classifier itself and its checked-in
-   fixture transcripts. Its package has no code dependency on Phase 75 (it must never import
-   `internal/transport/winrm`), but its Release Gate does, since proving the classifier needs a real WinRM
-   PowerShell session to test a blocked script against. That is why it is numbered after Phase 75 rather
-   than built in parallel with it.
-3. **Phase 77, SFTP/SCP.** SFTP behind its own narrow interface and `linux.Server`'s `FileTransferRoot`
-   accessor. Depends only on Phase 72; nothing stops it being built alongside Phase 75 or Phase 76.
+**Real wire-format change:** `pkg/wire.DispatchPayload` gained a `Tags []string` field (populated at
+`internal/dispatch/worker_devices.go`'s one real construction site), and `wire.JobEvent`'s doc comment
+was updated now that the `AnsibleEvent` struct it names is actually gone -- folded in this session,
+closing an item Phase 16 deliberately deferred.
 
-Every one of the original 54 checklist items kept its exact wording and moved to exactly one of the four
-phases. The five phase-closing items that spanned all four concerns in one paragraph each (Fuzz/Stress
-Test, Adversarial Pattern Justification, Schema/Injection Hardening, Documentation Gate, Release Gate and
-Coverage Assurance) were decomposed clause by clause into each phase's own version, using the phase's own
-wording throughout and dropping only the connective text needed to make each stand alone; nothing in them
-was invented. Physically, Phase 75 through Phase 77 sit between the narrowed Phase 72 and Phase 73 in the
-document, not after Phase 74, matching the Part's own thematic grouping ("extends what already works")
-over strict numeric order, the same latitude Part IX already takes with Phase 70 and Phase 71.
+**Documentation updated for real:** `docs/03-migrating-from-ansible.md` (new "Running an unconverted
+playbook" section, honestly noting no CLI/API path selects it yet), `docs/01-start-here.md`
+(Implementation status narrative and tier table, correcting the prior implication that all Ansible
+interop belongs to the unbuilt Run tier), a changelog fragment
+(`changelog/legacy-ansible-adapter.added.md`). `go generate ./... && git diff --exit-code` is clean:
+this phase adds no Collection method, CLI flag, API route, capability, device type, or sync plugin.
 
-**Cross-references fixed.** Every "Phase 72" mention inside Phase 73 and Phase 74 that pointed at WinRM or
-SFTP now points at Phase 75 or Phase 77; mentions of the breaker, `retry.Do`, the hop chain, or the CI
-matrix still correctly point at Phase 72. The Phase 34 correction note (`IMPLEMENTATION.md:4477`) was
-updated the same way. Part XV's own preamble gained a paragraph explaining the second split and its
-dependency ordering, in the same style as its existing paragraph explaining why Phase 72 through Phase 74
-were not inserted at Phase 35.
+**Gitignored spec docs updated too** (real work, not committable): `.SPECIFICATION/IMPLEMENTATION.md`
+(Phase 17's own checklist checked off with full closing notes, and a stale Phase 39 cross-reference that
+had misattributed the `ansible-playbook` command-injection standing requirement to "Phase 25 alone"
+corrected to name Phase 17), `.SPECIFICATION/PATTERNS.md` (Adapter, Strangler Fig, Anti-Corruption
+Layer, Bulkhead, and Feature Flag entries all corrected to match the real shape built), two new
+`FAILURE_PATTERNS.md`/`LESSONS_LEARNED.md` entries (#90 and #93) recording the empirical discovery that
+PLAN.md's own Ansible-integration prose described tool behavior that no longer matches a real, current
+`ansible-core` install.
 
-**Not done, and not needed:** no numbers were renumbered, no other Part's cross-references were touched
-(a grep of every `.SPECIFICATION/*.md` file for "Phase 72" outside `IMPLEMENTATION.md` found none before
-this session started), and no checklist item's substance changed, only its location and, for the five
-composite items, its grouping.
+**Next step.** Nothing wires `legacy.Adapter` into a real composition root yet. The two most natural next
+phases are Phase 21 (Launchable Kind registry, needed before any real per-job adapter routing can exist)
+or Phase 25 (The Ansible Callback Bridge, which replaces this phase's batch parse with real live
+streaming). Neither is started.
 
-**Next step.** Nothing in Part XV is built. Phase 72 (foundations) is still the entry point and its first
-item is still the Pattern Entry Gate. The two things worth settling before writing code are unchanged from
-before: where `retry.Do` lands (Phase 72 already resolves this in favor of `pkg/retry`), and whether
-`transport.Target`'s non-network-endpoint field is declared in Phase 72 as explicitly unproven or left
-entirely to Phase 73.
-
-**Files changed this session:** `.SPECIFICATION/IMPLEMENTATION.md` (gitignored; Phase 72 narrowed, Phase
-75 through Phase 77 added, cross-references in Phase 73, Phase 74, and the Phase 34 correction updated),
-this file.
+**Files changed this session:** `internal/adapters/legacy/*` (new package, ~15 files, replacing
+`internal/ansible`, deleted), `pkg/wire/dispatch.go`, `pkg/wire/job_event.go`,
+`internal/dispatch/worker_devices.go` (+test), `internal/dispatch/worker_test.go`, `cmd/demo/main.go`,
+`cmd/runner/main.go` (comment only), `cmd/runner/ansible_release_gate_test.go` (new),
+`internal/archtest/layering_test.go`, `Dockerfile.legacy-ansible-runner` (new),
+`docs/03-migrating-from-ansible.md`, `docs/01-start-here.md`, `changelog/legacy-ansible-adapter.added.md`
+(new), plus the gitignored spec files listed above.
 
 
 ---

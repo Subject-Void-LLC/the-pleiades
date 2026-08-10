@@ -28,10 +28,18 @@ const modulePath = "github.com/Subject-Void-LLC/the-pleiades"
 
 // concreteDriverPrefixes are the import path prefixes this test treats as
 // "a concrete driver" per Section 25's own Enforcement note, which names
-// NATS and ent's SQL driver by example.
+// NATS and ent's SQL driver by example. testcontainers-go joined this list
+// in Phase 17 (Legacy Ansible Adapter): internal/adapters/legacy's own
+// DockerOrchestrator is this repository's first *production* (not
+// test-only) consumer of it, spinning up the real ephemeral container an
+// unconverted Ansible playbook runs inside. Every other package in this
+// module that imports testcontainers-go does so only from a _test.go
+// file, which go list's own Imports field (unlike Deps) never reports, so
+// adding this prefix does not affect them.
 var concreteDriverPrefixes = []string{
 	"github.com/nats-io/nats.go",
 	"github.com/mattn/go-sqlite3",
+	"github.com/testcontainers/testcontainers-go",
 }
 
 // adapterAllowlist is every internal/ package permitted to import a
@@ -53,22 +61,31 @@ var concreteDriverPrefixes = []string{
 // decision, not a place to silence a failing test; removing the concrete
 // import is usually the right fix instead.
 //
-// internal/adapters/native and internal/ansible are deliberately NOT
-// listed as of Phase 2: both used to hand-roll their own
+// internal/adapters/native and the former internal/ansible were
+// deliberately NOT listed as of Phase 2: both used to hand-roll their own
 // jetstream.JetStream.PublishMsg calls, and this phase moved them onto
-// event.Bus.Publish instead (internal/adapters/native/adapter.go,
-// internal/ansible/receptor.go), so neither imports a concrete driver
-// anymore. TestAdapterAllowlistHasNoStaleEntries is what caught this: it
-// failed the moment those two entries became stale, which is exactly the
-// live enforcement Section 25 asks for, not a test to appease by leaving
-// unused entries in place.
+// event.Bus.Publish instead (internal/adapters/native/adapter.go, the
+// former internal/ansible/receptor.go), so neither imported a concrete
+// driver anymore. TestAdapterAllowlistHasNoStaleEntries is what caught
+// this: it failed the moment those two entries became stale, which is
+// exactly the live enforcement Section 25 asks for, not a test to appease
+// by leaving unused entries in place.
+//
+// internal/adapters/legacy joined this list in Phase 17 (Legacy Ansible
+// Adapter, the renamed and now-real successor to internal/ansible): it is
+// the one designated place testcontainers-go's real Docker client is
+// opened, to spin up the ephemeral container an unconverted Ansible
+// playbook runs inside (PLAN.md Section 23), the identical
+// concrete-driver-behind-a-named-adapter shape internal/event and
+// internal/lock already hold for NATS.
 var adapterAllowlist = map[string]bool{
-	modulePath + "/internal/api":      true,
-	modulePath + "/internal/ent":      true,
-	modulePath + "/internal/event":    true,
-	modulePath + "/internal/lock":     true,
-	modulePath + "/internal/runner":   true,
-	modulePath + "/internal/topology": true,
+	modulePath + "/internal/adapters/legacy": true,
+	modulePath + "/internal/api":             true,
+	modulePath + "/internal/ent":             true,
+	modulePath + "/internal/event":           true,
+	modulePath + "/internal/lock":            true,
+	modulePath + "/internal/runner":          true,
+	modulePath + "/internal/topology":        true,
 }
 
 // listedPackage is the subset of `go list -json` output this test reads.

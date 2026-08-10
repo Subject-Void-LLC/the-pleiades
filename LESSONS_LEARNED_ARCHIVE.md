@@ -1243,3 +1243,31 @@ story, per `.AGENTS/AGENTS.md`.
     into the shared constant would have silently destroyed the assertion while leaving the test green.
     Centralize the accidents; leave the deliberate exceptions at the call site with a comment saying
     why. (`internal/testsupport`, `docker-compose.yml`, `internal/lock/nats_test.go`.)
+
+93. **A specification's own prose describing a third-party CLI tool's interface can describe a version of
+    that tool that no longer exists; verify against a real, currently-installed instance of the exact
+    dependency before designing a parser or an invocation around it.** PLAN.md's own Legacy Ansible
+    Interoperability section frames "inventory.json" as if any JSON document handed to
+    `ansible-playbook -i` is interchangeable, and its own prose plus the general shape of "structured
+    JSON event payload" in Phase 17's Release Gate wording both read naturally as pointing at Ansible's
+    `json` stdout callback. Two real facts under that assumption turned out false, both caught only by
+    actually running a real `ansible-core 2.19.11` rather than trusting the spec's own description.
+    First: the `json` stdout callback was removed from Ansible core at the 2.10/2.11 collection split and
+    was never carried into `community.general`; it survives only in the long-EOL, monolithic `ansible==2.9`
+    package. `ANSIBLE_STDOUT_CALLBACK=json ansible-playbook ...` fails closed with `[ERROR]: Could not
+    load 'json' callback plugin` on every currently-installable Ansible, and `ansible-doc -t callback -l`
+    lists no `json` entry at all. The real, always-present input is the default `ansible.builtin.default`
+    text callback at `-v` verbosity, which is not even reliably single-line JSON per result (a `debug`
+    module's own result pretty-prints across several lines even at `-v`, confirmed by actually running
+    one). Second: Ansible's real inventory-plugin auto-detection does not read a plain, non-executable
+    `.json` file through the "script" plugin's flat `{"<group>": {"hosts": [...]}, "_meta":
+    {"hostvars": {...}}}` contract at all -- that shape is for an executable inventory script Ansible runs
+    and captures the stdout of. A static file carrying that shape produces a real, observed parse failure
+    ("Invalid \"hosts\" entry for ... group, requires a dictionary, found ... list"). What actually works,
+    confirmed by really running a playbook against it, is Ansible's "yaml" inventory plugin's own nested
+    schema (`{"all": {"hosts": {...}, "children": {"<group>": {"hosts": {...}}}}}`) written as JSON, since
+    JSON is valid YAML. Both mistakes share one root cause and one fix: a specification document describing
+    an external tool's integration surface is a design intent, not a verified fact about that tool's
+    current behavior, and the fix in both cases was to actually run the real dependency and design against
+    what it does, not what the spec's prose assumed it still did. (`internal/adapters/legacy/stdout_parser.go`,
+    `internal/adapters/legacy/inventory.go`, Phase 17: Legacy Ansible Adapter.)

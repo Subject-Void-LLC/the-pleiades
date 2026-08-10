@@ -1,0 +1,22 @@
+No config file found; using defaults
+
+PLAY [all] *********************************************************************
+
+TASK [a task that fails hard] **************************************************
+[WARNING]: Host 'hostB' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
+[WARNING]: Host 'hostA' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
+[ERROR]: Task failed: Module failed: non-zero return code
+Origin: /tmp/claude-0/-home-noot-auto-roboto/e875009f-662b-4645-a223-957750c8ee29/scratchpad/ansible_probe/probe_fail_noignore.yml:5:7
+
+3   gather_facts: false
+4   tasks:
+5     - name: a task that fails hard
+        ^ column 7
+
+fatal: [hostB]: FAILED! => {"ansible_facts": {"discovered_interpreter_python": "/root/.pyenv/versions/3.11.12/bin/python3.11"}, "changed": true, "cmd": ["/bin/false"], "delta": "0:00:00.003224", "end": "2026-08-10 14:50:53.869533", "msg": "non-zero return code", "rc": 1, "start": "2026-08-10 14:50:53.866309", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+fatal: [hostA]: FAILED! => {"ansible_facts": {"discovered_interpreter_python": "/root/.pyenv/versions/3.11.12/bin/python3.11"}, "changed": true, "cmd": ["/bin/false"], "delta": "0:00:00.003023", "end": "2026-08-10 14:50:53.870429", "msg": "non-zero return code", "rc": 1, "start": "2026-08-10 14:50:53.867406", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+
+PLAY RECAP *********************************************************************
+hostA                      : ok=0    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0   
+hostB                      : ok=0    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0   
+

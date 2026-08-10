@@ -11,15 +11,69 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ansible"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// streamMockJob publishes numEvents fabricated wire.JobEvent values to
+// topology.LogSubject(jobID), purely so this demo binary's own SSE log
+// viewer has something to render. This is a UI-scaffolding fixture, not
+// a production code path: it used to live as internal/ansible
+// (ReceptorAdapter.StreamMockJob), an exported API inside a package
+// Phase 17 (Legacy Ansible Adapter) turned into a real production
+// adapter (internal/adapters/legacy). A mock event generator has no
+// business staying importable from a production package once that
+// package does real work, so it moved here, unexported, where this
+// binary's own doc comment already establishes the "demo binary, not a
+// second unguarded entry point" convention (FAILURE_PATTERNS.md #67).
+func streamMockJob(ctx context.Context, bus event.Bus, jobID string, numEvents int) error {
+	hosts := []string{"router-1", "router-2", "switch-a", "core-fw-1"}
+	tasks := []string{"Gathering Facts", "Ensure configuration is present", "Write memory", "Verify OSPF adjacencies"}
+	statuses := []string{"ok", "ok", "changed", "failed"}
+
+	publish := func(evt wire.JobEvent) error {
+		wrapped, err := event.WrapPayload(uuid.New().String(), "job.log", evt)
+		if err != nil {
+			return err
+		}
+		return bus.Publish(ctx, topology.LogSubject(jobID), *wrapped)
+	}
+
+	for i := 0; i < numEvents; i++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		evt := wire.JobEvent{Status: statuses[i%len(statuses)], Host: hosts[i%len(hosts)], Task: tasks[i%len(tasks)]}
+		evt.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+		evt.EventData.Message = fmt.Sprintf("executed task %d successfully", i)
+		if i%10 == 0 {
+			evt.Status = "failed"
+			evt.EventData.Message = "connection timed out"
+		}
+		if err := publish(evt); err != nil {
+			return fmt.Errorf("failed to publish event %d for job %s: %w", i, jobID, err)
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	eof := wire.JobEvent{Status: "task.completed"}
+	eof.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	eof.EventData.Message = "mock job stream complete"
+	if err := publish(eof); err != nil {
+		return fmt.Errorf("failed to publish EOF event for job %s: %w", jobID, err)
+	}
+	return nil
+}
 
 // demoSecretLen matches auth.NewStaticKeyProvider's own HS256 minimum
 // (RFC 7518 SS3.2), so this binary's own secret is never itself the
@@ -69,13 +123,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// bus is used for publishing mock job log events (ansible.ReceptorAdapter),
-	// which also ensures the single Pleiades stream (topology.EnsureStream)
-	// exists. A second, independent connection below backs the raw
-	// jetstream.JetStream handle api.LogStreamer needs for its own
-	// per-request consumer creation; the two connections are a known,
-	// documented tradeoff (mirroring internal/lock's own separate
-	// connection), not an oversight -- see HANDOFF_DOCUMENT.md.
+	// bus is used for publishing mock job log events (streamMockJob,
+	// above), which also ensures the single Pleiades stream
+	// (topology.EnsureStream) exists. A second, independent connection
+	// below backs the raw jetstream.JetStream handle api.LogStreamer
+	// needs for its own per-request consumer creation; the two
+	// connections are a known, documented tradeoff (mirroring
+	// internal/lock's own separate connection), not an oversight -- see
+	// HANDOFF_DOCUMENT.md.
 	bus, err := event.NewNatsBus(ctx, nats.DefaultURL)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
@@ -92,7 +147,6 @@ func main() {
 		log.Fatalf("failed to get jetstream: %v", err)
 	}
 
-	adapter := ansible.NewReceptorAdapter(bus)
 	streamer := api.NewLogStreamer(js)
 
 	// A real UUID, not the literal "123" this used to be: every job ID
@@ -109,7 +163,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			default:
-				if err := adapter.StreamMockJob(ctx, demoJobID, 1); err != nil {
+				if err := streamMockJob(ctx, bus, demoJobID, 1); err != nil {
 					log.Printf("mock job stream error: %v", err)
 				}
 				time.Sleep(100 * time.Millisecond)
