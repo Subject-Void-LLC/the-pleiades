@@ -36,9 +36,15 @@ const modulePath = "github.com/Subject-Void-LLC/the-pleiades"
 // module that imports testcontainers-go does so only from a _test.go
 // file, which go list's own Imports field (unlike Deps) never reports, so
 // adding this prefix does not affect them.
+// lib/pq joined this list in Phase 18 (The Grand Integration Test), which
+// gave internal/ent a real PostgreSQL adapter behind OpenDatabase. Until
+// then lib/pq was a test-only dependency of this module, so listing it
+// would have caught nothing; a Crawl-tier deployment is the first thing
+// that needs it at run time.
 var concreteDriverPrefixes = []string{
 	"github.com/nats-io/nats.go",
 	"github.com/mattn/go-sqlite3",
+	"github.com/lib/pq",
 	"github.com/testcontainers/testcontainers-go",
 }
 
@@ -46,7 +52,9 @@ var concreteDriverPrefixes = []string{
 // concrete driver directly, reflecting the real, working adapter
 // boundaries this repository has built: internal/event and internal/lock
 // (Phase W4's NATS-backed event.Bus/lock.Manager adapters), internal/ent
-// (the one place ent's SQL driver is opened, embedded.go), internal/api
+// (the one place a SQL driver is opened: open.go resolves a DSN to a
+// dialect, and open_sqlite.go/open_postgres.go are the two adapters
+// behind it), internal/api
 // (LogStreamer's raw per-viewer jetstream.Consumer, PLAN.md Section 26.4's
 // deliberate exception to going through Bus.Subscribe),
 // internal/runner (the pull-based dispatch loop, PATTERNS.md's own "Push
