@@ -95,6 +95,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		DeviceHost:    host,
 		Interruptible: rb.Interruptible,
 		Capabilities:  device.Capabilities(),
+		Tags:          tagStrings(device.Tags()),
 	}
 	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
 		payload.SSHPort = sshCapable.SSHPort()
@@ -209,4 +210,18 @@ func fenced(jobID string, err error) bool {
 	slog.Info("job fan-out stopped: ownership was reclaimed by another worker",
 		slog.String("job_id", jobID))
 	return true
+}
+
+// tagStrings converts device.Tags()'s own []pkginventory.Tag into the
+// []string wire.DispatchPayload.Tags carries. A bare slice conversion
+// ([]string)(tags) is not legal Go here: pkginventory.Tag and string are
+// distinct named types with the same underlying type, and the language's
+// slice-conversion rule requires identical (not merely convertible)
+// element types.
+func tagStrings(tags []pkginventory.Tag) []string {
+	out := make([]string, len(tags))
+	for i, t := range tags {
+		out[i] = string(t)
+	}
+	return out
 }

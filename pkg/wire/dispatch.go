@@ -131,4 +131,20 @@ type DispatchPayload struct {
 	// "password", "private_key_pem", "passphrase"). omitempty keeps a
 	// credential-less dispatch's wire form free of a bare "secrets":{}.
 	Secrets map[string]string `json:"secrets,omitempty"`
+
+	// Tags is the device's own pkg/inventory.InventoryItem.Tags() result at
+	// dispatch time, carried as plain strings rather than
+	// []inventory.Tag: this package must never import internal/, and
+	// pkg/inventory.Tag would add an unwanted cross-package coupling this
+	// wire type has otherwise deliberately avoided (see this file's own
+	// doc comment on DeviceID/DeviceName). Added for
+	// internal/adapters/legacy (Phase 17, Legacy Ansible Adapter), whose
+	// generated inventory.json needs a device's group membership and had
+	// no field to read it from: Tag already maps 1:1 onto an Ansible
+	// inventory group in this codebase's own worked example
+	// (examples/upgrade_ios/pleiades/inventory.yaml's "tags: [catalyst_lab]"
+	// pairs with examples/upgrade_ios/ansible/inventory.ini's
+	// "[catalyst_lab]" group header). omitempty keeps an untagged
+	// dispatch's wire form free of a bare "tags":[].
+	Tags []string `json:"tags,omitempty"`
 }

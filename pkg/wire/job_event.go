@@ -3,16 +3,28 @@ package wire
 // JobEvent is the one shared shape a job publishes to describe its own
 // progress, replacing three independently hand-copied private structs that
 // predate this type: internal/adapters/native.LogEvent,
-// internal/engine's own nodeEvent (executor.go), and
+// internal/engine's own nodeEvent (executor.go), and the former
 // internal/ansible.AnsibleEvent. All three already agreed on this same
 // field shape (nodeEvent's own doc comment says outright that it mirrors
 // LogEvent's), so this type gives that shape one definition instead of
-// three that could silently drift apart. It is Phase 16 (Native Go
-// Execution Adapter)'s own "adopt the shared job-event DTO instead of a
-// private log-event struct" item, scoped deliberately to
-// internal/adapters/native's own consumption: internal/engine's nodeEvent
-// and internal/ansible's AnsibleEvent belong to other tiers and are left
-// alone here rather than folded in as unrequested scope.
+// three that could silently drift apart.
+//
+// Phase 16 (Native Go Execution Adapter) adopted this type for
+// internal/adapters/native only, deliberately leaving internal/engine's
+// nodeEvent and internal/ansible's AnsibleEvent alone as belonging to
+// other tiers and unrequested scope. Phase 17 (Legacy Ansible Adapter)
+// closed the second of those two: internal/adapters/legacy (the renamed,
+// now-real successor to internal/ansible) publishes this type directly,
+// and AnsibleEvent no longer exists. This was not just DRY cleanup:
+// AnsibleEvent's own Event field could hold a raw, untranslated Ansible
+// callback name ("runner_on_ok"), which is exactly the vocabulary this
+// package's own Anti-Corruption Layer boundary must never let reach the
+// bus; JobEvent's closed Status vocabulary (below) cannot represent that
+// at all, so removing the type removed the risk structurally rather than
+// by discipline. internal/engine's own nodeEvent remains a deliberate,
+// separate type: it travels over a private, in-process Bus for a
+// different purpose (internal/engine/executor.go's own doc comment
+// explains why), not this package's own cross-process wire contract.
 //
 // It is wrapped inside an event.Event envelope on the actual wire (see
 // internal/event), never published bare, the same convention

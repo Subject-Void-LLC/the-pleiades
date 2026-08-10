@@ -96,6 +96,7 @@ story, per `.AGENTS/AGENTS.md`.
 90. **A branch reached only by winning a race is not a covered branch, and a coverage floor measured against one is a scheduled CI failure.**
 91. **The module tree is shared mutable state, and `go test ./...` runs packages in parallel: a test that writes into it and a test that reads all of it are a data race with no race detector watching.**
 92. **A test pinned to a different version of a dependency than the deployment runs is not testing the deployment, and `latest` on either side means nobody knows which version was tested.**
+93. **A specification's own prose describing a third-party CLI tool's interface can describe a version of that tool that no longer exists; verify against a real, currently-installed instance of the exact dependency before designing a parser or an invocation around it.**
 
 ---
 

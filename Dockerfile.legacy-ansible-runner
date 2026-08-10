@@ -1,0 +1,37 @@
+# Dockerfile.legacy-ansible-runner builds the ephemeral container
+# internal/adapters/legacy.Adapter (Phase 17, Legacy Ansible Adapter) runs
+# an unconverted Ansible playbook inside. It is deliberately bare: no
+# Galaxy collections, no requirements.txt/requirements.yml dependency
+# caching, no registry-published tagging scheme. PLAN.md Section 23's
+# full GitOps-synced dependency resolution is not this phase's job (see
+# internal/adapters/legacy's own package doc comment); this is the
+# smallest real image that makes "a real ansible-playbook really runs
+# inside a real ephemeral container" true, for this phase's own Release
+# Gate and for a real Runner deployment to point at directly.
+#
+# ansible-core's version is pinned to the exact release this repository's
+# own development environment (and internal/adapters/legacy's own real
+# captured testdata fixtures) were verified against, per this repository's
+# own "every image/dependency is pinned to an exact version, never
+# latest" rule (internal/testsupport/images.go's own stated rationale).
+FROM python:3.12-alpine3.20
+
+# openssh-client: ansible-core's default "ssh" connection plugin shells
+# out to the system ssh binary; a bare python:3.12-alpine image does not
+# carry one (confirmed directly: `which ssh` fails on an unmodified
+# image). sshpass: the ssh connection plugin also shells out to sshpass
+# for non-interactive password authentication (ansible_password), the
+# same real credential.SecretPassword hostvar
+# internal/adapters/legacy/inventory.go populates.
+RUN apk add --no-cache openssh-client sshpass \
+    && pip install --no-cache-dir --root-user-action=ignore ansible-core==2.19.11
+
+# /run/pleiades is where internal/adapters/legacy's own ContainerSpec.Files
+# copies the generated inventory.json, the resolved playbook, and (when
+# present) an SSH private key, before this image's entrypoint ever runs
+# (orchestrator.go's own trust-boundary doc comment: those files never
+# touch the Runner host's own disk). No CMD/ENTRYPOINT is set here:
+# internal/adapters/legacy.Adapter always supplies the full
+# ansible-playbook argument vector itself (ContainerSpec.Argv), so this
+# image never has a default command that could run unintentionally.
+WORKDIR /run/pleiades

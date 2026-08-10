@@ -1,0 +1,36 @@
+No config file found; using defaults
+
+PLAY [all] *********************************************************************
+
+TASK [say hello] ***************************************************************
+ok: [hostA] => {
+    "msg": "hello from hostA"
+}
+ok: [hostB] => {
+    "msg": "hello from hostB"
+}
+
+TASK [a task that changes] *****************************************************
+[WARNING]: Host 'hostA' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
+[WARNING]: Host 'hostB' is using the discovered Python interpreter at '/root/.pyenv/versions/3.11.12/bin/python3.11', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.
+changed: [hostA] => {"ansible_facts": {"discovered_interpreter_python": "/root/.pyenv/versions/3.11.12/bin/python3.11"}, "changed": true, "cmd": ["/bin/true"], "delta": "0:00:00.008242", "end": "2026-08-10 14:47:33.004327", "msg": "", "rc": 0, "start": "2026-08-10 14:47:32.996085", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+changed: [hostB] => {"ansible_facts": {"discovered_interpreter_python": "/root/.pyenv/versions/3.11.12/bin/python3.11"}, "changed": true, "cmd": ["/bin/true"], "delta": "0:00:00.006966", "end": "2026-08-10 14:47:33.004331", "msg": "", "rc": 0, "start": "2026-08-10 14:47:32.997365", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+
+TASK [a task that fails] *******************************************************
+[ERROR]: Task failed: Module failed: non-zero return code
+Origin: /tmp/claude-0/-home-noot-auto-roboto/e875009f-662b-4645-a223-957750c8ee29/scratchpad/ansible_probe/probe.yml:11:7
+
+ 9       command: /bin/true
+10       changed_when: true
+11     - name: a task that fails
+         ^ column 7
+
+fatal: [hostA]: FAILED! => {"changed": true, "cmd": ["/bin/false"], "delta": "0:00:00.008154", "end": "2026-08-10 14:47:33.353244", "msg": "non-zero return code", "rc": 1, "start": "2026-08-10 14:47:33.345090", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+...ignoring
+fatal: [hostB]: FAILED! => {"changed": true, "cmd": ["/bin/false"], "delta": "0:00:00.003595", "end": "2026-08-10 14:47:33.359183", "msg": "non-zero return code", "rc": 1, "start": "2026-08-10 14:47:33.355588", "stderr": "", "stderr_lines": [], "stdout": "", "stdout_lines": []}
+...ignoring
+
+PLAY RECAP *********************************************************************
+hostA                      : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=1   
+hostB                      : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=1   
+

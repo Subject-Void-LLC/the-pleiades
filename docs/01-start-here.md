@@ -49,7 +49,7 @@ one before it, and nothing is gated behind a higher tier that does not need it.
 |---|---|---|
 | **Walk** | The `pleiades` CLI. Scaffold a project, manage a static inventory, store credentials, validate and run runbooks. | None. A single binary, no server, no database, no broker. |
 | **Crawl** | A Controller and a Runner talking over a real API, plus a web UI that does not reach that API yet. | A NATS JetStream broker and a datastore for the Controller. |
-| **Run** | GitOps-synced platform config, promotion gates, and the Ansible interoperability layer for running unconverted playbooks. | Everything Crawl needs, plus a Git-backed config repository. |
+| **Run** | GitOps-synced platform config, promotion gates, and the full Ansible interoperability layer (auto-discovery, Galaxy/pip dependency caching, Kubernetes container groups). A minimal, real slice of unconverted-playbook execution already exists at the Crawl tier; see [Implementation status](#implementation-status). | Everything Crawl needs, plus a Git-backed config repository. |
 
 Today, Walk is the tier that works end to end. See the next section for exactly what
 that means at Crawl.
@@ -91,6 +91,34 @@ accordingly. And credential storage itself is still the same encrypted local fil
 CLI uses, not the full secret manager described in
 [Running in production](10-running-in-production.md): no rotation, no Vault, no PFX
 handling yet.
+
+**An unconverted Ansible playbook can also really run, against one device at a time,
+once something wires the adapter in.** A second execution adapter now exists alongside
+the native one: given a dispatched device and a legacy playbook, it spins up a fresh,
+single-use container running a real `ansible-playbook`, generates its inventory from
+the dispatched device's own capabilities and tags, and translates the completed run's
+captured output back into the same job log events a native runbook run produces. This
+is proven end to end in this repository's own test suite, against a real target
+container over a real SSH connection, including a negative case where a wrong
+credential genuinely fails to authenticate; see
+[Migrating from Ansible](03-migrating-from-ansible.md#running-an-unconverted-playbook)
+for exactly what that proves and does not yet prove.
+
+**This is not yet reachable from a real dispatch.** The `runner` binary a real deployment
+runs still only ever composes the native adapter; nothing chooses between the two per
+job, because no job-kind registry exists yet to route on. So today this adapter is real
+and independently tested, not something a `pleiades` user or a `POST
+/api/v1/jobs/dispatch` call can select.
+
+Four more limits are worth knowing before you rely on it once it is wired in. It runs
+against exactly one device per dispatch, never a whole play's own host list, unlike a
+real Ansible run. Events are parsed from the container's captured output after the
+playbook finishes, not streamed live task by task. The fuller Run-tier vision described
+above is not built yet: no GitOps auto-discovery of playbooks in a synced repository, no
+`requirements.txt`/Galaxy dependency caching, no Kubernetes-backed container groups
+(this container runs on plain Docker, wherever the `runner` process itself has a daemon
+socket). And host key verification is disabled inside the container, since it has no
+source for a target's known host key yet.
 
 **The module catalog has 76 declared methods across 16 namespaces; 5 are
 implemented.** Every FQCN is registered and reachable through the real dispatcher:

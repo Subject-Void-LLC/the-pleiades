@@ -12,12 +12,15 @@
 // binary is their first one.
 //
 // Deliberately out of scope: choosing between native.Adapter and
-// ansible.ReceptorAdapter at runtime (PATTERNS.md's Strangler Fig entry).
-// ansible.ReceptorAdapter does not implement runner.ExecutionAdapter today
-// (it has no Execute(ctx, wire.DispatchPayload) error method, only
-// StreamMockJob, a UI-scaffolding helper cmd/demo uses directly); a real
-// adapter-selection mechanism is future work, not invented here to fill a
-// binary that only has one real choice to make regardless.
+// legacy.Adapter at runtime (PATTERNS.md's Strangler Fig entry).
+// legacy.Adapter (internal/adapters/legacy, the renamed and now-real
+// successor to internal/ansible.ReceptorAdapter, Phase 17: Legacy Ansible
+// Adapter) implements runner.ExecutionAdapter for real as of that phase,
+// which is what finally makes the Strangler Fig claim true; this binary
+// still only composes native.Adapter, since a real adapter-selection
+// mechanism needs a Launchable Kind registry (Phase 21) that does not
+// exist yet to route dispatch on, not because legacy.Adapter is unfit to
+// be wired in.
 package main
 
 import (

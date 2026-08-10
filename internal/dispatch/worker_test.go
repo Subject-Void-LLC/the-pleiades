@@ -457,6 +457,61 @@ func TestWorker_HandleJobRequested_AttachesCapabilitiesAndSSHPort(t *testing.T) 
 	}
 }
 
+// TestWorker_HandleJobRequested_AttachesTags proves admitAndDispatchDevice
+// populates wire.DispatchPayload.Tags from the real device's own Tags(),
+// not left at its Go zero value. This is what internal/adapters/legacy
+// (Phase 17, Legacy Ansible Adapter) reads to build inventory.json's
+// Ansible group membership; the Runner has no inventory backend of its
+// own to re-derive it from, the same reasoning
+// TestWorker_HandleJobRequested_AttachesCapabilitiesAndSSHPort already
+// established for Capabilities and SSHPort.
+func TestWorker_HandleJobRequested_AttachesTags(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := capableDevice("dev-id-tagged", "core-switch-2", "10.0.0.9")
+	device.StubTags = []pkginventory.Tag{"catalyst_lab", "prod"}
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	wantTags := []string{"catalyst_lab", "prod"}
+	if !reflect.DeepEqual(payload.Tags, wantTags) {
+		t.Errorf("Tags = %+v, want %+v", payload.Tags, wantTags)
+	}
+}
+
+// TestWorker_HandleJobRequested_UntaggedDeviceOmitsTags proves an
+// untagged device (Tags() returning nil, the Stub's own zero value)
+// produces a nil Tags field rather than an empty-but-non-nil slice, so
+// the wire form stays free of a bare "tags":[] key (DispatchPayload.Tags'
+// own omitempty).
+func TestWorker_HandleJobRequested_UntaggedDeviceOmitsTags(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := capableDevice("dev-id-untagged", "core-switch-3", "10.0.0.9")
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	if strings.Contains(string(bus.last().Data), `"tags"`) {
+		t.Errorf("published payload contains a \"tags\" key for an untagged device: %s", bus.last().Data)
+	}
+}
+
 // TestWorker_HandleJobRequested_AttachesStoredCredential proves the
 // Controller resolves a device's credential at fan-out time and attaches
 // it to the payload as the flattened secret map, using a real

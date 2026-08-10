@@ -2486,3 +2486,47 @@ terminal.
 **Lesson:** see `LESSONS_LEARNED.md` #90, of which this is a second instance in a different shape: the
 first was a branch covered only when a race was won, this one a deadline sized under a configuration
 CI never runs.
+
+## 90. A legacy Ansible adapter designed against PLAN.md's own prose, without running a real ansible-playbook first, would have targeted a callback plugin that does not exist and an inventory format that fails to parse
+
+**Symptom:** none observed in shipped code, caught before implementation began. Two design assumptions
+read naturally off PLAN.md's Legacy Ansible Interoperability section and Phase 17's own Release Gate
+wording ("a structured JSON event payload") both turned out to be false the moment they were tested
+against a real `ansible-core 2.19.11`:
+
+```
+$ ANSIBLE_STDOUT_CALLBACK=json ansible-playbook -i "hostA,hostB," probe.yml
+[ERROR]: Could not load 'json' callback plugin.
+$ ansible-doc -t callback -l | grep -i json
+community.general.syslog_json   Sends JSON events to syslog
+```
+
+and, separately, a plain JSON file written in the dynamic-inventory-script shape
+(`{"<group>": {"hosts": [...]}, "_meta": {"hostvars": {...}}}`) and passed via `-i inventory.json`:
+
+```
+[WARNING]: Failed to parse inventory with 'yaml' plugin: Invalid "hosts" entry for "catalyst_lab" group,
+requires a dictionary, found "<class 'ansible.module_utils._internal._datatag._AnsibleTaggedList'>" instead.
+...
+[WARNING]: No inventory was parsed, only implicit localhost is available
+```
+
+**Root cause:** the `json` stdout callback was removed from Ansible core at the 2.10/2.11 collection
+split and never carried into `community.general`; it survives only in the long-EOL, monolithic
+`ansible==2.9` package, which nothing in this repository's stated support range targets. Separately,
+the dynamic-inventory-script JSON contract (`_meta`/flat groups) is for an *executable* inventory
+script Ansible runs and captures the stdout of; Ansible's real plugin auto-detection routes a plain,
+non-executable `.json` file to the "yaml" inventory plugin instead, which requires the YAML plugin's
+own nested `hosts: {<name>: {vars}}`/`children:` schema, not the script plugin's flat one. Both gaps
+exist because PLAN.md's own architecture prose was written before either integration point was
+verified against a real, currently-installed Ansible.
+
+**Fix:** designed `internal/adapters/legacy/stdout_parser.go` against the real, always-present
+`ansible.builtin.default` text callback at `-v` verbosity instead (real captured fixtures checked in
+under `internal/adapters/legacy/testdata/`), and `internal/adapters/legacy/inventory.go` against the
+real "yaml" inventory plugin's nested schema, verified end to end by actually running
+`ansible-playbook` against the exact document `BuildInventoryJSON` produces
+(`TestBuildInventoryJSON_AcceptedByRealAnsible`) and by the full container-to-container Release Gate
+(`cmd/runner/ansible_release_gate_test.go`).
+
+**Lesson:** `LESSONS_LEARNED.md` #93.

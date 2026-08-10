@@ -273,7 +273,7 @@ plainly rather than implying a rough match exists.
 
 | AWX / AAP object | Pleiades equivalent | Status |
 |---|---|---|
-| Job template | A runbook, dispatched via `POST /api/v1/jobs/dispatch` | `beta`: the API, the dispatcher, and the runner's execution against a real device are all real (see [Start here](01-start-here.md) for credential-handling limits) |
+| Job template | A runbook, dispatched via `POST /api/v1/jobs/dispatch` | `beta`: the API, the dispatcher, and the runner's execution against a real device are all real (see [Start here](01-start-here.md) for credential-handling limits). A second, independent execution adapter can also run an *unconverted* playbook unmodified inside a fresh container, but nothing wires it into a real dispatch yet; see [Running an unconverted playbook](#running-an-unconverted-playbook) below |
 | Inventory | `inventory.yaml`, or a synced inventory via a sync plugin | `beta` (static), `experimental` (sync plugins; only `catalyst_center` exists beyond the built-in `static_yaml`, and it registers as `implemented`, not `declared`: an authenticated, paged REST sync against Cisco Catalyst Center) |
 | Credential | A `pleiades add-credential` entry in the local encrypted store | `beta`, Walk tier only. No credential *types* (only username+password/key), no injector engine |
 | Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
@@ -284,6 +284,34 @@ plainly rather than implying a rough match exists.
 | Execution environment | none | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
 | Instance group | none | `design`, not built. No capacity/admission control exists yet |
 | RBAC (organizations, teams, roles) | The control plane's own RBAC | `beta`, real and tested, but the object model has not been checked against AWX's own for parity |
+
+## Running an unconverted playbook
+
+Ansible interop's execution half is real: given a target device and an unconverted
+playbook, a second execution adapter (distinct from the one that runs native runbooks)
+generates a single-host Ansible inventory from that device's own capabilities and
+tags, runs the real, unmodified playbook inside a fresh, single-use container against
+the real device over SSH, and translates the captured output back into this platform's
+own job log events. Capabilities and tags reach the playbook two ways: as real Ansible
+group membership (so `group_names` works with no extra configuration) and as explicit
+`pleiades_capabilities`/`pleiades_tags` hostvars, so a task can read either.
+
+**Read this before assuming it is reachable today.** There is no CLI flag or API field
+yet that selects this adapter for a real dispatch: the Runner process a real deployment
+runs still only ever composes the adapter that executes native runbooks, because no
+job-kind registry exists yet to choose between the two per job. The proof this works is
+this repository's own test suite, not a command you can run against a live deployment
+yet: `cmd/runner`'s own Ansible Release Gate test dispatches a real job through a real
+message broker to a real `runner.Agent`, holding this adapter directly, which spins up
+a real container running `ansible-playbook` against a real, independently-implemented
+SSH target, including a negative case proving a wrong credential genuinely fails to
+authenticate rather than reporting success anyway.
+
+It also carries the same limits [Start here](01-start-here.md#implementation-status)
+states: one device per dispatch rather than a whole play's own host list, a batch parse
+of the finished run's output rather than a live stream, no GitOps-driven playbook
+discovery or Galaxy/pip dependency caching, and host key verification disabled inside
+the container (it has no source yet for a target's known host key).
 
 ## Inventory migration
 
