@@ -1,4 +1,4 @@
-.PHONY: build vet fmt fmt-fix test test-race gosec govulncheck arch coverage docs-lint docs-gen-check tools hooks ci
+.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check tools hooks ci
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -70,8 +70,12 @@ hooks:
 build:
 	go build ./...
 
+# Two passes, because go vet respects build tags: without the second one
+# the integration-tagged files (the largest tests in this repository)
+# would never be vetted at all.
 vet:
 	go vet ./...
+	go vet -tags integration ./...
 
 # gofmt -l as a hard failure: any output at all (a file gofmt would
 # reformat) fails the target, per the Phase 0 CI harness item's explicit
@@ -119,6 +123,24 @@ test:
 
 test-race:
 	go test -race -timeout $(GO_TEST_TIMEOUT) ./...
+
+# test-integration runs everything behind the `integration` build tag:
+# the Grand Integration Test (the real controller and runner binaries
+# against real Postgres and NATS containers) and internal/ent's
+# migration-parity check. AGENTS.md requires integration tests to carry
+# the tag and run separately, and nothing else in this Makefile passes
+# -tags, so without this target they would never run at all.
+#
+# -race because that is the build `ci` judges everywhere else, and
+# because tests/e2e's own raceTimeScale constants are keyed on it.
+#
+# -count=1 is not belt and braces. tests/e2e reaches cmd/controller and
+# cmd/runner by building them as subprocesses rather than importing them,
+# so Go's test cache sees no dependency on either binary's source and will
+# replay a stale PASS after a controller change. See tests/e2e's own
+# harness doc comment.
+test-integration:
+	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
 
 # gosec-check (tools/gosec-check) wraps gosec with the per-finding waiver
 # file (gosec-waivers.json) the Phase 0 CI harness item's pre-existing-
@@ -181,5 +203,5 @@ docs-gen-check:
 # Phase 0 item lists `go test -race ./...` as one thing CI must run, and
 # splitting it out would make it easy to merge a PR that only ran the
 # non-race target.
-ci: build vet fmt test-race gosec govulncheck coverage docs-lint docs-gen-check
+ci: build vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check
 	@echo "ci: all checks passed"
