@@ -4,72 +4,89 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session built Phase 17 (Legacy Ansible Adapter) in full**, the next unbuilt phase after Phase 16
-(Native Go Execution Adapter, landed on `main` at the start of this session). Branch is still `main`.
-**Nothing is committed** (the user asked for a plan, approved it, and the session proceeded to
-implement; committing was never requested). Real Go code changed, real tests pass, real containers ran.
+**This session built Phase 18 (The Grand Integration Test), and it grew a real production half.**
+Branch is `feature/The-Grand-Integration-Test`. **Nothing is committed**; commit messages are drafted
+in Phase 18's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` and running them was never requested.
 
-**What's real.** `internal/adapters/legacy` (renamed and rebuilt from the old `internal/ansible`, whose
-`ReceptorAdapter.StreamMockJob` fabricated events from three hardcoded arrays): a real
-`ContainerOrchestrator` port with one real `testcontainers-go`-backed Docker implementation; a real
-STDOUT parser targeting Ansible's actual `ansible.builtin.default` text callback at `-v` (not the `json`
-callback PLAN.md's own prose might suggest, which does not exist in any maintained Ansible -- verified
-empirically, `FAILURE_PATTERNS.md` #90); a real `inventory.json` generator targeting Ansible's actual
-"yaml" inventory plugin schema (also verified empirically, not the dynamic-inventory-script shape that
-turned out not to parse); a real playbook resolver; and `legacy.Adapter`, which ties all of it together
-and genuinely implements `runner.ExecutionAdapter`, making PATTERNS.md's Strangler Fig claim true for the
-first time (it was false from Phase 2 through Phase 16). The Release Gate
-(`cmd/runner/ansible_release_gate_test.go`) dispatches a real job through a real NATS broker to a real
-`runner.Agent` holding a real `legacy.Adapter`, which provisions a real container (built from the new,
-committed `Dockerfile.legacy-ansible-runner`) on a shared Docker network with a second ephemeral `sshd`
-container, runs a real playbook over a real SSH connection, and asserts the real parsed `wire.JobEvent`s
--- including a genuine wrong-password negative control. `internal/adapters/legacy` measures 90.3%
-coverage. `make build vet fmt`, `go test -race` (including the release gate), `make gosec govulncheck
-docs-lint docs-gen-check` all pass clean, no new findings.
+**Why the phase grew.** The checklist reads as test hardening, but exploration found the test could
+never have been representative: `cmd/controller` opened SQLite only (`ent.OpenEmbedded`), and
+`internal/ent/migrate` registered one dialect, while `tests/e2e` started a PostgreSQL container and
+brought its schema up with `client.Schema.Create` (ent's automatic diff-and-apply, which no binary
+uses). The most integration-shaped test in the repository validated a database configuration that
+existed nowhere. The user's decision was PostgreSQL in production behind a real database abstraction,
+with SQLite retained as a second adapter, all inside Phase 18.
 
-**What's explicitly not real, so the next session does not assume otherwise.** `cmd/runner/main.go`
-still only composes `native.Adapter` -- nothing routes a real dispatch to `legacy.Adapter` yet, since no
-Phase 21 Launchable Kind registry exists to choose per job. One device per dispatch, never a whole play's
-host list (Phase 24's own open problem). Events are a post-hoc batch parse, not Phase 25's future live
-stream. No GitOps auto-discovery, no Galaxy/pip dependency caching, no Kubernetes container groups (Phase
-26). Host key verification is disabled inside the container. A passphrase-protected SSH key is rejected,
-not handled. The full list, with reasoning, is Phase 17's own closing note in
-`.SPECIFICATION/IMPLEMENTATION.md`.
+**What's real, part A, the database abstraction.** `internal/ent.OpenDatabase(ctx, Config{DSN})` is the
+one seam every composition root now uses; it resolves a dialect from the DSN scheme and delegates to
+`open_sqlite.go` or `open_postgres.go`. `OpenEmbedded` survives as the SQLite shorthand, so
+`internal/crypto` and the existing ent tests did not churn. `migrate.Apply` is genuinely
+dialect-agnostic now: `migrationSource` carries its own `insertVersion` statement, because `applyOne`
+recorded versions with a `?` placeholder that `lib/pq` rejects, and rejects inside the same transaction
+as the DDL, so the failure would have read as broken DDL (`FAILURE_PATTERNS.md` #92, verified against a
+real server: `pq: syntax error at or near ","`). `internal/ent/migrate/gen` takes a dialect argument and
+generated `migrations/postgres/0001_initial.sql`; the Postgres set starts squashed on purpose, since
+ent can only diff against the schema it desires today. `cmd/controller` resolves `DB_DSN`, with
+`DB_PATH` kept as the SQLite shorthand and both-set as a startup error.
 
-**Real wire-format change:** `pkg/wire.DispatchPayload` gained a `Tags []string` field (populated at
-`internal/dispatch/worker_devices.go`'s one real construction site), and `wire.JobEvent`'s doc comment
-was updated now that the `AnsibleEvent` struct it names is actually gone -- folded in this session,
-closing an item Phase 16 deliberately deferred.
+**What's real, part B, the test.** `tests/e2e` now builds `cmd/controller` and `cmd/runner` in
+`TestMain` and runs both as real subprocesses against a real PostgreSQL container and a real NATS
+container, driven over a real socket with real HS256 tokens (`authtest.NewWithSecret`, added because a
+random binary secret cannot survive an environment variable). It seeds five devices across two groups
+through the same `OpenDatabase` seam and the same versioned migrations, with the envelope encryption
+hook installed so the controller decrypts rows a different process wrote. It asserts per-device
+dispatch payload contents field by field against the seeded identifiers, reads the job back out of
+PostgreSQL, checks properties are ciphertext at rest with a raw query, and holds tallies at 2/1/0 so a
+bug reporting one number for all three cannot pass. Every wait names a signal; there are no sleeps.
 
-**Documentation updated for real:** `docs/03-migrating-from-ansible.md` (new "Running an unconverted
-playbook" section, honestly noting no CLI/API path selects it yet), `docs/01-start-here.md`
-(Implementation status narrative and tier table, correcting the prior implication that all Ansible
-interop belongs to the unbuilt Run tier), a changelog fragment
-(`changelog/legacy-ansible-adapter.added.md`). `go generate ./... && git diff --exit-code` is clean:
-this phase adds no Collection method, CLI flag, API route, capability, device type, or sync plugin.
+**The adversarial evidence, which is the part worth trusting.** Disabling the inventory group predicate
+produced exactly the designed failure (`dispatched=4`, untargeted devices named); the old single-group
+count-only test would have passed that broken code. The zero-trust assertion needed **three**
+independent layers broken before an unauthenticated dispatch got through: `AuthMiddleware`,
+`RequireScope`'s own identity check, and `DispatchRunbook`'s own. That is real defense in depth and is
+recorded as `LESSONS_LEARNED.md` #95.
 
-**Gitignored spec docs updated too** (real work, not committable): `.SPECIFICATION/IMPLEMENTATION.md`
-(Phase 17's own checklist checked off with full closing notes, and a stale Phase 39 cross-reference that
-had misattributed the `ansible-playbook` command-injection standing requirement to "Phase 25 alone"
-corrected to name Phase 17), `.SPECIFICATION/PATTERNS.md` (Adapter, Strangler Fig, Anti-Corruption
-Layer, Bulkhead, and Feature Flag entries all corrected to match the real shape built), two new
-`FAILURE_PATTERNS.md`/`LESSONS_LEARNED.md` entries (#90 and #93) recording the empirical discovery that
-PLAN.md's own Ansible-integration prose described tool behavior that no longer matches a real, current
-`ansible-core` install.
+**Verified green.** `make test-integration` passes clean end to end under `-race` with `-count=1`,
+confirmed on repeated runs: every package `ok`, zero failures, with `tests/e2e` at roughly 72 seconds
+including the chaos suite. `build`, `vet` (both tag passes), `fmt`, `test-race`, `coverage` (99
+packages, none below floor), `gosec` (one finding, individually waived), `govulncheck` (none),
+`docs-lint` and `docs-gen-check` are all green. The two-adapter conformance suite passes against both
+SQLite and real PostgreSQL, and the migration parity test passes on both dialects. Phase 18's checklist
+is fully closed, 16 of 16.
 
-**Next step.** Nothing wires `legacy.Adapter` into a real composition root yet. The two most natural next
-phases are Phase 21 (Launchable Kind registry, needed before any real per-job adapter routing can exist)
-or Phase 25 (The Ansible Callback Bridge, which replaces this phase's batch parse with real live
-streaming). Neither is started.
+**The supporting gates are real, not deferred.** Fuzzing: `internal/ent.FuzzResolveDSN` (roughly 879,000
+executions clean) plus `pkg/wire`'s first two fuzz targets ever. Benchmark: accept-to-completion across
+the whole mesh measures roughly **37 ms** against roughly **650 ms** for a real `ansible-playbook` run
+over the same host count, measured as a sibling on identical hardware in the same run, with the "these
+do not measure the same work" caveat written into the benchmark's own doc comment rather than buried.
+Chaos: a real Toxiproxy fronting both containers, cutting each boundary in turn. The PostgreSQL half is
+genuinely new coverage, since nothing else in this repository cuts a database connection, and it proves
+the property that matters: with the database severed a launch is refused with 5xx, rather than accepted
+with a 202 the system could never honor.
 
-**Files changed this session:** `internal/adapters/legacy/*` (new package, ~15 files, replacing
-`internal/ansible`, deleted), `pkg/wire/dispatch.go`, `pkg/wire/job_event.go`,
-`internal/dispatch/worker_devices.go` (+test), `internal/dispatch/worker_test.go`, `cmd/demo/main.go`,
-`cmd/runner/main.go` (comment only), `cmd/runner/ansible_release_gate_test.go` (new),
-`internal/archtest/layering_test.go`, `Dockerfile.legacy-ansible-runner` (new),
-`docs/03-migrating-from-ansible.md`, `docs/01-start-here.md`, `changelog/legacy-ansible-adapter.added.md`
-(new), plus the gitignored spec files listed above.
+**Deployment honesty.** `docker-compose.yml`'s `DB_DSN` is read for the first time, and the compose
+controller's three missing startup requirements (`MASTER_ENCRYPTION_KEY`, `JWT_SECRET`, `RUNBOOK_DIR`)
+are fixed, along with the same `RUNBOOK_DIR` gap in both Dockerfiles. **Compose still cannot come up
+cleanly**: its NATS healthcheck invokes a binary the image does not contain, which is Phase 20's item
+and is not claimed as fixed. `FAILURE_PATTERNS.md` #93 records the whole finding.
 
+**Next step.** Phase 18 is closed and nothing is committed; the six drafted commit messages live in
+Phase 18's own checklist. `AWX_PARITY.md` gates Phase 21 on Phase 18 being green, so Phase 21 (The
+`Launchable` Abstraction) is now unblocked. Two things this phase deliberately did not fix, both owned
+elsewhere: the compose NATS healthcheck (Phase 20), and the fact that `cmd/runner` still composes only
+`native.Adapter`, so nothing routes a dispatch to the legacy Ansible adapter (Phase 21's Kind registry).
+
+**Files changed this session:** `internal/ent/{open,open_sqlite,open_postgres,embedded}.go` plus
+`open_internal_test.go`, `open_fuzz_test.go`, `conformance_test.go`, `conformance_backends_test.go`,
+`parity_integration_test.go`; `internal/ent/migrate/{apply.go,apply_test.go,parity_test.go}` and
+`migrate/gen/main.go`; `internal/ent/migrate/migrations/postgres/0001_initial.sql` (new, generated);
+`cmd/controller/main.go` (+`config_test.go`); `internal/auth/authtest/issuer.go`;
+`internal/archtest/layering_test.go`; `pkg/wire/dispatch_fuzz_test.go` (new); all of `tests/e2e/`
+(`harness_test.go`, `harness_seed_test.go`, `integration_test.go`, `integration_assert_test.go`,
+`integration_bench_test.go`, `integration_chaos_test.go`, `racebudget_test.go`,
+`racebudget_race_test.go`); `Makefile`; `docker-compose.yml`;
+`Dockerfile.controller`; `Dockerfile.runner`; `docs/02-get-started.md`;
+`docs/09-control-plane-and-api.md`; `changelog/postgres-backend.added.md` (new); plus the gitignored
+`.SPECIFICATION/IMPLEMENTATION.md` and the `FAILURE_PATTERNS`/`LESSONS_LEARNED` index and archive pairs.
 
 ---
 

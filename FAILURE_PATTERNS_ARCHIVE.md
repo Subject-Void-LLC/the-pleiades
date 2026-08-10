@@ -2530,3 +2530,64 @@ real "yaml" inventory plugin's nested schema, verified end to end by actually ru
 (`cmd/runner/ansible_release_gate_test.go`).
 
 **Lesson:** `LESSONS_LEARNED.md` #93.
+
+## 91. A test container the production code path never used, hiding a database configuration that existed nowhere
+
+**Symptom.** `tests/e2e`'s Grand Integration Test started a real PostgreSQL container and
+passed consistently. It looked like the most thorough test in the repository.
+
+**Root cause.** No production binary could speak PostgreSQL at all. `cmd/controller` called
+`ent.OpenEmbedded`, which is SQLite only, and `internal/ent/migrate` registered exactly one
+dialect. The test reached PostgreSQL through `ent.Open("postgres", dsn)` plus
+`client.Schema.Create(ctx)`, which is ent's automatic diff-and-apply, bypassing the versioned
+migration system every real binary goes through. So the test exercised a dialect no deployment
+ran, brought up by a mechanism no deployment used.
+
+**Fix.** Phase 18 gave `internal/ent` a real dialect-agnostic `OpenDatabase` seam with genuine
+SQLite and PostgreSQL adapters, a generated PostgreSQL migration set, and a shared conformance
+suite run against both. The e2e harness now seeds through that same seam, and `Schema.Create`
+appears nowhere.
+
+**Lesson.** A container in a test proves nothing on its own. Ask which production call path
+reaches it. If the answer is "none", the container is set dressing, and its presence actively
+disguises the gap by making the test look thorough.
+
+## 92. A dialect map that made a migration runner look portable while one statement inside it was not
+
+**Symptom.** `internal/ent/migrate.Apply` was indexed by dialect name, which read as though
+adding a dialect was a matter of adding a map entry.
+
+**Root cause.** `applyOne` recorded each applied migration with
+`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`. `lib/pq` rejects `?`
+outright. Worse, it rejects it inside the same transaction as the migration's own DDL, so the
+DDL rolls back too and the failure surfaces as broken DDL rather than as a wrong placeholder.
+Verified empirically against a real PostgreSQL container: `pq: syntax error at or near ","`.
+
+**Fix.** `migrationSource` now carries its own `insertVersion` statement beside the dialect it
+belongs to. A test asserts every registered dialect has one and that it is parameterized.
+
+**Lesson.** A lookup table keyed by dialect is not the same as dialect independence. Check
+whether the statements the table's consumers execute are themselves portable, and prove it
+against a real server rather than reading for it.
+
+## 93. A compose file setting a configuration key no code read, in front of a service nothing used
+
+**Symptom.** `docker-compose.yml` set
+`DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable` on the controller
+service, with a healthchecked `postgres` service and a `depends_on` gate.
+
+**Root cause.** No Go code read `DB_DSN`. The controller read `DB_PATH`, defaulting to
+`controller.db`, so the composed deployment ran on a SQLite file inside the container's
+ephemeral filesystem while the PostgreSQL service beside it sat idle and every restart lost all
+state. Found by grepping for the key rather than by anything failing, because nothing did fail.
+
+**Fix.** The controller now resolves `DB_DSN` for real. The same audit found the composed
+controller could not have started at all regardless, for three further reasons, each a
+deliberate fail-closed startup check: `MASTER_ENCRYPTION_KEY` unset, neither `JWT_SECRET` nor
+`JWKS_URL` set, and `RUNBOOK_DIR` defaulting to a directory the image never created. All are
+fixed. The compose stack still cannot come up cleanly because its NATS healthcheck invokes a
+binary the image does not contain, which is Phase 20's item and is not claimed as fixed here.
+
+**Lesson.** Configuration that no code reads fails silently and forever. Grep every key a
+deployment file sets against the code that is supposed to consume it; a key with no reader is a
+bug even though nothing is red.
