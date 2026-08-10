@@ -92,6 +92,7 @@ story, per `.AGENTS/AGENTS.md`.
 86. **A context canceled by the very event you need to react to cannot also be the context that reaction depends on staying alive.**
 87. **An idempotency key must be derived from the logical operation, not minted fresh per attempt at recording it, or two attempts describing the same real-world event become indistinguishable from two different events.**
 88. **A document that has already solved a structural problem writes the solution down. Read its own policy before restructuring it.**
+89. **"No value was specified" and "no value is needed" are different states, and collapsing them at the point of lookup silently disables whatever was supposed to supply the default.**
 
 ---
 

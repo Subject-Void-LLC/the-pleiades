@@ -93,7 +93,18 @@ func (d *wireDevice) HasCapability(name capability.Name) bool {
 }
 
 // Capabilities implements inventory.InventoryItem.
-func (d *wireDevice) Capabilities() []capability.Name { return d.payload.Capabilities }
+func (d *wireDevice) Capabilities() []capability.Name {
+	// A fresh slice per call, never the payload's own backing array: this
+	// matches internal/inventory/record.Base.Capabilities, which builds
+	// its result from a map and therefore cannot be aliased either. A
+	// caller holding the live slice could otherwise rewrite what this
+	// device reports it can do, and HasCapability is what gates transport
+	// selection and dispatch admission, so that mutation would silently
+	// re-gate a later task in the same run.
+	out := make([]capability.Name, len(d.payload.Capabilities))
+	copy(out, d.payload.Capabilities)
+	return out
+}
 
 // AddInfo implements inventory.InventoryItem. Unsupported: the Runner has
 // no inventory backend to persist a mutation to.

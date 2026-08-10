@@ -161,10 +161,11 @@ states it, the engine does not infer it.
 
 ## Quickstart: Crawl tier
 
-**Status: real infrastructure, simulated execution.** Everything below is captured
-from a real local mesh: a real NATS JetStream container and a real `controller`
-binary, authenticated with a real signed JWT. The one thing that is not real yet is
-what a `runner` does with a dispatched job; see
+**Status: real infrastructure, real execution.** Everything below is captured from a
+real local mesh: a real NATS JetStream container and a real `controller` binary,
+authenticated with a real signed JWT. A `runner` that picks up one of these dispatches
+executes the runbook against the named device for real, over SSH. Before pointing this
+at anything you care about, read the credential-handling limits in
 [Implementation status](01-start-here.md#implementation-status).
 
 ### A bug found and fixed while writing this

@@ -69,10 +69,11 @@ against the same device were both connecting to it at the same instant, each wit
 own socket, and neither reported any contention.
 
 A real distributed lock manager does exist (`lock.NewNatsLockManager`, backed by NATS
-JetStream). Only the `controller` and `runner` binaries construct it, and the
-distributed execution plane is a stub that does not reach a real device (see
-[Start here](01-start-here.md)). So the tier that has distributed locking runs nothing
-real today, and the tier that runs for real has no distributed locking.
+JetStream), and only the `controller` and `runner` binaries construct it. Since Phase
+16 the distributed execution plane does reach real devices, so that tier both runs for
+real and holds a per-device lease while it does. The gap is now narrower and lives
+entirely on this side: the Walk-tier CLI still has no distributed locking, so two
+concurrent `pleiades run` invocations against one device do not coordinate.
 
 **What to do instead:** serialize device access outside Pleiades. Run one
 `pleiades run` at a time per device set. If more than one person or scheduler can start
@@ -241,8 +242,11 @@ but there is no tenant isolation concept above that.
 
 ## Sizing
 
-Not written. The distributed execution plane is a stub (see
-[Start here](01-start-here.md)), and the reference Helm chart is unmodified
-`helm create` output (`image.repository: nginx`), so no real throughput has been
-measured to size against yet. Writing a sizing guide before either of those is true
-would be a guess dressed up as guidance.
+Not written. The distributed execution plane now reaches real devices, but the
+reference Helm chart is still unmodified `helm create` output
+(`image.repository: nginx`), so no deployment has been run at a scale worth sizing
+against. One number is known and worth planning around in the meantime: a task that
+calls a Collection method pays roughly 10 ms of process-isolation overhead, on top of
+whatever the device work itself costs, because each such task runs in its own child
+process (see [Start here](01-start-here.md)). Tasks using `ssh_exec` do not pay it.
+Beyond that, writing a sizing guide would be a guess dressed up as guidance.

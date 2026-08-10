@@ -7,9 +7,9 @@ status: beta
 This book covers the Crawl-tier control plane's HTTP API: what it looks like today,
 how authorization works, and what is and is not built. See
 [Start here](01-start-here.md) for the tier vocabulary and the honest summary of what
-is real (the control plane's own data layer, event bus, locking, RBAC, and the job
-dispatcher) versus what is still a stub (the distributed execution plane a `runner`
-would carry out).
+is real (the control plane's own data layer, event bus, locking, RBAC, the job
+dispatcher, and the distributed execution plane a `runner` carries out) versus the
+limits that still apply to credential storage.
 
 ## Architecture
 
@@ -152,14 +152,13 @@ NATS connection, and publishes its per-task status events under
 reads `pleiades.jobs.logs.<job-id>`. The two subject spaces do not overlap, and
 the two buses never meet.
 
-Exactly two things publish to `pleiades.jobs.logs.<job-id>`, and neither one
-touches a device. A `runner` that picks up a dispatched job runs it through
-`internal/adapters/native`, whose `Execute` sleeps and fabricates a `"pong from
-<device>"` line (see [Start here](01-start-here.md)). `cmd/demo` generates fake
-Ansible events to scaffold the web UI. So a job dispatched through this API does
-stream frames, and the UUID check and per-viewer consumer isolation above are
-real, but the task results inside those frames are invented. Do not read this
-stream as evidence that a device was reached.
+Two things publish to `pleiades.jobs.logs.<job-id>`, and they differ in what they
+mean. A `runner` that picks up a dispatched job runs it through
+`internal/adapters/native`, which executes the runbook against the real device the
+dispatch names and reports what actually happened, so those frames are genuine task
+results. `cmd/demo` generates fake Ansible events to scaffold the web UI, and those
+are not. Read the stream as real evidence only when a `runner` produced it; the demo
+binary exists precisely so the UI can be developed without one.
 
 ## MCP tool provider
 

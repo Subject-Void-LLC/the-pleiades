@@ -410,8 +410,10 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 
 // resolveDevices resolves task's effective target (TaskTarget: task's own
 // Params["target"], falling back to r.dag.Hosts), returning (nil, nil) for
-// a controller-side task with no target at all, from either source. A
-// non-empty target that resolves to no device is an error: capability_rule.go
+// a controller-side task that has no target at all, from either source,
+// and whose resolver carries no ambient default device either (see below).
+// A non-empty target that resolves to no device is an error:
+// capability_rule.go
 // only checks target existence for an fqcn that requires a capability, so a
 // target typo on an unconstrained fqcn (including "noop") would otherwise
 // pass validation silently and then do nothing at all at execution time,
@@ -420,7 +422,23 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
 	target := TaskTarget(r.dag, task)
 	if target == "" {
-		return nil, nil
+		// Consult the resolver even with no target, rather than declaring
+		// the task controller-side outright. A resolver may carry an
+		// ambient default device, and the Runner mesh's own
+		// singleDeviceResolver (internal/adapters/native) does: a
+		// dispatched runbook always runs against exactly the one device
+		// its wire.DispatchPayload names, chosen Controller-side from the
+		// dispatch request's own group rather than from the runbook's
+		// hosts: key, so a mesh-dispatched runbook legitimately carries no
+		// hosts: at all. A resolver with no such default returns nothing
+		// here and the task stays controller-side exactly as before: Walk
+		// tier's validate.WorldView matches an empty target against no
+		// Name and no Tag, so its behavior is unchanged by this branch.
+		// An empty result here is deliberately not the error the non-empty
+		// branch below raises, because "this task names no target" and "a
+		// named target matches nothing" are different conditions and only
+		// the second one is a mistake.
+		return r.x.resolver.Resolve(""), nil
 	}
 
 	devices := r.x.resolver.Resolve(target)

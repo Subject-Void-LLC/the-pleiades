@@ -36,16 +36,27 @@ const responseFD = 3
 // os.Exit; RunCollectionChild itself never calls os.Exit, so it stays
 // directly testable.
 func RunCollectionChild(ctx context.Context) int {
-	req, err := readChildRequest(os.Stdin)
+	return runCollectionChild(ctx, os.Stdin, os.NewFile(uintptr(responseFD), "collection-response"), os.Stderr)
+}
+
+// runCollectionChild is RunCollectionChild's whole body with its three
+// real streams passed in rather than reached for, so every branch is
+// reachable from an ordinary test holding buffers. RunCollectionChild
+// itself is then the thin wrapper that names os.Stdin, fd 3, and
+// os.Stderr, and holds no logic of its own to test. This mirrors
+// readChildRequest and writeChildResponse below, which already take an
+// io.Reader and an io.Writer for the identical reason.
+func runCollectionChild(ctx context.Context, in io.Reader, response io.Writer, errOut io.Writer) int {
+	req, err := readChildRequest(in)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "collection child: failed to decode request:", err)
+		fmt.Fprintln(errOut, "collection child: failed to decode request:", err)
 		return 1
 	}
 
 	resp := invokeChild(ctx, req)
 
-	if err := writeChildResponse(os.NewFile(uintptr(responseFD), "collection-response"), resp); err != nil {
-		fmt.Fprintln(os.Stderr, "collection child: failed to write response:", err)
+	if err := writeChildResponse(response, resp); err != nil {
+		fmt.Fprintln(errOut, "collection child: failed to write response:", err)
 		return 1
 	}
 	return 0

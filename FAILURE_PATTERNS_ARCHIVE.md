@@ -2329,3 +2329,38 @@ instances (standing in for two delivery attempts of the same message) and proves
 share the one stable key.
 
 **Lesson:** see `LESSONS_LEARNED.md` #87.
+
+## 86. The DAG executor treated a task naming no target as controller-side and returned before ever consulting the resolver, so a mesh-dispatched runbook's already-chosen device never reached the Collection method
+
+**Symptom:** found by Phase 16's own SSH mesh Release Gate
+(`cmd/runner/ssh_mesh_release_gate_test.go`), running against real NATS and real sshd containers, and
+by nothing else: a runbook dispatched through the full Runner mesh failed with `collection method
+"net.ssh.ping": ipc collection executor requires a *wireDevice, got <nil>`. The device the dispatch
+payload named never arrived at the Collection method at all. The `<nil>` in that message is `%T`
+printing a nil interface value, not a `*wireDevice` of the wrong concrete type.
+
+**Root cause:** `run.resolveDevices` (`internal/engine/executor.go`) read a task's effective target via
+`TaskTarget` (the task's own `params.target`, falling back to `dag.Hosts`) and returned `(nil, nil)`
+immediately when that was empty, classifying "this task names no target" as "this is a controller-side
+task with no device," without ever calling `Executor.resolver`. That is correct at Walk tier, where a
+runbook's own `hosts:` key is the only way a device is ever chosen. It is wrong one tier up: in the
+Runner mesh the Controller selects devices from the dispatch request's own group
+(`internal/dispatch/worker_devices.go`) and fans out one `wire.DispatchPayload` per device, so the
+dispatched runbook legitimately carries no `hosts:` key at all, because that choice was already made
+upstream. Phase 16's `singleDeviceResolver` (`internal/adapters/native/resolver.go`) exists precisely to
+supply that already-chosen device for any target string, and the early return meant it was never asked.
+Every unit test in `internal/adapters/native` passed throughout, because each drives the adapter with a
+fixture runbook that does carry `hosts:`; only a test exercising the real, mesh-shaped path (no
+`hosts:`, device chosen Controller-side) could surface it.
+
+**Fix:** `resolveDevices` now calls `r.x.resolver.Resolve("")` for an empty target rather than returning
+early, and treats an empty result as the same controller-side task it always did, deliberately not as
+the error the non-empty branch raises: "this task names no target" and "this task names a target that
+matches nothing" are different conditions, and only the second is a mistake. Walk-tier behavior is
+unchanged and provably so, since `validate.WorldView.Resolve("")` matches no device Name and no Tag and
+`internal/engine`'s own test `mapResolver` returns `m[""]`, so both answer empty exactly as before. The
+alternative fix, having the Runner set `dag.Hosts` to the dispatched device's name, was rejected:
+`internal/runbook.DirSource` serves a Flyweight-cached, shared `*engine.DAG` pointer, so mutating it per
+job would be a genuine data race across concurrent jobs on one Runner.
+
+**Lesson:** see `LESSONS_LEARNED.md` #89.

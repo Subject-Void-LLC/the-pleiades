@@ -1140,3 +1140,22 @@ story, per `.AGENTS/AGENTS.md`.
     planning artifact that proposed the renumber also had the arithmetic wrong (it assumed the highest
     phase was 70; it is 71), which is the ordinary outcome of planning against a remembered structure
     instead of a read one.
+
+89. **"No value was specified" and "no value is needed" are different states, and collapsing them at the
+    point of lookup silently disables whatever was supposed to supply the default.** `resolveDevices`
+    treated an empty task target as "controller-side task, no device" and returned before consulting the
+    resolver at all. At Walk tier those two states really are the same thing, because a runbook's own
+    `hosts:` key is the only source a device can come from, so the shortcut was invisible and correct for
+    as long as one tier existed. In the Runner mesh they are not the same: the Controller already chose
+    the device from the dispatch request's group, so an empty target means "the ambient default applies,"
+    and the one component holding that default (the resolver) was the one thing never asked. The general
+    shape is that an early return of the form "the input is empty, therefore there is nothing to do"
+    forecloses every future supplier of that input, and does it invisibly, because the code that would
+    have supplied it still exists, still compiles, and still has passing unit tests; it is simply never
+    called. Prefer asking the pluggable collaborator and treating *its* empty answer as the terminal
+    state. That costs one call and keeps the seam open. Note also which test caught this and which could
+    not: every unit test in the owning package passed, because each supplied a fixture shaped like the
+    tier the code was originally written for, and only the Release Gate driving the real, mesh-shaped
+    path (a runbook with no `hosts:`, exactly what a real dispatch produces) could fail. A fixture that
+    is more convenient than production is a fixture that cannot find this class of bug.
+    (`internal/engine/executor.go`'s `resolveDevices`, `internal/adapters/native/resolver.go`.)

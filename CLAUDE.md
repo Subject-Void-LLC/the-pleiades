@@ -30,12 +30,21 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
 - **Crawl tier's control plane is real and tested**: data layer, event bus, distributed
   locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
   conditional engine, the workflow DAG builder, the HATEOAS API gateway, job dispatcher.
-- **Crawl tier's distributed execution plane is a stub.** `internal/adapters/native/adapter.go`'s
-  `Execute` simulates work with `time.Sleep` and a fabricated response; a job dispatched
-  through `cmd/controller` and picked up by `cmd/runner` does not yet reach a real device.
-- **Module catalog: 75 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
-  Center) are implemented.** Everything else returns an explicit "declared but not
-  implemented" error rather than a silent no-op.
+- **Crawl tier's distributed execution plane reaches real devices as of Phase 16.**
+  `internal/adapters/native/adapter.go`'s `Execute` resolves the dispatched runbook to a real
+  compiled DAG and runs it through the same `engine.Executor` stack the Walk-tier CLI uses,
+  scoped to the one device the dispatch names, over the same real SSH transport. A Collection
+  method runs inside a per-task subprocess (`ipc_parent.go`/`ipc_child.go`) so a secret crosses
+  a real process boundary on stdin, never argv or the environment (PLAN.md Section 17.5). Proven
+  end to end against real NATS and real `sshd` containers by
+  `cmd/runner/ssh_mesh_release_gate_test.go`. Two honest caveats: the Controller resolves a
+  device's credential and attaches it to the dispatch payload, so a secret rides the one
+  JetStream stream and can persist there for up to its retention window; and PLAN.md Section
+  17.4's full `CredentialStore` (rotation, Vault, PFX) is still unbuilt, with the Controller
+  using the same file-backed store the Walk tier does.
+- **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
+  Center) and `net.ssh.ping` are implemented.** Everything else returns an explicit "declared
+  but not implemented" error rather than a silent no-op.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.
