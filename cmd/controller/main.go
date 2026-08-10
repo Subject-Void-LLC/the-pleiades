@@ -590,6 +590,28 @@ func main() {
 	// is nil, so "every application route is versioned, authenticated,
 	// throttled, and authorized" holds structurally: there is no way to
 	// register a route here that skips any of the four.
+	// Each Route pairs apispec's documented Method/Pattern/Scope/Rel with
+	// this process's own real handler method value: the same data
+	// tools/gendocs reads to emit the OpenAPI document and the generated
+	// API reference page, so neither can ever describe a route this
+	// server does not actually serve, or vice versa.
+	//
+	// apispec.Routes pairs the two sets by name and refuses to return a
+	// route table if either side has an entry the other lacks, so this
+	// process cannot start while advertising a route it does not mount.
+	// The previous hand-written literal could not make that promise: a
+	// new Endpoint that nobody added here 404'd silently.
+	routes, err := apispec.Routes(map[string]http.HandlerFunc{
+		apispec.DispatchRunbook.Name: dispatcher.DispatchRunbook,
+		apispec.GetJob.Name:          jobs.Get,
+		apispec.StreamJobLogs.Name:   streamer.StreamLogs,
+		apispec.GetDevice.Name:       devices.Get,
+		apispec.DeleteDevice.Name:    devices.Delete,
+	})
+	if err != nil {
+		fatal("api route table does not match the declared endpoints", err)
+	}
+
 	r, err := api.NewRouter(api.RouterConfig{
 		Logger:      logger,
 		Tracer:      tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api"),
@@ -600,18 +622,7 @@ func main() {
 		Auth:        api.AuthMiddleware(evaluator),
 		Admission:   admission,
 		HATEOAS:     hateoas,
-		// Each Route pairs apispec's documented Method/Pattern/Scope/Rel
-		// with this process's own real handler method value: the same
-		// data tools/gendocs reads to emit the OpenAPI document and the
-		// generated API reference page, so neither can ever describe a
-		// route this server does not actually serve, or vice versa.
-		Routes: []api.Route{
-			apispec.DispatchRunbook.Route(dispatcher.DispatchRunbook),
-			apispec.GetJob.Route(jobs.Get),
-			apispec.StreamJobLogs.Route(streamer.StreamLogs),
-			apispec.GetDevice.Route(devices.Get),
-			apispec.DeleteDevice.Route(devices.Delete),
-		},
+		Routes:      routes,
 	})
 	if err != nil {
 		fatal("failed to build router", err)

@@ -7,17 +7,22 @@
 // Route below is the whole mechanism: the router receives those four
 // fields copied off the same value the generated document renders.
 //
-// Set membership is a different question, and nothing here enforces it.
-// Only tools/gendocs ranges over the Endpoints slice; cmd/controller names
-// each Endpoint one at a time in its own Routes table, and no test compares
-// the two sets. An Endpoint added to this slice and never registered there
-// builds clean, vets clean, and trips no test, while the generated document
-// advertises a route the server does not serve. Closing that hole means
-// having cmd/controller build its Routes by ranging over Endpoints, pairing
-// each one with a handler by Name and refusing to start if any Endpoint has
-// none. That is a change to the composition root, not to this package,
-// which is why the gap is documented here rather than quietly implied to be
-// covered.
+// Set membership is a different question, and Routes below is what
+// answers it. This package used to document the gap rather than close it:
+// only tools/gendocs ranged over Endpoints, while cmd/controller named
+// each Endpoint one at a time in its own hand-written Routes table, so an
+// Endpoint added to this slice and never registered there built clean,
+// vetted clean, and tripped no test, while the generated document
+// advertised a route the server did not serve.
+//
+// Routes implements exactly the fix that gap description called for --
+// build the route table by ranging over Endpoints, pair each one with a
+// handler by Name, and refuse to start if any Endpoint has none -- and
+// adds the reverse check, so a handler registered under a name no
+// Endpoint declares is refused too. Phase 19's web UI computes which
+// buttons to render from these same Endpoint values, which turns an
+// unmounted Endpoint from a documentation defect into a rendered control
+// that 404s, so the check became load-bearing rather than tidy.
 //
 // Living under internal/ rather than inside cmd/controller is what lets
 // tools/gendocs (a separate main package) read it too, the same reason

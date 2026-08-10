@@ -45,6 +45,14 @@ const (
 	// collection.
 	RelCreate LinkRel = "create"
 
+	// RelCollection is the affordance that lists the collection a
+	// resource belongs to. IANA registers the name for exactly this
+	// (RFC 6573), and it is separate from RelSelf on purpose: a listing
+	// route and a member route are two different affordances, so folding
+	// both onto "self" would make a permitted result ambiguous about
+	// which of the two it granted.
+	RelCollection LinkRel = "collection"
+
 	// RelExecute is the affordance that dispatches work against the
 	// resource. api.Dispatcher's own relation.
 	RelExecute LinkRel = "execute"
