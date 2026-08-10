@@ -57,10 +57,17 @@ func TestGenerate_ReleaseGate(t *testing.T) {
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil { // #nosec G301 -- test-only, removed by t.Cleanup below
 		t.Fatalf("MkdirAll(%s): %v", pkgDir, err)
 	}
-	// internal/catalog/test/ is entirely this test's own scratch space;
-	// remove the "test" segment's parent too if it ends up empty, so
-	// repeated runs never accumulate empty directories.
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, "internal", "catalog", "test")) })
+	// Scoped to this test's own process-unique directory, never the
+	// shared internal/catalog/test parent. That parent is not this
+	// test's to delete: tools/gencatalog's own end-to-end test and
+	// cmd/pleiades's forge end-to-end test both write sibling packages
+	// under it, `go test ./...` runs those packages in parallel with
+	// this one, and removing the parent would delete a sibling's
+	// generated package out from under the `go build` that is compiling
+	// it. tools/gencatalog's own cleanup already carries a comment
+	// warning about exactly this; this call site was the one that still
+	// did it.
+	t.Cleanup(func() { _ = os.RemoveAll(pkgDir) })
 
 	for _, f := range files {
 		full := filepath.Join(root, f.Path)

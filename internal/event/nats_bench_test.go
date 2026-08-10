@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
@@ -20,9 +21,9 @@ func startBenchNatsContainer(b *testing.B) string {
 	ctx := context.Background()
 
 	natsContainer, err := natscontainer.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 	)
 	if err != nil {
 		b.Fatalf("failed to start nats: %v", err)

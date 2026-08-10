@@ -91,6 +91,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
@@ -430,6 +431,20 @@ func main() {
 		fatal("failed to init runbook source", err)
 	}
 
+	// credentials resolves a device's stored SSH credential at dispatch
+	// time, so worker below can attach it directly to
+	// wire.DispatchPayload.Secrets (Phase 16, Native Go Execution
+	// Adapter: the Runner never holds its own copy of the decryption
+	// key). This is deliberately the same Walk-tier file-backed adapter
+	// cmd/pleiades already trusts (credential.NewLazyFileStore), not
+	// PLAN.md Section 17's full Postgres/Vault-backed CredentialStore,
+	// which remains unbuilt future work; see this phase's own plan for
+	// why that full store is out of scope here. Lazy construction means a
+	// controller with no credentials configured yet still starts cleanly
+	// and only touches disk the first time a dispatch actually needs one.
+	credentialsDir := getenv("CONTROLLER_CREDENTIALS_DIR", ".")
+	credentials := credential.NewLazyFileStore(credentialsDir)
+
 	// jobStore persists Job and JobTask rows over the same already-open
 	// Device client every other repository in this process shares. It
 	// backs both api.Dispatcher (which only ever creates a Job and reads
@@ -446,7 +461,7 @@ func main() {
 	// HandleJobRequested has everything it needs to resolve the job,
 	// stream the target group, admit or skip each device, and publish a
 	// wire.DispatchPayload per admitted device.
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup

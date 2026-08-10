@@ -75,20 +75,31 @@ engine, the workflow DAG builder, the HATEOAS API gateway, and the job dispatche
 all built, backed by real integration tests against real NATS and SSH containers, not
 mocks.
 
-**The distributed execution plane is a stub.** A job dispatched through the
-Controller and picked up by a `runner` process over NATS does not yet reach a real
-device. `internal/adapters/native/adapter.go`'s `Execute` simulates three steps with
-`time.Sleep` calls and a fabricated `"pong from <device>"` response. This is
-completely separate from the Walk-tier CLI's own execution path above, which is real
-and unaffected by this gap.
+**The distributed execution plane reaches real devices.** A job dispatched through
+the Controller and picked up by a `runner` process over NATS now resolves the runbook
+to a real compiled DAG and runs it against the device the dispatch names, over the
+same real SSH transport the CLI uses. A Collection method runs inside a per-task child
+process, so the credential it needs crosses a process boundary on standard input,
+never on a command line or in an environment variable. This is proven end to end
+against a real NATS broker and a real SSH server, including a negative case where a
+wrong credential genuinely fails to authenticate.
 
-**The module catalog has 75 declared methods across 16 namespaces; 4 are
+Two limits are worth knowing before you rely on it. The Controller resolves a device's
+credential and attaches it to the dispatch message, so a secret is present in the
+message broker's storage until that message ages out; plan your broker retention
+accordingly. And credential storage itself is still the same encrypted local file the
+CLI uses, not the full secret manager described in
+[Running in production](10-running-in-production.md): no rotation, no Vault, no PFX
+handling yet.
+
+**The module catalog has 76 declared methods across 16 namespaces; 5 are
 implemented.** Every FQCN is registered and reachable through the real dispatcher:
 calling one produces an explicit `"declared but not implemented"` refusal rather than
 a silent no-op or a fabricated success, whether the call comes from the CLI, the
-Controller, or a future runner. Only the four `net.catalyst.*` methods, against Cisco
-Catalyst Center's REST API, are real today. See the
-[module catalog](reference/modules/index.md) for every method, by namespace.
+Controller, or a runner. The four `net.catalyst.*` methods, against Cisco Catalyst
+Center's REST API, and `net.ssh.ping`, against any SSH-reachable device, are real
+today. See the [module catalog](reference/modules/index.md) for every method, by
+namespace.
 
 **Plan-time capability checking covers two legacy action names, not the catalog.**
 `pleiades validate` compares a task's required capability against its target device

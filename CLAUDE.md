@@ -1,3 +1,243 @@
-# Instructions
+# CLAUDE.md
 
-Always read and use .AGENTS/AGENTS.md
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+**Always read and use `.AGENTS/AGENTS.md` first.** It is the canonical, authoritative rules
+file for this repository (writing style, licensing, doc-comment requirements, testing
+policy, Go conventions, the LSP-over-grep tooling mandate, and the architecture
+mismatch/map verification protocol). Everything below is a supplement for orientation,
+not a replacement for it.
+
+**`HANDOFF_DOCUMENT.md`, `LESSONS_LEARNED.md`, and `FAILURE_PATTERNS.md` are each a short index; a
+`*_ARCHIVE.md` sibling holds the full history.** Read the tracked file, not the archive, by default.
+Open an archive only when you need a specific past entry's full detail (a prior session's writeup, a
+rule's full reasoning, a bug's full symptom/fix). See `.AGENTS/AGENTS.md`'s Mandatory Documentation
+Rules for how to append to both correctly.
+
+## What this is
+
+Pleiades (module `github.com/Subject-Void-LLC/the-pleiades`) is an object-oriented,
+strongly typed automation mesh that also runs Ansible. Ansible support is a migration
+on-ramp: a playbook lands unchanged, then converts to native typed collections over time.
+It targets the same problem AWX/Ansible Automation Platform does (RBAC, audit trail,
+scheduler, multi-user), not a single-laptop CLI replacement.
+
+Read `docs/01-start-here.md` before assuming any feature works end to end. This is a
+pre-1.0 project and the honest state is not what the docs' introductions might imply:
+
+- **Walk tier (the `pleiades` CLI) is real.** Single static binary, no server/DB/broker,
+  connects over real SSH, genuinely executes `ssh_exec` against real devices.
+- **Crawl tier's control plane is real and tested**: data layer, event bus, distributed
+  locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
+  conditional engine, the workflow DAG builder, the HATEOAS API gateway, job dispatcher.
+- **Crawl tier's distributed execution plane reaches real devices as of Phase 16.**
+  `internal/adapters/native/adapter.go`'s `Execute` resolves the dispatched runbook to a real
+  compiled DAG and runs it through the same `engine.Executor` stack the Walk-tier CLI uses,
+  scoped to the one device the dispatch names, over the same real SSH transport. A Collection
+  method runs inside a per-task subprocess (`ipc_parent.go`/`ipc_child.go`) so a secret crosses
+  a real process boundary on stdin, never argv or the environment (PLAN.md Section 17.5). Proven
+  end to end against real NATS and real `sshd` containers by
+  `cmd/runner/ssh_mesh_release_gate_test.go`. Two honest caveats: the Controller resolves a
+  device's credential and attaches it to the dispatch payload, so a secret rides the one
+  JetStream stream and can persist there for up to its retention window; and PLAN.md Section
+  17.4's full `CredentialStore` (rotation, Vault, PFX) is still unbuilt, with the Controller
+  using the same file-backed store the Walk tier does.
+- **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
+  Center) and `net.ssh.ping` are implemented.** Everything else returns an explicit "declared
+  but not implemented" error rather than a silent no-op.
+- **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
+  covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
+  capability mismatch only surfaces at run time.
+- **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the
+  sixth (SSE log viewer) has three defects that stop it reaching a real Controller.
+
+When touching any of the above, do not describe it as more finished than it is — see
+`docs/01-start-here.md#implementation-status` for the generated, current matrix.
+
+## Common commands
+
+```bash
+make ci              # everything a PR must pass: build vet fmt test-race gosec govulncheck coverage docs-lint docs-gen-check
+make build            # go build ./...
+make test             # go test ./...
+make test-race        # go test -race ./...   (required before calling anything "verified" per RULE 0)
+make fmt               # gofmt -l check, hard failure on any unformatted file (excludes .claude/)
+make fmt-fix           # gofmt -w, actually fixes it
+make vet
+make gosec             # go run ./tools/gosec-check — wraps gosec with gosec-waivers.json's per-finding waivers
+make govulncheck
+make coverage           # go run ./tools/coverage-check — ratchet against coverage-floor.json, not a flat 90% gate
+make arch               # go test ./internal/archtest/...  — Section 25 layering rules as a real test
+make docs-lint          # go run ./tools/docs-lint — fails if a gitignored internal doc is cited anywhere a user could see it
+make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
+make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
+make hooks              # once per clone: point core.hooksPath at .githooks so `git push` runs `make ci` first
+```
+
+`make ci` is the *whole* CI job: `.github/workflows/ci.yml` checks out, sets up Go from
+`go.mod`, runs `make tools`, and then runs `make ci`. There is no CI-only step and no
+CI-only tool version — `gosec` and `govulncheck` are pinned once in the `Makefile`
+(`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed by `make tools` on both sides, so
+a local `make ci` and the CI job run byte-identical scanners. Never
+`go install`  either tool by hand at `@latest`: a newer scanner than the pin reports
+findings CI will not, and an older one misses findings CI will. The one thing a local run
+still cannot predict is `govulncheck`'s live advisory database.
+
+Single test / single package:
+
+```bash
+go test ./internal/engine/...
+go test ./internal/engine/... -run TestName -v
+go test -race ./internal/lock/...   # internal/lock, internal/event, internal/transport/ssh dial real ephemeral Docker containers (NATS, sshd)
+```
+
+Required one-time tool setup (`.AGENTS/AGENTS.md`'s IDE & LSP Tooling section):
+
+```bash
+go install golang.org/x/tools/gopls@latest
+# ensure $(go env GOPATH)/bin is on PATH persistently (not just this shell) — see AGENTS.md
+
+make hooks   # once per clone: run `make ci` before every push, so CI failures land here first
+```
+
+Prefer `gopls references` / `gopls definition` over `grep` for any claim about Go call
+graphs or symbol usage — AGENTS.md treats a grep-derived claim about Go semantics as a
+guess, not evidence. Grep is fine for prose/YAML/markdown.
+
+### ent code generation
+
+`internal/ent` is generated from `internal/ent/schema`. Never hand-edit generated files:
+
+```bash
+go generate ./internal/ent
+```
+
+A schema edit without regenerating is a silent no-op that still compiles — the worst
+failure shape available.
+
+### Catalog code generation
+
+`internal/catalog/` and `internal/inventory/devices/{windows,aws}/` are generated from
+`internal/forge/catalogdata`, driven through the real `pleiades forge` CLI (`tools/gencatalog`),
+never hand-edited:
+
+```bash
+go generate ./internal/forge/catalogdata
+```
+
+Fix the data in `internal/forge/catalogdata` or the scaffold templates
+(`internal/forge/collectionscaffold` / `devicescaffold`), never the generated output directly.
+
+## Architecture
+
+### The three tiers, and their composition roots
+
+| Tier | Composition root | Adds |
+|---|---|---|
+| Walk | `cmd/pleiades` | Offline CLI: static inventory, credentials, validate, run. Links inventory/engine/validate packages directly, no Controller dial. |
+| Crawl | `cmd/controller` + `cmd/runner` | API Gateway (embedded SQLite + NATS JetStream) and a stateless worker pulling jobs off a durable NATS consumer group. |
+| Run | (not built) | GitOps-synced config, promotion gates, Ansible interop for unconverted playbooks. |
+
+`cmd/demo` wires a minimal controller-adjacent stack for exercising the web UI's SSE log
+stream in isolation.
+
+Every `cmd/*` binary is a *composition root*: the one place concrete drivers get wired
+into interfaces. Business logic never lives in `cmd/`; it parses args/config and delegates
+into `internal/`.
+
+### Layering rule (enforced by `internal/archtest`, not just convention)
+
+- `pkg/` never imports `internal/`.
+- `internal/engine` imports no concrete driver.
+- Only a small allowlisted set of adapter packages may import a concrete driver directly
+  (NATS, the ent SQL driver): `internal/api`, `internal/ent`, `internal/event`,
+  `internal/lock`, `internal/runner`, `internal/topology`. Adding to this allowlist is a
+  real design decision — `go test ./internal/archtest/...` fails immediately if it drifts.
+- `cmd/` composition roots are exempt (wiring concrete implementations is their job).
+
+### Core domain vocabulary
+
+- **Runbook**: native YAML automation format (`id`, `hosts`, `tasks`, ...). Never call it
+  a "playbook" (reserved for a real Ansible file).
+- **Task / FQCN**: a runbook step names an action by fully-qualified collection name,
+  `<namespace>.<method>` (e.g. `net.catalyst.device_facts`), and passes it `params`.
+- **Collection**: a namespaced Go package implementing one FQCN as a
+  `pkg/collection.Descriptor` (a `Manifest` of required capabilities/transports/status,
+  plus an `Invoke` function). Lives under `internal/catalog/<namespace>/...`. Registers
+  itself via package `init()`, made reachable only by a blank import from
+  `internal/catalog/builtins.go`.
+- **Capability**: what a device *can do* (e.g. `AptCapable`), matched structurally against
+  a Go interface the device type implements — not what the device *is*.
+- **Inventory item**: a managed device — name, type, properties, lifecycle state, version,
+  history. Concrete device types live under `internal/inventory/devices/<vendor>/`.
+- **Transport**: how a task's command reaches a device, auto-selected from device
+  capabilities (`internal/transport`, with the real implementation in
+  `internal/transport/ssh`).
+- **Sync plugin**: implements `internal/inventory/syncplugin.Plugin`'s four-stage contract
+  (`Connect` → `Discover` → `Classify` → `Sync`), verified by a shared conformance suite
+  (`internal/inventory/plugins/conformance_test.go`) that every real plugin is driven
+  through identically. Lives under `internal/inventory/plugins/<name>/`.
+- **`when` / `when_or` / `when_cel`**: three ways to gate a task — Ansible-compatible ANDed
+  list, ORed list, or a raw CEL escape hatch, compiled before execution.
+
+### Extending the catalog (`pleiades forge`)
+
+`forge new-collection` / `new-device` / `new-plugin` scaffold a new Collection method,
+device type, or sync plugin (two gofmt-clean files each: implementation + test). None of
+the three self-registers into the running binary — that requires a deliberate, one-line
+blank import into the relevant `builtins.go` (`internal/catalog/builtins.go`,
+`internal/inventory/builtins.go`, `internal/inventory/plugins/builtins.go`). This is
+intentional: a generated-but-unwired file compiles and its tests pass, but stays invisible
+to `pleiades doc --list`, `validate`, and the dispatcher until wired in.
+
+There is no out-of-tree extension mechanism today: every extension point lives under
+`internal/`, reachable only from inside this module or a fork of it (see
+`docs/11-extending-pleiades.md`).
+
+### Control plane API (`cmd/controller`, `internal/api`)
+
+Front Controller pattern: every route passes through tracing, metrics, structured
+logging, rate limiting, authentication, then scope authorization, before its handler
+runs. The route table (`internal/apispec`) is the single source both the real router and
+the generated OpenAPI doc build from — but nothing enforces that `cmd/controller`'s
+hand-written route registrations cover every `apispec.Endpoints` entry; a route added to
+the spec but never mounted fails silently (404) rather than at build time.
+
+Two independent authorization mechanisms, easy to conflate:
+1. **Scope check**: a route's required scope (e.g. `runbook:execute`) against the JWT's
+   `Scopes` claim. `admin` bypasses unconditionally.
+2. **RBAC** (`internal/auth.ScopeResolver`): hierarchical RoleBindings (`viewer` <
+   `operator` < `admin`) at a target (system/org/group/device), with explicit Deny always
+   winning over Allow at the same or broader level. This decides who *can be granted*
+   which scope; the scope check decides what a granted token can *call*.
+
+A successful response's `_links` hypermedia array and an `OPTIONS` request's `Allow`
+header are computed by one shared builder, so they cannot disagree.
+
+### Documentation generation
+
+`docs/reference/` and `internal/api/wellknown/` are generated by `tools/gendocs` from
+source (catalog manifests, apispec, JSON schemas, CLI spec). `make docs-gen-check` proves
+the committed tree matches a fresh run; regenerate and commit together, never hand-edit
+generated reference pages.
+
+### Internal-only documents (gitignored, never cite from anything a user can see)
+
+`.SPECIFICATION/`, `.AGENTS/`, and any `.[A-Z]*`-prefixed path are gitignored (pattern
+`.[A-Z]*` in `.gitignore`) and never ship. `.SPECIFICATION/PLAN.md` is the main spec.
+`tools/docs-lint` (wired into `make ci`) fails the build if a citation into one of these
+leaks into `docs/`, CLI `--help` text, a scaffolded project file, root-level Markdown, or
+generated reference pages — there is no waiver mechanism for this check, unlike
+`gosec-waivers.json`.
+
+## Testing policy highlights (full detail in `.AGENTS/AGENTS.md`)
+
+- **RULE 0 (Representative-or-nothing)**: a test only counts as verification if it runs
+  the same config path the platform actually runs. A test that mocks the transport layer
+  while testing transport behavior proves nothing.
+- `internal/lock`, `internal/event`, and `internal/transport/ssh` run real conformance
+  tests against ephemeral Docker containers (NATS, sshd) — Docker must be available.
+- Coverage is a ratchet (`coverage-floor.json`), not a flat threshold: no package may drop
+  below its recorded floor; a package with no floor yet is reported, not failed.
+- Every `gosec` finding accepted into `gosec-waivers.json` needs an individually written
+  reason — no blanket rule-ID or directory suppression.

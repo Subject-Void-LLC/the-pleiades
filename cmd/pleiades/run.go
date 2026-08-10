@@ -100,20 +100,20 @@ func runRunbook(args []string) error {
 	locks := lock.NewInProcessManager()
 	defer locks.Close()
 
-	// newLazyCredentialStore (lazy_credential_store.go) defers resolving
-	// the AES-256 master key and reading .pleiades/credentials.yaml until
-	// a task actually needs a credential, so a "noop"-only runbook never
-	// touches disk for it. sshtransport.New's own defaults (Options{})
+	// credential.NewLazyFileStore defers resolving the AES-256 master key
+	// and reading .pleiades/credentials.yaml until a task actually needs a
+	// credential, so a "noop"-only runbook never touches disk for it.
+	// sshtransport.New's own defaults (Options{})
 	// are conservative enough for a first real connection: a fail-closed
 	// known_hosts check, bounded retry/backoff, and a per-target circuit
 	// breaker (internal/transport/ssh's own doc comments).
-	bindings := map[string]engine.TransportBinding{
-		"ssh_exec": {
-			Capability: engine.ActionCapability["ssh_exec"],
-			Transport:  sshtransport.New(sshtransport.Options{}),
-			Target:     engine.SSHTarget,
-		},
-	}
+	//
+	// engine.NewDefaultTransportBindings is the one shared, Registry-backed
+	// constructor cmd/runner's own native adapter composition also builds
+	// from (Phase 16, Native Go Execution Adapter), so this codebase has
+	// exactly one capability-keyed transport-binding table, not two
+	// independently maintained copies.
+	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All()
 	// The chain audit's fqcn-table finding (IMPLEMENTATION.md Phase W3):
 	// this map and validate.CapabilityRule's table had drifted before
 	// engine.ActionCapability unified them. This check is what stops a
@@ -138,7 +138,7 @@ func runRunbook(args []string) error {
 	actionExecutor := engine.NewCollectionActionExecutor(
 		engine.NewTransportActionExecutor(
 			bindings,
-			newLazyCredentialStore(*dir),
+			credential.NewLazyFileStore(*dir),
 			engine.NewBuiltinActionExecutor(),
 		),
 		engine.NewDeviceRunbookContext,

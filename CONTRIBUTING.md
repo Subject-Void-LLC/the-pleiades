@@ -8,18 +8,42 @@ contributions land against a moving DSL and catalog.
 
 ## Development workflow
 
-```bash
-go install golang.org/x/tools/gopls@latest
-go install github.com/securego/gosec/v2/cmd/gosec@latest
-go install golang.org/x/vuln/cmd/govulncheck@latest
+Once per clone:
 
+```bash
+go install golang.org/x/tools/gopls@latest   # editor/LSP tooling; not run by CI
+make hooks                                   # run make ci automatically before each push
+```
+
+Then, to check a change:
+
+```bash
 make ci
 ```
 
 `make ci` runs everything a pull request must pass: build, `go vet`, `gofmt` (a hard
 failure, not an auto-fix, so a PR is expected to already be formatted), `go test -race
-./...`, `gosec`, `govulncheck`, the coverage ratchet, and `docs-lint`. Run it before
-opening a PR.
+./...`, `gosec`, `govulncheck`, the coverage ratchet, `docs-lint`, and `docs-gen-check`.
+
+Do not install `gosec` or `govulncheck` by hand. `make ci` installs them itself, at the
+versions pinned in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`), and the CI
+workflow installs them by calling the same `make tools` target. That is what makes a
+local `make ci` and the CI job run byte-identical scanners, so a pass here means
+something about what will happen there. Installing your own `@latest` copy defeats it:
+a newer scanner than the pin will report findings CI does not, and an older one will
+miss findings CI does. Bumping a pinned version is a deliberate commit against the
+`Makefile`.
+
+`make hooks` points `core.hooksPath` at the tracked [`.githooks/`](.githooks/)
+directory, whose `pre-push` hook runs `make ci` and aborts the push if it fails. It is
+opt-in per clone because Git will not run a hook that arrived with a fetch until you
+ask it to. A full run takes minutes and needs Docker up, since several packages dial
+real ephemeral containers; skip a single push with `git push --no-verify`.
+
+Neither the hook nor a local run replaces CI. `govulncheck` queries a live
+vulnerability database, so a newly published advisory can turn CI red on a commit that
+passed locally an hour earlier. The pin closes the gap that is under this project's
+control; it does not pretend to eliminate it.
 
 ### Coverage
 

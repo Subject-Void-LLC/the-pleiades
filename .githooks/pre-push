@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# pre-push: run the same `make ci` target the GitHub Actions workflow
+# runs, so that a check which would fail in CI fails here first, before
+# anything is pushed. The two are the same command against the same
+# pinned scanner versions (see the Makefile's GOSEC_VERSION and
+# GOVULNCHECK_VERSION, which .github/workflows/ci.yml installs by calling
+# `make tools` rather than naming versions of its own), so a pass here is
+# real evidence about CI rather than a weaker local approximation.
+#
+# Enable once per clone with `make hooks`. Skip a single push with
+# `git push --no-verify` -- worth knowing about, because `make ci`
+# includes `go test -race ./...` and several packages dial real ephemeral
+# Docker containers, so a full run takes minutes and needs Docker up.
+#
+# Nothing here is a substitute for CI: this runs on one machine, with one
+# Go toolchain, and a green run here can still meet a red run there (a
+# newly published vulnerability advisory being the likeliest reason, since
+# govulncheck queries a live database). It closes the gap; it does not
+# pretend to eliminate it.
+
+set -eu
+
+# Git feeds pre-push one line per ref being pushed, on stdin:
+#
+#     <local ref> <local sha> <remote ref> <remote sha>
+#
+# An all-zero local sha means that ref is being deleted. A push that only
+# deletes refs adds no code for CI to check, so running the full suite for
+# it would be pure delay; anything else gets the real run.
+only_deletes=yes
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+	case "$local_sha" in
+	*[!0]*) only_deletes=no ;;
+	esac
+done
+
+if [ "$only_deletes" = yes ]; then
+	exit 0
+fi
+
+echo "pre-push: running 'make ci' (the same target CI runs); skip with 'git push --no-verify'"
+
+# exec, so make's own exit status is the hook's exit status and a failing
+# check aborts the push.
+exec make ci

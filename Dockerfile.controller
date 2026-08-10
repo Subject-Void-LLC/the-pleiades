@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN go build -o controller cmd/controller/main.go
 
-FROM alpine:latest
+FROM alpine:3.24.1
 WORKDIR /app
 COPY --from=builder /app/controller .
 EXPOSE 8080

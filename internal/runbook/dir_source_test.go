@@ -237,3 +237,92 @@ func TestDirSource_Get_CachePicksUpRealFileChange(t *testing.T) {
 		t.Fatalf("Required (second) = %v, want [%v] (cache should have picked up the file change)", second.Required, capability.NameCiscoIOS)
 	}
 }
+
+// TestDirSource_GetDAG_ResolvesCompiledDAG proves GetDAG returns the real
+// compiled *engine.DAG for a runbook file on disk, with the fixture's own
+// one task present as a node, not merely a Runbook with the same
+// capability set Get would return.
+func TestDirSource_GetDAG_ResolvesCompiledDAG(t *testing.T) {
+	dir := t.TempDir()
+	writeRunbook(t, dir, "backup-job", "ios_backup")
+
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+
+	dag, err := src.GetDAG(context.Background(), "backup-job")
+	if err != nil {
+		t.Fatalf("GetDAG: %v", err)
+	}
+	if len(dag.Nodes) != 1 {
+		t.Fatalf("len(dag.Nodes) = %d, want 1", len(dag.Nodes))
+	}
+	for _, task := range dag.Nodes {
+		if task.FQCN != "ios_backup" {
+			t.Errorf("node FQCN = %q, want %q", task.FQCN, "ios_backup")
+		}
+	}
+}
+
+// TestDirSource_GetDAG_UnknownID_ReturnsErrNotFound proves GetDAG honors
+// the same Source.GetDAG/ErrNotFound contract as Get, since both share one
+// resolve implementation, but this is the one behavior worth asserting
+// independently: a caller of GetDAG alone (internal/adapters/native.Adapter
+// never calls Get) must still be able to detect "no such runbook" via
+// errors.Is, not just a caller of Get.
+func TestDirSource_GetDAG_UnknownID_ReturnsErrNotFound(t *testing.T) {
+	dir := t.TempDir()
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+
+	_, err = src.GetDAG(context.Background(), "does-not-exist")
+	if !errors.Is(err, runbook.ErrNotFound) {
+		t.Fatalf("GetDAG error = %v, want errors.Is(err, runbook.ErrNotFound)", err)
+	}
+}
+
+// TestDirSource_Get_And_GetDAG_ShareOneCompile proves Get and GetDAG share
+// resolve's single Flyweight cache entry rather than each compiling the
+// same file independently: after Get populates the cache, overwriting the
+// file with content that cannot compile -- while forcing its mtime back
+// to the exact value the cache entry keyed on, so resolve's own
+// mtime-equality cache check reads it as unchanged -- proves GetDAG
+// serves the cached *engine.DAG rather than re-reading and recompiling
+// the file, since a real recompile of the corrupted content would fail.
+func TestDirSource_Get_And_GetDAG_ShareOneCompile(t *testing.T) {
+	dir := t.TempDir()
+	path := writeRunbook(t, dir, "shared", "ssh_exec")
+
+	src, err := runbook.NewDirSource(dir)
+	if err != nil {
+		t.Fatalf("NewDirSource: %v", err)
+	}
+
+	if _, err := src.Get(context.Background(), "shared"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("failed to stat fixture: %v", err)
+	}
+	origModTime := info.ModTime()
+
+	if err := os.WriteFile(path, []byte("not: [valid, yaml, for, a, runbook"), 0o644); err != nil {
+		t.Fatalf("failed to corrupt fixture: %v", err)
+	}
+	if err := os.Chtimes(path, origModTime, origModTime); err != nil {
+		t.Fatalf("failed to restore mtime: %v", err)
+	}
+
+	dag, err := src.GetDAG(context.Background(), "shared")
+	if err != nil {
+		t.Fatalf("GetDAG after corrupting the backing file at an unchanged mtime: %v", err)
+	}
+	if len(dag.Nodes) != 1 {
+		t.Fatalf("len(dag.Nodes) = %d, want 1", len(dag.Nodes))
+	}
+}

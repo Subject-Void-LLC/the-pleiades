@@ -75,7 +75,7 @@ func TestDispatcher_GroupSelector_FiltersAgainstRealRepository(t *testing.T) {
 	runbooks := newTestRunbookSource(t, "pb-1")
 	bus := event.NewInProcessBus()
 
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil)
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}

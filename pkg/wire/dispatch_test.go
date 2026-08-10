@@ -13,7 +13,10 @@ package wire
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
 // TestDispatchPayload_JSONRoundTrip proves every field of DispatchPayload
@@ -46,13 +49,16 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceName:    "core-switch-1",
 				DeviceHost:    "10.0.0.1",
 				Interruptible: true,
+				SSHPort:       22,
+				Capabilities:  []capability.Name{capability.NameSSHTransport},
+				Secrets:       map[string]string{"password": "hunter2"},
 			},
-			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true}`,
+			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"}}`,
 		},
 		{
 			name:     "zero value",
 			in:       DispatchPayload{},
-			wantJSON: `{"job_id":"","runbook_id":"","device_id":"","device_name":"","device_host":"","interruptible":false}`,
+			wantJSON: `{"job_id":"","runbook_id":"","device_id":"","device_name":"","device_host":"","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 		{
 			name: "device name and device id deliberately differ",
@@ -71,7 +77,7 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceName: "name-only-value",
 				DeviceHost: "192.168.1.1",
 			},
-			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1","interruptible":false}`,
+			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 		{
 			name: "interruptible false is explicit on the wire, not merely absent",
@@ -90,7 +96,7 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceHost:    "10.0.0.2",
 				Interruptible: false,
 			},
-			wantJSON: `{"job_id":"job-2","runbook_id":"rb-2","device_id":"device-2","device_name":"device-2-name","device_host":"10.0.0.2","interruptible":false}`,
+			wantJSON: `{"job_id":"job-2","runbook_id":"rb-2","device_id":"device-2","device_name":"device-2-name","device_host":"10.0.0.2","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 	}
 
@@ -107,12 +113,15 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 			// Decode back and compare against the original struct, which
 			// proves the tags are symmetric: a tag that only the encoder
 			// or only the decoder got right would fail one direction of
-			// this test but not the other.
+			// this test but not the other. reflect.DeepEqual, not !=,
+			// because Capabilities and Secrets are a slice and a map:
+			// DispatchPayload stopped being comparable with == the moment
+			// either field was added.
 			var got DispatchPayload
 			if err := json.Unmarshal(gotJSON, &got); err != nil {
 				t.Fatalf("Unmarshal() returned an error: %v", err)
 			}
-			if got != tt.in {
+			if !reflect.DeepEqual(got, tt.in) {
 				t.Errorf("round trip = %+v, want %+v", got, tt.in)
 			}
 		})
@@ -127,6 +136,37 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 // wire keys have to match by contract, not merely by both ends sharing
 // the same struct definition.
 func TestDispatchPayload_UnmarshalFromWireKeys(t *testing.T) {
+	const raw = `{"job_id":"j1","runbook_id":"r1","device_id":"d1","device_name":"n1","device_host":"h1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"}}`
+
+	want := DispatchPayload{
+		JobID:         "j1",
+		RunbookID:     "r1",
+		DeviceID:      "d1",
+		DeviceName:    "n1",
+		DeviceHost:    "h1",
+		Interruptible: true,
+		SSHPort:       22,
+		Capabilities:  []capability.Name{capability.NameSSHTransport},
+		Secrets:       map[string]string{"password": "hunter2"},
+	}
+
+	var got DispatchPayload
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("Unmarshal() returned an error: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Unmarshal(%s) = %+v, want %+v", raw, got, want)
+	}
+}
+
+// TestDispatchPayload_UnmarshalOmitsNewFields proves a payload published by
+// an older Controller binary (one that predates SSHPort/Capabilities/
+// Secrets) still decodes cleanly: the three new fields fall back to their
+// Go zero values rather than the Unmarshal call failing. This is the
+// backward-compatibility direction TestDispatchPayload_UnmarshalFromWireKeys
+// does not exercise, since that test's own raw literal already includes
+// every field.
+func TestDispatchPayload_UnmarshalOmitsNewFields(t *testing.T) {
 	const raw = `{"job_id":"j1","runbook_id":"r1","device_id":"d1","device_name":"n1","device_host":"h1","interruptible":true}`
 
 	want := DispatchPayload{
@@ -142,7 +182,7 @@ func TestDispatchPayload_UnmarshalFromWireKeys(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("Unmarshal() returned an error: %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Unmarshal(%s) = %+v, want %+v", raw, got, want)
 	}
 }

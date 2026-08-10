@@ -16,16 +16,20 @@ tested today; nothing here is aspirational. Read this section before the rest.
   locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
   conditional engine, the workflow DAG builder, the HATEOAS API gateway, and the job
   dispatcher are all built, with real integration tests, not mocks.
-- **The distributed execution plane is a stub.** A job dispatched through the
-  Controller and picked up by a `runner` over NATS does not yet reach a real device:
-  `internal/adapters/native/adapter.go`'s `Execute` still simulates three steps with
-  `time.Sleep` and a fabricated "pong" response. The Walk-tier CLI's own execution
-  path is unrelated to this and is not affected by it.
-- **The module catalog has 75 declared methods; 4 are implemented.** Every
+- **The distributed execution plane reaches real devices.** A job dispatched through
+  the Controller and picked up by a `runner` over NATS runs the runbook against the
+  device it names, over the same real SSH transport the CLI uses, with each Collection
+  method executing in its own child process so credentials cross on standard input
+  rather than through argv or the environment. Two limits: a device's credential rides
+  the dispatch message, so it sits in the broker's storage until that message ages out,
+  and credential storage is still an encrypted local file with no rotation or Vault
+  support.
+- **The module catalog has 76 declared methods; 5 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
-  an explicit "not implemented" error rather than pretending to succeed. Only the four
-  `net.catalyst.*` methods (against Cisco Catalyst Center) are real today.
+  an explicit "not implemented" error rather than pretending to succeed. The four
+  `net.catalyst.*` methods (against Cisco Catalyst Center) and `net.ssh.ping` are real
+  today.
 
 ## What makes this different
 

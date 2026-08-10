@@ -18,13 +18,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fw` | 3 | 0 |
 | `http` | 1 | 0 |
 | `identity` | 6 | 0 |
-| `net` | 10 | 4 |
+| `net` | 11 | 5 |
 | `pkg` | 9 | 0 |
 | `pleiades` | 1 | 0 |
 | `svc` | 16 | 0 |
 | `wait` | 2 | 0 |
 | `win` | 2 | 0 |
-| **total** | **75** | **4** |
+| **total** | **76** | **5** |
 
 ## All methods
 
@@ -75,6 +75,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.ios.config](net/ios/config.md) | declared | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
 | [net.netconf.config](net/netconf/config.md) | declared | Applies configuration to a device over NETCONF. |
+| [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [pkg.apt.install](pkg/apt/install.md) | declared | Installs a package via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | declared | Removes a package via APT. |
 | [pkg.apt.upgrade](pkg/apt/upgrade.md) | declared | Upgrades a package via APT. |

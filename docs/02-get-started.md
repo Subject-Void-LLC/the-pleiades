@@ -161,10 +161,11 @@ states it, the engine does not infer it.
 
 ## Quickstart: Crawl tier
 
-**Status: real infrastructure, simulated execution.** Everything below is captured
-from a real local mesh: a real NATS JetStream container and a real `controller`
-binary, authenticated with a real signed JWT. The one thing that is not real yet is
-what a `runner` does with a dispatched job; see
+**Status: real infrastructure, real execution.** Everything below is captured from a
+real local mesh: a real NATS JetStream container and a real `controller` binary,
+authenticated with a real signed JWT. A `runner` that picks up one of these dispatches
+executes the runbook against the named device for real, over SSH. Before pointing this
+at anything you care about, read the credential-handling limits in
 [Implementation status](01-start-here.md#implementation-status).
 
 ### A bug found and fixed while writing this
@@ -187,7 +188,7 @@ for the first). Running the thing is what finds what prose alone does not.
 ### Start the mesh
 
 ```bash
-docker run -d --name pleiades-nats -p 4222:4222 nats:latest -js
+docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4 -js
 
 export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export JWT_SECRET="a-real-secret-at-least-32-bytes-long"

@@ -26,12 +26,13 @@ func TestCollections_NoDuplicatesAndAllValid(t *testing.T) {
 
 func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// docs/hephaestus.md's own catalog table, counted by hand and cross
-	// checked against this package's section files, resolves to exactly
-	// 71 individual <namespace>.<method> names across 27 Go packages (the
-	// doc's own "roughly twenty seven collections" counts packages, not
-	// methods). This test pins that number down so a future accidental
-	// entry loss or duplication is a build failure, not a silent gap.
-	const wantCollections = 75
+	// checked against this package's section files, previously resolved to
+	// 75 individual <namespace>.<method> names. Phase 16 (Native Go
+	// Execution Adapter) added the 76th, net.ssh.ping, its own real,
+	// StatusImplemented Release Gate method. This test pins the number
+	// down so a future accidental entry loss or duplication is a build
+	// failure, not a silent gap.
+	const wantCollections = 76
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

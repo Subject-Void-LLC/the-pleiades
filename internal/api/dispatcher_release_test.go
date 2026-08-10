@@ -147,7 +147,7 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	// own stored tally alone.
 	bus := newCapturingBus()
 
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil)
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}

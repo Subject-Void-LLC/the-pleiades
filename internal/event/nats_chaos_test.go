@@ -7,6 +7,7 @@ import (
 
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/testcontainers/testcontainers-go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
@@ -42,9 +43,9 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 	t.Cleanup(func() { nw.Remove(context.Background()) })
 
 	natsContainer, err := tcnats.RunContainer(ctx,
-		testcontainers.WithImage("nats:2.10"),
+		testcontainers.WithImage(testsupport.NATSImage),
 		testcontainers.WithCmd("-js"),
-		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready")),
+		testcontainers.WithWaitStrategy(wait.ForLog("Server is ready").WithStartupTimeout(testsupport.ContainerStartupTimeout)),
 		network.WithNetwork([]string{"nats"}, nw),
 	)
 	if err != nil {
