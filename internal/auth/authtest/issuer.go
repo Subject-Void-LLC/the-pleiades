@@ -76,6 +76,42 @@ func New(t testing.TB, issuer, audience string) *Issuer {
 	return &Issuer{secret: secret, issuer: issuer, audience: audience, evaluator: evaluator}
 }
 
+// NewWithSecret builds an Issuer signing against a caller-supplied
+// secret, rather than the random one New generates.
+//
+// It exists for one specific shape New cannot serve: a test that drives a
+// separately executed binary, which builds its own evaluator from the
+// JWT_SECRET environment variable. Such a test has to hand that binary
+// the very secret it signs with, and New's secret is unreachable by
+// design.
+//
+// The parameter is a string, not a []byte, and that is the whole point.
+// New generates 32 random bytes, and random bytes cannot survive an
+// environment variable: they routinely contain NUL and invalid UTF-8,
+// and a composition root reads the value back as
+// []byte(os.Getenv("JWT_SECRET")). An accessor exposing New's raw secret
+// would look like it solved this and would fail intermittently instead,
+// which is worse than not having one. A string secret is exactly what an
+// operator sets and exactly what the binary reads.
+//
+// secret must satisfy auth.NewStaticKeyProvider's own HS256 minimum, so
+// this constructor cannot be used to weaken a key below what production
+// would have accepted.
+func NewWithSecret(t testing.TB, secret, issuer, audience string) *Issuer {
+	t.Helper()
+
+	provider, err := auth.NewStaticKeyProvider([]byte(secret))
+	if err != nil {
+		t.Fatalf("authtest: NewStaticKeyProvider: %v", err)
+	}
+	evaluator, err := auth.NewJWTEvaluator(provider, issuer, audience)
+	if err != nil {
+		t.Fatalf("authtest: NewJWTEvaluator: %v", err)
+	}
+
+	return &Issuer{secret: []byte(secret), issuer: issuer, audience: audience, evaluator: evaluator}
+}
+
 // Evaluator returns the auth.Evaluator that verifies tokens Issue mints.
 // Pass this to api.AuthMiddleware in place of a production evaluator.
 func (i *Issuer) Evaluator() auth.Evaluator {
