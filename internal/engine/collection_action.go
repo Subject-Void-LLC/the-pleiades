@@ -33,6 +33,37 @@ type collectionActionExecutor struct {
 	// that captures emitted facts, which is what a real run needs and what
 	// tests assert against.
 	newContext func(device inventory.InventoryItem) sdk.RunbookContext
+
+	// invoke, when non-nil, replaces how a resolved, StatusImplemented
+	// method's body actually runs; see CollectionInvoker's own doc comment.
+	invoke CollectionInvoker
+}
+
+// CollectionInvoker replaces how a registered, StatusImplemented
+// Collection method's body actually runs, once collectionActionExecutor
+// has already resolved and status-checked it via desc. device and params
+// are exactly what desc.Invoke itself would receive.
+//
+// This is the Decorator Phase 16 (Native Go Execution Adapter)'s own
+// Pattern Entry Gate names: it decorates HOW a method runs (a per-task
+// subprocess boundary, PLAN.md Section 17.5) without duplicating or
+// bypassing collectionActionExecutor's own dispatch, status-check, or
+// fact-collection logic. Nil (the default: WithCollectionInvoker is never
+// called) means "call desc.Invoke directly, in-process," today's exact,
+// unchanged Walk-tier behavior -- cmd/pleiades/run.go's own
+// NewCollectionActionExecutor call needs no change at all.
+type CollectionInvoker func(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}) (collection.Result, map[string]interface{}, error)
+
+// CollectionActionExecutorOption configures optional, non-default behavior
+// on a collectionActionExecutor built by NewCollectionActionExecutor.
+type CollectionActionExecutorOption func(*collectionActionExecutor)
+
+// WithCollectionInvoker installs invoke as the CollectionInvoker a
+// collectionActionExecutor uses in place of calling desc.Invoke directly.
+func WithCollectionInvoker(invoke CollectionInvoker) CollectionActionExecutorOption {
+	return func(e *collectionActionExecutor) {
+		e.invoke = invoke
+	}
 }
 
 // NewCollectionActionExecutor returns an ActionExecutor that dispatches
@@ -40,8 +71,12 @@ type collectionActionExecutor struct {
 //
 // Pass NewBuiltinActionExecutor() as fallback to keep the engine keywords
 // working, which is what the composition root does.
-func NewCollectionActionExecutor(fallback ActionExecutor, newContext func(inventory.InventoryItem) sdk.RunbookContext) ActionExecutor {
-	return &collectionActionExecutor{fallback: fallback, newContext: newContext}
+func NewCollectionActionExecutor(fallback ActionExecutor, newContext func(inventory.InventoryItem) sdk.RunbookContext, opts ...CollectionActionExecutorOption) ActionExecutor {
+	e := &collectionActionExecutor{fallback: fallback, newContext: newContext}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Execute runs task, dispatching to the registered Collection method when
@@ -64,6 +99,14 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		// Register rejects this combination, so reaching it means something
 		// bypassed Register. Refusing beats a nil-pointer panic.
 		return ActionResult{}, fmt.Errorf("collection method %q is registered as implemented but carries no implementation", task.FQCN)
+	}
+
+	if e.invoke != nil {
+		result, stats, err := e.invoke(ctx, desc, device, task.Params)
+		if err != nil {
+			return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+		}
+		return ActionResult{Changed: result.Changed, Stats: stats}, nil
 	}
 
 	rc := e.newContext(device)

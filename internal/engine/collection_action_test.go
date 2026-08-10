@@ -181,3 +181,95 @@ func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
 		t.Errorf("error = %q, want it to explain the contradiction", err)
 	}
 }
+
+// TestCollectionActionExecutor_WithCollectionInvoker_ReplacesDirectInvoke
+// proves a non-nil CollectionInvoker runs instead of desc.Invoke directly,
+// the Decorator seam Phase 16 (Native Go Execution Adapter) needs for its
+// per-task subprocess boundary: the registered method's own Invoke
+// function must never run in-process when an invoker is installed.
+func TestCollectionActionExecutor_WithCollectionInvoker_ReplacesDirectInvoke(t *testing.T) {
+	var directInvokeCalled bool
+	name := registerTestMethod(t, "decorated", collection.StatusImplemented,
+		func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			directInvokeCalled = true
+			return collection.Result{}, nil
+		})
+
+	var gotFQCN string
+	var gotParams map[string]any
+	invoker := func(_ context.Context, desc collection.Descriptor, _ inventory.InventoryItem, params map[string]any) (collection.Result, map[string]interface{}, error) {
+		gotFQCN = desc.Name
+		gotParams = params
+		return collection.Result{Changed: true}, map[string]interface{}{"from": "invoker"}, nil
+	}
+
+	executor := engine.NewCollectionActionExecutor(&recordingFallback{}, engine.NewDeviceRunbookContext, engine.WithCollectionInvoker(invoker))
+	task := &engine.Task{FQCN: name, Params: map[string]any{"key": "value"}}
+
+	result, err := executor.Execute(context.Background(), task, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if directInvokeCalled {
+		t.Error("desc.Invoke ran directly; want the installed CollectionInvoker to have run instead")
+	}
+	if gotFQCN != name {
+		t.Errorf("invoker received desc.Name = %q, want %q", gotFQCN, name)
+	}
+	if gotParams["key"] != "value" {
+		t.Errorf("invoker received params %v, want the task's own", gotParams)
+	}
+	if !result.Changed {
+		t.Error("expected Changed to propagate from the invoker's result")
+	}
+	if result.Stats["from"] != "invoker" {
+		t.Errorf("Stats = %v, want the invoker's own stats", result.Stats)
+	}
+}
+
+// TestCollectionActionExecutor_WithCollectionInvoker_PropagatesError proves
+// an invoker's error is wrapped with the failing method's name, identically
+// to a direct desc.Invoke failure.
+func TestCollectionActionExecutor_WithCollectionInvoker_PropagatesError(t *testing.T) {
+	sentinel := errors.New("child process exploded")
+	name := registerTestMethod(t, "decorated-failing", collection.StatusImplemented,
+		func(context.Context, sdk.RunbookContext, inventory.InventoryItem, map[string]any) (collection.Result, error) {
+			return collection.Result{}, nil
+		})
+
+	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any) (collection.Result, map[string]interface{}, error) {
+		return collection.Result{}, nil, sentinel
+	}
+
+	executor := engine.NewCollectionActionExecutor(&recordingFallback{}, engine.NewDeviceRunbookContext, engine.WithCollectionInvoker(invoker))
+	_, err := executor.Execute(context.Background(), &engine.Task{FQCN: name}, nil)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error = %v, want it to wrap the invoker's own error", err)
+	}
+	if !strings.Contains(err.Error(), name) {
+		t.Errorf("error = %q, want it to name the failing method", err)
+	}
+}
+
+// TestCollectionActionExecutor_WithCollectionInvoker_StillRefusesDeclaredMethod
+// proves the status check runs before the installed invoker is ever
+// consulted: a declared-but-unimplemented method must be refused the same
+// way regardless of whether a CollectionInvoker is installed.
+func TestCollectionActionExecutor_WithCollectionInvoker_StillRefusesDeclaredMethod(t *testing.T) {
+	name := registerTestMethod(t, "decorated-declared", collection.StatusDeclared, nil)
+
+	var invokerCalled bool
+	invoker := func(context.Context, collection.Descriptor, inventory.InventoryItem, map[string]any) (collection.Result, map[string]interface{}, error) {
+		invokerCalled = true
+		return collection.Result{}, nil, nil
+	}
+
+	executor := engine.NewCollectionActionExecutor(&recordingFallback{}, engine.NewDeviceRunbookContext, engine.WithCollectionInvoker(invoker))
+	_, err := executor.Execute(context.Background(), &engine.Task{FQCN: name}, nil)
+	if err == nil {
+		t.Fatal("expected a declared method to be refused")
+	}
+	if invokerCalled {
+		t.Error("the installed CollectionInvoker ran for a declared-but-unimplemented method; want it refused first")
+	}
+}

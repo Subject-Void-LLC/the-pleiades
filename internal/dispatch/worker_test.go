@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	// Aliased entjob: this file's existing tests already name local
@@ -143,6 +145,40 @@ func capableDevice(id, name, host string) *inventorytest.Stub {
 	}
 }
 
+// sshStub embeds *inventorytest.Stub and adds the SSHHost/SSHPort
+// accessors capability.SSHTransportCapable requires, which the shared
+// Stub type deliberately does not implement itself (its own doc comment:
+// a minimal, overridable double, not a stand-in for every capability
+// interface a real device type might satisfy).
+type sshStub struct {
+	*inventorytest.Stub
+	Host string
+	Port int
+}
+
+func (s *sshStub) SSHHost() string { return s.Host }
+func (s *sshStub) SSHPort() int    { return s.Port }
+
+// sshCapableDevice builds a device declaring both capability.NameCiscoIOS
+// (so it clears CapabilityAdmits for the "pb-1" fixture runbook, exactly
+// like capableDevice) and capability.NameSSHTransport, and structurally
+// implementing capability.SSHTransportCapable, so tests can assert
+// admitAndDispatchDevice populates wire.DispatchPayload.SSHPort and
+// Capabilities correctly.
+func sshCapableDevice(id, name, host string, port int) *sshStub {
+	return &sshStub{
+		Stub: &inventorytest.Stub{
+			StubID:    pkginventory.DeviceID(id),
+			StubName:  name,
+			StubState: pkginventory.StateActive,
+			Caps:      []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport},
+			Props:     map[string]pkginventory.PropertyValue{"host": host},
+		},
+		Host: host,
+		Port: port,
+	}
+}
+
 // capturingBus wraps a real event.NewInProcessBus (a genuine adapter, per
 // RULE 0, not a mock) and additionally records every published event, so
 // tests can assert on payload contents and total publish counts, which
@@ -219,7 +255,7 @@ func TestWorker_HandleJobRequested_SkipsMissingHost(t *testing.T) {
 			Props:     map[string]pkginventory.PropertyValue{},
 		},
 	}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -263,7 +299,7 @@ func TestWorker_HandleJobRequested_SkipsNonActiveLifecycle(t *testing.T) {
 	device := capableDevice("dev-1", "quarantined-router", "10.0.0.1")
 	device.StubState = pkginventory.StateQuarantined
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -303,7 +339,7 @@ func TestWorker_HandleJobRequested_SkipsMissingCapability(t *testing.T) {
 		Props:     map[string]pkginventory.PropertyValue{"host": "10.0.0.1"},
 	}
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -338,7 +374,7 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	bus := newCapturingBus()
 	device := capableDevice("dev-id-123", "router-display-name", "10.0.0.9")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -388,6 +424,115 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	}
 }
 
+// TestWorker_HandleJobRequested_AttachesCapabilitiesAndSSHPort proves
+// admitAndDispatchDevice (worker_devices.go) populates
+// wire.DispatchPayload.Capabilities from the real device's own
+// Capabilities() and SSHPort from a real capability.SSHTransportCapable
+// type assertion, not left at their Go zero values, since the Runner has
+// no inventory backend of its own to re-derive either from (Phase 16,
+// Native Go Execution Adapter).
+func TestWorker_HandleJobRequested_AttachesCapabilitiesAndSSHPort(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := sshCapableDevice("dev-id-ssh", "core-switch-1", "10.0.0.9", 2222)
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	if payload.SSHPort != 2222 {
+		t.Errorf("SSHPort = %d, want 2222", payload.SSHPort)
+	}
+	wantCaps := []capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport}
+	if !reflect.DeepEqual(payload.Capabilities, wantCaps) {
+		t.Errorf("Capabilities = %+v, want %+v", payload.Capabilities, wantCaps)
+	}
+}
+
+// TestWorker_HandleJobRequested_AttachesStoredCredential proves the
+// Controller resolves a device's credential at fan-out time and attaches
+// it to the payload as the flattened secret map, using a real
+// credential.NewLazyFileStore (RULE 0: the real Walk-tier-shared adapter,
+// not a fake), so the JIT-delivery design this phase chose is exercised
+// through its own real code, not asserted only against a mock.
+func TestWorker_HandleJobRequested_AttachesStoredCredential(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := sshCapableDevice("dev-id-ssh", "core-switch-1", "10.0.0.9", 22)
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+
+	credDir := t.TempDir()
+	key, err := credential.ResolveMasterKey(credDir)
+	if err != nil {
+		t.Fatalf("failed to resolve master key: %v", err)
+	}
+	if err := credential.SaveFileStore(credDir, key, "core-switch-1", credential.Credential{Username: "admin", Password: "hunter2"}); err != nil {
+		t.Fatalf("failed to save fixture credential: %v", err)
+	}
+	credentials := credential.NewLazyFileStore(credDir)
+
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, credentials)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	wantSecrets := map[string]string{credential.SecretUsername: "admin", credential.SecretPassword: "hunter2"}
+	if !reflect.DeepEqual(payload.Secrets, wantSecrets) {
+		t.Errorf("Secrets = %+v, want %+v", payload.Secrets, wantSecrets)
+	}
+}
+
+// TestWorker_HandleJobRequested_NoStoredCredentialStillDispatches proves a
+// device with no stored credential is dispatched normally, with an empty
+// Secrets map, rather than being skipped or failed: only a task that
+// actually needs a secret should fail downstream, the same place a
+// missing credential already fails at the Walk tier.
+func TestWorker_HandleJobRequested_NoStoredCredentialStillDispatches(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := sshCapableDevice("dev-id-ssh", "core-switch-1", "10.0.0.9", 22)
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	credentials := credential.NewLazyFileStore(t.TempDir())
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, credentials)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	job, tasks, err := store.Get(ctx, jobIDFromEvent(t, evt))
+	if err != nil {
+		t.Fatalf("Get returned unexpected error: %v", err)
+	}
+	if job.DispatchedCount != 1 || len(tasks) != 1 || tasks[0].Outcome != dispatch.OutcomeDispatched {
+		t.Fatalf("job/tasks = %+v/%+v, want one OutcomeDispatched task despite no stored credential", job, tasks)
+	}
+
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	if len(payload.Secrets) != 0 {
+		t.Errorf("Secrets = %+v, want empty", payload.Secrets)
+	}
+}
+
 // TestWorker_HandleJobRequested_DispatchesInterruptibleFalse proves
 // runbook.Runbook.Interruptible (itself resolved from
 // engine.Metadata.IsInterruptible(), internal/runbook/dir_source.go)
@@ -403,7 +548,7 @@ func TestWorker_HandleJobRequested_DispatchesInterruptibleFalse(t *testing.T) {
 	bus := newCapturingBus()
 	device := capableDevice("dev-id-456", "router-2", "10.0.0.10")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-no-abort", "routers")
 	if err := worker.HandleJobRequested(evt); err != nil {
@@ -432,7 +577,7 @@ func TestWorker_HandleJobRequested_RedeliveryDoesNotDoubleDispatch(t *testing.T)
 	bus := newCapturingBus()
 	device := capableDevice("dev-1", "router-1", "10.0.0.1")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 
@@ -470,7 +615,7 @@ func TestWorker_HandleJobRequested_StaleFanOutIsReclaimed(t *testing.T) {
 	bus := newCapturingBus()
 	device := capableDevice("dev-1", "router-1", "10.0.0.1")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -536,7 +681,7 @@ func TestWorker_HandleJobRequested_StaleFanOutReclaimSkipsAlreadyRecordedDevices
 	deviceA := capableDevice("dev-a", "router-a", "10.0.0.1")
 	deviceB := capableDevice("dev-b", "router-b", "10.0.0.2")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{deviceA, deviceB}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "pb-1", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -607,7 +752,7 @@ func TestWorker_HandleJobRequested_UnresolvableRunbookFailsJob(t *testing.T) {
 	store := newTestJobStore(t)
 	bus := newCapturingBus()
 	repo := &fakeRepository{Devices: nil}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	evt := requestJob(t, ctx, store, "does-not-exist", "routers")
 	jobID := jobIDFromEvent(t, evt)
@@ -684,7 +829,7 @@ func TestWorker_HandleJobRequested_ContextIsBounded(t *testing.T) {
 	// observe an elapsed time close to blockFor, not leaseTTL.
 	const blockFor = 2 * time.Second
 	store := &blockingJobStore{JobStore: realStore, blockFor: blockFor}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, dispatch.WithFanOutLeaseTTL(leaseTTL))
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil, dispatch.WithFanOutLeaseTTL(leaseTTL))
 
 	evt := requestJob(t, ctx, realStore, "pb-1", "routers")
 
@@ -773,7 +918,7 @@ func TestWorker_HandleJobRequested_FencedMidLoopStopsWithoutError(t *testing.T) 
 	jobID := jobIDFromEvent(t, evt)
 
 	store := &reclaimAfterFirstRecordTask{JobStore: realStore, t: t, client: client, jobID: jobID}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	if err := worker.HandleJobRequested(evt); err != nil {
 		t.Fatalf("HandleJobRequested returned %v, want nil (a mid-loop fenced write must be acked, not retried)", err)

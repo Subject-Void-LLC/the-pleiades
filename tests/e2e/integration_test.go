@@ -130,29 +130,22 @@ func TestGrandIntegration(t *testing.T) {
 		t.Fatalf("failed to create consumer: %s", err)
 	}
 
-	// 5. Start Runner Agent
-	adapter := native.NewAdapter(bus)
-	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
-	agentCtx, cancelAgent := context.WithCancel(ctx)
-	defer cancelAgent()
-	go agent.Run(agentCtx)
-
-	// 6. Build a real runbook.Source and durable JobStore, and subscribe
-	// internal/dispatch.Worker to job.requested, mirroring
-	// cmd/controller/main.go's own composition root (RULE 0): Phase 14
-	// moved per-device fan-out out of the HTTP request path and into this
-	// background worker, so DispatchRunbook itself now only persists a Job
-	// and publishes one job.requested event; the Worker subscribed here is
-	// what actually streams the "edge" group, admits or skips each
-	// device, and publishes the per-device wire.DispatchPayload the
-	// Runner Agent above consumes.
+	// 5. Build a real runbook.Source, shared by both the Runner Agent below
+	// (which needs it to resolve a dispatched RunbookID to a compiled
+	// *engine.DAG, Phase 16's own native.Adapter) and the Worker built in
+	// step 6 (which needs it for capability admission), mirroring
+	// cmd/controller and cmd/runner sharing one RUNBOOK_DIR convention in
+	// production rather than each resolving runbooks independently.
+	//
+	// The fqcn is "noop", not "ios_backup": "ios_backup" is declared in
+	// engine.ActionCapability but has no implementation anywhere in this
+	// codebase, so dispatching it through a real adapter (as opposed to
+	// the fake one this test exercised before Phase 16) genuinely fails.
+	// "noop" needs no capability and no transport, and is exactly what
+	// proves the real dispatch-to-execution path end to end without also
+	// depending on a capability yet to be built.
 	runbookDir := t.TempDir()
-	// "ios_backup" requires capability.NameCiscoIOS
-	// (engine.ActionCapability); devices/cisco.Router grants that
-	// capability to every "cisco_router"-typed device automatically
-	// (router.go's own NewRouter), so both devices seeded above satisfy
-	// it without any extra fixture wiring.
-	runbookYAML := "id: ping\ntasks:\n  - name: backup\n    fqcn: ios_backup\n"
+	runbookYAML := "id: ping\ntasks:\n  - name: step\n    fqcn: noop\n"
 	if err := os.WriteFile(filepath.Join(runbookDir, "ping.yaml"), []byte(runbookYAML), 0o644); err != nil {
 		t.Fatalf("failed to write runbook fixture: %s", err)
 	}
@@ -161,8 +154,30 @@ func TestGrandIntegration(t *testing.T) {
 		t.Fatalf("failed to init runbook source: %s", err)
 	}
 
+	// 5b. Start Runner Agent, with a real native.Adapter (Phase 16, Native
+	// Go Execution Adapter): the fake adapter this test used to exercise
+	// never inspected task content at all, so it could not have caught a
+	// dispatch naming an fqcn with no real implementation the way the
+	// comment above now documents.
+	adapter, err := native.NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("failed to init native adapter: %s", err)
+	}
+	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
+	agentCtx, cancelAgent := context.WithCancel(ctx)
+	defer cancelAgent()
+	go agent.Run(agentCtx)
+
+	// 6. Build the durable JobStore and subscribe internal/dispatch.Worker
+	// to job.requested, mirroring cmd/controller/main.go's own composition
+	// root (RULE 0): Phase 14 moved per-device fan-out out of the HTTP
+	// request path and into this background worker, so DispatchRunbook
+	// itself now only persists a Job and publishes one job.requested
+	// event; the Worker subscribed here is what actually streams the
+	// "edge" group, admits or skips each device, and publishes the
+	// per-device wire.DispatchPayload the Runner Agent above consumes.
 	jobStore := dispatch.NewEntJobStore(client)
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil)
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		t.Fatalf("failed to subscribe job fan-out worker: %s", err)
 	}
@@ -249,7 +264,11 @@ func TestGrandIntegration(t *testing.T) {
 		t.Fatalf("failed to create log consumer: %s", err)
 	}
 
-	msgs, err := logConsumer.Fetch(6, jetstream.FetchMaxWait(2*time.Second))
+	// 2 devices x 2 events each (native.Adapter's own Execute publishes
+	// exactly "started" and "task.completed", replacing the fake
+	// adapter's own 3-event-per-device simulation).
+	const wantLogEvents = 4
+	msgs, err := logConsumer.Fetch(wantLogEvents, jetstream.FetchMaxWait(2*time.Second))
 	if err != nil {
 		t.Fatalf("failed to fetch logs: %s", err)
 	}
@@ -259,8 +278,8 @@ func TestGrandIntegration(t *testing.T) {
 		count++
 	}
 
-	if count != 6 {
-		t.Fatalf("expected 6 log events, got %d", count)
+	if count != wantLogEvents {
+		t.Fatalf("expected %d log events, got %d", wantLogEvents, count)
 	}
 
 	t.Log("Grand Integration Test Passed!")

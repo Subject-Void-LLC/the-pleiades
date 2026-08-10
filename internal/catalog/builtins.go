@@ -28,6 +28,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ios"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/junos"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/netconf"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ssh"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/apt"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/pkg/dnf"

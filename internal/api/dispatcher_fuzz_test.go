@@ -177,7 +177,7 @@ func FuzzWorkerDeviceProperties(f *testing.F) {
 
 		store := newTestJobStore(t)
 		bus := event.NewInProcessBus()
-		worker := dispatch.NewWorker(store, fuzzSingleDeviceRepository{device: device}, runbooks, bus)
+		worker := dispatch.NewWorker(store, fuzzSingleDeviceRepository{device: device}, runbooks, bus, nil)
 
 		ctx := context.Background()
 		job := &dispatch.Job{RunbookID: "pb-1", GroupName: "fuzz-group", Actor: "fuzz"}

@@ -30,8 +30,17 @@ import (
 	"syscall"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
+	// Blank-imported so every generated Collection method registers itself
+	// into pkg/collection before native.Adapter's own
+	// engine.NewCollectionActionExecutor ever looks one up, mirroring
+	// cmd/pleiades/catalog_builtins.go exactly. Nothing before Phase 16
+	// (Native Go Execution Adapter) needed this: the fake adapter never
+	// called into the Collection registry at all.
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -67,6 +76,15 @@ func envInt(key string, fallback int) int {
 }
 
 func main() {
+	// The re-exec check is the literal first statement in main(), before
+	// any flag parsing, NATS connection, or telemetry setup: a spawned
+	// collection-runner child (internal/adapters/native's own per-task
+	// subprocess boundary, PLAN.md Section 17.5) must pay for none of
+	// that, and must never itself try to become a second Runner Agent.
+	if len(os.Args) > 1 && os.Args[1] == native.InternalCollectionRunnerArg {
+		os.Exit(native.RunCollectionChild(context.Background()))
+	}
+
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 	logger := slog.Default()
 
@@ -145,7 +163,23 @@ func main() {
 		agentOpts = append(agentOpts, runner.WithResultWAL(wal, bus))
 	}
 
-	adapter := native.NewAdapter(bus)
+	// runbooks resolves a dispatched RunbookID to its compiled *engine.DAG,
+	// the same internal/runbook.DirSource port and RUNBOOK_DIR convention
+	// cmd/controller already uses, reused rather than duplicated: this is
+	// what actually gives native.Adapter something real to execute
+	// (Phase 16, Native Go Execution Adapter), replacing the three
+	// time.Sleep calls it used to run instead. Fail-closed at startup, the
+	// same shape every other Runner dependency above already is.
+	runbookDir := getenv("RUNBOOK_DIR", inventory.DefaultRunbookDir)
+	runbooks, err := runbook.NewDirSource(runbookDir)
+	if err != nil {
+		log.Fatalf("failed to init runbook source: %v", err)
+	}
+
+	adapter, err := native.NewAdapter(bus, runbooks, logger)
+	if err != nil {
+		log.Fatalf("failed to init native adapter: %v", err)
+	}
 	agent := runner.NewAgent(consumer, adapter, js, lockMgr, topology.MaxDeliverDefault, logger,
 		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
 

@@ -42,7 +42,7 @@ func TestReaper_EndToEnd_ReclaimsAndCompletesStaleJob(t *testing.T) {
 
 	device := capableDevice("dev-1", "router-1", "10.0.0.1")
 	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
-	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus)
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
 
 	handlerDone := make(chan error, 8)
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), func(evt event.Event) error {

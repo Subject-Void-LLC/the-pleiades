@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 )
 
@@ -90,6 +91,17 @@ type Source interface {
 	// backing store, never echoing an id that failed validation back into
 	// an error.
 	Get(ctx context.Context, id string) (*Runbook, error)
+
+	// GetDAG resolves id to its full compiled *engine.DAG, the same
+	// underlying compilation Get's own Runbook.Required is derived from,
+	// for a caller that actually executes the runbook rather than only
+	// asking what capabilities it needs (internal/adapters/native.Adapter,
+	// Phase 16, Native Go Execution Adapter). It deliberately is not a
+	// field on Runbook: Runbook's own doc comment explains why that type
+	// stays capability-shaped rather than becoming a second, competing
+	// representation of a compiled runbook alongside engine.DAG. Subject
+	// to the same id-validation contract as Get.
+	GetDAG(ctx context.Context, id string) (*engine.DAG, error)
 }
 
 // ErrNotFound is returned by Source.Get, wrapped with additional context by

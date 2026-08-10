@@ -9,6 +9,7 @@ package dispatch
 import (
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
@@ -25,6 +26,16 @@ type Worker struct {
 	repo     inventory.Repository
 	runbooks runbook.Source
 	bus      event.Bus
+	// credentials resolves a device's stored credential at fan-out time,
+	// so it can be attached directly to wire.DispatchPayload.Secrets
+	// (PLAN.md Section 17's Just-in-Time delivery principle: the Runner
+	// never holds its own copy of the decryption key, the Controller
+	// resolves and hands it over already-decrypted, per job, per device).
+	// A device with no stored credential is not a fan-out failure: only a
+	// task that actually needs a secret fails downstream, the same place
+	// a missing credential already fails at the Walk tier
+	// (worker_devices.go's admitAndDispatchDevice).
+	credentials credential.Store
 	// fanOutLeaseTTL is this Worker's own fan-out lease window: both the
 	// staleAfter duration passed to JobStore.BeginFanOut and the bound on
 	// HandleJobRequested's own per-invocation context (see that method's
@@ -33,20 +44,23 @@ type Worker struct {
 	fanOutLeaseTTL time.Duration
 }
 
-// NewWorker builds a Worker over its four collaborator ports: store
+// NewWorker builds a Worker over its five collaborator ports: store
 // persists job and per-device task state, repo streams the target
 // inventory group, runbooks resolves a job's RunbookID to its compiled
-// capability requirements, and bus is where a per-device dispatch event
-// is published to and where job.requested itself is consumed from. opts
-// applies optional, non-default configuration (see WorkerOption); every
-// existing caller (e.g. cmd/controller/main.go) can omit it entirely and
-// gets DefaultFanOutLeaseTTL.
-func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, opts ...WorkerOption) *Worker {
+// capability requirements, bus is where a per-device dispatch event is
+// published to and where job.requested itself is consumed from, and
+// credentials resolves each admitted device's stored credential so it can
+// be attached to the dispatch payload. opts applies optional, non-default
+// configuration (see WorkerOption); every existing caller (e.g.
+// cmd/controller/main.go) can omit it entirely and gets
+// DefaultFanOutLeaseTTL.
+func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, credentials credential.Store, opts ...WorkerOption) *Worker {
 	w := &Worker{
 		store:          store,
 		repo:           repo,
 		runbooks:       runbooks,
 		bus:            bus,
+		credentials:    credentials,
 		fanOutLeaseTTL: DefaultFanOutLeaseTTL,
 	}
 	for _, opt := range opts {

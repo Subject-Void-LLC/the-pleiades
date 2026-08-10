@@ -102,7 +102,7 @@ func BenchmarkWorker_DeviceFanOut(b *testing.B) {
 	store := benchJobStore(b)
 	bus := event.NewInProcessBus()
 	repo := &fakeRepository{Devices: benchDevices()}
-	worker := dispatch.NewWorker(store, repo, benchRunbookSource(b), bus)
+	worker := dispatch.NewWorker(store, repo, benchRunbookSource(b), bus, nil)
 	ctx := context.Background()
 
 	b.ResetTimer()

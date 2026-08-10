@@ -15,10 +15,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
@@ -92,6 +94,37 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		DeviceName:    device.Name(),
 		DeviceHost:    host,
 		Interruptible: rb.Interruptible,
+		Capabilities:  device.Capabilities(),
+	}
+	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
+		payload.SSHPort = sshCapable.SSHPort()
+	}
+
+	// The Controller resolves this device's credential now, at fan-out
+	// time, and attaches it directly to the payload (PLAN.md Section 17's
+	// Just-in-Time delivery principle, per Phase 16's own design
+	// decision): the Runner never holds its own copy of the decryption
+	// key. A missing credential (ErrNotFound) is not a dispatch failure --
+	// only a task that actually needs a secret fails downstream, the same
+	// place a missing credential already fails at the Walk tier. Any
+	// other error (a real store failure: a corrupt file, a bad master
+	// key) is logged and the device proceeds with no secrets rather than
+	// being skipped outright, since a device that only runs
+	// capability-free tasks should not fail merely because credential
+	// storage itself is unhealthy.
+	if w.credentials != nil {
+		cred, err := w.credentials.Lookup(ctx, device.Name())
+		switch {
+		case err == nil:
+			payload.Secrets = credential.Flatten(cred)
+		case errors.Is(err, credential.ErrNotFound):
+			// No credential stored for this device; Secrets stays empty.
+		default:
+			slog.Warn("credential lookup failed while dispatching device; proceeding with no secrets",
+				slog.String("job_id", job.JobID),
+				slog.String("device_name", device.Name()),
+				slog.Any("error", err))
+		}
 	}
 
 	dispatchEvt, err := event.WrapPayload(uuid.New().String(), "runbook.dispatched", payload)

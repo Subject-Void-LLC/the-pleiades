@@ -27,6 +27,28 @@ var networkCollections = []collectionscaffold.Config{
 		EngineVersion: engineVersion,
 		Doc:           collection.Doc{Summary: "Applies configuration lines to a network device over its CLI."},
 	},
+	// net.ssh.ping is Phase 16 (Native Go Execution Adapter)'s own real,
+	// StatusImplemented method: a lightweight connectivity check that
+	// dials a real SSH connection and echoes a value back, the artifact
+	// that phase's Release Gate proves the full distributed execution
+	// chain (dispatch, a real JIT-delivered secret, the Runner's DAG
+	// executor, the per-task subprocess boundary, a real device) through.
+	{
+		Name:          "net.ssh.ping",
+		Capabilities:  []capability.Name{capability.NameSSHTransport},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
+			Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
+			Returns: []collection.ReturnField{
+				{Name: "reply", Type: "string", Returned: "always", Description: "The trimmed value the remote command echoed back."},
+			},
+			Examples: []collection.Example{
+				{Name: "Check a device is reachable over SSH", RunbookYAML: "- name: Ping the device\n  fqcn: net.ssh.ping\n  register: reachability\n"},
+			},
+		},
+	},
 	{
 		Name:          "net.netconf.config",
 		Capabilities:  []capability.Name{capability.NameNetconf},

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/clispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
@@ -165,7 +166,7 @@ func runInventorySync(args []string) error {
 func buildSyncPlugin(desc syncplugin.Descriptor, dir string) (syncplugin.Plugin, error) {
 	if desc.Name == catalystcenter.Name {
 		return catalystcenter.New(
-			catalystcenter.WithCredentialStore(newLazyCredentialStore(dir)),
+			catalystcenter.WithCredentialStore(credential.NewLazyFileStore(dir)),
 		), nil
 	}
 	return desc.New(), nil

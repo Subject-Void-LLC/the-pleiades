@@ -1,135 +1,215 @@
-// Package native implements runner.ExecutionAdapter for native Go collections.
+// Package native implements runner.ExecutionAdapter for native Go
+// collections, by handing a wire.DispatchPayload back to the same
+// internal/engine execution stack (Executor, TransportActionExecutor,
+// CollectionActionExecutor) the Walk-tier CLI (cmd/pleiades/run.go)
+// already runs, rather than a second, parallel dispatch mechanism.
 package native
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
-	"github.com/google/uuid"
 )
 
-// Adapter implements the runner.ExecutionAdapter for native Go functions.
+// Adapter implements runner.ExecutionAdapter for the native Go execution
+// path. bindings is built once, at construction, from a real SSH
+// transport: internal/transport/transport.go's own doc comment states
+// this explicitly ("Phase 16 places the same transport behind the runner
+// mesh; it does not own the transport itself"), so this package
+// constructs no transport of its own beyond wiring sshtransport.New(...)
+// into the one shared, Registry-backed constructor
+// (engine.NewDefaultTransportBindings) cmd/pleiades/run.go also builds
+// from.
 type Adapter struct {
-	bus event.Bus
+	bus      event.Bus
+	runbooks runbook.Source
+	bindings map[string]engine.TransportBinding
+	ipc      *ipcCollectionExecutor
+	logger   *slog.Logger
 }
 
-// NewAdapter creates a new native execution adapter.
+// NewAdapter builds a native Adapter. runbooks resolves a dispatched
+// RunbookID to its compiled *engine.DAG (internal/runbook.Source, the
+// same port cmd/controller's own dispatch.Worker already depends on).
+// logger is injected, never the package-level slog.* global
+// (internal/telemetry/telemetry.go's own stated rule for observability
+// values); a nil logger falls back to slog.Default() at construction
+// only, matching internal/runner.Agent's own established convention.
 //
-// bus replaces a raw jetstream.JetStream handle: streamLog now publishes
-// through the event.Bus port to topology.LogSubject, instead of a raw
-// jetstream.JetStream.PublishMsg call to a bare "jobs.logs.<id>" literal
-// that was never covered by any stream this package itself declared
-// (FAILURE_PATTERNS.md #17).
-func NewAdapter(bus event.Bus) *Adapter {
-	return &Adapter{bus: bus}
+// It fails closed if this process's own executable path cannot be
+// resolved (newIPCCollectionExecutor): every Collection method this
+// Adapter can reach runs behind the per-task subprocess boundary PLAN.md
+// Section 17.5 requires, which re-execs this same binary, so a Runner
+// that cannot find its own path has no business starting up.
+func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*Adapter, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	ipc, err := newIPCCollectionExecutor(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init collection subprocess executor: %w", err)
+	}
+	return &Adapter{
+		bus:      bus,
+		runbooks: runbooks,
+		bindings: engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All(),
+		ipc:      ipc,
+		logger:   logger,
+	}, nil
 }
 
-// LogEvent structure expected by the UI.
-type LogEvent struct {
-	Timestamp string `json:"timestamp"`
-	Status    string `json:"status"`
-	Host      string `json:"host"`
-	Task      string `json:"task"`
-	EventData struct {
-		Message string `json:"message"`
-	} `json:"event_data"`
+// newDeviceRunbookContext is the newContext function
+// engine.NewCollectionActionExecutor calls to build the sdk.RunbookContext
+// a Collection method's Invoke receives. device is always the *wireDevice
+// this package's own Execute built for this call (singleDeviceResolver
+// never resolves any other value), so its embedded wire.DispatchPayload
+// already carries whatever secrets the Controller attached at dispatch
+// time (PLAN.md Section 17's Just-in-Time delivery principle) -- no
+// second credential lookup happens here. The type-assertion fallback is a
+// defensive measure against a structural invariant of this package's own
+// composition, not an expected runtime case: it can only be reached if a
+// future change hands engine.Executor a TargetResolver other than
+// singleDeviceResolver.
+func newDeviceRunbookContext(device inventory.InventoryItem) sdk.RunbookContext {
+	wd, ok := device.(*wireDevice)
+	if !ok {
+		return engine.NewRunbookContext(nil)
+	}
+	return engine.NewRunbookContext(wd.payload.Secrets)
 }
 
-// Execute simulates running a native Go runbook (e.g. Ping).
-//
-// Each simulated step's sleep honors ctx via sleepOrDone rather than a
-// bare time.Sleep, so a caller's context cancellation (internal/runner's
-// executeWithLease, self-aborting on lost lock lease heartbeat per
-// PLAN.md Section 16) actually stops this Execute call promptly instead
-// of running out its full ~1s of simulated work regardless of
-// cancellation -- without this, the self-abort mechanism would be
-// unprovable against the one real (if still simulated) adapter this
-// codebase has.
+// Execute implements runner.ExecutionAdapter. It resolves payload's
+// runbook to a compiled DAG, adapts payload into an inventory.InventoryItem
+// (wireDevice), and runs the identical engine.Executor/ActionExecutor
+// stack the Walk-tier CLI runs, scoped to the one device this payload
+// names.
 func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
-	// Simulate Ping Execution - Step 1: Start
-	a.streamLog(ctx, payload.JobID, LogEvent{
-		Timestamp: time.Now().Format(time.RFC3339),
-		Status:    "started",
-		Host:      payload.DeviceName,
-		Task:      "Executing Native Collection: " + payload.RunbookID,
-	})
-
-	if err := sleepOrDone(ctx, 500*time.Millisecond); err != nil {
-		return err
+	started := wire.JobEvent{Status: "started", Host: payload.DeviceHost, Task: "runbook:" + payload.RunbookID}
+	started.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	started.EventData.Message = fmt.Sprintf("started runbook %q on %s", payload.RunbookID, payload.DeviceName)
+	if err := a.publish(ctx, payload.JobID, started); err != nil {
+		return fmt.Errorf("failed to publish started event: %w", err)
 	}
 
-	// Simulate Ping Execution - Step 2: Ping
-	a.streamLog(ctx, payload.JobID, LogEvent{
-		Timestamp: time.Now().Format(time.RFC3339),
-		Status:    "changed",
-		Host:      payload.DeviceName,
-		Task:      "ping",
-		EventData: struct {
-			Message string `json:"message"`
-		}{
-			// DeviceHost, never the old DeviceIP: this is the property
-			// every concrete device type in this codebase actually
-			// populates (pkg/wire.DispatchPayload's own doc comment), so
-			// this now reads a real address instead of the old field,
-			// which named a property ("ip") no device type ever set.
-			Message: "pong from " + payload.DeviceName + " (" + payload.DeviceHost + ")",
-		},
-	})
-
-	if err := sleepOrDone(ctx, 500*time.Millisecond); err != nil {
-		return err
+	dag, err := a.runbooks.GetDAG(ctx, payload.RunbookID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
 	}
 
-	// Simulate Ping Execution - Step 3: Complete
-	a.streamLog(ctx, payload.JobID, LogEvent{
-		Timestamp: time.Now().Format(time.RFC3339),
-		Status:    "ok",
-		Host:      payload.DeviceName,
-		Task:      "task.completed",
-		EventData: struct {
-			Message string `json:"message"`
-		}{
-			Message: "Native execution finished successfully",
-		},
-	})
+	device := newWireDevice(payload)
+	credentials := credential.NewStaticStore(payload.Secrets)
+	actions := engine.NewCollectionActionExecutor(
+		engine.NewTransportActionExecutor(a.bindings, credentials, engine.NewBuiltinActionExecutor()),
+		newDeviceRunbookContext,
+		engine.WithCollectionInvoker(a.ipc.invoke),
+	)
 
+	// A fresh, private lock.Manager, never a real distributed one: this
+	// Executor's own per-device lease (executor.go's runOne) would
+	// otherwise double-acquire the identical key
+	// internal/runner.Agent.executeWithLease already holds a real,
+	// distributed lease on, one call frame up, for the whole duration of
+	// this Execute call. That outer lease is the only cross-Runner
+	// exclusivity that matters here; this inner one only has to keep two
+	// concurrent nodes within the same DAG level from racing each other
+	// against the one device this call is scoped to.
+	locks := lock.NewInProcessManager()
+	defer locks.Close()
+
+	// A fresh, private event.Bus, never a.bus: Executor's own internal
+	// per-node lifecycle publish (executor.go) targets a subject keyed by
+	// dag.ID/nodeID, unrelated to payload.JobID's own job-log stream this
+	// package publishes to. Handing it a's real bus would risk that
+	// internal, unrelated event stream colliding with or duplicating this
+	// Adapter's own job.log events; this is a deliberate non-consumption
+	// of that Executor feature, not an oversight.
+	nodeBus := event.NewInProcessBus()
+	defer nodeBus.Close()
+
+	executor := engine.NewExecutor(
+		singleDeviceResolver{device: device},
+		actions,
+		locks,
+		nodeBus,
+		engine.NewInProcessWorkflowContext(),
+		0,
+	)
+
+	result, runErr := executor.Run(ctx, dag)
+	if runErr != nil {
+		return fmt.Errorf("execution aborted: %w", runErr)
+	}
+
+	changed := false
+	for _, node := range result.Nodes {
+		if node.Changed {
+			changed = true
+		}
+	}
+
+	// Every secret worth masking: what this run's own register_mask/
+	// secret_mask annotations discovered, plus every value the Controller
+	// attached to this payload, since a task's output can echo either one
+	// back (internal/engine/action_ssh.go's transportActionExecutor
+	// already applies this identical pairing for the Walk-tier CLI).
+	secrets := make([]string, 0, len(result.Secrets)+len(payload.Secrets))
+	secrets = append(secrets, result.Secrets...)
+	for _, v := range payload.Secrets {
+		secrets = append(secrets, v)
+	}
+
+	status, message := summarize(result, changed, secrets)
+	completed := wire.JobEvent{Status: status, Host: payload.DeviceHost, Task: "task.completed"}
+	completed.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	completed.EventData.Message = message
+	if err := a.publish(ctx, payload.JobID, completed); err != nil {
+		return fmt.Errorf("failed to publish completion event: %w", err)
+	}
+
+	if result.HasErrors() {
+		return fmt.Errorf("execution failed: %s", message)
+	}
 	return nil
 }
 
-// sleepOrDone waits d or returns ctx's own error if ctx is canceled
-// first, the standard cancelable-sleep idiom this codebase already uses
-// elsewhere for the identical shape of problem (e.g.
-// internal/election.releaseBestEffort's own bounded-context pattern).
-func sleepOrDone(ctx context.Context, d time.Duration) error {
-	select {
-	case <-time.After(d):
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+// summarize derives the one status word and message Execute's final
+// job.log event reports from a completed RunResult: "failed" (with every
+// node error, masked, joined) if any node errored, otherwise "changed" or
+// "ok" per the Convergence principle (report changed only when something
+// actually changed).
+func summarize(result engine.RunResult, changed bool, secrets []string) (status, message string) {
+	if result.HasErrors() {
+		var errs []string
+		for _, node := range result.Nodes {
+			if node.Err != nil {
+				errs = append(errs, credential.Mask(secrets, node.Err.Error()))
+			}
+		}
+		return "failed", strings.Join(errs, "; ")
 	}
+	if changed {
+		return "changed", "native execution finished successfully"
+	}
+	return "ok", "native execution finished successfully"
 }
 
-// streamLog wraps evt in the DRY envelope and publishes it to
-// topology.LogSubject(jobID) via the Bus port.
-//
-// A publish failure here is deliberately not returned to Execute's own
-// caller: log streaming is an observability side effect of an execution
-// that has already happened, not a precondition for it, so losing a log
-// line must never fail the runbook it is describing. That decision used to
-// be silent (the previous version discarded the error with no trace at
-// all); it is now logged, matching this codebase's "must say so, not
-// pretend" convention rather than pretending nothing could go wrong.
-func (a *Adapter) streamLog(ctx context.Context, jobID string, logEvt LogEvent) {
-	evt, err := event.WrapPayload(uuid.New().String(), "job.log", logEvt)
-	if err != nil {
-		slog.Error("failed to wrap log event", slog.String("job_id", jobID), slog.String("error", err.Error()))
-		return
-	}
-	if err := a.bus.Publish(ctx, topology.LogSubject(jobID), *evt); err != nil {
-		slog.Error("failed to publish log event", slog.String("job_id", jobID), slog.String("error", err.Error()))
-	}
+// publish wraps evt and publishes it to topology.LogSubject(jobID),
+// returning any error to the caller rather than logging and swallowing
+// it: a job-log publish failure is a real signal the Runner's own
+// WAL/retry machinery (internal/runner/agent_wal.go) should see, not an
+// observability side effect this Adapter is entitled to hide.
+func (a *Adapter) publish(ctx context.Context, jobID string, evt wire.JobEvent) error {
+	return publishJobEvent(ctx, a.bus, jobID, evt)
 }

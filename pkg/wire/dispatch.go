@@ -49,6 +49,8 @@
 // build.
 package wire
 
+import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+
 // DispatchPayload is the message body the Controller publishes to NATS
 // and the Runner decodes back out, one per device, when a runbook is
 // dispatched against an inventory group.
@@ -99,4 +101,34 @@ type DispatchPayload struct {
 	// safe default engine.Metadata's own nil-means-true convention
 	// establishes upstream of this struct.
 	Interruptible bool `json:"interruptible"`
+
+	// SSHPort is the port a capability.SSHTransportCapable device reports
+	// via SSHPort(), carried across the wire because the Runner has no
+	// inventory backend of its own to re-derive it from (Phase 16, Native
+	// Go Execution Adapter). Zero when the device does not declare
+	// SSHTransportCapable; a zero value is never dialed, since dispatch is
+	// only ever routed to a transport whose required capability the device
+	// actually has.
+	SSHPort int `json:"ssh_port"`
+
+	// Capabilities is the device's own Capabilities() result at the moment
+	// the Controller admitted it for this job (internal/dispatch's
+	// CapabilityAdmits already ran the real structural check against the
+	// real inventory item before this payload was built). The Runner
+	// trusts this list as a membership check rather than re-deriving it,
+	// which is sound only because that structural check already happened
+	// upstream of this payload ever existing.
+	Capabilities []capability.Name `json:"capabilities"`
+
+	// Secrets is the flattened credential for DeviceName, resolved by the
+	// Controller at dispatch time (PLAN.md Section 17's Just-in-Time
+	// delivery principle: attached directly to the payload, never
+	// pre-distributed to the Runner). Empty when the device has no stored
+	// credential, which is not itself a dispatch failure: only a task that
+	// actually needs a secret fails downstream, the same place a missing
+	// credential already fails at the Walk tier. Keys follow the
+	// convention internal/credential.Flatten documents ("username",
+	// "password", "private_key_pem", "passphrase"). omitempty keeps a
+	// credential-less dispatch's wire form free of a bare "secrets":{}.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }

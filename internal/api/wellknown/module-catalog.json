@@ -759,6 +759,35 @@
       "summary": "Applies configuration to a device over NETCONF."
     }
   },
+  "net.ssh.ping": {
+    "supportedTransports": [
+      "ssh"
+    ],
+    "requiredCapabilities": [
+      "SSHTransportCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=1.0.0",
+    "status": "implemented",
+    "doc": {
+      "summary": "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
+      "description": "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
+      "returns": [
+        {
+          "name": "reply",
+          "type": "string",
+          "returned": "always",
+          "description": "The trimmed value the remote command echoed back."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Check a device is reachable over SSH",
+          "runbookYaml": "- name: Ping the device\n  fqcn: net.ssh.ping\n  register: reachability\n"
+        }
+      ]
+    }
+  },
   "pkg.apt.install": {
     "supportedTransports": [
       "ssh"

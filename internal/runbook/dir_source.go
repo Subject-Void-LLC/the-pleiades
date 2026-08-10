@@ -40,16 +40,19 @@ import (
 // actually fire given this regex).
 var validRunbookID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// cacheEntry is one Flyweight-cached compiled Runbook, paired with the
+// cacheEntry is one Flyweight-cached compiled runbook, paired with the
 // source file's os.FileInfo.ModTime() recorded at compile time. A later
-// Get compares this against the file's current mtime to decide whether
-// the cached Runbook is still current; see dirSource.Get. This mirrors
-// internal/engine/cel.go's own Flyweight cache of compiled CEL programs:
-// the real compile work (here, engine.Builder.BuildFromYAML plus the
-// capability walk) happens once per distinct, unchanged file rather than
-// once per Get call.
+// Get or GetDAG compares this against the file's current mtime to decide
+// whether the cached entry is still current; see dirSource.resolve. This
+// mirrors internal/engine/cel.go's own Flyweight cache of compiled CEL
+// programs: the real compile work (here, engine.Builder.BuildFromYAML
+// plus the capability walk) happens once per distinct, unchanged file
+// rather than once per call. dag is cached alongside runbook, not
+// recomputed separately by GetDAG, since both are produced by the exact
+// same BuildFromYAML call.
 type cacheEntry struct {
 	runbook *Runbook
+	dag     *engine.DAG
 	modTime time.Time
 }
 
@@ -142,7 +145,30 @@ func NewDirSource(dir string) (Source, error) {
 }
 
 // Get resolves id to its compiled Runbook. See Source.Get for the general
-// contract; this implementation additionally, in order:
+// contract; it delegates to resolve for every real step and returns only
+// the capability-shaped half of what resolve computes.
+func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
+	entry, err := d.resolve(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return entry.runbook, nil
+}
+
+// GetDAG resolves id to its full compiled *engine.DAG. See Source.GetDAG
+// for the general contract; it shares resolve's single compile-and-cache
+// path with Get, so a runbook already resolved via Get (or vice versa) is
+// not recompiled a second time.
+func (d *dirSource) GetDAG(ctx context.Context, id string) (*engine.DAG, error) {
+	entry, err := d.resolve(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return entry.dag, nil
+}
+
+// resolve is the one real implementation behind both Get and GetDAG, in
+// order:
 //
 //  1. Validates id against validRunbookID before any path construction.
 //  2. Builds the candidate file path and defensively re-verifies it is
@@ -152,11 +178,11 @@ func NewDirSource(dir string) (Source, error) {
 //  4. Compiles the file with a real engine.Builder.
 //  5. Computes Required as capability_rule.go's own lookup, deduplicated
 //     and order-stable (requiredCapabilities, below).
-//  6. Caches the compiled *Runbook, keyed by id, invalidated on mtime
-//     change (Flyweight; see cacheEntry).
-func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
+//  6. Caches the compiled entry (Runbook and *engine.DAG together), keyed
+//     by id, invalidated on mtime change (Flyweight; see cacheEntry).
+func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return cacheEntry{}, err
 	}
 
 	// Step 1: reject before any path is built. id is caller-controlled
@@ -166,7 +192,7 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 	// any path: id has not been proven safe to display at this point, and
 	// a rejected id never will be.
 	if !validRunbookID.MatchString(id) {
-		return nil, fmt.Errorf("invalid runbook id: must match %s", validRunbookID.String())
+		return cacheEntry{}, fmt.Errorf("invalid runbook id: must match %s", validRunbookID.String())
 	}
 
 	// Step 2: build the candidate path, then defensively re-verify it is
@@ -181,10 +207,10 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 	cleaned := filepath.Clean(joined)
 	absPath, err := filepath.Abs(cleaned)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve runbook path: %w", err)
+		return cacheEntry{}, fmt.Errorf("failed to resolve runbook path: %w", err)
 	}
 	if !strings.HasPrefix(absPath, d.dir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("resolved runbook path escapes the runbook directory")
+		return cacheEntry{}, fmt.Errorf("resolved runbook path escapes the runbook directory")
 	}
 
 	// mtime must be known before deciding whether a cached entry is still
@@ -198,16 +224,16 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 			// invalid-id one above, so a caller can tell the two apart via
 			// errors.Is(err, ErrNotFound): true here, false for a
 			// validation rejection.
-			return nil, fmt.Errorf("%w: %q", ErrNotFound, id)
+			return cacheEntry{}, fmt.Errorf("%w: %q", ErrNotFound, id)
 		}
-		return nil, fmt.Errorf("failed to check runbook %q: %w", id, err)
+		return cacheEntry{}, fmt.Errorf("failed to check runbook %q: %w", id, err)
 	}
 	modTime := info.ModTime()
 
 	d.mu.Lock()
 	if entry, ok := d.cache[id]; ok && entry.modTime.Equal(modTime) {
 		d.mu.Unlock()
-		return entry.runbook, nil
+		return entry, nil
 	}
 	d.mu.Unlock()
 
@@ -225,23 +251,24 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 			// Read runs (a real, if narrow, TOCTOU window): still a
 			// not-found from this caller's point of view, reported the
 			// identical way as the Stat-time miss above.
-			return nil, fmt.Errorf("%w: %q", ErrNotFound, id)
+			return cacheEntry{}, fmt.Errorf("%w: %q", ErrNotFound, id)
 		}
-		return nil, fmt.Errorf("failed to read runbook %q: %w", id, err)
+		return cacheEntry{}, fmt.Errorf("failed to read runbook %q: %w", id, err)
 	}
 
 	dag, err := d.builder.BuildFromYAML(payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile runbook %q: %w", id, err)
+		return cacheEntry{}, fmt.Errorf("failed to compile runbook %q: %w", id, err)
 	}
 
 	rb := &Runbook{ID: id, Required: requiredCapabilities(dag), Interruptible: dag.Metadata.IsInterruptible()}
+	entry := cacheEntry{runbook: rb, dag: dag, modTime: modTime}
 
 	d.mu.Lock()
-	d.cache[id] = cacheEntry{runbook: rb, modTime: modTime}
+	d.cache[id] = entry
 	d.mu.Unlock()
 
-	return rb, nil
+	return entry, nil
 }
 
 // requiredCapabilities computes Runbook.Required from a compiled DAG:
