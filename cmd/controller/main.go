@@ -543,8 +543,13 @@ func main() {
 
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
 	streamer := api.NewLogStreamer(js)
-	devices := api.NewDeviceHandler(repo, logger)
+	// The factory is the same one the repository hydrates stored rows
+	// with, so a device created over the API is built by exactly the code
+	// path that rebuilds one read back out of storage. A second factory
+	// here would be a second answer to "which Go type is a linux_server".
+	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
+	catalog := api.NewRunbookHandler(runbooks, logger)
 
 	// chain is Phase 8's own Chain of Responsibility. It carries one rule
 	// today, NewTokenScopeRule, the token-scope axis. The Team/RoleBinding
@@ -603,10 +608,16 @@ func main() {
 	// new Endpoint that nobody added here 404'd silently.
 	routes, err := apispec.Routes(map[string]http.HandlerFunc{
 		apispec.DispatchRunbook.Name: dispatcher.DispatchRunbook,
+		apispec.ListJobs.Name:        jobs.List,
 		apispec.GetJob.Name:          jobs.Get,
 		apispec.StreamJobLogs.Name:   streamer.StreamLogs,
+		apispec.ListDevices.Name:     devices.List,
+		apispec.CreateDevice.Name:    devices.Create,
 		apispec.GetDevice.Name:       devices.Get,
+		apispec.UpdateDevice.Name:    devices.Update,
 		apispec.DeleteDevice.Name:    devices.Delete,
+		apispec.ListRunbooks.Name:    catalog.List,
+		apispec.GetRunbook.Name:      catalog.Get,
 	})
 	if err != nil {
 		fatal("api route table does not match the declared endpoints", err)

@@ -1,0 +1,656 @@
+/*
+ * Pleiades control plane -- neo-brutalist stylesheet.
+ *
+ * Two complete themes, one token set. Every colour is declared once per
+ * theme as a custom property on :root, and nothing below the token blocks
+ * names a literal colour: a rule that hardcodes one is a rule that is
+ * wrong in the other theme, and there is no third place to fix it.
+ *
+ * The theme is resolved server-side and rendered as data-theme on <html>,
+ * so there is no flash of the wrong theme and no inline bootstrap script.
+ * That matters beyond aesthetics: the content security policy this UI
+ * ships under carries no 'unsafe-inline', and the usual no-flash trick is
+ * exactly an inline script. Server rendering makes the problem disappear
+ * rather than requiring a nonce for it.
+ *
+ * Three states, never a boolean. Bare :root is light. The media query
+ * covers "the user has expressed no preference to us, so follow the OS",
+ * guarded by :not([data-theme="light"]) so an explicit light choice wins
+ * over a dark OS. The attribute selector covers an explicit choice in
+ * either direction. A boolean would have no way to say "follow the OS"
+ * once the user had ever touched the control.
+ */
+
+/* ---- Light: the default ---- */
+:root {
+  --bg: #ffffff;
+  --bg-raised: #f2f2f2;
+  --fg: #000000;
+  --fg-muted: #595959;        /* 7.0:1 on white */
+  --border: #000000;          /* 21.0:1 -- structural, and the whole design */
+  --link: #0000ff;            /* 8.59:1 on white */
+  --shadow: #000000;
+
+  /* Status fills. Black text sits on every one of these in both themes
+   * (5.25:1 red, 15.30:1 green, 19.56:1 yellow, 14.97:1 gold), so the
+   * status vocabulary is theme-invariant and does not need a second
+   * definition below. Blue is the one inversion: it takes white text. */
+  --fill-ok: #00ff00;
+  --fill-failed: #ff0000;
+  --fill-changed: #ffff00;
+  --fill-skipped: #ffd700;
+  --fill-neutral: #d4d4d4;
+  --fill-info: #0000ff;
+  --on-fill: #000000;
+  --on-fill-info: #ffffff;
+
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --border-width: 4px;        /* structural */
+  --rule-width: 1px;          /* repeated rows */
+  --shadow-offset: 5px;
+  --sidebar-width: 280px;
+  --breakpoint: 48rem;
+}
+
+/* ---- Dark: when the OS asks for it and the user has not overridden ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0c;
+    --bg-raised: #1a1a1e;
+    --fg: #f5f2eb;            /* 17.69:1 */
+    --fg-muted: #a8a49b;
+    --border: #f5f2eb;
+    /* Pure #0000FF is 2.30:1 here and fails outright. It is the one
+     * colour that cannot survive both themes: blue carries the lowest
+     * luminance coefficient of any hue, so on near-black it is unreadable
+     * as text and too weak for a focus ring. #7A7AFF is 5.70:1. */
+    --link: #7a7aff;
+    --shadow: #f5f2eb;        /* a black shadow is invisible on black */
+    --fill-neutral: #3a3a3e;
+  }
+}
+
+/* ---- Dark: explicitly chosen ---- */
+:root[data-theme="dark"] {
+  --bg: #0a0a0c;
+  --bg-raised: #1a1a1e;
+  --fg: #f5f2eb;
+  --fg-muted: #a8a49b;
+  --border: #f5f2eb;
+  --link: #7a7aff;
+  --shadow: #f5f2eb;
+  --fill-neutral: #3a3a3e;
+}
+
+/* ---- Reset ----
+ * border-radius and the timing function are forced, because they are the
+ * aesthetic. box-shadow is deliberately NOT reset away: the hard,
+ * non-blurry offset shadow is the signature of this style, and the
+ * previous stylesheet's blanket `box-shadow: none !important` would have
+ * made it impossible to draw. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border-radius: 0 !important;
+  transition-timing-function: linear !important;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  /* dvh, not vh: a mobile browser's collapsing toolbar makes 100vh taller
+   * than the visible viewport, which clips the bottom of the log stream
+   * exactly where the newest lines are. */
+  min-height: 100dvh;
+}
+
+/* The deliberate inversion carried over from the previous stylesheet:
+ * monospace for data, sans for headings. */
+p,
+td,
+dd,
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+h1,
+h2,
+h3 {
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+h1 { font-size: 3rem; font-weight: 900; letter-spacing: -0.05em; }
+h2 { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; }
+h3 { font-size: 1.5rem; font-weight: 700; }
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* ---- Accessibility primitives ---- */
+
+/* Never remove an outline without replacing it in the same rule. */
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The skip link is the first focusable element on every page, hidden
+ * until focused. Without it a keyboard user tabs the whole sidebar before
+ * reaching content, on every single page load. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--border-width) solid var(--border);
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+/* Reduce, not remove: the state change still happens, it simply stops
+ * moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Layout ---- */
+
+.layout {
+  display: flex;
+  min-height: 100dvh;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
+  border-right: var(--border-width) solid var(--border);
+  padding: 1.5rem;
+}
+
+.sidebar-brand {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+.sidebar-version {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.nav-list {
+  list-style: none;
+  margin-top: 1.5rem;
+}
+.nav-list li + li {
+  border-top: var(--rule-width) solid var(--border);
+}
+.nav-list a {
+  display: block;
+  padding: 0.75rem 0.5rem;
+  color: var(--fg);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.nav-list a:hover {
+  background: var(--bg-raised);
+}
+.nav-list a[aria-current="page"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.main {
+  flex: 1 1 auto;
+  padding: 2rem;
+  min-width: 0; /* lets children shrink instead of forcing a page-wide scroll */
+}
+
+.view-header {
+  border-bottom: var(--border-width) solid var(--border);
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+}
+.view-summary {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+/* ---- The brutalist block: the shape everything reuses ---- */
+.block {
+  background: var(--bg);
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+}
+
+/* ---- Controls ---- */
+
+.btn {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 0.6rem 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  cursor: pointer;
+  text-decoration: none;
+  /* 24x24 is the AA floor; this clears it in every direction. */
+  min-height: 2.75rem;
+}
+.btn:hover {
+  background: var(--fill-ok);
+  color: var(--on-fill);
+}
+.btn:active {
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+  box-shadow: none;
+}
+.btn-danger:hover {
+  background: var(--fill-failed);
+  color: var(--on-fill);
+}
+
+label {
+  display: block;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.field + .field {
+  margin-top: 1.25rem;
+}
+.field-hint {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.field-required {
+  /* The word, not a colour and not an asterisk: "required" signalled by a
+   * red star is signalled only to people who see red stars. */
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 0.6rem;
+  background: var(--bg);
+  color: var(--fg);
+  /* The border is this control's only boundary, so it carries the full
+   * structural weight rather than a hairline. */
+  border: var(--border-width) solid var(--border);
+  min-height: 2.75rem;
+}
+[aria-invalid="true"] {
+  border-color: var(--fill-failed);
+  /* Never colour alone: the field also gets a text message wired through
+   * aria-describedby, and the summary above the form repeats it. */
+  border-style: dashed;
+}
+
+.error-summary {
+  border: var(--border-width) solid var(--fill-failed);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+.error-summary ul {
+  margin-left: 1.25rem;
+}
+
+/* ---- Status badges: the word, always ---- */
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border: 2px solid var(--border);
+  color: var(--on-fill);
+}
+.badge-ok { background: var(--fill-ok); }
+.badge-failed { background: var(--fill-failed); }
+.badge-changed { background: var(--fill-changed); }
+.badge-skipped { background: var(--fill-skipped); }
+.badge-neutral { background: var(--fill-neutral); color: var(--fg); }
+
+/* ---- Tables ---- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.6rem 0.5rem;
+  border-bottom: var(--rule-width) solid var(--border);
+}
+.table th {
+  border-bottom: var(--border-width) solid var(--border);
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+.table tbody tr:hover {
+  background: var(--bg-raised);
+}
+
+/* Wide content scrolls inside its own container. The page body must never
+ * scroll horizontally -- that is the reflow failure SC 1.4.10 names. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* ---- Detail list ---- */
+.detail-list {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 0.5rem 1rem;
+}
+.detail-list dt {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--fg-muted);
+}
+
+/* ---- Dashboard ---- */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.metric-value {
+  font-size: 3.5rem;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+/* ---- Log stream ---- */
+.log-stream {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  border: var(--border-width) solid var(--border);
+  max-height: 60dvh;
+  overflow-y: auto;
+}
+.log-line {
+  display: grid;
+  grid-template-columns: 7rem 8rem 10rem 1fr;
+  gap: 0.75rem;
+  padding: 0.35rem 0.5rem;
+  border-bottom: var(--rule-width) solid var(--border);
+}
+.log-line:hover {
+  background: var(--bg-raised);
+}
+.log-time,
+.log-host {
+  color: var(--fg-muted);
+}
+.log-status {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.stream-state {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* ---- Theme control ---- */
+.theme-switch {
+  margin-top: 2rem;
+  border-top: var(--rule-width) solid var(--border);
+  padding-top: 1rem;
+}
+.theme-switch fieldset {
+  border: 0;
+}
+.theme-switch legend {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.theme-options {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+.theme-options button {
+  flex: 1 1 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  padding: 0.4rem 0.2rem;
+  min-height: 2.75rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--border);
+  cursor: pointer;
+}
+.theme-options button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+/* ---- Declared-but-not-implemented panel ---- */
+.declared {
+  border: var(--border-width) dashed var(--border);
+  padding: 2rem;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+/* ---- Chart ---- */
+.chart-figure {
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+}
+.chart-canvas {
+  width: 100%;
+  height: 320px;
+}
+.chart-figure figcaption {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  margin-top: 0.5rem;
+}
+
+/* ---- Responsive ----
+ * Reflow to 320px with no two-dimensional scrolling is SC 1.4.10, so
+ * mobile support and AA compliance are the same work rather than two
+ * projects. */
+@media (max-width: 48rem) {
+  .layout {
+    display: block;
+  }
+
+  /* The sidebar becomes a native disclosure. <details>/<summary> brings
+   * its own keyboard behaviour, its own expanded/collapsed state, and its
+   * own screen reader announcement -- no ARIA, no JavaScript, and nothing
+   * to get wrong. A raw disclosure triangle is also entirely at home in
+   * this design language. */
+  .sidebar {
+    width: auto;
+    flex: none;
+    border-right: 0;
+    border-bottom: var(--border-width) solid var(--border);
+    padding: 1rem;
+  }
+  .nav-disclosure > summary {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 0.75rem 0;
+    cursor: pointer;
+    min-height: 2.75rem;
+  }
+
+  .main {
+    padding: 1rem;
+  }
+
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.5rem; }
+  .metric-value { font-size: 2.5rem; }
+
+  .detail-list {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  .detail-list dd + dt {
+    margin-top: 0.75rem;
+  }
+
+  /* A table cannot reflow, so below the breakpoint each row becomes a
+   * card whose labels come from the same Field declaration that produced
+   * the column headers. The mobile layout is therefore free per resource
+   * rather than a second thing to write. */
+  .table thead {
+    display: none;
+  }
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+  .table tr {
+    border: var(--border-width) solid var(--border);
+    box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+    margin-bottom: 1.25rem;
+    padding: 0.5rem;
+  }
+  .table td {
+    border-bottom: var(--rule-width) solid var(--border);
+    padding: 0.5rem 0.25rem;
+  }
+  .table td:last-child {
+    border-bottom: 0;
+  }
+  /* data-label is rendered from Field.Label, so a cell still says what it
+   * is once its column header is gone. */
+  .table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+  }
+  .table td[data-primary="true"] {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .log-line {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+}
+
+/* A touch target is bigger than a mouse target. 44px is the iOS HIG
+ * figure and comfortably clears SC 2.5.8's 24px floor. */
+@media (pointer: coarse) {
+  .btn,
+  .nav-list a,
+  .theme-options button,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* Windows High Contrast: the one place the user has explicitly overridden
+ * every colour choice made above, so system keywords are used and nothing
+ * tries to preserve branding through it. */
+@media (forced-colors: active) {
+  .block,
+  .btn,
+  .table th,
+  .table td,
+  input,
+  select,
+  textarea {
+    border-color: ButtonText;
+  }
+  .badge {
+    border-color: CanvasText;
+    forced-color-adjust: none;
+  }
+}

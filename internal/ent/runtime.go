@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schema"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
@@ -234,6 +235,65 @@ func init() {
 	rolebinding.DefaultEffect = rolebindingDescEffect.Default.(string)
 	// rolebinding.EffectValidator is a validator for the "effect" field. It is called by the builders before save.
 	rolebinding.EffectValidator = rolebindingDescEffect.Validators[0].(func(string) error)
+	sessionMixin := schema.Session{}.Mixin()
+	sessionMixinFields0 := sessionMixin[0].Fields()
+	_ = sessionMixinFields0
+	sessionFields := schema.Session{}.Fields()
+	_ = sessionFields
+	// sessionDescCreatedAt is the schema descriptor for created_at field.
+	sessionDescCreatedAt := sessionMixinFields0[0].Descriptor()
+	// session.DefaultCreatedAt holds the default value on creation for the created_at field.
+	session.DefaultCreatedAt = sessionDescCreatedAt.Default.(func() time.Time)
+	// sessionDescUpdatedAt is the schema descriptor for updated_at field.
+	sessionDescUpdatedAt := sessionMixinFields0[1].Descriptor()
+	// session.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	session.DefaultUpdatedAt = sessionDescUpdatedAt.Default.(func() time.Time)
+	// session.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	session.UpdateDefaultUpdatedAt = sessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// sessionDescTokenHash is the schema descriptor for token_hash field.
+	sessionDescTokenHash := sessionFields[0].Descriptor()
+	// session.TokenHashValidator is a validator for the "token_hash" field. It is called by the builders before save.
+	session.TokenHashValidator = func() func([]byte) error {
+		validators := sessionDescTokenHash.Validators
+		fns := [...]func([]byte) error{
+			validators[0].(func([]byte) error),
+			validators[1].(func([]byte) error),
+		}
+		return func(token_hash []byte) error {
+			for _, fn := range fns {
+				if err := fn(token_hash); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// sessionDescSubject is the schema descriptor for subject field.
+	sessionDescSubject := sessionFields[1].Descriptor()
+	// session.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	session.SubjectValidator = sessionDescSubject.Validators[0].(func(string) error)
+	// sessionDescCsrfKey is the schema descriptor for csrf_key field.
+	sessionDescCsrfKey := sessionFields[4].Descriptor()
+	// session.CsrfKeyValidator is a validator for the "csrf_key" field. It is called by the builders before save.
+	session.CsrfKeyValidator = func() func([]byte) error {
+		validators := sessionDescCsrfKey.Validators
+		fns := [...]func([]byte) error{
+			validators[0].(func([]byte) error),
+			validators[1].(func([]byte) error),
+		}
+		return func(csrf_key []byte) error {
+			for _, fn := range fns {
+				if err := fn(csrf_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// sessionDescLastSeenAt is the schema descriptor for last_seen_at field.
+	sessionDescLastSeenAt := sessionFields[7].Descriptor()
+	// session.DefaultLastSeenAt holds the default value on creation for the last_seen_at field.
+	session.DefaultLastSeenAt = sessionDescLastSeenAt.Default.(func() time.Time)
 	teamMixin := schema.Team{}.Mixin()
 	teamMixinFields0 := teamMixin[0].Fields()
 	_ = teamMixinFields0

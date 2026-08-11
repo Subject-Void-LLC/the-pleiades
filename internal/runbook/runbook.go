@@ -92,6 +92,22 @@ type Source interface {
 	// an error.
 	Get(ctx context.Context, id string) (*Runbook, error)
 
+	// List returns every runbook id this Source can resolve, sorted.
+	//
+	// It returns ids rather than compiled *Runbook values on purpose. A
+	// catalog listing exists to answer "what can I run", and compiling
+	// every runbook to answer it would make the cost of opening a list
+	// page scale with the size and complexity of the whole runbook
+	// library -- for capability data the list does not display. A caller
+	// that needs a specific runbook's requirements asks Get for that one.
+	//
+	// An id that cannot be resolved is omitted rather than reported: a
+	// single malformed file must not make the entire catalog
+	// unreadable. Implementations that can distinguish "unreadable
+	// backing store" from "one bad entry" still return an error for the
+	// former.
+	List(ctx context.Context) ([]string, error)
+
 	// GetDAG resolves id to its full compiled *engine.DAG, the same
 	// underlying compilation Get's own Runbook.Required is derived from,
 	// for a caller that actually executes the runbook rather than only

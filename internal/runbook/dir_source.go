@@ -155,6 +155,50 @@ func (d *dirSource) Get(ctx context.Context, id string) (*Runbook, error) {
 	return entry.runbook, nil
 }
 
+// List returns every runbook id under this source's directory, sorted.
+// See Source.List.
+//
+// It reads directory entries and never compiles anything, so opening a
+// catalog costs one readdir regardless of how large or complex the
+// library is. It also deliberately does not populate the resolve cache:
+// warming it here would compile every runbook on the directory as a side
+// effect of listing them, which is the cost this method exists to avoid.
+//
+// A name that would not survive Get is skipped rather than returned. The
+// same validRunbookID that guards path construction is applied to each
+// candidate id, so a file somebody dropped in with a name this package
+// would refuse to resolve never appears in a catalog offering it as
+// runnable. Subdirectories are skipped for the same reason: Get resolves
+// "<id>.yaml" directly under dir and nothing else.
+func (d *dirSource) List(_ context.Context) ([]string, error) {
+	entries, err := os.ReadDir(d.dir)
+	if err != nil {
+		// Unlike a single unreadable file, an unreadable directory is not
+		// a partial result to degrade past: there is nothing to list.
+		return nil, fmt.Errorf("failed to list runbook directory: %w", err)
+	}
+
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := filepath.Ext(name)
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+		id := strings.TrimSuffix(name, ext)
+		if !validRunbookID.MatchString(id) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+	return ids, nil
+}
+
 // GetDAG resolves id to its full compiled *engine.DAG. See Source.GetDAG
 // for the general contract; it shares resolve's single compile-and-cache
 // path with Get, so a runbook already resolved via Get (or vice versa) is

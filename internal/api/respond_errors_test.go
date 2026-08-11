@@ -12,6 +12,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -208,7 +209,7 @@ func TestDeviceHandler_DeleteRejectsAnUnusableName(t *testing.T) {
 func TestNewDeviceHandler_NilLoggerFallsBackToDefault(t *testing.T) {
 	// A handler constructed without a logger must still be usable rather
 	// than panicking on the first error it needs to report.
-	handler := api.NewDeviceHandler(&stubDeviceRepo{getErr: errors.New("boom")}, nil)
+	handler := api.NewDeviceHandler(&stubDeviceRepo{getErr: errors.New("boom")}, inventory.NewItemFactory(), nil)
 	if handler == nil {
 		t.Fatal("NewDeviceHandler returned nil")
 	}

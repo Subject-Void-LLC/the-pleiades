@@ -30,6 +30,9 @@ type Revision func(*sql.Selector)
 // RoleBinding is the predicate function for rolebinding builders.
 type RoleBinding func(*sql.Selector)
 
+// Session is the predicate function for session builders.
+type Session func(*sql.Selector)
+
 // Team is the predicate function for team builders.
 type Team func(*sql.Selector)
 

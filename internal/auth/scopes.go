@@ -40,4 +40,15 @@ const (
 	// logs. This is api.LogStreamer's own required scope; unlike the
 	// other three, no phase before this one ever checked it.
 	ScopeJobRead Scope = "job:read"
+	// ScopeRunbookRead grants the right to browse the runbook catalog and
+	// read one runbook's compiled capability requirements.
+	//
+	// It is separate from ScopeRunbookExecute rather than folded into it
+	// because browsing what a platform can do and being allowed to do it
+	// are different grants: an operator reviewing which runbooks exist,
+	// or a UI rendering a catalog, needs the first and must not thereby
+	// acquire the second. Granting execute does not imply read here
+	// either -- the admission chain checks each scope by name, so a token
+	// meant to browse and launch carries both.
+	ScopeRunbookRead Scope = "runbook:read"
 )

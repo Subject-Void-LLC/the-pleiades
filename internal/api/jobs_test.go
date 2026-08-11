@@ -34,6 +34,7 @@ func jobsRouter(t *testing.T, jobs api.JobRepository) http.Handler {
 		Admission: &fakeAdmitter{},
 		HATEOAS:   allowAllGenerator(t),
 		Routes: []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeJobRead, Rel: auth.RelCollection, Handler: handler.List},
 			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: handler.Get},
 		},
 	})
@@ -54,6 +55,10 @@ type erroringJobRepository struct{}
 
 func (erroringJobRepository) Get(ctx context.Context, jobID string) (*dispatch.Job, []dispatch.JobTask, error) {
 	return nil, nil, errors.New("deliberate store failure")
+}
+
+func (erroringJobRepository) List(ctx context.Context, after string, limit int) ([]*dispatch.Job, error) {
+	return nil, errors.New("deliberate store failure")
 }
 
 // TestJobHandler_StoreErrorReturns500 proves a backing-store failure that

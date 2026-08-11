@@ -21,4 +21,27 @@ type Selector struct {
 	// Group. Empty means no restriction: every device is selected, which
 	// is the behavior every existing caller already gets.
 	GroupName string
+
+	// After is a keyset cursor: only devices whose DeviceID sorts strictly
+	// after it are selected. The zero value starts at the beginning.
+	//
+	// The cursor is a DeviceID rather than a name or an offset for two
+	// reasons. DeviceID is a UUIDv7, so it is stable, indexed, and
+	// time-ordered, and it is already the column entIterator batches on --
+	// paging on anything else would mean a second ordering for the same
+	// stream. And an offset over a table being written to skips and
+	// repeats rows, which on an inventory list means a device silently
+	// missing from a page a human is reading and another one shown twice.
+	After DeviceID
+
+	// Limit bounds how many devices the stream yields. Zero means no
+	// bound, which is what every pre-existing caller passes and needs:
+	// a dispatch fan-out must reach every device in its group, not the
+	// first page of them.
+	//
+	// It exists because a list endpoint over a fleet inventory is
+	// otherwise unbounded, and "read everything, then discard most of
+	// it" is not a bound -- the work still happens, just where nobody
+	// looks at it.
+	Limit int
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
@@ -90,6 +91,7 @@ func checkColumn(t, c string) error {
 			organization.Table: organization.ValidColumn,
 			revision.Table:     revision.ValidColumn,
 			rolebinding.Table:  rolebinding.ValidColumn,
+			session.Table:      session.ValidColumn,
 			team.Table:         team.ValidColumn,
 			user.Table:         user.ValidColumn,
 		})

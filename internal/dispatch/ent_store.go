@@ -63,6 +63,32 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 	return nil
 }
 
+// List returns up to limit jobs, newest first, resuming after the cursor.
+// See JobStore.List.
+func (s *entJobStore) List(ctx context.Context, after string, limit int) ([]*Job, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("job list limit must be positive, got %d", limit)
+	}
+
+	query := s.client.Job.Query().
+		Order(ent.Desc(job.FieldJobID)).
+		Limit(limit)
+	if after != "" {
+		query = query.Where(job.JobIDLT(after))
+	}
+
+	rows, err := query.All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
+	}
+
+	jobs := make([]*Job, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, toJob(row))
+	}
+	return jobs, nil
+}
+
 // Get loads job jobID and every JobTask recorded against it. See
 // JobStore.Get.
 func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, error) {

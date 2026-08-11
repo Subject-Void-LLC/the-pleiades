@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
@@ -89,6 +90,23 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 			return nil, fmt.Errorf("factory failed to build item %s: %w", h.Name, err)
 		}
 		items = append(items, item)
+	}
+
+	// Order by DeviceID, matching the ent adapter, which has always
+	// ordered its stream that way. This adapter previously yielded
+	// hosts.yaml's own file order, which is not a total order over the
+	// data at all -- reordering two lines in the file changed the stream
+	// -- so Selector.After could not have meant anything here. The two
+	// adapters are documented to behave identically to callers, and a
+	// cursor is the point where "identically" stops being a nicety.
+	sort.Slice(items, func(a, b int) bool { return items[a].ID() < items[b].ID() })
+
+	if sel.After != "" {
+		cut := sort.Search(len(items), func(idx int) bool { return items[idx].ID() > sel.After })
+		items = items[cut:]
+	}
+	if sel.Limit > 0 && len(items) > sel.Limit {
+		items = items[:sel.Limit]
 	}
 
 	return &fileIterator{items: items}, nil

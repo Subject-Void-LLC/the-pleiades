@@ -16,6 +16,293 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/inventory/devices": {
+      "get": {
+        "description": "Streams a bounded page of devices in DeviceID order. Paging is keyset rather than offset: an offset over a table being written to skips and repeats rows, which on an inventory list means a device silently missing from a page while another is shown twice. Pass the previous page's next_cursor as ?after= to continue.",
+        "operationId": "list_devices",
+        "parameters": [
+          {
+            "description": "Restrict to devices in this inventory group.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Keyset cursor from a previous page's next_cursor.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum devices to return. Defaults to 50, capped at 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "devices": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "capabilities": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "executable": {
+                            "type": "boolean"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                            "type": "string"
+                          },
+                          "tags": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "version": {
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "next_cursor": {
+                      "description": "Opaque keyset cursor. Pass it back as ?after= to fetch the next page. Empty when this is the last page.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of devices."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "limit is not a positive integer, or a parameter contains a control character."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The inventory could not be read."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:read"
+            ]
+          }
+        ],
+        "summary": "List inventory devices",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Onboards a device the platform did not discover through a sync plugin. Never an upsert: a name already in the inventory is a conflict rather than a silent overwrite, so a caller can always tell a first-time onboard from a re-sync.",
+        "operationId": "create_device",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "capabilities": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "executable": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                      "type": "string"
+                    },
+                    "tags": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created device."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or name or type is missing or unusable."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A device with that name already exists, or the inventory is read-only."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "type names no registered device type."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:write"
+            ]
+          }
+        ],
+        "summary": "Create an inventory device",
+        "x-link-relation": "create"
+      }
+    },
     "/inventory/devices/{name}": {
       "delete": {
         "description": "Moves the device to the decommissioning lifecycle state (\"retires\" it); this is not a hard delete of its history.",
@@ -193,6 +480,295 @@
         ],
         "summary": "Get one inventory device",
         "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Applies tag and lifecycle-state changes to an existing device. The write is guarded by the stored version token, so two callers editing the same device concurrently cannot lose one another's change: the later write is refused with 409 and must reload and reapply.",
+        "operationId": "update_device",
+        "parameters": [
+          {
+            "description": "The device's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "capabilities": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "executable": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "description": "One of the eight lifecycle states; see docs/10-running-in-production.md.",
+                      "type": "string"
+                    },
+                    "tags": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "version": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated device."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or name is unusable."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No device with that name exists."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The device was modified concurrently, or the inventory is read-only."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "state names no known lifecycle state."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "inventory:write"
+            ]
+          }
+        ],
+        "summary": "Update an inventory device",
+        "x-link-relation": "update"
+      }
+    },
+    "/jobs": {
+      "get": {
+        "description": "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for those. Tallies read 0 until a job's state reaches \"completed\".",
+        "operationId": "list_jobs",
+        "parameters": [
+          {
+            "description": "Keyset cursor from a previous page's next_cursor. A job id, so a UUID.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum jobs to return. Defaults to 50, capped at 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "jobs": {
+                      "items": {
+                        "properties": {
+                          "actor": {
+                            "description": "The identity subject that requested the job.",
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "description": "RFC 3339 timestamp.",
+                            "type": "string"
+                          },
+                          "dispatched": {
+                            "type": "integer"
+                          },
+                          "failed": {
+                            "type": "integer"
+                          },
+                          "group_name": {
+                            "type": "string"
+                          },
+                          "job_id": {
+                            "type": "string"
+                          },
+                          "runbook_id": {
+                            "type": "string"
+                          },
+                          "skipped": {
+                            "type": "integer"
+                          },
+                          "state": {
+                            "description": "One of \"pending\", \"fanning_out\", \"completed\", or \"failed\".",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "next_cursor": {
+                      "description": "Opaque keyset cursor. Pass it back as ?after= to fetch the next page. Empty when this is the last page.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of jobs."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "limit is not a positive integer, or after is not a UUID."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job store could not be read."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "job:read"
+            ]
+          }
+        ],
+        "summary": "List dispatch jobs",
+        "x-link-relation": "collection"
       }
     },
     "/jobs/dispatch": {
@@ -529,6 +1105,178 @@
         ],
         "summary": "Stream a job's live progress over Server-Sent Events",
         "x-link-relation": "logs"
+      }
+    },
+    "/runbooks": {
+      "get": {
+        "description": "Returns every runbook id this control plane can resolve, sorted. Ids only: compiling the whole library to render a list of names would make opening the catalog cost more the more automation an organization has written. Read GET /runbooks/{id} for one runbook's requirements.",
+        "operationId": "list_runbooks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "runbooks": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The catalog."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The runbook source could not be listed."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:read"
+            ]
+          }
+        ],
+        "summary": "List available runbooks",
+        "x-link-relation": "collection"
+      }
+    },
+    "/runbooks/{id}": {
+      "get": {
+        "description": "Compiles the runbook and reports the deduplicated capabilities its tasks require of a target, plus whether the engine may interrupt it. This is what lets a caller tell, before dispatching, whether a group can actually run it.",
+        "operationId": "get_runbook",
+        "parameters": [
+          {
+            "description": "The runbook id: 1-64 characters, letters, digits, hyphens and underscores.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "interruptible": {
+                      "type": "boolean"
+                    },
+                    "required_capabilities": {
+                      "description": "Deduplicated union of what every task in this runbook requires of its target.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The runbook."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is malformed, or the runbook does not compile."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No runbook with that id exists."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:read"
+            ]
+          }
+        ],
+        "summary": "Get one runbook's compiled requirements",
+        "x-link-relation": "self"
       }
     }
   },

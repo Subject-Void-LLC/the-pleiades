@@ -6,6 +6,12 @@
       "line": "135",
       "rule_id": "G705",
       "reason": "Owned by Phase 11 (API Gateway & Telemetry). Phase 11 audited this exact finding and closed the underlying risk rather than only re-waiving it: jobID is now rejected unless it parses as a UUID (internal/api/logs.go's StreamLogs), so the value gosec still traces from the chi URL param into this SSE write can no longer contain a newline, an angle bracket, or any other character with meaning to an SSE consumer or a browser. The same check closed a real NATS subject-wildcard injection on the line below it (FAILURE_PATTERNS.md). gosec's taint analysis cannot see the uuid.Parse guard, so the finding remains reported; it is no longer reachable. Re-verify at Phase 39."
+    },
+    {
+      "file": "internal/ui/session/cookie.go",
+      "line": "118",
+      "rule_id": "G124",
+      "reason": "Owned by Phase 19 (Brutalist UI Scaffold). This is CookieCodec.writeInsecure, the development-only session cookie path, and the missing Secure attribute is the entire purpose of the function rather than an oversight. The __Host- prefix the production path uses is browser-enforced to require Secure, Secure requires HTTPS, and a developer running the controller over http://localhost therefore could not log in at all; PLEIADES_UI_INSECURE_COOKIES=1 is the stated opt-out, and cmd/controller logs a startup warning whenever it is set. The finding is deliberately isolated here: Write and Clear were split into two separate cookie literals specifically so the default, secure path is provably correct to gosec and carries no waiver, rather than sharing one literal with a computed Secure field that would have put a waiver on the production path. Everything not requiring TLS -- HttpOnly, SameSite=Strict, Path=/ -- is retained on this path too. Re-verify at Phase 20, which owns TLS termination and may make the insecure path unnecessary."
     }
   ]
 }

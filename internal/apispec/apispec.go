@@ -252,6 +252,215 @@ var StreamJobLogs = Endpoint{
 	},
 }
 
+var runbookResponseSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"id": map[string]any{"type": "string"},
+		"required_capabilities": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Deduplicated union of what every task in this runbook requires of its target.",
+		},
+		"interruptible": map[string]any{"type": "boolean"},
+		"_links":        linksSchema(),
+	},
+}
+
+// ListRunbooks is GET /runbooks: browse the runbook catalog.
+var ListRunbooks = Endpoint{
+	Name:    "list_runbooks",
+	Method:  http.MethodGet,
+	Pattern: "/runbooks",
+	Scope:   auth.ScopeRunbookRead,
+	Rel:     auth.RelCollection,
+	Summary: "List available runbooks",
+	Description: "Returns every runbook id this control plane can resolve, sorted. Ids only: compiling " +
+		"the whole library to render a list of names would make opening the catalog cost more the more " +
+		"automation an organization has written. Read GET /runbooks/{id} for one runbook's requirements.",
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The catalog.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"runbooks": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"_links":   linksSchema(),
+			},
+		}},
+		{Status: http.StatusInternalServerError, Description: "The runbook source could not be listed.", Schema: errorSchema("")},
+	},
+}
+
+// GetRunbook is GET /runbooks/{id}: read one runbook's requirements.
+var GetRunbook = Endpoint{
+	Name:    "get_runbook",
+	Method:  http.MethodGet,
+	Pattern: "/runbooks/{id}",
+	Scope:   auth.ScopeRunbookRead,
+	Rel:     auth.RelSelf,
+	Summary: "Get one runbook's compiled requirements",
+	Description: "Compiles the runbook and reports the deduplicated capabilities its tasks require of a " +
+		"target, plus whether the engine may interrupt it. This is what lets a caller tell, before " +
+		"dispatching, whether a group can actually run it.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "string", Description: "The runbook id: 1-64 characters, letters, digits, hyphens and underscores."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The runbook.", Schema: runbookResponseSchema},
+		{Status: http.StatusBadRequest, Description: "id is malformed, or the runbook does not compile.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No runbook with that id exists.", Schema: errorSchema("")},
+	},
+}
+
+// jobListResponseSchema is a page of job summaries plus the cursor that
+// fetches the next one.
+var jobListResponseSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"jobs": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"job_id":     map[string]any{"type": "string"},
+				"runbook_id": map[string]any{"type": "string"},
+				"group_name": map[string]any{"type": "string"},
+				"state":      stringSchema("One of \"pending\", \"fanning_out\", \"completed\", or \"failed\"."),
+				"actor":      stringSchema("The identity subject that requested the job."),
+				"dispatched": map[string]any{"type": "integer"},
+				"skipped":    map[string]any{"type": "integer"},
+				"failed":     map[string]any{"type": "integer"},
+				"created_at": stringSchema("RFC 3339 timestamp."),
+			},
+		}},
+		"next_cursor": stringSchema("Opaque keyset cursor. Pass it back as ?after= to fetch the " +
+			"next page. Empty when this is the last page."),
+		"_links": linksSchema(),
+	},
+}
+
+// ListJobs is GET /jobs: page through dispatch history, newest first.
+var ListJobs = Endpoint{
+	Name:    "list_jobs",
+	Method:  http.MethodGet,
+	Pattern: "/jobs",
+	Scope:   auth.ScopeJobRead,
+	Rel:     auth.RelCollection,
+	Summary: "List dispatch jobs",
+	Description: "Returns a bounded page of jobs, newest first, ordered on the job id. Job ids are " +
+		"UUIDv7, so that ordering is chronological and the id doubles as a keyset cursor with no second " +
+		"index and no tiebreaker. Per-device task outcomes are not included; read GET /jobs/{id} for " +
+		"those. Tallies read 0 until a job's state reaches \"completed\".",
+	Params: []Param{
+		{Name: "after", In: "query", Required: false, Type: "string", Description: "Keyset cursor from a previous page's next_cursor. A job id, so a UUID."},
+		{Name: "limit", In: "query", Required: false, Type: "integer", Description: "Maximum jobs to return. Defaults to 50, capped at 200."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "A page of jobs.", Schema: jobListResponseSchema},
+		{Status: http.StatusBadRequest, Description: "limit is not a positive integer, or after is not a UUID.", Schema: errorSchema("")},
+		{Status: http.StatusInternalServerError, Description: "The job store could not be read.", Schema: errorSchema("")},
+	},
+}
+
+// deviceListResponseSchema is a page of devices plus the cursor that
+// fetches the next one.
+var deviceListResponseSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"devices": map[string]any{"type": "array", "items": deviceResponseSchema},
+		"next_cursor": stringSchema("Opaque keyset cursor. Pass it back as ?after= to fetch the " +
+			"next page. Empty when this is the last page."),
+		"_links": linksSchema(),
+	},
+}
+
+// deviceWriteSchema is the JSON body create and update accept.
+//
+// It carries no properties field, and that omission is the same hardening
+// decision deviceDTO makes on the way out: cmd/controller installs
+// crypto.DeviceEnvelopePropertiesInterceptor, so the property bag holds
+// decrypted enable secrets and API keys, and PLAN.md Section 25 assigns
+// the masking ruleset to a phase that does not exist yet. An endpoint that
+// wrote properties would also have to read them back to be usable, and
+// that is the surface being deliberately deferred.
+var deviceWriteSchema = map[string]any{
+	"type":     "object",
+	"required": []any{"name", "type"},
+	"properties": map[string]any{
+		"name":  stringSchema("The device's unique name."),
+		"type":  stringSchema("A registered device type, e.g. \"linux_server\"."),
+		"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"state": stringSchema("One of the eight lifecycle states. Defaults to \"active\" on create."),
+	},
+}
+
+// ListDevices is GET /inventory/devices: page through the inventory.
+var ListDevices = Endpoint{
+	Name:    "list_devices",
+	Method:  http.MethodGet,
+	Pattern: "/inventory/devices",
+	Scope:   auth.ScopeInventoryRead,
+	Rel:     auth.RelCollection,
+	Summary: "List inventory devices",
+	Description: "Streams a bounded page of devices in DeviceID order. Paging is keyset rather than " +
+		"offset: an offset over a table being written to skips and repeats rows, which on an inventory " +
+		"list means a device silently missing from a page while another is shown twice. Pass the " +
+		"previous page's next_cursor as ?after= to continue.",
+	Params: []Param{
+		{Name: "group", In: "query", Required: false, Type: "string", Description: "Restrict to devices in this inventory group."},
+		{Name: "after", In: "query", Required: false, Type: "string", Description: "Keyset cursor from a previous page's next_cursor."},
+		{Name: "limit", In: "query", Required: false, Type: "integer", Description: "Maximum devices to return. Defaults to 50, capped at 200."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "A page of devices.", Schema: deviceListResponseSchema},
+		{Status: http.StatusBadRequest, Description: "limit is not a positive integer, or a parameter contains a control character.", Schema: errorSchema("")},
+		{Status: http.StatusInternalServerError, Description: "The inventory could not be read.", Schema: errorSchema("")},
+	},
+}
+
+// CreateDevice is POST /inventory/devices: onboard a new device.
+var CreateDevice = Endpoint{
+	Name:    "create_device",
+	Method:  http.MethodPost,
+	Pattern: "/inventory/devices",
+	Scope:   auth.ScopeInventoryWrite,
+	Rel:     auth.RelCreate,
+	Summary: "Create an inventory device",
+	Description: "Onboards a device the platform did not discover through a sync plugin. Never an " +
+		"upsert: a name already in the inventory is a conflict rather than a silent overwrite, so a " +
+		"caller can always tell a first-time onboard from a re-sync.",
+	RequestContentType: "application/json",
+	RequestSchema:      deviceWriteSchema,
+	Responses: []Response{
+		{Status: http.StatusCreated, Description: "The created device.", Schema: deviceResponseSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name or type is missing or unusable.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "A device with that name already exists, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "type names no registered device type.", Schema: errorSchema("")},
+	},
+}
+
+// UpdateDevice is PATCH /inventory/devices/{name}: modify a device in
+// place.
+var UpdateDevice = Endpoint{
+	Name:    "update_device",
+	Method:  http.MethodPatch,
+	Pattern: "/inventory/devices/{name}",
+	Scope:   auth.ScopeInventoryWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update an inventory device",
+	Description: "Applies tag and lifecycle-state changes to an existing device. The write is guarded " +
+		"by the stored version token, so two callers editing the same device concurrently cannot lose " +
+		"one another's change: the later write is refused with 409 and must reload and reapply.",
+	Params: []Param{
+		{Name: "name", In: "path", Required: true, Type: "string", Description: "The device's name."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema:      deviceWriteSchema,
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated device.", Schema: deviceResponseSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or name is unusable.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No device with that name exists.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The device was modified concurrently, or the inventory is read-only.", Schema: errorSchema("")},
+		{Status: http.StatusUnprocessableEntity, Description: "state names no known lifecycle state.", Schema: errorSchema("")},
+	},
+}
+
 // GetDevice is GET /inventory/devices/{name}: read one inventory device.
 var GetDevice = Endpoint{
 	Name:        "get_device",
@@ -296,8 +505,14 @@ var DeleteDevice = Endpoint{
 // cmd/controller/main.go registers them.
 var Endpoints = []Endpoint{
 	DispatchRunbook,
+	ListJobs,
 	GetJob,
 	StreamJobLogs,
+	ListDevices,
+	CreateDevice,
 	GetDevice,
+	UpdateDevice,
 	DeleteDevice,
+	ListRunbooks,
+	GetRunbook,
 }

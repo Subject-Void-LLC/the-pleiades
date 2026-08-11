@@ -28,6 +28,8 @@ type Tx struct {
 	Revision *RevisionClient
 	// RoleBinding is the client for interacting with the RoleBinding builders.
 	RoleBinding *RoleBindingClient
+	// Session is the client for interacting with the Session builders.
+	Session *SessionClient
 	// Team is the client for interacting with the Team builders.
 	Team *TeamClient
 	// User is the client for interacting with the User builders.
@@ -171,6 +173,7 @@ func (tx *Tx) init() {
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)
+	tx.Session = NewSessionClient(tx.config)
 	tx.Team = NewTeamClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }

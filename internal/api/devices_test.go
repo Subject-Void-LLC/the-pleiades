@@ -27,14 +27,41 @@ import (
 // error branch can be reached deterministically.
 type stubDeviceRepo struct {
 	item      pkginventory.InventoryItem
+	items     []pkginventory.InventoryItem
 	getErr    error
+	listErr   error
+	createErr error
+	saveErr   error
 	retireErr error
 
 	retiredName string
+	created     pkginventory.InventoryItem
+	saved       pkginventory.InventoryItem
+}
+
+func (s *stubDeviceRepo) GetGroup(_ context.Context, sel pkginventory.Selector) (inventory.Iterator, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	items := s.items
+	if sel.Limit > 0 && len(items) > sel.Limit {
+		items = items[:sel.Limit]
+	}
+	return &stubIterator{items: items}, nil
 }
 
 func (s *stubDeviceRepo) GetByName(_ context.Context, _ string) (pkginventory.InventoryItem, error) {
 	return s.item, s.getErr
+}
+
+func (s *stubDeviceRepo) Create(_ context.Context, item pkginventory.InventoryItem) error {
+	s.created = item
+	return s.createErr
+}
+
+func (s *stubDeviceRepo) Save(_ context.Context, item pkginventory.InventoryItem) error {
+	s.saved = item
+	return s.saveErr
 }
 
 func (s *stubDeviceRepo) Retire(_ context.Context, name string) error {
@@ -42,17 +69,42 @@ func (s *stubDeviceRepo) Retire(_ context.Context, name string) error {
 	return s.retireErr
 }
 
+// stubIterator walks a fixed slice, matching the real iterators' contract:
+// Next reports whether an item is available, and a cancelled context stops
+// the walk rather than yielding items the caller no longer wants.
+type stubIterator struct {
+	items []pkginventory.InventoryItem
+	index int
+	cur   pkginventory.InventoryItem
+}
+
+func (i *stubIterator) Next(ctx context.Context) bool {
+	if ctx.Err() != nil || i.index >= len(i.items) {
+		return false
+	}
+	i.cur = i.items[i.index]
+	i.index++
+	return true
+}
+
+func (i *stubIterator) Item() pkginventory.InventoryItem { return i.cur }
+func (i *stubIterator) Error() error                     { return nil }
+func (i *stubIterator) Close() error                     { return nil }
+
 // deviceRouter mounts the device handlers over repo.
 func deviceRouter(t *testing.T, repo api.DeviceRepository) http.Handler {
 	t.Helper()
-	handler := api.NewDeviceHandler(repo, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	handler := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Auth:      alwaysAuthenticated,
 		Admission: &fakeAdmitter{},
 		HATEOAS:   allowAllGenerator(t),
 		Routes: []api.Route{
+			{Method: http.MethodGet, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryRead, Rel: auth.RelCollection, Handler: handler.List},
+			{Method: http.MethodPost, Pattern: "/inventory/devices", Scope: auth.ScopeInventoryWrite, Rel: auth.RelCreate, Handler: handler.Create},
 			{Method: http.MethodGet, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryRead, Rel: auth.RelSelf, Handler: handler.Get},
+			{Method: http.MethodPatch, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelUpdate, Handler: handler.Update},
 			{Method: http.MethodDelete, Pattern: "/inventory/devices/{name}", Scope: auth.ScopeInventoryWrite, Rel: auth.RelDelete, Handler: handler.Delete},
 		},
 	})

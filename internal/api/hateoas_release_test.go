@@ -97,7 +97,7 @@ func newGateFixture(t *testing.T) *gateFixture {
 		t.Fatalf("building generator: %v", err)
 	}
 
-	devices := api.NewDeviceHandler(repo, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),

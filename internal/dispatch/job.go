@@ -161,6 +161,23 @@ type JobStore interface {
 	// exists.
 	Get(ctx context.Context, jobID string) (*Job, []JobTask, error)
 
+	// List returns up to limit jobs, newest first, resuming after the
+	// given cursor (a job id, or empty for the first page).
+	//
+	// It carries no JobTask rows. A list view does not display per-device
+	// outcomes, and loading them for every job would be a query per row
+	// for data nothing renders -- the same list-view contract
+	// inventory.Repository.GetGroup already documents for device history.
+	//
+	// Ordering is newest-first on the job id, which is not an arbitrary
+	// choice of column: the schema defaults it to a UUIDv7, so it is
+	// time-ordered, unique and indexed, making it both the natural
+	// recency sort and a valid keyset cursor with no second index and no
+	// tiebreaker. Paging on created_at alone would need one, since two
+	// jobs launched in the same instant would share a cursor and each
+	// page boundary could then drop or repeat one.
+	List(ctx context.Context, after string, limit int) ([]*Job, error)
+
 	// BeginFanOut atomically transitions job jobID from "pending" to
 	// "fanning_out", or reclaims a job already in "fanning_out" whose
 	// updated_at has not advanced in at least staleAfter, implemented as
