@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -141,82 +142,14 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Resolve the runbook before anything is persisted. A missing
-	// runbook is a 404 carrying a generic message, never the underlying
-	// error: runbook.Source.Get's own doc comment notes id is
-	// caller-controlled and an implementation's error can carry a
-	// filesystem path or other storage-layer detail that has no business
-	// reaching an HTTP response.
-	if _, err := d.runbooks.Get(r.Context(), runbookID); err != nil {
+	jobID, err := d.Launch(r.Context(), id.Subject, groupName, runbookID)
+	if err != nil {
 		if errors.Is(err, runbook.ErrNotFound) {
 			RespondError(w, r, http.StatusNotFound, "runbook not found")
 			return
 		}
-		loggerFrom(r).ErrorContext(r.Context(), "failed to resolve runbook for dispatch",
+		loggerFrom(r).ErrorContext(r.Context(), "failed to dispatch runbook",
 			slog.String("runbook_id", runbookID),
-			slog.String("error", err.Error()))
-		RespondError(w, r, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// 3. Mint a server-generated job id and persist the Job row. This
-	// happens before anything is published: a durable record must exist
-	// before a Worker could ever be told to look one up, so a crash
-	// between these two steps leaves, at worst, a Job stuck in "pending"
-	// with nothing having fanned out yet, never a job.requested event
-	// naming a Job that was never actually saved.
-	jobID := uuid.New().String()
-	job := &dispatch.Job{
-		JobID:     jobID,
-		RunbookID: runbookID,
-		GroupName: groupName,
-		Actor:     id.Subject,
-	}
-	if err := d.jobs.Create(r.Context(), job); err != nil {
-		loggerFrom(r).ErrorContext(r.Context(), "failed to create job",
-			slog.String("job_id", jobID),
-			slog.String("error", err.Error()))
-		RespondError(w, r, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// 4. Publish exactly one job.requested event, handing fan-out off to
-	// internal/dispatch.Worker.
-	evt, err := event.WrapPayload(uuid.New().String(), "job.requested", jobRequestedPayload{JobID: jobID})
-	if err != nil {
-		loggerFrom(r).ErrorContext(r.Context(), "failed to build job.requested event",
-			slog.String("job_id", jobID),
-			slog.String("error", err.Error()))
-		RespondError(w, r, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	// Background context for publishing, same reasoning this handler's
-	// own per-device loop already had before this phase: an HTTP client
-	// disconnecting mid-request should not cancel a launch that has
-	// already been durably persisted. Actor and TraceID are stamped
-	// explicitly from the request onto that background context, rather
-	// than inherited via cancellation, so the published envelope still
-	// carries who and which trace triggered it.
-	pubCtx := event.WithActor(context.Background(), id.Subject)
-	if traceID, ok := TraceIDFromContext(r.Context()); ok {
-		pubCtx = event.WithTraceID(pubCtx, traceID)
-	}
-	// The envelope's TraceID field is for a human reading an audit row.
-	// The machine-readable W3C trace context that actually lets
-	// internal/dispatch.Worker (and, further downstream, the Runner)
-	// continue this trace rides in the NATS message headers, injected by
-	// the Bus adapter, and needs the live span from the request context
-	// rather than the detached background one, so it is grafted back on
-	// here.
-	pubCtx = trace.ContextWithSpan(pubCtx, trace.SpanFromContext(r.Context()))
-	// One job.requested event per job, so the job id alone is a natural,
-	// stable idempotency key for a retry of this exact publish.
-	pubCtx = event.WithIdempotencyKey(pubCtx, jobID)
-
-	if err := d.bus.Publish(pubCtx, topology.JobRequestedSubject(), *evt); err != nil {
-		loggerFrom(r).ErrorContext(r.Context(), "failed to publish job.requested event",
-			slog.String("job_id", jobID),
 			slog.String("error", err.Error()))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")
 		return
@@ -232,4 +165,81 @@ func (d *Dispatcher) DispatchRunbook(w http.ResponseWriter, r *http.Request) {
 		JobID:  jobID,
 	}
 	Respond(w, r, http.StatusAccepted, &resp)
+}
+
+// Launch performs a dispatch and returns the new job's id.
+//
+// It exists as a method separate from DispatchRunbook because this control
+// plane now has two front ends. The JSON API reaches it through the handler
+// above; the web UI's Jobs view reaches it directly, because a view layer
+// must never loop back over HTTP to its own API to do something the
+// in-process port can do. Both therefore run the identical sequence --
+// resolve, persist, publish, in that order -- rather than the UI growing a
+// second dispatch path that would drift from this one the first time either
+// changed.
+//
+// It returns runbook.ErrNotFound unwrapped enough for errors.Is, so each
+// caller can map it to the answer its own medium owes: a 404 for the API, a
+// field error on the form for the UI.
+func (d *Dispatcher) Launch(ctx context.Context, actor, groupName, runbookID string) (string, error) {
+	// 1. Resolve the runbook before anything is persisted. The error is
+	// wrapped rather than returned bare because runbook.Source.Get's own
+	// doc comment notes id is caller-controlled and an implementation's
+	// error can carry a filesystem path that has no business reaching a
+	// caller; every caller here logs it and answers generically.
+	if _, err := d.runbooks.Get(ctx, runbookID); err != nil {
+		return "", fmt.Errorf("resolve runbook %q: %w", runbookID, err)
+	}
+
+	// 2. Mint a server-generated job id and persist the Job row. This
+	// happens before anything is published: a durable record must exist
+	// before a Worker could ever be told to look one up, so a crash
+	// between these two steps leaves, at worst, a Job stuck in "pending"
+	// with nothing having fanned out yet, never a job.requested event
+	// naming a Job that was never actually saved.
+	jobID := uuid.New().String()
+	job := &dispatch.Job{
+		JobID:     jobID,
+		RunbookID: runbookID,
+		GroupName: groupName,
+		Actor:     actor,
+	}
+	if err := d.jobs.Create(ctx, job); err != nil {
+		return "", fmt.Errorf("create job %s: %w", jobID, err)
+	}
+
+	// 3. Publish exactly one job.requested event, handing fan-out off to
+	// internal/dispatch.Worker.
+	evt, err := event.WrapPayload(uuid.New().String(), "job.requested", jobRequestedPayload{JobID: jobID})
+	if err != nil {
+		return "", fmt.Errorf("build job.requested event for %s: %w", jobID, err)
+	}
+
+	// Background context for publishing: a client disconnecting
+	// mid-request should not cancel a launch that has already been
+	// durably persisted. Actor and TraceID are stamped explicitly onto
+	// that background context rather than inherited through
+	// cancellation, so the published envelope still carries who and which
+	// trace triggered it.
+	pubCtx := event.WithActor(context.Background(), actor)
+	if traceID, ok := TraceIDFromContext(ctx); ok {
+		pubCtx = event.WithTraceID(pubCtx, traceID)
+	}
+	// The envelope's TraceID field is for a human reading an audit row.
+	// The machine-readable W3C trace context that actually lets
+	// internal/dispatch.Worker (and, further downstream, the Runner)
+	// continue this trace rides in the NATS message headers, injected by
+	// the Bus adapter, and needs the live span from the caller's context
+	// rather than the detached background one, so it is grafted back on
+	// here.
+	pubCtx = trace.ContextWithSpan(pubCtx, trace.SpanFromContext(ctx))
+	// One job.requested event per job, so the job id alone is a natural,
+	// stable idempotency key for a retry of this exact publish.
+	pubCtx = event.WithIdempotencyKey(pubCtx, jobID)
+
+	if err := d.bus.Publish(pubCtx, topology.JobRequestedSubject(), *evt); err != nil {
+		return "", fmt.Errorf("publish job.requested for %s: %w", jobID, err)
+	}
+
+	return jobID, nil
 }

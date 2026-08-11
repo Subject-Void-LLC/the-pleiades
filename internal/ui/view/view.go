@@ -24,7 +24,9 @@
 package view
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -102,6 +104,40 @@ func (o Ops) Candidates() []auth.Affordance {
 	return out
 }
 
+// ChartBucket is one categorical measurement: a label, a count, and the
+// badge class that colours both the chart segment and the table row.
+//
+// The class comes from the same closed set every status badge draws from,
+// so a chart cannot introduce a colour the stylesheet has not already
+// proven contrast for -- and the label travels with it, so the chart never
+// encodes meaning in colour alone (WCAG SC 1.4.1).
+type ChartBucket struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+	Class string `json:"class"`
+}
+
+// ChartData is what a chart endpoint serves and what its table renders.
+//
+// It is domain JSON and deliberately not an ECharts option document.
+// Coupling a server endpoint to a charting library's schema is a seam that
+// can never be changed afterwards -- swapping the library would become an
+// API break -- and the same values have to drive the table equivalent
+// anyway, which no option document could.
+type ChartData struct {
+	Buckets []ChartBucket `json:"buckets"`
+}
+
+// Total is the sum of every bucket, rendered as the table's footer so the
+// figures a reader is given add up to something they can check.
+func (c ChartData) Total() int {
+	total := 0
+	for _, b := range c.Buckets {
+		total += b.Count
+	}
+	return total
+}
+
 // ChartSpec describes the one chart a view may render.
 type ChartSpec struct {
 	// Title is the chart's accessible name and its visible heading.
@@ -113,12 +149,45 @@ type ChartSpec struct {
 	// says what the chart is claiming.
 	Caption string
 
-	// DataPath is the UI-subtree path serving this chart's aggregates as
-	// domain JSON. It is deliberately not an ECharts option document:
-	// coupling a server endpoint to a charting library's schema is a
-	// seam that can never be changed afterwards, and the same JSON has
-	// to drive the table fallback anyway.
-	DataPath string
+	// Data produces the aggregates. It is called once to render the table
+	// server-side and once more by the chart endpoint the script fetches,
+	// so it must be cheap and must not mutate anything.
+	//
+	// There is deliberately no author-supplied URL here. The path is
+	// derived from the mount prefix and the resource name, because a
+	// resource that wrote its own absolute URL would be hardcoding a
+	// decision that belongs to the composition root.
+	Data func(context.Context) (ChartData, error)
+}
+
+// StreamSpec declares that a resource's records have a live event stream.
+//
+// It is a declaration rather than a handler because the route table is
+// fixed: /{resource}/{id}/logs exists once, for every resource that will
+// ever declare one of these, and 404s for every resource that does not.
+type StreamSpec struct {
+	// Title is the streaming page's heading.
+	Title string
+
+	// PathPattern is the server-sent-events endpoint, containing the
+	// literal token {id} where a record's identifier belongs -- for
+	// example "/api/v1/jobs/{id}/logs".
+	//
+	// A pattern rather than a func(id string) string, deliberately. A
+	// function would put URL construction in every resource author's
+	// hands, and each of them would have to remember to escape the
+	// identifier; substituting into a validated pattern means the escape
+	// happens once, here, in code that is tested once.
+	PathPattern string
+}
+
+// idToken is what StreamSpec.PathPattern must contain and what a record's
+// escaped identifier replaces.
+const idToken = "{id}"
+
+// StreamPath builds one record's stream URL, escaping the identifier.
+func (s StreamSpec) StreamPath(id string) string {
+	return strings.ReplaceAll(s.PathPattern, idToken, url.PathEscape(id))
 }
 
 // Descriptor is everything the UI needs to render one resource.
@@ -159,6 +228,11 @@ type Descriptor struct {
 	// Chart optionally adds one chart to this view.
 	Chart *ChartSpec
 
+	// Stream optionally declares that each of this resource's records has
+	// a live event stream, which is what makes /{resource}/{id}/logs
+	// resolve for this resource and 404 for every other one.
+	Stream *StreamSpec
+
 	// Applies optionally withdraws an affordance for one particular
 	// record -- an archived device offers no delete to anyone, however
 	// broadly scoped. It is api.LinkFilter's contract, re-expressed per
@@ -175,6 +249,16 @@ type Descriptor struct {
 // it rather than comparing Status directly, so the empty-means-declared
 // default lives in one place.
 func (d Descriptor) Implemented() bool { return d.Status == StatusImplemented }
+
+// ListsRecords reports whether this view renders a table of records.
+//
+// A view may legitimately have none. The dashboard is a chart and nothing
+// else, which is a real shape rather than an unfinished one, so the list
+// page renders whichever of its sections exist instead of assuming a table
+// is always the point.
+func (d Descriptor) ListsRecords() bool {
+	return d.Handlers != nil && d.Handlers.List != nil
+}
 
 // ListFields returns the fields that appear as list columns, in
 // declaration order.
@@ -256,27 +340,47 @@ func Register(d Descriptor) error {
 	if err := validateOps(d.Name, d.Ops); err != nil {
 		return err
 	}
-	if d.Chart != nil {
-		if strings.TrimSpace(d.Chart.Title) == "" {
-			return fmt.Errorf("view %q has a chart with no title", d.Name)
-		}
-		if strings.TrimSpace(d.Chart.Caption) == "" {
-			// A chart with no long description is a chart that is
-			// simply unavailable to a screen reader user.
-			return fmt.Errorf("view %q has a chart with no caption", d.Name)
-		}
-		if !strings.HasPrefix(d.Chart.DataPath, "/") {
-			return fmt.Errorf("view %q chart data path %q is not absolute", d.Name, d.Chart.DataPath)
-		}
+	if err := validateChart(d.Name, d.Chart); err != nil {
+		return err
+	}
+	if err := validateStream(d.Name, d.Stream); err != nil {
+		return err
 	}
 
 	switch {
 	case d.Implemented() && d.Handlers == nil:
 		return fmt.Errorf("view %q claims status %q but carries no handlers", d.Name, StatusImplemented)
-	case d.Implemented() && d.Ops.Get == nil:
-		return fmt.Errorf("view %q claims status %q but declares no Get endpoint", d.Name, StatusImplemented)
 	case !d.Implemented() && d.Handlers != nil:
 		return fmt.Errorf("view %q is declared but carries handlers", d.Name)
+
+	// A chart or a stream on a declared view is the same contradiction as
+	// a handler: both reach live data, and a view that says it is not
+	// implemented while serving live data is exactly the ambiguity the
+	// declared status exists to remove.
+	case !d.Implemented() && d.Chart != nil:
+		return fmt.Errorf("view %q is declared but carries a chart", d.Name)
+	case !d.Implemented() && d.Stream != nil:
+		return fmt.Errorf("view %q is declared but carries a stream", d.Name)
+
+	// A view that lists records renders a detail link on every row, so
+	// without a Get endpoint each of those links is a button this UI drew
+	// for a route nobody mounted -- the exact failure the endpoint check
+	// above exists to prevent, one level down.
+	case d.ListsRecords() && d.Ops.Get == nil:
+		return fmt.Errorf("view %q lists records but declares no Get endpoint", d.Name)
+
+	// A row's detail link is built from the IDField's value, so a view
+	// that renders rows without naming one would link every record to the
+	// same empty path.
+	case d.ListsRecords() && d.IDField == "":
+		return fmt.Errorf("view %q lists records but names no id field", d.Name)
+
+	// A view that neither lists nor reads a record has no way to be
+	// reached at all. A summary view is legitimate -- the dashboard is
+	// one, a chart with no table beneath it -- but it still has to name
+	// the endpoint whose scope gates it.
+	case d.Implemented() && d.Ops.List == nil && d.Ops.Get == nil:
+		return fmt.Errorf("view %q claims status %q but declares no List or Get endpoint", d.Name, StatusImplemented)
 	}
 
 	if d.Handlers.Writable() && d.Ops.Create == nil {
@@ -284,6 +388,54 @@ func Register(d Descriptor) error {
 	}
 
 	return views.Register(d.Name, d)
+}
+
+// validateChart refuses a chart that could not be read by everyone.
+func validateChart(name string, chart *ChartSpec) error {
+	if chart == nil {
+		return nil
+	}
+	if strings.TrimSpace(chart.Title) == "" {
+		return fmt.Errorf("view %q has a chart with no title", name)
+	}
+	if strings.TrimSpace(chart.Caption) == "" {
+		// A chart with no long description is a chart that is simply
+		// unavailable to a screen reader user.
+		return fmt.Errorf("view %q has a chart with no caption", name)
+	}
+	if chart.Data == nil {
+		// A declared chart with no data function renders an empty canvas
+		// and an empty table, which reads as "nothing is happening"
+		// rather than as "this is not wired up".
+		return fmt.Errorf("view %q has a chart with no data function", name)
+	}
+	return nil
+}
+
+// validateStream refuses a stream declaration that could not produce a
+// usable URL.
+func validateStream(name string, stream *StreamSpec) error {
+	if stream == nil {
+		return nil
+	}
+	if strings.TrimSpace(stream.Title) == "" {
+		return fmt.Errorf("view %q has a stream with no title", name)
+	}
+	if !strings.HasPrefix(stream.PathPattern, "/") {
+		// A relative pattern would resolve against whatever page happened
+		// to be open, and a scheme-bearing one would let a resource point
+		// the browser's EventSource at another origin.
+		return fmt.Errorf("view %q stream path %q is not an absolute path", name, stream.PathPattern)
+	}
+	if strings.HasPrefix(stream.PathPattern, "//") {
+		return fmt.Errorf("view %q stream path %q is protocol-relative", name, stream.PathPattern)
+	}
+	if !strings.Contains(stream.PathPattern, idToken) {
+		// Without the token every record would stream the same URL, which
+		// is a subtle enough bug to be worth refusing outright.
+		return fmt.Errorf("view %q stream path %q contains no %s token", name, stream.PathPattern, idToken)
+	}
+	return nil
 }
 
 // validateOps checks that every endpoint a view names is one the API

@@ -78,6 +78,9 @@ mkdir my-project && cd my-project
   semantics, safety, security, credentials, and what data is and is not encrypted.
 - [`docs/11-extending-pleiades.md`](docs/11-extending-pleiades.md): the Forge commands,
   the Collection method and sync plugin contracts, and their conformance suite.
+- [`docs/12-web-ui.md`](docs/12-web-ui.md): the web UI the controller serves itself —
+  signing in, what each view does and does not do, the environment banner, mobile,
+  accessibility (including the manual verification script), and adding a view.
 - [`docs/13-releases-and-stability.md`](docs/13-releases-and-stability.md) and
   [`docs/14-project.md`](docs/14-project.md): changelog, versioning, contributing,
   license, and where each of those actually lives today.

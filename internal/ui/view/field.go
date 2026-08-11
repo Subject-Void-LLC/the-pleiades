@@ -204,7 +204,15 @@ var autocompleteTokens = map[string]bool{
 // this file.
 func validateFields(fields []Field, idField string) error {
 	if len(fields) == 0 {
-		return fmt.Errorf("declares no fields")
+		// A view with no fields is legitimate when it renders no records:
+		// the dashboard is a chart and nothing else. Register is what
+		// rejects the incoherent combinations -- a view that lists records
+		// still needs an IDField, and an IDField still has to name a real
+		// field -- so the emptiness itself is not the error.
+		if idField != "" {
+			return fmt.Errorf("names id field %q but declares no fields", idField)
+		}
+		return nil
 	}
 
 	seen := make(map[string]bool, len(fields))

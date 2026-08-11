@@ -157,6 +157,29 @@ type RouterConfig struct {
 	// one evaluation against one rule list, not two implementations of
 	// the same question. See auth.NewAdmissionHATEOASGenerator.
 	HATEOAS auth.HATEOASGenerator
+
+	// UI is the fully-built view-layer handler, mounted at UIPrefix
+	// inside the four global middlewares and outside APIVersionPrefix.
+	//
+	// It is an http.Handler rather than a []Route because a view layer
+	// serves wildcard static assets and OPTIONS-free HTML, both of which
+	// validateRoutes structurally forbids -- and correctly so. A Route
+	// exists to carry a Scope and a Rel into an _links array, and neither
+	// concept applies to a stylesheet.
+	//
+	// Mounting it here rather than beside the returned mux is what gives
+	// the UI tracing, RED metrics, structured logging and panic recovery
+	// for free, so the Front Controller guarantee holds for the new
+	// subtree too. It also has to be here: chi panics if Use is called
+	// after a route is registered, and NewRouter registers routes before
+	// returning, so a caller cannot add middleware to the mux afterwards.
+	//
+	// The UI owns its own authentication, because a browser needs a
+	// redirect to a login page where the JSON API needs a 401.
+	UI http.Handler
+
+	// UIPrefix is where UI mounts, e.g. "/ui". Required when UI is set.
+	UIPrefix string
 }
 
 // NewRouter builds the Front Controller: one chi.Mux that owns routing and
@@ -192,6 +215,15 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 	r.Get("/readyz", readyzHandler(cfg.Logger, cfg.Readiness))
 	r.Handle("/metrics", promhttp.HandlerFor(cfg.Registry, promhttp.HandlerOpts{Registry: cfg.Registry}))
 	registerWellKnown(r)
+
+	// The UI mounts inside the four global middlewares and outside the
+	// versioned API prefix, so it inherits tracing, RED metrics,
+	// structured logging and panic recovery while owning its own
+	// authentication -- a browser needs a redirect to a login page where
+	// the API needs a 401.
+	if cfg.UI != nil {
+		r.Mount(cfg.UIPrefix, cfg.UI)
+	}
 	registerOpenAPI(r)
 
 	// One builder, built once, shared by every request. It is the single
@@ -257,6 +289,9 @@ func (cfg *RouterConfig) validate() error {
 	if len(cfg.Routes) > 0 && cfg.HATEOAS == nil {
 		return fmt.Errorf("api: RouterConfig.Routes is non-empty but HATEOAS is nil, so every response would advertise no affordances and every Allow header would be empty")
 	}
+	if err := validateUIMount(cfg); err != nil {
+		return err
+	}
 	return validateRoutes(cfg.Routes)
 }
 
@@ -275,6 +310,33 @@ func (cfg *RouterConfig) validate() error {
 //   - a Route claiming OPTIONS, which the router owns on every pattern
 //     (see registerOptions) and which a handler-supplied one would shadow;
 //   - a wildcard Pattern, which has no stable href to build a link from.
+//
+// validateUIMount refuses a UI mount that would shadow or be shadowed by
+// something already served, at construction rather than at whichever
+// request first noticed.
+func validateUIMount(cfg *RouterConfig) error {
+	if cfg.UI == nil {
+		return nil
+	}
+	prefix := cfg.UIPrefix
+	switch {
+	case prefix == "":
+		return fmt.Errorf("UI is set but UIPrefix is empty")
+	case !strings.HasPrefix(prefix, "/"):
+		return fmt.Errorf("UIPrefix %q must start with /", prefix)
+	case prefix == "/":
+		return fmt.Errorf("UIPrefix must not be /, which would shadow every other route")
+	case strings.HasPrefix(prefix, APIVersionPrefix):
+		return fmt.Errorf("UIPrefix %q collides with the versioned API prefix", prefix)
+	}
+	for _, reserved := range []string{"/healthz", "/readyz", "/metrics", "/.well-known"} {
+		if prefix == reserved || strings.HasPrefix(prefix, reserved+"/") {
+			return fmt.Errorf("UIPrefix %q collides with the operational endpoint %q", prefix, reserved)
+		}
+	}
+	return nil
+}
+
 func validateRoutes(routes []Route) error {
 	seenRoute := make(map[string]bool, len(routes))
 	seenRel := make(map[string]bool, len(routes))

@@ -94,6 +94,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 91. A test container the production code path never used, hiding a database configuration that existed nowhere
 92. A dialect map that made a migration runner look portable while one statement inside it was not
 93. A compose file setting a configuration key no code read, in front of a service nothing used
+94. An unanchored `vendor/` gitignore pattern silently excluded embedded third-party assets, so the committed tree did not build
+95. A wildcard CORS header on an endpoint that had just become cookie-authenticated
+96. The credential-source generalization was built, tested, and never wired into the composition root
 
 ---
 

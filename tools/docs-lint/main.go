@@ -150,16 +150,25 @@ func scanTargets(repoRoot string) ([]string, error) {
 		filepath.Join(repoRoot, "cmd", "pleiades", "doc.go"),
 		filepath.Join(repoRoot, "internal", "clispec", "clispec.go"),
 		filepath.Join(repoRoot, "internal", "inventory", "project.go"),
-		// Root-level and web/ Markdown: real files a contributor or user
-		// reads directly. Caught in practice while writing these very
-		// files: CONTRIBUTING.md and changelog/README.md both initially
-		// cited IMPLEMENTATION.md before this check existed to catch it.
+		// Root-level Markdown and the UI's own documentation page: real
+		// files a contributor or user reads directly. Caught in practice
+		// while writing these very files: CONTRIBUTING.md and
+		// changelog/README.md both initially cited IMPLEMENTATION.md
+		// before this check existed to catch it.
+		//
+		// web/README.md used to be on this list. It is gone with the rest
+		// of the React SPA (Phase 19), and it is worth noting how it left:
+		// every entry here is os.Stat-guarded, so a path that stops
+		// existing is silently skipped rather than failing. That is
+		// convenient and it is also how a target rots unnoticed, which is
+		// why the replacement page is named explicitly below rather than
+		// left to be discovered.
 		filepath.Join(repoRoot, "README.md"),
 		filepath.Join(repoRoot, "CONTRIBUTING.md"),
 		filepath.Join(repoRoot, "SECURITY.md"),
 		filepath.Join(repoRoot, "CODE_OF_CONDUCT.md"),
 		filepath.Join(repoRoot, "CHANGELOG.md"),
-		filepath.Join(repoRoot, "web", "README.md"),
+		filepath.Join(repoRoot, "docs", "12-web-ui.md"),
 	}
 	for _, p := range explicit {
 		if _, err := os.Stat(p); err == nil {

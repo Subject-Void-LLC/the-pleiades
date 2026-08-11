@@ -19,6 +19,7 @@ package archtest
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog"
@@ -27,9 +28,30 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
+
+// viewSweepOnce registers the view table exactly once for this package.
+//
+// It registers over zero-valued ports deliberately. Everything below is a
+// structural question -- names, nav order, field declarations, which
+// endpoints a descriptor points at -- and none of it calls a handler, so
+// the ports are never reached. Standing up a real repository, job store and
+// dispatcher to ask whether two views share a nav position would make this
+// sweep depend on Docker to check a struct field.
+var viewSweepOnce sync.Once
+
+func registerViewsForSweep(t *testing.T) {
+	t.Helper()
+	viewSweepOnce.Do(func() {
+		if err := resources.RegisterAll(resources.Deps{}); err != nil {
+			t.Fatalf("resources.RegisterAll() = %v, want nil: every built-in view must register", err)
+		}
+	})
+}
 
 // TestCapabilityHierarchyIsClosed proves every registered capability's
 // declared parent is itself registered.
@@ -256,5 +278,77 @@ func TestCatalogPackagesImportOnlyPkg(t *testing.T) {
 
 	if checked == 0 {
 		t.Fatal("no generated Collection packages were checked, so this test proved nothing")
+	}
+}
+
+// TestViewsAreCoherent sweeps the web UI's view registry the same way the
+// tests above sweep the capability, Collection and device-type tables.
+//
+// The registry's own Register already refuses an incoherent descriptor at
+// process start, so this is not a second copy of those rules. It checks the
+// properties that are only visible across the whole table -- a nav that
+// reshuffles because two views claim one position, a URL segment two views
+// both answer to -- which no single registration can see.
+//
+// It imports internal/ui/resources for its side effects only, which is also
+// what proves that package is wired: a view absent from registrars() is
+// absent here, and this test is where that shows up rather than in a user's
+// empty sidebar.
+func TestViewsAreCoherent(t *testing.T) {
+	registerViewsForSweep(t)
+
+	names := view.Names()
+	if len(names) == 0 {
+		t.Fatal("no views are registered, so this test proved nothing")
+	}
+
+	navOrders := make(map[int]string, len(names))
+	for _, name := range names {
+		d, ok := view.Lookup(name)
+		if !ok {
+			t.Fatalf("view %q is in Names() but not in Lookup()", name)
+		}
+
+		// Two views at one nav position make the sidebar order depend on
+		// the tiebreaker rather than on intent, which is how a nav quietly
+		// reorders itself between releases.
+		if prev, dup := navOrders[d.NavOrder]; dup {
+			t.Errorf("views %q and %q both claim nav order %d", prev, name, d.NavOrder)
+		}
+		navOrders[d.NavOrder] = name
+
+		// Every endpoint a view names must be one the API really declares.
+		// Register checks this too; checking it here as well is what
+		// catches an apispec entry that was renamed after registration.
+		for _, endpoint := range d.Ops.Candidates() {
+			if endpoint.Scope == "" {
+				t.Errorf("view %q names an operation with no scope, so nothing gates it", name)
+			}
+		}
+
+		fieldNames := make(map[string]bool, len(d.Fields))
+		for _, f := range d.Fields {
+			if fieldNames[f.Name] {
+				t.Errorf("view %q declares field %q more than once", name, f.Name)
+			}
+			fieldNames[f.Name] = true
+
+			// A badge class outside the closed set reaches a class
+			// attribute and silently renders unstyled, which is how a
+			// failed job ends up looking like a successful one.
+			if f.BadgeClass == nil {
+				continue
+			}
+			for _, probe := range []string{"", "completed", "failed", "unknown-value-nobody-declared"} {
+				if class := f.BadgeClass(probe); !view.ValidBadgeClasses[class] {
+					t.Errorf("view %q field %q maps %q to class %q, which is outside the validated set",
+						name, f.Name, probe, class)
+				}
+			}
+		}
+
+		if d.ListsRecords() && !fieldNames[d.IDField] {
+			t.Errorf("view %q lists records keyed on %q, which is not one of its fields", name, d.IDField)
+		}
 	}
 }

@@ -95,8 +95,20 @@ func (ls *LogStreamer) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	// Allow CORS for the web UI dev server
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// No Access-Control-Allow-Origin. This endpoint used to send "*" to
+	// let a separate Vite dev server on another port read it, back when
+	// the only credential it accepted was a Bearer header a fetch() had to
+	// attach deliberately.
+	//
+	// Both halves of that changed in Phase 19 and the header became exactly
+	// the wrong one to send. The UI is now served same-origin from this
+	// binary, so no cross-origin read is needed; and this endpoint now
+	// accepts an ambient session cookie, so a wildcard origin on it is a
+	// permission for any site a signed-in operator visits to read their
+	// job output. (Browsers refuse to combine "*" with credentials, so
+	// this was not exploitable as written -- but it was one
+	// Allow-Credentials line away from being so, on the endpoint that
+	// streams what automation is doing to production.)
 
 	// Consume is started, and checked for error, before anything is
 	// written to w: a Write (even just the "event: init" line below)

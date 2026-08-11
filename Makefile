@@ -1,4 +1,4 @@
-.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check tools hooks ci
+.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check templ-gen templ-gen-check tools hooks ui-dev ui-stop ci
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -203,5 +203,51 @@ docs-gen-check:
 # Phase 0 item lists `go test -race ./...` as one thing CI must run, and
 # splitting it out would make it easy to merge a PR that only ran the
 # non-race target.
-ci: build vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check
+ci: build vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check templ-gen-check
 	@echo "ci: all checks passed"
+
+# templ-gen regenerates the view layer's templates. templ emits a
+# _templ.go beside every .templ, and both are committed.
+templ-gen:
+	go tool templ generate ./internal/ui/render
+
+# templ-gen-check proves the committed generated files match a fresh run,
+# mirroring docs-gen-check's own three-part shape: regenerate, diff, and
+# then check for newly created files, which git diff alone is blind to.
+templ-gen-check: templ-gen
+	git diff --exit-code -- internal/ui/render
+	test -z "$$(git ls-files --others --exclude-standard -- internal/ui/render)"
+
+# ui-dev boots the real controller against a throwaway database and prints
+# a sign-in token, so the web UI can be looked at without a cluster. It runs
+# the shipped binary rather than a harness: a development server that wired
+# its own router could show a UI the real composition root does not serve.
+#
+# Invoked by file path because tools/uidev carries //go:build ignore, the
+# same convention internal/ent/migrate/gen uses for a repo-local developer
+# tool that shells out to docker and a compiler.
+#
+# Ctrl-C stops it. The controller is started with Pdeathsig, so it cannot
+# outlive this process even if the terminal is closed or the task is killed;
+# ui-stop below exists for the case where an earlier run predates that.
+#
+# PLEIADES_UI_ADDR=:8081 make ui-dev  runs a second instance alongside a
+# first: each picks its own NATS port and its own container name.
+ui-dev:
+	go run tools/uidev/main.go
+
+# ui-stop clears anything a previous run left behind.
+#
+# It is a separate target rather than "make ui-dev stop" because make has no
+# positional arguments: a trailing word is parsed as a second target to
+# build, so `make ui-dev stop` runs ui-dev and then fails looking for a rule
+# named stop. This does the same job with a name make can actually reach.
+# The bracket in [t]ools stops the pattern matching this rule's own command
+# line -- without it, pkill finds the shell running it and make terminates
+# itself, which is a memorable way to learn how pkill -f works.
+ui-stop:
+	-@pkill -f '[t]ools/uidev/main.go' 2>/dev/null || true
+	-@pkill -f '[p]leiades-uidev-.*/controller' 2>/dev/null || true
+	-@docker rm -f $$(docker ps -aq --filter name=pleiades-uidev) >/dev/null 2>&1 || true
+	-@rm -rf /tmp/pleiades-uidev-* 2>/dev/null || true
+	@echo "ui-stop: development server, broker and scratch directories cleared"

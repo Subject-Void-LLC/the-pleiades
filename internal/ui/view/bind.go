@@ -15,6 +15,44 @@ import (
 // this project has already shipped twice.
 var ErrNotImplemented = errors.New("view resource is declared but not implemented")
 
+// FieldFault is a write failure a port can blame on one declared field.
+//
+// It exists because some failures are only knowable at the port. A runbook
+// id that names nothing, a device type this build does not register, a name
+// already taken -- none of these can be checked by the shared validator,
+// and all of them are the submitter's mistake rather than the platform's.
+// Without this they surface as a 500 and an error page, which tells
+// somebody who mistyped a runbook name that the server is broken.
+//
+// A port returns one (or wraps one), and Bind turns it into the same
+// FieldErrors a validation failure produces, so the form redisplays with
+// the message attached to the control that caused it.
+type FieldFault struct {
+	// Field is the declared Field.Name to attach the message to.
+	Field string
+
+	// Message is what the user reads. It is written for them rather than
+	// for a log: a port's own error text can carry a filesystem path or
+	// a storage detail and must not be passed through.
+	Message string
+}
+
+// Error implements error.
+func (e FieldFault) Error() string { return e.Field + ": " + e.Message }
+
+// faultErrors converts a port error into per-field errors when it blames a
+// field, and returns nil otherwise so the caller treats it as a real
+// failure.
+func faultErrors(err error) FieldErrors {
+	var fault FieldFault
+	if !errors.As(err, &fault) {
+		return nil
+	}
+	errs := FieldErrors{}
+	errs.Add(fault.Field, fault.Message)
+	return errs
+}
+
 // Page is one page of a resource's own domain type, before erasure.
 type Page[T any] struct {
 	Items      []T
@@ -42,6 +80,19 @@ type Writer[T any] interface {
 	Create(ctx context.Context, v T) (id string, err error)
 	Update(ctx context.Context, id string, v T) error
 	Delete(ctx context.Context, id string) error
+}
+
+// Creator is the create-only half of a write port.
+//
+// It exists for the resource that can be brought into being but never
+// edited or removed, which is not a rare shape: a job is dispatched and
+// then only observed, because editing a running fan-out is meaningless and
+// deleting one would destroy the audit record it exists to be. Making such
+// a resource satisfy Writer would mean two methods that must never be
+// called, and the whole reason Reader and Writer are separate is that a
+// stub which must never be called is a stub somebody eventually calls.
+type Creator[T any] interface {
+	Create(ctx context.Context, v T) (id string, err error)
 }
 
 // Projector is the pair of translations only a resource author can write:
@@ -106,6 +157,50 @@ func MustBind[T any](r Reader[T], w Writer[T], p Projector[T]) *Handlers {
 	return h
 }
 
+// MustBindCreatable is BindCreatable, panicking on an invalid projector.
+func MustBindCreatable[T any](r Reader[T], c Creator[T], p Projector[T]) *Handlers {
+	h, err := BindCreatable(r, c, p)
+	if err != nil {
+		panic("view: " + err.Error())
+	}
+	return h
+}
+
+// BindCreatable erases a resource that can be read and created but never
+// updated or deleted.
+//
+// The resulting Handlers carry no Update and no Delete, so Writable()
+// reports false and no template renders an edit link or a delete control --
+// the same fact drives the handler's nil check and the button, exactly as
+// it does for a read-only resource.
+func BindCreatable[T any](r Reader[T], c Creator[T], p Projector[T]) (*Handlers, error) {
+	h, err := Bind[T](r, nil, p)
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, fmt.Errorf("resource has no Creator")
+	}
+	if p.Bind == nil {
+		return nil, fmt.Errorf("projector has a Creator but no Bind function")
+	}
+
+	h.Create = func(ctx context.Context, v Values) (string, FieldErrors, error) {
+		item, errs := p.Bind(v)
+		if errs.Any() {
+			// Return before touching the port, so a validation failure
+			// cannot leave a half-written record behind.
+			return "", errs, nil
+		}
+		id, err := c.Create(ctx, item)
+		if errs := faultErrors(err); errs != nil {
+			return "", errs, nil
+		}
+		return id, nil, err
+	}
+	return h, nil
+}
+
 // Bind erases a typed resource into the Handlers a Descriptor carries.
 //
 // Passing a nil Writer produces read-only handlers. Note that this means a
@@ -168,6 +263,9 @@ func Bind[T any](r Reader[T], w Writer[T], p Projector[T]) (*Handlers, error) {
 			return "", errs, nil
 		}
 		id, err := w.Create(ctx, item)
+		if errs := faultErrors(err); errs != nil {
+			return "", errs, nil
+		}
 		return id, nil, err
 	}
 	h.Update = func(ctx context.Context, id string, v Values) (FieldErrors, error) {
@@ -175,7 +273,11 @@ func Bind[T any](r Reader[T], w Writer[T], p Projector[T]) (*Handlers, error) {
 		if errs.Any() {
 			return errs, nil
 		}
-		return nil, w.Update(ctx, id, item)
+		err := w.Update(ctx, id, item)
+		if errs := faultErrors(err); errs != nil {
+			return errs, nil
+		}
+		return nil, err
 	}
 	h.Delete = w.Delete
 

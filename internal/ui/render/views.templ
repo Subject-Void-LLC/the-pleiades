@@ -1,0 +1,319 @@
+package render
+
+import "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+
+// List renders one resource's collection.
+//
+// Nothing here is per-resource. The columns, their headers, the mobile
+// card labels and the cell formatting all come from the same Field
+// declaration the descriptor already carries, which is why adding a
+// resource adds no template.
+templ List(m view.ListModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Descriptor.Title }</h1>
+			if m.Descriptor.Summary != "" {
+				<p class="view-summary">{ m.Descriptor.Summary }</p>
+			}
+		</header>
+		if m.Aff.Unknown {
+			@affordanceAlert()
+		}
+		if m.HasChart() {
+			@chart(m)
+		}
+		if m.CanCreate() {
+			<p><a class="btn" href={ templ.SafeURL(m.CreateHref()) }>New</a></p>
+		}
+		// A view need not list anything. The dashboard is a chart and
+		// nothing else, which is a finished shape rather than an
+		// unfinished one, so the page renders whichever of its sections
+		// exist instead of assuming a table is always the point.
+		if m.Descriptor.ListsRecords() {
+			<div
+				class="table-scroll"
+				id="resource-list"
+				data-focus-after-swap="true"
+				data-announce={ m.ResultCount() }
+			>
+				if len(m.Rows) == 0 {
+					<p role="status">No records.</p>
+				} else {
+					<table class="table">
+						<thead>
+							<tr>
+								for _, col := range m.Columns() {
+									<th scope="col">{ col.Label }</th>
+								}
+								<th scope="col">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, row := range m.Rows {
+								<tr>
+									for _, col := range m.Columns() {
+										// data-label is what a narrow viewport
+										// renders in place of the column
+										// header once the table becomes cards,
+										// so a cell still says what it is.
+										<td data-label={ col.Label } data-primary={ m.IsPrimary(col) }>
+											if col.Kind == view.KindBadge {
+												<span class={ "badge", m.BadgeClass(row, col) }>{ m.Cell(row, col) }</span>
+											} else {
+												{ m.Cell(row, col) }
+											}
+										</td>
+									}
+									<td data-label="Actions">
+										<a href={ templ.SafeURL(m.DetailHref(row)) }>Open</a>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+			if m.NextHref() != "" {
+				<p><a class="btn" href={ templ.SafeURL(m.NextHref()) }>Next page</a></p>
+			}
+		}
+	}
+}
+
+// chart renders the graphic and its text equivalent together.
+//
+// The table is not a fallback that appears when something fails -- it is
+// always present, always populated server-side, and is the authoritative
+// rendering. That is the only honest way to give a chart a text
+// alternative: a 200-character alt attribute cannot carry a dataset, and a
+// table that only materialises when a script fails is a table nobody has
+// ever tested.
+//
+// The canvas carries no inline style and no inline script. It advertises
+// its data URL in a data attribute and chart.js finds it, because the
+// content security policy this UI ships under has no 'unsafe-inline' and
+// the usual bootstrap for a charting library is exactly that.
+templ chart(m view.ListModel) {
+	<section class="chart-section" aria-labelledby="chart-heading">
+		<h2 id="chart-heading">{ m.ChartTitle() }</h2>
+		<p class="chart-caption" id="chart-caption">{ m.ChartCaption() }</p>
+		<div class="chart-layout">
+			// aria-hidden because everything this canvas conveys is in the
+			// table beside it. Announcing an unlabelled graphic and then the
+			// same numbers again wastes a screen reader user's time.
+			<div
+				class="chart-canvas"
+				data-chart-url={ m.ChartDataHref() }
+				aria-hidden="true"
+			></div>
+			<table class="table chart-table">
+				<caption class="visually-hidden">{ m.ChartCaption() }</caption>
+				<thead>
+					<tr>
+						<th scope="col">Status</th>
+						<th scope="col">Count</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, b := range m.Chart.Buckets {
+						<tr>
+							<th scope="row" data-label="Status">
+								<span class={ "badge", m.ChartBucketClass(b) }>{ b.Label }</span>
+							</th>
+							<td data-label="Count">{ m.ChartCount(b) }</td>
+						</tr>
+					}
+				</tbody>
+				<tfoot>
+					<tr>
+						<th scope="row">Total</th>
+						<td>{ m.ChartTotal() }</td>
+					</tr>
+				</tfoot>
+			</table>
+		</div>
+	</section>
+}
+
+// Stream is the live log page.
+//
+// Designed for a narrow screen first rather than adapted to one: watching a
+// running job is the thing somebody is most likely to open away from a
+// desk, and usually because something has already gone wrong.
+templ Stream(m view.StreamModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Heading() }</h1>
+			<p class="view-summary"><a href={ templ.SafeURL(m.BackHref()) }>Back to record</a></p>
+		</header>
+		<div class="stream-controls">
+			<div class="field">
+				<label for="log-filter">Filter</label>
+				<input type="search" id="log-filter" data-log-filter="true" autocomplete="off"/>
+			</div>
+			<div class="field field-inline">
+				<input type="checkbox" id="log-follow" data-log-follow="true" checked/>
+				<label for="log-follow">Follow new lines</label>
+			</div>
+		</div>
+		// A status region, not an alert: connection state changes are worth
+		// announcing but must not interrupt what is being read.
+		<p class="stream-status" id="log-status" role="status" aria-live="polite">Connecting…</p>
+		// The log is a log element with its own live region. Lines wrap
+		// rather than scrolling sideways, so a phone never asks its reader
+		// to pan horizontally to finish a sentence.
+		<div
+			class="stream-log"
+			id="log-output"
+			role="log"
+			aria-live="polite"
+			aria-label="Live output"
+			tabindex="0"
+			data-stream-url={ m.StreamURL() }
+		></div>
+	}
+}
+
+// Detail renders one record.
+templ Detail(m view.DetailModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Row.ID }</h1>
+			<p class="view-summary"><a href={ templ.SafeURL(m.ListHref()) }>Back to { m.Descriptor.Title }</a></p>
+		</header>
+		if m.Aff.Unknown {
+			@affordanceAlert()
+		}
+		<div class="block">
+			<dl class="detail-list">
+				for _, f := range m.Fields() {
+					<dt>{ f.Label }</dt>
+					<dd>{ m.Value(f) }</dd>
+				}
+			</dl>
+		</div>
+		<div class="form-actions">
+			if m.CanStream() {
+				<a class="btn" href={ templ.SafeURL(m.LogsHref()) }>Live output</a>
+			}
+			if m.CanEdit() {
+				<a class="btn" href={ templ.SafeURL(m.EditHref()) }>Edit</a>
+			}
+			if m.CanDelete() {
+				<button class="btn btn-danger" type="button" data-dialog-open="confirm-delete">Delete</button>
+			}
+		</div>
+		if m.CanDelete() {
+			@confirmDelete(m)
+		}
+	}
+}
+
+// confirmDelete is a native dialog, which brings the focus trap, the
+// Escape handler and the inert background with it. app.js adds only the
+// one thing showModal does not do: returning focus to the trigger.
+templ confirmDelete(m view.DetailModel) {
+	<dialog id="confirm-delete" aria-labelledby="confirm-delete-heading">
+		<div class="block">
+			<h2 id="confirm-delete-heading">Delete { m.Row.ID }?</h2>
+			<p>This retires the record. It cannot be undone from here.</p>
+			<form method="post" action={ templ.SafeURL(m.SelfHref()) }>
+				<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+				<input type="hidden" name="_method" value="DELETE"/>
+				<button class="btn btn-danger" type="submit">Delete</button>
+				<button class="btn" type="button" data-dialog-close="true">Cancel</button>
+			</form>
+		</div>
+	</dialog>
+}
+
+// Form renders a create or edit form.
+templ Form(m view.FormModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Heading() }</h1>
+		</header>
+		<form method="post" action={ templ.SafeURL(m.Action()) }>
+			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			if m.HasErrors() {
+				// The summary is focused on a failed submission, so a
+				// screen reader user is taken to what went wrong instead
+				// of being left wherever they submitted from.
+				<div class="error-summary" id="error-summary" role="alert" tabindex="-1">
+					<h2>This form could not be saved</h2>
+					<ul>
+						for _, e := range m.Summary() {
+							<li><a href={ templ.SafeURL("#f-" + e.Field) }>{ e.Label }: { e.Message }</a></li>
+						}
+					</ul>
+				</div>
+			}
+			for _, f := range m.Fields() {
+				@field(m, f)
+			}
+			<div class="form-actions">
+				<button class="btn" type="submit">Save</button>
+				<a class="btn" href={ templ.SafeURL(m.CancelHref()) }>Cancel</a>
+			</div>
+		</form>
+	}
+}
+
+// Declared is what a StatusDeclared view renders. It says out loud that it
+// is a skeleton rather than presenting an empty page that looks broken.
+templ Declared(m view.DeclaredModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Descriptor.Title }</h1>
+			if m.Descriptor.Summary != "" {
+				<p class="view-summary">{ m.Descriptor.Summary }</p>
+			}
+		</header>
+		<div class="declared" role="status">
+			<p><strong>Declared, not implemented.</strong></p>
+			<p>{ m.Reason }</p>
+		</div>
+	}
+}
+
+// affordanceAlert renders when authorization could not be evaluated.
+//
+// HTML has no way to express the JSON API's "the _links field is absent,
+// which is not the same as empty", so the honest rendering is no action
+// buttons plus a visible explanation. Silently presenting a read-only page
+// would repeat FAILURE_PATTERNS #73 in a new medium.
+templ affordanceAlert() {
+	<div class="error-summary" role="alert">
+		<p>Available actions could not be determined. Reload to try again.</p>
+	</div>
+}
+
+// Login exchanges a token for a session cookie.
+templ Login(m view.PageModel, failed bool) {
+	@Layout(m) {
+		<header class="view-header">
+			<h1>Sign in</h1>
+		</header>
+		if failed {
+			<div class="error-summary" role="alert" tabindex="-1">
+				<p>That token was not accepted.</p>
+			</div>
+		}
+		<form class="block" method="post" action={ templ.SafeURL(m.Prefix + "/login") }>
+			<div class="field">
+				<label for="token">API token</label>
+				<p class="field-hint" id="token-hint">
+					Paste a token this control plane will accept. It is
+					exchanged for a session cookie, and is not stored.
+				</p>
+				// type=password so it is not shoulder-surfed, but paste is
+				// never blocked: blocking paste on a 900-character token is
+				// hostile and is itself an accessibility failure.
+				<input type="password" id="token" name="token" autocomplete="off" aria-describedby="token-hint" required/>
+			</div>
+			<div class="form-actions">
+				<button class="btn" type="submit">Sign in</button>
+			</div>
+		</form>
+	}
+}

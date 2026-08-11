@@ -100,6 +100,12 @@ func testProjector() view.Projector[device] {
 	}
 }
 
+// emptyChartData is a chart data function that succeeds and returns
+// nothing, for the cases asserting on some other part of a ChartSpec.
+func emptyChartData(context.Context) (view.ChartData, error) {
+	return view.ChartData{}, nil
+}
+
 func validDescriptor(name string) view.Descriptor {
 	return view.Descriptor{
 		Name:     name,
@@ -183,11 +189,23 @@ func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
 		{"declared with handlers", func(d *view.Descriptor) { d.Status = view.StatusDeclared }, "declared but carries handlers"},
 		{"implemented without a Get endpoint", func(d *view.Descriptor) { d.Ops.Get = nil }, "declares no Get endpoint"},
 		{"chart without a caption", func(d *view.Descriptor) {
-			d.Chart = &view.ChartSpec{Title: "T", DataPath: "/ui/x/chart.json"}
+			d.Chart = &view.ChartSpec{Title: "T", Data: emptyChartData}
 		}, "chart with no caption"},
-		{"chart with a relative data path", func(d *view.Descriptor) {
-			d.Chart = &view.ChartSpec{Title: "T", Caption: "C", DataPath: "chart.json"}
-		}, "not absolute"},
+		{"chart without a data function", func(d *view.Descriptor) {
+			d.Chart = &view.ChartSpec{Title: "T", Caption: "C"}
+		}, "no data function"},
+		{"stream without a title", func(d *view.Descriptor) {
+			d.Stream = &view.StreamSpec{PathPattern: "/api/v1/jobs/{id}/logs"}
+		}, "stream with no title"},
+		{"stream with a relative path", func(d *view.Descriptor) {
+			d.Stream = &view.StreamSpec{Title: "Output", PathPattern: "jobs/{id}/logs"}
+		}, "not an absolute path"},
+		{"protocol-relative stream path", func(d *view.Descriptor) {
+			d.Stream = &view.StreamSpec{Title: "Output", PathPattern: "//evil.example/{id}/logs"}
+		}, "protocol-relative"},
+		{"stream path with no id token", func(d *view.Descriptor) {
+			d.Stream = &view.StreamSpec{Title: "Output", PathPattern: "/api/v1/jobs/logs"}
+		}, "contains no {id} token"},
 	}
 
 	for _, tc := range cases {

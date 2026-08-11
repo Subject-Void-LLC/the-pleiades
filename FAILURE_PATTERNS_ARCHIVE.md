@@ -2591,3 +2591,97 @@ binary the image does not contain, which is Phase 20's item and is not claimed a
 **Lesson.** Configuration that no code reads fails silently and forever. Grep every key a
 deployment file sets against the code that is supposed to consume it; a key with no reader is a
 bug even though nothing is red.
+
+---
+
+## 94. An unanchored `vendor/` gitignore pattern silently excluded embedded third-party assets, so the committed tree did not build
+
+**Symptom.** None locally. Every build, test and gate passed on the machine the work was done on.
+The commit was titled "add the dual-theme stylesheet and vendored assets" and contained the
+stylesheet but none of the vendored assets.
+
+**Root cause.** `.gitignore` carried a bare `vendor/` line, intended for Go's module vendor
+directory. Git's pattern rules match a directory of that name at *any* depth, so it also excluded
+`internal/ui/static/vendor/` — the ECharts and HTMX bundles the controller embeds and
+redistributes, together with their licence and NOTICE files. `git add` prints nothing when it skips
+an ignored path and exits zero, so nothing about the commit looked wrong.
+
+The result was a tree that could not compile: `//go:embed app.css app.js chart.js vendor` fails at
+build time with `pattern vendor: no matching files found` when the directory is absent. Local builds
+stayed green throughout because the files were sitting on disk the whole time, ignored but present.
+
+**Fix.** Anchored the pattern to the module root (`/vendor/`), which is the only place a Go vendor
+directory ever exists, so the leading slash costs nothing and is what the line always meant. Then a
+gate, because the failure shape — silent, invisible locally, fatal on a fresh clone — is one no
+amount of local testing catches: `TestEmbeddedAssetsAreTrackedByGit` walks the embedded filesystem
+and runs `git ls-files --error-unmatch` over every asset, so a file the binary embeds but the
+repository does not contain fails the build. It caught a second file (`stream.js`) within the hour.
+
+Proven rather than reasoned about: `git archive HEAD` into a clean directory, then
+`go build ./internal/ui/static/`, which reproduced the failure exactly.
+
+**Lesson.** A gitignore pattern is matched at every depth unless anchored, and `git add` reports
+nothing when it skips what it ignores — so "I added the files and committed" is not evidence the
+files are in the tree. More generally: **a file the binary embeds is a file the repository must
+actually contain**, and the only honest check is against the committed tree, not the working one.
+Anything else is a build that works on the machine it was written on.
+
+---
+
+## 95. A wildcard CORS header on an endpoint that had just become cookie-authenticated
+
+**Symptom.** None yet, which is the point. `GET /api/v1/jobs/{id}/logs` sent
+`Access-Control-Allow-Origin: *` on every response.
+
+**Root cause.** The header was added when the web UI was a separate Vite application on another
+port, and it was correct then: the endpoint accepted only `Authorization: Bearer`, a credential a
+`fetch()` had to attach deliberately, so a wildcard origin exposed nothing a caller did not already
+have a token for.
+
+Phase 19 changed both halves of that premise at once. The UI moved same-origin into the controller,
+so no cross-origin read was needed any more; and `/api/v1` gained a session cookie as a second
+credential kind, so the endpoint became authenticated by something a browser attaches *ambiently*.
+A wildcard origin on a cookie-authenticated stream is a standing permission for any site a
+signed-in operator visits to read what their automation is doing to production.
+
+It was not exploitable as written — browsers refuse to combine `*` with credentialed requests — but
+it was one `Access-Control-Allow-Credentials` line away from being so, on the endpoint that streams
+live output from privileged automation.
+
+**Fix.** Removed the header entirely rather than narrowing it, since same-origin serving means there
+is no legitimate cross-origin reader left. An e2e assertion against the real controller keeps it
+gone.
+
+**Lesson.** A security header is only correct relative to the authentication model underneath it,
+and that model can change without the header being touched. This one went from correct to wrong
+without anybody editing the line — the edit happened two packages away, in the middleware that
+started accepting cookies. **When a new credential kind is added, every header that assumes the old
+one has to be re-read**, and "ambient credential" is the property that flips a permissive CORS
+policy from harmless to dangerous.
+
+---
+
+## 96. The credential-source generalization was built, tested, and never wired into the composition root
+
+**Symptom.** `TestUI_LogStreamAuthenticatesWithTheCookieAlone` returned 401 against the real
+controller binary, with a valid session cookie present.
+
+**Root cause.** `api.IdentityMiddleware` and `session.CookieSource` had both been built specifically
+so a browser could authenticate to the JSON API, which is the one defect that made a browser-based
+log viewer impossible at all. Both were correct and both had tests. `cmd/controller` still called
+`api.AuthMiddleware(evaluator)` — the Bearer-only wrapper — so the cookie source was never passed to
+the router, and the entire point of the work was absent from the running binary.
+
+The UI subtree worked, which made it worse: signing in, browsing and every write behaved correctly,
+because `internal/ui/web` resolved the cookie itself. Only the `/api/v1` subtree, which is where the
+SSE stream lives, was unaffected by the change.
+
+**Fix.** Wired both sources into `RouterConfig.Auth`, Bearer first, and shared one `CookieCodec`
+between the UI and the API so the two cannot disagree about the cookie's name.
+
+**Lesson.** This is FAILURE_PATTERNS #52 in a different costume: code that is complete, correct and
+unreachable from the composition root. The unit tests could not catch it, because there was nothing
+wrong with the units. What caught it was an end-to-end test that drove the **real binary** and
+asserted the capability the phase existed to deliver, rather than asserting that the pieces of it
+work — which is what RULE 0 is asking for when it says a test only counts if it runs the path the
+platform actually runs.

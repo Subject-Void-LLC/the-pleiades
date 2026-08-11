@@ -345,6 +345,13 @@ func (h *harness) startController(tb testing.TB) {
 		// is set, so a local collector configuration must not be able to
 		// change what this test exercises.
 		"OTEL_TRACES_EXPORTER=none",
+		// The harness speaks plain HTTP to a loopback port. A __Host-
+		// prefixed cookie is browser-enforced to require Secure, Secure
+		// requires HTTPS, so the UI's session cookie would be unusable
+		// here -- which would make every web UI assertion a test of TLS
+		// rather than of the UI. This is the documented opt-out, and the
+		// controller logs a warning whenever it is set.
+		"PLEIADES_UI_INSECURE_COOKIES=1",
 	})
 
 	// /healthz proves the socket is bound. /readyz is the stronger claim

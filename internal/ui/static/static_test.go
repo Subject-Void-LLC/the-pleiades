@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -140,23 +141,58 @@ func TestStylesheet_DeclaresNoColourOutsideTheTokenBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading app.css: %v", err)
 	}
-	css := string(body)
+	// Comments are stripped first. The token blocks document their own
+	// substitutions ("#1877F2 -> #1464CC"), and a documented colour is a
+	// note about a decision rather than a declaration that renders.
+	comments := regexp.MustCompile(`(?s)/\*.*?\*/`)
+	css := comments.ReplaceAllString(string(body), "")
 
-	// Token blocks are the :root rules; everything after the last one is
-	// component CSS and must be colour-literal-free.
-	lastTokenBlock := strings.LastIndex(css, `:root[data-theme="dark"]`)
-	if lastTokenBlock < 0 {
-		t.Fatal("the explicit dark token block is missing")
-	}
-	end := strings.Index(css[lastTokenBlock:], "}")
-	if end < 0 {
-		t.Fatal("the dark token block is unterminated")
-	}
-	components := css[lastTokenBlock+end:]
+	// Strip every :root token block and every banner rule; what remains is
+	// component CSS, which must read colours through var() alone. A literal
+	// there is a colour that is wrong in one of the eight palettes with no
+	// single place to fix it.
+	tokenBlocks := regexp.MustCompile(`(?s):root[^{]*\{[^}]*\}`)
+	components := tokenBlocks.ReplaceAllString(css, "")
+
+	// The banner levels are the one carve-out, and it is narrow. Six of the
+	// nine are published IC/DoD banner-marking colours whose values are
+	// prescribed, and all nine must render identically in every skin and
+	// theme -- making them tokens would be making them theme-dependent,
+	// which is the bug. TestBannerContrast checks them separately, so the
+	// carve-out costs no coverage.
+	bannerRules := regexp.MustCompile(`(?s)\.banner-[a-z-]+\s*\{[^}]*\}`)
+	components = bannerRules.ReplaceAllString(components, "")
 
 	hex := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
 	if found := hex.FindAllString(components, -1); len(found) > 0 {
 		t.Errorf("component CSS declares literal colours %v; use a var(--token) instead", found)
+	}
+}
+
+// Every banner level must declare both halves of its pair. A rule that set
+// a background and inherited its text colour would render the marking in
+// whatever the current theme's foreground happens to be, which is exactly
+// how a yellow TS//SCI banner ends up with unreadable cream text at night.
+func TestBannerLevelsDeclareBothColours(t *testing.T) {
+	body, err := static.Read("app.css")
+	if err != nil {
+		t.Fatalf("reading app.css: %v", err)
+	}
+
+	rules := regexp.MustCompile(`(?s)(\.banner-[a-z-]+)\s*\{([^}]*)\}`).
+		FindAllStringSubmatch(string(body), -1)
+	if len(rules) == 0 {
+		t.Fatal("app.css declares no banner levels")
+	}
+
+	for _, rule := range rules {
+		name, decls := rule[1], rule[2]
+		if !strings.Contains(decls, "background:") {
+			t.Errorf("%s declares no background", name)
+		}
+		if !strings.Contains(decls, "color:") {
+			t.Errorf("%s declares no text colour, so it would inherit the theme's", name)
+		}
 	}
 }
 
@@ -174,6 +210,8 @@ func TestStylesheet_SupportsAllThreeThemeStates(t *testing.T) {
 		why      string
 	}{
 		{"@media (prefers-color-scheme: dark)", "system preference must be honoured when the user has expressed none"},
+		{`[data-skin="las-ventanas"]`, "the second skin must exist"},
+		{`[data-a11y="true"]`, "the explicit accessibility override must exist"},
 		{`:root:not([data-theme="light"])`, "an explicit light choice must win over a dark OS"},
 		{`:root[data-theme="dark"]`, "an explicit dark choice must win over a light OS"},
 		{"@media (prefers-reduced-motion: reduce)", "motion preference must be honoured"},
@@ -204,6 +242,49 @@ func TestScripts_HonourTheContentSecurityPolicy(t *testing.T) {
 		// accessibility failure in its own right (WCAG SC 3.3.8).
 		if strings.Contains(src, "onpaste") {
 			t.Errorf("%s blocks paste", name)
+		}
+	}
+}
+
+// TestEmbeddedAssetsAreTrackedByGit is the gate for a failure that already
+// happened here, and one that no amount of local testing would have caught.
+//
+// .gitignore carried an unanchored "vendor/" line, which matches a
+// directory of that name at any depth, so it excluded this package's entire
+// vendor directory -- the third-party JavaScript the controller embeds and
+// redistributes. `git add` prints nothing when it skips an ignored path, so
+// the commit that claimed to add those assets added none of them, and the
+// committed tree failed to build with "pattern vendor: no matching files
+// found". Every local build stayed green, because the files were sitting on
+// disk the whole time.
+//
+// The general rule this enforces: a file the binary embeds is a file the
+// repository must actually contain. Anything else is a build that only works
+// on the machine it was written on.
+func TestEmbeddedAssetsAreTrackedByGit(t *testing.T) {
+	assets := static.Assets()
+	if len(assets) == 0 {
+		t.Fatal("no embedded assets found, which means this gate is checking nothing")
+	}
+
+	// --error-unmatch turns "not tracked" into a non-zero exit rather than
+	// empty output, so a path that is ignored, deleted or never added fails
+	// here instead of passing quietly.
+	args := append([]string{"ls-files", "--error-unmatch", "--"}, assets...)
+	out, err := exec.Command("git", args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("embedded assets are not all tracked by git, so the committed "+
+			"tree does not build:\n%s\ncheck .gitignore for a pattern matching "+
+			"internal/ui/static: %v", out, err)
+	}
+
+	tracked := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		tracked[strings.TrimPrefix(strings.TrimSpace(line), "internal/ui/static/")] = true
+	}
+	for _, name := range assets {
+		if !tracked[name] {
+			t.Errorf("embedded asset %q is not tracked by git", name)
 		}
 	}
 }

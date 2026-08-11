@@ -170,32 +170,46 @@ codebase today; treat any mention of one as aspirational until this line is remo
 
 ## Web UI
 
-A mockup, all six routes. Five render hardcoded content and issue no network request
-at all. The sixth is an SSE job log viewer whose streaming code is real, and it
-cannot reach this API for three independent reasons, each enough on its own:
+Server-rendered, served by `cmd/controller` itself at `/ui`, same-origin, from assets
+compiled into the binary. There is no separate front-end build, no Node toolchain, no
+nginx image and no reverse-proxy seam between the two: browse to the controller's own
+address and add `/ui`.
 
-- **It requests the wrong job.** `web/src/views/JobDetails.tsx` sets
-  `const jobId = "123"` instead of reading the `:id` that its own `/jobs/:id` route
-  declares, so every visit asks for job `"123"`. This endpoint requires a UUID (see
-  [the SSE job log stream](#the-sse-job-log-stream) above), so even an authenticated
-  version of that request answers `400 {"error":"job id must be a UUID"}`.
-- **It calls the wrong address, and nothing forwards.** The URL is hardcoded to
-  `http://localhost:8081`. `cmd/controller` listens on `:8080` unless `LISTEN_ADDR`
-  overrides it, `web/vite.config.ts` declares no `server.proxy`, and `web/nginx.conf`
-  serves static files with no `/api` location at all. Port 8081 belongs to `cmd/demo`,
-  which wires the same authentication middleware this router does, so aiming there
-  does not help either.
-- **`EventSource` cannot authenticate.** Every route under `/api/v1` requires
-  `Authorization: Bearer <token>`. An `EventSource` cannot be given request headers:
-  its constructor takes a URL and a `withCredentials` flag, nothing more. This API
-  reads a token from nowhere else either, no cookie and no query parameter, so the
-  request arrives anonymous and is rejected 401 before any handler runs. That 401
-  carries no `Access-Control-Allow-Origin` header, so a browser will not release the
-  response to the page: the failure surfaces as a bare error event, not as the 401 it
-  was. The `Access-Control-Allow-Origin: *` that the log handler does set is set
-  inside the handler, which an unauthenticated request never reaches.
+Sign in at `/ui/login` by pasting a token this control plane already accepts. It is
+validated by the same evaluator the `Authorization: Bearer` path uses and exchanged
+for a server-side session cookie, so the UI adds no second notion of who a caller is
+and no password store. Interactive sign-in through an identity provider is deferred
+to its own phase; token paste is the bootstrap and break-glass path.
 
-The endpoint itself is sound: an authenticated `GET` with a real job UUID answers
-`200 text/event-stream` and an `event: init` frame. Nothing the UI sends gets past
-any of the three problems above. Treat the UI as `experimental` and prefer the API
-directly, or the CLI, for anything that matters today.
+That cookie is also what makes the SSE job log viewer work. An `EventSource` cannot
+be given request headers -- its constructor takes a URL and a `withCredentials` flag,
+nothing more -- so while `Authorization: Bearer` was the only credential this API
+accepted, no browser could reach the stream at all. `/api/v1` now accepts a Bearer
+header **or** a session cookie, resolved by one middleware into one identity, and the
+log viewer at `/ui/jobs/{id}/logs` connects with the cookie alone.
+
+Six views are registered. Which of them do anything is decided per view and stated on
+the page rather than in this document:
+
+| View | State | Notes |
+|---|---|---|
+| Dashboard | Real | Job-outcome counts over the most recent 200 dispatches, as a chart and as an equivalent table. |
+| Inventories | Real | Full create, read, update and retire against the device repository. Device *properties* are deliberately not editable: they decrypt to real secrets, and the masking ruleset belongs to an unbuilt phase. |
+| Jobs | Real | List, open, and dispatch a runbook. No cancel and no delete -- there is no `job:write` scope and no cancellation path in this build, so no button is offered for one. |
+| Runbooks | Real | Read-only catalog. Runbooks come from `RUNBOOK_DIR` and from GitOps; a write path here would be a second, unversioned way to change what this platform executes. |
+| Governance | Declared | Registered so the shape and the navigation are real. Nothing backs it, and the page says so. |
+| Credentials | Declared | Unbuilt, and it will not list credential names when it is built: the set of names in a deployment is itself reconnaissance. |
+
+A view registered as *declared* renders an explicit "declared, not implemented" panel.
+That distinction is load-bearing: an empty table and an unimplemented view look
+identical to a reader, and the difference between "nothing has happened yet" and "this
+does not work" is exactly the one worth being told.
+
+Accessibility is a build gate rather than a review item. Every registered view is
+rendered through the real templates in the conformance suite and asserted against a
+shared set of checks -- one `h1`, one `main`, a labelled control for every input, no
+positive `tabindex`, no duplicate ids, no dangling `aria-describedby`, a skip link
+first in the tab order. Colour contrast is computed from the stylesheet's own tokens
+across every skin and theme combination. What no Go test can cover -- focus order
+making sense, error text explaining anything, a screen reader's actual reading -- is
+covered by the manual script in [the web UI page](12-web-ui.md).

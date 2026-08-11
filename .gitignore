@@ -11,7 +11,15 @@ obj/
 *.dylib
 *.test
 *.out
-vendor/
+# Anchored to the module root, deliberately. An unanchored "vendor/" matches
+# a directory of that name at any depth, which silently excluded
+# internal/ui/static/vendor -- the third-party JS the controller embeds and
+# redistributes. git add reports nothing when it skips an ignored path, so
+# the commit that claimed to add those assets did not, and the committed
+# tree failed to build on //go:embed with "pattern vendor: no matching
+# files found". Go's vendor directory only ever exists at the module root,
+# so the leading slash costs nothing and is what the pattern always meant.
+/vendor/
 *.log
 
 # Walk-tier per-project secrets (internal/credential): the AES-256-GCM
@@ -27,3 +35,4 @@ vendor/
 /pleiades
 /docs-lint
 /gendocs
+/uidev

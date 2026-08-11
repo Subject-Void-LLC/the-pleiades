@@ -375,8 +375,10 @@ var deviceListResponseSchema = map[string]any{
 // It carries no properties field, and that omission is the same hardening
 // decision deviceDTO makes on the way out: cmd/controller installs
 // crypto.DeviceEnvelopePropertiesInterceptor, so the property bag holds
-// decrypted enable secrets and API keys, and PLAN.md Section 25 assigns
-// the masking ruleset to a phase that does not exist yet. An endpoint that
+// decrypted enable secrets and API keys, and the masking ruleset that
+// would make them safe to serve belongs to a phase that does not exist
+// yet (see docs/12-web-ui.md, which records the same omission on the web
+// UI's device form for the same reason). An endpoint that
 // wrote properties would also have to read them back to be usable, and
 // that is the surface being deliberately deferred.
 var deviceWriteSchema = map[string]any{

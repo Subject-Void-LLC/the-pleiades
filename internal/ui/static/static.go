@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -43,7 +44,7 @@ const (
 // included. Those are not incidental: the binary redistributes
 // Apache-2.0-licensed code, and the NOTICE file has to travel with it.
 //
-//go:embed app.css app.js chart.js vendor
+//go:embed app.css app.js chart.js stream.js favicon.svg vendor
 var assets embed.FS
 
 // hashedNames maps a logical asset path to its content-hashed serving
@@ -163,3 +164,20 @@ func Handler(prefix string) http.Handler {
 // Read returns an embedded asset's bytes by logical name, for tests and
 // for the checksum assertions.
 func Read(name string) ([]byte, error) { return assets.ReadFile(name) }
+
+// Assets returns every embedded asset's logical path, sorted.
+//
+// It exists for the gate asserting each one is tracked by git. That gate is
+// not hypothetical: an unanchored "vendor/" line in .gitignore silently
+// excluded this package's entire vendor directory, git add reported nothing
+// when it skipped those paths, and the resulting commit produced a tree that
+// failed to compile on the //go:embed above. Local builds stayed green the
+// whole time, because the files were on disk.
+func Assets() []string {
+	names := make([]string, 0, len(hashedNames))
+	for name := range hashedNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}

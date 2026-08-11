@@ -153,6 +153,22 @@ generate a new inventory sync plugin package
 | --endpoint | `string` | - | default upstream base URL (e.g. https://sandboxdnac.cisco.com) |
 | --read-only | `bool` | `false` | declare the upstream authoritative and never written back |
 
+### pleiades forge new-view
+
+generate a new web UI view resource package
+
+`pleiades forge new-view <name> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | repository directory to write the generated package into |
+| --title | `string` | - | page heading and document title for this view |
+| --summary | `string` | - | one line rendered under the heading |
+| --nav-label | `string` | - | sidebar text (defaults to the uppercased title) |
+| --nav-order | `int` | `70` | sidebar position; built-in views use 10 through 60 |
+
+`pleiades forge new-view access-reviews --title "Access Reviews" --summary "Who approved what, and when."`
+
 ## pleiades doc
 
 look up a Collection method's reference from the live registry (see 'pleiades doc --help')

@@ -102,6 +102,10 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+	uiweb "github.com/Subject-Void-LLC/the-pleiades/internal/ui/web"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus"
@@ -109,6 +113,11 @@ import (
 
 // serviceName identifies this process in every span it emits.
 const serviceName = "pleiades-controller"
+
+// serviceVersion is the build identifier the UI shows in its sidebar. It
+// is a constant rather than a linker flag for now: Phase 20 owns release
+// packaging and is where a real version stamp belongs.
+const serviceVersion = "v0.1.0-alpha"
 
 // schedulerLeaseKey is the well-known key every controller replica
 // contends for to become the one holder of the scheduler lease. It lives
@@ -623,6 +632,67 @@ func main() {
 		fatal("api route table does not match the declared endpoints", err)
 	}
 
+	// The web UI. Registering the view resources fails closed: a
+	// controller that cannot build its own UI must not start and then
+	// serve broken pages.
+	if err := resources.RegisterAll(resources.Deps{
+		Inventory:  repo,
+		Factory:    inventory.NewItemFactory(),
+		Jobs:       jobStore,
+		Runbooks:   runbooks,
+		Dispatcher: dispatcher,
+	}); err != nil {
+		fatal("failed to register UI views", err)
+	}
+
+	// __Host- cookies require Secure, Secure requires HTTPS, and a
+	// developer on http://localhost has neither. The opt-out is named,
+	// and it announces itself at startup rather than being discovered in
+	// a header dump later.
+	insecureCookies := os.Getenv("PLEIADES_UI_INSECURE_COOKIES") == "1"
+	if insecureCookies {
+		logger.Warn("PLEIADES_UI_INSECURE_COOKIES is set: the session cookie drops the __Host- prefix and the Secure attribute; never set this in a deployment anyone else can reach")
+	}
+
+	// The environment / classification banner. It is deployment
+	// configuration and fails closed: an unknown level is a startup error
+	// rather than a silently omitted marking, because an operator who
+	// configured a classification banner and got none would believe a
+	// marking was displayed when it was not.
+	banner, err := view.ParseBanner(os.Getenv("PLEIADES_BANNER_LEVEL"), os.Getenv("PLEIADES_BANNER_TEXT"))
+	if err != nil {
+		fatal("invalid banner configuration", err)
+	}
+
+	sessions := session.NewEntStore(client)
+	// One codec, shared by the UI subtree and the JSON API's cookie
+	// credential source. Two codecs could disagree about the cookie's name,
+	// and a session written under one name and read under another fails as
+	// "not signed in" rather than as a configuration error.
+	cookieCodec := session.CookieCodec{Insecure: insecureCookies}
+
+	ui := uiweb.New(uiweb.Config{
+		Prefix:    "/ui",
+		Version:   serviceVersion,
+		Banner:    banner,
+		Sessions:  sessions,
+		Cookie:    cookieCodec,
+		Tokens:    evaluator,
+		HATEOAS:   hateoas,
+		Admission: admission,
+		Logger:    logger,
+	})
+
+	// One replica sweeps expired sessions, behind the same election every
+	// other cluster singleton here runs behind.
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		session.SweepExpired(ctx, sessions, 10*time.Minute, reaperElector.IsLeader, func(n int) {
+			logger.Info("swept expired sessions", slog.Int("count", n))
+		})
+	}()
+
 	r, err := api.NewRouter(api.RouterConfig{
 		Logger:      logger,
 		Tracer:      tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api"),
@@ -630,10 +700,25 @@ func main() {
 		Registry:    metricsRegistry,
 		Readiness:   readinessChecks(nc, client),
 		RateLimiter: rateLimiter,
-		Auth:        api.AuthMiddleware(evaluator),
-		Admission:   admission,
-		HATEOAS:     hateoas,
-		Routes:      routes,
+		// Two credential kinds, in this order. An Authorization header is
+		// an unambiguous statement of intent; a cookie is ambient, so
+		// cookie-first would let a stale session silently override a token
+		// a caller deliberately supplied.
+		//
+		// The cookie source on the JSON API is the entire fix for the SSE
+		// log stream. An EventSource cannot set headers at all, so with
+		// Bearer as the only accepted credential that endpoint was
+		// unreachable from any browser regardless of what the UI looked
+		// like -- and this line, not the UI, is what closes it.
+		Auth: api.IdentityMiddleware(nil,
+			api.BearerSource{Validator: evaluator},
+			session.CookieSource{Store: sessions, Cookie: cookieCodec},
+		),
+		Admission: admission,
+		HATEOAS:   hateoas,
+		Routes:    routes,
+		UI:        ui.Routes(),
+		UIPrefix:  "/ui",
 	})
 	if err != nil {
 		fatal("failed to build router", err)

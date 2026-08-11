@@ -38,6 +38,25 @@
     return (value || "").trim() || fallback;
   }
 
+  // The closed set of badge classes the server may name, mapped to the
+  // stylesheet token each one paints with. It is restated here rather than
+  // derived by string surgery on the class name, so a value the server did
+  // not mean cannot become a property lookup: an unknown class falls to
+  // neutral instead of silently resolving to nothing and rendering an
+  // invisible bar.
+  var FILL_TOKENS = {
+    "badge-ok": "--fill-ok",
+    "badge-failed": "--fill-failed",
+    "badge-changed": "--fill-changed",
+    "badge-skipped": "--fill-skipped",
+    "badge-neutral": "--fill-neutral",
+  };
+
+  function fillFor(bucket) {
+    var name = FILL_TOKENS[bucket.class] || "--fill-neutral";
+    return token(name, "#d4d4d4");
+  }
+
   function render(el, data) {
     if (!window.echarts) {
       return;
@@ -73,7 +92,7 @@
             // Colour comes from the bucket's own status, and the label
             // beneath every bar repeats it in words. Nothing here is
             // encoded in colour alone.
-            return { value: b.count, itemStyle: { color: b.color || token("--fill-neutral", "#d4d4d4"), borderColor: border, borderWidth: 2 } };
+            return { value: b.count, itemStyle: { color: fillFor(b), borderColor: border, borderWidth: 2 } };
           }),
         },
       ],

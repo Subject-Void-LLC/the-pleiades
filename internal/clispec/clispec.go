@@ -195,6 +195,19 @@ var Root = Command{
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "declare the upstream authoritative and never written back"},
 					},
 				},
+				{
+					Name:       "new-view",
+					Positional: "<name>",
+					Synopsis:   "generate a new web UI view resource package",
+					Flags: []Flag{
+						{Name: "dir", Type: "string", Default: ".", Doc: "repository directory to write the generated package into"},
+						{Name: "title", Type: "string", Default: "", Doc: "page heading and document title for this view"},
+						{Name: "summary", Type: "string", Default: "", Doc: "one line rendered under the heading"},
+						{Name: "nav-label", Type: "string", Default: "", Doc: "sidebar text (defaults to the uppercased title)"},
+						{Name: "nav-order", Type: "int", Default: "70", Doc: "sidebar position; built-in views use 10 through 60"},
+					},
+					Examples: []string{"pleiades forge new-view access-reviews --title \"Access Reviews\" --summary \"Who approved what, and when.\""},
+				},
 			},
 		},
 		{

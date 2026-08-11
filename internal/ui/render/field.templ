@@ -1,0 +1,105 @@
+package render
+
+import "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+
+// field renders one form control from its declaration.
+//
+// This is the only switch on FieldKind in the application. Every control
+// gets its label, its hint, its error and its aria wiring from the same
+// path, so an accessible control is not something a resource author can
+// forget to write -- there is nowhere for them to write it.
+templ field(m view.FormModel, f view.Field) {
+	<div class="field">
+		<label for={ m.ControlID(f) }>
+			{ f.Label }
+			if f.Required {
+				// The word, not an asterisk and not a colour: "required"
+				// signalled only in red is signalled only to people who
+				// see red.
+				<span class="field-required">(required)</span>
+			}
+		</label>
+		if f.Help != "" {
+			<p class="field-hint" id={ m.HintID(f) }>{ f.Help }</p>
+		}
+		if len(m.FieldErrorsFor(f)) > 0 {
+			<p class="field-hint" id={ m.ErrorID(f) }>
+				for _, msg := range m.FieldErrorsFor(f) {
+					{ msg }
+				}
+			</p>
+		}
+		switch f.Kind {
+			case view.KindLongText:
+				<textarea
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					rows="4"
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if f.Required {
+						required
+					}
+				>{ m.Value(f) }</textarea>
+			case view.KindSelect:
+				<select
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if f.Required {
+						required
+					}
+				>
+					for _, opt := range m.Choices(f) {
+						if opt.Value == m.Value(f) {
+							<option value={ opt.Value } selected>{ opt.Label }</option>
+						} else {
+							<option value={ opt.Value }>{ opt.Label }</option>
+						}
+					}
+				</select>
+			case view.KindBool:
+				<input
+					type="checkbox"
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					value="true"
+					aria-describedby={ m.DescribedBy(f) }
+					if m.Value(f) == "true" {
+						checked
+					}
+				/>
+			case view.KindNumber:
+				<input
+					type="number"
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					value={ m.Value(f) }
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if f.Required {
+						required
+					}
+				/>
+			default:
+				<input
+					type="text"
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					value={ m.Value(f) }
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if f.Autocomplete != "" {
+						autocomplete={ f.Autocomplete }
+					}
+					if m.MaxLen(f) != "" {
+						maxlength={ m.MaxLen(f) }
+					}
+					if f.Required {
+						required
+					}
+				/>
+		}
+	</div>
+}

@@ -65,11 +65,7 @@ services:
       nats:
         condition: service_healthy
 
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    ports:
-      - "80:80"
-    depends_on:
-      - controller
+  # There is no web service any more. The controller serves the UI itself,
+  # same-origin, on its own port -- so the nginx image, the separate build
+  # and the reverse-proxy seam between them are all gone rather than
+  # reconfigured. Browse to the controller's address and add /ui.
