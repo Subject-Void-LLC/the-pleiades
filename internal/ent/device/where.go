@@ -763,6 +763,29 @@ func HasOrganizationWith(preds ...predicate.Organization) predicate.Device {
 	})
 }
 
+// HasInventories applies the HasEdge predicate on the "inventories" edge.
+func HasInventories() predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, InventoriesTable, InventoriesPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasInventoriesWith applies the HasEdge predicate on the "inventories" edge with a given conditions (other predicates).
+func HasInventoriesWith(preds ...predicate.Inventory) predicate.Device {
+	return predicate.Device(func(s *sql.Selector) {
+		step := newInventoriesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Device) predicate.Device {
 	return predicate.Device(sql.AndPredicates(predicates...))

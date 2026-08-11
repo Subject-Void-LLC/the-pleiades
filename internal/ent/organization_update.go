@@ -11,7 +11,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
@@ -80,6 +82,36 @@ func (_u *OrganizationUpdate) AddTeams(v ...*Team) *OrganizationUpdate {
 	return _u.AddTeamIDs(ids...)
 }
 
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_u *OrganizationUpdate) AddInventoryIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddInventoryIDs(ids...)
+	return _u
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdate) AddInventories(v ...*Inventory) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInventoryIDs(ids...)
+}
+
+// AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
+func (_u *OrganizationUpdate) AddAnnouncementIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddAnnouncementIDs(ids...)
+	return _u
+}
+
+// AddAnnouncements adds the "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdate) AddAnnouncements(v ...*Announcement) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAnnouncementIDs(ids...)
+}
+
 // Mutation returns the OrganizationMutation object of the builder.
 func (_u *OrganizationUpdate) Mutation() *OrganizationMutation {
 	return _u.mutation
@@ -125,6 +157,48 @@ func (_u *OrganizationUpdate) RemoveTeams(v ...*Team) *OrganizationUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearInventories clears all "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdate) ClearInventories() *OrganizationUpdate {
+	_u.mutation.ClearInventories()
+	return _u
+}
+
+// RemoveInventoryIDs removes the "inventories" edge to Inventory entities by IDs.
+func (_u *OrganizationUpdate) RemoveInventoryIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveInventoryIDs(ids...)
+	return _u
+}
+
+// RemoveInventories removes "inventories" edges to Inventory entities.
+func (_u *OrganizationUpdate) RemoveInventories(v ...*Inventory) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInventoryIDs(ids...)
+}
+
+// ClearAnnouncements clears all "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdate) ClearAnnouncements() *OrganizationUpdate {
+	_u.mutation.ClearAnnouncements()
+	return _u
+}
+
+// RemoveAnnouncementIDs removes the "announcements" edge to Announcement entities by IDs.
+func (_u *OrganizationUpdate) RemoveAnnouncementIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveAnnouncementIDs(ids...)
+	return _u
+}
+
+// RemoveAnnouncements removes "announcements" edges to Announcement entities.
+func (_u *OrganizationUpdate) RemoveAnnouncements(v ...*Announcement) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAnnouncementIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -281,6 +355,96 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAnnouncementsIDs(); len(nodes) > 0 && !_u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AnnouncementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{organization.Label}
@@ -351,6 +515,36 @@ func (_u *OrganizationUpdateOne) AddTeams(v ...*Team) *OrganizationUpdateOne {
 	return _u.AddTeamIDs(ids...)
 }
 
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_u *OrganizationUpdateOne) AddInventoryIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddInventoryIDs(ids...)
+	return _u
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdateOne) AddInventories(v ...*Inventory) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInventoryIDs(ids...)
+}
+
+// AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
+func (_u *OrganizationUpdateOne) AddAnnouncementIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddAnnouncementIDs(ids...)
+	return _u
+}
+
+// AddAnnouncements adds the "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdateOne) AddAnnouncements(v ...*Announcement) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAnnouncementIDs(ids...)
+}
+
 // Mutation returns the OrganizationMutation object of the builder.
 func (_u *OrganizationUpdateOne) Mutation() *OrganizationMutation {
 	return _u.mutation
@@ -396,6 +590,48 @@ func (_u *OrganizationUpdateOne) RemoveTeams(v ...*Team) *OrganizationUpdateOne 
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearInventories clears all "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdateOne) ClearInventories() *OrganizationUpdateOne {
+	_u.mutation.ClearInventories()
+	return _u
+}
+
+// RemoveInventoryIDs removes the "inventories" edge to Inventory entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveInventoryIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveInventoryIDs(ids...)
+	return _u
+}
+
+// RemoveInventories removes "inventories" edges to Inventory entities.
+func (_u *OrganizationUpdateOne) RemoveInventories(v ...*Inventory) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInventoryIDs(ids...)
+}
+
+// ClearAnnouncements clears all "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdateOne) ClearAnnouncements() *OrganizationUpdateOne {
+	_u.mutation.ClearAnnouncements()
+	return _u
+}
+
+// RemoveAnnouncementIDs removes the "announcements" edge to Announcement entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveAnnouncementIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveAnnouncementIDs(ids...)
+	return _u
+}
+
+// RemoveAnnouncements removes "announcements" edges to Announcement entities.
+func (_u *OrganizationUpdateOne) RemoveAnnouncements(v ...*Announcement) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAnnouncementIDs(ids...)
 }
 
 // Where appends a list predicates to the OrganizationUpdate builder.
@@ -575,6 +811,96 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAnnouncementsIDs(); len(nodes) > 0 && !_u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AnnouncementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

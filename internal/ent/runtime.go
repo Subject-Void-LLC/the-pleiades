@@ -5,9 +5,11 @@ package ent
 import (
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -23,6 +25,39 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	announcementMixin := schema.Announcement{}.Mixin()
+	announcementMixinFields0 := announcementMixin[0].Fields()
+	_ = announcementMixinFields0
+	announcementFields := schema.Announcement{}.Fields()
+	_ = announcementFields
+	// announcementDescCreatedAt is the schema descriptor for created_at field.
+	announcementDescCreatedAt := announcementMixinFields0[0].Descriptor()
+	// announcement.DefaultCreatedAt holds the default value on creation for the created_at field.
+	announcement.DefaultCreatedAt = announcementDescCreatedAt.Default.(func() time.Time)
+	// announcementDescUpdatedAt is the schema descriptor for updated_at field.
+	announcementDescUpdatedAt := announcementMixinFields0[1].Descriptor()
+	// announcement.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	announcement.DefaultUpdatedAt = announcementDescUpdatedAt.Default.(func() time.Time)
+	// announcement.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	announcement.UpdateDefaultUpdatedAt = announcementDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// announcementDescTitle is the schema descriptor for title field.
+	announcementDescTitle := announcementFields[0].Descriptor()
+	// announcement.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	announcement.TitleValidator = announcementDescTitle.Validators[0].(func(string) error)
+	// announcementDescBody is the schema descriptor for body field.
+	announcementDescBody := announcementFields[1].Descriptor()
+	// announcement.BodyValidator is a validator for the "body" field. It is called by the builders before save.
+	announcement.BodyValidator = announcementDescBody.Validators[0].(func(string) error)
+	// announcementDescLevel is the schema descriptor for level field.
+	announcementDescLevel := announcementFields[2].Descriptor()
+	// announcement.DefaultLevel holds the default value on creation for the level field.
+	announcement.DefaultLevel = announcementDescLevel.Default.(string)
+	// announcement.LevelValidator is a validator for the "level" field. It is called by the builders before save.
+	announcement.LevelValidator = announcementDescLevel.Validators[0].(func(string) error)
+	// announcementDescAuthor is the schema descriptor for author field.
+	announcementDescAuthor := announcementFields[5].Descriptor()
+	// announcement.AuthorValidator is a validator for the "author" field. It is called by the builders before save.
+	announcement.AuthorValidator = announcementDescAuthor.Validators[0].(func(string) error)
 	deviceMixin := schema.Device{}.Mixin()
 	deviceMixinFields0 := deviceMixin[0].Fields()
 	_ = deviceMixinFields0
@@ -100,6 +135,25 @@ func init() {
 	groupDescName := groupFields[0].Descriptor()
 	// group.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	group.NameValidator = groupDescName.Validators[0].(func(string) error)
+	inventoryMixin := schema.Inventory{}.Mixin()
+	inventoryMixinFields0 := inventoryMixin[0].Fields()
+	_ = inventoryMixinFields0
+	inventoryFields := schema.Inventory{}.Fields()
+	_ = inventoryFields
+	// inventoryDescCreatedAt is the schema descriptor for created_at field.
+	inventoryDescCreatedAt := inventoryMixinFields0[0].Descriptor()
+	// inventory.DefaultCreatedAt holds the default value on creation for the created_at field.
+	inventory.DefaultCreatedAt = inventoryDescCreatedAt.Default.(func() time.Time)
+	// inventoryDescUpdatedAt is the schema descriptor for updated_at field.
+	inventoryDescUpdatedAt := inventoryMixinFields0[1].Descriptor()
+	// inventory.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	inventory.DefaultUpdatedAt = inventoryDescUpdatedAt.Default.(func() time.Time)
+	// inventory.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	inventory.UpdateDefaultUpdatedAt = inventoryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// inventoryDescName is the schema descriptor for name field.
+	inventoryDescName := inventoryFields[0].Descriptor()
+	// inventory.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	inventory.NameValidator = inventoryDescName.Validators[0].(func(string) error)
 	jobMixin := schema.Job{}.Mixin()
 	jobMixinFields0 := jobMixin[0].Fields()
 	_ = jobMixinFields0
@@ -130,19 +184,19 @@ func init() {
 	// job.ActorValidator is a validator for the "actor" field. It is called by the builders before save.
 	job.ActorValidator = jobDescActor.Validators[0].(func(string) error)
 	// jobDescDispatchedCount is the schema descriptor for dispatched_count field.
-	jobDescDispatchedCount := jobFields[5].Descriptor()
+	jobDescDispatchedCount := jobFields[6].Descriptor()
 	// job.DefaultDispatchedCount holds the default value on creation for the dispatched_count field.
 	job.DefaultDispatchedCount = jobDescDispatchedCount.Default.(int)
 	// jobDescSkippedCount is the schema descriptor for skipped_count field.
-	jobDescSkippedCount := jobFields[6].Descriptor()
+	jobDescSkippedCount := jobFields[7].Descriptor()
 	// job.DefaultSkippedCount holds the default value on creation for the skipped_count field.
 	job.DefaultSkippedCount = jobDescSkippedCount.Default.(int)
 	// jobDescFailedCount is the schema descriptor for failed_count field.
-	jobDescFailedCount := jobFields[7].Descriptor()
+	jobDescFailedCount := jobFields[8].Descriptor()
 	// job.DefaultFailedCount holds the default value on creation for the failed_count field.
 	job.DefaultFailedCount = jobDescFailedCount.Default.(int)
 	// jobDescFence is the schema descriptor for fence field.
-	jobDescFence := jobFields[9].Descriptor()
+	jobDescFence := jobFields[10].Descriptor()
 	// job.DefaultFence holds the default value on creation for the fence field.
 	job.DefaultFence = jobDescFence.Default.(int64)
 	jobtaskMixin := schema.JobTask{}.Mixin()

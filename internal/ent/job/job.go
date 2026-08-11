@@ -27,6 +27,8 @@ const (
 	FieldGroupName = "group_name"
 	// FieldActor holds the string denoting the actor field in the database.
 	FieldActor = "actor"
+	// FieldOrganizationID holds the string denoting the organization_id field in the database.
+	FieldOrganizationID = "organization_id"
 	// FieldState holds the string denoting the state field in the database.
 	FieldState = "state"
 	// FieldDispatchedCount holds the string denoting the dispatched_count field in the database.
@@ -61,6 +63,7 @@ var Columns = []string{
 	FieldRunbookID,
 	FieldGroupName,
 	FieldActor,
+	FieldOrganizationID,
 	FieldState,
 	FieldDispatchedCount,
 	FieldSkippedCount,
@@ -168,6 +171,11 @@ func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 // ByActor orders the results by the actor field.
 func ByActor(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldActor, opts...).ToFunc()
+}
+
+// ByOrganizationID orders the results by the organization_id field.
+func ByOrganizationID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrganizationID, opts...).ToFunc()
 }
 
 // ByState orders the results by the state field.

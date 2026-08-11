@@ -14,19 +14,21 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 )
 
 // GroupQuery is the builder for querying Group entities.
 type GroupQuery struct {
 	config
-	ctx          *QueryContext
-	order        []group.OrderOption
-	inters       []Interceptor
-	predicates   []predicate.Group
-	withDevices  *DeviceQuery
-	withParents  *GroupQuery
-	withChildren *GroupQuery
+	ctx             *QueryContext
+	order           []group.OrderOption
+	inters          []Interceptor
+	predicates      []predicate.Group
+	withDevices     *DeviceQuery
+	withParents     *GroupQuery
+	withChildren    *GroupQuery
+	withInventories *InventoryQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -122,6 +124,28 @@ func (_q *GroupQuery) QueryChildren() *GroupQuery {
 			sqlgraph.From(group.Table, group.FieldID, selector),
 			sqlgraph.To(group.Table, group.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, false, group.ChildrenTable, group.ChildrenPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryInventories chains the current query on the "inventories" edge.
+func (_q *GroupQuery) QueryInventories() *InventoryQuery {
+	query := (&InventoryClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, selector),
+			sqlgraph.To(inventory.Table, inventory.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, group.InventoriesTable, group.InventoriesPrimaryKey...),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -316,14 +340,15 @@ func (_q *GroupQuery) Clone() *GroupQuery {
 		return nil
 	}
 	return &GroupQuery{
-		config:       _q.config,
-		ctx:          _q.ctx.Clone(),
-		order:        append([]group.OrderOption{}, _q.order...),
-		inters:       append([]Interceptor{}, _q.inters...),
-		predicates:   append([]predicate.Group{}, _q.predicates...),
-		withDevices:  _q.withDevices.Clone(),
-		withParents:  _q.withParents.Clone(),
-		withChildren: _q.withChildren.Clone(),
+		config:          _q.config,
+		ctx:             _q.ctx.Clone(),
+		order:           append([]group.OrderOption{}, _q.order...),
+		inters:          append([]Interceptor{}, _q.inters...),
+		predicates:      append([]predicate.Group{}, _q.predicates...),
+		withDevices:     _q.withDevices.Clone(),
+		withParents:     _q.withParents.Clone(),
+		withChildren:    _q.withChildren.Clone(),
+		withInventories: _q.withInventories.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -360,6 +385,17 @@ func (_q *GroupQuery) WithChildren(opts ...func(*GroupQuery)) *GroupQuery {
 		opt(query)
 	}
 	_q.withChildren = query
+	return _q
+}
+
+// WithInventories tells the query-builder to eager-load the nodes that are connected to
+// the "inventories" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *GroupQuery) WithInventories(opts ...func(*InventoryQuery)) *GroupQuery {
+	query := (&InventoryClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withInventories = query
 	return _q
 }
 
@@ -441,10 +477,11 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 	var (
 		nodes       = []*Group{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withDevices != nil,
 			_q.withParents != nil,
 			_q.withChildren != nil,
+			_q.withInventories != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -483,6 +520,13 @@ func (_q *GroupQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Group,
 		if err := _q.loadChildren(ctx, query, nodes,
 			func(n *Group) { n.Edges.Children = []*Group{} },
 			func(n *Group, e *Group) { n.Edges.Children = append(n.Edges.Children, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withInventories; query != nil {
+		if err := _q.loadInventories(ctx, query, nodes,
+			func(n *Group) { n.Edges.Inventories = []*Inventory{} },
+			func(n *Group, e *Inventory) { n.Edges.Inventories = append(n.Edges.Inventories, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -665,6 +709,67 @@ func (_q *GroupQuery) loadChildren(ctx context.Context, query *GroupQuery, nodes
 		nodes, ok := nids[n.ID]
 		if !ok {
 			return fmt.Errorf(`unexpected "children" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
+		}
+	}
+	return nil
+}
+func (_q *GroupQuery) loadInventories(ctx context.Context, query *InventoryQuery, nodes []*Group, init func(*Group), assign func(*Group, *Inventory)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int]*Group)
+	nids := make(map[int]map[*Group]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(group.InventoriesTable)
+		s.Join(joinT).On(s.C(inventory.FieldID), joinT.C(group.InventoriesPrimaryKey[0]))
+		s.Where(sql.InValues(joinT.C(group.InventoriesPrimaryKey[1]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(group.InventoriesPrimaryKey[1]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := int(values[0].(*sql.NullInt64).Int64)
+				inValue := int(values[1].(*sql.NullInt64).Int64)
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Group]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*Inventory](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "inventories" node returned %v`, n.ID)
 		}
 		for kn := range nodes {
 			assign(kn, n)

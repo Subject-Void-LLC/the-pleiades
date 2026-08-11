@@ -85,6 +85,11 @@ func Actor(v string) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldActor, v))
 }
 
+// OrganizationID applies equality check predicate on the "organization_id" field. It's identical to OrganizationIDEQ.
+func OrganizationID(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldOrganizationID, v))
+}
+
 // DispatchedCount applies equality check predicate on the "dispatched_count" field. It's identical to DispatchedCountEQ.
 func DispatchedCount(v int) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldDispatchedCount, v))
@@ -448,6 +453,56 @@ func ActorEqualFold(v string) predicate.Job {
 // ActorContainsFold applies the ContainsFold predicate on the "actor" field.
 func ActorContainsFold(v string) predicate.Job {
 	return predicate.Job(sql.FieldContainsFold(FieldActor, v))
+}
+
+// OrganizationIDEQ applies the EQ predicate on the "organization_id" field.
+func OrganizationIDEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldOrganizationID, v))
+}
+
+// OrganizationIDNEQ applies the NEQ predicate on the "organization_id" field.
+func OrganizationIDNEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldOrganizationID, v))
+}
+
+// OrganizationIDIn applies the In predicate on the "organization_id" field.
+func OrganizationIDIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldOrganizationID, vs...))
+}
+
+// OrganizationIDNotIn applies the NotIn predicate on the "organization_id" field.
+func OrganizationIDNotIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldOrganizationID, vs...))
+}
+
+// OrganizationIDGT applies the GT predicate on the "organization_id" field.
+func OrganizationIDGT(v int) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldOrganizationID, v))
+}
+
+// OrganizationIDGTE applies the GTE predicate on the "organization_id" field.
+func OrganizationIDGTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldOrganizationID, v))
+}
+
+// OrganizationIDLT applies the LT predicate on the "organization_id" field.
+func OrganizationIDLT(v int) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldOrganizationID, v))
+}
+
+// OrganizationIDLTE applies the LTE predicate on the "organization_id" field.
+func OrganizationIDLTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldOrganizationID, v))
+}
+
+// OrganizationIDIsNil applies the IsNil predicate on the "organization_id" field.
+func OrganizationIDIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldOrganizationID))
+}
+
+// OrganizationIDNotNil applies the NotNil predicate on the "organization_id" field.
+func OrganizationIDNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldOrganizationID))
 }
 
 // StateEQ applies the EQ predicate on the "state" field.

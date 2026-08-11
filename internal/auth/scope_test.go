@@ -207,3 +207,112 @@ func TestScopeResolver_Resolve_RepositoryErrorFailsClosed(t *testing.T) {
 		t.Errorf("expected a repository error to still resolve to (\"\", Deny), got (%q, %q)", role, effect)
 	}
 }
+
+// TestScopeResolver_InventoryScope covers the level that makes an inventory
+// shareable.
+//
+// Lending a set of devices to another team is a RoleBinding at
+// ScopeInventory, so these cases are the sharing semantics themselves rather
+// than a test of an enum value. The two that matter most are the last pair:
+// an inventory grant must be overridable by a narrower Deny, and must not
+// silently widen into devices the inventory does not contain -- because the
+// caller is what supplies the InventoryIDs, and it supplies only the ones
+// the targeted device is actually reachable through.
+func TestScopeResolver_InventoryScope(t *testing.T) {
+	const (
+		orgID       = 10
+		inventoryA  = 40
+		inventoryB  = 41
+		groupID     = 20
+		deviceID    = 30
+		lendingTeam = 1
+	)
+
+	for _, tc := range []struct {
+		name       string
+		bindings   []auth.RoleBinding
+		target     auth.ScopeTarget
+		wantRole   auth.Role
+		wantEffect auth.Effect
+	}{
+		{
+			name: "an inventory grant reaches a device inside it",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleOperator, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryA), Effect: auth.EffectAllow},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, GroupIDs: []int{groupID}, DeviceID: deviceID},
+			wantRole:   auth.RoleOperator,
+			wantEffect: auth.EffectAllow,
+		},
+		{
+			name: "a grant on another inventory does not reach this device",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleAdmin, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryB), Effect: auth.EffectAllow},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, DeviceID: deviceID},
+			wantRole:   "",
+			wantEffect: auth.EffectDeny,
+		},
+		{
+			name: "an inventory grant overrides a broader organization grant",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleViewer, ScopeType: auth.ScopeOrganization, ScopeID: intPtr(orgID), Effect: auth.EffectAllow},
+				{TeamID: lendingTeam, Role: auth.RoleOperator, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryA), Effect: auth.EffectAllow},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, DeviceID: deviceID},
+			wantRole:   auth.RoleOperator,
+			wantEffect: auth.EffectAllow,
+		},
+		{
+			name: "an inventory Deny revokes what the organization granted",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleAdmin, ScopeType: auth.ScopeOrganization, ScopeID: intPtr(orgID), Effect: auth.EffectAllow},
+				{TeamID: lendingTeam, Role: auth.RoleAdmin, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryA), Effect: auth.EffectDeny},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, DeviceID: deviceID},
+			wantRole:   "",
+			wantEffect: auth.EffectDeny,
+		},
+		{
+			name: "a group Deny still overrides an inventory grant",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleOperator, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryA), Effect: auth.EffectAllow},
+				{TeamID: lendingTeam, Role: auth.RoleOperator, ScopeType: auth.ScopeGroup, ScopeID: intPtr(groupID), Effect: auth.EffectDeny},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, GroupIDs: []int{groupID}, DeviceID: deviceID},
+			wantRole:   "",
+			wantEffect: auth.EffectDeny,
+		},
+		{
+			name: "a device Deny still overrides an inventory grant",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleAdmin, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryA), Effect: auth.EffectAllow},
+				{TeamID: lendingTeam, Role: auth.RoleAdmin, ScopeType: auth.ScopeDevice, ScopeID: intPtr(deviceID), Effect: auth.EffectDeny},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA}, DeviceID: deviceID},
+			wantRole:   "",
+			wantEffect: auth.EffectDeny,
+		},
+		{
+			name: "a device in two shared inventories resolves through either",
+			bindings: []auth.RoleBinding{
+				{TeamID: lendingTeam, Role: auth.RoleOperator, ScopeType: auth.ScopeInventory, ScopeID: intPtr(inventoryB), Effect: auth.EffectAllow},
+			},
+			target:     auth.ScopeTarget{OrganizationID: orgID, InventoryIDs: []int{inventoryA, inventoryB}, DeviceID: deviceID},
+			wantRole:   auth.RoleOperator,
+			wantEffect: auth.EffectAllow,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := auth.NewScopeResolver(&fakeRoleBindingRepository{bindings: tc.bindings})
+
+			role, effect, err := resolver.Resolve(t.Context(), []int{lendingTeam}, tc.target)
+			if err != nil {
+				t.Fatalf("Resolve() = %v, want nil", err)
+			}
+			if role != tc.wantRole || effect != tc.wantEffect {
+				t.Errorf("Resolve() = (%q, %q), want (%q, %q)", role, effect, tc.wantRole, tc.wantEffect)
+			}
+		})
+	}
+}

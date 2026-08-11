@@ -17,14 +17,29 @@ const (
 	EffectDeny  Effect = "deny"
 )
 
-// ScopeType names which of the four PLAN.md Section 18.4 scopes a
-// RoleBinding applies at.
+// ScopeType names which of the PLAN.md Section 18.4 scopes a RoleBinding
+// applies at.
 type ScopeType string
 
-// The four Section 18.4 scopes, broadest to narrowest.
+// The Section 18.4 scopes, broadest to narrowest.
+//
+// ScopeInventory was added after the original four. It sits between
+// organization and group because that is where an Inventory sits in the
+// containment order -- an organization owns inventories, an inventory holds
+// groups, a group holds devices -- and the precedence walk below relies on
+// this ordering being the containment ordering rather than an arbitrary
+// list.
+//
+// It is what makes an inventory shareable. Lending a set of devices to
+// another team is a RoleBinding at this scope, which means sharing reuses
+// the whole resolver -- inheritance, explicit Deny winning over a broader
+// Allow, all of it -- rather than a second access-control mechanism that
+// would need its own precedence rules and its own answer when the two
+// disagreed.
 const (
 	ScopeSystem       ScopeType = "system"
 	ScopeOrganization ScopeType = "organization"
+	ScopeInventory    ScopeType = "inventory"
 	ScopeGroup        ScopeType = "group"
 	ScopeDevice       ScopeType = "device"
 )
@@ -38,8 +53,13 @@ const (
 // check) needs no special-casing here.
 type ScopeTarget struct {
 	OrganizationID int
-	GroupIDs       []int
-	DeviceID       int
+	// InventoryIDs is a slice for the same reason GroupIDs is: a group,
+	// and therefore a device reached through it, can belong to more than
+	// one inventory at once. A device lent to two teams is reachable
+	// through either team's inventory, and a check has to consider both.
+	InventoryIDs []int
+	GroupIDs     []int
+	DeviceID     int
 }
 
 // RoleBinding is a Team's grant, or explicit denial, of a Role at one
@@ -197,6 +217,18 @@ func (r *ScopeResolver) Resolve(ctx context.Context, teamIDs []int, target Scope
 	layers := []policy.Layer[ScopeDecision]{
 		{Name: "system", Value: decisionFor(bindings, ScopeSystem, nil)},
 		{Name: "organization", Value: decisionFor(bindings, ScopeOrganization, &target.OrganizationID)},
+	}
+	// Inventory layers sit between organization and group, matching the
+	// containment order. A Deny on one inventory therefore overrides an
+	// Allow inherited from the organization, and a Deny on a specific
+	// group still overrides an Allow granted through the inventory that
+	// contains it.
+	for _, iid := range target.InventoryIDs {
+		iid := iid
+		layers = append(layers, policy.Layer[ScopeDecision]{
+			Name:  "inventory",
+			Value: decisionFor(bindings, ScopeInventory, &iid),
+		})
 	}
 	for _, gid := range target.GroupIDs {
 		gid := gid

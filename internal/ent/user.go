@@ -33,9 +33,11 @@ type User struct {
 type UserEdges struct {
 	// Teams holds the value of the teams edge.
 	Teams []*Team `json:"teams,omitempty"`
+	// OwnedInventories holds the value of the owned_inventories edge.
+	OwnedInventories []*Inventory `json:"owned_inventories,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
 }
 
 // TeamsOrErr returns the Teams value or an error if the edge
@@ -45,6 +47,15 @@ func (e UserEdges) TeamsOrErr() ([]*Team, error) {
 		return e.Teams, nil
 	}
 	return nil, &NotLoadedError{edge: "teams"}
+}
+
+// OwnedInventoriesOrErr returns the OwnedInventories value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) OwnedInventoriesOrErr() ([]*Inventory, error) {
+	if e.loadedTypes[1] {
+		return e.OwnedInventories, nil
+	}
+	return nil, &NotLoadedError{edge: "owned_inventories"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -113,6 +124,11 @@ func (_m *User) Value(name string) (ent.Value, error) {
 // QueryTeams queries the "teams" edge of the User entity.
 func (_m *User) QueryTeams() *TeamQuery {
 	return NewUserClient(_m.config).QueryTeams(_m)
+}
+
+// QueryOwnedInventories queries the "owned_inventories" edge of the User entity.
+func (_m *User) QueryOwnedInventories() *InventoryQuery {
+	return NewUserClient(_m.config).QueryOwnedInventories(_m)
 }
 
 // Update returns a builder for updating this User.

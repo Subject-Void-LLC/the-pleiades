@@ -284,6 +284,29 @@ func HasChildrenWith(preds ...predicate.Group) predicate.Group {
 	})
 }
 
+// HasInventories applies the HasEdge predicate on the "inventories" edge.
+func HasInventories() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, InventoriesTable, InventoriesPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasInventoriesWith applies the HasEdge predicate on the "inventories" edge with a given conditions (other predicates).
+func HasInventoriesWith(preds ...predicate.Inventory) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newInventoriesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Group) predicate.Group {
 	return predicate.Group(sql.AndPredicates(predicates...))

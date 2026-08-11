@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
@@ -68,6 +69,21 @@ func (_c *UserCreate) AddTeams(v ...*Team) *UserCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTeamIDs(ids...)
+}
+
+// AddOwnedInventoryIDs adds the "owned_inventories" edge to the Inventory entity by IDs.
+func (_c *UserCreate) AddOwnedInventoryIDs(ids ...int) *UserCreate {
+	_c.mutation.AddOwnedInventoryIDs(ids...)
+	return _c
+}
+
+// AddOwnedInventories adds the "owned_inventories" edges to the Inventory entity.
+func (_c *UserCreate) AddOwnedInventories(v ...*Inventory) *UserCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddOwnedInventoryIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -178,6 +194,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OwnedInventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedInventoriesTable,
+			Columns: []string{user.OwnedInventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

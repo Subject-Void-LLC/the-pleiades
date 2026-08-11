@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 )
@@ -242,6 +243,21 @@ func (_c *DeviceCreate) SetNillableOrganizationID(id *int) *DeviceCreate {
 // SetOrganization sets the "organization" edge to the Organization entity.
 func (_c *DeviceCreate) SetOrganization(v *Organization) *DeviceCreate {
 	return _c.SetOrganizationID(v.ID)
+}
+
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_c *DeviceCreate) AddInventoryIDs(ids ...int) *DeviceCreate {
+	_c.mutation.AddInventoryIDs(ids...)
+	return _c
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_c *DeviceCreate) AddInventories(v ...*Inventory) *DeviceCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInventoryIDs(ids...)
 }
 
 // Mutation returns the DeviceMutation object of the builder.
@@ -510,6 +526,22 @@ func (_c *DeviceCreate) createSpec() (*Device, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.organization_devices = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   device.InventoriesTable,
+			Columns: device.InventoriesPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

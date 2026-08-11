@@ -35,9 +35,13 @@ type OrganizationEdges struct {
 	Devices []*Device `json:"devices,omitempty"`
 	// Teams holds the value of the teams edge.
 	Teams []*Team `json:"teams,omitempty"`
+	// Inventories holds the value of the inventories edge.
+	Inventories []*Inventory `json:"inventories,omitempty"`
+	// Announcements holds the value of the announcements edge.
+	Announcements []*Announcement `json:"announcements,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [4]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -56,6 +60,24 @@ func (e OrganizationEdges) TeamsOrErr() ([]*Team, error) {
 		return e.Teams, nil
 	}
 	return nil, &NotLoadedError{edge: "teams"}
+}
+
+// InventoriesOrErr returns the Inventories value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) InventoriesOrErr() ([]*Inventory, error) {
+	if e.loadedTypes[2] {
+		return e.Inventories, nil
+	}
+	return nil, &NotLoadedError{edge: "inventories"}
+}
+
+// AnnouncementsOrErr returns the Announcements value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
+	if e.loadedTypes[3] {
+		return e.Announcements, nil
+	}
+	return nil, &NotLoadedError{edge: "announcements"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -129,6 +151,16 @@ func (_m *Organization) QueryDevices() *DeviceQuery {
 // QueryTeams queries the "teams" edge of the Organization entity.
 func (_m *Organization) QueryTeams() *TeamQuery {
 	return NewOrganizationClient(_m.config).QueryTeams(_m)
+}
+
+// QueryInventories queries the "inventories" edge of the Organization entity.
+func (_m *Organization) QueryInventories() *InventoryQuery {
+	return NewOrganizationClient(_m.config).QueryInventories(_m)
+}
+
+// QueryAnnouncements queries the "announcements" edge of the Organization entity.
+func (_m *Organization) QueryAnnouncements() *AnnouncementQuery {
+	return NewOrganizationClient(_m.config).QueryAnnouncements(_m)
 }
 
 // Update returns a builder for updating this Organization.

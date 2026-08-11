@@ -63,6 +63,22 @@ func (Job) Fields() []ent.Field {
 		// once at creation so the audit trail can always answer "who asked
 		// for this dispatch" without depending on a separate log surviving.
 		field.String("actor").NotEmpty().Immutable(),
+		// organization_id is the tenancy boundary this dispatch happened
+		// inside, stamped once at launch and never resolved live.
+		//
+		// Denormalized on purpose, matching group_name and actor directly
+		// above rather than being an edge. A job is a historical record,
+		// and joining back through the group to whichever inventory holds
+		// it today would let a later re-parenting silently rewrite which
+		// tenant a past dispatch appears to belong to. The same reasoning
+		// the JobTask schema gives for capturing DeviceName at dispatch
+		// time rather than linking to a device that may since be renamed.
+		//
+		// Optional and Nillable because a dispatch against a group that
+		// belongs to no inventory has no organization to stamp, which is
+		// the ordinary case in a single-tenant deployment. Nil means
+		// "unscoped", never "unknown".
+		field.Int("organization_id").Optional().Nillable().Immutable(),
 		// state is the job's lifecycle: "pending" (created, not yet picked
 		// up), "fanning_out" (a worker is actively dispatching to devices),
 		// "completed" (every device has been dispatched, skipped, or

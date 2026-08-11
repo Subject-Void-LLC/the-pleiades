@@ -10,7 +10,9 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 )
@@ -84,6 +86,36 @@ func (_c *OrganizationCreate) AddTeams(v ...*Team) *OrganizationCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTeamIDs(ids...)
+}
+
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_c *OrganizationCreate) AddInventoryIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddInventoryIDs(ids...)
+	return _c
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_c *OrganizationCreate) AddInventories(v ...*Inventory) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInventoryIDs(ids...)
+}
+
+// AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
+func (_c *OrganizationCreate) AddAnnouncementIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddAnnouncementIDs(ids...)
+	return _c
+}
+
+// AddAnnouncements adds the "announcements" edges to the Announcement entity.
+func (_c *OrganizationCreate) AddAnnouncements(v ...*Announcement) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAnnouncementIDs(ids...)
 }
 
 // Mutation returns the OrganizationMutation object of the builder.
@@ -210,6 +242,38 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.AnnouncementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

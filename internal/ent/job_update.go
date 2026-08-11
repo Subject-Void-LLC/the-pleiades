@@ -255,6 +255,9 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(job.FieldUpdatedAt, field.TypeTime, value)
 	}
+	if _u.mutation.OrganizationIDCleared() {
+		_spec.ClearField(job.FieldOrganizationID, field.TypeInt)
+	}
 	if value, ok := _u.mutation.State(); ok {
 		_spec.SetField(job.FieldState, field.TypeEnum, value)
 	}
@@ -608,6 +611,9 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(job.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.OrganizationIDCleared() {
+		_spec.ClearField(job.FieldOrganizationID, field.TypeInt)
 	}
 	if value, ok := _u.mutation.State(); ok {
 		_spec.SetField(job.FieldState, field.TypeEnum, value)

@@ -24,6 +24,10 @@ const (
 	EdgeDevices = "devices"
 	// EdgeTeams holds the string denoting the teams edge name in mutations.
 	EdgeTeams = "teams"
+	// EdgeInventories holds the string denoting the inventories edge name in mutations.
+	EdgeInventories = "inventories"
+	// EdgeAnnouncements holds the string denoting the announcements edge name in mutations.
+	EdgeAnnouncements = "announcements"
 	// Table holds the table name of the organization in the database.
 	Table = "organizations"
 	// DevicesTable is the table that holds the devices relation/edge.
@@ -40,6 +44,20 @@ const (
 	TeamsInverseTable = "teams"
 	// TeamsColumn is the table column denoting the teams relation/edge.
 	TeamsColumn = "organization_teams"
+	// InventoriesTable is the table that holds the inventories relation/edge.
+	InventoriesTable = "inventories"
+	// InventoriesInverseTable is the table name for the Inventory entity.
+	// It exists in this package in order to avoid circular dependency with the "inventory" package.
+	InventoriesInverseTable = "inventories"
+	// InventoriesColumn is the table column denoting the inventories relation/edge.
+	InventoriesColumn = "organization_inventories"
+	// AnnouncementsTable is the table that holds the announcements relation/edge.
+	AnnouncementsTable = "announcements"
+	// AnnouncementsInverseTable is the table name for the Announcement entity.
+	// It exists in this package in order to avoid circular dependency with the "announcement" package.
+	AnnouncementsInverseTable = "announcements"
+	// AnnouncementsColumn is the table column denoting the announcements relation/edge.
+	AnnouncementsColumn = "organization_announcements"
 )
 
 // Columns holds all SQL columns for organization fields.
@@ -121,6 +139,34 @@ func ByTeams(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTeamsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByInventoriesCount orders the results by inventories count.
+func ByInventoriesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newInventoriesStep(), opts...)
+	}
+}
+
+// ByInventories orders the results by inventories terms.
+func ByInventories(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInventoriesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByAnnouncementsCount orders the results by announcements count.
+func ByAnnouncementsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAnnouncementsStep(), opts...)
+	}
+}
+
+// ByAnnouncements orders the results by announcements terms.
+func ByAnnouncements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAnnouncementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newDevicesStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -133,5 +179,19 @@ func newTeamsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TeamsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TeamsTable, TeamsColumn),
+	)
+}
+func newInventoriesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InventoriesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, InventoriesTable, InventoriesColumn),
+	)
+}
+func newAnnouncementsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AnnouncementsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, AnnouncementsTable, AnnouncementsColumn),
 	)
 }

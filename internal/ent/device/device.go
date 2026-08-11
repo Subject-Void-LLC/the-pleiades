@@ -48,6 +48,8 @@ const (
 	EdgeGroups = "groups"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
+	// EdgeInventories holds the string denoting the inventories edge name in mutations.
+	EdgeInventories = "inventories"
 	// Table holds the table name of the device in the database.
 	Table = "devices"
 	// ParentTable is the table that holds the parent relation/edge.
@@ -84,6 +86,11 @@ const (
 	OrganizationInverseTable = "organizations"
 	// OrganizationColumn is the table column denoting the organization relation/edge.
 	OrganizationColumn = "organization_devices"
+	// InventoriesTable is the table that holds the inventories relation/edge. The primary key declared below.
+	InventoriesTable = "inventory_devices"
+	// InventoriesInverseTable is the table name for the Inventory entity.
+	// It exists in this package in order to avoid circular dependency with the "inventory" package.
+	InventoriesInverseTable = "inventories"
 )
 
 // Columns holds all SQL columns for device fields.
@@ -113,6 +120,9 @@ var (
 	// GroupsPrimaryKey and GroupsColumn2 are the table columns denoting the
 	// primary key for the groups relation (M2M).
 	GroupsPrimaryKey = []string{"group_id", "device_id"}
+	// InventoriesPrimaryKey and InventoriesColumn2 are the table columns denoting the
+	// primary key for the inventories relation (M2M).
+	InventoriesPrimaryKey = []string{"inventory_id", "device_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -275,6 +285,20 @@ func ByOrganizationField(field string, opts ...sql.OrderTermOption) OrderOption 
 		sqlgraph.OrderByNeighborTerms(s, newOrganizationStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByInventoriesCount orders the results by inventories count.
+func ByInventoriesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newInventoriesStep(), opts...)
+	}
+}
+
+// ByInventories orders the results by inventories terms.
+func ByInventories(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInventoriesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newParentStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -315,5 +339,12 @@ func newOrganizationStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(OrganizationInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, OrganizationTable, OrganizationColumn),
+	)
+}
+func newInventoriesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InventoriesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, true, InventoriesTable, InventoriesPrimaryKey...),
 	)
 }

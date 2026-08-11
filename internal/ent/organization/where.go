@@ -261,6 +261,52 @@ func HasTeamsWith(preds ...predicate.Team) predicate.Organization {
 	})
 }
 
+// HasInventories applies the HasEdge predicate on the "inventories" edge.
+func HasInventories() predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, InventoriesTable, InventoriesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasInventoriesWith applies the HasEdge predicate on the "inventories" edge with a given conditions (other predicates).
+func HasInventoriesWith(preds ...predicate.Inventory) predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := newInventoriesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAnnouncements applies the HasEdge predicate on the "announcements" edge.
+func HasAnnouncements() predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, AnnouncementsTable, AnnouncementsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAnnouncementsWith applies the HasEdge predicate on the "announcements" edge with a given conditions (other predicates).
+func HasAnnouncementsWith(preds ...predicate.Announcement) predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := newAnnouncementsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Organization) predicate.Organization {
 	return predicate.Organization(sql.AndPredicates(predicates...))

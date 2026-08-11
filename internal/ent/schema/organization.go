@@ -37,5 +37,14 @@ func (Organization) Edges() []ent.Edge {
 		// A Team MUST belong to exactly one Organization (Team.organization
 		// is the Ref side, .Required() declared there).
 		edge.To("teams", Team.Type),
+		// An Inventory MUST belong to exactly one Organization: it is the
+		// tenancy boundary for a shareable set of devices (Inventory.
+		// organization is the Ref side, .Required() declared there).
+		edge.To("inventories", Inventory.Type),
+		// An Announcement optionally belongs to one Organization. The
+		// absence is meaningful: no organization means system-wide, shown
+		// to everybody, which is what a platform maintenance notice has to
+		// be (Announcement.organization is the Ref side).
+		edge.To("announcements", Announcement.Type),
 	}
 }

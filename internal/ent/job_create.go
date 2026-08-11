@@ -81,6 +81,20 @@ func (_c *JobCreate) SetActor(v string) *JobCreate {
 	return _c
 }
 
+// SetOrganizationID sets the "organization_id" field.
+func (_c *JobCreate) SetOrganizationID(v int) *JobCreate {
+	_c.mutation.SetOrganizationID(v)
+	return _c
+}
+
+// SetNillableOrganizationID sets the "organization_id" field if the given value is not nil.
+func (_c *JobCreate) SetNillableOrganizationID(v *int) *JobCreate {
+	if v != nil {
+		_c.SetOrganizationID(*v)
+	}
+	return _c
+}
+
 // SetState sets the "state" field.
 func (_c *JobCreate) SetState(v job.State) *JobCreate {
 	_c.mutation.SetState(v)
@@ -353,6 +367,10 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Actor(); ok {
 		_spec.SetField(job.FieldActor, field.TypeString, value)
 		_node.Actor = value
+	}
+	if value, ok := _c.mutation.OrganizationID(); ok {
+		_spec.SetField(job.FieldOrganizationID, field.TypeInt, value)
+		_node.OrganizationID = &value
 	}
 	if value, ok := _c.mutation.State(); ok {
 		_spec.SetField(job.FieldState, field.TypeEnum, value)

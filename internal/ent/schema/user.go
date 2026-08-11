@@ -38,5 +38,11 @@ func (User) Edges() []ent.Edge {
 		// this is the Ref side.
 		edge.From("teams", Team.Type).
 			Ref("users"),
+		// Inventories this User created. Authorship, never authority: a
+		// grant lives on a Team's RoleBinding rows, so owning an inventory
+		// confers no permission over it on its own. It records who lent a
+		// set of devices out, which is worth knowing when somebody asks why
+		// another team can reach their hosts.
+		edge.To("owned_inventories", Inventory.Type),
 	}
 }

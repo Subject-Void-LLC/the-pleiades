@@ -8,6 +8,40 @@ import (
 )
 
 var (
+	// AnnouncementsColumns holds the columns for the "announcements" table.
+	AnnouncementsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "title", Type: field.TypeString},
+		{Name: "body", Type: field.TypeString, Size: 2147483647},
+		{Name: "level", Type: field.TypeString, Default: "info"},
+		{Name: "starts_at", Type: field.TypeTime, Nullable: true},
+		{Name: "ends_at", Type: field.TypeTime, Nullable: true},
+		{Name: "author", Type: field.TypeString},
+		{Name: "organization_announcements", Type: field.TypeInt, Nullable: true},
+	}
+	// AnnouncementsTable holds the schema information for the "announcements" table.
+	AnnouncementsTable = &schema.Table{
+		Name:       "announcements",
+		Columns:    AnnouncementsColumns,
+		PrimaryKey: []*schema.Column{AnnouncementsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "announcements_organizations_announcements",
+				Columns:    []*schema.Column{AnnouncementsColumns[9]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "announcement_starts_at_ends_at",
+				Unique:  false,
+				Columns: []*schema.Column{AnnouncementsColumns[6], AnnouncementsColumns[7]},
+			},
+		},
+	}
 	// DevicesColumns holds the columns for the "devices" table.
 	DevicesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -88,6 +122,43 @@ var (
 		Columns:    GroupsColumns,
 		PrimaryKey: []*schema.Column{GroupsColumns[0]},
 	}
+	// InventoriesColumns holds the columns for the "inventories" table.
+	InventoriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "organization_inventories", Type: field.TypeInt},
+		{Name: "user_owned_inventories", Type: field.TypeInt, Nullable: true},
+	}
+	// InventoriesTable holds the schema information for the "inventories" table.
+	InventoriesTable = &schema.Table{
+		Name:       "inventories",
+		Columns:    InventoriesColumns,
+		PrimaryKey: []*schema.Column{InventoriesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventories_organizations_inventories",
+				Columns:    []*schema.Column{InventoriesColumns[5]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "inventories_users_owned_inventories",
+				Columns:    []*schema.Column{InventoriesColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "inventory_name_organization_inventories",
+				Unique:  true,
+				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[5]},
+			},
+		},
+	}
 	// JobsColumns holds the columns for the "jobs" table.
 	JobsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -97,6 +168,7 @@ var (
 		{Name: "runbook_id", Type: field.TypeString},
 		{Name: "group_name", Type: field.TypeString},
 		{Name: "actor", Type: field.TypeString},
+		{Name: "organization_id", Type: field.TypeInt, Nullable: true},
 		{Name: "state", Type: field.TypeEnum, Enums: []string{"pending", "fanning_out", "completed", "failed"}, Default: "pending"},
 		{Name: "dispatched_count", Type: field.TypeInt, Default: 0},
 		{Name: "skipped_count", Type: field.TypeInt, Default: 0},
@@ -342,6 +414,56 @@ var (
 			},
 		},
 	}
+	// InventoryGroupsColumns holds the columns for the "inventory_groups" table.
+	InventoryGroupsColumns = []*schema.Column{
+		{Name: "inventory_id", Type: field.TypeInt},
+		{Name: "group_id", Type: field.TypeInt},
+	}
+	// InventoryGroupsTable holds the schema information for the "inventory_groups" table.
+	InventoryGroupsTable = &schema.Table{
+		Name:       "inventory_groups",
+		Columns:    InventoryGroupsColumns,
+		PrimaryKey: []*schema.Column{InventoryGroupsColumns[0], InventoryGroupsColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventory_groups_inventory_id",
+				Columns:    []*schema.Column{InventoryGroupsColumns[0]},
+				RefColumns: []*schema.Column{InventoriesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "inventory_groups_group_id",
+				Columns:    []*schema.Column{InventoryGroupsColumns[1]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
+	// InventoryDevicesColumns holds the columns for the "inventory_devices" table.
+	InventoryDevicesColumns = []*schema.Column{
+		{Name: "inventory_id", Type: field.TypeInt},
+		{Name: "device_id", Type: field.TypeInt},
+	}
+	// InventoryDevicesTable holds the schema information for the "inventory_devices" table.
+	InventoryDevicesTable = &schema.Table{
+		Name:       "inventory_devices",
+		Columns:    InventoryDevicesColumns,
+		PrimaryKey: []*schema.Column{InventoryDevicesColumns[0], InventoryDevicesColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventory_devices_inventory_id",
+				Columns:    []*schema.Column{InventoryDevicesColumns[0]},
+				RefColumns: []*schema.Column{InventoriesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "inventory_devices_device_id",
+				Columns:    []*schema.Column{InventoryDevicesColumns[1]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// TeamUsersColumns holds the columns for the "team_users" table.
 	TeamUsersColumns = []*schema.Column{
 		{Name: "team_id", Type: field.TypeInt},
@@ -369,9 +491,11 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		AnnouncementsTable,
 		DevicesTable,
 		FactsTable,
 		GroupsTable,
+		InventoriesTable,
 		JobsTable,
 		JobTasksTable,
 		OrganizationsTable,
@@ -382,14 +506,19 @@ var (
 		UsersTable,
 		GroupDevicesTable,
 		GroupChildrenTable,
+		InventoryGroupsTable,
+		InventoryDevicesTable,
 		TeamUsersTable,
 	}
 )
 
 func init() {
+	AnnouncementsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
+	InventoriesTable.ForeignKeys[1].RefTable = UsersTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
@@ -398,6 +527,10 @@ func init() {
 	GroupDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	GroupChildrenTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupChildrenTable.ForeignKeys[1].RefTable = GroupsTable
+	InventoryGroupsTable.ForeignKeys[0].RefTable = InventoriesTable
+	InventoryGroupsTable.ForeignKeys[1].RefTable = GroupsTable
+	InventoryDevicesTable.ForeignKeys[0].RefTable = InventoriesTable
+	InventoryDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	TeamUsersTable.ForeignKeys[0].RefTable = TeamsTable
 	TeamUsersTable.ForeignKeys[1].RefTable = UsersTable
 }

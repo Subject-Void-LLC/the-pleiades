@@ -29,6 +29,8 @@ type Job struct {
 	GroupName string `json:"group_name,omitempty"`
 	// Actor holds the value of the "actor" field.
 	Actor string `json:"actor,omitempty"`
+	// OrganizationID holds the value of the "organization_id" field.
+	OrganizationID *int `json:"organization_id,omitempty"`
 	// State holds the value of the "state" field.
 	State job.State `json:"state,omitempty"`
 	// DispatchedCount holds the value of the "dispatched_count" field.
@@ -70,7 +72,7 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
+		case job.FieldID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
 		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldActor, job.FieldState, job.FieldFailureReason:
 			values[i] = new(sql.NullString)
@@ -132,6 +134,13 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field actor", values[i])
 			} else if value.Valid {
 				_m.Actor = value.String
+			}
+		case job.FieldOrganizationID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field organization_id", values[i])
+			} else if value.Valid {
+				_m.OrganizationID = new(int)
+				*_m.OrganizationID = int(value.Int64)
 			}
 		case job.FieldState:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -227,6 +236,11 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("actor=")
 	builder.WriteString(_m.Actor)
+	builder.WriteString(", ")
+	if v := _m.OrganizationID; v != nil {
+		builder.WriteString("organization_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("state=")
 	builder.WriteString(fmt.Sprintf("%v", _m.State))

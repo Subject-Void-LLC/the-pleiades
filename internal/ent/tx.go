@@ -12,12 +12,16 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// Announcement is the client for interacting with the Announcement builders.
+	Announcement *AnnouncementClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
 	// Fact is the client for interacting with the Fact builders.
 	Fact *FactClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// Inventory is the client for interacting with the Inventory builders.
+	Inventory *InventoryClient
 	// Job is the client for interacting with the Job builders.
 	Job *JobClient
 	// JobTask is the client for interacting with the JobTask builders.
@@ -165,9 +169,11 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.Announcement = NewAnnouncementClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
+	tx.Inventory = NewInventoryClient(tx.config)
 	tx.Job = NewJobClient(tx.config)
 	tx.JobTask = NewJobTaskClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
@@ -185,7 +191,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: Device.QueryXXX(), the query will be executed
+// applies a query, for example: Announcement.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.
