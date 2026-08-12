@@ -14,6 +14,7 @@ package wire
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -53,12 +54,12 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				Capabilities:  []capability.Name{capability.NameSSHTransport},
 				Secrets:       map[string]string{"password": "hunter2"},
 			},
-			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"}}`,
+			wantJSON: `{"job_id":"job-123","runbook_id":"runbook-456","kind":"","device_id":"device-789","device_name":"core-switch-1","device_host":"10.0.0.1","interruptible":true,"ssh_port":22,"capabilities":["SSHTransportCapable"],"secrets":{"password":"hunter2"}}`,
 		},
 		{
 			name:     "zero value",
 			in:       DispatchPayload{},
-			wantJSON: `{"job_id":"","runbook_id":"","device_id":"","device_name":"","device_host":"","interruptible":false,"ssh_port":0,"capabilities":null}`,
+			wantJSON: `{"job_id":"","runbook_id":"","kind":"","device_id":"","device_name":"","device_host":"","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 		{
 			name: "device name and device id deliberately differ",
@@ -77,7 +78,7 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceName: "name-only-value",
 				DeviceHost: "192.168.1.1",
 			},
-			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1","interruptible":false,"ssh_port":0,"capabilities":null}`,
+			wantJSON: `{"job_id":"job-1","runbook_id":"rb-1","kind":"","device_id":"id-only-value","device_name":"name-only-value","device_host":"192.168.1.1","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 		{
 			name: "interruptible false is explicit on the wire, not merely absent",
@@ -96,7 +97,7 @@ func TestDispatchPayload_JSONRoundTrip(t *testing.T) {
 				DeviceHost:    "10.0.0.2",
 				Interruptible: false,
 			},
-			wantJSON: `{"job_id":"job-2","runbook_id":"rb-2","device_id":"device-2","device_name":"device-2-name","device_host":"10.0.0.2","interruptible":false,"ssh_port":0,"capabilities":null}`,
+			wantJSON: `{"job_id":"job-2","runbook_id":"rb-2","kind":"","device_id":"device-2","device_name":"device-2-name","device_host":"10.0.0.2","interruptible":false,"ssh_port":0,"capabilities":null}`,
 		},
 	}
 
@@ -184,5 +185,48 @@ func TestDispatchPayload_UnmarshalOmitsNewFields(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Unmarshal(%s) = %+v, want %+v", raw, got, want)
+	}
+}
+
+// TestDispatchPayload_AnAbsentKindDecodesToTheEmptyDefault pins the rule
+// that makes Kind an additive field.
+//
+// A payload published before this field existed, or by a Controller that
+// has not been upgraded yet, carries no "kind" key at all. It must decode
+// to the empty string, which internal/adapters/routing resolves to the
+// native kind: the adapter such a dispatch was always going to reach.
+// Decoding it to anything else, or refusing it, would break every in-flight
+// message during a rolling upgrade.
+func TestDispatchPayload_AnAbsentKindDecodesToTheEmptyDefault(t *testing.T) {
+	const preUpgrade = `{"job_id":"job-1","runbook_id":"rb-1","device_id":"d-1",` +
+		`"device_name":"edge-01","device_host":"10.0.0.1","interruptible":true,"ssh_port":22}`
+
+	var got DispatchPayload
+	if err := json.Unmarshal([]byte(preUpgrade), &got); err != nil {
+		t.Fatalf("a payload with no kind failed to decode: %v", err)
+	}
+	if got.Kind != "" {
+		t.Errorf("an absent kind decoded to %q, want the empty default", got.Kind)
+	}
+	// Everything else still arrived, so the assertion above is about the
+	// missing key rather than about a decode that failed silently.
+	if got.JobID != "job-1" || got.DeviceHost != "10.0.0.1" || !got.Interruptible {
+		t.Errorf("a pre-upgrade payload lost fields on decode: %#v", got)
+	}
+}
+
+// TestDispatchPayload_KindIsSpelledExactly guards the one thing a round
+// trip cannot: the wire name.
+//
+// A typo in the struct tag would round-trip perfectly through this same
+// struct and route nothing correctly, because the Controller writing "kind"
+// and the Runner reading "knid" would never meet.
+func TestDispatchPayload_KindIsSpelledExactly(t *testing.T) {
+	encoded, err := json.Marshal(DispatchPayload{Kind: "playbook"})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"kind":"playbook"`) {
+		t.Errorf("the kind is encoded as %s, want a \"kind\" key", encoded)
 	}
 }

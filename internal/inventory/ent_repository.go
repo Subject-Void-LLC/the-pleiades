@@ -68,6 +68,27 @@ func (r *entRepository) GetGroup(ctx context.Context, sel inventory.Selector) (I
 		query = query.Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))
 	}
 
+	// Membership is the contents of one Inventory: the devices in any of
+	// its groups, plus the devices attached to it directly. One OR pushed
+	// down to SQL rather than two queries the caller unions, so the
+	// database de-duplicates a device reachable both ways and the stream
+	// stays a stream.
+	//
+	// The empty case is the one that matters. Both IN clauses are empty
+	// for an Inventory that contains nothing, and ent renders an empty IN
+	// as FALSE rather than as no predicate at all, so the stream is empty
+	// too. That is the required behaviour, not a convenience: an empty
+	// membership that fell through to "no restriction" would turn a
+	// dispatch against an empty inventory into a dispatch against every
+	// device the platform manages. TestEntRepository_EmptyMembership
+	// selects nothing is what holds ent to it.
+	if sel.Membership != nil {
+		query = query.Where(device.Or(
+			device.HasGroupsWith(group.IDIn(sel.Membership.GroupIDs...)),
+			device.IDIn(sel.Membership.DeviceIDs...),
+		))
+	}
+
 	// Keyset-paginated iterator: batches page on device_id, the stable,
 	// indexed, time-ordered (UUIDv7) column this schema was built to
 	// support (internal/ent/schema/device.go). In production Postgres, a

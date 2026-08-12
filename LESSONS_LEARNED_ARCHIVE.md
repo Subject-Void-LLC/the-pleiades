@@ -1343,3 +1343,150 @@ What made this expensive rather than trivial is that `.SPECIFICATION/` is gitign
 on disk was a stale 1,671-line worktree. Take a copy into a scratch directory before any scripted edit
 to a gitignored file. It costs one command and it is the difference between an undo and an
 archaeology exercise.
+
+---
+
+## 98. `omitempty` cannot express "included, and empty": a JSON field that must distinguish absent from empty needs a pointer
+
+Found writing the first tests for `inventoryDTO`, which carries an inventory's group and device ids
+on a detail read and omits them from a listing. Inlining every member id into a listing would make
+opening a page of twenty inventories cost twenty fleet reads for data the page does not render, so the
+projection takes a flag and the two shapes differ deliberately.
+
+The code said so, at length:
+
+```go
+// Initialized rather than left nil, so the JSON carries [] instead of null
+// for an empty inventory: a client should not have to guess which one null meant.
+dto.Groups = set.GroupIDs
+if dto.Groups == nil {
+    dto.Groups = []int{}
+}
+```
+
+and the struct tag quietly undid it:
+
+```go
+Groups []int `json:"groups,omitempty"`
+```
+
+`encoding/json` treats a slice as empty when its length is zero, whether it is nil or allocated. So the
+carefully initialized `[]int{}` was dropped from the output exactly as a nil would have been, and an
+inventory with no members rendered identically to a listing that never carried membership at all. The
+one ambiguity the initialization existed to remove was the one that survived.
+
+Nothing caught it because both readers were written by the same hand on the same day. The Go code
+asserted against the struct, not the wire, and the UI read a field it was already populating.
+
+The fix is `*[]int` with `omitempty`: a nil pointer is omitted, and a pointer to an empty slice
+marshals as `[]`. The extra indirection is the point. It gives the type three states where the value
+has two, and the third is the one the API contract needs.
+
+**The rule.** `omitempty` collapses nil and empty for every length-having type — slices, maps, strings,
+arrays. Whenever a field's absence carries meaning distinct from its emptiness, the type has to carry
+that distinction itself, and a comment insisting on the difference is not a mechanism. Assert on the
+serialized bytes, not on the struct, or the tag and the code can disagree indefinitely.
+
+---
+
+## 99. A consistency test whose two sides are derived from the same source cannot see a whole category go missing
+
+The web UI computes which controls to render by asking an authorization chain which link relations an
+identity may exercise, and the conformance suite proves the rendered controls match. That test is a
+good one: it re-earns the API's own affordance guarantee in HTML, and it runs over every registered
+view automatically.
+
+It was green while the Run button rendered for nobody.
+
+Record actions carry their own endpoint, with their own relation and scope. The candidate set handed to
+the generator was built from the descriptor's CRUD operations alone and never included them. So the
+action's relation was never offered, never permitted, and correctly filtered out of a set that could
+never have contained it.
+
+The conformance test compared what the UI rendered against what the generator permitted **over the same
+candidate list**. Both sides read the same omission, both sides agreed, and the assertion passed
+describing a state in which the feature did not exist. Every layer was individually correct; the defect
+was entirely in what was never put in.
+
+**The rule.** When a test asserts that two things agree, ask where each side gets its expectation. If
+both trace back to one expression in the code under test, the test proves internal consistency and
+nothing about completeness — and completeness is exactly what a registry-driven design needs proved,
+because its failure mode is a category silently absent rather than a value wrongly computed. Anchor at
+least one side outside the implementation: assert on the rendered output, on a hand-written list of
+what should exist, or on a count that a human chose.
+
+The corollary for UI work specifically: a control that fails to render is indistinguishable from a
+control the caller may not see, and permission-gated interfaces are built to hide things quietly. Any
+affordance whose only failure mode is silence needs a test that names the visible outcome.
+
+---
+
+## 100. A pipeline reports the exit status of its last command, so `make ci | tail` always succeeds
+
+Ran the full gate as `make ci 2>&1 | tail -50`, to keep a very long log readable. The harness reported
+exit code 0 and I told the user CI had passed.
+
+It had not. `make` had failed at `docs-gen-check`, and the failure was visible in the very output I was
+reading — `make: *** [Makefile:198: docs-gen-check] Error 1` was the last line on screen. The shell
+reports the exit status of the **last** command in a pipeline, and `tail` always succeeds. The 0 came
+from `tail`, and said nothing whatsoever about `make`.
+
+The genuine defect underneath was ordinary: nine endpoints were added to `internal/apispec` without
+regenerating `docs/reference` and `internal/api/wellknown`, so the committed OpenAPI document described
+none of them. `docs-gen-check` exists precisely to catch that, it did catch it, and the pipeline threw
+its verdict away.
+
+Two things make this worse than a normal mistake. First, the wrong claim was confident and specific
+("CI passed, exit 0"), because a numeric exit code reads as authoritative in a way that prose does not.
+Second, the correct output was *right there*: this was not a case of missing information, it was a case
+of trusting a summary over the log it summarized.
+
+**It then happened again, within the hour, in a different shape.** The second attempt used
+`set -o pipefail` and still reported success, because the command ended
+`... | tail -25; echo "exit: $?"`. The `$?` inside the string was correct and printed 2; the status of
+the whole compound was `echo`'s, which is 0. Adding `pipefail` fixed the pipe and left the trailing
+command, and the trailing command had been added specifically to display the status that it then
+replaced.
+
+The third failure in the same episode was truncation: `tail -25` cut off the line naming which package
+regressed, leaving twenty-five lines of unrelated 0.0% entries and a bare `FAIL`. The output was
+useless for the one question being asked, and it looked complete.
+
+**The rule.** A shell reports the status of the **last command in any compound**, whether the compound
+is a pipe, a `;` chain, or an `&&` list. `set -o pipefail` fixes exactly one of those three. Never
+append anything after the command whose status matters, and never read a status through a pipe.
+
+The stronger habit, which does not depend on remembering shell semantics: **confirm the gate's own
+success line, not an exit code.** `make ci` prints `ci: all checks passed` as its last line for
+precisely this reason. Grep for that string. Its absence is the signal, and no exit code substitutes
+for it. And when redirecting a long log, write it to a file and grep the file for the verdict rather
+than tailing a fixed number of lines: the interesting line is wherever the failure happened, not at a
+fixed offset from the end.
+
+## 101. Cross-cutting recording belongs in a decorator over the port, not in the handlers, because the handlers are never the only writer
+
+**The incident.** Building the activity stream, the obvious place to record a change was the API handler that performs it: `CreateOrganization` writes the row, then appends the entry. It reads well, it is easy to test, and it would have been wrong.
+
+This control plane has two write surfaces over the same five entities. The JSON API's handlers are one. The web UI's view resources are the other, and they hold `access.Store` directly: `internal/ui/resources/organizations`'s writer calls `store.CreateOrganization` with no HTTP handler of this project's anywhere in the call stack. Recording from handlers would have covered the API completely, left the UI silent completely, and looked finished. Every test written against the covered surface would have passed. The gap would have been found by an auditor asking why a change somebody made in the browser is not in the trail.
+
+The decorator wraps the port instead, and is composed once in `cmd/controller`, where a single `accessStore` value is handed both to `api.NewAccessHandler` and to `resources.RegisterAll`. Whatever holds the wrapped value is audited. There is no way to be half-wired, because there is no second place to remember.
+
+Three consequences followed from the shape rather than being designed separately:
+
+Every method is written out by hand rather than promoted from an embedded interface. Embedding compiles forever: a method added to `Store` later is delegated silently and unaudited, which is the same hole in a different shape. Twenty-seven explicit methods mean the day the port grows, the file stops compiling and somebody has to decide what the new method records. The cost, ten trivial delegating read methods, is paid back by a test that reflects over the port's real method set and fails on any mutating method with no coverage case.
+
+An unattributed write is refused rather than recorded against "unknown". An audit trail containing anonymous rows is worse than one with gaps, because it looks complete: a reader scanning it concludes those changes were reviewed when nobody knows who made them. A path that legitimately has no user supplies a constant actor at the composition root, visibly.
+
+The recording is not allowed to fail the write, and the write is not allowed to be reported as failed when it succeeded. A failed recording logs at Error and lets the write stand, because the change has happened and a caller told otherwise would retry and make it twice.
+
+**The rule.** Anything that must happen for *every* write to a port belongs in a decorator over that port, composed once, not at the call sites. Before choosing the call site, list every caller of the port: if there is more than one kind of caller, the call site is the wrong place, and the second kind is the one that will be forgotten. And when the decorator must be written out method by method to keep that guarantee, check the table of methods against the interface's own method set by reflection, so the guarantee survives the port growing.
+
+## 102. A form built from a static field list cannot describe a record whose fields are its own data
+
+**The incident.** Phase 21's Templates view needed a launch form that renders only the fields the template being launched actually opened, since every other field is locked to what the template was saved with and the resolver reports a submitted value for one as ignored. The view layer's `RecordAction` declared `Fields []Field`: one list per action, shared by every record.
+
+The two ways to build the form without changing that were both wrong in the same way. Rendering every field and reporting the locked ones after the launch means the operator types a value, submits, and the run uses something else, with the report arriving after the job exists. Rendering every field and disabling the locked ones is the same lie with better manners: it still tells a reader that this is a decision they are being offered.
+
+**What was done.** `RecordAction` gained `FieldsFor func(ctx, id) ([]Field, error)`, and the handler resolves it once per request. The resolved set is what the form renders, what the submission is narrowed to, and what validation runs against, so a control the form never offered is refused rather than ignored. A resolution failure fails the request rather than rendering an empty form: an empty form is not "this record opens nothing", it is "we could not find out", and those must not look the same when the button underneath runs production work.
+
+**Why it generalises.** The declaration-driven view layer here is a good design and this is its natural limit: a declaration describes a *resource*, and some things a UI must render are properties of a *record*. Whenever the answer to "which controls does this show" is stored in the row rather than in the code, the declaration has to become a function of the row. The alternative, one shared list plus an after-the-fact report, is the shape of every affordance this repository has recorded that silently did nothing.

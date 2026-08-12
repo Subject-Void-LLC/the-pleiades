@@ -76,23 +76,36 @@ templ sidebar(page view.PageModel) {
 		<div class="sidebar-brand">Pleiades</div>
 		<div class="sidebar-version">{ page.Version }</div>
 		// A native disclosure rather than a scripted menu. Below the
-		// breakpoint it collapses; above it, the CSS opens it and hides
-		// the summary. Either way the browser owns the expanded state,
-		// the keyboard behaviour and the announcement.
+		// breakpoint the summary is the mobile menu button, drawn as a
+		// hamburger in CSS; above it, the summary is hidden and the
+		// navigation is held open. Either way the browser owns the
+		// expanded state, the keyboard behaviour and the announcement,
+		// which a hand-built button would need aria-expanded and script
+		// to reproduce -- and the CSP carries no 'unsafe-inline'.
+		//
+		// The word "Navigation" is the control's accessible name and has
+		// to stay: the hamburger is a background, so a summary holding
+		// only the icon would announce as an unnamed toggle.
 		<details class="nav-disclosure" open>
 			<summary>Navigation</summary>
+			// One landmark, not one per group. Every landmark needs a
+			// unique accessible name, and five of them would turn a
+			// screen reader's landmark list from one entry into five.
+			// The groups are headings inside it instead, which also
+			// gives heading navigation into the sidebar.
 			<nav aria-label="Main">
-				<ul class="nav-list">
-					for _, item := range page.Nav {
-						<li>
-							if item.Current {
-								<a href={ item.Href } aria-current="page">{ item.Label }</a>
-							} else {
-								<a href={ item.Href }>{ item.Label }</a>
-							}
-						</li>
+				for _, section := range page.Nav {
+					if section.Heading() {
+						<h2 class="nav-group" id={ section.ID }>{ section.Label }</h2>
+						<ul class="nav-list" aria-labelledby={ section.ID }>
+							@navItems(section)
+						</ul>
+					} else {
+						<ul class="nav-list">
+							@navItems(section)
+						</ul>
 					}
-				</ul>
+				}
 			</nav>
 		</details>
 		@appearanceControls(page)
@@ -171,4 +184,18 @@ templ appearanceControls(page view.PageModel) {
 			</fieldset>
 		</form>
 	</div>
+}
+
+// navItems renders one group's entries. Its own component so the labelled
+// and unlabelled lists cannot drift apart.
+templ navItems(section view.NavSection) {
+	for _, item := range section.Items {
+		<li>
+			if item.Current {
+				<a href={ item.Href } aria-current="page">{ item.Label }</a>
+			} else {
+				<a href={ item.Href }>{ item.Label }</a>
+			}
+		</li>
+	}
 }

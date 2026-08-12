@@ -1,0 +1,18 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_jobs` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `job_id` text NOT NULL, `runbook_id` text NOT NULL, `group_name` text NOT NULL, `inventory_id` integer NULL, `template_id` integer NULL, `template_name` text NULL, `kind` text NULL, `actor` text NOT NULL, `organization_id` integer NULL, `state` text NOT NULL DEFAULT ('pending'), `dispatched_count` integer NOT NULL DEFAULT (0), `skipped_count` integer NOT NULL DEFAULT (0), `failed_count` integer NOT NULL DEFAULT (0), `failure_reason` text NULL, `fence` integer NOT NULL DEFAULT (0));
+INSERT INTO `new_jobs` (`id`, `created_at`, `updated_at`, `job_id`, `runbook_id`, `group_name`, `actor`, `organization_id`, `state`, `dispatched_count`, `skipped_count`, `failed_count`, `failure_reason`, `fence`) SELECT `id`, `created_at`, `updated_at`, `job_id`, `runbook_id`, `group_name`, `actor`, `organization_id`, `state`, `dispatched_count`, `skipped_count`, `failed_count`, `failure_reason`, `fence` FROM `jobs`;
+DROP TABLE `jobs`;
+ALTER TABLE `new_jobs` RENAME TO `jobs`;
+CREATE UNIQUE INDEX `jobs_job_id_key` ON `jobs` (`job_id`);
+CREATE INDEX `job_template_id` ON `jobs` (`template_id`);
+CREATE TABLE `saved_launch_configs` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NULL, `fields` json NULL, `answers` json NULL, `template_saved_configs` integer NOT NULL, CONSTRAINT `saved_launch_configs_templates_saved_configs` FOREIGN KEY (`template_saved_configs`) REFERENCES `templates` (`id`) ON DELETE CASCADE);
+CREATE INDEX `savedlaunchconfig_name_template_saved_configs` ON `saved_launch_configs` (`name`, `template_saved_configs`);
+CREATE TABLE `survey_questions` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `variable` text NOT NULL, `label` text NOT NULL, `help` text NULL, `question_type` text NOT NULL, `required` bool NOT NULL DEFAULT (false), `default_value` text NULL, `choices` json NULL, `min_value` integer NOT NULL DEFAULT (0), `max_value` integer NOT NULL DEFAULT (0), `display_order` integer NOT NULL DEFAULT (0), `template_survey_questions` integer NOT NULL, CONSTRAINT `survey_questions_templates_survey_questions` FOREIGN KEY (`template_survey_questions`) REFERENCES `templates` (`id`) ON DELETE CASCADE);
+CREATE INDEX `surveyquestion_display_order_template_survey_questions` ON `survey_questions` (`display_order`, `template_survey_questions`);
+CREATE UNIQUE INDEX `surveyquestion_variable_template_survey_questions` ON `survey_questions` (`variable`, `template_survey_questions`);
+CREATE TABLE `templates` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL, `description` text NULL, `kind` text NOT NULL, `definition` text NOT NULL, `defaults` json NULL, `prompts` json NULL, `required_caps` json NULL, `survey_enabled` bool NOT NULL DEFAULT (false), `allow_simultaneous` bool NOT NULL DEFAULT (false), `inventory_templates` integer NOT NULL, `organization_templates` integer NOT NULL, CONSTRAINT `templates_inventories_templates` FOREIGN KEY (`inventory_templates`) REFERENCES `inventories` (`id`) ON DELETE NO ACTION, CONSTRAINT `templates_organizations_templates` FOREIGN KEY (`organization_templates`) REFERENCES `organizations` (`id`) ON DELETE NO ACTION);
+CREATE UNIQUE INDEX `template_name_organization_templates` ON `templates` (`name`, `organization_templates`);
+CREATE INDEX `template_kind_definition` ON `templates` (`kind`, `definition`);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;

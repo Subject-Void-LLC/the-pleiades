@@ -72,6 +72,26 @@ type Runbook struct {
 	// on lost lease heartbeat (internal/runner's executeWithLease) or let
 	// it run to completion.
 	Interruptible bool
+
+	// Name, Description, Category and Labels are the catalog metadata a
+	// reader browsing runbooks needs and an executor does not. They come
+	// straight from the compiled WorkflowDef, so a runbook is described by
+	// its own file rather than by a database row somebody has to remember
+	// to keep in step with it.
+	//
+	// Name falls back to ID when the file sets none, so a catalog never
+	// renders a blank row for a runbook that is perfectly dispatchable.
+	Name        string
+	Description string
+	Category    string
+
+	// Labels are the free-form filter axis. They are deliberately not
+	// called tags: Ansible's tags: already means task selection at run
+	// time (--tags/--skip-tags), Pleiades is a superset of Ansible, and
+	// spending that word on catalog filtering would make implementing the
+	// real thing later either impossible or gratuitously incompatible.
+	// AWX draws the same line -- Labels organize, tags select.
+	Labels []string
 }
 
 // Source resolves a runbook ID to its compiled Runbook. It is the seam a

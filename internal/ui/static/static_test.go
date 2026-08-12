@@ -225,6 +225,119 @@ func TestStylesheet_SupportsAllThreeThemeStates(t *testing.T) {
 	}
 }
 
+// block returns the body of the rule or at-rule introduced by header,
+// counting braces so a nested media query is not truncated at the first
+// closing brace the way a [^}]* pattern would truncate it.
+func block(t *testing.T, css, header string) string {
+	t.Helper()
+
+	start := strings.Index(css, header)
+	if start < 0 {
+		t.Fatalf("app.css declares no %s", header)
+	}
+	open := strings.Index(css[start:], "{")
+	if open < 0 {
+		t.Fatalf("%s has no body", header)
+	}
+	open += start
+
+	depth := 0
+	for i := open; i < len(css); i++ {
+		switch css[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return css[open+1 : i]
+			}
+		}
+	}
+	t.Fatalf("%s has an unclosed body", header)
+	return ""
+}
+
+// The sidebar's disclosure is the mobile menu, and both halves of it are
+// load-bearing in a way no compiler checks: CSS that stopped matching
+// would degrade silently into a nav that cannot be opened on a phone or
+// cannot be closed on a laptop.
+func TestNavigationDisclosure_IsAHamburgerBelowTheBreakpointOnly(t *testing.T) {
+	body, err := static.Read("app.css")
+	if err != nil {
+		t.Fatalf("reading app.css: %v", err)
+	}
+	css := string(body)
+
+	// Above the breakpoint the toggle is not a control. Holding the nav
+	// open is what stops a menu collapsed on a phone from presenting as an
+	// empty sidebar after a rotate or a resize.
+	desktop := block(t, css, "@media (min-width: 48.0625rem)")
+	for _, want := range []string{".nav-disclosure > summary", "display: none", ".nav-disclosure > nav", "display: block"} {
+		if !strings.Contains(desktop, want) {
+			t.Errorf("the wide layout is missing %q, so the sidebar follows the toggle's state instead of ignoring it", want)
+		}
+	}
+
+	// Below it, the summary is the button and it is drawn as a hamburger.
+	mobile := block(t, css, "@media (max-width: 48rem)")
+	for _, want := range []struct {
+		fragment string
+		why      string
+	}{
+		{".nav-disclosure > summary::before", "the hamburger mark itself"},
+		{"::-webkit-details-marker", "Safari draws a triangle list-style does not reach"},
+		{"list-style: none", "every other engine draws one that it does"},
+		{"border-top: 2px solid currentColor", "the outer bars must survive forced-colors, where a background does not"},
+	} {
+		if !strings.Contains(mobile, want.fragment) {
+			t.Errorf("the narrow layout is missing %q: %s", want.fragment, want.why)
+		}
+	}
+
+	// The bars are drawn, never set as a glyph. Generated text is
+	// announced by several screen readers and there is no markup on a
+	// pseudo-element to exclude it, so a decorative character would land
+	// in the toggle's accessible name beside the word Navigation.
+	marker := regexp.MustCompile(`\.nav-disclosure > summary::before\s*\{([^}]*)\}`).
+		FindStringSubmatch(mobile)
+	if marker == nil {
+		t.Fatal("the hamburger rule has no body")
+	}
+	content := regexp.MustCompile(`content:\s*("[^"]*"|'[^']*')`).FindStringSubmatch(marker[1])
+	if content == nil {
+		t.Fatal("the hamburger declares no content, so the pseudo-element never renders")
+	}
+	if len(content[1]) != 2 {
+		t.Errorf("the hamburger renders the glyph %s; draw the bars instead so the control announces as Navigation alone", content[1])
+	}
+}
+
+// A group heading sits in a fixed 280px column. Left at its h2 size,
+// ADMINISTRATION rendered wider than the sidebar and ran out through the
+// border.
+func TestNavigationGroupHeadings_FitTheSidebar(t *testing.T) {
+	body, err := static.Read("app.css")
+	if err != nil {
+		t.Fatalf("reading app.css: %v", err)
+	}
+
+	rule := regexp.MustCompile(`(?s)\n\.nav-group\s*\{(.*?)\}`).FindStringSubmatch(string(body))
+	if rule == nil {
+		t.Fatal("app.css does not style .nav-group, so the headings render at document h2 size")
+	}
+	for _, want := range []struct {
+		fragment string
+		why      string
+	}{
+		{"font-size:", "an unsized heading is a document heading, not a list label"},
+		{"overflow-wrap: break-word", "a group name is length-checked nowhere, so a long one must wrap rather than overflow"},
+	} {
+		if !strings.Contains(rule[1], want.fragment) {
+			t.Errorf(".nav-group is missing %q: %s", want.fragment, want.why)
+		}
+	}
+}
+
 // The CSP carries no 'unsafe-inline', so the client-side files must not
 // depend on being inlined, and nothing may block paste.
 func TestScripts_HonourTheContentSecurityPolicy(t *testing.T) {

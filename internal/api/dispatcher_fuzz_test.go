@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
@@ -15,67 +15,75 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 )
 
-// FuzzDispatchRunbook drives arbitrary group and runbook query values
-// through the real DispatchRunbook handler.
+// FuzzLaunchTemplate drives an arbitrary template id and an arbitrary
+// request body through the real launch handler.
 //
-// This target deliberately does not wrap the request in a recover(). The
-// previous version of this test built its request URL by raw string
-// concatenation ("/dispatch?group="+group+"&runbook="+runbook) and needed
-// a blanket recover() to survive httptest.NewRequest panicking on a
-// resulting malformed URI, which is exactly the shape
-// internal/api/hateoas_fuzz_test.go's own comment documents as the house
-// fix: build the URL through net/url instead, which removes the need for
-// recover() entirely, because url.Values.Encode() always produces a
-// syntactically valid query string no matter what bytes the fuzzer hands
-// it.
-func FuzzDispatchRunbook(f *testing.F) {
-	runbooks := newTestRunbookSource(f, "pb-1")
+// It replaces a target that fuzzed a group name and a runbook id in a query
+// string, which is the launch surface this phase removed. The id is the
+// interesting half: it arrives as a path parameter, is parsed into a
+// primary-key lookup, and ends up concatenated into a Location header, so
+// what this proves is that no byte sequence reaches a panic or escapes the
+// handler's documented set of answers.
+//
+// It deliberately does not wrap the call in a recover(). The id travels
+// through chi's route context rather than being concatenated into a URL,
+// so httptest.NewRequest is never handed a value that could make it panic
+// on a malformed URI, which is the house fix internal/api's own
+// hateoas_fuzz_test.go documents.
+func FuzzLaunchTemplate(f *testing.F) {
 	jobs := newTestJobStore(f)
-	bus := event.NewInProcessBus()
-	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+	configs := &recordingConfigs{}
+	dispatcher := api.NewDispatcher(newTestRunbookSource(f, "pb-1"), jobs, event.NewInProcessBus(),
+		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}), api.WithLaunchConfigs(configs))
 
-	f.Add("group1", "runbook1")
-	f.Add("", "")
-	f.Add("malformed!@#$", "pb-2")
-	f.Add("routers", "pb-1")
-	f.Add("../../etc/passwd", "pb-1")
+	handler := http.HandlerFunc(dispatcher.LaunchFromTemplate)
 
-	f.Fuzz(func(t *testing.T, group, runbook string) {
-		values := url.Values{}
-		values.Set("group", group)
-		values.Set("runbook", runbook)
-		req := httptest.NewRequest(http.MethodPost, "/dispatch?"+values.Encode(), nil)
-		req = req.WithContext(contextWithIdentity(req, dispatchTestIdentity))
+	f.Add("12", `{"overrides":{"limit":"edge-01"}}`)
+	f.Add("12", "")
+	f.Add("0", `{}`)
+	f.Add("../../etc/passwd", `{}`)
+	f.Add("12", `{"overrides":{"forks":"not a number"}}`)
+	f.Add("12", `{"answers":{"version":"17.3"}}`)
+	f.Add("99999999999999999999", `{}`)
+
+	f.Fuzz(func(t *testing.T, id, body string) {
+		// The id travels as a path parameter rather than being
+		// concatenated into a URL, which is how the router delivers it and
+		// what keeps this target about the handler rather than about
+		// net/http's parsing.
+		req := httptest.NewRequest(http.MethodPost, "/templates/x/launch", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", id)
+		req = req.WithContext(context.WithValue(contextWithIdentity(req, dispatchTestIdentity), chi.RouteCtxKey, rctx))
 
 		rr := httptest.NewRecorder()
-		dispatcher.DispatchRunbook(rr, req)
+		handler.ServeHTTP(rr, req)
 
-		// A missing parameter is always 400, regardless of what the other
-		// one contains: this is the one invariant this handler promises
-		// before it ever looks at runbooks or jobs.
-		if group == "" || runbook == "" {
-			if rr.Code != http.StatusBadRequest {
-				t.Errorf("group=%q runbook=%q: status = %d, want %d", group, runbook, rr.Code, http.StatusBadRequest)
-			}
-			return
-		}
-
-		// Otherwise the only honest invariant is "the response is a
-		// well-formed JSON body carrying one of the status codes this
-		// handler is documented to return." The exact code depends on
-		// whether the fuzzed runbook string happens to name "pb-1", which
-		// is not something this target controls or needs to predict.
+		// The honest invariant is that the response is a well-formed JSON
+		// body carrying one of the status codes this handler documents.
+		// Which one depends on whether the fuzzed id happens to be 12 and
+		// whether the body happens to parse, neither of which this target
+		// controls or needs to predict. What it does prove is that no
+		// input reaches a panic, and that nothing escapes as a 200 or a
+		// 500 with an empty body.
 		switch rr.Code {
-		case http.StatusAccepted, http.StatusNotFound, http.StatusBadRequest, http.StatusInternalServerError:
+		case http.StatusAccepted, http.StatusBadRequest, http.StatusNotFound,
+			http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+			http.StatusUnprocessableEntity, http.StatusInternalServerError:
 		default:
-			t.Errorf("group=%q runbook=%q: unexpected status %d", group, runbook, rr.Code)
+			t.Errorf("id=%q body=%q: unexpected status %d", id, body, rr.Code)
 		}
-		var body map[string]json.RawMessage
-		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-			t.Fatalf("group=%q runbook=%q: response is not valid JSON: %v: %q", group, runbook, err, rr.Body.String())
+
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal(rr.Body.Bytes(), &decoded); err != nil {
+			t.Fatalf("id=%q body=%q: response is not valid JSON: %v: %q", id, body, err, rr.Body.String())
 		}
 	})
 }

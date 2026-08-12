@@ -101,6 +101,11 @@ story, per `.AGENTS/AGENTS.md`.
 95. **Prove an assertion can fail before believing it passes; a negative control that does not fail may have found real defense in depth, so keep opening layers until it does.**
 96. **A test that reaches its subject through a subprocess build has no import edge, so Go's test cache will replay a stale pass: such targets must pass `-count=1`.**
 97. **A gitignored document has no `git checkout` to undo it: copy it before any scripted edit, bound every search to the section being edited, and never anchor a replacement on a string that is merely a prefix of the same line elsewhere.**
+98. **Absent and empty are different instructions in both directions: `omitempty` collapses them on the way out and `encoding/json` collapses them on the way in, so any field whose absence must differ from its emptiness needs a pointer on the response type AND on the request type.**
+99. **A consistency test whose two sides both derive from the code under test proves internal agreement and nothing about completeness; anchor one side outside the implementation, and give any affordance whose only failure mode is silence a test that names the visible outcome.**
+100. **A shell reports the last command in any compound, so `| tail`, `; echo` and `&& x` all discard the status that mattered; confirm a gate's own success line in a captured log rather than trusting an exit code or a fixed-length tail.**
+101. **Anything that must happen on every write to a port belongs in a decorator over that port, composed once: list the port's callers first, because if there is more than one kind, the call site is the wrong place and the second kind is the one that gets forgotten.**
+102. **When which controls a form shows is stored in the row rather than written in the code, the field declaration has to become a function of the row: rendering all of them and reporting the refused ones afterwards is an affordance that does nothing, and disabling them is the same lie with better manners.**
 
 ---
 

@@ -40,7 +40,11 @@ func Register() error {
 		Name:     Name,
 		Title:    "Credentials",
 		NavLabel: "CREDENTIALS",
-		NavOrder: 60,
+		// Second within Resources, AWX's own position for it: a template
+		// names a credential, so it reads directly after the thing that
+		// names it and before the catalog that template points into.
+		NavOrder: 50,
+		NavGroup: view.NavGroupResources,
 		Summary:  "Managed secrets and their rotation state.",
 		Status:   view.StatusDeclared,
 		IDField:  "reference",

@@ -25,6 +25,16 @@ const (
 	FieldRunbookID = "runbook_id"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
+	// FieldInventoryID holds the string denoting the inventory_id field in the database.
+	FieldInventoryID = "inventory_id"
+	// FieldTemplateID holds the string denoting the template_id field in the database.
+	FieldTemplateID = "template_id"
+	// FieldTemplateName holds the string denoting the template_name field in the database.
+	FieldTemplateName = "template_name"
+	// FieldLaunchConfigID holds the string denoting the launch_config_id field in the database.
+	FieldLaunchConfigID = "launch_config_id"
+	// FieldKind holds the string denoting the kind field in the database.
+	FieldKind = "kind"
 	// FieldActor holds the string denoting the actor field in the database.
 	FieldActor = "actor"
 	// FieldOrganizationID holds the string denoting the organization_id field in the database.
@@ -62,6 +72,11 @@ var Columns = []string{
 	FieldJobID,
 	FieldRunbookID,
 	FieldGroupName,
+	FieldInventoryID,
+	FieldTemplateID,
+	FieldTemplateName,
+	FieldLaunchConfigID,
+	FieldKind,
 	FieldActor,
 	FieldOrganizationID,
 	FieldState,
@@ -166,6 +181,31 @@ func ByRunbookID(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupName orders the results by the group_name field.
 func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupName, opts...).ToFunc()
+}
+
+// ByInventoryID orders the results by the inventory_id field.
+func ByInventoryID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInventoryID, opts...).ToFunc()
+}
+
+// ByTemplateID orders the results by the template_id field.
+func ByTemplateID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTemplateID, opts...).ToFunc()
+}
+
+// ByTemplateName orders the results by the template_name field.
+func ByTemplateName(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTemplateName, opts...).ToFunc()
+}
+
+// ByLaunchConfigID orders the results by the launch_config_id field.
+func ByLaunchConfigID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLaunchConfigID, opts...).ToFunc()
+}
+
+// ByKind orders the results by the kind field.
+func ByKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKind, opts...).ToFunc()
 }
 
 // ByActor orders the results by the actor field.

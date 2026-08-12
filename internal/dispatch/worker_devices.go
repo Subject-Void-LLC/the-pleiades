@@ -88,8 +88,14 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	}
 
 	payload := wire.DispatchPayload{
-		JobID:         job.JobID,
-		RunbookID:     job.RunbookID,
+		JobID:     job.JobID,
+		RunbookID: job.RunbookID,
+		// The kind travels with the dispatch so the Runner routes on a
+		// value it was given rather than on a set it was compiled with.
+		// Empty for a job that names no template, which the Runner
+		// resolves to the native kind: the adapter such a dispatch was
+		// always going to reach.
+		Kind:          job.Kind,
 		DeviceID:      string(device.ID()),
 		DeviceName:    device.Name(),
 		DeviceHost:    host,

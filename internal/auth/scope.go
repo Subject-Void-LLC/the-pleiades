@@ -159,6 +159,24 @@ func decisionFor(bindings []RoleBinding, scopeType ScopeType, scopeID *int) Scop
 	return decision
 }
 
+// appendScopeLayer adds one containment level to the fold, but only when
+// scopeID names a real row.
+//
+// A zero id means the target says nothing at that level, which is different
+// from saying "any". Skipping the layer entirely is what makes the two
+// different: a folded layer can decide the outcome, and an absent one
+// cannot. See Resolve's own comment for what this closes.
+func appendScopeLayer(layers []policy.Layer[ScopeDecision], bindings []RoleBinding,
+	name string, scopeType ScopeType, scopeID int) []policy.Layer[ScopeDecision] {
+	if scopeID <= 0 {
+		return layers
+	}
+	return append(layers, policy.Layer[ScopeDecision]{
+		Name:  name,
+		Value: decisionFor(bindings, scopeType, &scopeID),
+	})
+}
+
 func scopeIDMatches(bindingScopeID, targetScopeID *int) bool {
 	if bindingScopeID == nil || targetScopeID == nil {
 		return bindingScopeID == targetScopeID
@@ -216,31 +234,28 @@ func (r *ScopeResolver) Resolve(ctx context.Context, teamIDs []int, target Scope
 
 	layers := []policy.Layer[ScopeDecision]{
 		{Name: "system", Value: decisionFor(bindings, ScopeSystem, nil)},
-		{Name: "organization", Value: decisionFor(bindings, ScopeOrganization, &target.OrganizationID)},
 	}
+	// A layer is folded only when the target actually names something at
+	// that level. Folding an unnamed level at &0 was FAILURE_PATTERNS #99:
+	// ent primary keys start at 1, so a stored binding with scope_id = 0
+	// matched every target that named nothing at its level, and because the
+	// device layer folds last, one such row was a blanket Allow over every
+	// check whose target carried no device. A request asking about an
+	// organization says nothing about a device, and must not be answered by
+	// a device-scoped binding at all.
+	layers = appendScopeLayer(layers, bindings, "organization", ScopeOrganization, target.OrganizationID)
 	// Inventory layers sit between organization and group, matching the
 	// containment order. A Deny on one inventory therefore overrides an
 	// Allow inherited from the organization, and a Deny on a specific
 	// group still overrides an Allow granted through the inventory that
 	// contains it.
 	for _, iid := range target.InventoryIDs {
-		iid := iid
-		layers = append(layers, policy.Layer[ScopeDecision]{
-			Name:  "inventory",
-			Value: decisionFor(bindings, ScopeInventory, &iid),
-		})
+		layers = appendScopeLayer(layers, bindings, "inventory", ScopeInventory, iid)
 	}
 	for _, gid := range target.GroupIDs {
-		gid := gid
-		layers = append(layers, policy.Layer[ScopeDecision]{
-			Name:  "group",
-			Value: decisionFor(bindings, ScopeGroup, &gid),
-		})
+		layers = appendScopeLayer(layers, bindings, "group", ScopeGroup, gid)
 	}
-	layers = append(layers, policy.Layer[ScopeDecision]{
-		Name:  "device",
-		Value: decisionFor(bindings, ScopeDevice, &target.DeviceID),
-	})
+	layers = appendScopeLayer(layers, bindings, "device", ScopeDevice, target.DeviceID)
 
 	result := policy.Resolve(policy.ModeOverride, ScopeDecision{}, layers, combineScopeDecision)
 	if result.Value.Role == nil || result.Value.Effect == nil || *result.Value.Effect != EffectAllow {

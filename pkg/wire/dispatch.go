@@ -66,8 +66,36 @@ type DispatchPayload struct {
 	// can group per-device outcomes back into one logical job.
 	JobID string `json:"job_id"`
 
-	// RunbookID names the runbook to execute against DeviceHost.
+	// RunbookID names what to execute against DeviceHost: a runbook id for
+	// the native kind, a playbook path for the legacy one. One field
+	// rather than two, because the two never coexist on one payload and a
+	// second field would be empty on every dispatch.
 	RunbookID string `json:"runbook_id"`
+
+	// Kind is the launch kind this dispatch is, which is what the Runner
+	// routes on to choose an execution adapter.
+	//
+	// An ABSENT or empty Kind means the native runbook kind, and that rule
+	// lives at exactly one place (internal/adapters/routing). It is not a
+	// convenience: it is what makes this field additive. A dispatch
+	// published before this field existed, or by a Controller that has not
+	// been upgraded yet, still routes to the adapter it was always going
+	// to reach.
+	//
+	// The reverse direction is the one this cannot protect on its own, and
+	// it is stated here so nobody has to rediscover it: every decode on
+	// the Runner path is a plain json.Unmarshal with no
+	// DisallowUnknownFields, so an OLD Runner receiving a NEW payload
+	// silently drops this key and runs the job natively. Runners must be
+	// upgraded before a template of a non-native kind is created. There is
+	// no in-band mechanism that makes that safe, which is why it is a
+	// deployment ordering requirement rather than a comment about one.
+	//
+	// No omitempty, matching Interruptible three fields below and for the
+	// same reason: this struct's wire form is asserted literally in
+	// pkg/wire/dispatch_test.go, and a field that sometimes vanishes makes
+	// that assertion a moving target.
+	Kind string `json:"kind"`
 
 	// DeviceID is the inventory item's stable identifier
 	// (pkg/inventory.InventoryItem.ID()), distinct from its

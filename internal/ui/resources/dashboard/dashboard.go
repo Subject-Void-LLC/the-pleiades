@@ -16,7 +16,9 @@ package dashboard
 
 import (
 	"context"
+	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
@@ -79,8 +81,63 @@ func (s summary) data(ctx context.Context) (view.ChartData, error) {
 	return out, nil
 }
 
-// Register wires the dashboard over the live job store.
-func Register(jobs dispatch.JobStore) error {
+// announcementFields are the columns of the operator-notice section.
+//
+// The body is a column rather than a detail-only field, because the whole
+// point of an announcement is that somebody reads it without clicking
+// anything. A notice that needed a click to reveal its own text would be a
+// notice nobody read.
+var announcementFields = []view.Field{
+	{Name: "level", Label: "LEVEL", Kind: view.KindBadge, InList: true, BadgeClass: levelBadge},
+	{Name: "title", Label: "NOTICE", Kind: view.KindText, InList: true, MobilePrimary: true},
+	{Name: "body", Label: "DETAIL", Kind: view.KindLongText, InList: true},
+	{Name: "author", Label: "FROM", Kind: view.KindReadOnly, InList: true},
+	{Name: "window", Label: "UNTIL", Kind: view.KindReadOnly, InList: true},
+}
+
+// levelBadge maps an announcement level onto the closed badge set, through
+// the announce package's own mapping rather than a second copy of it.
+func levelBadge(level string) string { return announce.ParseLevel(level).Class() }
+
+// notices is the announcements section: what the administrators want every
+// operator to know before they dispatch anything.
+//
+// Live-only. An operator reading this page must not be shown a change
+// freeze that ended last month, and showing everything would make that the
+// common case rather than the exceptional one.
+func notices(announcements announce.Store) view.Section {
+	return view.Section{
+		Status:  view.StatusImplemented,
+		Title:   "Operator notices",
+		Summary: "Messages from the administrators of this control plane.",
+		Fields:  announcementFields,
+		Empty:   "No notices are in effect.",
+		Rows: func(ctx context.Context, _ string) ([]view.Row, error) {
+			found, err := announcements.List(ctx, announce.Query{LiveAt: time.Now()})
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]view.Row, 0, len(found))
+			for _, a := range found {
+				window := "no expiry"
+				if a.EndsAt != nil {
+					window = a.EndsAt.UTC().Format(time.RFC3339)
+				}
+				rows = append(rows, view.Row{ID: a.Title, Cells: view.Cells{
+					"level":  string(a.Level),
+					"title":  a.Title,
+					"body":   a.Body,
+					"author": a.Author,
+					"window": window,
+				}})
+			}
+			return rows, nil
+		},
+	}
+}
+
+// Register wires the dashboard over the live job store and announcements.
+func Register(jobs dispatch.JobStore, announcements announce.Store) error {
 	agg := summary{jobs}
 
 	return view.Register(view.Descriptor{
@@ -91,6 +148,7 @@ func Register(jobs dispatch.JobStore) error {
 		// in wants to land, and the index redirects to the first view a
 		// caller can reach.
 		NavOrder: 10,
+		NavGroup: view.NavGroupViews,
 		Summary:  "How recent runbook dispatches are going.",
 		Status:   view.StatusImplemented,
 		Fields:   nil,
@@ -102,6 +160,7 @@ func Register(jobs dispatch.JobStore) error {
 			// detail link, and nothing here does.
 			List: &apispec.ListJobs,
 		},
+		Sections: []view.Section{notices(announcements)},
 		Chart: &view.ChartSpec{
 			Title: "Recent job outcomes",
 			Caption: "Counts by state across the most recent " +
@@ -110,8 +169,8 @@ func Register(jobs dispatch.JobStore) error {
 			Data: agg.data,
 		},
 		// Handlers with no List function. This is what makes the view a
-		// chart and nothing else, and it is a finished shape rather than
-		// an unfinished one.
+		// chart and its sections, rather than a table, and it is a
+		// finished shape rather than an unfinished one.
 		Handlers: &view.Handlers{},
 	})
 }

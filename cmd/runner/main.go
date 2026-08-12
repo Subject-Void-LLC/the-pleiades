@@ -43,6 +43,13 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	// The built-in launch kinds. A blank import because their init()
+	// functions are the only thing that populates internal/launch's
+	// registry, and the Router resolves a dispatched kind to an adapter
+	// through this registry, so a Runner that did not import it would
+	// route nothing at all (FAILURE_PATTERNS.md #52).
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"

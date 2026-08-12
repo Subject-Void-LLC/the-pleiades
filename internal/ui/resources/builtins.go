@@ -20,10 +20,15 @@
 package resources
 
 import (
+	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // Deps is every port the built-in views adapt, supplied by the composition
@@ -37,11 +42,27 @@ import (
 // to test with a single fake, and registrars() is the one place the wide
 // struct is taken apart.
 type Deps struct {
+	// Access administers organizations, teams, users and grants. It is one
+	// value rather than four because the four views between them need all
+	// of it, while each view's own Register still takes only the slice it
+	// uses.
+	Access access.Store
+
+	// Activity is the append-only record of who changed what. Read-only
+	// here: the views never write to it, and the only writer is the
+	// audited store the composition root wraps Access with.
+	Activity   activity.Store
 	Inventory  inventory.Repository
+	Sets       inventory.SetStore
+	Announce   announce.Store
 	Factory    *inventory.ItemFactory
 	Jobs       dispatch.JobStore
 	Runbooks   runbook.Source
 	Dispatcher *api.Dispatcher
+
+	// Templates is the saved definitions this platform launches, and the
+	// one port the Templates view both reads and writes.
+	Templates launch.Store
 }
 
 // Registrar registers one view over the available ports.
@@ -65,5 +86,10 @@ func RegisterAll(deps Deps) error {
 			return err
 		}
 	}
-	return nil
+	// Checked here rather than inside Register, because a view may
+	// legitimately reference one that has not registered yet: the order
+	// above is fixed, but nothing about a cross-view reference should
+	// depend on it. Failing closed at startup is the point -- the
+	// alternative is a link that 404s the first time somebody follows it.
+	return view.CheckReferences()
 }

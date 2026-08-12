@@ -99,7 +99,7 @@ type PageModel struct {
 	Subject string
 
 	// Nav is the sidebar, in order, already filtered by authorization.
-	Nav []NavItem
+	Nav []NavSection
 
 	// Banner is the environment or classification marking. It is on the
 	// page model rather than read from config inside a template because a
@@ -226,3 +226,6 @@ func BuildNav(prefix, currentName string, descriptors []Descriptor, permitted fu
 	}
 	return items
 }
+
+// navHref builds one sidebar entry's URL.
+func navHref(prefix, name string) string { return path.Join(prefix, name) }

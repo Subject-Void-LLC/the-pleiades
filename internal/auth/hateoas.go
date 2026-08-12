@@ -57,6 +57,18 @@ const (
 	// resource. api.Dispatcher's own relation.
 	RelExecute LinkRel = "execute"
 
+	// RelCopy is the affordance that duplicates the resource.
+	//
+	// Its own relation rather than RelCreate, and not merely for tidiness.
+	// A relation is unique per resource, which is what lets a caller
+	// correlate a permitted result back to a method and an href, so a copy
+	// sharing "create" with the collection's own create would give a
+	// template's page two affordances a client cannot tell apart and two
+	// buttons the UI cannot label separately. They are also different
+	// questions: one makes a new record from a form, the other makes one
+	// from an existing record.
+	RelCopy LinkRel = "copy"
+
 	// RelLogs is the affordance that streams a job's live output.
 	// api.LogStreamer's own relation.
 	RelLogs LinkRel = "logs"

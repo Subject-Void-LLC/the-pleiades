@@ -20,14 +20,38 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
+	// FieldDescription holds the string denoting the description field in the database.
+	FieldDescription = "description"
+	// FieldClassification holds the string denoting the classification field in the database.
+	FieldClassification = "classification"
+	// FieldChangeWindow holds the string denoting the change_window field in the database.
+	FieldChangeWindow = "change_window"
+	// FieldFrozen holds the string denoting the frozen field in the database.
+	FieldFrozen = "frozen"
+	// FieldFreezeReason holds the string denoting the freeze_reason field in the database.
+	FieldFreezeReason = "freeze_reason"
+	// FieldCostCentre holds the string denoting the cost_centre field in the database.
+	FieldCostCentre = "cost_centre"
+	// FieldTicketKey holds the string denoting the ticket_key field in the database.
+	FieldTicketKey = "ticket_key"
+	// FieldCmdbID holds the string denoting the cmdb_id field in the database.
+	FieldCmdbID = "cmdb_id"
+	// FieldAttestedBy holds the string denoting the attested_by field in the database.
+	FieldAttestedBy = "attested_by"
+	// FieldAttestedAt holds the string denoting the attested_at field in the database.
+	FieldAttestedAt = "attested_at"
 	// EdgeDevices holds the string denoting the devices edge name in mutations.
 	EdgeDevices = "devices"
 	// EdgeTeams holds the string denoting the teams edge name in mutations.
 	EdgeTeams = "teams"
 	// EdgeInventories holds the string denoting the inventories edge name in mutations.
 	EdgeInventories = "inventories"
+	// EdgeTemplates holds the string denoting the templates edge name in mutations.
+	EdgeTemplates = "templates"
 	// EdgeAnnouncements holds the string denoting the announcements edge name in mutations.
 	EdgeAnnouncements = "announcements"
+	// EdgeContacts holds the string denoting the contacts edge name in mutations.
+	EdgeContacts = "contacts"
 	// Table holds the table name of the organization in the database.
 	Table = "organizations"
 	// DevicesTable is the table that holds the devices relation/edge.
@@ -51,6 +75,13 @@ const (
 	InventoriesInverseTable = "inventories"
 	// InventoriesColumn is the table column denoting the inventories relation/edge.
 	InventoriesColumn = "organization_inventories"
+	// TemplatesTable is the table that holds the templates relation/edge.
+	TemplatesTable = "templates"
+	// TemplatesInverseTable is the table name for the Template entity.
+	// It exists in this package in order to avoid circular dependency with the "template" package.
+	TemplatesInverseTable = "templates"
+	// TemplatesColumn is the table column denoting the templates relation/edge.
+	TemplatesColumn = "organization_templates"
 	// AnnouncementsTable is the table that holds the announcements relation/edge.
 	AnnouncementsTable = "announcements"
 	// AnnouncementsInverseTable is the table name for the Announcement entity.
@@ -58,6 +89,13 @@ const (
 	AnnouncementsInverseTable = "announcements"
 	// AnnouncementsColumn is the table column denoting the announcements relation/edge.
 	AnnouncementsColumn = "organization_announcements"
+	// ContactsTable is the table that holds the contacts relation/edge.
+	ContactsTable = "contacts"
+	// ContactsInverseTable is the table name for the Contact entity.
+	// It exists in this package in order to avoid circular dependency with the "contact" package.
+	ContactsInverseTable = "contacts"
+	// ContactsColumn is the table column denoting the contacts relation/edge.
+	ContactsColumn = "organization_contacts"
 )
 
 // Columns holds all SQL columns for organization fields.
@@ -66,6 +104,16 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldName,
+	FieldDescription,
+	FieldClassification,
+	FieldChangeWindow,
+	FieldFrozen,
+	FieldFreezeReason,
+	FieldCostCentre,
+	FieldTicketKey,
+	FieldCmdbID,
+	FieldAttestedBy,
+	FieldAttestedAt,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -87,6 +135,8 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
+	// DefaultFrozen holds the default value on creation for the "frozen" field.
+	DefaultFrozen bool
 )
 
 // OrderOption defines the ordering options for the Organization queries.
@@ -110,6 +160,56 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// ByDescription orders the results by the description field.
+func ByDescription(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDescription, opts...).ToFunc()
+}
+
+// ByClassification orders the results by the classification field.
+func ByClassification(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClassification, opts...).ToFunc()
+}
+
+// ByChangeWindow orders the results by the change_window field.
+func ByChangeWindow(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChangeWindow, opts...).ToFunc()
+}
+
+// ByFrozen orders the results by the frozen field.
+func ByFrozen(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFrozen, opts...).ToFunc()
+}
+
+// ByFreezeReason orders the results by the freeze_reason field.
+func ByFreezeReason(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFreezeReason, opts...).ToFunc()
+}
+
+// ByCostCentre orders the results by the cost_centre field.
+func ByCostCentre(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCostCentre, opts...).ToFunc()
+}
+
+// ByTicketKey orders the results by the ticket_key field.
+func ByTicketKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTicketKey, opts...).ToFunc()
+}
+
+// ByCmdbID orders the results by the cmdb_id field.
+func ByCmdbID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCmdbID, opts...).ToFunc()
+}
+
+// ByAttestedBy orders the results by the attested_by field.
+func ByAttestedBy(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAttestedBy, opts...).ToFunc()
+}
+
+// ByAttestedAt orders the results by the attested_at field.
+func ByAttestedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAttestedAt, opts...).ToFunc()
 }
 
 // ByDevicesCount orders the results by devices count.
@@ -154,6 +254,20 @@ func ByInventories(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByTemplatesCount orders the results by templates count.
+func ByTemplatesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTemplatesStep(), opts...)
+	}
+}
+
+// ByTemplates orders the results by templates terms.
+func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTemplatesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAnnouncementsCount orders the results by announcements count.
 func ByAnnouncementsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -165,6 +279,20 @@ func ByAnnouncementsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByAnnouncements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newAnnouncementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByContactsCount orders the results by contacts count.
+func ByContactsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newContactsStep(), opts...)
+	}
+}
+
+// ByContacts orders the results by contacts terms.
+func ByContacts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newContactsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newDevicesStep() *sqlgraph.Step {
@@ -188,10 +316,24 @@ func newInventoriesStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.O2M, false, InventoriesTable, InventoriesColumn),
 	)
 }
+func newTemplatesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TemplatesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
+	)
+}
 func newAnnouncementsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AnnouncementsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AnnouncementsTable, AnnouncementsColumn),
+	)
+}
+func newContactsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ContactsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ContactsTable, ContactsColumn),
 	)
 }

@@ -175,7 +175,13 @@ func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
 		{"id field not declared", func(d *view.Descriptor) { d.IDField = "nope" }, "is not a declared field"},
 		{"select without options", func(d *view.Descriptor) {
 			d.Fields = append(d.Fields, view.Field{Name: "kind", Label: "KIND", Kind: view.KindSelect, InForm: true})
-		}, "select with no options"},
+		}, "offers choices but declares no options"},
+		// The same refusal must reach a lookup. Both kinds render a control
+		// whose entire content is its options, so either one declared
+		// without them is a control a caller can focus and never operate.
+		{"lookup without options", func(d *view.Descriptor) {
+			d.Fields = append(d.Fields, view.Field{Name: "members", Label: "MEMBERS", Kind: view.KindLookup, InForm: true})
+		}, "offers choices but declares no options"},
 		{"invented autocomplete token", func(d *view.Descriptor) {
 			d.Fields[0].Autocomplete = "device-name"
 		}, "unknown autocomplete token"},
@@ -447,6 +453,78 @@ func TestValues_BoolAndTags(t *testing.T) {
 	}
 }
 
+// TestValues_SelectedReadsEveryChosenOption is the assertion that separates
+// a multi-select from every other control.
+//
+// A multi-select submits one value per chosen option, and url.Values.Get
+// returns only the first. Reading a five-member team through the singular
+// accessor persists one member and silently drops four, which is a
+// permissions change nobody asked for and nothing reports.
+func TestValues_SelectedReadsEveryChosenOption(t *testing.T) {
+	fields := []view.Field{
+		{Name: "users", Label: "MEMBERS", Kind: view.KindLookup, InForm: true,
+			Options: func(context.Context) ([]view.Option, error) { return nil, nil }},
+		{Name: "name", Label: "NAME", Kind: view.KindText, InForm: true},
+	}
+
+	v, _ := view.NewValues(fields, url.Values{"users": {"3", "7", "11"}})
+	got := v.Selected("users")
+	if len(got) != 3 || got[0] != "3" || got[1] != "7" || got[2] != "11" {
+		t.Errorf("Selected() = %v, want all three chosen options", got)
+	}
+
+	// Blank entries are dropped: a multi-select can legitimately submit
+	// nothing, and an empty string among ids is not a selection anybody
+	// made.
+	v, _ = view.NewValues(fields, url.Values{"users": {" 3 ", "", "  "}})
+	if got := v.Selected("users"); len(got) != 1 || got[0] != "3" {
+		t.Errorf("Selected() with blanks = %v, want [3]", got)
+	}
+
+	// Undeclared names read as nothing, exactly as Get does, so a value
+	// this type never narrowed cannot be reached through the plural door.
+	v, _ = view.NewValues(fields, url.Values{"smuggled": {"1"}})
+	if got := v.Selected("smuggled"); got != nil {
+		t.Errorf("Selected(undeclared) = %v, want nil", got)
+	}
+}
+
+// TestFieldKind_LookupOffersChoicesAndSelectsMany pins the two predicates
+// the render path and every option resolver now branch on. A lookup that
+// stopped reporting that it offers choices would render as an empty listbox
+// with no error anywhere.
+func TestFieldKind_LookupOffersChoicesAndSelectsMany(t *testing.T) {
+	lookup := view.Field{Name: "users", Kind: view.KindLookup}
+	sel := view.Field{Name: "kind", Kind: view.KindSelect}
+	text := view.Field{Name: "name", Kind: view.KindText}
+
+	if !lookup.OffersChoices() || !sel.OffersChoices() {
+		t.Error("a choice-backed kind does not report that it offers choices, so its options never resolve")
+	}
+	if text.OffersChoices() {
+		t.Error("a text field reports that it offers choices")
+	}
+	if !lookup.SelectsMany() {
+		t.Error("a lookup does not report that it submits many values")
+	}
+	if sel.SelectsMany() || text.SelectsMany() {
+		t.Error("a single-valued kind reports that it submits many values")
+	}
+}
+
+// TestQuery_PageSizeAppliesTheDocumentedDefault. Every reader over-fetches
+// by one to observe whether a next page exists, and computing that from a
+// zero limit asks for a single row and then slices it to nothing.
+func TestQuery_PageSizeAppliesTheDocumentedDefault(t *testing.T) {
+	for _, tc := range []struct {
+		limit, want int
+	}{{0, view.DefaultPageSize}, {-5, view.DefaultPageSize}, {10, 10}} {
+		if got := (view.Query{Limit: tc.limit}).PageSize(); got != tc.want {
+			t.Errorf("Query{Limit: %d}.PageSize() = %d, want %d", tc.limit, got, tc.want)
+		}
+	}
+}
+
 func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	fields := []view.Field{
 		{Name: "name", Label: "NAME", Kind: view.KindText, Required: true, MaxLen: 4, InForm: true},
@@ -672,5 +750,116 @@ func TestErrNotImplemented_IsDistinguishable(t *testing.T) {
 	wrapped := errors.Join(errors.New("context"), view.ErrNotImplemented)
 	if !errors.Is(wrapped, view.ErrNotImplemented) {
 		t.Error("ErrNotImplemented does not survive wrapping")
+	}
+}
+
+// TestReferences_RenderNamesAndLinkToTheirTarget covers the mechanism that
+// keeps a primary key off a page.
+//
+// The href is built from the referenced view's registered name and the
+// stored target id, never from anything a projector put in the cell, which
+// is the same argument ChartSpec.Data makes about author-supplied hrefs.
+func TestReferences_RenderNamesAndLinkToTheirTarget(t *testing.T) {
+	field := view.Field{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText,
+		InList: true, References: "organizations"}
+	plain := view.Field{Name: "name", Label: "NAME", Kind: view.KindText, InList: true}
+
+	if !field.Referencing() || plain.Referencing() {
+		t.Fatal("Referencing() does not distinguish a reference from a plain field")
+	}
+
+	model := view.ListModel{
+		Page:       view.PageModel{Prefix: "/ui"},
+		Descriptor: view.Descriptor{Name: "teams"},
+	}
+	row := view.Row{
+		ID:    "3",
+		Cells: view.Cells{"organization": "Network", "name": "netops"},
+		Refs:  map[string]string{"organization": "7"},
+	}
+
+	if got, want := model.RefHref(row, field), "/ui/organizations/7"; got != want {
+		t.Errorf("RefHref() = %q, want %q", got, want)
+	}
+	if got := model.RefHref(row, plain); got != "" {
+		t.Errorf("a plain field produced the link %q", got)
+	}
+	if got := row.Ref("organization"); got != "7" {
+		t.Errorf("Ref() = %q, want the target id", got)
+	}
+	if got := row.Ref("name"); got != "" {
+		t.Errorf("Ref() on a non-reference = %q, want empty", got)
+	}
+	if got := (view.Row{}).Ref("organization"); got != "" {
+		t.Errorf("Ref() on a row with no Refs map = %q, want empty", got)
+	}
+}
+
+// TestReferences_NeverLinkWithoutText is the accessibility invariant.
+//
+// An anchor whose content is empty has no accessible name and is announced
+// as its URL, which is worse than the plain cell it replaced. This is the
+// last line of defence rather than the only one, but it is the one that
+// holds when a projector forgets.
+func TestReferences_NeverLinkWithoutText(t *testing.T) {
+	field := view.Field{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText,
+		InList: true, References: "organizations"}
+	model := view.ListModel{
+		Page:       view.PageModel{Prefix: "/ui"},
+		Descriptor: view.Descriptor{Name: "teams"},
+	}
+
+	for name, row := range map[string]view.Row{
+		"no label":    {ID: "3", Cells: view.Cells{"organization": ""}, Refs: map[string]string{"organization": "7"}},
+		"blank label": {ID: "3", Cells: view.Cells{"organization": "   "}, Refs: map[string]string{"organization": "7"}},
+		"no target":   {ID: "3", Cells: view.Cells{"organization": "Network"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := model.RefHref(row, field); got != "" {
+				t.Errorf("RefHref() = %q, want no link", got)
+			}
+		})
+	}
+}
+
+// TestCheckReferences_RefusesAReferenceToNothing.
+//
+// It cannot live in Register, because registration order is map iteration
+// and a view may legitimately reference one that has not registered yet.
+// Running it after everything is in turns a dangling reference into a
+// startup refusal rather than a link that 404s when somebody clicks it.
+func TestCheckReferences_RefusesAReferenceToNothing(t *testing.T) {
+	// A view referencing one that exists.
+	target := validDescriptor("reference-target")
+	if err := view.Register(target); err != nil {
+		t.Fatalf("registering the target: %v", err)
+	}
+	source := validDescriptor("reference-source")
+	source.Fields = append(source.Fields, view.Field{
+		Name: "target", Label: "TARGET", Kind: view.KindText, InList: true,
+		References: target.Name,
+	})
+	if err := view.Register(source); err != nil {
+		t.Fatalf("registering the source: %v", err)
+	}
+	if err := view.CheckReferences(); err != nil {
+		t.Fatalf("CheckReferences() = %v, want nil for a resolvable reference", err)
+	}
+
+	// One referencing a view nobody registered.
+	dangling := validDescriptor("reference-dangling")
+	dangling.Fields = append(dangling.Fields, view.Field{
+		Name: "target", Label: "TARGET", Kind: view.KindText, InList: true,
+		References: "no-such-view",
+	})
+	if err := view.Register(dangling); err != nil {
+		t.Fatalf("registering the dangling source: %v", err)
+	}
+	err := view.CheckReferences()
+	if err == nil {
+		t.Fatal("CheckReferences() = nil for a reference to an unregistered view")
+	}
+	if !strings.Contains(err.Error(), "no-such-view") {
+		t.Errorf("CheckReferences() = %q, want it to name the missing view", err)
 	}
 }

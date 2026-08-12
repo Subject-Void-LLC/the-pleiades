@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -65,21 +64,6 @@ func (_u *UserUpdate) AddTeams(v ...*Team) *UserUpdate {
 	return _u.AddTeamIDs(ids...)
 }
 
-// AddOwnedInventoryIDs adds the "owned_inventories" edge to the Inventory entity by IDs.
-func (_u *UserUpdate) AddOwnedInventoryIDs(ids ...int) *UserUpdate {
-	_u.mutation.AddOwnedInventoryIDs(ids...)
-	return _u
-}
-
-// AddOwnedInventories adds the "owned_inventories" edges to the Inventory entity.
-func (_u *UserUpdate) AddOwnedInventories(v ...*Inventory) *UserUpdate {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddOwnedInventoryIDs(ids...)
-}
-
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
@@ -104,27 +88,6 @@ func (_u *UserUpdate) RemoveTeams(v ...*Team) *UserUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
-}
-
-// ClearOwnedInventories clears all "owned_inventories" edges to the Inventory entity.
-func (_u *UserUpdate) ClearOwnedInventories() *UserUpdate {
-	_u.mutation.ClearOwnedInventories()
-	return _u
-}
-
-// RemoveOwnedInventoryIDs removes the "owned_inventories" edge to Inventory entities by IDs.
-func (_u *UserUpdate) RemoveOwnedInventoryIDs(ids ...int) *UserUpdate {
-	_u.mutation.RemoveOwnedInventoryIDs(ids...)
-	return _u
-}
-
-// RemoveOwnedInventories removes "owned_inventories" edges to Inventory entities.
-func (_u *UserUpdate) RemoveOwnedInventories(v ...*Inventory) *UserUpdate {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveOwnedInventoryIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -236,51 +199,6 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.OwnedInventoriesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedOwnedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.OwnedInventoriesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnedInventoriesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -336,21 +254,6 @@ func (_u *UserUpdateOne) AddTeams(v ...*Team) *UserUpdateOne {
 	return _u.AddTeamIDs(ids...)
 }
 
-// AddOwnedInventoryIDs adds the "owned_inventories" edge to the Inventory entity by IDs.
-func (_u *UserUpdateOne) AddOwnedInventoryIDs(ids ...int) *UserUpdateOne {
-	_u.mutation.AddOwnedInventoryIDs(ids...)
-	return _u
-}
-
-// AddOwnedInventories adds the "owned_inventories" edges to the Inventory entity.
-func (_u *UserUpdateOne) AddOwnedInventories(v ...*Inventory) *UserUpdateOne {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddOwnedInventoryIDs(ids...)
-}
-
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
@@ -375,27 +278,6 @@ func (_u *UserUpdateOne) RemoveTeams(v ...*Team) *UserUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
-}
-
-// ClearOwnedInventories clears all "owned_inventories" edges to the Inventory entity.
-func (_u *UserUpdateOne) ClearOwnedInventories() *UserUpdateOne {
-	_u.mutation.ClearOwnedInventories()
-	return _u
-}
-
-// RemoveOwnedInventoryIDs removes the "owned_inventories" edge to Inventory entities by IDs.
-func (_u *UserUpdateOne) RemoveOwnedInventoryIDs(ids ...int) *UserUpdateOne {
-	_u.mutation.RemoveOwnedInventoryIDs(ids...)
-	return _u
-}
-
-// RemoveOwnedInventories removes "owned_inventories" edges to Inventory entities.
-func (_u *UserUpdateOne) RemoveOwnedInventories(v ...*Inventory) *UserUpdateOne {
-	ids := make([]int, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveOwnedInventoryIDs(ids...)
 }
 
 // Where appends a list predicates to the UserUpdate builder.
@@ -530,51 +412,6 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.OwnedInventoriesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedOwnedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.OwnedInventoriesCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnedInventoriesIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedInventoriesTable,
-			Columns: []string{user.OwnedInventoriesColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

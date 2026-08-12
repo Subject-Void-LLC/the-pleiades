@@ -27,6 +27,16 @@ type Job struct {
 	RunbookID string `json:"runbook_id,omitempty"`
 	// GroupName holds the value of the "group_name" field.
 	GroupName string `json:"group_name,omitempty"`
+	// InventoryID holds the value of the "inventory_id" field.
+	InventoryID *int `json:"inventory_id,omitempty"`
+	// TemplateID holds the value of the "template_id" field.
+	TemplateID *int `json:"template_id,omitempty"`
+	// TemplateName holds the value of the "template_name" field.
+	TemplateName string `json:"template_name,omitempty"`
+	// LaunchConfigID holds the value of the "launch_config_id" field.
+	LaunchConfigID *int `json:"launch_config_id,omitempty"`
+	// Kind holds the value of the "kind" field.
+	Kind string `json:"kind,omitempty"`
 	// Actor holds the value of the "actor" field.
 	Actor string `json:"actor,omitempty"`
 	// OrganizationID holds the value of the "organization_id" field.
@@ -72,9 +82,9 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
+		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
-		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldActor, job.FieldState, job.FieldFailureReason:
+		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason:
 			values[i] = new(sql.NullString)
 		case job.FieldCreatedAt, job.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -128,6 +138,39 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field group_name", values[i])
 			} else if value.Valid {
 				_m.GroupName = value.String
+			}
+		case job.FieldInventoryID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field inventory_id", values[i])
+			} else if value.Valid {
+				_m.InventoryID = new(int)
+				*_m.InventoryID = int(value.Int64)
+			}
+		case job.FieldTemplateID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field template_id", values[i])
+			} else if value.Valid {
+				_m.TemplateID = new(int)
+				*_m.TemplateID = int(value.Int64)
+			}
+		case job.FieldTemplateName:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field template_name", values[i])
+			} else if value.Valid {
+				_m.TemplateName = value.String
+			}
+		case job.FieldLaunchConfigID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field launch_config_id", values[i])
+			} else if value.Valid {
+				_m.LaunchConfigID = new(int)
+				*_m.LaunchConfigID = int(value.Int64)
+			}
+		case job.FieldKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field kind", values[i])
+			} else if value.Valid {
+				_m.Kind = value.String
 			}
 		case job.FieldActor:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -233,6 +276,27 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("group_name=")
 	builder.WriteString(_m.GroupName)
+	builder.WriteString(", ")
+	if v := _m.InventoryID; v != nil {
+		builder.WriteString("inventory_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.TemplateID; v != nil {
+		builder.WriteString("template_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("template_name=")
+	builder.WriteString(_m.TemplateName)
+	builder.WriteString(", ")
+	if v := _m.LaunchConfigID; v != nil {
+		builder.WriteString("launch_config_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("kind=")
+	builder.WriteString(_m.Kind)
 	builder.WriteString(", ")
 	builder.WriteString("actor=")
 	builder.WriteString(_m.Actor)

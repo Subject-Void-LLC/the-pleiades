@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
@@ -122,6 +123,34 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
 			a.logger.Error("failed to nak contended message", slog.String("error", nakErr.Error()))
 		}
+		return
+	}
+
+	// A kind this fleet has no adapter for is reported and then terminated,
+	// never retried and never dead-lettered.
+	//
+	// Reported first, which is the part that matters. Term produces no bus
+	// traffic at all, and the Controller has already written a JobTask row
+	// saying this device was dispatched; without this the job would say
+	// "dispatched" forever with no counter-evidence anywhere, and the
+	// operator's only symptom would be a run that never finishes.
+	//
+	// Terminated rather than Nak'd because redelivery cannot help: this
+	// binary will not grow an adapter between two deliveries of the same
+	// message, so a Nak retries until maxDeliver and then dead-letters
+	// something that never ran. The DLQ is reserved for a job that
+	// actually ran and failed (see the branch below).
+	if execErr != nil && errors.Is(execErr, routing.ErrNoAdapter) {
+		span.RecordError(execErr)
+		span.SetStatus(codes.Error, "no execution adapter for this kind")
+		a.logger.Error("refusing a dispatch this runner cannot route",
+			slog.String("job_id", payload.JobID),
+			slog.String("device_id", payload.DeviceID),
+			slog.String("kind", payload.Kind),
+			slog.String("error", execErr.Error()))
+		a.reportResult(ctx, payload, execErr)
+		a.termMalformed(msg, "dropping a dispatch this runner cannot route", execErr,
+			slog.String("kind", payload.Kind))
 		return
 	}
 

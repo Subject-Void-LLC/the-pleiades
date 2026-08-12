@@ -83,8 +83,30 @@ type jobResponse struct {
 
 	JobID     string `json:"job_id"`
 	RunbookID string `json:"runbook_id"`
-	GroupName string `json:"group_name"`
 	State     string `json:"state"`
+
+	// Template, TemplateName, Inventory and Organization are what this job
+	// was launched from and whose it is, captured at launch rather than
+	// resolved live: a job is a historical record, and a rename or a
+	// deletion afterwards must not rewrite what it says it ran.
+	//
+	// They replace the group name a job used to carry. A free-text group
+	// had no tenant, so a job launched that way belonged to no
+	// organization and named no saved definition, which is the state Phase
+	// 21 exists to end.
+	Template     int    `json:"template,omitempty"`
+	TemplateName string `json:"template_name,omitempty"`
+	Inventory    int    `json:"inventory,omitempty"`
+	Organization int    `json:"organization,omitempty"`
+
+	// Kind is which registered launch kind ran, and therefore which
+	// execution adapter handled it.
+	Kind string `json:"kind,omitempty"`
+
+	// FailureReason explains a failed state, and is empty for every other
+	// one. It carries only facts a job-resource reader may see, never a
+	// raw internal error.
+	FailureReason string `json:"failure_reason,omitempty"`
 
 	// Dispatched, Skipped, and Failed are the terminal per-device
 	// tallies (dispatch.Job's own DispatchedCount/SkippedCount/
@@ -119,14 +141,19 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 	}
 
 	return jobResponse{
-		JobID:      job.JobID,
-		RunbookID:  job.RunbookID,
-		GroupName:  job.GroupName,
-		State:      job.State,
-		Dispatched: job.DispatchedCount,
-		Skipped:    job.SkippedCount,
-		Failed:     job.FailedCount,
-		Tasks:      dtos,
+		JobID:         job.JobID,
+		RunbookID:     job.RunbookID,
+		State:         job.State,
+		Template:      job.TemplateID,
+		TemplateName:  job.TemplateName,
+		Inventory:     job.InventoryID,
+		Organization:  job.OrganizationID,
+		Kind:          job.Kind,
+		FailureReason: job.FailureReason,
+		Dispatched:    job.DispatchedCount,
+		Skipped:       job.SkippedCount,
+		Failed:        job.FailedCount,
+		Tasks:         dtos,
 	}
 }
 
@@ -176,15 +203,16 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 // thousand jobs must not carry a hundred thousand task rows nobody
 // rendered.
 type jobSummaryDTO struct {
-	JobID      string `json:"job_id"`
-	RunbookID  string `json:"runbook_id"`
-	GroupName  string `json:"group_name"`
-	State      string `json:"state"`
-	Actor      string `json:"actor"`
-	Dispatched int    `json:"dispatched"`
-	Skipped    int    `json:"skipped"`
-	Failed     int    `json:"failed"`
-	CreatedAt  string `json:"created_at"`
+	JobID        string `json:"job_id"`
+	RunbookID    string `json:"runbook_id"`
+	State        string `json:"state"`
+	TemplateName string `json:"template_name,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Actor        string `json:"actor"`
+	Dispatched   int    `json:"dispatched"`
+	Skipped      int    `json:"skipped"`
+	Failed       int    `json:"failed"`
+	CreatedAt    string `json:"created_at"`
 }
 
 // jobListDTO is one page of jobs, newest first.
@@ -236,15 +264,16 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		dto.Jobs = append(dto.Jobs, jobSummaryDTO{
-			JobID:      j.JobID,
-			RunbookID:  j.RunbookID,
-			GroupName:  j.GroupName,
-			State:      j.State,
-			Actor:      j.Actor,
-			Dispatched: j.DispatchedCount,
-			Skipped:    j.SkippedCount,
-			Failed:     j.FailedCount,
-			CreatedAt:  j.CreatedAt.UTC().Format(time.RFC3339),
+			JobID:        j.JobID,
+			RunbookID:    j.RunbookID,
+			State:        j.State,
+			TemplateName: j.TemplateName,
+			Kind:         j.Kind,
+			Actor:        j.Actor,
+			Dispatched:   j.DispatchedCount,
+			Skipped:      j.SkippedCount,
+			Failed:       j.FailedCount,
+			CreatedAt:    j.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 

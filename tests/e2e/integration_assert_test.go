@@ -99,8 +99,24 @@ func (h *harness) assertJobView(t *testing.T, job jobResponse, jobID string) {
 	if job.RunbookID != harnessRunbookID {
 		t.Fatalf("job runbook_id = %q, want %q", job.RunbookID, harnessRunbookID)
 	}
-	if job.GroupName != targetGroup {
-		t.Fatalf("job group_name = %q, want %q", job.GroupName, targetGroup)
+	// What the job says it came from. This is the property only a real mesh
+	// can prove: the tenant was never submitted by the caller, it was
+	// derived from the template's inventory when the job row was written,
+	// and Job.organization_id had no writer at all before this phase.
+	if job.Template != h.templateID {
+		t.Fatalf("job template = %d, want the seeded %d", job.Template, h.templateID)
+	}
+	if job.TemplateName != "the grand integration test" {
+		t.Fatalf("job template_name = %q, want the seeded template's own", job.TemplateName)
+	}
+	if job.Organization == 0 {
+		t.Fatal("the job belongs to no organization, so a dispatch is untenanted: this is the column Phase 21 gave its first writer")
+	}
+	if job.Inventory == 0 {
+		t.Fatal("the job names no inventory, so nothing records what it targeted")
+	}
+	if job.Kind != "runbook" {
+		t.Fatalf("job kind = %q, want runbook: the kind is what the Runner routes on", job.Kind)
 	}
 	if job.Dispatched != 2 || job.Skipped != 1 || job.Failed != 0 {
 		t.Fatalf("job tallies are dispatched=%d skipped=%d failed=%d, want 2/1/0. Tasks: %s",

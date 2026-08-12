@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -23,6 +24,18 @@ type ListModel struct {
 	Rows       []Row
 	NextCursor string
 	Aff        Affordances
+
+	// Sections are the related-record tables rendered beneath the list,
+	// already loaded. On a collection page they hang off the collection
+	// rather than any row, which is what the dashboard's operator notices
+	// are.
+	Sections []LoadedSection
+
+	// RefreshURL is where a live region re-requests itself, carrying the
+	// narrowing the reader applied. Empty means this list does not refresh,
+	// which is how the handler declines to disturb a reader who has paged
+	// forward.
+	RefreshURL string
 
 	// Chart holds the aggregates when this resource declares a chart,
 	// resolved before rendering so the table equivalent is real HTML
@@ -115,6 +128,32 @@ func (m ListModel) DetailHref(row Row) string {
 	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(row.ID))
 }
 
+// RefHref is the link to the record a referencing cell points at, empty
+// when the field references nothing or the target no longer exists.
+//
+// Built from the registered view's own name and the stored target id, never
+// from anything an author supplied per row, which is the same argument
+// ChartSpec.Data already makes about author-supplied hrefs.
+func (m ListModel) RefHref(row Row, f Field) string {
+	if !f.Referencing() {
+		return ""
+	}
+	id := row.Ref(f.Name)
+	if id == "" {
+		return ""
+	}
+	// A cell with no text must not become a link. An anchor whose content
+	// is empty has no accessible name and is announced as its URL, which
+	// is worse than the plain cell it replaced. This is the last line of
+	// defence: the projector is supposed to supply a name, and the
+	// conformance suite fails it for not doing so, but neither of those
+	// should be what stands between a missing name and a nameless link.
+	if strings.TrimSpace(row.Cells[f.Name]) == "" {
+		return ""
+	}
+	return path.Join(m.Page.Prefix, f.References, url.PathEscape(id))
+}
+
 // CreateHref is the link to the create form.
 func (m ListModel) CreateHref() string {
 	return path.Join(m.Page.Prefix, m.Descriptor.Name, "new")
@@ -158,7 +197,72 @@ type DetailModel struct {
 	Descriptor Descriptor
 	Row        Row
 	Aff        Affordances
+
+	// Sections are the related-record tables, already loaded. Resolved
+	// before rendering like everything else here, so no template performs
+	// I/O and a section that failed to load is a decision the handler
+	// already made rather than one the template discovers halfway down
+	// the page.
+	Sections []LoadedSection
 }
+
+// LoadedSection is one Section with its rows in hand.
+type LoadedSection struct {
+	Spec Section
+	Rows []Row
+}
+
+// ID is the section's DOM identifier, derived from its title so the
+// heading can be referenced by aria-labelledby. Titles are unique per
+// descriptor (Register enforces it), which is what makes this collision
+// free.
+func (s LoadedSection) ID() string {
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, s.Spec.Title)
+	return "section-" + slug
+}
+
+// HeadingID is the id the section's <h2> carries.
+func (s LoadedSection) HeadingID() string { return s.ID() + "-heading" }
+
+// Columns are the section's fields marked for listing.
+func (s LoadedSection) Columns() []Field { return filterFields(s.Spec.Fields, Field.listed) }
+
+// Cell renders one value.
+func (s LoadedSection) Cell(row Row, f Field) string { return row.Cells[f.Name] }
+
+// BadgeClass keeps a section's badges inside the validated set, exactly as
+// the main list does. A section is not a lesser table.
+func (s LoadedSection) BadgeClass(row Row, f Field) string {
+	if f.BadgeClass == nil {
+		return "badge-neutral"
+	}
+	class := f.BadgeClass(row.Cells[f.Name])
+	if !ValidBadgeClasses[class] {
+		return "badge-neutral"
+	}
+	return class
+}
+
+// IsPrimary reports whether a field is the one a narrow viewport promotes
+// to each card's heading.
+func (s LoadedSection) IsPrimary(f Field) string {
+	if f.MobilePrimary {
+		return "true"
+	}
+	return "false"
+}
+
+// HasRows reports whether this section has anything to show.
+func (s LoadedSection) HasRows() bool { return len(s.Rows) > 0 }
 
 // Fields are every field with a value to show, in declaration order.
 func (m DetailModel) Fields() []Field { return m.Descriptor.Fields }
@@ -197,6 +301,30 @@ func (m DetailModel) applies(rel auth.LinkRel) bool {
 		return true
 	}
 	return m.Descriptor.Applies(m.Row, rel)
+}
+
+// Actions are the record actions this caller may exercise, already
+// filtered. Same permitted set the JSON API's _links is computed from, and
+// the same per-row Applies filter, so an action is offered on exactly the
+// records it would actually work on.
+func (m DetailModel) Actions() []RecordActionLink {
+	out := make([]RecordActionLink, 0, len(m.Descriptor.Actions))
+	for _, a := range m.Descriptor.Actions {
+		if !permits(a.Endpoint, m.Aff) || !m.applies(a.Endpoint.Rel) {
+			continue
+		}
+		out = append(out, RecordActionLink{
+			Label: a.Label,
+			Href:  path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.Row.ID), a.Name),
+		})
+	}
+	return out
+}
+
+// RecordActionLink is one rendered action control.
+type RecordActionLink struct {
+	Label string
+	Href  string
 }
 
 // CanStream reports whether this record offers a live log stream, which is
@@ -309,8 +437,26 @@ func (m FormModel) CancelHref() string {
 // Value is the current value for a control.
 func (m FormModel) Value(f Field) string { return m.Values[f.Name] }
 
-// Choices are a select field's resolved options.
+// Choices are a select or lookup field's resolved options.
 func (m FormModel) Choices(f Field) []Option { return m.Options[f.Name] }
+
+// IsSelected reports whether one option of a KindLookup field is currently
+// chosen.
+//
+// The current values arrive through the same map[string]string every other
+// field uses, comma-separated, rather than by widening the Projector's Form
+// signature to map[string][]string. That would be the tidier type and it
+// would touch every registered view to gain one field's worth of
+// expressiveness, so the encoding stays local to the two ends that care:
+// the projector joins, this splits.
+func (m FormModel) IsSelected(f Field, value string) bool {
+	for _, chosen := range strings.Split(m.Values[f.Name], ",") {
+		if strings.TrimSpace(chosen) == value {
+			return true
+		}
+	}
+	return false
+}
 
 // HasErrors reports whether the error summary renders.
 func (m FormModel) HasErrors() bool { return m.Errors.Any() }
@@ -369,6 +515,71 @@ func (m FormModel) MaxLen(f Field) string {
 	return strconv.Itoa(f.MaxLen)
 }
 
+// ActionModel is a record action's prompt form.
+//
+// It reuses FormModel's field rendering wholesale rather than growing a
+// second form template: the controls, the labels, the hints, the error
+// summary and the accessibility wiring are all the same, and a second copy
+// of them would be a second copy to keep accessible.
+type ActionModel struct {
+	Page       PageModel
+	Descriptor Descriptor
+	Action     RecordAction
+
+	// ID is the record this action runs against.
+	ID string
+
+	// Fields is the prompt as resolved for this record, which is not
+	// always the action's own declaration: a launch form renders only the
+	// fields the template being launched actually opened.
+	Fields []Field
+
+	Values map[string]string
+	Errors FieldErrors
+
+	// Options holds resolved select choices, fetched before rendering so
+	// no template performs I/O.
+	Options map[string][]Option
+}
+
+// Form projects this action onto the shared form model, so one template
+// renders both.
+func (m ActionModel) Form() FormModel {
+	return FormModel{
+		Page: m.Page,
+		// A descriptor carrying the action's fields rather than the
+		// resource's, because the form is about the action: running a
+		// runbook prompts for a target group, not for the runbook's own
+		// columns.
+		Descriptor: Descriptor{
+			Name:  m.Descriptor.Name,
+			Title: m.Action.Heading,
+			// The resolved set, not the declaration: an action whose
+			// controls differ per record renders the record's own.
+			Fields: m.Fields,
+		},
+		Values:  m.Values,
+		Errors:  m.Errors,
+		Options: m.Options,
+	}
+}
+
+// Heading names the action and the record it will run against.
+func (m ActionModel) Heading() string { return m.Action.Heading + ": " + m.ID }
+
+// SubmitLabel is the button text, the action's own label rather than
+// "Save": what this does is run something, not store something.
+func (m ActionModel) SubmitLabel() string { return m.Action.Label }
+
+// Action is where the form posts, and CancelHref returns to the record.
+func (m ActionModel) ActionHref() string {
+	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+}
+
+func (m ActionModel) CancelHref() string {
+	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID))
+}
+
 // DeclaredModel is the honest panel a StatusDeclared view renders.
 //
 // It exists so a declared view needs no per-view work at all: the shared
@@ -381,4 +592,109 @@ type DeclaredModel struct {
 	// Reason says what specifically is missing, so the panel is useful
 	// rather than merely apologetic.
 	Reason string
+}
+
+// refreshAttrs is the shared rendering of a live region's polling contract,
+// so a list and a record page cannot disagree about how a refresh is
+// requested or about when one stops.
+type refreshAttrs struct {
+	spec *RefreshSpec
+	href string
+	row  Row
+	// hasRow distinguishes a record page, where Active is consulted, from a
+	// collection page, where there is no row to consult it about.
+	hasRow bool
+}
+
+// polls reports whether the region should carry a trigger at all.
+//
+// An empty href means "do not refresh this one", and it is load-bearing
+// rather than defensive: a list the reader has paged forward through must
+// not be replaced by page one every few seconds. The handler expresses that
+// by declining to build a URL, and this is the only place that decision is
+// read, so there is no default to fall back to and quietly re-enable it.
+func (a refreshAttrs) polls() bool {
+	if a.spec == nil || a.href == "" {
+		return false
+	}
+	if a.hasRow && a.spec.Active != nil {
+		return a.spec.Active(a.row)
+	}
+	return true
+}
+
+// trigger is the literal HTMX trigger expression, empty when this region
+// does not poll.
+//
+// Rendered in whole seconds because that is the unit the expression takes
+// and because Register refuses anything under a second, so the truncation
+// can never round an interval down to zero.
+func (a refreshAttrs) trigger() string {
+	if !a.polls() {
+		return ""
+	}
+	return "every " + strconv.Itoa(int(a.spec.Interval.Seconds())) + "s"
+}
+
+// Polls reports whether this list keeps itself current.
+func (m ListModel) Polls() bool { return m.refresh().polls() }
+
+// RefreshTrigger is the HTMX trigger expression for this list, empty when
+// it does not refresh.
+func (m ListModel) RefreshTrigger() string { return m.refresh().trigger() }
+
+// RefreshHref is the URL the region re-requests.
+//
+// It is the collection's own URL rather than a separate endpoint, because
+// the refresh is the same read the page already performed. RefreshURL is
+// set by the handler from the query values it actually parsed, so a
+// refreshed list keeps whatever narrowing the reader applied instead of
+// silently widening back to everything on the next tick.
+func (m ListModel) RefreshHref() string {
+	return m.refresh().href
+}
+
+func (m ListModel) refresh() refreshAttrs {
+	return refreshAttrs{spec: m.Descriptor.Refresh, href: m.RefreshURL}
+}
+
+// Polls reports whether this record keeps itself current. A record that has
+// reached a terminal state stops, which is what makes a finished job cost
+// nothing to leave open.
+func (m DetailModel) Polls() bool { return m.refresh().polls() }
+
+// RefreshTrigger is the HTMX trigger expression for this record.
+func (m DetailModel) RefreshTrigger() string { return m.refresh().trigger() }
+
+// RefreshHref is the record's own URL.
+func (m DetailModel) RefreshHref() string { return m.refresh().href }
+
+func (m DetailModel) refresh() refreshAttrs {
+	return refreshAttrs{
+		spec:   m.Descriptor.Refresh,
+		href:   m.SelfHref(),
+		row:    m.Row,
+		hasRow: true,
+	}
+}
+
+// RefreshAnnouncement is what a screen reader is told after a live update,
+// and it is deliberately the record's own identity plus its most telling
+// field rather than a fixed string.
+//
+// A polled region that announced the same words every tick would be read out
+// endlessly; app.js therefore announces only when this value changes, which
+// makes the sentence itself the change detector. Composing it from the badge
+// fields is what makes "job-7 failed" arrive the moment it becomes true.
+func (m DetailModel) RefreshAnnouncement() string {
+	parts := make([]string, 0, 3)
+	parts = append(parts, m.Row.ID)
+	for _, f := range m.Descriptor.Fields {
+		if f.Kind == KindBadge {
+			if v := m.Row.Cells[f.Name]; v != "" {
+				parts = append(parts, v)
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }

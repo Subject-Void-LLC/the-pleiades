@@ -26,6 +26,11 @@ type Worker struct {
 	repo     inventory.Repository
 	runbooks runbook.Source
 	bus      event.Bus
+	// sets resolves the Inventory a job targets, so the fan-out streams
+	// that inventory's membership rather than a free-text group name.
+	// Optional: a Worker built without one refuses a job that names an
+	// inventory rather than silently falling back to the whole fleet.
+	sets inventory.SetStore
 	// credentials resolves a device's stored credential at fan-out time,
 	// so it can be attached directly to wire.DispatchPayload.Secrets
 	// (PLAN.md Section 17's Just-in-Time delivery principle: the Runner
@@ -44,16 +49,22 @@ type Worker struct {
 	fanOutLeaseTTL time.Duration
 }
 
-// NewWorker builds a Worker over its five collaborator ports: store
-// persists job and per-device task state, repo streams the target
-// inventory group, runbooks resolves a job's RunbookID to its compiled
-// capability requirements, bus is where a per-device dispatch event is
-// published to and where job.requested itself is consumed from, and
-// credentials resolves each admitted device's stored credential so it can
-// be attached to the dispatch payload. opts applies optional, non-default
+// NewWorker builds a Worker over its five required collaborator ports:
+// store persists job and per-device task state, repo streams the target
+// devices, runbooks resolves a job's RunbookID to its compiled capability
+// requirements, bus is where a per-device dispatch event is published to
+// and where job.requested itself is consumed from, and credentials
+// resolves each admitted device's stored credential so it can be attached
+// to the dispatch payload. opts applies optional, non-default
 // configuration (see WorkerOption); every existing caller (e.g.
 // cmd/controller/main.go) can omit it entirely and gets
 // DefaultFanOutLeaseTTL.
+//
+// The Inventory port is supplied through WithSetStore rather than
+// positionally, so that the several existing test harnesses that build a
+// Worker keep compiling. That is a convenience, not a permission: a Worker
+// with no set store fails a job that names an inventory, loudly, rather
+// than dispatching it to every device the platform manages.
 func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, credentials credential.Store, opts ...WorkerOption) *Worker {
 	w := &Worker{
 		store:          store,
@@ -67,6 +78,15 @@ func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Sourc
 		opt(w)
 	}
 	return w
+}
+
+// WithSetStore supplies the port that resolves a job's target Inventory.
+//
+// A Worker without it can still run a job that names no inventory, which
+// is what every pre-Phase-21 job is. It cannot run one that does, and says
+// so on the job record rather than guessing.
+func WithSetStore(sets inventory.SetStore) WorkerOption {
+	return func(w *Worker) { w.sets = sets }
 }
 
 // WorkerOption configures optional, non-default behavior on a Worker built

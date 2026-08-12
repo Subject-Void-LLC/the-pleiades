@@ -10,6 +10,7 @@
 package runbook
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -305,7 +306,18 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 		return cacheEntry{}, fmt.Errorf("failed to compile runbook %q: %w", id, err)
 	}
 
-	rb := &Runbook{ID: id, Required: requiredCapabilities(dag), Interruptible: dag.Metadata.IsInterruptible()}
+	rb := &Runbook{
+		ID:            id,
+		Required:      requiredCapabilities(dag),
+		Interruptible: dag.Metadata.IsInterruptible(),
+		// Catalog metadata, read from the file rather than stored beside
+		// it. Name falls back to the id so a runbook that never set one is
+		// still listed by something a human can read.
+		Name:        cmp.Or(dag.Name, id),
+		Description: dag.Metadata.Description,
+		Category:    dag.Metadata.Category,
+		Labels:      dag.Metadata.Labels,
+	}
 	entry := cacheEntry{runbook: rb, dag: dag, modTime: modTime}
 
 	d.mu.Lock()

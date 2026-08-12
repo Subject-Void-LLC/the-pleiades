@@ -145,15 +145,20 @@ var jobTaskSchema = map[string]any{
 var jobResponseSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"job_id":     map[string]any{"type": "string", "format": "uuid"},
-		"runbook_id": map[string]any{"type": "string"},
-		"group_name": map[string]any{"type": "string"},
-		"state":      map[string]any{"type": "string"},
-		"dispatched": map[string]any{"type": "integer", "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress."},
-		"skipped":    map[string]any{"type": "integer"},
-		"failed":     map[string]any{"type": "integer"},
-		"tasks":      map[string]any{"type": "array", "items": jobTaskSchema},
-		"_links":     linksSchema(),
+		"job_id":         map[string]any{"type": "string", "format": "uuid"},
+		"runbook_id":     map[string]any{"type": "string"},
+		"state":          map[string]any{"type": "string"},
+		"template":       map[string]any{"type": "integer", "description": "The saved definition this job was launched from."},
+		"template_name":  stringSchema("That template's name as it was at launch. Captured rather than resolved live: a job's history has to outlive the template."),
+		"inventory":      map[string]any{"type": "integer", "description": "The device set it targeted."},
+		"organization":   map[string]any{"type": "integer", "description": "The tenant it belongs to, inherited from that inventory."},
+		"kind":           stringSchema("Which registered launch kind ran, and therefore which execution adapter handled it."),
+		"failure_reason": stringSchema("Why a failed job could not run. Empty for every other state."),
+		"dispatched":     map[string]any{"type": "integer", "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress."},
+		"skipped":        map[string]any{"type": "integer"},
+		"failed":         map[string]any{"type": "integer"},
+		"tasks":          map[string]any{"type": "array", "items": jobTaskSchema},
+		"_links":         linksSchema(),
 	},
 }
 
@@ -168,38 +173,6 @@ var deviceResponseSchema = map[string]any{
 		"capabilities": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"executable":   map[string]any{"type": "boolean"},
 		"_links":       linksSchema(),
-	},
-}
-
-// DispatchRunbook is POST /jobs/dispatch: launch an asynchronous runbook
-// dispatch.
-var DispatchRunbook = Endpoint{
-	Name:    "dispatch_runbook",
-	Method:  http.MethodPost,
-	Pattern: "/jobs/dispatch",
-	Scope:   auth.ScopeRunbookExecute,
-	Rel:     auth.RelExecute,
-	Summary: "Dispatch a runbook asynchronously",
-	Description: "Validates the request, resolves the runbook, persists a pending Job, and publishes " +
-		"one job.requested event. Responds immediately; the actual per-device fan-out happens later, off " +
-		"this request entirely. Poll GET /jobs/{id} for progress and final per-device tallies.",
-	Params: []Param{
-		{Name: "group", In: "query", Required: true, Type: "string", Description: "Inventory group name to target."},
-		{Name: "runbook", In: "query", Required: true, Type: "string", Description: "Runbook ID to dispatch."},
-	},
-	Responses: []Response{
-		{Status: http.StatusAccepted, Description: "The job was persisted and will fan out asynchronously.", Schema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"status": stringSchema("Always \"accepted\"."),
-				"job_id": stringSchema("The server-generated job ID. Poll GET /jobs/{job_id} with it."),
-				"_links": linksSchema(),
-			},
-		}},
-		{Status: http.StatusBadRequest, Description: "Missing 'group' or 'runbook' query parameter.", Schema: errorSchema("")},
-		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
-		{Status: http.StatusNotFound, Description: "No runbook with that ID exists.", Schema: errorSchema("")},
-		{Status: http.StatusInternalServerError, Description: "The job could not be persisted or published.", Schema: errorSchema("")},
 	},
 }
 
@@ -318,15 +291,16 @@ var jobListResponseSchema = map[string]any{
 		"jobs": map[string]any{"type": "array", "items": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"job_id":     map[string]any{"type": "string"},
-				"runbook_id": map[string]any{"type": "string"},
-				"group_name": map[string]any{"type": "string"},
-				"state":      stringSchema("One of \"pending\", \"fanning_out\", \"completed\", or \"failed\"."),
-				"actor":      stringSchema("The identity subject that requested the job."),
-				"dispatched": map[string]any{"type": "integer"},
-				"skipped":    map[string]any{"type": "integer"},
-				"failed":     map[string]any{"type": "integer"},
-				"created_at": stringSchema("RFC 3339 timestamp."),
+				"job_id":        map[string]any{"type": "string"},
+				"runbook_id":    map[string]any{"type": "string"},
+				"state":         stringSchema("One of \"pending\", \"fanning_out\", \"completed\", or \"failed\"."),
+				"template_name": stringSchema("The saved definition this job was launched from."),
+				"kind":          stringSchema("Which registered launch kind ran."),
+				"actor":         stringSchema("The identity subject that requested the job."),
+				"dispatched":    map[string]any{"type": "integer"},
+				"skipped":       map[string]any{"type": "integer"},
+				"failed":        map[string]any{"type": "integer"},
+				"created_at":    stringSchema("RFC 3339 timestamp."),
 			},
 		}},
 		"next_cursor": stringSchema("Opaque keyset cursor. Pass it back as ?after= to fetch the " +
@@ -503,13 +477,271 @@ var DeleteDevice = Endpoint{
 	},
 }
 
+// inventorySchema describes one Inventory: a named, shareable set of
+// devices a runbook can be dispatched against.
+//
+// It carries counts rather than the members themselves. A listing exists to
+// answer "which inventories are there and how big are they", and inlining
+// every device id would make opening a list of twenty inventories cost
+// twenty fleet reads for data nothing on that page renders.
+var inventorySchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"id":           map[string]any{"type": "integer", "description": "Stable numeric identifier."},
+		"name":         stringSchema("Unique within its organization, not globally."),
+		"description":  stringSchema("What this inventory is for."),
+		"organization": map[string]any{"type": "integer", "description": "The tenancy boundary this inventory belongs to."},
+		"owner":        stringSchema("The subject that created it. Authorship, never authority."),
+		"group_count":  map[string]any{"type": "integer"},
+		"device_count": map[string]any{"type": "integer", "description": "Devices attached directly, not counting those reached through a group."},
+		"_links":       linksSchema(),
+	},
+}
+
+var inventoryWriteSchema = map[string]any{
+	"type":     "object",
+	"required": []any{"name", "organization"},
+	"properties": map[string]any{
+		"name":         stringSchema("Unique within its organization."),
+		"description":  stringSchema("What this inventory is for."),
+		"organization": map[string]any{"type": "integer", "description": "Required. An inventory belonging to no organization could be resolved against no organization scope."},
+		"groups":       map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Group ids this inventory contains."},
+		"devices":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Device ids attached directly, with no intervening group."},
+	},
+}
+
+// ListInventories is GET /inventories.
+var ListInventories = Endpoint{
+	Name:    "list_inventories",
+	Method:  http.MethodGet,
+	Pattern: "/inventories",
+	Scope:   auth.ScopeInventoryRead,
+	Rel:     auth.RelCollection,
+	Summary: "List inventories",
+	Description: "Returns the inventories this caller may reach, keyset-paged. An inventory is a named, " +
+		"shareable set of devices; sharing one with another team is a role binding at inventory scope, " +
+		"not a field on this resource.",
+	Params: []Param{
+		{Name: "after", In: "query", Required: false, Type: "integer", Description: "Keyset cursor: the last id of the previous page."},
+		{Name: "limit", In: "query", Required: false, Type: "integer", Description: "Maximum inventories to return."},
+		{Name: "q", In: "query", Required: false, Type: "string", Description: "Case-insensitive name filter."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "A page of inventories.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"inventories": map[string]any{"type": "array", "items": inventorySchema},
+				"_links":      linksSchema(),
+			},
+		}},
+		{Status: http.StatusUnauthorized, Description: "No identity on the request context.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The caller lacks inventory:read.", Schema: errorSchema("")},
+	},
+}
+
+// GetInventory is GET /inventories/{id}.
+var GetInventory = Endpoint{
+	Name:        "get_inventory",
+	Method:      http.MethodGet,
+	Pattern:     "/inventories/{id}",
+	Scope:       auth.ScopeInventoryRead,
+	Rel:         auth.RelSelf,
+	Summary:     "Read one inventory",
+	Description: "Returns one inventory together with the ids of the groups and devices it contains.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The inventory.", Schema: inventorySchema},
+		{Status: http.StatusNotFound, Description: "No inventory with that id, or none this caller may reach.", Schema: errorSchema("")},
+	},
+}
+
+// CreateInventory is POST /inventories.
+var CreateInventory = Endpoint{
+	Name:        "create_inventory",
+	Method:      http.MethodPost,
+	Pattern:     "/inventories",
+	Scope:       auth.ScopeInventoryWrite,
+	Rel:         auth.RelCreate,
+	Summary:     "Create an inventory",
+	Description: "Creates a named set of devices within one organization. The name must be unique in that organization.",
+	Responses: []Response{
+		{Status: http.StatusCreated, Description: "The created inventory.", Schema: inventorySchema},
+		{Status: http.StatusBadRequest, Description: "Missing name or organization.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
+	},
+	RequestSchema: inventoryWriteSchema,
+}
+
+// UpdateInventory is PATCH /inventories/{id}.
+var UpdateInventory = Endpoint{
+	Name:    "update_inventory",
+	Method:  http.MethodPatch,
+	Pattern: "/inventories/{id}",
+	Scope:   auth.ScopeInventoryWrite,
+	Rel:     auth.RelUpdate,
+	Summary: "Update an inventory",
+	Description: "Replaces an inventory's name, description and membership. The organization is not updatable: " +
+		"moving one between tenants would silently re-scope every role binding pointing at it, which is a " +
+		"migration rather than an edit.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated inventory.", Schema: inventorySchema},
+		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "That name is already taken in that organization.", Schema: errorSchema("")},
+	},
+	RequestSchema: inventoryWriteSchema,
+}
+
+// DeleteInventory is DELETE /inventories/{id}.
+var DeleteInventory = Endpoint{
+	Name:    "delete_inventory",
+	Method:  http.MethodDelete,
+	Pattern: "/inventories/{id}",
+	Scope:   auth.ScopeInventoryWrite,
+	Rel:     auth.RelDelete,
+	Summary: "Delete an inventory",
+	Description: "Removes the inventory. The devices and groups it referenced are untouched: an inventory is a " +
+		"view onto the fleet, not its owner, so deleting a shared collection never deletes the hosts in it.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The inventory's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusNoContent, Description: "Deleted."},
+		{Status: http.StatusNotFound, Description: "No inventory with that id.", Schema: errorSchema("")},
+	},
+}
+
+// announcementSchema describes one operator announcement.
+var announcementSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"id":     map[string]any{"type": "integer"},
+		"title":  stringSchema("The headline."),
+		"body":   stringSchema("The message."),
+		"level":  stringSchema("One of info, changed, warning, critical."),
+		"author": stringSchema("Captured at write time and immutable."),
+		"organization": map[string]any{
+			"type":        "integer",
+			"description": "Absent means system-wide, shown to every tenant.",
+		},
+		"starts_at": stringSchema("RFC 3339. Absent means already showing."),
+		"ends_at":   stringSchema("RFC 3339. Absent means until manually retired."),
+		"_links":    linksSchema(),
+	},
+}
+
+var announcementWriteSchema = map[string]any{
+	"type":     "object",
+	"required": []any{"title", "body"},
+	"properties": map[string]any{
+		"title":        stringSchema("The headline."),
+		"body":         stringSchema("The message."),
+		"level":        stringSchema("One of info, changed, warning, critical. Defaults to info."),
+		"organization": map[string]any{"type": "integer", "description": "Omit for a system-wide announcement."},
+		"starts_at":    stringSchema("RFC 3339. Omit to show immediately."),
+		"ends_at":      stringSchema("RFC 3339. Omit for no expiry."),
+	},
+}
+
+// ListAnnouncements is GET /announcements.
+var ListAnnouncements = Endpoint{
+	Name:    "list_announcements",
+	Method:  http.MethodGet,
+	Pattern: "/announcements",
+	Scope:   auth.ScopeAnnouncementRead,
+	Rel:     auth.RelCollection,
+	Summary: "List operator announcements",
+	Description: "Returns announcements this caller may see, newest first. System-wide announcements are " +
+		"returned to everybody; tenant-scoped ones only to callers who can reach that tenant. By default " +
+		"only announcements live right now are returned.",
+	Params: []Param{
+		{Name: "all", In: "query", Required: false, Type: "boolean", Description: "Include announcements outside their active window. For managing them, not for reading them."},
+		{Name: "limit", In: "query", Required: false, Type: "integer", Description: "Maximum announcements to return."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The announcements.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"announcements": map[string]any{"type": "array", "items": announcementSchema},
+				"_links":        linksSchema(),
+			},
+		}},
+	},
+}
+
+// CreateAnnouncement is POST /announcements.
+var CreateAnnouncement = Endpoint{
+	Name:        "create_announcement",
+	Method:      http.MethodPost,
+	Pattern:     "/announcements",
+	Scope:       auth.ScopeAnnouncementWrite,
+	Rel:         auth.RelCreate,
+	Summary:     "Post an announcement",
+	Description: "Puts a message in front of every operator who can see it. The author is taken from the caller's identity and cannot be set.",
+	Responses: []Response{
+		{Status: http.StatusCreated, Description: "The created announcement.", Schema: announcementSchema},
+		{Status: http.StatusBadRequest, Description: "Missing title or body.", Schema: errorSchema("")},
+	},
+	RequestSchema: announcementWriteSchema,
+}
+
+// UpdateAnnouncement is PATCH /announcements/{id}.
+var UpdateAnnouncement = Endpoint{
+	Name:        "update_announcement",
+	Method:      http.MethodPatch,
+	Pattern:     "/announcements/{id}",
+	Scope:       auth.ScopeAnnouncementWrite,
+	Rel:         auth.RelUpdate,
+	Summary:     "Edit an announcement",
+	Description: "Updates the title, body, level or active window. The author is immutable: an attribution somebody can rewrite is one nobody can rely on.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The announcement's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated announcement.", Schema: announcementSchema},
+		{Status: http.StatusNotFound, Description: "No announcement with that id.", Schema: errorSchema("")},
+	},
+	RequestSchema: announcementWriteSchema,
+}
+
+// DeleteAnnouncement is DELETE /announcements/{id}.
+var DeleteAnnouncement = Endpoint{
+	Name:        "delete_announcement",
+	Method:      http.MethodDelete,
+	Pattern:     "/announcements/{id}",
+	Scope:       auth.ScopeAnnouncementWrite,
+	Rel:         auth.RelDelete,
+	Summary:     "Retire an announcement",
+	Description: "Removes it. A hard delete: a retired notice has no audience and no audit value, and a lingering one is another condition every future query has to exclude.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The announcement's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusNoContent, Description: "Deleted."},
+		{Status: http.StatusNotFound, Description: "No announcement with that id.", Schema: errorSchema("")},
+	},
+}
+
 // Endpoints is every documented endpoint, in the same order
 // cmd/controller/main.go registers them.
 var Endpoints = []Endpoint{
-	DispatchRunbook,
 	ListJobs,
 	GetJob,
 	StreamJobLogs,
+	RelaunchJob,
+	ListTemplates,
+	GetTemplate,
+	CreateTemplate,
+	UpdateTemplate,
+	DeleteTemplate,
+	CopyTemplate,
+	LaunchTemplate,
+	ListTemplateConfigs,
+	CreateTemplateConfig,
 	ListDevices,
 	CreateDevice,
 	GetDevice,
@@ -517,4 +749,42 @@ var Endpoints = []Endpoint{
 	DeleteDevice,
 	ListRunbooks,
 	GetRunbook,
+	ListInventories,
+	GetInventory,
+	CreateInventory,
+	UpdateInventory,
+	DeleteInventory,
+	ListAnnouncements,
+	CreateAnnouncement,
+	UpdateAnnouncement,
+	DeleteAnnouncement,
+	ListOrganizations,
+	GetOrganization,
+	CreateOrganization,
+	UpdateOrganization,
+	DeleteOrganization,
+	AttestOrganization,
+	ListTeams,
+	GetTeam,
+	CreateTeam,
+	UpdateTeam,
+	DeleteTeam,
+	AttestTeam,
+	ListContacts,
+	GetContact,
+	CreateContact,
+	UpdateContact,
+	DeleteContact,
+	ListUsers,
+	GetUser,
+	CreateUser,
+	UpdateUser,
+	DeleteUser,
+	ListBindings,
+	GetBinding,
+	CreateBinding,
+	UpdateBinding,
+	DeleteBinding,
+	ListActivity,
+	GetActivityEntry,
 }

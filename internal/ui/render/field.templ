@@ -59,6 +59,37 @@ templ field(m view.FormModel, f view.Field) {
 						}
 					}
 				</select>
+			case view.KindLookup:
+				// One control carrying the field's id, so the <label for>
+				// above wires up exactly as it does for every other kind.
+				// A group of checkboxes would read better but would leave
+				// that label pointing at nothing, and the fix for that is
+				// a fieldset and legend, which is a second labelling path
+				// through this template for one field to use.
+				//
+				// size is set so the listbox opens showing several
+				// choices: a multi-select rendered one row high looks like
+				// an ordinary select and gives no sign that more than one
+				// value can be chosen.
+				<select
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					multiple
+					size="8"
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if f.Required {
+						required
+					}
+				>
+					for _, opt := range m.Choices(f) {
+						if m.IsSelected(f, opt.Value) {
+							<option value={ opt.Value } selected>{ opt.Label }</option>
+						} else {
+							<option value={ opt.Value }>{ opt.Label }</option>
+						}
+					}
+				</select>
 			case view.KindBool:
 				<input
 					type="checkbox"
@@ -68,6 +99,30 @@ templ field(m view.FormModel, f view.Field) {
 					aria-describedby={ m.DescribedBy(f) }
 					if m.Value(f) == "true" {
 						checked
+					}
+				/>
+			case view.KindPassword:
+				// type="password" and autocomplete="new-password"
+				// together, deliberately. The first keeps the value off
+				// the screen of somebody launching a job in a room with
+				// other people in it; the second stops a browser offering
+				// to remember a secret that belongs to one run rather than
+				// to this site. A survey password is answered once per
+				// launch and never read back, so there is nothing for a
+				// password manager to be right about.
+				<input
+					type="password"
+					id={ m.ControlID(f) }
+					name={ f.Name }
+					value={ m.Value(f) }
+					autocomplete="new-password"
+					aria-invalid={ m.Invalid(f) }
+					aria-describedby={ m.DescribedBy(f) }
+					if m.MaxLen(f) != "" {
+						maxlength={ m.MaxLen(f) }
+					}
+					if f.Required {
+						required
 					}
 				/>
 			case view.KindNumber:

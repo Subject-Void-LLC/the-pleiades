@@ -316,3 +316,113 @@ func TestScopeResolver_InventoryScope(t *testing.T) {
 		})
 	}
 }
+
+// TestScopeResolver_ZeroScopeIDNeverMatchesAnUnnamedLevel is the regression
+// test for FAILURE_PATTERNS #99.
+//
+// RoleBinding.scope_id is a bare polymorphic reference with no foreign key,
+// so nothing at the database level stops a row storing zero. ent primary
+// keys start at 1, so a zero can never name a real organization, inventory,
+// group or device. The defect was that Resolve folded every level
+// unconditionally, passing a pointer to the target's zero value, and
+// scopeIDMatches compares values: a stored binding with scope_id = 0
+// therefore matched every target that named nothing at that level. Because
+// the device layer folds last, one such row was a blanket Allow over every
+// check whose target carried no device, which is every organization-level
+// question the platform asks.
+//
+// The fix is that a level the target does not name is not folded at all. A
+// request about an organization says nothing about a device, so a
+// device-scoped binding must not be able to answer it.
+func TestScopeResolver_ZeroScopeIDNeverMatchesAnUnnamedLevel(t *testing.T) {
+	const teamID = 5
+
+	for _, tc := range []struct {
+		name    string
+		binding auth.RoleBinding
+		target  auth.ScopeTarget
+	}{
+		{
+			name:    "a device binding at zero cannot grant an organization question",
+			binding: auth.RoleBinding{TeamID: teamID, Role: auth.RoleAdmin, ScopeType: auth.ScopeDevice, ScopeID: intPtr(0), Effect: auth.EffectAllow},
+			target:  auth.ScopeTarget{OrganizationID: 10},
+		},
+		{
+			name:    "a device binding at zero cannot grant a bare target",
+			binding: auth.RoleBinding{TeamID: teamID, Role: auth.RoleAdmin, ScopeType: auth.ScopeDevice, ScopeID: intPtr(0), Effect: auth.EffectAllow},
+			target:  auth.ScopeTarget{},
+		},
+		{
+			name:    "an organization binding at zero cannot grant a device question",
+			binding: auth.RoleBinding{TeamID: teamID, Role: auth.RoleAdmin, ScopeType: auth.ScopeOrganization, ScopeID: intPtr(0), Effect: auth.EffectAllow},
+			target:  auth.ScopeTarget{DeviceID: 30},
+		},
+		{
+			name:    "an inventory binding at zero cannot grant an organization question",
+			binding: auth.RoleBinding{TeamID: teamID, Role: auth.RoleAdmin, ScopeType: auth.ScopeInventory, ScopeID: intPtr(0), Effect: auth.EffectAllow},
+			target:  auth.ScopeTarget{OrganizationID: 10},
+		},
+		{
+			name:    "a group binding at zero cannot grant an organization question",
+			binding: auth.RoleBinding{TeamID: teamID, Role: auth.RoleAdmin, ScopeType: auth.ScopeGroup, ScopeID: intPtr(0), Effect: auth.EffectAllow},
+			target:  auth.ScopeTarget{OrganizationID: 10},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRoleBindingRepository{bindings: []auth.RoleBinding{tc.binding}}
+			resolver := auth.NewScopeResolver(repo)
+
+			role, effect, err := resolver.Resolve(context.Background(), []int{teamID}, tc.target)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if effect != auth.EffectDeny {
+				t.Errorf("a scope_id of 0 granted %q access, effect = %v", role, effect)
+			}
+		})
+	}
+}
+
+// TestScopeResolver_SystemBindingStillAppliesToEveryTarget guards the other
+// direction of the #99 fix. A system-scoped binding carries a nil ScopeID by
+// design and names no row, so skipping "unnamed" levels must not skip it.
+func TestScopeResolver_SystemBindingStillAppliesToEveryTarget(t *testing.T) {
+	repo := &fakeRoleBindingRepository{bindings: []auth.RoleBinding{
+		{TeamID: 5, Role: auth.RoleAdmin, ScopeType: auth.ScopeSystem, Effect: auth.EffectAllow},
+	}}
+	resolver := auth.NewScopeResolver(repo)
+
+	for _, target := range []auth.ScopeTarget{
+		{},
+		{OrganizationID: 10},
+		{OrganizationID: 10, DeviceID: 30},
+	} {
+		role, effect, err := resolver.Resolve(context.Background(), []int{5}, target)
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if effect != auth.EffectAllow || role != auth.RoleAdmin {
+			t.Errorf("system binding did not grant target %+v: role=%q effect=%v", target, role, effect)
+		}
+	}
+}
+
+// TestScopeResolver_ZeroLevelsDoNotDisplaceANamedDecision proves the skip is
+// not merely cosmetic. Before the fix an unnamed device layer folded last
+// and, when it matched nothing, still overwrote nothing; the hazard was the
+// reverse case. This asserts a real organization Allow survives the presence
+// of unnamed levels beneath it.
+func TestScopeResolver_ZeroLevelsDoNotDisplaceANamedDecision(t *testing.T) {
+	repo := &fakeRoleBindingRepository{bindings: []auth.RoleBinding{
+		{TeamID: 5, Role: auth.RoleOperator, ScopeType: auth.ScopeOrganization, ScopeID: intPtr(10), Effect: auth.EffectAllow},
+	}}
+	resolver := auth.NewScopeResolver(repo)
+
+	role, effect, err := resolver.Resolve(context.Background(), []int{5}, auth.ScopeTarget{OrganizationID: 10})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if effect != auth.EffectAllow || role != auth.RoleOperator {
+		t.Errorf("role=%q effect=%v, want an operator Allow", role, effect)
+	}
+}

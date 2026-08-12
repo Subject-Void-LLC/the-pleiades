@@ -97,6 +97,20 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 94. An unanchored `vendor/` gitignore pattern silently excluded embedded third-party assets, so the committed tree did not build
 95. A wildcard CORS header on an endpoint that had just become cookie-authenticated
 96. The credential-source generalization was built, tested, and never wired into the composition root
+97. An inventory is a grant surface, so unvalidated membership is a cross-tenant privilege escalation with every individual step passing its own check
+98. `scopeRule` discards the Role the resolver returned, so every RoleBinding's role is decorative
+99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
+100. A record action's affordance never entered the candidate set, so its control rendered for nobody, on every page, with no error anywhere
+101. A required select whose only option source has no writer anywhere, so the create form it gates could never be submitted
+102. HTMX was downloaded on every page and invoked by nothing, so half the request pipeline's fragment handling was unreachable (fixed: live refresh now uses it)
+103. A PATCH decoded an absent list and an explicit empty list identically, so renaming a record silently emptied its membership
+104. A review agent wrote a file into the working tree, and CI failed on somebody else's scratch
+105. A guard ran after the deletions it was guarding, so a refusal destroyed the data it refused to destroy
+106. Two opposite constraint violations arrived as one ent error type, so "still referenced" was reported as "already exists"
+107. A list rendered a foreign key, so the reader had to do the join
+108. A replaced doc comment survived above its replacement, so one function documented two opposite policies
+109. A testing library reached a production binary, because the package that imported it had no production caller until now
+110. A composition root omitted an optional constructor option, and the feature it enabled was refused at run time with nothing failing at build time
 
 ---
 

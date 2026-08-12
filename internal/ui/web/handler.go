@@ -125,6 +125,11 @@ func (h *Handler) Routes() http.Handler {
 		r.Get("/{resource}/{id}/logs", h.stream)
 		r.Post("/{resource}/{id}", h.update)
 		r.Delete("/{resource}/{id}", h.destroy)
+		// Record actions last, so every static segment above wins the
+		// route match. view.Register refuses an action named after one of
+		// them, so this ordering is enforced rather than merely relied on.
+		r.Get("/{resource}/{id}/{action}", h.actionForm)
+		r.Post("/{resource}/{id}/{action}", h.runAction)
 	})
 
 	return r
@@ -229,7 +234,7 @@ func (h *Handler) resourceOf(r *http.Request) (view.Descriptor, bool) {
 func (h *Handler) page(r *http.Request, title, current string) view.PageModel {
 	identity := identityFrom(r.Context())
 
-	nav := view.BuildNav(h.cfg.Prefix, current, view.Nav(), func(d view.Descriptor) bool {
+	nav := view.BuildNavSections(h.cfg.Prefix, current, view.Nav(), func(d view.Descriptor) bool {
 		// A view whose listing the caller cannot reach is not shown. This
 		// is the entire replacement for the previous UI's hardcoded
 		// six-item nav: membership is decided by the same chain that
@@ -274,7 +279,7 @@ func (h *Handler) permits(ctx context.Context, id *auth.Identity, scope auth.Sco
 // affordances computes which relations this identity may exercise on a
 // descriptor, from the same generator the JSON API's _links uses.
 func (h *Handler) affordances(ctx context.Context, id *auth.Identity, d view.Descriptor) view.Affordances {
-	candidates := d.Ops.Candidates()
+	candidates := d.Candidates()
 	if len(candidates) == 0 || h.cfg.HATEOAS == nil {
 		return view.NewAffordances(nil)
 	}
@@ -322,11 +327,12 @@ func (h *Handler) serverError(w http.ResponseWriter, r *http.Request, op string,
 // than to a hardcoded landing page they may have no access to.
 func (h *Handler) index(w http.ResponseWriter, r *http.Request) {
 	page := h.page(r, "", "")
-	if len(page.Nav) == 0 {
+	first := view.FirstHref(page.Nav)
+	if first == "" {
 		http.Error(w, "no views available", http.StatusForbidden)
 		return
 	}
-	http.Redirect(w, r, page.Nav[0].Href, http.StatusSeeOther)
+	http.Redirect(w, r, first, http.StatusSeeOther)
 }
 
 // renderDeclared serves the honest panel for a skeleton view.

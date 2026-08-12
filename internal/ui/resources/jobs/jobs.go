@@ -16,14 +16,13 @@ package jobs
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -33,9 +32,11 @@ const Name = "jobs"
 // fields drive the table, the dispatch form, the detail list, validation
 // and the mobile card layout from one declaration.
 //
-// Only two are writable, and that is the entire dispatch API: a launch
-// names a group and a runbook, and everything else on a job is something
-// the platform decided rather than something a caller may assert.
+// None is writable, and that is the whole of it as of Phase 21: a job is
+// launched from a Template, on the Templates view, and everything here is
+// something the platform decided rather than something a caller may
+// assert. This view used to carry a two-field dispatch form naming a group
+// and a runbook; that launch surface is gone.
 var fields = []view.Field{
 	{
 		Name: "job_id", Label: "JOB", Kind: view.KindText,
@@ -44,15 +45,24 @@ var fields = []view.Field{
 	},
 	{
 		Name: "runbook", Label: "RUNBOOK", Kind: view.KindText,
-		Required: true, MaxLen: 253, Autocomplete: "off",
-		Help:   "The runbook to dispatch, by id.",
-		InList: true, InForm: true,
+		Help:   "The runbook this job dispatched.",
+		InList: true,
 	},
 	{
-		Name: "group", Label: "GROUP", Kind: view.KindText,
-		Required: true, MaxLen: 253, Autocomplete: "off",
-		Help:   "The inventory group whose devices this runs against.",
-		InList: true, InForm: true,
+		Name: "template", Label: "TEMPLATE", Kind: view.KindText,
+		// Deliberately not a link. The name is the one the template
+		// carried at launch, captured rather than resolved, and a template
+		// can be renamed or deleted afterwards: a link would either 404 or
+		// take a reader to something that no longer matches the words they
+		// clicked. The template's own page lists what it has run, which is
+		// the same relationship read from the end that still exists.
+		Help:   "The saved definition this job was launched from, named as it was at launch: a job's history outlives the template.",
+		InList: true,
+	},
+	{
+		Name: "kind", Label: "KIND", Kind: view.KindBadge,
+		Help:   "Which registered launch kind ran, and therefore which execution adapter handled it.",
+		InList: true, BadgeClass: kindBadge,
 	},
 	{
 		Name: "state", Label: "STATE", Kind: view.KindBadge,
@@ -63,6 +73,19 @@ var fields = []view.Field{
 	{Name: "failed", Label: "FAILED", Kind: view.KindReadOnly},
 	{Name: "actor", Label: "ACTOR", Kind: view.KindReadOnly},
 	{Name: "created", Label: "CREATED", Kind: view.KindTimestamp, InList: true},
+}
+
+// kindBadge paints the launch-kind indicator from the registered
+// descriptor's own declared class, so a kind arriving in a file this
+// package has never seen brings its own colour rather than falling into a
+// default nothing chose. A job whose kind is no longer registered, or one
+// launched before kinds existed, renders neutral rather than claiming a
+// class.
+func kindBadge(kind string) string {
+	if d, ok := launch.Lookup(kind); ok {
+		return d.BadgeClass
+	}
+	return "badge-neutral"
 }
 
 // stateBadge maps a job's lifecycle state onto the closed set of badge
@@ -117,39 +140,72 @@ func (r reader) Get(ctx context.Context, id string) (*dispatch.Job, error) {
 	return job, err
 }
 
-// launcher adapts the dispatch path to the view's Creator.
-//
-// It calls api.Dispatcher.Launch, the same method the JSON API's own
-// handler calls, rather than reimplementing resolve-persist-publish. A view
-// layer that reimplemented a write path would have two orderings to keep in
-// agreement, and the one that drifts is always the one with fewer readers.
-type launcher struct{ dispatcher *api.Dispatcher }
-
-func (l launcher) Create(ctx context.Context, job *dispatch.Job) (string, error) {
-	// The actor is read from the request's identity, never from the
-	// submission. A caller who could name the actor could forge the audit
-	// trail this field exists to be, so the form does not declare it and
-	// this is the only place it is set.
-	identity, ok := api.IdentityFromContext(ctx)
-	if !ok || identity == nil {
-		return "", errors.New("no identity on the request context")
+// taskBadge maps a per-device outcome onto the closed badge set.
+func taskBadge(outcome string) string {
+	switch outcome {
+	case string(dispatch.OutcomeDispatched):
+		return "badge-ok"
+	case string(dispatch.OutcomeFailed):
+		return "badge-failed"
+	case string(dispatch.OutcomeSkipped):
+		return "badge-skipped"
+	default:
+		return "badge-neutral"
 	}
-
-	id, err := l.dispatcher.Launch(ctx, identity.Subject, job.GroupName, job.RunbookID)
-	if errors.Is(err, runbook.ErrNotFound) {
-		// The submitter's mistake, not the platform's. Blaming the field
-		// puts the message on the control that caused it instead of
-		// answering a typo with an error page.
-		return "", view.FieldFault{
-			Field:   "runbook",
-			Message: "No runbook with that id exists.",
-		}
-	}
-	return id, err
 }
 
-// Register wires this view over the live job store and dispatcher.
-func Register(jobs dispatch.JobStore, dispatcher *api.Dispatcher) error {
+// taskFields are the columns of the per-device drill-down.
+//
+// Reason is included and is the point of the whole section: a job row
+// saying "1 failed" tells an operator that something went wrong, and this
+// is what tells them which device and why. The schema's own comment bounds
+// what may appear there -- a device name, a lifecycle state, or a missing
+// capability, never a device's properties -- so it is safe to render.
+var taskFields = []view.Field{
+	{Name: "device", Label: "DEVICE", Kind: view.KindText, InList: true, MobilePrimary: true},
+	{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true, BadgeClass: taskBadge},
+	{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
+}
+
+// deviceOutcomes is the drill-down section: one row per device this job
+// fanned out to.
+//
+// The data was always there -- dispatch.JobStore.Get returns every JobTask
+// alongside the Job -- and the reader discarded it, so the detail page
+// showed three counts and no way to find out which device they referred to.
+func deviceOutcomes(jobs dispatch.JobStore) view.Section {
+	return view.Section{
+		Status:  view.StatusImplemented,
+		Title:   "Device outcomes",
+		Summary: "What happened on each device this job was dispatched to.",
+		Fields:  taskFields,
+		Empty:   "This job has not recorded any per-device outcomes yet.",
+		Rows: func(ctx context.Context, jobID string) ([]view.Row, error) {
+			_, tasks, err := jobs.Get(ctx, jobID)
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]view.Row, 0, len(tasks))
+			for _, t := range tasks {
+				rows = append(rows, view.Row{ID: t.DeviceID, Cells: view.Cells{
+					"device":  t.DeviceName,
+					"outcome": t.Outcome.String(),
+					"reason":  t.Reason,
+				}})
+			}
+			return rows, nil
+		},
+	}
+}
+
+// Register wires this view over the live job store.
+//
+// Read-only, deliberately. A job is a record of something that already
+// happened, and the place to start one is the runbook you want to run --
+// which is where AWX puts it too, and where an operator looks for it. A
+// "new job" form here would ask somebody to type a runbook id they just
+// came from a page listing.
+func Register(jobs dispatch.JobStore) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -158,7 +214,8 @@ func Register(jobs dispatch.JobStore, dispatcher *api.Dispatcher) error {
 			return view.Row{ID: j.JobID, Cells: view.Cells{
 				"job_id":     j.JobID,
 				"runbook":    j.RunbookID,
-				"group":      j.GroupName,
+				"template":   j.TemplateName,
+				"kind":       j.Kind,
 				"state":      j.State,
 				"dispatched": strconv.Itoa(j.DispatchedCount),
 				"skipped":    strconv.Itoa(j.SkippedCount),
@@ -167,45 +224,38 @@ func Register(jobs dispatch.JobStore, dispatcher *api.Dispatcher) error {
 				"created":    formatTime(j.CreatedAt),
 			}}
 		},
-		Form: func(j *dispatch.Job) map[string]string {
-			// Reached only by an edit form, which this resource does not
-			// offer. It is supplied because Bind requires the pair, and
-			// returning the launch parameters is the honest answer to
-			// "what would prefill a form for this record".
-			if j == nil {
-				return map[string]string{}
-			}
-			return map[string]string{"runbook": j.RunbookID, "group": j.GroupName}
-		},
-		Bind: func(v view.Values) (*dispatch.Job, view.FieldErrors) {
-			// Actor is filled in by the handler from the session, never
-			// read off the submission: a caller who could name the actor
-			// could forge the audit trail this field exists to be.
-			return &dispatch.Job{
-				RunbookID: v.Get("runbook"),
-				GroupName: v.Get("group"),
-			}, view.FieldErrors{}
-		},
 	}
 
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Jobs",
 		NavLabel: "JOBS",
-		NavOrder: 30,
+		// Directly after the dashboard: the dashboard summarises these,
+		// so the summary reads before the records it counts.
+		NavOrder: 20,
+		NavGroup: view.NavGroupViews,
 		Summary:  "Every runbook dispatch this control plane has recorded.",
 		Status:   view.StatusImplemented,
-		IDField:  "job_id",
-		Fields:   fields,
+		// The one view where a snapshot is actively misleading. A fan-out
+		// records its outcomes over seconds or minutes, so a jobs list
+		// opened at the start of a change shows a page frozen at the moment
+		// it loaded, with nothing to say it had. Five seconds is slow
+		// enough to cost almost nothing and fast enough that a dispatch
+		// appears while somebody is still looking for it.
+		Refresh: &view.RefreshSpec{Interval: 5 * time.Second, Active: stillRunning},
+		IDField: "job_id",
+		Fields:  fields,
 		Ops: view.Ops{
-			List:   &apispec.ListJobs,
-			Get:    &apispec.GetJob,
-			Create: &apispec.DispatchRunbook,
-			// No Update and no Delete. There is no job:write scope, no
-			// JobStore.Cancel and no cancellation path anywhere in this
-			// build, so offering either would be a button for a route
-			// nobody mounted.
+			List: &apispec.ListJobs,
+			Get:  &apispec.GetJob,
+			// No Create: dispatching is a runbook's action, offered on the
+			// Runbooks view where an operator already has the runbook in
+			// front of them. No Update and no Delete either -- there is no
+			// job:write scope, no JobStore.Cancel and no cancellation path
+			// anywhere in this build, so offering any of them would be a
+			// button for a route nobody mounted.
 		},
+		Sections: []view.Section{deviceOutcomes(jobs)},
 		Stream: &view.StreamSpec{
 			Title: "Live output",
 			// Built from the API's own prefix and the endpoint's own
@@ -214,7 +264,7 @@ func Register(jobs dispatch.JobStore, dispatcher *api.Dispatcher) error {
 			// longer resolves.
 			PathPattern: api.APIVersionPrefix + apispec.StreamJobLogs.Pattern,
 		},
-		Handlers: view.MustBindCreatable(reader{jobs}, launcher{dispatcher}, projector),
+		Handlers: view.MustBind[*dispatch.Job](reader{jobs}, nil, projector),
 	})
 }
 
@@ -229,4 +279,25 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// terminalStates are the job states after which nothing else will happen.
+//
+// Listed positively rather than as "not pending, not fanning out", so a state
+// added later keeps refreshing until somebody decides it should not. Getting
+// that default backwards would silently freeze a new state's record page.
+var terminalStates = map[string]bool{
+	"completed": true,
+	"failed":    true,
+}
+
+// stillRunning reports whether a job's record page is worth refreshing.
+//
+// This is what makes a finished job free to leave open. A record page polls
+// while its job is doing something and stops the moment it is not, because
+// the refreshed fragment carries no trigger and there is nothing to cancel.
+// An operator who opens a completed job from last week costs one request,
+// not one every five seconds until they close the tab.
+func stillRunning(row view.Row) bool {
+	return !terminalStates[row.Cells["state"]]
 }

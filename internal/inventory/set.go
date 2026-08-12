@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // Set is what the API and the UI call an Inventory: a named, shareable
@@ -40,6 +42,13 @@ type Set struct {
 	// or by nobody depending on which way the resolver happened to fail.
 	OrganizationID int
 
+	// OrganizationName is the tenant's name beside its id, so a list can
+	// render "Network" instead of "1". The store already loads the
+	// organization row to populate the id; this stops the hydrator
+	// discarding the rest of it. Empty when the edge was not loaded, never
+	// a fallback to the id.
+	OrganizationName string
+
 	// Owner is the subject that created it. It records authorship, never
 	// authority: a grant lives on a Team's RoleBinding, so owning a Set
 	// confers no permission over it (PLAN.md Section 18.2 -- roles are
@@ -54,6 +63,44 @@ type Set struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Selector is the device selection this Set names: every device in any of
+// its groups, plus every device attached to it directly.
+//
+// One definition of what membership means, on the type that has the
+// membership, rather than each caller assembling the union itself. That is
+// the same reasoning SetStore.SetsForDevice's own comment gives for being a
+// store method: getting the union wrong in the narrowing direction silently
+// skips devices a dispatch was meant to reach, and getting it wrong in the
+// widening direction silently reaches devices nobody selected. Neither
+// failure produces an error anywhere.
+//
+// It returns a pointer-carrying Selector so that an empty Set selects
+// nothing rather than everything. See pkg/inventory.Selector.Membership for
+// why that distinction is a pointer and not a pair of slices.
+//
+// This is deliberately a projection rather than a SetStore.Members method
+// returning a stream. A store method would have to build its own device
+// iterator, duplicating the keyset batching and property decryption
+// internal/inventory's repository already does, and the two would drift.
+// The rule lives here; the streaming lives where streaming already lives.
+func (s Set) Selector() pkginventory.Selector {
+	return pkginventory.Selector{Membership: &pkginventory.Membership{
+		GroupIDs:  s.GroupIDs,
+		DeviceIDs: s.DeviceIDs,
+	}}
+}
+
+// Empty reports whether this Set contains nothing at all.
+//
+// Worth asking before a dispatch: a fan-out that reaches zero devices is
+// indistinguishable from one that failed, so the caller says which it was.
+//
+// Delegated to the membership rather than counting the two slices again
+// here. Two definitions of "empty" over the same data is how one of them
+// eventually stops matching the other, and this is the one whose answer
+// decides whether a dispatch reaches nothing or everything.
+func (s Set) Empty() bool { return s.Selector().Membership.Empty() }
 
 // DeviceCount is what a list view renders without loading the members.
 // Direct devices plus grouped ones is deliberately not computed here: a
@@ -97,6 +144,8 @@ type SetQuery struct {
 // imports generated code -- the same split RoleBindingRepository already
 // makes for the same reason.
 type SetStore interface {
+	OrganizationLister
+
 	// Create persists a new Set and returns it with its assigned ID.
 	// It returns ErrSetExists if the name is taken in that organization.
 	Create(ctx context.Context, set Set) (Set, error)
@@ -127,4 +176,23 @@ type SetStore interface {
 	// a legitimate share, and getting it wrong in the widening direction
 	// silently grants one.
 	SetsForDevice(ctx context.Context, deviceID int) ([]int, error)
+}
+
+// Organization is the tenancy boundary an inventory belongs to, projected
+// to just what a form needs to offer a choice.
+//
+// It exists because an inventory must name an organization and a create
+// form that asked somebody to type a numeric primary key would be a form
+// nobody could fill in. There is no organization *management* here -- no
+// create, no rename, no delete -- because nothing in this platform owns
+// that yet, and inventing half of it beside a lookup would be worse than
+// the lookup alone.
+type Organization struct {
+	ID   int
+	Name string
+}
+
+// OrganizationLister reads the organizations a form may offer.
+type OrganizationLister interface {
+	ListOrganizations(ctx context.Context) ([]Organization, error)
 }

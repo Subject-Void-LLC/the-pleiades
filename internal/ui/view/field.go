@@ -33,10 +33,32 @@ const (
 	// KindNumber is an integer, rendered as <input type="number">.
 	KindNumber FieldKind = "number"
 
-	// KindTags is a repeated string, submitted as a comma-separated value
-	// and rendered as a list. It is deliberately not a multi-select: the
-	// set is open, and a native multi-select is one of the least usable
-	// controls on the platform for a keyboard or touch user.
+	// KindPassword is a secret a person types once, rendered as
+	// <input type="password">.
+	//
+	// It exists for survey answers. A password question's answer is
+	// encrypted at rest and reads back as a redaction marker rather than
+	// its value, and rendering it into an ordinary text control would undo
+	// both: the value would be on screen in a room that may have other
+	// people in it, and a browser would offer to remember a secret that
+	// belongs to one run rather than to this site.
+	//
+	// It never appears in a list. A field whose whole purpose is not to be
+	// displayed has no business being a column, and InList is ignored for
+	// it rather than trusted not to be set.
+	KindPassword FieldKind = "password"
+
+	// KindTags is a repeated string over an OPEN set, submitted as a
+	// comma-separated value and rendered as a list. It is deliberately not
+	// a multi-select, because there is nothing to select from: the values
+	// are whatever the author decides to write.
+	//
+	// The set being open is the whole distinction from KindLookup, and it
+	// is worth being precise about because this comment previously read as
+	// a blanket objection to multi-selects. A native multi-select really is
+	// one of the least usable controls on the platform. It is still the
+	// right answer when the values are existing records, because the only
+	// alternative there is typing their primary keys.
 	KindTags FieldKind = "tags"
 
 	// KindTimestamp is a read-only instant, rendered in the list and the
@@ -48,6 +70,27 @@ const (
 	// fill colour comes from BadgeClass, and the badge always carries the
 	// word itself, never colour alone (WCAG SC 1.4.1).
 	KindBadge FieldKind = "badge"
+
+	// KindLookup is a choice of several from a bounded set, rendered as a
+	// multi-select listbox over the same Options a KindSelect resolves.
+	//
+	// It exists because the alternative was asking somebody to type
+	// primary keys. A team's membership was a comma-separated list of user
+	// ids, which is a control that will receive the wrong primary key: the
+	// person filling it in cannot see whether 7 is the right person, and
+	// nothing about a typo looks wrong afterwards. The same argument the
+	// Inventories form already makes for its organization select applies
+	// with more force to a list.
+	//
+	// A native <select multiple> rather than a scripted picker with a
+	// search box, and that is a real trade. AWX's lookup modal is nicer to
+	// use and needs JavaScript this UI's CSP has no 'unsafe-inline' for.
+	// The native control brings its own keyboard operation, its own
+	// multi-selectable announcement and its own label association, none of
+	// which a hand-built one gets without ARIA somebody has to maintain.
+	// When a bounded set outgrows a listbox, the answer is a filter
+	// (view.Filter, unbuilt) rather than a bespoke widget.
+	KindLookup FieldKind = "lookup"
 
 	// KindReadOnly is a value shown but never submitted. It appears in
 	// lists and detail views and is skipped entirely when building a form,
@@ -65,11 +108,29 @@ var writableKinds = map[FieldKind]bool{
 	KindSelect:   true,
 	KindBool:     true,
 	KindNumber:   true,
+	KindPassword: true,
 	KindTags:     true,
+	KindLookup:   true,
 }
 
-// Option is one choice in a KindSelect field. Label is what a human reads;
-// Value is what the form submits and what Bind receives.
+// choiceKinds are the kinds that resolve Options. Declared as a set rather
+// than checked with an equality, so a second option-backed kind cannot be
+// added without deciding whether it belongs here.
+var choiceKinds = map[FieldKind]bool{
+	KindSelect: true,
+	KindLookup: true,
+}
+
+// OffersChoices reports whether this field's Options must be resolved
+// before it can render.
+func (f Field) OffersChoices() bool { return choiceKinds[f.Kind] }
+
+// SelectsMany reports whether this field submits more than one value, which
+// decides both how it renders and how Bind must read it back.
+func (f Field) SelectsMany() bool { return f.Kind == KindLookup }
+
+// Option is one choice in a KindSelect or KindLookup field. Label is what a
+// human reads; Value is what the form submits and what Bind receives.
 type Option struct {
 	Label string
 	Value string
@@ -153,6 +214,45 @@ type Field struct {
 	// string into a class attribute, and the content security policy this
 	// UI ships under exists precisely so that is impossible.
 	BadgeClass func(value string) string
+
+	// References names the registered view this field points at, when the
+	// field holds a reference to another record.
+	//
+	// Declaring it does two things a plain string cell cannot. The cell
+	// renders the referenced record's NAME rather than its primary key,
+	// and it renders as a link to that record, so the hierarchy is
+	// walkable rather than merely readable.
+	//
+	// The first half is the point. A list that prints "ORGANIZATION: 1"
+	// has not saved the reader a join, it has moved the join into their
+	// head and asked them to remember that organization 1 is Network. That
+	// is what this project shipped, and the cost of not doing it turned
+	// out to be zero: every store that lists a referencing row already
+	// eager-loads the referenced one and its hydrator was discarding the
+	// name.
+	//
+	// The value is a registered view name, checked once at startup by
+	// CheckReferences rather than at Register time, because registration
+	// order is map iteration and the target may not exist yet.
+	References string
+}
+
+// Referencing reports whether this field points at another record.
+func (f Field) Referencing() bool { return f.References != "" }
+
+// RendersBadge reports whether a list cell renders this field as a badge.
+//
+// Kind and BadgeClass answer two different questions and were coupled by
+// accident. Kind decides which control a FORM uses; BadgeClass decides how a
+// LIST renders the value. Reading a badge off Kind alone made a field that
+// needs a select in the form unable to be a badge in the table, which is
+// exactly the shape a role binding's effect has: chosen from a closed
+// vocabulary, and the one column an auditor scans for.
+//
+// KindBadge still renders a badge with no mapping, degrading to neutral, so
+// existing declared views are unaffected.
+func (f Field) RendersBadge() bool {
+	return f.Kind == KindBadge || f.BadgeClass != nil
 }
 
 // Writable reports whether this field may appear in a form and be read
@@ -171,6 +271,28 @@ var ValidBadgeClasses = map[string]bool{
 	"badge-changed": true,
 	"badge-skipped": true,
 	"badge-neutral": true,
+
+	// The six classification markings, admitted deliberately rather than
+	// mapped onto the status palette above.
+	//
+	// A marking is not a status. Rendering "secret" in the same red as a
+	// failed job imports a meaning classification does not have, and
+	// rendering "unclassified" in the same green as a success imports the
+	// opposite one. These are the published IC/DoD colour pairs that the
+	// environment banner already uses, they are already styled, and
+	// TestBannerContrast already measures both halves of each pair, so
+	// reusing them here keeps one marking rendered one way everywhere it
+	// appears.
+	//
+	// The environment markings (development, staging, production) are
+	// deliberately absent: those describe an installation, and nothing in
+	// this UI has a field whose value is one.
+	"banner-unclassified":  true,
+	"banner-cui":           true,
+	"banner-confidential":  true,
+	"banner-secret":        true,
+	"banner-topsecret":     true,
+	"banner-topsecret-sci": true,
 }
 
 // autocompleteTokens is the closed autofill vocabulary from the HTML
@@ -202,22 +324,16 @@ var autocompleteTokens = map[string]bool{
 // validateFields checks a descriptor's field declarations. It returns the
 // first problem it finds, named precisely enough to fix without opening
 // this file.
-func validateFields(fields []Field, idField string) error {
+func validateFields(fields []Field) error {
 	if len(fields) == 0 {
-		// A view with no fields is legitimate when it renders no records:
-		// the dashboard is a chart and nothing else. Register is what
-		// rejects the incoherent combinations -- a view that lists records
-		// still needs an IDField, and an IDField still has to name a real
-		// field -- so the emptiness itself is not the error.
-		if idField != "" {
-			return fmt.Errorf("names id field %q but declares no fields", idField)
-		}
+		// An empty field list is legitimate: the dashboard is a chart and
+		// nothing else. Whether a *resource* may have none is a separate
+		// question, answered by validateIdentity and by Register.
 		return nil
 	}
 
 	seen := make(map[string]bool, len(fields))
 	primaries := 0
-	idDeclared := false
 
 	for _, f := range fields {
 		switch {
@@ -232,15 +348,12 @@ func validateFields(fields []Field, idField string) error {
 		}
 		seen[f.Name] = true
 
-		if f.Name == idField {
-			idDeclared = true
-		}
 		if f.MobilePrimary {
 			primaries++
 		}
 
-		if f.Kind == KindSelect && f.Options == nil {
-			return fmt.Errorf("field %q is a select with no options", f.Name)
+		if f.OffersChoices() && f.Options == nil {
+			return fmt.Errorf("field %q offers choices but declares no options", f.Name)
 		}
 		if f.Autocomplete != "" && !autocompleteTokens[f.Autocomplete] {
 			return fmt.Errorf("field %q declares unknown autocomplete token %q", f.Name, f.Autocomplete)
@@ -253,14 +366,6 @@ func validateFields(fields []Field, idField string) error {
 		}
 	}
 
-	if strings.TrimSpace(idField) == "" {
-		return fmt.Errorf("declares no IDField")
-	}
-	if !idDeclared {
-		// Without this, every row's detail link points at a value the
-		// descriptor never produces, and every one of them 404s.
-		return fmt.Errorf("IDField %q is not a declared field", idField)
-	}
 	if primaries > 1 {
 		return fmt.Errorf("declares %d MobilePrimary fields, want at most 1", primaries)
 	}
@@ -302,7 +407,7 @@ func Validate(ctx context.Context, fields []Field, v Values) FieldErrors {
 				continue
 			}
 		}
-		if f.Kind == KindSelect && f.Options != nil {
+		if f.OffersChoices() && f.Options != nil {
 			opts, err := f.Options(ctx)
 			if err != nil {
 				// A failed option lookup is not a validation failure --
@@ -327,4 +432,32 @@ func hasOption(opts []Option, value string) bool {
 		}
 	}
 	return false
+}
+
+// validateIdentity checks a resource's IDField, which is a property of the
+// resource rather than of any field list.
+//
+// It is separate from validateFields because not every field list belongs
+// to a resource. A detail section's columns and a record action's prompt
+// both reuse Field for its rendering, labelling and validation, and neither
+// has rows anybody clicks through to -- so demanding an identity from them
+// would be demanding one for a link that is never rendered.
+func validateIdentity(fields []Field, idField string) error {
+	if len(fields) == 0 {
+		// Reported before the IDField check, because "declares no fields"
+		// is the actual problem and "your IDField names nothing" is a
+		// confusing way to say it.
+		return fmt.Errorf("declares no fields")
+	}
+	if strings.TrimSpace(idField) == "" {
+		return fmt.Errorf("declares no IDField")
+	}
+	for _, f := range fields {
+		if f.Name == idField {
+			return nil
+		}
+	}
+	// Without this, every row's detail link points at a value the
+	// descriptor never produces, and every one of them 404s.
+	return fmt.Errorf("IDField %q is not a declared field", idField)
 }

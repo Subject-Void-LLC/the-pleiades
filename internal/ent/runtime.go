@@ -5,7 +5,9 @@ package ent
 import (
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
@@ -15,9 +17,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schema"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
@@ -25,6 +30,33 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	activityentryMixin := schema.ActivityEntry{}.Mixin()
+	activityentryMixinFields0 := activityentryMixin[0].Fields()
+	_ = activityentryMixinFields0
+	activityentryFields := schema.ActivityEntry{}.Fields()
+	_ = activityentryFields
+	// activityentryDescCreatedAt is the schema descriptor for created_at field.
+	activityentryDescCreatedAt := activityentryMixinFields0[0].Descriptor()
+	// activityentry.DefaultCreatedAt holds the default value on creation for the created_at field.
+	activityentry.DefaultCreatedAt = activityentryDescCreatedAt.Default.(func() time.Time)
+	// activityentryDescUpdatedAt is the schema descriptor for updated_at field.
+	activityentryDescUpdatedAt := activityentryMixinFields0[1].Descriptor()
+	// activityentry.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	activityentry.DefaultUpdatedAt = activityentryDescUpdatedAt.Default.(func() time.Time)
+	// activityentry.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	activityentry.UpdateDefaultUpdatedAt = activityentryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// activityentryDescActor is the schema descriptor for actor field.
+	activityentryDescActor := activityentryFields[0].Descriptor()
+	// activityentry.ActorValidator is a validator for the "actor" field. It is called by the builders before save.
+	activityentry.ActorValidator = activityentryDescActor.Validators[0].(func(string) error)
+	// activityentryDescAction is the schema descriptor for action field.
+	activityentryDescAction := activityentryFields[1].Descriptor()
+	// activityentry.ActionValidator is a validator for the "action" field. It is called by the builders before save.
+	activityentry.ActionValidator = activityentryDescAction.Validators[0].(func(string) error)
+	// activityentryDescObjectKind is the schema descriptor for object_kind field.
+	activityentryDescObjectKind := activityentryFields[2].Descriptor()
+	// activityentry.ObjectKindValidator is a validator for the "object_kind" field. It is called by the builders before save.
+	activityentry.ObjectKindValidator = activityentryDescObjectKind.Validators[0].(func(string) error)
 	announcementMixin := schema.Announcement{}.Mixin()
 	announcementMixinFields0 := announcementMixin[0].Fields()
 	_ = announcementMixinFields0
@@ -58,6 +90,33 @@ func init() {
 	announcementDescAuthor := announcementFields[5].Descriptor()
 	// announcement.AuthorValidator is a validator for the "author" field. It is called by the builders before save.
 	announcement.AuthorValidator = announcementDescAuthor.Validators[0].(func(string) error)
+	contactMixin := schema.Contact{}.Mixin()
+	contactMixinFields0 := contactMixin[0].Fields()
+	_ = contactMixinFields0
+	contactFields := schema.Contact{}.Fields()
+	_ = contactFields
+	// contactDescCreatedAt is the schema descriptor for created_at field.
+	contactDescCreatedAt := contactMixinFields0[0].Descriptor()
+	// contact.DefaultCreatedAt holds the default value on creation for the created_at field.
+	contact.DefaultCreatedAt = contactDescCreatedAt.Default.(func() time.Time)
+	// contactDescUpdatedAt is the schema descriptor for updated_at field.
+	contactDescUpdatedAt := contactMixinFields0[1].Descriptor()
+	// contact.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	contact.DefaultUpdatedAt = contactDescUpdatedAt.Default.(func() time.Time)
+	// contact.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	contact.UpdateDefaultUpdatedAt = contactDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// contactDescName is the schema descriptor for name field.
+	contactDescName := contactFields[0].Descriptor()
+	// contact.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	contact.NameValidator = contactDescName.Validators[0].(func(string) error)
+	// contactDescRole is the schema descriptor for role field.
+	contactDescRole := contactFields[1].Descriptor()
+	// contact.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	contact.RoleValidator = contactDescRole.Validators[0].(func(string) error)
+	// contactDescDisplayOrder is the schema descriptor for display_order field.
+	contactDescDisplayOrder := contactFields[6].Descriptor()
+	// contact.DefaultDisplayOrder holds the default value on creation for the display_order field.
+	contact.DefaultDisplayOrder = contactDescDisplayOrder.Default.(int)
 	deviceMixin := schema.Device{}.Mixin()
 	deviceMixinFields0 := deviceMixin[0].Fields()
 	_ = deviceMixinFields0
@@ -180,23 +239,23 @@ func init() {
 	// job.RunbookIDValidator is a validator for the "runbook_id" field. It is called by the builders before save.
 	job.RunbookIDValidator = jobDescRunbookID.Validators[0].(func(string) error)
 	// jobDescActor is the schema descriptor for actor field.
-	jobDescActor := jobFields[3].Descriptor()
+	jobDescActor := jobFields[8].Descriptor()
 	// job.ActorValidator is a validator for the "actor" field. It is called by the builders before save.
 	job.ActorValidator = jobDescActor.Validators[0].(func(string) error)
 	// jobDescDispatchedCount is the schema descriptor for dispatched_count field.
-	jobDescDispatchedCount := jobFields[6].Descriptor()
+	jobDescDispatchedCount := jobFields[11].Descriptor()
 	// job.DefaultDispatchedCount holds the default value on creation for the dispatched_count field.
 	job.DefaultDispatchedCount = jobDescDispatchedCount.Default.(int)
 	// jobDescSkippedCount is the schema descriptor for skipped_count field.
-	jobDescSkippedCount := jobFields[7].Descriptor()
+	jobDescSkippedCount := jobFields[12].Descriptor()
 	// job.DefaultSkippedCount holds the default value on creation for the skipped_count field.
 	job.DefaultSkippedCount = jobDescSkippedCount.Default.(int)
 	// jobDescFailedCount is the schema descriptor for failed_count field.
-	jobDescFailedCount := jobFields[8].Descriptor()
+	jobDescFailedCount := jobFields[13].Descriptor()
 	// job.DefaultFailedCount holds the default value on creation for the failed_count field.
 	job.DefaultFailedCount = jobDescFailedCount.Default.(int)
 	// jobDescFence is the schema descriptor for fence field.
-	jobDescFence := jobFields[10].Descriptor()
+	jobDescFence := jobFields[15].Descriptor()
 	// job.DefaultFence holds the default value on creation for the fence field.
 	job.DefaultFence = jobDescFence.Default.(int64)
 	jobtaskMixin := schema.JobTask{}.Mixin()
@@ -241,6 +300,10 @@ func init() {
 	organizationDescName := organizationFields[0].Descriptor()
 	// organization.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	organization.NameValidator = organizationDescName.Validators[0].(func(string) error)
+	// organizationDescFrozen is the schema descriptor for frozen field.
+	organizationDescFrozen := organizationFields[4].Descriptor()
+	// organization.DefaultFrozen holds the default value on creation for the frozen field.
+	organization.DefaultFrozen = organizationDescFrozen.Default.(bool)
 	revisionMixin := schema.Revision{}.Mixin()
 	revisionMixinFields0 := revisionMixin[0].Fields()
 	_ = revisionMixinFields0
@@ -289,6 +352,21 @@ func init() {
 	rolebinding.DefaultEffect = rolebindingDescEffect.Default.(string)
 	// rolebinding.EffectValidator is a validator for the "effect" field. It is called by the builders before save.
 	rolebinding.EffectValidator = rolebindingDescEffect.Validators[0].(func(string) error)
+	savedlaunchconfigMixin := schema.SavedLaunchConfig{}.Mixin()
+	savedlaunchconfigMixinFields0 := savedlaunchconfigMixin[0].Fields()
+	_ = savedlaunchconfigMixinFields0
+	savedlaunchconfigFields := schema.SavedLaunchConfig{}.Fields()
+	_ = savedlaunchconfigFields
+	// savedlaunchconfigDescCreatedAt is the schema descriptor for created_at field.
+	savedlaunchconfigDescCreatedAt := savedlaunchconfigMixinFields0[0].Descriptor()
+	// savedlaunchconfig.DefaultCreatedAt holds the default value on creation for the created_at field.
+	savedlaunchconfig.DefaultCreatedAt = savedlaunchconfigDescCreatedAt.Default.(func() time.Time)
+	// savedlaunchconfigDescUpdatedAt is the schema descriptor for updated_at field.
+	savedlaunchconfigDescUpdatedAt := savedlaunchconfigMixinFields0[1].Descriptor()
+	// savedlaunchconfig.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	savedlaunchconfig.DefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.Default.(func() time.Time)
+	// savedlaunchconfig.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	savedlaunchconfig.UpdateDefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.UpdateDefault.(func() time.Time)
 	sessionMixin := schema.Session{}.Mixin()
 	sessionMixinFields0 := sessionMixin[0].Fields()
 	_ = sessionMixinFields0
@@ -348,6 +426,49 @@ func init() {
 	sessionDescLastSeenAt := sessionFields[7].Descriptor()
 	// session.DefaultLastSeenAt holds the default value on creation for the last_seen_at field.
 	session.DefaultLastSeenAt = sessionDescLastSeenAt.Default.(func() time.Time)
+	surveyquestionMixin := schema.SurveyQuestion{}.Mixin()
+	surveyquestionMixinFields0 := surveyquestionMixin[0].Fields()
+	_ = surveyquestionMixinFields0
+	surveyquestionFields := schema.SurveyQuestion{}.Fields()
+	_ = surveyquestionFields
+	// surveyquestionDescCreatedAt is the schema descriptor for created_at field.
+	surveyquestionDescCreatedAt := surveyquestionMixinFields0[0].Descriptor()
+	// surveyquestion.DefaultCreatedAt holds the default value on creation for the created_at field.
+	surveyquestion.DefaultCreatedAt = surveyquestionDescCreatedAt.Default.(func() time.Time)
+	// surveyquestionDescUpdatedAt is the schema descriptor for updated_at field.
+	surveyquestionDescUpdatedAt := surveyquestionMixinFields0[1].Descriptor()
+	// surveyquestion.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	surveyquestion.DefaultUpdatedAt = surveyquestionDescUpdatedAt.Default.(func() time.Time)
+	// surveyquestion.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	surveyquestion.UpdateDefaultUpdatedAt = surveyquestionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// surveyquestionDescVariable is the schema descriptor for variable field.
+	surveyquestionDescVariable := surveyquestionFields[0].Descriptor()
+	// surveyquestion.VariableValidator is a validator for the "variable" field. It is called by the builders before save.
+	surveyquestion.VariableValidator = surveyquestionDescVariable.Validators[0].(func(string) error)
+	// surveyquestionDescLabel is the schema descriptor for label field.
+	surveyquestionDescLabel := surveyquestionFields[1].Descriptor()
+	// surveyquestion.LabelValidator is a validator for the "label" field. It is called by the builders before save.
+	surveyquestion.LabelValidator = surveyquestionDescLabel.Validators[0].(func(string) error)
+	// surveyquestionDescQuestionType is the schema descriptor for question_type field.
+	surveyquestionDescQuestionType := surveyquestionFields[3].Descriptor()
+	// surveyquestion.QuestionTypeValidator is a validator for the "question_type" field. It is called by the builders before save.
+	surveyquestion.QuestionTypeValidator = surveyquestionDescQuestionType.Validators[0].(func(string) error)
+	// surveyquestionDescRequired is the schema descriptor for required field.
+	surveyquestionDescRequired := surveyquestionFields[4].Descriptor()
+	// surveyquestion.DefaultRequired holds the default value on creation for the required field.
+	surveyquestion.DefaultRequired = surveyquestionDescRequired.Default.(bool)
+	// surveyquestionDescMinValue is the schema descriptor for min_value field.
+	surveyquestionDescMinValue := surveyquestionFields[7].Descriptor()
+	// surveyquestion.DefaultMinValue holds the default value on creation for the min_value field.
+	surveyquestion.DefaultMinValue = surveyquestionDescMinValue.Default.(int)
+	// surveyquestionDescMaxValue is the schema descriptor for max_value field.
+	surveyquestionDescMaxValue := surveyquestionFields[8].Descriptor()
+	// surveyquestion.DefaultMaxValue holds the default value on creation for the max_value field.
+	surveyquestion.DefaultMaxValue = surveyquestionDescMaxValue.Default.(int)
+	// surveyquestionDescDisplayOrder is the schema descriptor for display_order field.
+	surveyquestionDescDisplayOrder := surveyquestionFields[9].Descriptor()
+	// surveyquestion.DefaultDisplayOrder holds the default value on creation for the display_order field.
+	surveyquestion.DefaultDisplayOrder = surveyquestionDescDisplayOrder.Default.(int)
 	teamMixin := schema.Team{}.Mixin()
 	teamMixinFields0 := teamMixin[0].Fields()
 	_ = teamMixinFields0
@@ -367,6 +488,41 @@ func init() {
 	teamDescName := teamFields[0].Descriptor()
 	// team.NameValidator is a validator for the "name" field. It is called by the builders before save.
 	team.NameValidator = teamDescName.Validators[0].(func(string) error)
+	templateMixin := schema.Template{}.Mixin()
+	templateMixinFields0 := templateMixin[0].Fields()
+	_ = templateMixinFields0
+	templateFields := schema.Template{}.Fields()
+	_ = templateFields
+	// templateDescCreatedAt is the schema descriptor for created_at field.
+	templateDescCreatedAt := templateMixinFields0[0].Descriptor()
+	// template.DefaultCreatedAt holds the default value on creation for the created_at field.
+	template.DefaultCreatedAt = templateDescCreatedAt.Default.(func() time.Time)
+	// templateDescUpdatedAt is the schema descriptor for updated_at field.
+	templateDescUpdatedAt := templateMixinFields0[1].Descriptor()
+	// template.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	template.DefaultUpdatedAt = templateDescUpdatedAt.Default.(func() time.Time)
+	// template.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	template.UpdateDefaultUpdatedAt = templateDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// templateDescName is the schema descriptor for name field.
+	templateDescName := templateFields[0].Descriptor()
+	// template.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	template.NameValidator = templateDescName.Validators[0].(func(string) error)
+	// templateDescKind is the schema descriptor for kind field.
+	templateDescKind := templateFields[2].Descriptor()
+	// template.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	template.KindValidator = templateDescKind.Validators[0].(func(string) error)
+	// templateDescDefinition is the schema descriptor for definition field.
+	templateDescDefinition := templateFields[3].Descriptor()
+	// template.DefinitionValidator is a validator for the "definition" field. It is called by the builders before save.
+	template.DefinitionValidator = templateDescDefinition.Validators[0].(func(string) error)
+	// templateDescSurveyEnabled is the schema descriptor for survey_enabled field.
+	templateDescSurveyEnabled := templateFields[7].Descriptor()
+	// template.DefaultSurveyEnabled holds the default value on creation for the survey_enabled field.
+	template.DefaultSurveyEnabled = templateDescSurveyEnabled.Default.(bool)
+	// templateDescAllowSimultaneous is the schema descriptor for allow_simultaneous field.
+	templateDescAllowSimultaneous := templateFields[8].Descriptor()
+	// template.DefaultAllowSimultaneous holds the default value on creation for the allow_simultaneous field.
+	template.DefaultAllowSimultaneous = templateDescAllowSimultaneous.Default.(bool)
 	userMixin := schema.User{}.Mixin()
 	userMixinFields0 := userMixin[0].Fields()
 	_ = userMixinFields0

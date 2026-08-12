@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -190,12 +191,12 @@ func TestUI_UnauthenticatedIsRedirectedToLogin(t *testing.T) {
 	h := startHarness(t)
 	client := uiClient(t)
 
-	status, _, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	status, _, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if status != http.StatusSeeOther {
-		t.Errorf("unauthenticated GET /ui/inventories = %d, want 303", status)
+		t.Errorf("unauthenticated GET /ui/devices = %d, want 303", status)
 	}
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, h.baseURL+"/ui/inventories", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, h.baseURL+"/ui/devices", nil)
 	if err != nil {
 		t.Fatalf("building the fragment request: %v", err)
 	}
@@ -219,9 +220,9 @@ func TestUI_ListsRealDevicesFromPostgres(t *testing.T) {
 	h := startHarness(t)
 	client := h.signIn(t, adminID())
 
-	status, body, headers := uiGet(t, client, h.baseURL+"/ui/inventories")
+	status, body, headers := uiGet(t, client, h.baseURL+"/ui/devices")
 	if status != http.StatusOK {
-		t.Fatalf("GET /ui/inventories = %d, want 200", status)
+		t.Fatalf("GET /ui/devices = %d, want 200", status)
 	}
 	if ct := headers.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("Content-Type = %q, want text/html", ct)
@@ -257,12 +258,12 @@ func TestUI_WriteWithoutCSRFChangesNothing(t *testing.T) {
 
 	const probe = "csrf-probe-device"
 
-	resp, err := client.PostForm(h.baseURL+"/ui/inventories", url.Values{
+	resp, err := client.PostForm(h.baseURL+"/ui/devices", url.Values{
 		"name": {probe},
 		"type": {"linux_server"},
 	})
 	if err != nil {
-		t.Fatalf("POST /ui/inventories: %v", err)
+		t.Fatalf("POST /ui/devices: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -277,7 +278,7 @@ func TestUI_WriteWithoutCSRFChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("counting devices: %v", err)
 	}
-	status, body, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	status, body, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if status == http.StatusOK && strings.Contains(body, probe) {
 		t.Errorf("a CSRF-rejected request created %q anyway (%d devices in the database)", probe, count)
 	}
@@ -292,8 +293,8 @@ func TestUI_FullCRUDRoundTrip(t *testing.T) {
 	const name = "e2e-crud-device"
 
 	// Create, with the token read off the rendered form.
-	_, formPage, _ := uiGet(t, client, h.baseURL+"/ui/inventories/new")
-	resp, err := client.PostForm(h.baseURL+"/ui/inventories", url.Values{
+	_, formPage, _ := uiGet(t, client, h.baseURL+"/ui/devices/new")
+	resp, err := client.PostForm(h.baseURL+"/ui/devices", url.Values{
 		"name":  {name},
 		"type":  {"linux_server"},
 		"tags":  {"e2e, crud"},
@@ -308,12 +309,12 @@ func TestUI_FullCRUDRoundTrip(t *testing.T) {
 	}
 
 	// Read: the list contains it, and so does its detail page.
-	_, list, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	_, list, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if !strings.Contains(list, name) {
 		t.Fatalf("the list does not contain the device just created")
 	}
 
-	status, detail, _ := uiGet(t, client, h.baseURL+"/ui/inventories/"+name)
+	status, detail, _ := uiGet(t, client, h.baseURL+"/ui/devices/"+name)
 	if status != http.StatusOK {
 		t.Fatalf("GET detail = %d, want 200", status)
 	}
@@ -325,7 +326,7 @@ func TestUI_FullCRUDRoundTrip(t *testing.T) {
 	// every Revision is immutable by schema, so a real delete would destroy
 	// the audit trail the schema exists to protect.
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
-		h.baseURL+"/ui/inventories/"+name,
+		h.baseURL+"/ui/devices/"+name,
 		strings.NewReader("_method=DELETE&_csrf="+url.QueryEscape(csrfTokenFrom(t, detail))))
 	if err != nil {
 		t.Fatalf("building the delete request: %v", err)
@@ -344,7 +345,7 @@ func TestUI_FullCRUDRoundTrip(t *testing.T) {
 	// And the affordance is gone: an archived device offers no delete to
 	// anyone, however broadly scoped, because retirement is idempotent and
 	// following the link again would change nothing with no error to say so.
-	_, afterDelete, _ := uiGet(t, client, h.baseURL+"/ui/inventories/"+name)
+	_, afterDelete, _ := uiGet(t, client, h.baseURL+"/ui/devices/"+name)
 	if strings.Contains(afterDelete, `data-dialog-open="confirm-delete"`) {
 		t.Error("an archived device still offers a delete control")
 	}
@@ -358,25 +359,25 @@ func TestUI_ViewerAndAdminSeeDifferentControls(t *testing.T) {
 	admin := h.signIn(t, adminID())
 	viewer := h.signIn(t, viewerID())
 
-	_, adminList, _ := uiGet(t, admin, h.baseURL+"/ui/inventories")
-	if !strings.Contains(adminList, `href="/ui/inventories/new"`) {
+	_, adminList, _ := uiGet(t, admin, h.baseURL+"/ui/devices")
+	if !strings.Contains(adminList, `href="/ui/devices/new"`) {
 		t.Fatal("admin is offered no create control, so this test could not detect its " +
 			"absence for a viewer")
 	}
 
-	status, viewerList, _ := uiGet(t, viewer, h.baseURL+"/ui/inventories")
+	status, viewerList, _ := uiGet(t, viewer, h.baseURL+"/ui/devices")
 	if status != http.StatusOK {
-		t.Fatalf("viewer GET /ui/inventories = %d, want 200", status)
+		t.Fatalf("viewer GET /ui/devices = %d, want 200", status)
 	}
-	if strings.Contains(viewerList, `href="/ui/inventories/new"`) {
+	if strings.Contains(viewerList, `href="/ui/devices/new"`) {
 		t.Error("a viewer is offered a create control")
 	}
 
 	// And the route itself refuses, not only the button. A UI that hid the
 	// control while the endpoint stayed open would be security by CSS.
-	writeStatus, _, _ := uiGet(t, viewer, h.baseURL+"/ui/inventories/new")
+	writeStatus, _, _ := uiGet(t, viewer, h.baseURL+"/ui/devices/new")
 	if writeStatus != http.StatusForbidden {
-		t.Errorf("viewer GET /ui/inventories/new = %d, want 403", writeStatus)
+		t.Errorf("viewer GET /ui/devices/new = %d, want 403", writeStatus)
 	}
 }
 
@@ -396,7 +397,7 @@ func TestUI_SessionCookieWorksAcrossControllers(t *testing.T) {
 	second := &harness{dsn: h.dsn, natsURL: h.natsURL, runbookDir: h.runbookDir}
 	second.startController(t)
 
-	status, body, _ := uiGet(t, client, second.baseURL+"/ui/inventories")
+	status, body, _ := uiGet(t, client, second.baseURL+"/ui/devices")
 	if status != http.StatusOK {
 		t.Fatalf("a cookie minted against controller A returned %d from controller B, want 200.\n"+
 			"A session that does not cross processes would force Sticky Session, which is "+
@@ -419,7 +420,7 @@ func TestUI_LogStreamAuthenticatesWithTheCookieAlone(t *testing.T) {
 	client := h.signIn(t, adminID())
 
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
-	status, body := h.dispatch(t, issuer.BearerToken(t, adminID()), targetGroup, harnessRunbookID)
+	status, body := h.launch(t, issuer.BearerToken(t, adminID()))
 	if status != http.StatusAccepted {
 		t.Fatalf("dispatch = %d, want 202\n%s", status, body)
 	}
@@ -482,7 +483,7 @@ func TestUI_ChartServesRealAggregates(t *testing.T) {
 	client := h.signIn(t, adminID())
 
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
-	if status, body := h.dispatch(t, issuer.BearerToken(t, adminID()), targetGroup, harnessRunbookID); status != http.StatusAccepted {
+	if status, body := h.launch(t, issuer.BearerToken(t, adminID())); status != http.StatusAccepted {
 		t.Fatalf("dispatch = %d, want 202\n%s", status, body)
 	}
 
@@ -541,7 +542,7 @@ func TestUI_StaticAssetsAreContentHashedAndImmutable(t *testing.T) {
 	h := startHarness(t)
 	client := h.signIn(t, adminID())
 
-	_, page, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	_, page, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 
 	const marker = `href="/ui/static/`
 	idx := strings.Index(page, marker)
@@ -580,7 +581,7 @@ func TestUI_LogoutRevokesImmediately(t *testing.T) {
 	h := startHarness(t)
 	client := h.signIn(t, adminID())
 
-	_, page, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	_, page, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if !strings.Contains(page, "Sign out") {
 		t.Fatal("the chrome offers no sign-out control")
 	}
@@ -598,8 +599,127 @@ func TestUI_LogoutRevokesImmediately(t *testing.T) {
 
 	// The row is deleted rather than flagged, so the credential stops
 	// working everywhere at once rather than when some cache notices.
-	status, _, _ := uiGet(t, client, h.baseURL+"/ui/inventories")
+	status, _, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if status != http.StatusSeeOther {
-		t.Errorf("after logout, GET /ui/inventories = %d, want a redirect to login", status)
+		t.Errorf("after logout, GET /ui/devices = %d, want a redirect to login", status)
 	}
+}
+
+// TestUI_ActivityStreamRecordsWhatTheWebUIDid drives a create, an edit and
+// a delete through the real web UI against the real controller binary and
+// real PostgreSQL, and asserts each one left a line in the activity stream
+// naming the subject that made it.
+//
+// The surface matters more than the assertion. These writes reach
+// internal/access directly and pass through no JSON API handler at all, so
+// a recording call placed in a handler would have covered the API, left
+// this path silent, and looked complete in every test that exercised the
+// covered one. The recording lives in a store decorator wrapped once at the
+// composition root precisely so both surfaces are covered by construction,
+// and this is the test that proves the uncovered-looking one is not.
+func TestUI_ActivityStreamRecordsWhatTheWebUIDid(t *testing.T) {
+	h := startHarness(t)
+	client := h.signIn(t, adminID())
+
+	const name = "e2e-activity-org"
+	const renamed = name + "-renamed"
+
+	// Create.
+	_, formPage, _ := uiGet(t, client, h.baseURL+"/ui/organizations/new")
+	resp, err := client.PostForm(h.baseURL+"/ui/organizations", url.Values{
+		"name":  {name},
+		"_csrf": {csrfTokenFrom(t, formPage)},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create = %d, want 303", resp.StatusCode)
+	}
+
+	id := organizationIDNamed(t, client, h.baseURL, name)
+
+	// Edit.
+	_, editPage, _ := uiGet(t, client, h.baseURL+"/ui/organizations/"+id+"/edit")
+	editResp, err := client.PostForm(h.baseURL+"/ui/organizations/"+id, url.Values{
+		"name":    {renamed},
+		"_method": {"PATCH"},
+		"_csrf":   {csrfTokenFrom(t, editPage)},
+	})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	_ = editResp.Body.Close()
+	if editResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("edit = %d, want 303", editResp.StatusCode)
+	}
+
+	// Delete.
+	_, detail, _ := uiGet(t, client, h.baseURL+"/ui/organizations/"+id)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		h.baseURL+"/ui/organizations/"+id,
+		strings.NewReader("_method=DELETE&_csrf="+url.QueryEscape(csrfTokenFrom(t, detail))))
+	if err != nil {
+		t.Fatalf("building the delete request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	deleteResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	_ = deleteResp.Body.Close()
+	if deleteResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete = %d, want 303", deleteResp.StatusCode)
+	}
+
+	// Now read the stream back, through the UI, as an operator would.
+	status, stream, _ := uiGet(t, client, h.baseURL+"/ui/activity")
+	if status != http.StatusOK {
+		t.Fatalf("GET /ui/activity = %d, want 200", status)
+	}
+
+	for _, want := range []string{
+		adminID().Subject + " created organization " + name,
+		adminID().Subject + " updated organization " + renamed,
+		adminID().Subject + " deleted organization " + renamed,
+	} {
+		if !strings.Contains(stream, want) {
+			t.Errorf("the activity stream does not record %q", want)
+		}
+	}
+
+	// The deletion entry survives the object it describes, which is the
+	// whole reason the entry carries a captured name and a bare id rather
+	// than a foreign key: a cascade would have destroyed exactly the record
+	// somebody investigating the deletion needs.
+	if strings.Contains(stream, "organization "+id+" (deleted)") {
+		t.Error("the deletion entry lost the name the organization had when it was deleted")
+	}
+}
+
+// organizationIDNamed finds the id of the organization named name.
+//
+// It reads it off the row's own detail link rather than guessing at a
+// sequence value: the database chooses ids, and a test that assumed 1 would
+// pass or fail depending on what ran before it.
+func organizationIDNamed(t *testing.T, client *http.Client, baseURL, name string) string {
+	t.Helper()
+
+	_, list, _ := uiGet(t, client, baseURL+"/ui/organizations")
+	href := regexp.MustCompile(`href="/ui/organizations/(\d+)"`)
+
+	// The link text is "Open", not the record name, so the row is the unit
+	// that has to be matched: find the row carrying the name, then take the
+	// link inside it.
+	for _, row := range strings.Split(list, "<tr") {
+		if !strings.Contains(row, name) {
+			continue
+		}
+		if m := href.FindStringSubmatch(row); m != nil {
+			return m[1]
+		}
+	}
+	t.Fatalf("no organization named %q appears in the list", name)
+	return ""
 }

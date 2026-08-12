@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
 // Inventory is the model entity for the Inventory schema.
@@ -27,11 +26,12 @@ type Inventory struct {
 	Name string `json:"name,omitempty"`
 	// Description holds the value of the "description" field.
 	Description string `json:"description,omitempty"`
+	// Owner holds the value of the "owner" field.
+	Owner string `json:"owner,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the InventoryQuery when eager-loading is set.
 	Edges                    InventoryEdges `json:"edges"`
 	organization_inventories *int
-	user_owned_inventories   *int
 	selectValues             sql.SelectValues
 }
 
@@ -39,12 +39,12 @@ type Inventory struct {
 type InventoryEdges struct {
 	// Organization holds the value of the organization edge.
 	Organization *Organization `json:"organization,omitempty"`
-	// Owner holds the value of the owner edge.
-	Owner *User `json:"owner,omitempty"`
 	// Groups holds the value of the groups edge.
 	Groups []*Group `json:"groups,omitempty"`
 	// Devices holds the value of the devices edge.
 	Devices []*Device `json:"devices,omitempty"`
+	// Templates holds the value of the templates edge.
+	Templates []*Template `json:"templates,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [4]bool
@@ -61,21 +61,10 @@ func (e InventoryEdges) OrganizationOrErr() (*Organization, error) {
 	return nil, &NotLoadedError{edge: "organization"}
 }
 
-// OwnerOrErr returns the Owner value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e InventoryEdges) OwnerOrErr() (*User, error) {
-	if e.Owner != nil {
-		return e.Owner, nil
-	} else if e.loadedTypes[1] {
-		return nil, &NotFoundError{label: user.Label}
-	}
-	return nil, &NotLoadedError{edge: "owner"}
-}
-
 // GroupsOrErr returns the Groups value or an error if the edge
 // was not loaded in eager-loading.
 func (e InventoryEdges) GroupsOrErr() ([]*Group, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[1] {
 		return e.Groups, nil
 	}
 	return nil, &NotLoadedError{edge: "groups"}
@@ -84,10 +73,19 @@ func (e InventoryEdges) GroupsOrErr() ([]*Group, error) {
 // DevicesOrErr returns the Devices value or an error if the edge
 // was not loaded in eager-loading.
 func (e InventoryEdges) DevicesOrErr() ([]*Device, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[2] {
 		return e.Devices, nil
 	}
 	return nil, &NotLoadedError{edge: "devices"}
+}
+
+// TemplatesOrErr returns the Templates value or an error if the edge
+// was not loaded in eager-loading.
+func (e InventoryEdges) TemplatesOrErr() ([]*Template, error) {
+	if e.loadedTypes[3] {
+		return e.Templates, nil
+	}
+	return nil, &NotLoadedError{edge: "templates"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -97,13 +95,11 @@ func (*Inventory) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case inventory.FieldID:
 			values[i] = new(sql.NullInt64)
-		case inventory.FieldName, inventory.FieldDescription:
+		case inventory.FieldName, inventory.FieldDescription, inventory.FieldOwner:
 			values[i] = new(sql.NullString)
 		case inventory.FieldCreatedAt, inventory.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
 		case inventory.ForeignKeys[0]: // organization_inventories
-			values[i] = new(sql.NullInt64)
-		case inventory.ForeignKeys[1]: // user_owned_inventories
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -150,19 +146,18 @@ func (_m *Inventory) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Description = value.String
 			}
+		case inventory.FieldOwner:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field owner", values[i])
+			} else if value.Valid {
+				_m.Owner = value.String
+			}
 		case inventory.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field organization_inventories", value)
 			} else if value.Valid {
 				_m.organization_inventories = new(int)
 				*_m.organization_inventories = int(value.Int64)
-			}
-		case inventory.ForeignKeys[1]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field user_owned_inventories", value)
-			} else if value.Valid {
-				_m.user_owned_inventories = new(int)
-				*_m.user_owned_inventories = int(value.Int64)
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -182,11 +177,6 @@ func (_m *Inventory) QueryOrganization() *OrganizationQuery {
 	return NewInventoryClient(_m.config).QueryOrganization(_m)
 }
 
-// QueryOwner queries the "owner" edge of the Inventory entity.
-func (_m *Inventory) QueryOwner() *UserQuery {
-	return NewInventoryClient(_m.config).QueryOwner(_m)
-}
-
 // QueryGroups queries the "groups" edge of the Inventory entity.
 func (_m *Inventory) QueryGroups() *GroupQuery {
 	return NewInventoryClient(_m.config).QueryGroups(_m)
@@ -195,6 +185,11 @@ func (_m *Inventory) QueryGroups() *GroupQuery {
 // QueryDevices queries the "devices" edge of the Inventory entity.
 func (_m *Inventory) QueryDevices() *DeviceQuery {
 	return NewInventoryClient(_m.config).QueryDevices(_m)
+}
+
+// QueryTemplates queries the "templates" edge of the Inventory entity.
+func (_m *Inventory) QueryTemplates() *TemplateQuery {
+	return NewInventoryClient(_m.config).QueryTemplates(_m)
 }
 
 // Update returns a builder for updating this Inventory.
@@ -231,6 +226,9 @@ func (_m *Inventory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("description=")
 	builder.WriteString(_m.Description)
+	builder.WriteString(", ")
+	builder.WriteString("owner=")
+	builder.WriteString(_m.Owner)
 	builder.WriteByte(')')
 	return builder.String()
 }

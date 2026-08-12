@@ -255,6 +255,21 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(job.FieldUpdatedAt, field.TypeTime, value)
 	}
+	if _u.mutation.InventoryIDCleared() {
+		_spec.ClearField(job.FieldInventoryID, field.TypeInt)
+	}
+	if _u.mutation.TemplateIDCleared() {
+		_spec.ClearField(job.FieldTemplateID, field.TypeInt)
+	}
+	if _u.mutation.TemplateNameCleared() {
+		_spec.ClearField(job.FieldTemplateName, field.TypeString)
+	}
+	if _u.mutation.LaunchConfigIDCleared() {
+		_spec.ClearField(job.FieldLaunchConfigID, field.TypeInt)
+	}
+	if _u.mutation.KindCleared() {
+		_spec.ClearField(job.FieldKind, field.TypeString)
+	}
 	if _u.mutation.OrganizationIDCleared() {
 		_spec.ClearField(job.FieldOrganizationID, field.TypeInt)
 	}
@@ -611,6 +626,21 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(job.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.InventoryIDCleared() {
+		_spec.ClearField(job.FieldInventoryID, field.TypeInt)
+	}
+	if _u.mutation.TemplateIDCleared() {
+		_spec.ClearField(job.FieldTemplateID, field.TypeInt)
+	}
+	if _u.mutation.TemplateNameCleared() {
+		_spec.ClearField(job.FieldTemplateName, field.TypeString)
+	}
+	if _u.mutation.LaunchConfigIDCleared() {
+		_spec.ClearField(job.FieldLaunchConfigID, field.TypeInt)
+	}
+	if _u.mutation.KindCleared() {
+		_spec.ClearField(job.FieldKind, field.TypeString)
 	}
 	if _u.mutation.OrganizationIDCleared() {
 		_spec.ClearField(job.FieldOrganizationID, field.TypeInt)

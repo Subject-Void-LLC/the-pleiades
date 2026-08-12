@@ -105,7 +105,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Descriptor: d,
 		Rows:       page.Rows,
 		NextCursor: page.NextCursor,
+		// Rebuilt from the parsed values rather than echoed from
+		// r.URL.RequestURI(), so a refresh carries the reader's narrowing
+		// without reflecting whatever else was in the query string back
+		// into an attribute.
+		RefreshURL: h.refreshURL(r, d, limit),
 		Aff:        h.affordances(r.Context(), identityFrom(r.Context()), d),
+		// Empty parent: a collection page's sections hang off the
+		// collection, not off any row of it.
+		Sections: h.loadSections(r, d, ""),
 	}
 
 	// The chart's table equivalent is rendered server-side rather than
@@ -126,6 +134,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Same URL, same read, same model: only the amount of surrounding page
+	// differs. Content negotiation rather than a second route is what keeps
+	// the promise that adding a view adds no routing.
+	if wantsFragment(r) {
+		if err := render.ListFragment(model).Render(r.Context(), w); err != nil {
+			h.serverError(w, r, "render list fragment", err)
+		}
+		return
+	}
 	if err := render.List(model).Render(r.Context(), w); err != nil {
 		h.serverError(w, r, "render list", err)
 	}
@@ -213,6 +230,173 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// lookupAction resolves the {action} path parameter against the descriptor
+// and enforces the action's own scope.
+//
+// The scope comes from the endpoint the action names, exactly as it does
+// for every CRUD operation, so an action is never gated by something the
+// UI invented -- and an action nobody declared is a 404 rather than a
+// route that falls through to something else.
+func (h *Handler) lookupAction(w http.ResponseWriter, r *http.Request) (view.Descriptor, view.RecordAction, bool) {
+	d, ok := h.resourceOf(r)
+	if !ok {
+		h.notFound(w, r)
+		return view.Descriptor{}, view.RecordAction{}, false
+	}
+	if !d.Implemented() {
+		h.renderDeclared(w, r, d)
+		return view.Descriptor{}, view.RecordAction{}, false
+	}
+
+	name := chi.URLParam(r, "action")
+	for _, a := range d.Actions {
+		if a.Name != name {
+			continue
+		}
+		if !h.permits(r.Context(), identityFrom(r.Context()), a.Endpoint.Scope) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return view.Descriptor{}, view.RecordAction{}, false
+		}
+		return d, a, true
+	}
+
+	h.notFound(w, r)
+	return view.Descriptor{}, view.RecordAction{}, false
+}
+
+// actionForm renders an action's prompt, or runs it straight away when it
+// has nothing to prompt for.
+func (h *Handler) actionForm(w http.ResponseWriter, r *http.Request) {
+	d, action, ok := h.lookupAction(w, r)
+	if !ok {
+		return
+	}
+	if !action.Prompts() {
+		// An action with no prompt is still a state change, so it must not
+		// happen on a GET. Redirect to the record and let the rendered
+		// button post; a GET that ran a job is one a link prefetcher or a
+		// corporate scanner would eventually run for somebody.
+		h.redirect(w, r, resourcePath(h.cfg.Prefix, d.Name, chi.URLParam(r, "id")))
+		return
+	}
+	id := chi.URLParam(r, "id")
+	fields, ok := h.actionFields(w, r, d, action, id)
+	if !ok {
+		return
+	}
+	h.renderAction(w, r, d, action, id, fields, map[string]string{}, view.FieldErrors{}, http.StatusOK)
+}
+
+// actionFields resolves an action's prompt for one record.
+//
+// A failure here fails the request rather than rendering an empty form. The
+// alternative is a launch form with no controls, which is not "this
+// template opens nothing" but "we could not find out", and the two must not
+// look the same when the button underneath runs production work.
+func (h *Handler) actionFields(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RecordAction, id string) ([]view.Field, bool) {
+
+	fields, err := action.ResolveFields(r.Context(), id)
+	if err != nil {
+		h.serverError(w, r, "resolve fields for "+d.Name+"/"+action.Name, err)
+		return nil, false
+	}
+	return fields, true
+}
+
+// renderAction resolves every select's options before rendering, so no
+// template performs I/O.
+func (h *Handler) renderAction(w http.ResponseWriter, r *http.Request, d view.Descriptor,
+	action view.RecordAction, id string, fields []view.Field, values map[string]string,
+	errs view.FieldErrors, status int) {
+
+	options := map[string][]view.Option{}
+	for _, f := range fields {
+		if !f.OffersChoices() || f.Options == nil {
+			continue
+		}
+		opts, err := f.Options(r.Context())
+		if err != nil {
+			h.serverError(w, r, "resolve options for "+f.Name, err)
+			return
+		}
+		options[f.Name] = opts
+	}
+
+	model := view.ActionModel{
+		Page:       h.page(r, d.Title, d.Name),
+		Descriptor: d,
+		Action:     action,
+		ID:         id,
+		Fields:     fields,
+		Values:     values,
+		Errors:     errs,
+		Options:    options,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if err := render.Action(model).Render(r.Context(), w); err != nil {
+		h.serverError(w, r, "render action", err)
+	}
+}
+
+// runAction performs a record action.
+func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
+	d, action, ok := h.lookupAction(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "malformed form submission", http.StatusBadRequest)
+		return
+	}
+
+	// Narrowed to this record's own prompt, so an action cannot be steered
+	// by a parameter it never asked for -- the same reason a create
+	// submission is narrowed to its resource's fields. For a launch that
+	// means the template's locked fields are refused rather than merely
+	// ignored: the form never offered them, so a submission carrying one
+	// was not produced by the form.
+	fields, ok := h.actionFields(w, r, d, action, id)
+	if !ok {
+		return
+	}
+
+	values, undeclared := view.NewValues(fields, r.PostForm)
+	if len(undeclared) > 0 {
+		http.Error(w, "submission contains fields this action does not declare", http.StatusBadRequest)
+		return
+	}
+
+	submitted := make(map[string]string, len(fields))
+	for _, f := range fields {
+		submitted[f.Name] = values.Get(f.Name)
+	}
+
+	if errs := view.Validate(r.Context(), fields, values); errs.Any() {
+		h.renderAction(w, r, d, action, id, fields, submitted, errs, http.StatusUnprocessableEntity)
+		return
+	}
+
+	redirect, errs, err := action.Submit(r.Context(), id, values)
+	if err != nil {
+		h.serverError(w, r, "run "+d.Name+"/"+action.Name, err)
+		return
+	}
+	if errs.Any() {
+		h.renderAction(w, r, d, action, id, fields, submitted, errs, http.StatusUnprocessableEntity)
+		return
+	}
+
+	if redirect == "" {
+		redirect = resourcePath(h.cfg.Prefix, d.Name, id)
+	}
+	h.redirect(w, r, redirect)
+}
+
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	d, ok := h.resolve(w, r, func(o view.Ops) *apispec.Endpoint { return o.Get })
 	if !ok {
@@ -234,12 +418,54 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		Descriptor: d,
 		Row:        row,
 		Aff:        h.affordances(r.Context(), identityFrom(r.Context()), d),
+		Sections:   h.loadSections(r, d, chi.URLParam(r, "id")),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if wantsFragment(r) {
+		if err := render.DetailFragment(model).Render(r.Context(), w); err != nil {
+			h.serverError(w, r, "render detail fragment", err)
+		}
+		return
+	}
 	if err := render.Detail(model).Render(r.Context(), w); err != nil {
 		h.serverError(w, r, "render detail", err)
 	}
+}
+
+// loadSections resolves every declared detail section before rendering.
+//
+// A section that fails to load is logged and rendered as its own empty
+// state rather than failing the page. The record's own fields are the
+// answer to "what is this", and losing them because a related table could
+// not be read would turn a partial outage into a total one -- on the page
+// somebody opened precisely because something is already wrong.
+func (h *Handler) loadSections(r *http.Request, d view.Descriptor, id string) []view.LoadedSection {
+	if len(d.Sections) == 0 {
+		return nil
+	}
+
+	out := make([]view.LoadedSection, 0, len(d.Sections))
+	for _, spec := range d.Sections {
+		if !spec.Implemented() {
+			// A declared section reaches no port, so there is nothing to
+			// load and nothing that could fail. It renders the same honest
+			// panel a declared view does.
+			out = append(out, view.LoadedSection{Spec: spec})
+			continue
+		}
+
+		rows, err := spec.Rows(r.Context(), id)
+		if err != nil {
+			h.cfg.Logger.ErrorContext(r.Context(), "failed to load detail section",
+				slog.String("resource", d.Name),
+				slog.String("section", spec.Title),
+				slog.String("error", err.Error()))
+			rows = nil
+		}
+		out = append(out, view.LoadedSection{Spec: spec, Rows: rows})
+	}
+	return out
 }
 
 func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +502,7 @@ func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, d view.Desc
 
 	options := map[string][]view.Option{}
 	for _, f := range d.FormFields() {
-		if f.Kind != view.KindSelect || f.Options == nil {
+		if !f.OffersChoices() || f.Options == nil {
 			continue
 		}
 		opts, err := f.Options(r.Context())
@@ -445,4 +671,35 @@ func (h *Handler) redirect(w http.ResponseWriter, r *http.Request, target string
 		return
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// refreshURL is where a live list re-requests itself.
+//
+// Built from the values this handler parsed rather than from the raw request
+// URI, for two reasons. A reflected query string is caller-controlled text
+// reaching an attribute, and templ escaping it is a mitigation rather than a
+// reason to put it there. And the parsed set is the honest one: a parameter
+// this handler ignored should not silently come back on every tick.
+//
+// The cursor is deliberately omitted. A reader who paged forward is looking
+// at a fixed window, and refreshing it in place would be the one behaviour
+// nobody wants: rows shifting under a cursor that was chosen to hold them
+// still.
+func (h *Handler) refreshURL(r *http.Request, d view.Descriptor, limit int) string {
+	base := path.Join(h.cfg.Prefix, d.Name)
+	if r.URL.Query().Get("after") != "" {
+		return ""
+	}
+
+	q := url.Values{}
+	if search := r.URL.Query().Get("q"); search != "" {
+		q.Set("q", search)
+	}
+	if limit != defaultPageSize {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if len(q) == 0 {
+		return base
+	}
+	return base + "?" + q.Encode()
 }

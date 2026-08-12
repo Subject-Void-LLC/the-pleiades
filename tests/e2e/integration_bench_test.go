@@ -49,7 +49,7 @@ func BenchmarkGrandIntegrationDispatch(b *testing.B) {
 	// Warm the path once outside the timed region, so the first iteration
 	// does not absorb connection setup and JetStream consumer creation
 	// that no later iteration pays.
-	status, body := h.dispatch(b, token, targetGroup, harnessRunbookID)
+	status, body := h.launch(b, token)
 	if status != http.StatusAccepted {
 		b.Fatalf("warmup dispatch returned %d, want 202. Body: %s", status, body)
 	}
@@ -57,7 +57,7 @@ func BenchmarkGrandIntegrationDispatch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		status, body := h.dispatch(b, token, targetGroup, harnessRunbookID)
+		status, body := h.launch(b, token)
 		if status != http.StatusAccepted {
 			b.Fatalf("dispatch returned %d, want 202. Body: %s", status, body)
 		}

@@ -62,19 +62,28 @@ Never set it in a deployment anyone else can reach.
 
 ## What each view does
 
-Six views are registered. A view that is not implemented says so on the page rather
-than rendering an empty table, because an empty table and an unimplemented view look
-identical to a reader — and the difference between "nothing has happened yet" and
-"this does not work" is exactly the one worth being told.
+Thirteen views are registered, grouped in the sidebar the way AWX groups its own, so
+an operator arriving from there finds things where they expect them. A view that is
+not implemented says so on the page rather than rendering an empty table, because an
+empty table and an unimplemented view look identical to a reader, and the difference
+between "nothing has happened yet" and "this does not work" is exactly the one worth
+being told.
 
-| View | State | What it does |
-|---|---|---|
-| Dashboard | Real | Job outcomes across the most recent 200 dispatches, as a chart and as an equivalent table. |
-| Inventories | Real | Create, read, update and retire devices. |
-| Jobs | Real | List and open jobs, dispatch a runbook, and watch a running job's live output. |
-| Runbooks | Real | Read-only catalog of what can be dispatched, with each runbook's required capabilities. |
-| Governance | Declared | Registered so the shape and navigation are real. Nothing backs it yet. |
-| Credentials | Declared | Unbuilt. |
+| Group | View | State | What it does |
+|---|---|---|---|
+| Views | Dashboard | Real | Job outcomes across the most recent 200 dispatches, as a chart and as an equivalent table, plus any live operator announcements. |
+| Views | Jobs | Real | List and open jobs, and watch a running job's live output. A job is launched from a Template, so this view has no launch form of its own. |
+| Views | Activity Stream | Real | Who changed which managed object, and when. Append-only: it offers no way to edit or remove what it says. |
+| Resources | Templates | Real | The saved definitions this platform launches: what to run, where, and how. Create, edit, copy, delete and launch, with the survey a launch is asked and the jobs it has run on the record itself. |
+| Resources | Credentials | Declared | Unbuilt. Note that it will not become a browsable catalog of credential names: see the absences below. |
+| Resources | Runbooks | Real | Read-only catalog of what can be dispatched, with each runbook's required capabilities. Its one action saves a runbook as a template rather than launching it. |
+| Resources | Inventories | Real | Create, read, update and delete the shareable device sets a dispatch targets. |
+| Resources | Devices | Real | Create, read, update and retire devices. |
+| Access | Organizations | Real | The tenancy boundary, its contacts and escalation information, and its ownership attestation. |
+| Access | Teams | Real | The principals roles are granted to, with the same ownership metadata an organization carries. |
+| Access | Users | Real | The identities a token's subject maps onto, and their team membership. |
+| Access | Access | Real | Every role binding in the deployment: who reaches what, and where each grant sits. |
+| Administration | Governance | Declared | Registered so the shape and navigation are real. Nothing backs it yet. |
 
 Three deliberate absences, each for a stated reason rather than for want of time:
 

@@ -11,10 +11,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // OrganizationCreate is the builder for creating a Organization entity.
@@ -55,6 +57,146 @@ func (_c *OrganizationCreate) SetNillableUpdatedAt(v *time.Time) *OrganizationCr
 // SetName sets the "name" field.
 func (_c *OrganizationCreate) SetName(v string) *OrganizationCreate {
 	_c.mutation.SetName(v)
+	return _c
+}
+
+// SetDescription sets the "description" field.
+func (_c *OrganizationCreate) SetDescription(v string) *OrganizationCreate {
+	_c.mutation.SetDescription(v)
+	return _c
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableDescription(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetDescription(*v)
+	}
+	return _c
+}
+
+// SetClassification sets the "classification" field.
+func (_c *OrganizationCreate) SetClassification(v string) *OrganizationCreate {
+	_c.mutation.SetClassification(v)
+	return _c
+}
+
+// SetNillableClassification sets the "classification" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableClassification(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetClassification(*v)
+	}
+	return _c
+}
+
+// SetChangeWindow sets the "change_window" field.
+func (_c *OrganizationCreate) SetChangeWindow(v string) *OrganizationCreate {
+	_c.mutation.SetChangeWindow(v)
+	return _c
+}
+
+// SetNillableChangeWindow sets the "change_window" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableChangeWindow(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetChangeWindow(*v)
+	}
+	return _c
+}
+
+// SetFrozen sets the "frozen" field.
+func (_c *OrganizationCreate) SetFrozen(v bool) *OrganizationCreate {
+	_c.mutation.SetFrozen(v)
+	return _c
+}
+
+// SetNillableFrozen sets the "frozen" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableFrozen(v *bool) *OrganizationCreate {
+	if v != nil {
+		_c.SetFrozen(*v)
+	}
+	return _c
+}
+
+// SetFreezeReason sets the "freeze_reason" field.
+func (_c *OrganizationCreate) SetFreezeReason(v string) *OrganizationCreate {
+	_c.mutation.SetFreezeReason(v)
+	return _c
+}
+
+// SetNillableFreezeReason sets the "freeze_reason" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableFreezeReason(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetFreezeReason(*v)
+	}
+	return _c
+}
+
+// SetCostCentre sets the "cost_centre" field.
+func (_c *OrganizationCreate) SetCostCentre(v string) *OrganizationCreate {
+	_c.mutation.SetCostCentre(v)
+	return _c
+}
+
+// SetNillableCostCentre sets the "cost_centre" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableCostCentre(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetCostCentre(*v)
+	}
+	return _c
+}
+
+// SetTicketKey sets the "ticket_key" field.
+func (_c *OrganizationCreate) SetTicketKey(v string) *OrganizationCreate {
+	_c.mutation.SetTicketKey(v)
+	return _c
+}
+
+// SetNillableTicketKey sets the "ticket_key" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableTicketKey(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetTicketKey(*v)
+	}
+	return _c
+}
+
+// SetCmdbID sets the "cmdb_id" field.
+func (_c *OrganizationCreate) SetCmdbID(v string) *OrganizationCreate {
+	_c.mutation.SetCmdbID(v)
+	return _c
+}
+
+// SetNillableCmdbID sets the "cmdb_id" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableCmdbID(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetCmdbID(*v)
+	}
+	return _c
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_c *OrganizationCreate) SetAttestedBy(v string) *OrganizationCreate {
+	_c.mutation.SetAttestedBy(v)
+	return _c
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableAttestedBy(v *string) *OrganizationCreate {
+	if v != nil {
+		_c.SetAttestedBy(*v)
+	}
+	return _c
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_c *OrganizationCreate) SetAttestedAt(v time.Time) *OrganizationCreate {
+	_c.mutation.SetAttestedAt(v)
+	return _c
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_c *OrganizationCreate) SetNillableAttestedAt(v *time.Time) *OrganizationCreate {
+	if v != nil {
+		_c.SetAttestedAt(*v)
+	}
 	return _c
 }
 
@@ -103,6 +245,21 @@ func (_c *OrganizationCreate) AddInventories(v ...*Inventory) *OrganizationCreat
 	return _c.AddInventoryIDs(ids...)
 }
 
+// AddTemplateIDs adds the "templates" edge to the Template entity by IDs.
+func (_c *OrganizationCreate) AddTemplateIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddTemplateIDs(ids...)
+	return _c
+}
+
+// AddTemplates adds the "templates" edges to the Template entity.
+func (_c *OrganizationCreate) AddTemplates(v ...*Template) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTemplateIDs(ids...)
+}
+
 // AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
 func (_c *OrganizationCreate) AddAnnouncementIDs(ids ...int) *OrganizationCreate {
 	_c.mutation.AddAnnouncementIDs(ids...)
@@ -116,6 +273,21 @@ func (_c *OrganizationCreate) AddAnnouncements(v ...*Announcement) *Organization
 		ids[i] = v[i].ID
 	}
 	return _c.AddAnnouncementIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_c *OrganizationCreate) AddContactIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddContactIDs(ids...)
+	return _c
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_c *OrganizationCreate) AddContacts(v ...*Contact) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddContactIDs(ids...)
 }
 
 // Mutation returns the OrganizationMutation object of the builder.
@@ -161,6 +333,10 @@ func (_c *OrganizationCreate) defaults() {
 		v := organization.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.Frozen(); !ok {
+		v := organization.DefaultFrozen
+		_c.mutation.SetFrozen(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -178,6 +354,9 @@ func (_c *OrganizationCreate) check() error {
 		if err := organization.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Organization.name": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.Frozen(); !ok {
+		return &ValidationError{Name: "frozen", err: errors.New(`ent: missing required field "Organization.frozen"`)}
 	}
 	return nil
 }
@@ -216,6 +395,46 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(organization.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.Description(); ok {
+		_spec.SetField(organization.FieldDescription, field.TypeString, value)
+		_node.Description = value
+	}
+	if value, ok := _c.mutation.Classification(); ok {
+		_spec.SetField(organization.FieldClassification, field.TypeString, value)
+		_node.Classification = value
+	}
+	if value, ok := _c.mutation.ChangeWindow(); ok {
+		_spec.SetField(organization.FieldChangeWindow, field.TypeString, value)
+		_node.ChangeWindow = value
+	}
+	if value, ok := _c.mutation.Frozen(); ok {
+		_spec.SetField(organization.FieldFrozen, field.TypeBool, value)
+		_node.Frozen = value
+	}
+	if value, ok := _c.mutation.FreezeReason(); ok {
+		_spec.SetField(organization.FieldFreezeReason, field.TypeString, value)
+		_node.FreezeReason = value
+	}
+	if value, ok := _c.mutation.CostCentre(); ok {
+		_spec.SetField(organization.FieldCostCentre, field.TypeString, value)
+		_node.CostCentre = value
+	}
+	if value, ok := _c.mutation.TicketKey(); ok {
+		_spec.SetField(organization.FieldTicketKey, field.TypeString, value)
+		_node.TicketKey = value
+	}
+	if value, ok := _c.mutation.CmdbID(); ok {
+		_spec.SetField(organization.FieldCmdbID, field.TypeString, value)
+		_node.CmdbID = value
+	}
+	if value, ok := _c.mutation.AttestedBy(); ok {
+		_spec.SetField(organization.FieldAttestedBy, field.TypeString, value)
+		_node.AttestedBy = value
+	}
+	if value, ok := _c.mutation.AttestedAt(); ok {
+		_spec.SetField(organization.FieldAttestedAt, field.TypeTime, value)
+		_node.AttestedAt = &value
 	}
 	if nodes := _c.mutation.DevicesIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -265,6 +484,22 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.TemplatesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.AnnouncementsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -274,6 +509,22 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

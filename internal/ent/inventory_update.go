@@ -16,7 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // InventoryUpdate is the builder for updating Inventory entities.
@@ -83,25 +83,6 @@ func (_u *InventoryUpdate) SetOrganization(v *Organization) *InventoryUpdate {
 	return _u.SetOrganizationID(v.ID)
 }
 
-// SetOwnerID sets the "owner" edge to the User entity by ID.
-func (_u *InventoryUpdate) SetOwnerID(id int) *InventoryUpdate {
-	_u.mutation.SetOwnerID(id)
-	return _u
-}
-
-// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
-func (_u *InventoryUpdate) SetNillableOwnerID(id *int) *InventoryUpdate {
-	if id != nil {
-		_u = _u.SetOwnerID(*id)
-	}
-	return _u
-}
-
-// SetOwner sets the "owner" edge to the User entity.
-func (_u *InventoryUpdate) SetOwner(v *User) *InventoryUpdate {
-	return _u.SetOwnerID(v.ID)
-}
-
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *InventoryUpdate) AddGroupIDs(ids ...int) *InventoryUpdate {
 	_u.mutation.AddGroupIDs(ids...)
@@ -132,6 +113,21 @@ func (_u *InventoryUpdate) AddDevices(v ...*Device) *InventoryUpdate {
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddTemplateIDs adds the "templates" edge to the Template entity by IDs.
+func (_u *InventoryUpdate) AddTemplateIDs(ids ...int) *InventoryUpdate {
+	_u.mutation.AddTemplateIDs(ids...)
+	return _u
+}
+
+// AddTemplates adds the "templates" edges to the Template entity.
+func (_u *InventoryUpdate) AddTemplates(v ...*Template) *InventoryUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTemplateIDs(ids...)
+}
+
 // Mutation returns the InventoryMutation object of the builder.
 func (_u *InventoryUpdate) Mutation() *InventoryMutation {
 	return _u.mutation
@@ -140,12 +136,6 @@ func (_u *InventoryUpdate) Mutation() *InventoryMutation {
 // ClearOrganization clears the "organization" edge to the Organization entity.
 func (_u *InventoryUpdate) ClearOrganization() *InventoryUpdate {
 	_u.mutation.ClearOrganization()
-	return _u
-}
-
-// ClearOwner clears the "owner" edge to the User entity.
-func (_u *InventoryUpdate) ClearOwner() *InventoryUpdate {
-	_u.mutation.ClearOwner()
 	return _u
 }
 
@@ -189,6 +179,27 @@ func (_u *InventoryUpdate) RemoveDevices(v ...*Device) *InventoryUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearTemplates clears all "templates" edges to the Template entity.
+func (_u *InventoryUpdate) ClearTemplates() *InventoryUpdate {
+	_u.mutation.ClearTemplates()
+	return _u
+}
+
+// RemoveTemplateIDs removes the "templates" edge to Template entities by IDs.
+func (_u *InventoryUpdate) RemoveTemplateIDs(ids ...int) *InventoryUpdate {
+	_u.mutation.RemoveTemplateIDs(ids...)
+	return _u
+}
+
+// RemoveTemplates removes "templates" edges to Template entities.
+func (_u *InventoryUpdate) RemoveTemplates(v ...*Template) *InventoryUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTemplateIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -264,6 +275,9 @@ func (_u *InventoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(inventory.FieldDescription, field.TypeString)
 	}
+	if _u.mutation.OwnerCleared() {
+		_spec.ClearField(inventory.FieldOwner, field.TypeString)
+	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -286,35 +300,6 @@ func (_u *InventoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.OwnerCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   inventory.OwnerTable,
-			Columns: []string{inventory.OwnerColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnerIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   inventory.OwnerTable,
-			Columns: []string{inventory.OwnerColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -412,6 +397,51 @@ func (_u *InventoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTemplatesIDs(); len(nodes) > 0 && !_u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TemplatesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{inventory.Label}
@@ -483,25 +513,6 @@ func (_u *InventoryUpdateOne) SetOrganization(v *Organization) *InventoryUpdateO
 	return _u.SetOrganizationID(v.ID)
 }
 
-// SetOwnerID sets the "owner" edge to the User entity by ID.
-func (_u *InventoryUpdateOne) SetOwnerID(id int) *InventoryUpdateOne {
-	_u.mutation.SetOwnerID(id)
-	return _u
-}
-
-// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
-func (_u *InventoryUpdateOne) SetNillableOwnerID(id *int) *InventoryUpdateOne {
-	if id != nil {
-		_u = _u.SetOwnerID(*id)
-	}
-	return _u
-}
-
-// SetOwner sets the "owner" edge to the User entity.
-func (_u *InventoryUpdateOne) SetOwner(v *User) *InventoryUpdateOne {
-	return _u.SetOwnerID(v.ID)
-}
-
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *InventoryUpdateOne) AddGroupIDs(ids ...int) *InventoryUpdateOne {
 	_u.mutation.AddGroupIDs(ids...)
@@ -532,6 +543,21 @@ func (_u *InventoryUpdateOne) AddDevices(v ...*Device) *InventoryUpdateOne {
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddTemplateIDs adds the "templates" edge to the Template entity by IDs.
+func (_u *InventoryUpdateOne) AddTemplateIDs(ids ...int) *InventoryUpdateOne {
+	_u.mutation.AddTemplateIDs(ids...)
+	return _u
+}
+
+// AddTemplates adds the "templates" edges to the Template entity.
+func (_u *InventoryUpdateOne) AddTemplates(v ...*Template) *InventoryUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTemplateIDs(ids...)
+}
+
 // Mutation returns the InventoryMutation object of the builder.
 func (_u *InventoryUpdateOne) Mutation() *InventoryMutation {
 	return _u.mutation
@@ -540,12 +566,6 @@ func (_u *InventoryUpdateOne) Mutation() *InventoryMutation {
 // ClearOrganization clears the "organization" edge to the Organization entity.
 func (_u *InventoryUpdateOne) ClearOrganization() *InventoryUpdateOne {
 	_u.mutation.ClearOrganization()
-	return _u
-}
-
-// ClearOwner clears the "owner" edge to the User entity.
-func (_u *InventoryUpdateOne) ClearOwner() *InventoryUpdateOne {
-	_u.mutation.ClearOwner()
 	return _u
 }
 
@@ -589,6 +609,27 @@ func (_u *InventoryUpdateOne) RemoveDevices(v ...*Device) *InventoryUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearTemplates clears all "templates" edges to the Template entity.
+func (_u *InventoryUpdateOne) ClearTemplates() *InventoryUpdateOne {
+	_u.mutation.ClearTemplates()
+	return _u
+}
+
+// RemoveTemplateIDs removes the "templates" edge to Template entities by IDs.
+func (_u *InventoryUpdateOne) RemoveTemplateIDs(ids ...int) *InventoryUpdateOne {
+	_u.mutation.RemoveTemplateIDs(ids...)
+	return _u
+}
+
+// RemoveTemplates removes "templates" edges to Template entities.
+func (_u *InventoryUpdateOne) RemoveTemplates(v ...*Template) *InventoryUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTemplateIDs(ids...)
 }
 
 // Where appends a list predicates to the InventoryUpdate builder.
@@ -694,6 +735,9 @@ func (_u *InventoryUpdateOne) sqlSave(ctx context.Context) (_node *Inventory, er
 	if _u.mutation.DescriptionCleared() {
 		_spec.ClearField(inventory.FieldDescription, field.TypeString)
 	}
+	if _u.mutation.OwnerCleared() {
+		_spec.ClearField(inventory.FieldOwner, field.TypeString)
+	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -716,35 +760,6 @@ func (_u *InventoryUpdateOne) sqlSave(ctx context.Context) (_node *Inventory, er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(organization.FieldID, field.TypeInt),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.OwnerCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   inventory.OwnerTable,
-			Columns: []string{inventory.OwnerColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnerIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
-			Table:   inventory.OwnerTable,
-			Columns: []string{inventory.OwnerColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -835,6 +850,51 @@ func (_u *InventoryUpdateOne) sqlSave(ctx context.Context) (_node *Inventory, er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTemplatesIDs(); len(nodes) > 0 && !_u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TemplatesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   inventory.TemplatesTable,
+			Columns: []string{inventory.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

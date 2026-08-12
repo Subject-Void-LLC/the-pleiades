@@ -22,8 +22,6 @@ const (
 	FieldEmail = "email"
 	// EdgeTeams holds the string denoting the teams edge name in mutations.
 	EdgeTeams = "teams"
-	// EdgeOwnedInventories holds the string denoting the owned_inventories edge name in mutations.
-	EdgeOwnedInventories = "owned_inventories"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// TeamsTable is the table that holds the teams relation/edge. The primary key declared below.
@@ -31,13 +29,6 @@ const (
 	// TeamsInverseTable is the table name for the Team entity.
 	// It exists in this package in order to avoid circular dependency with the "team" package.
 	TeamsInverseTable = "teams"
-	// OwnedInventoriesTable is the table that holds the owned_inventories relation/edge.
-	OwnedInventoriesTable = "inventories"
-	// OwnedInventoriesInverseTable is the table name for the Inventory entity.
-	// It exists in this package in order to avoid circular dependency with the "inventory" package.
-	OwnedInventoriesInverseTable = "inventories"
-	// OwnedInventoriesColumn is the table column denoting the owned_inventories relation/edge.
-	OwnedInventoriesColumn = "user_owned_inventories"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -111,31 +102,10 @@ func ByTeams(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTeamsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
-
-// ByOwnedInventoriesCount orders the results by owned_inventories count.
-func ByOwnedInventoriesCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newOwnedInventoriesStep(), opts...)
-	}
-}
-
-// ByOwnedInventories orders the results by owned_inventories terms.
-func ByOwnedInventories(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newOwnedInventoriesStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
 func newTeamsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TeamsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, TeamsTable, TeamsPrimaryKey...),
-	)
-}
-func newOwnedInventoriesStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(OwnedInventoriesInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, OwnedInventoriesTable, OwnedInventoriesColumn),
 	)
 }

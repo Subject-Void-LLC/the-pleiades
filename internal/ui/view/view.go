@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -104,6 +105,27 @@ func (o Ops) Candidates() []auth.Affordance {
 	return out
 }
 
+// Candidates is every affordance this descriptor could offer: its CRUD
+// operations and its record actions together.
+//
+// Actions have to be here rather than only in Ops, and the reason is worth
+// recording because the omission was invisible. An action carries its own
+// endpoint with its own relation and scope; the permitted set a template
+// consults is keyed by relation; so an action whose relation never entered
+// the candidate set could never be permitted, and its control never
+// rendered. The button was not refused, it simply did not exist, on every
+// page, for every caller, with no error anywhere.
+func (d Descriptor) Candidates() []auth.Affordance {
+	out := d.Ops.Candidates()
+	for _, a := range d.Actions {
+		if a.Endpoint == nil {
+			continue
+		}
+		out = append(out, auth.Affordance{Rel: a.Endpoint.Rel, Scope: a.Endpoint.Scope})
+	}
+	return out
+}
+
 // ChartBucket is one categorical measurement: a label, a count, and the
 // badge class that colours both the chart segment and the table row.
 //
@@ -160,6 +182,167 @@ type ChartSpec struct {
 	Data func(context.Context) (ChartData, error)
 }
 
+// Section is a table of related records rendered beneath a page's own
+// content: under a record's fields on a detail page, and under the chart on
+// a collection page.
+//
+// It exists because the interesting part of some records is not their own
+// columns but what they contain. A job's own row says three dispatched and
+// one failed; the question an operator actually has is *which* device
+// failed and why, and that answer is already in hand -- dispatch.JobStore's
+// Get returns every JobTask alongside the Job -- but nothing rendered it.
+//
+// It reuses Field and Row rather than introducing a second table
+// vocabulary, so a section inherits the column rendering, the badge class
+// validation and the mobile card layout that the main list already has. A
+// resource author declares one and gets all of that; the shared template
+// grew one loop.
+type Section struct {
+	// Title is the section's heading. It is required, because a table
+	// appearing under a record with no heading gives a reader no way to
+	// know what they are looking at.
+	Title string
+
+	// Summary is an optional line under the heading.
+	Summary string
+
+	// Status is whether this section is backed by anything real, mirroring
+	// Descriptor.Status and defaulting the same way: empty reads as
+	// declared.
+	//
+	// It exists because a section can be honest about a gap its parent view
+	// cannot. A template's Notifications section has no backing entity
+	// until the Notification Engine phase, and rendering it as an empty
+	// table would say "no notification policies are configured", which is
+	// indistinguishable from a working section with no records and is the
+	// ambiguity this project has shipped twice. A declared section renders
+	// the same panel a declared view does, and its Rows are never called.
+	Status Status
+
+	// Fields are this section's columns, declared exactly like a
+	// resource's own. Only InList matters here; a section has no form.
+	Fields []Field
+
+	// Rows loads the related records.
+	//
+	// parentID is the record the section hangs off, or empty on a
+	// collection page -- the dashboard's operator notices belong to the
+	// dashboard itself, not to any row of it. A section that only makes
+	// sense under a record should ignore an empty parent and return
+	// nothing rather than every record in the system.
+	//
+	// It returns rows already erased, because a section is presentation
+	// rather than a resource of its own: there is no page beneath it, no
+	// create form, and nothing that would need the domain type back. A
+	// section that genuinely needed those is a resource, and should be
+	// registered as one.
+	Rows func(ctx context.Context, parentID string) ([]Row, error)
+
+	// Empty is what renders when there are none. It is required for the
+	// same reason StatusDeclared exists: an empty table and a thing that
+	// has not happened yet look identical, and "no devices have reported
+	// yet" and "this job dispatched to nothing" are very different facts
+	// about a job somebody is investigating.
+	//
+	// A declared section uses it as the panel's own sentence: what will be
+	// here, and what owns it.
+	Empty string
+}
+
+// Implemented reports whether this section reaches a real port, the same
+// question Descriptor.Implemented answers and defaulted the same way.
+func (s Section) Implemented() bool { return s.Status == StatusImplemented }
+
+// RecordAction is a named operation offered on one record, beyond create,
+// read, update and delete.
+//
+// CRUD does not describe what an automation control plane actually does to
+// a record. You launch a runbook, cancel a job, resync an inventory,
+// relaunch a failed run -- none of which is an edit, and all of which AWX
+// and Spacelift put on the record itself rather than on a collection form.
+// Dispatching is the first one: you run *this* runbook, so the control
+// belongs where the runbook is, not on a "new job" form that would ask an
+// operator to retype an id they just came from a page listing.
+//
+// An action may prompt or not. With no Fields it is a button that posts
+// straight through; with Fields it renders the same shared, validated,
+// accessible form every other write uses. That is deliberately the smallest
+// thing that works: Phase 21's Launchable owns the real prompting matrix --
+// survey specs, saved configurations, ignored-field contracts -- and this
+// is the seam it will land in rather than a competing design.
+type RecordAction struct {
+	// Name is the URL segment: /{resource}/{id}/{name}. It must not
+	// collide with the fixed segments the route table already owns.
+	Name string
+
+	// Label is the button text. "Run", not "New".
+	Label string
+
+	// Endpoint carries the scope and relation this action is gated on,
+	// exactly as Ops does, so an action button and a JSON _links entry are
+	// still the same value evaluated by the same chain.
+	Endpoint *apispec.Endpoint
+
+	// Heading is the form's own title when the action prompts.
+	Heading string
+
+	// Fields prompt before the action runs. Empty means no prompt.
+	Fields []Field
+
+	// FieldsFor resolves the prompt for one particular record, when the
+	// controls differ from record to record. Nil means Fields is the whole
+	// prompt for every record.
+	//
+	// It exists because a launch form is not the same form twice. A
+	// template declares which of its fields a launch may override, and
+	// every other one is locked to what the template was saved with, so a
+	// form built from a static list would render controls that are then
+	// reported as ignored -- an affordance that does nothing, which is the
+	// shape this repository has shipped and recorded before. The fields a
+	// record actually opens are a property of that record, so they are
+	// resolved from it.
+	//
+	// The resolved set is what the submission is narrowed to and validated
+	// against, not just what is drawn, so a caller cannot post a control
+	// the form did not offer them.
+	FieldsFor func(ctx context.Context, id string) ([]Field, error)
+
+	// Submit performs the action and returns where to send the caller
+	// afterwards. A FieldErrors result redisplays the form with the
+	// message attached to the control that caused it, exactly as a create
+	// does, so a mistyped value is not answered with an error page.
+	Submit func(ctx context.Context, id string, v Values) (redirect string, errs FieldErrors, err error)
+}
+
+// Prompts reports whether this action renders a form before running.
+//
+// An action resolving its fields per record prompts by definition, even
+// when a particular record opens nothing: the resulting form is a
+// confirmation, which is the right answer for something that launches
+// production work, and the alternative would be deciding whether to prompt
+// before knowing which record was being acted on.
+func (a RecordAction) Prompts() bool { return len(a.Fields) > 0 || a.FieldsFor != nil }
+
+// ResolveFields returns the prompt for one record: the per-record set when
+// this action declares one, and the static set otherwise.
+func (a RecordAction) ResolveFields(ctx context.Context, id string) ([]Field, error) {
+	if a.FieldsFor == nil {
+		return a.Fields, nil
+	}
+	return a.FieldsFor(ctx, id)
+}
+
+// reservedRecordSegments are the path segments the fixed route table
+// already owns beneath a record. An action may not take one of these: chi
+// resolves a static segment before a parameter, so the action would
+// register cleanly and then never be reachable -- the silent failure this
+// check exists to convert into a refusal at startup.
+var reservedRecordSegments = map[string]bool{
+	"edit": true,
+	"logs": true,
+	"new":  true,
+}
+
 // StreamSpec declares that a resource's records have a live event stream.
 //
 // It is a declaration rather than a handler because the route table is
@@ -180,6 +363,48 @@ type StreamSpec struct {
 	// happens once, here, in code that is tested once.
 	PathPattern string
 }
+
+// RefreshSpec declares that a view's content changes on its own while
+// somebody is looking at it, so the page should keep itself current.
+//
+// This is what makes the control plane usable while work is actually
+// running. A fan-out to five hundred devices records its outcomes over
+// seconds or minutes, and without this a reader watching it has a page that
+// froze at the instant they opened it, with no indication that it had. The
+// honest alternatives are worse: a manual reload button asks somebody
+// supervising a production change to poll by hand, and a full-page auto
+// reload throws away their scroll position and their focus every few
+// seconds.
+//
+// The refresh is a fragment swap of the region that changed, requested from
+// the same URL the page came from. There is no new route and no new
+// endpoint: the handler content-negotiates on the request header HTMX sets,
+// so a resource declaring a refresh adds exactly this struct and nothing
+// else.
+type RefreshSpec struct {
+	// Interval is how often the region re-requests itself.
+	//
+	// Validated to at least one second. A sub-second poll from every open
+	// tab is a denial of service a deployment aims at itself, and the
+	// figures being watched here do not change faster than a person reads
+	// them.
+	Interval time.Duration
+
+	// Active decides, per record, whether the refresh is still worth making.
+	// Nil means always, which is right for a collection: a new job can
+	// appear at any time.
+	//
+	// The stopping mechanism is worth stating because it is not obvious.
+	// The swap replaces the region including its own attributes, so a
+	// fragment rendered while Active reports false simply carries no
+	// trigger, and the polling ends there. Nothing has to remember to
+	// cancel a timer, and a record that reaches a terminal state stops
+	// costing requests the moment its last refresh lands.
+	Active func(Row) bool
+}
+
+// minRefreshInterval is the fastest a view may ask to be refreshed.
+const minRefreshInterval = time.Second
 
 // idToken is what StreamSpec.PathPattern must contain and what a record's
 // escaped identifier replaces.
@@ -205,6 +430,10 @@ type Descriptor struct {
 	// snapshot is an unordered map and a nav that reshuffles between
 	// page loads is a nav nobody can build muscle memory for.
 	NavOrder int
+
+	// NavGroup is the sidebar heading this view is listed under. The empty
+	// group renders first, with no heading.
+	NavGroup NavGroup
 
 	// Summary is one line rendered under the heading.
 	Summary string
@@ -232,6 +461,21 @@ type Descriptor struct {
 	// a live event stream, which is what makes /{resource}/{id}/logs
 	// resolve for this resource and 404 for every other one.
 	Stream *StreamSpec
+
+	// Sections are tables of related records: a job's per-device outcomes
+	// on its detail page, the operator notices on the dashboard. They are
+	// read-only and rendered by the same shared template as everything
+	// else, on both the collection page and the record page.
+	// Refresh declares that this view keeps itself current while somebody
+	// is watching it. Nil means the page is a snapshot, which is right for
+	// anything that only changes when a person changes it.
+	Refresh *RefreshSpec
+
+	Sections []Section
+
+	// Actions are named operations offered on one record beyond CRUD:
+	// running a runbook, and later cancelling or relaunching a job.
+	Actions []RecordAction
 
 	// Applies optionally withdraws an affordance for one particular
 	// record -- an archived device offers no delete to anyone, however
@@ -284,7 +528,12 @@ func (d Descriptor) PrimaryField() Field {
 	return Field{}
 }
 
-func (f Field) listed() bool { return f.InList }
+// listed reports whether a field appears as a column.
+//
+// A password field never does, whatever it declares. The kind exists so a
+// value is not shown, and honouring InList for it would make one forgotten
+// flag enough to print a secret into a table.
+func (f Field) listed() bool { return f.InList && f.Kind != KindPassword }
 
 func filterFields(fields []Field, keep func(Field) bool) []Field {
 	out := make([]Field, 0, len(fields))
@@ -334,16 +583,28 @@ func Register(d Descriptor) error {
 		// A nav entry with no text is a link with no accessible name.
 		return fmt.Errorf("view %q has no nav label", d.Name)
 	}
-	if err := validateFields(d.Fields, d.IDField); err != nil {
+	if err := validateFields(d.Fields); err != nil {
 		return fmt.Errorf("view %q %s", d.Name, err)
 	}
-	if err := validateOps(d.Name, d.Ops); err != nil {
+	if err := validateOps(d.Name, d.Ops, d.Actions); err != nil {
 		return err
 	}
 	if err := validateChart(d.Name, d.Chart); err != nil {
 		return err
 	}
+	if err := validateNavGroup(d.Name, d.NavGroup); err != nil {
+		return err
+	}
+	if err := validateRefresh(d.Name, d.Refresh); err != nil {
+		return err
+	}
 	if err := validateStream(d.Name, d.Stream); err != nil {
+		return err
+	}
+	if err := validateSections(d.Name, d.Sections); err != nil {
+		return err
+	}
+	if err := validateActions(d.Name, d.Actions); err != nil {
 		return err
 	}
 
@@ -359,6 +620,8 @@ func Register(d Descriptor) error {
 	// declared status exists to remove.
 	case !d.Implemented() && d.Chart != nil:
 		return fmt.Errorf("view %q is declared but carries a chart", d.Name)
+	case !d.Implemented() && d.Refresh != nil:
+		return fmt.Errorf("view %q is declared but carries a refresh", d.Name)
 	case !d.Implemented() && d.Stream != nil:
 		return fmt.Errorf("view %q is declared but carries a stream", d.Name)
 
@@ -371,9 +634,10 @@ func Register(d Descriptor) error {
 
 	// A row's detail link is built from the IDField's value, so a view
 	// that renders rows without naming one would link every record to the
-	// same empty path.
-	case d.ListsRecords() && d.IDField == "":
-		return fmt.Errorf("view %q lists records but names no id field", d.Name)
+	// same empty path -- and one naming a field it never produces would
+	// link every record to a 404.
+	case d.ListsRecords() && validateIdentity(d.Fields, d.IDField) != nil:
+		return fmt.Errorf("view %q lists records but %s", d.Name, validateIdentity(d.Fields, d.IDField))
 
 	// A view that neither lists nor reads a record has no way to be
 	// reached at all. A summary view is legitimate -- the dashboard is
@@ -412,6 +676,80 @@ func validateChart(name string, chart *ChartSpec) error {
 	return nil
 }
 
+// validateSections refuses a section that would render as an unlabelled or
+// unexplained table.
+func validateSections(name string, sections []Section) error {
+	titles := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		switch {
+		case strings.TrimSpace(s.Title) == "":
+			// An unheaded table under a record tells a reader nothing
+			// about what they are looking at.
+			return fmt.Errorf("view %q has a detail section with no title", name)
+		case titles[s.Title]:
+			// Two sections sharing a heading make the page ambiguous and
+			// would collide on the element id the heading is referenced by.
+			return fmt.Errorf("view %q declares the detail section %q twice", name, s.Title)
+		case s.Implemented() && s.Rows == nil:
+			return fmt.Errorf("view %q detail section %q has no Rows function", name, s.Title)
+		case !s.Implemented() && s.Rows != nil:
+			// The same contradiction Register refuses on a Descriptor: a
+			// section that says it is not implemented while loading live
+			// rows is exactly the ambiguity the declared status removes.
+			return fmt.Errorf("view %q detail section %q is declared but carries a Rows function", name, s.Title)
+		case strings.TrimSpace(s.Empty) == "":
+			// "Nothing here yet" and "nothing was ever attempted" look
+			// identical as a blank table, and on a job under investigation
+			// they are very different facts.
+			return fmt.Errorf("view %q detail section %q has no empty-state text", name, s.Title)
+		}
+		titles[s.Title] = true
+
+		if err := validateFields(s.Fields); err != nil {
+			return fmt.Errorf("view %q detail section %q %s", name, s.Title, err)
+		}
+	}
+	return nil
+}
+
+// validateActions refuses an action that could not be reached or could not
+// be gated.
+func validateActions(name string, actions []RecordAction) error {
+	seen := make(map[string]bool, len(actions))
+	for _, a := range actions {
+		switch {
+		case !namePattern.MatchString(a.Name):
+			return fmt.Errorf("view %q action name %q must match %s", name, a.Name, namePattern)
+		case reservedRecordSegments[a.Name]:
+			// chi resolves a static segment before a parameter, so this
+			// action would register cleanly and never be reachable. Better
+			// a refusal at startup than a button that silently opens the
+			// edit form.
+			return fmt.Errorf("view %q action %q collides with a reserved path segment", name, a.Name)
+		case seen[a.Name]:
+			return fmt.Errorf("view %q declares action %q twice", name, a.Name)
+		case strings.TrimSpace(a.Label) == "":
+			// A button with no text has no accessible name.
+			return fmt.Errorf("view %q action %q has no label", name, a.Name)
+		case a.Endpoint == nil:
+			// Without an endpoint there is no scope to enforce and no
+			// relation to gate the control on, so the button would render
+			// for everybody and the route would be unguarded.
+			return fmt.Errorf("view %q action %q names no endpoint, so nothing gates it", name, a.Name)
+		case a.Submit == nil:
+			return fmt.Errorf("view %q action %q has no Submit function", name, a.Name)
+		case a.Prompts() && strings.TrimSpace(a.Heading) == "":
+			return fmt.Errorf("view %q action %q prompts but has no heading", name, a.Name)
+		}
+		seen[a.Name] = true
+
+		if err := validateFields(a.Fields); err != nil {
+			return fmt.Errorf("view %q action %q %s", name, a.Name, err)
+		}
+	}
+	return nil
+}
+
 // validateStream refuses a stream declaration that could not produce a
 // usable URL.
 func validateStream(name string, stream *StreamSpec) error {
@@ -440,14 +778,25 @@ func validateStream(name string, stream *StreamSpec) error {
 
 // validateOps checks that every endpoint a view names is one the API
 // really declares, and that the view's relations are unambiguous.
-func validateOps(name string, ops Ops) error {
+func validateOps(name string, ops Ops, actions []RecordAction) error {
 	known := make(map[string]apispec.Endpoint, len(apispec.Endpoints))
 	for _, e := range apispec.Endpoints {
 		known[e.Name] = e
 	}
 
-	seenRel := make(map[auth.LinkRel]string, 5)
-	for _, e := range ops.all() {
+	// Operations and actions share one relation namespace, because
+	// Affordances is keyed by relation and a template asks Can(rel). Two
+	// entries sharing a relation would make permitting either permit both,
+	// which on an action means offering an operation nobody granted.
+	endpoints := ops.all()
+	for _, a := range actions {
+		if a.Endpoint != nil {
+			endpoints = append(endpoints, a.Endpoint)
+		}
+	}
+
+	seenRel := make(map[auth.LinkRel]string, len(endpoints))
+	for _, e := range endpoints {
 		declared, ok := known[e.Name]
 		if !ok {
 			return fmt.Errorf("view %q names endpoint %q, which is not in apispec.Endpoints", name, e.Name)
@@ -469,6 +818,41 @@ func validateOps(name string, ops Ops) error {
 			return fmt.Errorf("view %q uses relation %q for both %s and %s", name, e.Rel, prev, e.Name)
 		}
 		seenRel[e.Rel] = e.Name
+	}
+	return nil
+}
+
+// CheckReferences verifies that every field declaring References names a
+// view that is actually registered.
+//
+// It is a separate call rather than part of Register because a cross-view
+// reference cannot be validated at registration time: registration order is
+// map iteration, so the target may legitimately not exist yet when the
+// referencing view registers. Running it once after every view is in turns
+// a dangling reference into a startup refusal instead of a link that 404s
+// the first time somebody clicks it.
+//
+// It reports every problem it finds rather than the first, because fixing
+// them one restart at a time is how a six-line mistake takes six restarts.
+func CheckReferences() error {
+	var problems []string
+	for _, name := range Names() {
+		d, ok := Lookup(name)
+		if !ok {
+			continue
+		}
+		for _, f := range d.Fields {
+			if !f.Referencing() {
+				continue
+			}
+			if _, exists := Lookup(f.References); !exists {
+				problems = append(problems, fmt.Sprintf(
+					"view %q field %q references view %q, which is not registered", name, f.Name, f.References))
+			}
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("view references are broken:\n  %s", strings.Join(problems, "\n  "))
 	}
 	return nil
 }
@@ -510,4 +894,21 @@ func Nav() []Descriptor {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// validateRefresh rejects a refresh nothing could honour.
+//
+// The interval floor is the only real rule here, and it is a fail-fast for a
+// mistake with no other symptom: a resource declaring a 100ms refresh works
+// perfectly in a one-tab test and quietly multiplies every open tab by ten
+// requests a second against the same handler that renders the page.
+func validateRefresh(name string, spec *RefreshSpec) error {
+	if spec == nil {
+		return nil
+	}
+	if spec.Interval < minRefreshInterval {
+		return fmt.Errorf("view %q declares a refresh interval of %s, below the %s minimum",
+			name, spec.Interval, minRefreshInterval)
+	}
+	return nil
 }

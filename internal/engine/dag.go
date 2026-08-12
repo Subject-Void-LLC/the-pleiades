@@ -60,6 +60,37 @@ type Metadata struct {
 	// directly, so no caller has to re-derive the nil-means-true rule
 	// itself.
 	Interruptible *bool `json:"interruptible,omitempty" yaml:"interruptible,omitempty"`
+
+	// Description is a sentence or two about what this runbook does, for a
+	// reader browsing the catalog who has not opened the file. There is no
+	// Ansible play-level equivalent, which is why it lives here rather
+	// than at the top level: Metadata is where Pleiades-specific
+	// workflow-level concerns land.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Category is the single bucket this runbook is filed under, for
+	// grouping a catalog that has grown past the point of being one flat
+	// list ("patching", "compliance", "network"). Single rather than a
+	// list, because a thing filed in three places is a thing nobody can
+	// find twice in a row; use Labels for the many-to-many axis.
+	Category string `json:"category,omitempty" yaml:"category,omitempty"`
+
+	// Labels are free-form markers for filtering the catalog.
+	//
+	// Called labels rather than tags, deliberately, and this is the one
+	// naming decision here worth defending. Ansible already has tags:, and
+	// it means something specific and different -- which tasks --tags and
+	// --skip-tags select at run time. Pleiades aims to be a strict
+	// superset of Ansible playbooks, so that meaning is reserved, and
+	// spending the word on catalog filtering would make a future
+	// implementation of real Ansible tags either impossible or
+	// gratuitously incompatible.
+	//
+	// AWX made exactly this distinction already and it is worth copying
+	// rather than re-deriving: an AWX Job Template has Labels for
+	// organizing and filtering, while tags remain Ansible's task selector.
+	// Same two concepts, same two words, no collision.
+	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty"`
 }
 
 // IsInterruptible reports whether m's runbook is safe to self-abort,
@@ -83,6 +114,17 @@ func (m Metadata) IsInterruptible() bool {
 // unusual but pretasks/posttasks-only plays exist.
 type WorkflowDef struct {
 	ID string `json:"id" yaml:"id"`
+
+	// Name is this runbook's human title, exactly like an Ansible play's
+	// own name:. It sits at the top level rather than under Metadata
+	// precisely because Ansible puts it there: a play lifted unchanged
+	// into this platform keeps its name, which is the whole migration
+	// on-ramp this format exists to offer.
+	//
+	// Empty means the catalog falls back to ID, so a runbook that never
+	// sets one is displayed by the identifier it is dispatched by rather
+	// than by a blank row.
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
 
 	// Hosts names this runbook's default target, exactly like an Ansible
 	// play's own hosts:: a device name or an inventory tag string, resolved
@@ -255,6 +297,12 @@ type Task struct {
 type DAG struct {
 	ID       string
 	Metadata Metadata
+
+	// Name is def.Name, carried through unchanged so a compiled runbook
+	// keeps the title its file gave it. The catalog reads it from here
+	// rather than re-parsing the source, which is what stops a listing and
+	// a run disagreeing about which runbook this is.
+	Name string
 
 	// Hosts is def.Hosts, carried through unchanged from the WorkflowDef
 	// this DAG was compiled from. See WorkflowDef.Hosts for the
@@ -472,6 +520,7 @@ func (b *Builder) buildFromDef(def WorkflowDef, baseDir string) (*DAG, error) {
 
 	dag := &DAG{
 		ID:         def.ID,
+		Name:       def.Name,
 		Version:    version,
 		Metadata:   def.Metadata,
 		Hosts:      def.Hosts,

@@ -43,6 +43,18 @@ func (Inventory) Fields() []ent.Field {
 		// is what enforces it.
 		field.String("name").NotEmpty(),
 		field.String("description").Optional(),
+		// owner is the subject that created this inventory, captured once
+		// and never resolved live.
+		//
+		// A plain immutable string rather than an edge to User, matching
+		// Job.actor and Announcement.author for the same reason: this is a
+		// historical fact about who lent a set of devices out, and joining
+		// it live would let a deleted account silently blank the
+		// attribution on a share that is still in force. It records
+		// authorship, never authority -- a grant lives on a Team's
+		// RoleBinding (PLAN.md Section 18.2), so owning an inventory
+		// confers no permission over it.
+		field.String("owner").Optional().Immutable(),
 	}
 }
 
@@ -59,15 +71,6 @@ func (Inventory) Edges() []ent.Edge {
 			Unique().
 			Required(),
 
-		// The creator, kept because sharing is something a person does and
-		// an audit trail of "who lent this out" is worth having. It is
-		// optional and carries no permission of its own: a grant lives on a
-		// Team's RoleBinding, never on a User directly (PLAN.md Section
-		// 18.2), so this records authorship rather than authority.
-		edge.From("owner", User.Type).
-			Ref("owned_inventories").
-			Unique(),
-
 		// Groups this inventory contains. Many-to-many, because a group can
 		// legitimately appear in more than one inventory -- "database
 		// servers" belongs in both the DBA team's inventory and the
@@ -78,6 +81,12 @@ func (Inventory) Edges() []ent.Edge {
 		// Devices attached directly, with no intervening group, which is
 		// the "ungrouped hosts" case every real inventory eventually has.
 		edge.To("devices", Device.Type),
+
+		// The templates that dispatch against this inventory. Not
+		// cascaded: an inventory an operator is trying to delete while
+		// templates still name it is a refusal worth reading, not a silent
+		// removal of the things that run against it.
+		edge.To("templates", Template.Type),
 	}
 }
 

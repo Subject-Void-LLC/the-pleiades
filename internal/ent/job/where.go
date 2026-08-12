@@ -80,6 +80,31 @@ func GroupName(v string) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldGroupName, v))
 }
 
+// InventoryID applies equality check predicate on the "inventory_id" field. It's identical to InventoryIDEQ.
+func InventoryID(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldInventoryID, v))
+}
+
+// TemplateID applies equality check predicate on the "template_id" field. It's identical to TemplateIDEQ.
+func TemplateID(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldTemplateID, v))
+}
+
+// TemplateName applies equality check predicate on the "template_name" field. It's identical to TemplateNameEQ.
+func TemplateName(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldTemplateName, v))
+}
+
+// LaunchConfigID applies equality check predicate on the "launch_config_id" field. It's identical to LaunchConfigIDEQ.
+func LaunchConfigID(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldLaunchConfigID, v))
+}
+
+// Kind applies equality check predicate on the "kind" field. It's identical to KindEQ.
+func Kind(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldKind, v))
+}
+
 // Actor applies equality check predicate on the "actor" field. It's identical to ActorEQ.
 func Actor(v string) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldActor, v))
@@ -388,6 +413,306 @@ func GroupNameEqualFold(v string) predicate.Job {
 // GroupNameContainsFold applies the ContainsFold predicate on the "group_name" field.
 func GroupNameContainsFold(v string) predicate.Job {
 	return predicate.Job(sql.FieldContainsFold(FieldGroupName, v))
+}
+
+// InventoryIDEQ applies the EQ predicate on the "inventory_id" field.
+func InventoryIDEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldInventoryID, v))
+}
+
+// InventoryIDNEQ applies the NEQ predicate on the "inventory_id" field.
+func InventoryIDNEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldInventoryID, v))
+}
+
+// InventoryIDIn applies the In predicate on the "inventory_id" field.
+func InventoryIDIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldInventoryID, vs...))
+}
+
+// InventoryIDNotIn applies the NotIn predicate on the "inventory_id" field.
+func InventoryIDNotIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldInventoryID, vs...))
+}
+
+// InventoryIDGT applies the GT predicate on the "inventory_id" field.
+func InventoryIDGT(v int) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldInventoryID, v))
+}
+
+// InventoryIDGTE applies the GTE predicate on the "inventory_id" field.
+func InventoryIDGTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldInventoryID, v))
+}
+
+// InventoryIDLT applies the LT predicate on the "inventory_id" field.
+func InventoryIDLT(v int) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldInventoryID, v))
+}
+
+// InventoryIDLTE applies the LTE predicate on the "inventory_id" field.
+func InventoryIDLTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldInventoryID, v))
+}
+
+// InventoryIDIsNil applies the IsNil predicate on the "inventory_id" field.
+func InventoryIDIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldInventoryID))
+}
+
+// InventoryIDNotNil applies the NotNil predicate on the "inventory_id" field.
+func InventoryIDNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldInventoryID))
+}
+
+// TemplateIDEQ applies the EQ predicate on the "template_id" field.
+func TemplateIDEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldTemplateID, v))
+}
+
+// TemplateIDNEQ applies the NEQ predicate on the "template_id" field.
+func TemplateIDNEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldTemplateID, v))
+}
+
+// TemplateIDIn applies the In predicate on the "template_id" field.
+func TemplateIDIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldTemplateID, vs...))
+}
+
+// TemplateIDNotIn applies the NotIn predicate on the "template_id" field.
+func TemplateIDNotIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldTemplateID, vs...))
+}
+
+// TemplateIDGT applies the GT predicate on the "template_id" field.
+func TemplateIDGT(v int) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldTemplateID, v))
+}
+
+// TemplateIDGTE applies the GTE predicate on the "template_id" field.
+func TemplateIDGTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldTemplateID, v))
+}
+
+// TemplateIDLT applies the LT predicate on the "template_id" field.
+func TemplateIDLT(v int) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldTemplateID, v))
+}
+
+// TemplateIDLTE applies the LTE predicate on the "template_id" field.
+func TemplateIDLTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldTemplateID, v))
+}
+
+// TemplateIDIsNil applies the IsNil predicate on the "template_id" field.
+func TemplateIDIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldTemplateID))
+}
+
+// TemplateIDNotNil applies the NotNil predicate on the "template_id" field.
+func TemplateIDNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldTemplateID))
+}
+
+// TemplateNameEQ applies the EQ predicate on the "template_name" field.
+func TemplateNameEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldTemplateName, v))
+}
+
+// TemplateNameNEQ applies the NEQ predicate on the "template_name" field.
+func TemplateNameNEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldTemplateName, v))
+}
+
+// TemplateNameIn applies the In predicate on the "template_name" field.
+func TemplateNameIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldTemplateName, vs...))
+}
+
+// TemplateNameNotIn applies the NotIn predicate on the "template_name" field.
+func TemplateNameNotIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldTemplateName, vs...))
+}
+
+// TemplateNameGT applies the GT predicate on the "template_name" field.
+func TemplateNameGT(v string) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldTemplateName, v))
+}
+
+// TemplateNameGTE applies the GTE predicate on the "template_name" field.
+func TemplateNameGTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldTemplateName, v))
+}
+
+// TemplateNameLT applies the LT predicate on the "template_name" field.
+func TemplateNameLT(v string) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldTemplateName, v))
+}
+
+// TemplateNameLTE applies the LTE predicate on the "template_name" field.
+func TemplateNameLTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldTemplateName, v))
+}
+
+// TemplateNameContains applies the Contains predicate on the "template_name" field.
+func TemplateNameContains(v string) predicate.Job {
+	return predicate.Job(sql.FieldContains(FieldTemplateName, v))
+}
+
+// TemplateNameHasPrefix applies the HasPrefix predicate on the "template_name" field.
+func TemplateNameHasPrefix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasPrefix(FieldTemplateName, v))
+}
+
+// TemplateNameHasSuffix applies the HasSuffix predicate on the "template_name" field.
+func TemplateNameHasSuffix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasSuffix(FieldTemplateName, v))
+}
+
+// TemplateNameIsNil applies the IsNil predicate on the "template_name" field.
+func TemplateNameIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldTemplateName))
+}
+
+// TemplateNameNotNil applies the NotNil predicate on the "template_name" field.
+func TemplateNameNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldTemplateName))
+}
+
+// TemplateNameEqualFold applies the EqualFold predicate on the "template_name" field.
+func TemplateNameEqualFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldEqualFold(FieldTemplateName, v))
+}
+
+// TemplateNameContainsFold applies the ContainsFold predicate on the "template_name" field.
+func TemplateNameContainsFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldContainsFold(FieldTemplateName, v))
+}
+
+// LaunchConfigIDEQ applies the EQ predicate on the "launch_config_id" field.
+func LaunchConfigIDEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDNEQ applies the NEQ predicate on the "launch_config_id" field.
+func LaunchConfigIDNEQ(v int) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDIn applies the In predicate on the "launch_config_id" field.
+func LaunchConfigIDIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldLaunchConfigID, vs...))
+}
+
+// LaunchConfigIDNotIn applies the NotIn predicate on the "launch_config_id" field.
+func LaunchConfigIDNotIn(vs ...int) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldLaunchConfigID, vs...))
+}
+
+// LaunchConfigIDGT applies the GT predicate on the "launch_config_id" field.
+func LaunchConfigIDGT(v int) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDGTE applies the GTE predicate on the "launch_config_id" field.
+func LaunchConfigIDGTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDLT applies the LT predicate on the "launch_config_id" field.
+func LaunchConfigIDLT(v int) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDLTE applies the LTE predicate on the "launch_config_id" field.
+func LaunchConfigIDLTE(v int) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldLaunchConfigID, v))
+}
+
+// LaunchConfigIDIsNil applies the IsNil predicate on the "launch_config_id" field.
+func LaunchConfigIDIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldLaunchConfigID))
+}
+
+// LaunchConfigIDNotNil applies the NotNil predicate on the "launch_config_id" field.
+func LaunchConfigIDNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldLaunchConfigID))
+}
+
+// KindEQ applies the EQ predicate on the "kind" field.
+func KindEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldKind, v))
+}
+
+// KindNEQ applies the NEQ predicate on the "kind" field.
+func KindNEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldKind, v))
+}
+
+// KindIn applies the In predicate on the "kind" field.
+func KindIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldKind, vs...))
+}
+
+// KindNotIn applies the NotIn predicate on the "kind" field.
+func KindNotIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldKind, vs...))
+}
+
+// KindGT applies the GT predicate on the "kind" field.
+func KindGT(v string) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldKind, v))
+}
+
+// KindGTE applies the GTE predicate on the "kind" field.
+func KindGTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldKind, v))
+}
+
+// KindLT applies the LT predicate on the "kind" field.
+func KindLT(v string) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldKind, v))
+}
+
+// KindLTE applies the LTE predicate on the "kind" field.
+func KindLTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldKind, v))
+}
+
+// KindContains applies the Contains predicate on the "kind" field.
+func KindContains(v string) predicate.Job {
+	return predicate.Job(sql.FieldContains(FieldKind, v))
+}
+
+// KindHasPrefix applies the HasPrefix predicate on the "kind" field.
+func KindHasPrefix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasPrefix(FieldKind, v))
+}
+
+// KindHasSuffix applies the HasSuffix predicate on the "kind" field.
+func KindHasSuffix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasSuffix(FieldKind, v))
+}
+
+// KindIsNil applies the IsNil predicate on the "kind" field.
+func KindIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldKind))
+}
+
+// KindNotNil applies the NotNil predicate on the "kind" field.
+func KindNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldKind))
+}
+
+// KindEqualFold applies the EqualFold predicate on the "kind" field.
+func KindEqualFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldEqualFold(FieldKind, v))
+}
+
+// KindContainsFold applies the ContainsFold predicate on the "kind" field.
+func KindContainsFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldContainsFold(FieldKind, v))
 }
 
 // ActorEQ applies the EQ predicate on the "actor" field.

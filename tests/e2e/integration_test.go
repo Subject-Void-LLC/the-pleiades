@@ -66,14 +66,14 @@ func TestGrandIntegration(t *testing.T) {
 	// Zero trust, exercised before anything succeeds, so a job row
 	// appearing later cannot be attributed to one of these.
 	t.Run("rejects an unauthenticated launch", func(t *testing.T) {
-		status, body := h.dispatch(t, "", targetGroup, harnessRunbookID)
+		status, body := h.launch(t, "")
 		if status != http.StatusUnauthorized {
 			t.Fatalf("an unauthenticated dispatch returned %d, want 401. Body: %s", status, body)
 		}
 	})
 
 	t.Run("rejects a forged token", func(t *testing.T) {
-		status, body := h.dispatch(t, forgedToken, targetGroup, harnessRunbookID)
+		status, body := h.launch(t, forgedToken)
 		if status != http.StatusUnauthorized {
 			t.Fatalf("a dispatch signed with the wrong secret returned %d, want 401. Body: %s", status, body)
 		}
@@ -89,7 +89,7 @@ func TestGrandIntegration(t *testing.T) {
 	dispatchObserver := h.observeDispatches(t)
 
 	// The launch itself.
-	status, body := h.dispatch(t, adminToken, targetGroup, harnessRunbookID)
+	status, body := h.launch(t, adminToken)
 	if status != http.StatusAccepted {
 		t.Fatalf("dispatch returned %d, want 202. Body: %s\n%s", status, body, h.controller.output())
 	}
@@ -122,15 +122,23 @@ func TestGrandIntegration(t *testing.T) {
 	h.assertPropertiesEncryptedAtRest(t)
 }
 
-// TestGrandIntegration_UnknownGroupFailsClosed proves a launch naming a
-// group that does not exist completes with nothing dispatched.
+// TestGrandIntegration_AnEmptyInventoryFailsClosed proves a launch whose
+// template targets an inventory containing nothing dispatches to nothing.
 //
-// What would have to break for this to fail: GetGroup's membership
-// predicate ceasing to fail closed, so that an unmatched selector
-// returned the whole fleet instead of nothing. That is the single most
-// dangerous failure this inventory layer has, since it would silently
-// turn a targeted change into a fleet-wide one.
-func TestGrandIntegration_UnknownGroupFailsClosed(t *testing.T) {
+// What would have to break for this to fail: the membership selector
+// ceasing to fail closed, so that a set with no groups and no devices
+// returned the whole fleet instead of none of it. That is the single most
+// dangerous failure this inventory layer has, since it would silently turn
+// a targeted change into a fleet-wide one, and it is why
+// pkg/inventory.Selector.Membership is a pointer: nil means no restriction
+// and non-nil means exactly these, so an empty set cannot be mistaken for
+// an absent one.
+//
+// The job fails rather than completing with zero, and that is the second
+// half of the same decision. A fan-out that reached zero devices and one
+// that could not be targeted at all look identical as three zero tallies,
+// so the job says which it was.
+func TestGrandIntegration_AnEmptyInventoryFailsClosed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping the grand integration test in short mode")
 	}
@@ -139,21 +147,21 @@ func TestGrandIntegration_UnknownGroupFailsClosed(t *testing.T) {
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
 	adminToken := issuer.Token(t, &auth.Identity{Subject: "e2e-admin", Role: auth.RoleAdmin})
 
-	status, body := h.dispatch(t, adminToken, "no-such-group", harnessRunbookID)
+	status, body := h.launchTemplate(t, adminToken, h.emptyTemplateID)
 	if status != http.StatusAccepted {
-		t.Fatalf("dispatch against an unknown group returned %d, want 202. Body: %s", status, body)
+		t.Fatalf("launching a template with an empty inventory returned %d, want 202. Body: %s", status, body)
 	}
 	jobID := requireStringField(t, body, "job_id")
 
 	job := h.pollJobUntilTerminal(t, adminToken, jobID)
-	if job.State != "completed" {
-		t.Fatalf("job state = %q, want completed", job.State)
+	if job.State != "failed" {
+		t.Fatalf("job state = %q, want failed: a fan-out that reached nothing and one that could not be targeted are different facts", job.State)
 	}
 	if job.Dispatched != 0 || job.Skipped != 0 || job.Failed != 0 {
-		t.Fatalf("an unknown group produced dispatched=%d skipped=%d failed=%d, want all zero; a selector that failed open would have dispatched to the whole fleet",
+		t.Fatalf("an empty inventory produced dispatched=%d skipped=%d failed=%d, want all zero; a selector that failed open would have dispatched to the whole fleet",
 			job.Dispatched, job.Skipped, job.Failed)
 	}
 	if len(job.Tasks) != 0 {
-		t.Fatalf("an unknown group produced %d tasks, want 0: %s", len(job.Tasks), describeTasks(job))
+		t.Fatalf("an empty inventory produced %d tasks, want 0: %s", len(job.Tasks), describeTasks(job))
 	}
 }

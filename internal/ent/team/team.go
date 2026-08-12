@@ -20,12 +20,20 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
+	// FieldDescription holds the string denoting the description field in the database.
+	FieldDescription = "description"
+	// FieldAttestedBy holds the string denoting the attested_by field in the database.
+	FieldAttestedBy = "attested_by"
+	// FieldAttestedAt holds the string denoting the attested_at field in the database.
+	FieldAttestedAt = "attested_at"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
 	// EdgeUsers holds the string denoting the users edge name in mutations.
 	EdgeUsers = "users"
 	// EdgeRoleBindings holds the string denoting the role_bindings edge name in mutations.
 	EdgeRoleBindings = "role_bindings"
+	// EdgeContacts holds the string denoting the contacts edge name in mutations.
+	EdgeContacts = "contacts"
 	// Table holds the table name of the team in the database.
 	Table = "teams"
 	// OrganizationTable is the table that holds the organization relation/edge.
@@ -47,6 +55,13 @@ const (
 	RoleBindingsInverseTable = "role_bindings"
 	// RoleBindingsColumn is the table column denoting the role_bindings relation/edge.
 	RoleBindingsColumn = "team_role_bindings"
+	// ContactsTable is the table that holds the contacts relation/edge.
+	ContactsTable = "contacts"
+	// ContactsInverseTable is the table name for the Contact entity.
+	// It exists in this package in order to avoid circular dependency with the "contact" package.
+	ContactsInverseTable = "contacts"
+	// ContactsColumn is the table column denoting the contacts relation/edge.
+	ContactsColumn = "team_contacts"
 )
 
 // Columns holds all SQL columns for team fields.
@@ -55,6 +70,9 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldName,
+	FieldDescription,
+	FieldAttestedBy,
+	FieldAttestedAt,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "teams"
@@ -118,6 +136,21 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
 }
 
+// ByDescription orders the results by the description field.
+func ByDescription(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDescription, opts...).ToFunc()
+}
+
+// ByAttestedBy orders the results by the attested_by field.
+func ByAttestedBy(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAttestedBy, opts...).ToFunc()
+}
+
+// ByAttestedAt orders the results by the attested_at field.
+func ByAttestedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAttestedAt, opts...).ToFunc()
+}
+
 // ByOrganizationField orders the results by organization field.
 func ByOrganizationField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -152,6 +185,20 @@ func ByRoleBindings(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newRoleBindingsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByContactsCount orders the results by contacts count.
+func ByContactsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newContactsStep(), opts...)
+	}
+}
+
+// ByContacts orders the results by contacts terms.
+func ByContacts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newContactsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -171,5 +218,12 @@ func newRoleBindingsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(RoleBindingsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, RoleBindingsTable, RoleBindingsColumn),
+	)
+}
+func newContactsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ContactsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ContactsTable, ContactsColumn),
 	)
 }

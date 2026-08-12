@@ -38,11 +38,25 @@
     }, 50);
   }
 
+  /* Tracks what each polled region last announced, keyed by element id.
+   *
+   * A region that refreshes itself on a timer must not announce on every
+   * tick. "12 results" read aloud every five seconds is not an
+   * accessibility feature, it is an obstacle, and the reader most likely to
+   * leave a running job open is the one it would obstruct longest. So a
+   * polled swap announces only when its own summary actually changed, which
+   * makes the announcement carry information rather than merely occur.
+   */
+  var lastAnnounced = {};
+
   document.body.addEventListener("htmx:afterSwap", function (event) {
     var target = event.detail && event.detail.target;
     if (!target) {
       return;
     }
+
+    var polled = target.hasAttribute("data-poll");
+    var message = target.getAttribute("data-announce");
 
     /* ---- 2. Move focus deliberately ----
      *
@@ -51,13 +65,27 @@
      * changed rather than from wherever the trigger happened to be.
      * tabindex="-1" makes it programmatically focusable without adding it
      * to the tab order, which is the whole reason that value exists.
+     *
+     * Never for a polled region. Nobody asked for that swap, and taking
+     * focus from a person mid-sentence every few seconds would make a page
+     * that updates itself unusable by exactly the people this repairs it
+     * for. Focus follows intent, and a timer has none.
      */
-    if (target.hasAttribute("data-focus-after-swap")) {
+    if (!polled && target.hasAttribute("data-focus-after-swap")) {
       target.setAttribute("tabindex", "-1");
       target.focus({ preventScroll: true });
     }
 
-    announce(target.getAttribute("data-announce"));
+    if (!polled) {
+      announce(message);
+      return;
+    }
+
+    var key = target.id || "anonymous";
+    if (message && lastAnnounced[key] !== message) {
+      lastAnnounced[key] = message;
+      announce(message);
+    }
   });
 
   /* ---- 3. Dialogs ----

@@ -174,6 +174,16 @@ type harness struct {
 	// database generated, which the wire assertions compare against.
 	devices []*seededDevice
 
+	// templateID is the seeded template every launch in this suite runs.
+	// A template rather than a group name, because a launch names a saved
+	// definition now and that is what gives its job a tenant.
+	templateID int
+
+	// emptyTemplateID names an inventory that selects nothing, which is
+	// the fail-closed control: it must dispatch to nothing rather than to
+	// everything.
+	emptyTemplateID int
+
 	controller *managedProc
 	runner     *managedProc
 }
@@ -264,7 +274,7 @@ func (h *harness) wire(tb testing.TB) {
 	// 4. Seed inventory, through the same open seam and the same
 	// versioned migrations the controller itself uses, then close the
 	// client before the controller starts.
-	h.devices = seedInventory(tb, h.dsn)
+	h.devices, h.templateID, h.emptyTemplateID = seedInventory(tb, h.dsn)
 
 	// 5. The controller, then the runner.
 	h.startController(tb)

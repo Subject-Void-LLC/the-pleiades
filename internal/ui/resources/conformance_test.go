@@ -2,6 +2,7 @@ package resources_test
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,7 +30,10 @@ import (
 func TestViewConformance_RegisteredAndReachable(t *testing.T) {
 	registerViews(t)
 
-	want := []string{"credentials", "dashboard", "governance", "inventories", "jobs", "runbooks"}
+	want := []string{
+		"credentials", "dashboard", "devices",
+		"governance", "inventories", "jobs", "runbooks", "templates",
+	}
 	got := view.Names()
 
 	registered := make(map[string]bool, len(got))
@@ -61,6 +65,182 @@ func TestViewConformance_EveryViewRendersItsList(t *testing.T) {
 			}
 			assertAccessibleDocument(t, w.Body.String())
 		})
+	}
+}
+
+// TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere
+// covers the two ways a paging control goes wrong, both of which shipped.
+//
+// A duplicate is a rendering fault: the link lives inside the swappable
+// list region so a refresh carries it, and a copy left outside that region
+// puts two on the page and leaves the outer one pointing at the cursor the
+// page was first painted with.
+//
+// A control on a short list is a reader fault: setting the next cursor
+// because a page came back non-empty offers a next page from every list
+// that has any rows at all, including the last one. Following it reaches an
+// empty table, which reads as data loss rather than as the end of a list.
+//
+// The two halves are checked against different authorities on purpose.
+// Whether a next page exists is the reader's claim, so that half asks the
+// reader directly rather than counting rendered rows, which would also
+// count the header and any section tables on the page. Whether the control
+// matches that claim is the template's job, so that half renders and
+// counts. Asking one of them about both is how a page can faithfully
+// render a lie.
+//
+// The duplicate is only observable on a list that genuinely has a second
+// page, which is what limit=1 manufactures out of any fixture holding two
+// records. Without that, the fixtures are small enough that no view offers
+// a next page at all and a count of controls proves nothing.
+func TestViewConformance_PagingControlIsRenderedOnceAndOnlyWhenItLeadsSomewhere(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	const control = ">Next page<"
+
+	for _, name := range view.Names() {
+		d, ok := view.Lookup(name)
+		if !ok || !d.Implemented() || !d.ListsRecords() {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			// A page that did not fill cannot have another after it.
+			// Claiming otherwise offers a link that reaches an empty table,
+			// which reads as data loss rather than as the end of a list.
+			full, err := d.Handlers.List(t.Context(), view.Query{Limit: view.DefaultPageSize})
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			short := len(full.Rows) < view.DefaultPageSize
+			if short && full.NextCursor != "" {
+				t.Errorf("the reader returned %d rows against a limit of %d and still named a next "+
+					"cursor %q", len(full.Rows), view.DefaultPageSize, full.NextCursor)
+			}
+			if n := strings.Count(h.get(t, "/ui/"+name).Body.String(), control); short && n != 0 {
+				t.Errorf("%d paging control(s) rendered where the reader reports no next page", n)
+			}
+
+			// One record per page, so every record but the last leads
+			// somewhere. Exactly one control: a copy rendered outside the
+			// swappable list region would not follow a refresh, and would
+			// go on pointing at the cursor the page was first painted with.
+			one, err := d.Handlers.List(t.Context(), view.Query{Limit: 1})
+			if err != nil {
+				t.Fatalf("List(limit 1): %v", err)
+			}
+			if one.NextCursor == "" {
+				t.Skipf("fixture holds under two records, so this view has no second page to render")
+			}
+			if n := strings.Count(h.get(t, "/ui/"+name+"?limit=1").Body.String(), control); n != 1 {
+				t.Errorf("%d paging controls rendered where the reader reports a next page, want exactly 1", n)
+			}
+		})
+	}
+}
+
+// TestViewConformance_ReferencesRenderNamesNotKeys is the guard on the
+// defect this project shipped: a Teams list that read ORGANIZATION: 1.
+//
+// A cell holding a foreign key has not saved the reader a join, it has
+// moved the join into their head and asked them to remember that
+// organization 1 is Network. The check is deliberately crude, because the
+// failure is crude: a referencing cell whose entire content parses as an
+// integer is a primary key on a page, whatever it was meant to be.
+//
+// A blank fails too. "No organization" and "an organization whose name we
+// did not load" are different facts and an empty cell says neither, which
+// is the same ambiguity the declared-view panel exists to prevent.
+func TestViewConformance_ReferencesRenderNamesNotKeys(t *testing.T) {
+	// The harness is what registers the views; the assertions below read
+	// the registry and the ports directly rather than rendering a page,
+	// because the defect is in what the projector produces.
+	newHarness(t, adminIdentity)
+
+	for _, name := range view.Names() {
+		d, ok := view.Lookup(name)
+		if !ok || !d.Implemented() || !d.ListsRecords() {
+			continue
+		}
+		referencing := make([]view.Field, 0, len(d.Fields))
+		for _, f := range d.Fields {
+			if f.Referencing() && f.InList {
+				referencing = append(referencing, f)
+			}
+		}
+		if len(referencing) == 0 {
+			continue
+		}
+
+		t.Run(name, func(t *testing.T) {
+			page, err := d.Handlers.List(t.Context(), view.Query{Limit: view.DefaultPageSize})
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(page.Rows) == 0 {
+				t.Skip("fixture holds no rows, so no cell can be wrong")
+			}
+
+			for _, f := range referencing {
+				for i, row := range page.Rows {
+					cell := strings.TrimSpace(row.Cells[f.Name])
+					if cell == "" {
+						t.Errorf("row %d field %q references %q and renders empty", i, f.Name, f.References)
+						continue
+					}
+					if _, err := strconv.Atoi(cell); err == nil {
+						t.Errorf("row %d field %q renders %q, which is a primary key: reference %q by name",
+							i, f.Name, cell, f.References)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestViewConformance_ReferencedViewsExist is the startup refusal, asserted
+// as a test so a dangling reference fails a build rather than a page.
+//
+// CheckReferences runs in RegisterAll, which the harness already calls, so
+// reaching this line at all proves it passed. It is written out explicitly
+// because a check that only runs as a side effect of another call is one
+// somebody will later move without noticing what it was doing.
+func TestViewConformance_ReferencedViewsExist(t *testing.T) {
+	newHarness(t, adminIdentity)
+
+	if err := view.CheckReferences(); err != nil {
+		t.Fatalf("CheckReferences: %v", err)
+	}
+}
+
+// TestViewConformance_SidebarOrderIsDeclaredNotAccidental asserts no two
+// views claim the same NavOrder.
+//
+// A duplicate does not fail anything: Nav breaks the tie on Name, so the
+// sidebar still renders, in an order neither view asked for and neither
+// author can see is wrong. That is the whole hazard. The numbers live in
+// thirteen separate files, so the only place the collision is visible is
+// here, over the real registry, after every view has registered.
+//
+// A test rather than a startup refusal, unlike CheckReferences. A dangling
+// reference renders a link to nothing; a duplicate order renders a working
+// menu in an arbitrary sequence, and refusing to boot over that would take
+// the whole control plane down for a cosmetic fault.
+func TestViewConformance_SidebarOrderIsDeclaredNotAccidental(t *testing.T) {
+	registerViews(t)
+
+	byOrder := map[int]string{}
+	for _, name := range view.Names() {
+		d, ok := view.Lookup(name)
+		if !ok {
+			continue
+		}
+		if other, clash := byOrder[d.NavOrder]; clash {
+			t.Errorf("views %q and %q both declare NavOrder %d, so the sidebar "+
+				"orders them by name rather than by either author's intent",
+				other, name, d.NavOrder)
+			continue
+		}
+		byOrder[d.NavOrder] = name
 	}
 }
 

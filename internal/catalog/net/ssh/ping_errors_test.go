@@ -47,10 +47,17 @@ func (s *sshStub) SSHPort() int                                        { return 
 type stubContext struct {
 	secrets map[string]string
 	stats   map[string]interface{}
+
+	// statErr, when set, makes SetStat fail, so a test can drive the branch
+	// where the remote command succeeded and recording its answer did not.
+	statErr error
 }
 
 func (c *stubContext) InjectSecrets() map[string]string { return c.secrets }
 func (c *stubContext) SetStat(key string, value interface{}) error {
+	if c.statErr != nil {
+		return c.statErr
+	}
 	if c.stats == nil {
 		c.stats = map[string]interface{}{}
 	}

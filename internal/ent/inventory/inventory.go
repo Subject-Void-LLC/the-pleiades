@@ -22,14 +22,16 @@ const (
 	FieldName = "name"
 	// FieldDescription holds the string denoting the description field in the database.
 	FieldDescription = "description"
+	// FieldOwner holds the string denoting the owner field in the database.
+	FieldOwner = "owner"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
-	// EdgeOwner holds the string denoting the owner edge name in mutations.
-	EdgeOwner = "owner"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
 	EdgeGroups = "groups"
 	// EdgeDevices holds the string denoting the devices edge name in mutations.
 	EdgeDevices = "devices"
+	// EdgeTemplates holds the string denoting the templates edge name in mutations.
+	EdgeTemplates = "templates"
 	// Table holds the table name of the inventory in the database.
 	Table = "inventories"
 	// OrganizationTable is the table that holds the organization relation/edge.
@@ -39,13 +41,6 @@ const (
 	OrganizationInverseTable = "organizations"
 	// OrganizationColumn is the table column denoting the organization relation/edge.
 	OrganizationColumn = "organization_inventories"
-	// OwnerTable is the table that holds the owner relation/edge.
-	OwnerTable = "inventories"
-	// OwnerInverseTable is the table name for the User entity.
-	// It exists in this package in order to avoid circular dependency with the "user" package.
-	OwnerInverseTable = "users"
-	// OwnerColumn is the table column denoting the owner relation/edge.
-	OwnerColumn = "user_owned_inventories"
 	// GroupsTable is the table that holds the groups relation/edge. The primary key declared below.
 	GroupsTable = "inventory_groups"
 	// GroupsInverseTable is the table name for the Group entity.
@@ -56,6 +51,13 @@ const (
 	// DevicesInverseTable is the table name for the Device entity.
 	// It exists in this package in order to avoid circular dependency with the "device" package.
 	DevicesInverseTable = "devices"
+	// TemplatesTable is the table that holds the templates relation/edge.
+	TemplatesTable = "templates"
+	// TemplatesInverseTable is the table name for the Template entity.
+	// It exists in this package in order to avoid circular dependency with the "template" package.
+	TemplatesInverseTable = "templates"
+	// TemplatesColumn is the table column denoting the templates relation/edge.
+	TemplatesColumn = "inventory_templates"
 )
 
 // Columns holds all SQL columns for inventory fields.
@@ -65,13 +67,13 @@ var Columns = []string{
 	FieldUpdatedAt,
 	FieldName,
 	FieldDescription,
+	FieldOwner,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "inventories"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
 	"organization_inventories",
-	"user_owned_inventories",
 }
 
 var (
@@ -137,17 +139,15 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDescription, opts...).ToFunc()
 }
 
+// ByOwner orders the results by the owner field.
+func ByOwner(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOwner, opts...).ToFunc()
+}
+
 // ByOrganizationField orders the results by organization field.
 func ByOrganizationField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newOrganizationStep(), sql.OrderByField(field, opts...))
-	}
-}
-
-// ByOwnerField orders the results by owner field.
-func ByOwnerField(field string, opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newOwnerStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -178,18 +178,25 @@ func ByDevices(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newDevicesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByTemplatesCount orders the results by templates count.
+func ByTemplatesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTemplatesStep(), opts...)
+	}
+}
+
+// ByTemplates orders the results by templates terms.
+func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTemplatesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(OrganizationInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, OrganizationTable, OrganizationColumn),
-	)
-}
-func newOwnerStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(OwnerInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, true, OwnerTable, OwnerColumn),
 	)
 }
 func newGroupsStep() *sqlgraph.Step {
@@ -204,5 +211,12 @@ func newDevicesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(DevicesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, false, DevicesTable, DevicesPrimaryKey...),
+	)
+}
+func newTemplatesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TemplatesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
 	)
 }

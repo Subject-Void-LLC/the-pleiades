@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
@@ -156,17 +157,33 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
-	iter, err := w.repo.GetGroup(ctx, pkginventory.Selector{GroupName: job.GroupName})
+	selector, reason, err := w.targetSelector(ctx, job)
 	if err != nil {
-		// Mirrors internal/api/dispatcher.go's own posture: the
-		// repository's own error text is logged server-side only, never
-		// surfaced onto the job resource, since it can name tables,
-		// columns, and hosts.
+		// The repository's own error text is logged server-side only and
+		// never surfaced onto the job resource, mirroring
+		// internal/api/dispatcher.go's posture: it can name tables,
+		// columns and hosts. reason is the sanitised sentence a caller
+		// polling the job actually reads.
+		slog.Error("job fan-out could not resolve its targets",
+			slog.String("job_id", job.JobID),
+			slog.Int("inventory_id", job.InventoryID),
+			slog.String("error", err.Error()))
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
+	iter, err := w.repo.GetGroup(ctx, selector)
+	if err != nil {
 		slog.Error("job fan-out failed to query inventory",
 			slog.String("job_id", job.JobID),
-			slog.String("group", job.GroupName),
+			slog.Int("inventory_id", job.InventoryID),
 			slog.String("error", err.Error()))
-		if failErr := w.store.Fail(ctx, job.JobID, fence, fmt.Sprintf("failed to query group %q", job.GroupName)); failErr != nil {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, "failed to query the devices this job targets"); failErr != nil {
 			if fenced(job.JobID, failErr) {
 				return nil
 			}
@@ -245,4 +262,56 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return fmt.Errorf("failed to complete job %s: %w", job.JobID, err)
 	}
 	return nil
+}
+
+// targetSelector resolves what a job dispatches against.
+//
+// It returns the selector, and on failure a sanitised reason the job record
+// can carry. Two return values rather than one error because the two
+// audiences are different: the error is for the operator reading logs and
+// may name storage internals, the reason is for whoever is polling the job
+// and must not.
+//
+// A job naming an inventory streams that inventory's membership: its groups
+// plus the devices attached to it directly, as one query the database
+// de-duplicates. A job naming none is a pre-Phase-21 record, and streams by
+// group name exactly as it always did.
+//
+// Three refusals, and each exists because the alternative is worse than an
+// error:
+//
+//   - No set store wired. A Worker built without one cannot resolve an
+//     inventory, and falling through to an unrestricted selector would
+//     dispatch to every device the platform manages.
+//   - The inventory is gone. Somebody deleted the set a template names;
+//     the job says so rather than running against nothing or everything.
+//   - The inventory is empty. A fan-out that reaches zero devices is
+//     indistinguishable from one that failed, so the job says which it was.
+func (w *Worker) targetSelector(ctx context.Context, job *Job) (pkginventory.Selector, string, error) {
+	if job.InventoryID <= 0 {
+		return pkginventory.Selector{GroupName: job.GroupName}, "", nil
+	}
+
+	if w.sets == nil {
+		return pkginventory.Selector{}, "this controller cannot resolve the inventory this job targets",
+			fmt.Errorf("worker has no inventory set store, so job %s cannot be targeted", job.JobID)
+	}
+
+	set, err := w.sets.Get(ctx, job.InventoryID)
+	if err != nil {
+		if errors.Is(err, inventory.ErrSetNotFound) {
+			return pkginventory.Selector{},
+				fmt.Sprintf("inventory %d no longer exists", job.InventoryID), err
+		}
+		return pkginventory.Selector{},
+			fmt.Sprintf("failed to resolve inventory %d", job.InventoryID), err
+	}
+
+	if set.Empty() {
+		return pkginventory.Selector{},
+			fmt.Sprintf("inventory %d contains no devices", job.InventoryID),
+			fmt.Errorf("inventory %d is empty", job.InventoryID)
+	}
+
+	return set.Selector(), "", nil
 }

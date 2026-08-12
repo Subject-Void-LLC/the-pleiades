@@ -29,55 +29,105 @@ templ List(m view.ListModel) {
 		// nothing else, which is a finished shape rather than an
 		// unfinished one, so the page renders whichever of its sections
 		// exist instead of assuming a table is always the point.
+		// The next-page link is deliberately not rendered here. It lives
+		// inside listRegion, because a refresh swaps that region and a
+		// link outside it would go on pointing at the cursor the page was
+		// first painted with. Rendering it in both places put two of them
+		// on every list.
 		if m.Descriptor.ListsRecords() {
-			<div
-				class="table-scroll"
-				id="resource-list"
-				data-focus-after-swap="true"
-				data-announce={ m.ResultCount() }
-			>
-				if len(m.Rows) == 0 {
-					<p role="status">No records.</p>
-				} else {
-					<table class="table">
-						<thead>
-							<tr>
-								for _, col := range m.Columns() {
-									<th scope="col">{ col.Label }</th>
-								}
-								<th scope="col">Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							for _, row := range m.Rows {
-								<tr>
-									for _, col := range m.Columns() {
-										// data-label is what a narrow viewport
-										// renders in place of the column
-										// header once the table becomes cards,
-										// so a cell still says what it is.
-										<td data-label={ col.Label } data-primary={ m.IsPrimary(col) }>
-											if col.Kind == view.KindBadge {
-												<span class={ "badge", m.BadgeClass(row, col) }>{ m.Cell(row, col) }</span>
-											} else {
-												{ m.Cell(row, col) }
-											}
-										</td>
-									}
-									<td data-label="Actions">
-										<a href={ templ.SafeURL(m.DetailHref(row)) }>Open</a>
-									</td>
-								</tr>
-							}
-						</tbody>
-					</table>
-				}
-			</div>
-			if m.NextHref() != "" {
-				<p><a class="btn" href={ templ.SafeURL(m.NextHref()) }>Next page</a></p>
-			}
+			@listRegion(m)
+		}
+		for _, section := range m.Sections {
+			@section_(section)
 		}
 	}
+}
+
+// listRegion is the swappable table.
+//
+// It is its own component because two callers render it: the whole page, and
+// the fragment a refresh requests. One definition means a live update cannot
+// produce different markup from the first paint, which is the failure that
+// makes fragment swaps feel broken.
+//
+// hx-swap is outerHTML, so the replacement carries its own trigger. That is
+// the whole stop mechanism: a region rendered without a trigger stops asking,
+// and nothing has to cancel a timer.
+templ listRegion(m view.ListModel) {
+	<div
+		class="table-scroll"
+		id="resource-list"
+		data-focus-after-swap="true"
+		data-announce={ m.ResultCount() }
+		if m.Polls() {
+			hx-get={ m.RefreshHref() }
+			hx-trigger={ m.RefreshTrigger() }
+			hx-swap="outerHTML"
+			data-poll="true"
+		}
+	>
+		if len(m.Rows) == 0 {
+			<p role="status">No records.</p>
+		} else {
+			<table class="table">
+				<thead>
+					<tr>
+						for _, col := range m.Columns() {
+							<th scope="col">{ col.Label }</th>
+						}
+						<th scope="col">Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, row := range m.Rows {
+						<tr>
+							for _, col := range m.Columns() {
+								// data-label is what a narrow viewport
+								// renders in place of the column
+								// header once the table becomes cards,
+								// so a cell still says what it is.
+								<td data-label={ col.Label } data-primary={ m.IsPrimary(col) }>
+									if col.RendersBadge() {
+										<span class={ "badge", m.BadgeClass(row, col) }>{ m.Cell(row, col) }</span>
+									} else if m.RefHref(row, col) != "" {
+										// A reference renders as a link to
+										// the record it names, so the
+										// hierarchy is walkable and not
+										// merely readable. The text is
+										// always the target's name: a cell
+										// showing a primary key has moved
+										// the join into the reader's head.
+										<a href={ templ.SafeURL(m.RefHref(row, col)) }>{ m.Cell(row, col) }</a>
+									} else {
+										{ m.Cell(row, col) }
+									}
+								</td>
+							}
+							<td data-label="Actions">
+								<a href={ templ.SafeURL(m.DetailHref(row)) }>Open</a>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+		// Inside the region rather than after it. The cursor is computed
+		// from the rows this render produced, so a link left outside would
+		// keep pointing past rows a refresh had already replaced.
+		if m.NextHref() != "" {
+			<p><a class="btn" href={ templ.SafeURL(m.NextHref()) }>Next page</a></p>
+		}
+	</div>
+}
+
+// ListFragment is the list's live region alone, with no page chrome.
+//
+// Returned when the request carries HTMX's own header, from the very URL the
+// page came from. There is no second route and no second handler: the same
+// read answers both, and a resource that declares a refresh writes no
+// routing of any kind.
+templ ListFragment(m view.ListModel) {
+	@listRegion(m)
 }
 
 // chart renders the graphic and its text equivalent together.
@@ -184,15 +234,11 @@ templ Detail(m view.DetailModel) {
 		if m.Aff.Unknown {
 			@affordanceAlert()
 		}
-		<div class="block">
-			<dl class="detail-list">
-				for _, f := range m.Fields() {
-					<dt>{ f.Label }</dt>
-					<dd>{ m.Value(f) }</dd>
-				}
-			</dl>
-		</div>
+		@detailRegion(m)
 		<div class="form-actions">
+			for _, action := range m.Actions() {
+				<a class="btn btn-primary" href={ templ.SafeURL(action.Href) }>{ action.Label }</a>
+			}
 			if m.CanStream() {
 				<a class="btn" href={ templ.SafeURL(m.LogsHref()) }>Live output</a>
 			}
@@ -207,6 +253,101 @@ templ Detail(m view.DetailModel) {
 			@confirmDelete(m)
 		}
 	}
+}
+
+// detailRegion is a record's live content: its own fields and its related
+// tables, which are the two things that change while work is running.
+//
+// The action bar is deliberately outside it. Those controls are computed
+// from the caller's permitted set, and re-rendering them every few seconds
+// would move a Delete button under a cursor that was already travelling
+// toward it. What changes on its own is data, not what a person may do.
+templ detailRegion(m view.DetailModel) {
+	<div
+		class="block"
+		id="record-detail"
+		data-announce={ m.RefreshAnnouncement() }
+		if m.Polls() {
+			hx-get={ m.RefreshHref() }
+			hx-trigger={ m.RefreshTrigger() }
+			hx-swap="outerHTML"
+			data-poll="true"
+		}
+	>
+		<dl class="detail-list">
+			for _, f := range m.Fields() {
+				<dt>{ f.Label }</dt>
+				<dd>{ m.Value(f) }</dd>
+			}
+		</dl>
+		for _, section := range m.Sections {
+			@section_(section)
+		}
+	</div>
+}
+
+// DetailFragment is a record's live region alone, answered from the record's
+// own URL when the request carries HTMX's header.
+templ DetailFragment(m view.DetailModel) {
+	@detailRegion(m)
+}
+
+// detailSection renders one table of related records under a record's own
+// fields: a job's per-device outcomes, an inventory's members.
+//
+// It is the same table machinery the list view uses, driven by the same
+// Field declaration, so a section inherits the column rendering, the
+// validated badge classes and the mobile card layout rather than being a
+// second, lesser table that has to have all of that added to it later.
+templ section_(section view.LoadedSection) {
+	<section class="detail-section" aria-labelledby={ section.HeadingID() }>
+		<h2 id={ section.HeadingID() }>{ section.Spec.Title }</h2>
+		if section.Spec.Summary != "" {
+			<p class="view-summary">{ section.Spec.Summary }</p>
+		}
+		if !section.Spec.Implemented() {
+			// The same panel a declared view renders, for the same reason:
+			// an empty table would read as "no records", which is a claim
+			// about live data this section has no port to make.
+			<div class="declared" role="status">
+				<p><strong>Declared, not implemented.</strong></p>
+				<p>{ section.Spec.Empty }</p>
+			</div>
+		} else if !section.HasRows() {
+			// The declared empty text, never a blank table. "Nothing has
+			// reported yet" and "this dispatched to nothing" look identical
+			// as an empty table and are very different facts about a job
+			// somebody is investigating.
+			<p role="status">{ section.Spec.Empty }</p>
+		} else {
+			<div class="table-scroll">
+				<table class="table">
+					<thead>
+						<tr>
+							for _, col := range section.Columns() {
+								<th scope="col">{ col.Label }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, row := range section.Rows {
+							<tr>
+								for _, col := range section.Columns() {
+									<td data-label={ col.Label } data-primary={ section.IsPrimary(col) }>
+										if col.RendersBadge() {
+											<span class={ "badge", section.BadgeClass(row, col) }>{ section.Cell(row, col) }</span>
+										} else {
+											{ section.Cell(row, col) }
+										}
+									</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</section>
 }
 
 // confirmDelete is a native dialog, which brings the focus trap, the
@@ -253,6 +394,40 @@ templ Form(m view.FormModel) {
 			}
 			<div class="form-actions">
 				<button class="btn" type="submit">Save</button>
+				<a class="btn" href={ templ.SafeURL(m.CancelHref()) }>Cancel</a>
+			</div>
+		</form>
+	}
+}
+
+// Action renders a record action's prompt form.
+//
+// It reuses the same field component the create and edit forms use, driven
+// by ActionModel.Form(). A second form template would be a second copy of
+// the labels, hints, error summary and focus handling to keep accessible,
+// and the one that drifts is always the one with fewer readers.
+templ Action(m view.ActionModel) {
+	@Layout(m.Page) {
+		<header class="view-header">
+			<h1>{ m.Heading() }</h1>
+		</header>
+		<form method="post" action={ templ.SafeURL(m.ActionHref()) }>
+			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			if m.Form().HasErrors() {
+				<div class="error-summary" id="error-summary" role="alert" tabindex="-1">
+					<h2>This action could not be started</h2>
+					<ul>
+						for _, e := range m.Form().Summary() {
+							<li><a href={ templ.SafeURL("#f-" + e.Field) }>{ e.Label }: { e.Message }</a></li>
+						}
+					</ul>
+				</div>
+			}
+			for _, f := range m.Form().Fields() {
+				@field(m.Form(), f)
+			}
+			<div class="form-actions">
+				<button class="btn" type="submit">{ m.SubmitLabel() }</button>
 				<a class="btn" href={ templ.SafeURL(m.CancelHref()) }>Cancel</a>
 			</div>
 		</form>

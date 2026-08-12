@@ -93,9 +93,11 @@ func listModel(rows int) view.ListModel {
 			Version: "bench",
 			Skin:    string(view.SkinBrutalist),
 			Subject: "bench@example",
-			Nav: []view.NavItem{
-				{Label: "BENCH", Href: "/ui/bench", Current: true},
-			},
+			Nav: []view.NavSection{{
+				Label: "VIEWS",
+				ID:    "nav-group-views",
+				Items: []view.NavItem{{Label: "BENCH", Href: "/ui/bench", Current: true}},
+			}},
 		},
 		Descriptor: descriptor,
 		Aff:        view.NewAffordances([]auth.LinkRel{auth.RelCollection}),

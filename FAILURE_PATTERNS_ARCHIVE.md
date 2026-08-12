@@ -2685,3 +2685,324 @@ wrong with the units. What caught it was an end-to-end test that drove the **rea
 asserted the capability the phase existed to deliver, rather than asserting that the pieces of it
 work — which is what RULE 0 is asking for when it says a test only counts if it runs the path the
 platform actually runs.
+
+---
+
+## 97. An inventory is a grant surface, so unvalidated membership is a cross-tenant privilege escalation with every individual step passing its own check
+
+**Symptom.** None yet — found by adversarial review before the mechanism it exploits was wired up. Reported by all three attack lenses independently.
+
+**Root cause.** Inventories were introduced as shareable containers, with sharing implemented as a RoleBinding at the new `ScopeInventory` level. That makes an inventory a *grant surface*: the resolver treats every device reachable through a shared inventory as in scope for the team it was shared with.
+
+`SetStore.Create` and `Update` accepted arbitrary group and device ids and wrote them straight through. Nothing checked that a member belonged to the same organization as the inventory holding it.
+
+The escalation needs no step that is individually suspicious. A caller holding `inventory:write` in their own tenant creates an inventory in their own organization (permitted), lists another tenant's device ids as its members (unchecked), shares it with their own team (permitted — it is their inventory), and is then legitimately authorized against hosts nobody granted them. Every permission check along the way passes, because each one is asking a question the attacker can honestly answer yes to.
+
+Groups made it worse: a group has no organization edge of its own, so a group containing one foreign device smuggles that device in even when the direct device list is clean.
+
+**Fix.** Validate membership at the write, which is the only place it can be stopped — by the time the resolver sees the containment it is a fact, and resolving it is exactly the correct behaviour. `assertMembersInOrganization` refuses any device belonging to another organization, and any group containing one. The API maps the refusal to 403 rather than 400: the submission is well formed and the caller is authenticated, they are simply not entitled. The error reports a count, never the ids — naming which devices belong to somebody else would answer, on that very request, the question the attacker was asking.
+
+Devices with no organization at all are admitted deliberately: a single-tenant deployment has never populated that edge, they belong to no tenant, and refusing them would make the feature unusable for exactly the deployments most likely to adopt it first.
+
+**Lesson.** **Ask what a new container grants, not just what it holds.** A collection that is merely descriptive can accept any membership; one that is an input to an authorization decision cannot, because its membership *is* a permission grant written in a different vocabulary. The tell is that sharing was implemented through the RBAC system — the moment a container feeds the resolver, every write to it is a privilege operation and belongs behind the same scrutiny as a role assignment.
+
+Also: this was found by adversarially reviewing a *design* before implementing it, by agents told to break it rather than approve it. The same three lenses rejected the surrounding proposal outright. A review that had been asked "is this good?" would have said yes.
+
+---
+
+## 98. `scopeRule` discards the Role the resolver returned, so every RoleBinding's role is decorative
+
+**Symptom.** None observable: `auth.NewScopeRule` has never been in a running admission chain, so no deployment has executed this path.
+
+**Root cause.** `ScopeResolver.Resolve` returns `(Role, Effect, error)` and performs the full Section 18.4 walk — system, organization, inventory, group, device — with explicit Deny beating a broader Allow. `scopeRule.Check` calls it as `_, effect, err := r.resolver.Resolve(...)` and returns only the effect.
+
+So the resolved role is thrown away. A binding granting `viewer` at a target and a binding granting `admin` at the same target produce an identical answer, and the `role` column on every RoleBinding row is decorative. Composed with `tokenScopeRule`, a caller holding `inventory:write` in their token plus any viewer-level Allow binding is authorized to delete.
+
+**Fix.** Not yet applied, and deliberately so. The correct fix needs a decision this codebase has not made: `AdmissionRequest` carries a `RequiredScope` but no required *role*, so satisfying the role axis needs either a scope-to-minimum-role table or a required role on the request. Choosing one while the rule is unwired, in the same change that introduced an unrelated container, would be inventing policy in the wrong place. Recorded here so the phase that wires `NewScopeRule` addresses it deliberately rather than discovering it.
+
+**Partial fix (2026-08-11).** The silence is fixed; the policy question is still open and still belongs to whoever wires the rule. `scopeRule.Check` now carries a doc comment stating in full that the resolved Role is reported and not enforced, what a correct fix would require, and why choosing it here would settle a policy question in the one place nobody would look for it. The discard itself is unchanged, and that is the point: an enforcement rule invented ahead of its first real caller is the failure recorded at #96 and #100, so the honest move was to make the gap legible rather than to close it speculatively. A first attempt did change the behaviour — returning an error on a clean Deny so the role reached the audit line — and was reverted, because `hateoas.go` documents relying on the distinction between "the chain could not reach a verdict" (error) and "it reached one" (Deny with a nil error), and collapsing that to surface a role nothing enforces would have traded a real signal for a cosmetic one.
+
+**Lesson.** A function returning three values where the caller uses one is worth a second look, especially when the discarded one is the entire subject of the table it came from. This survived review because the call site reads naturally — `_, effect, err :=` looks like idiomatic Go, and nothing about it says "the role column is now meaningless".
+
+---
+
+## 99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
+
+**Symptom.** None observed; the rule is unwired.
+
+**Root cause.** `ScopeTarget`'s own doc comment argues that zero-value fields "never match a real RoleBinding: ent primary keys are auto-increment starting at 1". That reasoning is sound for the *target* side and does not hold for the *binding* side, because nothing validates what goes into `role_bindings.scope_id`.
+
+`ScopeResolver.Resolve` unconditionally folds an organization layer at `&target.OrganizationID` and a device layer at `&target.DeviceID`. When a target does not name one — a collection request, a runbook, anything outside the hierarchy — those fields are 0. A stored binding with `scope_id = 0` therefore matches, and because the device layer folds last under `policy.ModeOverride`, it beats every other layer including an explicit Deny at a real scope.
+
+One row with a zero in a column with no positive constraint is a system-wide grant that outranks everything.
+
+**Fix.** Not yet applied; it belongs with the phase that wires the rule, alongside #98. The shape is clear: reject a non-positive `scope_id` at any non-system scope, at the repository boundary and in the ent schema, and skip rather than match such a row when resolving.
+
+**Fix (2026-08-11).** The resolver half is done, and it turned out to be a precondition rather than a follow-up. Organization-scoped *visibility* resolution passes a target naming an organization and nothing else, so `DeviceID` is 0 on every such call: resolving visibility through `ScopeResolver` before fixing this would have let one bad row grant global visibility across every tenant. `Resolve` now folds a containment level only when the target actually names a row there, via `appendScopeLayer`, which skips any level whose id is not positive. A request about an organization says nothing about a device, so a device-scoped binding can no longer answer it. System-scoped bindings are unaffected: they carry a nil `ScopeID` by design and name no row, and a separate test asserts they still apply to every target.
+
+The correction to the entry above is worth recording too, because the original overstated the danger in one direction and understated it in another. A `scope_id = 0` row does **not** beat an explicit Deny: `combineScopeDecision` returns early once the accumulator holds a Deny, so a terminal Deny is genuinely terminal. What it did do is act as a blanket Allow for every check whose target named nothing at that level, which is worse in practice, because that is the shape of every organization-level question the platform asks.
+
+Proven by `TestScopeResolver_ZeroScopeIDNeverMatchesAnUnnamedLevel`, and the test was mutation-checked: with the guard disabled, a `scope_type=device, scope_id=0` binding grants **admin** on an organization question. The repository-boundary rejection of a non-positive `scope_id` still belongs with the management surface that can write one.
+
+**Lesson.** "The zero value cannot occur in practice" is an argument about one side of a comparison. Both sides need it, and the side that comes from a database column needs a constraint rather than a comment — a schema that permits the value will eventually contain it, whether by a migration default, a bad import, or a test fixture that escaped.
+
+The second lesson is about sequencing. This was filed as a defect to fix later, in a subsystem nothing used. It became a precondition the moment a *different* feature decided to resolve through the same function, and nothing would have flagged that: the new caller looks entirely reasonable, and the latent row is in data rather than in code. When a dormant component acquires its first real caller, its recorded defects need re-reading as preconditions rather than as backlog.
+
+---
+
+## 100. A record action's affordance never entered the candidate set, so its control rendered for nobody, on every page, with no error anywhere
+
+**Symptom.** The Runbooks view declares a `run` record action. The Run button did not appear on any runbook's detail page, for any caller, including an admin whose token carried every scope. Nothing errored, nothing logged, and every test passed. The conformance suite, the accessibility suite and the e2e suite were all green.
+
+**Root cause.** `view.RecordAction` carries its own `*apispec.Endpoint`, with its own link relation and scope. That is the whole design: an action is gated by the same chain, against the same endpoint the router mounts, exactly as a CRUD operation is.
+
+But the permitted set a template consults is computed in one place, and that place asked the wrong object:
+
+```go
+candidates := d.Ops.Candidates()   // internal/ui/web/handler.go
+```
+
+`Ops` holds List, Get, Create, Update and Delete. It has never held actions. So an action's relation never entered the candidate set, never came back from the generator, and `Affordances.Can(rel)` was false for it always. `DetailModel.Actions()` filtered every action out, correctly, from a set that could never contain one.
+
+For Runbooks the mismatch was total: its operations declare `collection` and `self`, its action declares `execute`, and the three never intersect. The button was not refused. It did not exist.
+
+Nothing caught it because every test asked a question the defect answered consistently. The conformance suite's affordance test compares what the UI renders against what the generator permits over *the same candidates* — both sides read `Ops.Candidates()`, so both sides omitted the action and agreed. A test that derives its expectation from the code under test cannot see a whole category go missing.
+
+**Fix.** `Descriptor.Candidates()` unions the operations' affordances with the actions', and the web handler asks the descriptor rather than its `Ops`. `validateOps` gained the actions, because operations and actions now share one relation namespace: `Affordances` is keyed by relation, so two entries sharing one would make permitting either permit both, which on an action means offering an operation nobody granted.
+
+The regression test asserts the rendered HTML contains the action's href, which is the only assertion that could have failed: it names the outcome a user experiences rather than a value the implementation computes.
+
+**Lesson.** **When a feature is gated by a set, test that the set contains it, not that the gate works.** Every layer here was individually correct. The action carried a real endpoint, the filter applied the right rule, the generator evaluated what it was given. The defect lived in what was never put into the set, and absence is the one thing a consistency check between two derived values cannot detect.
+
+The sharper tell: this was a *new optional part* added to an existing descriptor. Sections, charts and streams were all added the same way and all render, because each has a route that fails visibly when unwired. An action's only failure mode was silence, because a control that does not render looks exactly like a control the caller is not permitted to see — and "not permitted" is the answer this UI is designed to give quietly.
+
+---
+
+## 101. A required select whose only option source has no writer anywhere, so the create form it gates could never be submitted
+
+**Symptom.** On a fresh `make ui-dev`, the Inventories create form renders an organization `<select>` with no options, and every submission is refused with "Choose the organization this inventory belongs to." There is no way to proceed from the UI. The whole Inventories feature is unreachable in the one environment built for reviewing it.
+
+**Root cause.** Three individually reasonable decisions that nobody held together.
+
+The schema makes `Inventory.organization` a required edge, correctly: an inventory belonging to no tenant would resolve against no organization scope, and whether that made it reachable by everyone or by nobody would depend on which way the resolver failed. The store refuses `OrganizationID == 0` for the same reason, and the view's `Bind` refuses `org < 1` to give the refusal a field to attach to.
+
+And nothing in the repository creates an Organization. `Organization.Create` appears in exactly two test files. `tools/uidev/main.go` seeds six devices and no organization. There is no API endpoint, no UI view, no CLI command and no seeder.
+
+So the required control is populated from `ListOrganizations`, which correctly returns an empty list, because the table is correctly empty, because nothing was ever built to fill it.
+
+**Fix.** The management surface that can create an Organization, a Team, a User and a RoleBinding, plus a `uidev` seed that exercises it through real HTTP. Recorded before that landed, because the ordering is the lesson.
+
+**Lesson.** **A required field is a dependency on a writer, and a `Kind: Select` says so out loud.** The validation was right, the schema was right and the store was right; what was missing was anything that could ever produce a valid value. This is the `init()`-that-nothing-imports failure (#52, #96) in a new medium: a complete, correct, well tested component with no path from the running system into it.
+
+The generalizable check is cheap. For every required field whose values come from another table, ask what writes that table. If the answer is "a test", the feature does not work — and it will pass every test, because tests write their own fixtures.
+
+---
+
+## 102. HTMX is downloaded on every page and invoked by nothing, so half the request pipeline's fragment handling is unreachable
+
+**Symptom.** None visible. Every page works. The UI is described, in its own phase plan and package doc comments, as "templ + HTMX".
+
+**Root cause.** The vendored `htmx.min.js` is loaded by `layout.templ` on every page. A repository-wide search of the template set finds exactly one `hx-` attribute:
+
+```
+internal/ui/render/layout.templ:40:  hx-headers
+```
+
+on `<body>`, carrying the CSRF token. There is no `hx-get`, no `hx-post`, no `hx-target`, no `hx-swap`, and no call into `htmx.*` from `app.js`. Nothing on any page ever issues an HTMX request, so the token that attribute exists to attach has nothing to attach to.
+
+The consequences run backwards through the server. `wantsFragment` has one caller. The `HX-Redirect` branch in `redirect` and the one in `requireSession` are reachable only by hand-crafting an `HX-Request` header, which is exactly what their tests do and exactly what no browser does. The security headers, the content security policy allowance, the vendored bytes, the checksum test, the provenance file and the licence notice all exist for a dependency the application does not call.
+
+Every individual piece is correct. The plumbing is genuinely ready for the first element that opts in. What is wrong is the claim: the stack is templ, and HTMX is a payload.
+
+**Fix (2026-08-11).** Connected, rather than removed. The deciding argument was that this is the part that matters once payloads start flying: a fan-out records its outcomes over seconds or minutes, and a page that froze at the instant it was opened, with nothing to say it had, is worse than no page.
+
+`view.RefreshSpec` declares that a view keeps itself current, carrying an interval and an optional per-record `Active` predicate. `listRegion` and `detailRegion` were lifted out of their pages into their own components, so the first paint and every refresh render from one definition. `list` and `detail` now content-negotiate on HTMX's own request header and answer the same URL with the region alone, so a resource that declares a refresh still adds no route, no endpoint and no handler.
+
+The stop mechanism is worth recording because it needs no bookkeeping: `hx-swap` is `outerHTML`, so the replacement carries its own trigger, and a fragment rendered while `Active` reports false simply carries none. A finished job costs one request, not one every five seconds until the tab is closed.
+
+Two accessibility corrections came with it, both of which the original design would have got wrong by omission. A polled region never takes focus, because nobody asked for that swap and a timer has no intent. And a polled region announces only when its own summary actually changed, because "12 results" read aloud every five seconds is an obstacle rather than a feature, aimed at exactly the reader most likely to leave a running job open.
+
+The canary left behind by the first pass is what caught the moment this changed: a test asserting a list request returns a whole document, with a comment saying that if fragment rendering was ever added, it and this entry needed revisiting. It failed on the commit that added it, which is what a canary is for.
+
+**Lesson.** **A dependency that is loaded is not a dependency that is used, and "the plumbing is ready" is indistinguishable from "the plumbing is dead" without a caller.** This is the same shape as an `init()` nothing imports (#52), a credential source nothing wires (#96), and a record action whose relation never entered the candidate set (#100) — infrastructure ahead of any caller, correct in isolation, invisible in aggregate.
+
+The specific tell here is cheap to check and worth making a habit: for any front-end library the server ships, grep the templates for a single call site. One `grep -o 'hx-[a-z-]*'` answered a question that four gates, a checksum test and a licence audit had all stepped around, because every one of them was verifying the file rather than its use.
+
+---
+
+## 103. A PATCH decoded an absent list and an explicit empty list identically, so renaming a record silently emptied its membership
+
+**Symptom.** `PATCH /api/v1/teams/1` with body `{"name":"renamed"}` returned 200 and removed every member from the team. `PATCH /api/v1/inventories/1` with the same shape removed every group and device from the inventory.
+
+**Root cause.** The write DTOs carried plain slices:
+
+```go
+type teamWriteDTO struct {
+    Name  string `json:"name"`
+    Users []int  `json:"users"`
+}
+```
+
+`encoding/json` leaves a slice nil when its key is absent, and the handler assigned it unconditionally: `existing.UserIDs = body.Users`. So "the caller said nothing about membership" and "the caller said the membership is now empty" decoded to the same value, and the handler obeyed the second reading of both.
+
+The store underneath is not wrong. Membership is replaced wholesale rather than merged, deliberately, because a merge makes removing the last member inexpressible: an empty submission would be indistinguishable from no change. That is correct at the store, which is handed a complete desired state. What was missing is that the HTTP layer owed it that complete state, and could not tell whether it had one.
+
+It matters more on an inventory than on a team. An inventory is a grant surface (#97), so its membership is a permission written in another vocabulary; emptying it silently changes what every share of it covers, with nothing in the request saying so.
+
+**Fix.** The lists became `*[]int`. A nil pointer means the caller did not mention that list and it is left exactly as it was; a pointer to a slice, empty or not, is a complete instruction and replaces it. Each list is independent, so naming devices does not clear groups. Regression tests assert all three cases per resource: omitted preserves, named replaces, explicit empty clears.
+
+**Lesson.** **PATCH means partial, and a plain slice cannot express partial.** The verb is a promise that unmentioned fields are untouched, and any field whose absence must differ from its emptiness needs a type with three states. This is the request-side twin of the response-side defect recorded as LESSONS_LEARNED.md #98, found the same day in the same codebase: there `omitempty` collapsed nil and empty on the way out, here `encoding/json` collapsed them on the way in. Both were invisible because the Go code read naturally and the round trip through a struct never showed the loss.
+
+The finding is also worth recording for how it was found: by an adversarial review agent that wrote a probe test into the working tree, ran it, and printed the before and after state. Reading the handler had not revealed it, twice, to two different readers.
+
+---
+
+## 104. A review agent wrote a file into the working tree, and CI failed on somebody else's scratch
+
+**Symptom.** `make ci` failed at `go test ./internal/api/` on `TestProbe_PatchTeamWithoutUsersKey`, defined in `internal/api/zz_refute_probe_test.go`. Neither the test nor the file existed in any commit, in any plan, or in the session's own record of what had been written. By the time the failure was investigated the file was gone, so the failing test could not be located at all.
+
+**Root cause.** A background workflow was reviewing the access surface adversarially while an unrelated `make ci` ran over the same working tree. The review agents were given the default tool set, which includes Write. One of them did exactly what a good reviewer does: it wrote a probe to test its hypothesis, ran it, confirmed a real defect, and cleaned up after itself.
+
+Two independent problems. The agents had write access to a tree they were only meant to read, and they shared that tree with a concurrent verification run, so a transient file became a permanent-looking CI failure attributed to code that was fine.
+
+**Fix.** Not yet applied as a mechanism, and the honest reason is that the finding was good: the probe caught #103, which two careful readings of the same handler had missed. Removing the ability to write a probe would remove the thing that worked.
+
+The shape of the right fix is a worktree rather than a permission: `isolation: "worktree"` on the review agents gives each its own checkout, so probes are free to exist and cannot collide with anything. Recorded here so the next review workflow starts that way.
+
+**Lesson.** **A concurrent verification run and a concurrent agent must not share a working tree.** A gate is only meaningful if the thing it measured is the thing you have, and a background process mutating the tree underneath it breaks that quietly: the failure names a file, the file is gone, and the natural conclusion is that the gate is flaky. It is not. Isolate the writer, not the write.
+
+---
+
+## 105. A guard ran after the deletions it was guarding, so a refusal destroyed the data it refused to destroy
+
+**Symptom.** `DELETE /api/v1/teams/{id}` on a team holding the deployment's last system-scope Allow returned 409 with "refusing to delete the last system-scope grant", which is correct. The team survived, which is correct. Every *other* grant that team held was gone, permanently, and nothing said so.
+
+**Root cause.** The deletion walked the team's grants and removed them one at a time, reusing the same per-binding guard `DeleteBinding` uses and asking it about each row as the loop reached it:
+
+```go
+for _, b := range held {
+    if err := s.guardLastSystemGrant(ctx, b, Binding{}); err != nil {
+        return err          // <- every grant walked past is already gone
+    }
+    ...delete b...
+}
+```
+
+Two faults compounding. The guard was per-row rather than per-operation, so it asked "may this grant be removed" when the operation was "remove all of them"; and there was no transaction, so returning early left whatever the loop had already reached deleted. A team whose system grant sorted last lost everything before the refusal fired, and the API reported a clean refusal over a partial destruction.
+
+The same method read its grants through the paged listing, capped at 200. A team holding more than that had exactly 200 destroyed and then failed a foreign key on the team row itself, which is the same defect arriving by a different route.
+
+**Fix.** The whole set is read unpaged, the guard is evaluated once against the complete set before any write, and the writes run inside a real transaction that unwinds on any failure. Regression tests assert the refusal leaves every grant intact, that a team holding 201 grants deletes cleanly, that a team holding a system grant is still deletable while another stands, and that a deletion targeting a team that does not exist unwinds and reports `ErrNotFound` rather than a silent success.
+
+**Lesson.** **A guard that can fire mid-operation must run before the operation, and the operation must be atomic.** "Refused" and "partially applied" are different outcomes, and a caller reading a 409 has no reason to suspect the second. Where a check is a precondition of a multi-row write, evaluate it against the complete set first and put the writes in a transaction: any other arrangement makes the error message a lie about what happened. The defect was found by an adversarial review agent and confirmed by executing the refusal and then reading the grants back, which is what distinguished it from the refusal working correctly.
+
+---
+
+## 106. Two opposite constraint violations arrived as one ent error type, so "still referenced" was reported as "already exists"
+
+**Symptom.** Deleting a record something else still pointed at returned 409 "a record with that name already exists". The message describes a different operation than the one attempted, and names uniqueness as the problem when the problem was a dependency.
+
+**Root cause.** `ent.IsConstraintError` is true for a uniqueness violation and for a foreign-key violation alike, and the type carries nothing distinguishing them. The mapping had one branch, written when the only constraint anything could hit was a duplicate name on create:
+
+```go
+case ent.IsConstraintError(err):
+    return fmt.Errorf("%w: %q", ErrExists, name)
+```
+
+Once delete paths existed, every reference violation fell into it. The caller was told to pick a different name for a record it was trying to remove.
+
+**Fix.** A separate `ErrInUse`, mapped to 409 with "something still references this record", selected by inspecting the driver's message for the wording SQLite and PostgreSQL each use. Inspecting a message is unlovely and is the only option ent offers here. An unrecognised constraint falls through to the uniqueness reading deliberately, because that is the safer of the two to be wrong about: it reports a collision rather than inventing a dependency that may not exist. Both branches and the fallback are covered.
+
+**Lesson.** **When a library collapses two opposite failures into one type, the mapping to your own vocabulary is where they have to be separated, and the fallback is a decision.** A single branch is not "handling the constraint error", it is choosing one of its meanings silently. Pick the fallback for what it costs when wrong, and say in the code why that one.
+
+---
+
+## 107. A list rendered a foreign key, so the reader had to do the join
+
+**Symptom.** The Teams list showed a column headed ORGANIZATION whose every value was an integer: `1`, `1`, `2`. Inventories did the same. The grants table read "operator, inventory 7, allow". The Users list showed `4, 9`. Nothing was broken, no test failed, and the pages were unusable without a second window open.
+
+**Root cause.** Two separate mistakes that arrived at the same place.
+
+The first was mechanical. Every one of those stores already eager-loads the referenced row: `ListTeams` calls `.WithOrganization()`, `ListUsers` calls `.WithTeams()`, the inventory list calls `.WithOrganization()`. The hydrators read `.ID` off the loaded row and discarded everything else:
+
+```go
+if row.Edges.Organization != nil {
+    team.OrganizationID = row.Edges.Organization.ID
+}
+```
+
+The name was in memory, on every row, and was thrown away. The fix cost zero additional queries.
+
+The second was a reasoned decision, which makes it the more interesting half. The grants view's own doc comment argued against resolving the name:
+
+> Not a join, for the reason the API's own version gives: resolving each scope id to its record's name would cost a query per row, and a deleted target would render as an empty string, which reads as "granted nowhere" rather than as "granted at a record that no longer exists".
+
+Both observations were true. The conclusion did not follow from them. The answer to an expensive per-row join is a batch, not a primary key on the page; and the answer to an ambiguous blank is to say which of the two things it is, not to print an id instead.
+
+There is a third contributing factor worth naming. The same session had just replaced a form control that asked an operator to type member user ids, on the explicit argument that "a control asking somebody to type a primary key is a control that will receive the wrong primary key". That argument applies with equal force to a column that answers with one, and it was not carried across, because forms and lists were being thought about as different problems.
+
+**Fix.** `view.Field.References` names the registered view a field points at, and does two things: the cell renders the referenced record's name, and renders as a link to it, so the hierarchy is walkable rather than merely readable. `Row.Refs` carries the target id separately from the label, so the template never parses an id back out of text a human wrote. `view.CheckReferences` runs once after every view registers and refuses a reference to a view nobody registered, which cannot be checked inside `Register` because registration order is map iteration.
+
+Three of the four cases were then free. The fourth, a role binding's `scope_id`, is a genuinely polymorphic reference with no foreign key by design, so it gets a batch resolver: collect the page's ids, group by scope type, one query per type. A deleted target keeps its id and renders as deleted rather than blank.
+
+A conformance assertion over every registered view now fails any referencing field that renders empty or renders something that parses as an integer.
+
+**Lesson.** **A list that renders a foreign key has not saved the reader a join, it has moved the join into their head.** The test is not whether the page is correct but whether it is usable without a second window: an operator should never have to learn that organization 1 is Network. When the name genuinely costs a query, batch it per page; when the target is gone, say so. And an argument made about a form control applies to the column that answers it, which is a connection worth looking for deliberately, because forms and tables feel like different problems and are the same one.
+
+## 108. A replaced doc comment survived above its replacement, so one function documented two opposite policies
+
+**Symptom.** `internal/api/access_bindings.go` carried two consecutive doc comments on one function:
+
+```go
+// grantedAt renders where a grant sits, for a reader rather than for a
+// machine.
+//
+// Deliberately not a join. Resolving each scope id to its record's name
+// would cost a query per row ... The id is the honest thing to show, and the
+// scope type is what makes it legible.
+// grantedAt renders where a grant sits, in words.
+//
+// It names the target rather than numbering it, for the reason
+// FAILURE_PATTERNS.md #107 records ...
+func grantedAt(b access.Binding) string {
+```
+
+The function names the target. The first comment says it deliberately does not, and explains why that is the better choice. Nothing failed: `gofmt` is content, `go vet` is content, and `golint`-style tooling has no opinion about a second paragraph that happens to start with the function's own name.
+
+**Root cause.** The same session's own edit, made while fixing #107. The replacement text was inserted above the old comment instead of over it, and the old text stayed. It survived review because a reader scanning for the new comment finds it, immediately above the function, exactly where it belongs, and stops reading upward.
+
+The reason it matters more here than in most codebases is that this repository's rules make doc comments load bearing. `.AGENTS/AGENTS.md` requires every exported symbol and every non-obvious decision to carry its reasoning, and the reasoning is how the next session decides whether a behaviour is deliberate. A comment that argues for the *previous* behaviour, sitting on a function that no longer has it, is worse than no comment: it reads as a warning that the current code is a mistake somebody already thought through and rejected.
+
+**Fix.** Deleted the superseded paragraph. The surviving comment cites #107 by number, so the decision and its history stay reachable without keeping the old argument as prose.
+
+**Lesson.** When a decision is reversed, the comment that argued for the old decision is not context, it is a contradiction, and it has to be deleted rather than pushed down. After any edit that changes what a function does, read the whole comment block above it from the top, not from the line the edit touched. A scripted or partial replacement that anchors on the first line of a doc comment will insert rather than replace, and the result compiles, formats and passes every check this project runs.
+
+## 109. A testing library reached a production binary, because the package that imported it had no production caller until now
+
+**Symptom.** None yet, which is the whole point of recording it. `go list -deps ./internal/adapters/legacy` pulls in eight `testcontainers-go` packages, a Docker client and their transitive dependencies. As of Phase 21, `cmd/runner` imports that package in order to route playbook dispatches, so all of it ships inside the Runner binary deployed to air-gapped and classified networks.
+
+**Root cause.** `internal/adapters/legacy/docker_orchestrator.go` is a *non-test* file that imports `testcontainers-go`, and `testcontainers-go` is a direct `require` in `go.mod`. That was invisible for two phases because `legacy.NewAdapter` had **no production call site at all**: `gopls references` showed only `cmd/runner/ansible_release_gate_test.go` and the package's own test. A package that nothing imports contributes nothing to any binary, so the dependency sat in the module without ever sitting in an artifact.
+
+Phase 21 is what changed that, and it could not avoid it. Go imports are static: the moment a composition root imports a package to construct one type from it, every transitive dependency of that package is linked in. There is no env-var toggle, no lazy construction and no interface indirection that avoids it, because the import is what pulls the code, not the call.
+
+The reason it matters here more than it would elsewhere is the deployment target. This platform's stated audience is air-gapped, classified and financial-grade environments, where the set of code inside a binary is itself an auditable artifact. A testing library in that set is a larger `govulncheck` surface, a larger supply-chain surface, and a thing a reviewer has to explain.
+
+**Fix.** Not fixed. The exposure was raised before it was created, and the decision was taken deliberately to compose both adapters now and replace the orchestration later: Phase 21 lands complete, and the Runner carries a test library until Phase 20 or 22 replaces `DockerOrchestrator`'s `testcontainers-go` calls with the Docker SDK directly. The composition root names this entry at the point of import so the cost is inherited knowingly rather than discovered.
+
+Two things were done to bound it. The legacy adapter is composed **fail-open**: with no `PLAYBOOK_DIR` or no `ANSIBLE_RUNNER_IMAGE` the adapter is not constructed, the playbook kind is simply unroutable, and the Runner logs which kinds it can run at startup. And the routing decision itself lives in `internal/adapters/routing`, which depends on neither adapter, so removing the legacy import later is a change to one composition root rather than to the mechanism.
+
+**Lesson.** A dependency's blast radius is decided by what imports it, not by what calls it, and "this package has no production caller yet" is a temporary property that changes silently the first time somebody wires it up. When a non-test file imports a testing library, the cost is not paid until a binary reaches it, which means the decision gets made by whoever happens to need the package next, usually without knowing they are making it. Check `go list -deps` for a composition root's own binary, not for the module, and check it at the moment a new package enters that graph rather than at the moment it is written.
+
+## 110. A composition root omitted an optional constructor option, and the feature it enabled was refused at run time with nothing failing at build time
+
+**Symptom.** Every job launched from a template failed. Not a crash and not a 500: the launch was accepted with a 202 and a job id, the Worker picked the job up, and the job then reached the `failed` state with the reason "cannot resolve the inventory this job targets". The two chaos tests in `tests/e2e` caught it, both reporting `job state = "failed", want completed` from their baseline launch, which is the step that happens before either of them severs anything.
+
+**Root cause.** `dispatch.NewWorker` takes its collaborators positionally and its optional ones as variadic `WorkerOption` values. Phase 21 added `WithSetStore`, which is what lets the Worker resolve the Inventory a job names into the devices it holds. `cmd/controller` was never given it.
+
+Nothing could have failed earlier. The option is optional by signature, so omitting it compiles; the Worker's own package tests pass it, so its unit coverage was green; and the refusal it produces is *correct* behaviour, deliberately built in the same phase: a Worker that cannot resolve a job's target refuses the job rather than falling through to an unrestricted selector, because an unrestricted selector dispatches to every device the platform manages. The fail-closed design turned a wiring omission into a clean, well-reported, total feature outage, which is the right trade and also the reason nothing looked broken from inside any single package.
+
+The near miss is worth naming. Had the selector failed *open* instead, this same omission would have dispatched every launch to the entire fleet, and the tests would have passed while doing it.
+
+**Fix.** `cmd/controller` constructs the Inventory store above the Worker and passes `dispatch.WithSetStore(sets)`, with a comment at the call site saying what the Worker cannot do without it. The store was previously constructed a hundred lines further down, beside the UI's own handlers, which is why the option was easy to miss when the Worker was written.
+
+**Lesson.** A functional option is a signature that cannot distinguish "deliberately not used" from "forgotten", so the compiler has nothing to say about either. When a phase adds an option that a new feature *requires*, the composition root is part of that feature and not a follow-up: wire it in the same change, and prove it from outside the process, because every test that constructs the collaborator itself will pass regardless. The generalisation of FAILURE_PATTERNS #52: an unwired dependency is invisible to the build whether it is a blank import, a registrar entry, or an option nobody passed.

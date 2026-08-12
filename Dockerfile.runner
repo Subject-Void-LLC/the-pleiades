@@ -3,7 +3,11 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o runner cmd/runner/main.go
+# Built as a PACKAGE path, not a single file. A single-file build
+# silently stops compiling the moment the composition root is split
+# across more than one file, while `make ci` (go build ./...) stays
+# green, so the image breaks and nothing else does.
+RUN go build -o runner ./cmd/runner
 
 FROM alpine:3.24.1
 WORKDIR /app

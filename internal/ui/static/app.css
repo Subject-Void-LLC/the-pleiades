@@ -410,9 +410,52 @@ a {
   color: var(--fg-muted);
 }
 
+/* Above the breakpoint the disclosure is not a control: the sidebar is
+ * always open, so the toggle is hidden and the navigation is shown
+ * whatever state the element itself is in. Setting display on a
+ * non-summary child is what overrides the engine's own hiding of a closed
+ * <details>, and it is the only reason somebody who collapsed the menu on
+ * a phone is not handed an empty sidebar on a laptop.
+ *
+ * This is the one min-width query in the file, because it is the one rule
+ * that must not reach the narrow layout: applied unconditionally it would
+ * hold the navigation open against the toggle and there would be nothing
+ * for the hamburger to do. */
+@media (min-width: 48.0625rem) {
+  .nav-disclosure > summary {
+    display: none;
+  }
+  .nav-disclosure > nav {
+    display: block;
+  }
+}
+
+/* A group heading is a label on a list, not a section title in the
+ * document. It carries an h2 so the sidebar is reachable by heading
+ * navigation and so each <ul> has something to be labelled by, but it is
+ * sized as the caption it reads as. */
+.nav-group {
+  margin-top: 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  /* The sidebar is a fixed 280px and a group name is not length-checked
+   * anywhere, so a long one wraps rather than running out through the
+   * border. This is what the unstyled heading did: at h2 size
+   * ADMINISTRATION was wider than the column it sat in. */
+  overflow-wrap: break-word;
+}
+
 .nav-list {
   list-style: none;
   margin-top: 1.5rem;
+}
+/* The heading already provides the separation the top margin exists for. */
+.nav-group + .nav-list {
+  margin-top: 0.5rem;
 }
 .nav-list li + li {
   border-top: var(--rule-width) solid var(--border);
@@ -900,13 +943,45 @@ select {
     border-bottom: var(--border-width) solid var(--border);
     padding: 1rem;
   }
+  /* Below the breakpoint the summary becomes the toggle, and the toggle
+   * is drawn as a hamburger. The word stays beside it: an icon is not an
+   * accessible name, and a control announcing only as "trigram for
+   * heaven, expanded" is worse than an unstyled one.
+   *
+   * The bars are drawn rather than set as a content: "\2630" glyph for
+   * that same reason -- generated text is announced by several screen
+   * readers, so a decorative glyph would end up in the control's name
+   * with no markup available to exclude it. An empty pseudo-element
+   * announces nothing. */
   .nav-disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
     font-family: var(--font-mono);
     text-transform: uppercase;
     font-weight: 700;
     padding: 0.75rem 0;
     cursor: pointer;
     min-height: 2.75rem;
+    /* Suppresses the triangle everywhere except Safari, which draws its
+     * own through a pseudo-element list-style does not reach. */
+    list-style: none;
+  }
+  .nav-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* Three bars from two borders plus the box's own background. The outer
+   * two survive forced-colors mode, where a background colour is replaced
+   * by the system canvas and a border colour is not, so the control
+   * degrades to a legible two-bar mark rather than to nothing. */
+  .nav-disclosure > summary::before {
+    content: "";
+    flex: none;
+    width: 1.15rem;
+    height: 0.8rem;
+    border-top: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    background: linear-gradient(currentColor, currentColor) center / 100% 2px no-repeat;
   }
 
   .main {

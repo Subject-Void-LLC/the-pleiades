@@ -65,9 +65,23 @@ func NewFileRepository(inventoryPath string, factory *ItemFactory) Repository {
 // TestFileRepository_Selector_GroupNameIgnored pins this down so a future
 // change cannot silently start erroring on it instead.
 //
+// sel.Membership is refused rather than ignored, which is the opposite
+// treatment to sel.GroupName above and deliberately so. An ignored
+// GroupName is a filter that fails to narrow, which this tier has always
+// done and which a test pins. An ignored Membership would turn "dispatch
+// to the devices in this inventory" into "dispatch to every host in the
+// file", because ignoring a restriction here means streaming everything.
+// The difference is between a filter that does not narrow and a boundary
+// that does not hold.
+//
 // Items it yields carry Version but not History, matching the Repository
 // interface's documented list-view contract (iterator.go).
 func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error) {
+	if sel.Membership != nil {
+		return nil, fmt.Errorf("%w: the file-backed inventory has no groups or inventories to resolve a membership against",
+			ErrSelectorUnsupported)
+	}
+
 	hosts, err := ReadHosts(r.hostsPath)
 	if err != nil {
 		return nil, err

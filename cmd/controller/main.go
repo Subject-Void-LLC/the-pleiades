@@ -88,6 +88,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -98,7 +101,14 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	// The built-in launch kinds. A blank import because their init()
+	// functions are the only thing that populates internal/launch's
+	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
+	// (FAILURE_PATTERNS.md #52).
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -134,6 +144,25 @@ const schedulerLeaseKey = "pleiades-scheduler-leader"
 // elections, and there is no reason a replica's reaper leadership should
 // be coupled to its (still-unclaimed, Phase 23) scheduler leadership.
 const fanOutReaperLeaseKey = "pleiades-fanout-reaper-leader"
+
+// actorFromRequest is the activity stream's ActorSource: who is making the
+// change carried by this context.
+//
+// It reads the authenticated identity the auth middleware placed there,
+// which is the same value for a Bearer token and for a browser session,
+// because internal/api owns the one context key both credential kinds write
+// through. That is what makes one decorator cover both write surfaces.
+//
+// An empty return is not a default. It means no identity reached the store,
+// and access.NewAuditedStore refuses the write rather than recording it
+// against nobody: see access.ErrUnattributed for why an audit trail with
+// anonymous rows is worse than one with gaps.
+func actorFromRequest(ctx context.Context) string {
+	if identity, ok := api.IdentityFromContext(ctx); ok {
+		return identity.Subject
+	}
+	return ""
+}
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -494,6 +523,12 @@ func main() {
 	// what worker below claims fan-out ownership through.
 	jobStore := dispatch.NewEntJobStore(client)
 
+	// sets is the Inventory store: the named, shareable device sets a
+	// template targets. Constructed here rather than beside the UI's own
+	// handlers because the fan-out worker below needs it to resolve what a
+	// job actually dispatches against.
+	sets := inventory.NewEntSetStore(client)
+
 	// worker is the durable job.requested consumer (internal/dispatch's
 	// own doc comment: PLAN.md Section 28.4's "a durable worker performs
 	// the actual per-device fan-out later, off the HTTP request path
@@ -503,7 +538,14 @@ func main() {
 	// HandleJobRequested has everything it needs to resolve the job,
 	// stream the target group, admit or skip each device, and publish a
 	// wire.DispatchPayload per admitted device.
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials)
+	//
+	// WithSetStore is what lets it resolve the Inventory a job names into
+	// the devices it holds. Without it the Worker cannot target a job
+	// launched from a template at all, and refuses it rather than falling
+	// through to an unrestricted selector: a job that could not be targeted
+	// must dispatch to nothing, never to every device the platform manages.
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials,
+		dispatch.WithSetStore(sets))
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup
@@ -550,7 +592,16 @@ func main() {
 		reaper.Run(ctx, reaperElector.IsLeader)
 	}()
 
-	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
+	// The template store, and the two narrow ports the Dispatcher takes off
+	// it. One concrete value, two interfaces: launching reads a template and
+	// records what a launch was configured with, and cannot administer one.
+	// api.NewTemplateHandler below takes the store itself, because
+	// administering templates is precisely what it is for.
+	templateStore := launch.NewEntStore(client)
+	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
+		api.WithTemplates(templateStore),
+		api.WithLaunchConfigs(templateStore))
+	templates := api.NewTemplateHandler(templateStore, logger)
 	streamer := api.NewLogStreamer(js)
 	// The factory is the same one the repository hydrates stored rows
 	// with, so a device created over the API is built by exactly the code
@@ -559,6 +610,29 @@ func main() {
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
 	catalog := api.NewRunbookHandler(runbooks, logger)
+
+	// The two resources the web UI's navigation is built around: the
+	// shareable device sets a runbook is dispatched against, and the
+	// operator broadcast the dashboard renders.
+	inventories := api.NewInventoryHandler(sets, logger)
+	announcements := api.NewAnnouncementHandler(announce.NewEntStore(client), logger)
+
+	// The access administration surface. Without it none of the four
+	// entities the RBAC resolver reads could be created at all, which is
+	// what left the tenancy axis unusable and the Inventories create form
+	// unsubmittable (FAILURE_PATTERNS.md #101).
+	// The activity stream, and the decorator that writes it.
+	//
+	// Wrapped here, once, rather than recorded from inside the handlers.
+	// One value feeds both write surfaces -- the JSON API's handlers below
+	// and the web UI's own writers, which reach the store directly and pass
+	// through no handler at all -- so wrapping it at the single point they
+	// share is what makes the audit trail cover both. Recording from
+	// handlers would have covered one and left the other silent.
+	activityStream := activity.NewEntStore(client)
+	accessStore := access.NewAuditedStore(access.NewEntStore(client), activityStream, actorFromRequest, logger)
+	accounts := api.NewAccessHandler(accessStore, logger)
+	activityLog := api.NewActivityHandler(activityStream, logger)
 
 	// chain is Phase 8's own Chain of Responsibility. It carries one rule
 	// today, NewTokenScopeRule, the token-scope axis. The Team/RoleBinding
@@ -616,17 +690,77 @@ func main() {
 	// The previous hand-written literal could not make that promise: a
 	// new Endpoint that nobody added here 404'd silently.
 	routes, err := apispec.Routes(map[string]http.HandlerFunc{
-		apispec.DispatchRunbook.Name: dispatcher.DispatchRunbook,
-		apispec.ListJobs.Name:        jobs.List,
-		apispec.GetJob.Name:          jobs.Get,
-		apispec.StreamJobLogs.Name:   streamer.StreamLogs,
-		apispec.ListDevices.Name:     devices.List,
-		apispec.CreateDevice.Name:    devices.Create,
-		apispec.GetDevice.Name:       devices.Get,
-		apispec.UpdateDevice.Name:    devices.Update,
-		apispec.DeleteDevice.Name:    devices.Delete,
-		apispec.ListRunbooks.Name:    catalog.List,
-		apispec.GetRunbook.Name:      catalog.Get,
+		apispec.ListJobs.Name:      jobs.List,
+		apispec.GetJob.Name:        jobs.Get,
+		apispec.StreamJobLogs.Name: streamer.StreamLogs,
+		apispec.RelaunchJob.Name:   dispatcher.RelaunchJob,
+
+		// Templates split across two handlers on purpose, along the same
+		// line the scopes split on: administering one is the TemplateHandler
+		// under template:read/template:write, running one is the Dispatcher
+		// under runbook:execute.
+		apispec.ListTemplates.Name:        templates.List,
+		apispec.GetTemplate.Name:          templates.Get,
+		apispec.CreateTemplate.Name:       templates.Create,
+		apispec.UpdateTemplate.Name:       templates.Update,
+		apispec.DeleteTemplate.Name:       templates.Delete,
+		apispec.CopyTemplate.Name:         templates.Copy,
+		apispec.LaunchTemplate.Name:       dispatcher.LaunchFromTemplate,
+		apispec.ListTemplateConfigs.Name:  templates.ListConfigs,
+		apispec.CreateTemplateConfig.Name: templates.CreateConfig,
+		apispec.ListDevices.Name:          devices.List,
+		apispec.CreateDevice.Name:         devices.Create,
+		apispec.GetDevice.Name:            devices.Get,
+		apispec.UpdateDevice.Name:         devices.Update,
+		apispec.DeleteDevice.Name:         devices.Delete,
+		apispec.ListRunbooks.Name:         catalog.List,
+		apispec.GetRunbook.Name:           catalog.Get,
+
+		apispec.ListInventories.Name: inventories.List,
+		apispec.GetInventory.Name:    inventories.Get,
+		apispec.CreateInventory.Name: inventories.Create,
+		apispec.UpdateInventory.Name: inventories.Update,
+		apispec.DeleteInventory.Name: inventories.Delete,
+
+		apispec.ListAnnouncements.Name:  announcements.List,
+		apispec.CreateAnnouncement.Name: announcements.Create,
+		apispec.UpdateAnnouncement.Name: announcements.Update,
+		apispec.DeleteAnnouncement.Name: announcements.Delete,
+
+		apispec.ListOrganizations.Name:  accounts.ListOrganizations,
+		apispec.GetOrganization.Name:    accounts.GetOrganization,
+		apispec.CreateOrganization.Name: accounts.CreateOrganization,
+		apispec.UpdateOrganization.Name: accounts.UpdateOrganization,
+		apispec.DeleteOrganization.Name: accounts.DeleteOrganization,
+		apispec.AttestOrganization.Name: accounts.AttestOrganization,
+
+		apispec.ListTeams.Name:  accounts.ListTeams,
+		apispec.GetTeam.Name:    accounts.GetTeam,
+		apispec.CreateTeam.Name: accounts.CreateTeam,
+		apispec.UpdateTeam.Name: accounts.UpdateTeam,
+		apispec.DeleteTeam.Name: accounts.DeleteTeam,
+		apispec.AttestTeam.Name: accounts.AttestTeam,
+
+		apispec.ListUsers.Name:  accounts.ListUsers,
+		apispec.GetUser.Name:    accounts.GetUser,
+		apispec.CreateUser.Name: accounts.CreateUser,
+		apispec.UpdateUser.Name: accounts.UpdateUser,
+		apispec.DeleteUser.Name: accounts.DeleteUser,
+
+		apispec.ListBindings.Name:  accounts.ListBindings,
+		apispec.GetBinding.Name:    accounts.GetBinding,
+		apispec.CreateBinding.Name: accounts.CreateBinding,
+		apispec.UpdateBinding.Name: accounts.UpdateBinding,
+		apispec.DeleteBinding.Name: accounts.DeleteBinding,
+
+		apispec.ListActivity.Name:     activityLog.ListActivity,
+		apispec.GetActivityEntry.Name: activityLog.GetActivityEntry,
+
+		apispec.ListContacts.Name:  accounts.ListContacts,
+		apispec.GetContact.Name:    accounts.GetContact,
+		apispec.CreateContact.Name: accounts.CreateContact,
+		apispec.UpdateContact.Name: accounts.UpdateContact,
+		apispec.DeleteContact.Name: accounts.DeleteContact,
 	})
 	if err != nil {
 		fatal("api route table does not match the declared endpoints", err)
@@ -636,10 +770,15 @@ func main() {
 	// controller that cannot build its own UI must not start and then
 	// serve broken pages.
 	if err := resources.RegisterAll(resources.Deps{
+		Access:     accessStore,
+		Activity:   activityStream,
 		Inventory:  repo,
+		Sets:       sets,
+		Announce:   announce.NewEntStore(client),
 		Factory:    inventory.NewItemFactory(),
 		Jobs:       jobStore,
 		Runbooks:   runbooks,
+		Templates:  templateStore,
 		Dispatcher: dispatcher,
 	}); err != nil {
 		fatal("failed to register UI views", err)

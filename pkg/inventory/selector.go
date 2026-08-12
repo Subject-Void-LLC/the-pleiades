@@ -44,4 +44,41 @@ type Selector struct {
 	// it" is not a bound -- the work still happens, just where nobody
 	// looks at it.
 	Limit int
+
+	// Membership restricts the stream to the contents of one named
+	// collection: the devices in any of its groups, plus the devices
+	// attached to it directly.
+	//
+	// A pointer, and that is the whole design of this field. Every other
+	// field here means "no restriction" when it is empty, which is right
+	// for a filter and lethal for a boundary: an inventory that happens to
+	// contain nothing would then select the entire fleet, so dispatching
+	// an empty inventory would reach every device the platform manages. A
+	// nil pointer means no membership restriction; a non-nil one restricts
+	// to exactly what it holds, including when what it holds is nothing.
+	//
+	// The two cases cannot be confused by omission, which is the property
+	// worth paying a pointer for.
+	Membership *Membership
 }
+
+// Membership is the contents of one collection, as a device selection.
+//
+// Both directions are needed and neither is the general case: a collection
+// holds nested groups, devices attached with no intervening group, or both.
+// Expressing it as one union here, rather than as two calls the caller
+// combines, is what stops a caller getting the union wrong. Getting it
+// wrong in the narrowing direction silently skips devices a dispatch was
+// meant to reach; in the widening direction it silently reaches devices
+// nobody selected.
+type Membership struct {
+	GroupIDs  []int
+	DeviceIDs []int
+}
+
+// Empty reports whether this membership selects nothing at all.
+//
+// Worth asking before dispatching against it: "this inventory is empty" is
+// a fact an operator needs told, and a fan-out that reaches zero devices
+// with no explanation is indistinguishable from one that failed silently.
+func (m Membership) Empty() bool { return len(m.GroupIDs) == 0 && len(m.DeviceIDs) == 0 }

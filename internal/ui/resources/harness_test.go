@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
@@ -37,15 +39,35 @@ import (
 // every test reads the same table the binary would.
 var registerOnce sync.Once
 
+// conformanceStream is the activity stream the registered views write to,
+// captured at registration so an assertion can read what a UI write
+// recorded. Package-level for the same reason registerOnce is: the registry
+// is process-wide and the ports it captures outlive whichever test caused
+// the registration.
+var conformanceStream activity.Store
+
 func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
 		repo := newFakeRepository()
+		accessStore, activityStream := newTestAccessStore(t)
+		conformanceStream = activityStream
 		if err := resources.RegisterAll(resources.Deps{
+			// A real ent-backed store rather than a fake, and the reason is
+			// arithmetic rather than principle: access.Store is twenty
+			// methods, and an in-memory SQLite one is both shorter to write
+			// and the code that actually ships. It also gives the four
+			// access views real rows to render, which a fake returning
+			// empty slices would not.
+			Access:    accessStore,
+			Activity:  activityStream,
 			Inventory: repo,
+			Sets:      newFakeSetStore(),
+			Announce:  newFakeAnnouncementStore(),
 			Factory:   inventory.NewItemFactory(),
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
+			Templates: newTestTemplateStore(t),
 			// A nil dispatcher is enough for every assertion here: the
 			// Jobs view's create path is exercised for validation and
 			// refusal, never for a successful launch, which is the
@@ -64,12 +86,14 @@ var (
 	adminIdentity = &auth.Identity{
 		Subject: "conformance-admin",
 		Role:    auth.RoleAdmin,
-		Scopes:  []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryRead, auth.ScopeJobRead, auth.ScopeRunbookRead, auth.ScopeRunbookExecute},
+		Scopes: []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryRead, auth.ScopeJobRead,
+			auth.ScopeRunbookRead, auth.ScopeRunbookExecute, auth.ScopeAccessRead, auth.ScopeAccessWrite,
+			auth.ScopeTemplateRead, auth.ScopeTemplateWrite},
 	}
 	viewerIdentity = &auth.Identity{
 		Subject: "conformance-viewer",
 		Role:    auth.RoleViewer,
-		Scopes:  []auth.Scope{auth.ScopeInventoryRead, auth.ScopeJobRead, auth.ScopeRunbookRead},
+		Scopes:  []auth.Scope{auth.ScopeInventoryRead, auth.ScopeJobRead, auth.ScopeRunbookRead, auth.ScopeTemplateRead},
 	}
 )
 
@@ -263,6 +287,99 @@ func (s *fakeSessionStore) Delete(_ context.Context, token string) error {
 
 func (s *fakeSessionStore) DeleteExpired(context.Context, time.Time) (int, error) { return 0, nil }
 
+// fakeSetStore is an in-memory inventory.SetStore holding one inventory,
+// which is enough for a list with a row, a detail page and an edit form.
+type fakeSetStore struct {
+	mu   sync.Mutex
+	sets []inventory.Set
+}
+
+func newFakeSetStore() *fakeSetStore {
+	// OrganizationName is populated because the real store populates it:
+	// every ent query that loads a Set eager-loads its organization, and
+	// the hydrator carries the name across. A fake that returned the id
+	// without the name would be a fake that behaves unlike the thing it
+	// stands in for, which is how a list ends up rendering a link with no
+	// text and only the accessibility suite noticing.
+	return &fakeSetStore{sets: []inventory.Set{{
+		ID: 1, Name: "production", Description: "The fleet that matters.",
+		OrganizationID: 1, OrganizationName: "conformance",
+		Owner: "conformance", GroupIDs: []int{7}, DeviceIDs: []int{11, 12},
+	}}}
+}
+
+func (s *fakeSetStore) Create(_ context.Context, set inventory.Set) (inventory.Set, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	set.ID = len(s.sets) + 1
+	s.sets = append(s.sets, set)
+	return set, nil
+}
+
+func (s *fakeSetStore) Get(_ context.Context, id int) (inventory.Set, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, set := range s.sets {
+		if set.ID == id {
+			return set, nil
+		}
+	}
+	return inventory.Set{}, inventory.ErrSetNotFound
+}
+
+func (s *fakeSetStore) List(_ context.Context, q inventory.SetQuery) ([]inventory.Set, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]inventory.Set, 0, len(s.sets))
+	for _, set := range s.sets {
+		if set.ID > q.After {
+			out = append(out, set)
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeSetStore) Update(context.Context, inventory.Set) error { return nil }
+func (s *fakeSetStore) Delete(context.Context, int) error           { return nil }
+
+func (s *fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) { return []int{1}, nil }
+
+func (s *fakeSetStore) ListOrganizations(context.Context) ([]inventory.Organization, error) {
+	return []inventory.Organization{{ID: 1, Name: "acme"}}, nil
+}
+
+// fakeAnnouncementStore serves one live announcement.
+type fakeAnnouncementStore struct{ items []announce.Announcement }
+
+func newFakeAnnouncementStore() *fakeAnnouncementStore {
+	return &fakeAnnouncementStore{items: []announce.Announcement{{
+		ID: 1, Title: "Change freeze", Body: "No dispatches until Monday.",
+		Level: announce.LevelWarning, Author: "conformance",
+	}}}
+}
+
+func (s *fakeAnnouncementStore) Create(_ context.Context, a announce.Announcement) (announce.Announcement, error) {
+	a.ID = len(s.items) + 1
+	s.items = append(s.items, a)
+	return a, nil
+}
+
+func (s *fakeAnnouncementStore) Get(_ context.Context, id int) (announce.Announcement, error) {
+	for _, a := range s.items {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return announce.Announcement{}, announce.ErrNotFound
+}
+
+func (s *fakeAnnouncementStore) List(context.Context, announce.Query) ([]announce.Announcement, error) {
+	return s.items, nil
+}
+
+func (s *fakeAnnouncementStore) Update(context.Context, announce.Announcement) error { return nil }
+func (s *fakeAnnouncementStore) Delete(context.Context, int) error                   { return nil }
+
 // fakeJobStore serves a fixed set of jobs covering every state the
 // dashboard buckets, so the chart's figures are checkable rather than
 // merely present.
@@ -273,9 +390,11 @@ type fakeJobStore struct {
 
 func newFakeJobStore() *fakeJobStore {
 	return &fakeJobStore{jobs: []*dispatch.Job{
-		{JobID: "job-0001", RunbookID: "patch-tuesday", GroupName: "edge", State: "completed", DispatchedCount: 12, Actor: "someone", CreatedAt: time.Unix(1_700_000_000, 0)},
-		{JobID: "job-0002", RunbookID: "patch-tuesday", GroupName: "core", State: "failed", FailedCount: 3, Actor: "someone", CreatedAt: time.Unix(1_700_000_100, 0)},
-		{JobID: "job-0003", RunbookID: "audit", GroupName: "edge", State: "pending", Actor: "someone", CreatedAt: time.Unix(1_700_000_200, 0)},
+		// TemplateID 1 is the seeded template, so a template's Completed
+		// Jobs section has a row rather than only its empty state.
+		{JobID: "job-0001", RunbookID: "patch-tuesday", GroupName: "edge", State: "completed", TemplateID: 1, TemplateName: "conformance-template", Kind: "runbook", DispatchedCount: 12, Actor: "someone", CreatedAt: time.Unix(1_700_000_000, 0)},
+		{JobID: "job-0002", RunbookID: "patch-tuesday", GroupName: "core", State: "failed", TemplateName: "conformance-template", Kind: "runbook", FailedCount: 3, Actor: "someone", CreatedAt: time.Unix(1_700_000_100, 0)},
+		{JobID: "job-0003", RunbookID: "audit", GroupName: "edge", State: "pending", TemplateName: "conformance-template", Kind: "playbook", Actor: "someone", CreatedAt: time.Unix(1_700_000_200, 0)},
 	}}
 }
 
@@ -294,6 +413,16 @@ func (s *fakeJobStore) List(_ context.Context, after string, limit int) ([]*disp
 		start = len(s.jobs)
 	}
 	return s.jobs[start:end], nil
+}
+
+func (s *fakeJobStore) ListForTemplate(_ context.Context, templateID, limit int) ([]*dispatch.Job, error) {
+	out := make([]*dispatch.Job, 0, len(s.jobs))
+	for _, j := range s.jobs {
+		if j.TemplateID == templateID && len(out) < limit {
+			out = append(out, j)
+		}
+	}
+	return out, nil
 }
 
 func (s *fakeJobStore) Get(_ context.Context, jobID string) (*dispatch.Job, []dispatch.JobTask, error) {

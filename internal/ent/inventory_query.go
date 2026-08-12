@@ -17,7 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // InventoryQuery is the builder for querying Inventory entities.
@@ -28,9 +28,9 @@ type InventoryQuery struct {
 	inters           []Interceptor
 	predicates       []predicate.Inventory
 	withOrganization *OrganizationQuery
-	withOwner        *UserQuery
 	withGroups       *GroupQuery
 	withDevices      *DeviceQuery
+	withTemplates    *TemplateQuery
 	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -90,28 +90,6 @@ func (_q *InventoryQuery) QueryOrganization() *OrganizationQuery {
 	return query
 }
 
-// QueryOwner chains the current query on the "owner" edge.
-func (_q *InventoryQuery) QueryOwner() *UserQuery {
-	query := (&UserClient{config: _q.config}).Query()
-	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
-		if err := _q.prepareQuery(ctx); err != nil {
-			return nil, err
-		}
-		selector := _q.sqlQuery(ctx)
-		if err := selector.Err(); err != nil {
-			return nil, err
-		}
-		step := sqlgraph.NewStep(
-			sqlgraph.From(inventory.Table, inventory.FieldID, selector),
-			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, inventory.OwnerTable, inventory.OwnerColumn),
-		)
-		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
-		return fromU, nil
-	}
-	return query
-}
-
 // QueryGroups chains the current query on the "groups" edge.
 func (_q *InventoryQuery) QueryGroups() *GroupQuery {
 	query := (&GroupClient{config: _q.config}).Query()
@@ -149,6 +127,28 @@ func (_q *InventoryQuery) QueryDevices() *DeviceQuery {
 			sqlgraph.From(inventory.Table, inventory.FieldID, selector),
 			sqlgraph.To(device.Table, device.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, false, inventory.DevicesTable, inventory.DevicesPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryTemplates chains the current query on the "templates" edge.
+func (_q *InventoryQuery) QueryTemplates() *TemplateQuery {
+	query := (&TemplateClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(inventory.Table, inventory.FieldID, selector),
+			sqlgraph.To(template.Table, template.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, inventory.TemplatesTable, inventory.TemplatesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -349,9 +349,9 @@ func (_q *InventoryQuery) Clone() *InventoryQuery {
 		inters:           append([]Interceptor{}, _q.inters...),
 		predicates:       append([]predicate.Inventory{}, _q.predicates...),
 		withOrganization: _q.withOrganization.Clone(),
-		withOwner:        _q.withOwner.Clone(),
 		withGroups:       _q.withGroups.Clone(),
 		withDevices:      _q.withDevices.Clone(),
+		withTemplates:    _q.withTemplates.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -366,17 +366,6 @@ func (_q *InventoryQuery) WithOrganization(opts ...func(*OrganizationQuery)) *In
 		opt(query)
 	}
 	_q.withOrganization = query
-	return _q
-}
-
-// WithOwner tells the query-builder to eager-load the nodes that are connected to
-// the "owner" edge. The optional arguments are used to configure the query builder of the edge.
-func (_q *InventoryQuery) WithOwner(opts ...func(*UserQuery)) *InventoryQuery {
-	query := (&UserClient{config: _q.config}).Query()
-	for _, opt := range opts {
-		opt(query)
-	}
-	_q.withOwner = query
 	return _q
 }
 
@@ -399,6 +388,17 @@ func (_q *InventoryQuery) WithDevices(opts ...func(*DeviceQuery)) *InventoryQuer
 		opt(query)
 	}
 	_q.withDevices = query
+	return _q
+}
+
+// WithTemplates tells the query-builder to eager-load the nodes that are connected to
+// the "templates" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *InventoryQuery) WithTemplates(opts ...func(*TemplateQuery)) *InventoryQuery {
+	query := (&TemplateClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTemplates = query
 	return _q
 }
 
@@ -483,12 +483,12 @@ func (_q *InventoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*In
 		_spec       = _q.querySpec()
 		loadedTypes = [4]bool{
 			_q.withOrganization != nil,
-			_q.withOwner != nil,
 			_q.withGroups != nil,
 			_q.withDevices != nil,
+			_q.withTemplates != nil,
 		}
 	)
-	if _q.withOrganization != nil || _q.withOwner != nil {
+	if _q.withOrganization != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -518,12 +518,6 @@ func (_q *InventoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*In
 			return nil, err
 		}
 	}
-	if query := _q.withOwner; query != nil {
-		if err := _q.loadOwner(ctx, query, nodes, nil,
-			func(n *Inventory, e *User) { n.Edges.Owner = e }); err != nil {
-			return nil, err
-		}
-	}
 	if query := _q.withGroups; query != nil {
 		if err := _q.loadGroups(ctx, query, nodes,
 			func(n *Inventory) { n.Edges.Groups = []*Group{} },
@@ -535,6 +529,13 @@ func (_q *InventoryQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*In
 		if err := _q.loadDevices(ctx, query, nodes,
 			func(n *Inventory) { n.Edges.Devices = []*Device{} },
 			func(n *Inventory, e *Device) { n.Edges.Devices = append(n.Edges.Devices, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withTemplates; query != nil {
+		if err := _q.loadTemplates(ctx, query, nodes,
+			func(n *Inventory) { n.Edges.Templates = []*Template{} },
+			func(n *Inventory, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -566,38 +567,6 @@ func (_q *InventoryQuery) loadOrganization(ctx context.Context, query *Organizat
 		nodes, ok := nodeids[n.ID]
 		if !ok {
 			return fmt.Errorf(`unexpected foreign-key "organization_inventories" returned %v`, n.ID)
-		}
-		for i := range nodes {
-			assign(nodes[i], n)
-		}
-	}
-	return nil
-}
-func (_q *InventoryQuery) loadOwner(ctx context.Context, query *UserQuery, nodes []*Inventory, init func(*Inventory), assign func(*Inventory, *User)) error {
-	ids := make([]int, 0, len(nodes))
-	nodeids := make(map[int][]*Inventory)
-	for i := range nodes {
-		if nodes[i].user_owned_inventories == nil {
-			continue
-		}
-		fk := *nodes[i].user_owned_inventories
-		if _, ok := nodeids[fk]; !ok {
-			ids = append(ids, fk)
-		}
-		nodeids[fk] = append(nodeids[fk], nodes[i])
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	query.Where(user.IDIn(ids...))
-	neighbors, err := query.All(ctx)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		nodes, ok := nodeids[n.ID]
-		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "user_owned_inventories" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
@@ -724,6 +693,37 @@ func (_q *InventoryQuery) loadDevices(ctx context.Context, query *DeviceQuery, n
 		for kn := range nodes {
 			assign(kn, n)
 		}
+	}
+	return nil
+}
+func (_q *InventoryQuery) loadTemplates(ctx context.Context, query *TemplateQuery, nodes []*Inventory, init func(*Inventory), assign func(*Inventory, *Template)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Inventory)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Template(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(inventory.TemplatesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.inventory_templates
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "inventory_templates" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "inventory_templates" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

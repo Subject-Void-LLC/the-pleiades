@@ -1,4 +1,11 @@
-// Package devices is the Inventories view resource.
+// Package devices is the Devices view resource: the managed hosts
+// themselves.
+//
+// It used to be registered as "inventories". That name moved to the
+// container above it -- the shareable set a runbook is dispatched against --
+// because the word was doing two jobs at once: "which inventories can I run
+// against" and "is core-router-01 healthy" are different questions, and one
+// page answering both answered neither well.
 //
 // This is what a resource costs: a field declaration, an adapter over a
 // port that already exists, a projector, and a registration. No handler,
@@ -22,7 +29,7 @@ import (
 )
 
 // Name is this view's registration key and URL segment.
-const Name = "inventories"
+const Name = "devices"
 
 // fields is the one declaration driving the table, the form, the detail
 // list, server-side validation, and the mobile card layout.
@@ -182,9 +189,13 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 
 	return view.Register(view.Descriptor{
 		Name:     Name,
-		Title:    "Inventories",
-		NavLabel: "INVENTORY",
-		NavOrder: 20,
+		Title:    "Devices",
+		NavLabel: "DEVICES",
+		// Directly after Inventories, because a device is what an inventory
+		// contains and reading the two in that order is how the containment
+		// actually runs.
+		NavOrder: 80,
+		NavGroup: view.NavGroupResources,
 		Summary:  "Every device this control plane knows about.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",

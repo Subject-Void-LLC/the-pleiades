@@ -27,6 +27,29 @@ type Row struct {
 
 	// Cells holds this record's presentation values.
 	Cells Cells
+
+	// Refs holds the target record id for each field declaring
+	// References, keyed by field name. The name a reader sees lives in
+	// Cells; the id a link points at lives here.
+	//
+	// Two maps rather than one encoded value, because the alternative is a
+	// template parsing an id back out of a label, and a label is text a
+	// human wrote. "Network (7)" and a customer who names an organization
+	// "Network (7)" are indistinguishable to any parser worth writing.
+	//
+	// A field may declare References and still have no entry here: a
+	// reference to a record that has been deleted has a name to render and
+	// nowhere to point.
+	Refs map[string]string
+}
+
+// Ref returns the target id for a referencing field, empty when the field
+// does not reference anything or its target no longer exists.
+func (r Row) Ref(name string) string {
+	if r.Refs == nil {
+		return ""
+	}
+	return r.Refs[name]
 }
 
 // RowPage is one page of erased rows plus the cursor that fetches the
@@ -60,6 +83,27 @@ type Query struct {
 	// Search is a free-text filter. A resource that does not support one
 	// ignores it.
 	Search string
+}
+
+// DefaultPageSize is what a reader uses when a Query names no limit. It
+// lives here rather than in the web handler so that a reader called from a
+// test, a seeder or a future non-HTTP caller pages the same way the served
+// list does.
+const DefaultPageSize = 50
+
+// PageSize is the limit a reader should actually ask its store for, with
+// Limit's documented "zero means the resource's own default" applied once.
+//
+// Every reader needs this because every reader over-fetches by one to
+// observe whether a next page exists, and computing that from a zero limit
+// asks for a single row and then slices it to nothing. Doing it here rather
+// than in each reader also keeps the default from drifting between two of
+// them.
+func (q Query) PageSize() int {
+	if q.Limit <= 0 {
+		return DefaultPageSize
+	}
+	return q.Limit
 }
 
 // FieldErrors maps a Field.Name to the problems found with its submitted
@@ -186,6 +230,30 @@ func (v Values) Bool(name string) bool {
 	default:
 		return true
 	}
+}
+
+// Selected returns every value submitted for a declared KindLookup field.
+//
+// Get cannot serve this: url.Values.Get returns only the first value, so a
+// multi-select of five users read through it would silently persist one.
+// That is the shape of failure this whole type exists to prevent, so the
+// plural read is its own method rather than an option on the singular one.
+//
+// Blank values are dropped. A multi-select can legitimately submit nothing
+// at all, and an empty string in the middle of a list of ids is not a
+// selection anybody made.
+func (v Values) Selected(name string) []string {
+	if _, ok := v.declared[name]; !ok {
+		return nil
+	}
+	raw := v.raw[name]
+	out := make([]string, 0, len(raw))
+	for _, value := range raw {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // Tags splits a declared KindTags field's comma-separated value, trimming

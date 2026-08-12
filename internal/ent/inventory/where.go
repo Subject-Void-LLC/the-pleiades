@@ -75,6 +75,11 @@ func Description(v string) predicate.Inventory {
 	return predicate.Inventory(sql.FieldEQ(FieldDescription, v))
 }
 
+// Owner applies equality check predicate on the "owner" field. It's identical to OwnerEQ.
+func Owner(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldEQ(FieldOwner, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Inventory {
 	return predicate.Inventory(sql.FieldEQ(FieldCreatedAt, v))
@@ -295,6 +300,81 @@ func DescriptionContainsFold(v string) predicate.Inventory {
 	return predicate.Inventory(sql.FieldContainsFold(FieldDescription, v))
 }
 
+// OwnerEQ applies the EQ predicate on the "owner" field.
+func OwnerEQ(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldEQ(FieldOwner, v))
+}
+
+// OwnerNEQ applies the NEQ predicate on the "owner" field.
+func OwnerNEQ(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldNEQ(FieldOwner, v))
+}
+
+// OwnerIn applies the In predicate on the "owner" field.
+func OwnerIn(vs ...string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldIn(FieldOwner, vs...))
+}
+
+// OwnerNotIn applies the NotIn predicate on the "owner" field.
+func OwnerNotIn(vs ...string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldNotIn(FieldOwner, vs...))
+}
+
+// OwnerGT applies the GT predicate on the "owner" field.
+func OwnerGT(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldGT(FieldOwner, v))
+}
+
+// OwnerGTE applies the GTE predicate on the "owner" field.
+func OwnerGTE(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldGTE(FieldOwner, v))
+}
+
+// OwnerLT applies the LT predicate on the "owner" field.
+func OwnerLT(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldLT(FieldOwner, v))
+}
+
+// OwnerLTE applies the LTE predicate on the "owner" field.
+func OwnerLTE(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldLTE(FieldOwner, v))
+}
+
+// OwnerContains applies the Contains predicate on the "owner" field.
+func OwnerContains(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldContains(FieldOwner, v))
+}
+
+// OwnerHasPrefix applies the HasPrefix predicate on the "owner" field.
+func OwnerHasPrefix(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldHasPrefix(FieldOwner, v))
+}
+
+// OwnerHasSuffix applies the HasSuffix predicate on the "owner" field.
+func OwnerHasSuffix(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldHasSuffix(FieldOwner, v))
+}
+
+// OwnerIsNil applies the IsNil predicate on the "owner" field.
+func OwnerIsNil() predicate.Inventory {
+	return predicate.Inventory(sql.FieldIsNull(FieldOwner))
+}
+
+// OwnerNotNil applies the NotNil predicate on the "owner" field.
+func OwnerNotNil() predicate.Inventory {
+	return predicate.Inventory(sql.FieldNotNull(FieldOwner))
+}
+
+// OwnerEqualFold applies the EqualFold predicate on the "owner" field.
+func OwnerEqualFold(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldEqualFold(FieldOwner, v))
+}
+
+// OwnerContainsFold applies the ContainsFold predicate on the "owner" field.
+func OwnerContainsFold(v string) predicate.Inventory {
+	return predicate.Inventory(sql.FieldContainsFold(FieldOwner, v))
+}
+
 // HasOrganization applies the HasEdge predicate on the "organization" edge.
 func HasOrganization() predicate.Inventory {
 	return predicate.Inventory(func(s *sql.Selector) {
@@ -310,29 +390,6 @@ func HasOrganization() predicate.Inventory {
 func HasOrganizationWith(preds ...predicate.Organization) predicate.Inventory {
 	return predicate.Inventory(func(s *sql.Selector) {
 		step := newOrganizationStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasOwner applies the HasEdge predicate on the "owner" edge.
-func HasOwner() predicate.Inventory {
-	return predicate.Inventory(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, OwnerTable, OwnerColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasOwnerWith applies the HasEdge predicate on the "owner" edge with a given conditions (other predicates).
-func HasOwnerWith(preds ...predicate.User) predicate.Inventory {
-	return predicate.Inventory(func(s *sql.Selector) {
-		step := newOwnerStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)
@@ -379,6 +436,29 @@ func HasDevices() predicate.Inventory {
 func HasDevicesWith(preds ...predicate.Device) predicate.Inventory {
 	return predicate.Inventory(func(s *sql.Selector) {
 		step := newDevicesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasTemplates applies the HasEdge predicate on the "templates" edge.
+func HasTemplates() predicate.Inventory {
+	return predicate.Inventory(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTemplatesWith applies the HasEdge predicate on the "templates" edge with a given conditions (other predicates).
+func HasTemplatesWith(preds ...predicate.Template) predicate.Inventory {
+	return predicate.Inventory(func(s *sql.Selector) {
+		step := newTemplatesStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

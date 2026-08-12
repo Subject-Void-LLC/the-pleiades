@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -29,6 +30,7 @@ type TeamQuery struct {
 	withOrganization *OrganizationQuery
 	withUsers        *UserQuery
 	withRoleBindings *RoleBindingQuery
+	withContacts     *ContactQuery
 	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -125,6 +127,28 @@ func (_q *TeamQuery) QueryRoleBindings() *RoleBindingQuery {
 			sqlgraph.From(team.Table, team.FieldID, selector),
 			sqlgraph.To(rolebinding.Table, rolebinding.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, team.RoleBindingsTable, team.RoleBindingsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryContacts chains the current query on the "contacts" edge.
+func (_q *TeamQuery) QueryContacts() *ContactQuery {
+	query := (&ContactClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(team.Table, team.FieldID, selector),
+			sqlgraph.To(contact.Table, contact.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, team.ContactsTable, team.ContactsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -327,6 +351,7 @@ func (_q *TeamQuery) Clone() *TeamQuery {
 		withOrganization: _q.withOrganization.Clone(),
 		withUsers:        _q.withUsers.Clone(),
 		withRoleBindings: _q.withRoleBindings.Clone(),
+		withContacts:     _q.withContacts.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -363,6 +388,17 @@ func (_q *TeamQuery) WithRoleBindings(opts ...func(*RoleBindingQuery)) *TeamQuer
 		opt(query)
 	}
 	_q.withRoleBindings = query
+	return _q
+}
+
+// WithContacts tells the query-builder to eager-load the nodes that are connected to
+// the "contacts" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *TeamQuery) WithContacts(opts ...func(*ContactQuery)) *TeamQuery {
+	query := (&ContactClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withContacts = query
 	return _q
 }
 
@@ -445,10 +481,11 @@ func (_q *TeamQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Team, e
 		nodes       = []*Team{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withOrganization != nil,
 			_q.withUsers != nil,
 			_q.withRoleBindings != nil,
+			_q.withContacts != nil,
 		}
 	)
 	if _q.withOrganization != nil {
@@ -492,6 +529,13 @@ func (_q *TeamQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Team, e
 		if err := _q.loadRoleBindings(ctx, query, nodes,
 			func(n *Team) { n.Edges.RoleBindings = []*RoleBinding{} },
 			func(n *Team, e *RoleBinding) { n.Edges.RoleBindings = append(n.Edges.RoleBindings, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withContacts; query != nil {
+		if err := _q.loadContacts(ctx, query, nodes,
+			func(n *Team) { n.Edges.Contacts = []*Contact{} },
+			func(n *Team, e *Contact) { n.Edges.Contacts = append(n.Edges.Contacts, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -617,6 +661,37 @@ func (_q *TeamQuery) loadRoleBindings(ctx context.Context, query *RoleBindingQue
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "team_role_bindings" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *TeamQuery) loadContacts(ctx context.Context, query *ContactQuery, nodes []*Team, init func(*Team), assign func(*Team, *Contact)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Team)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Contact(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(team.ContactsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.team_contacts
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "team_contacts" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "team_contacts" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

@@ -48,6 +48,16 @@ func FuzzDispatchPayloadDecode(f *testing.F) {
 	f.Add(string(valid))
 
 	// Structurally valid JSON that is not an object.
+	// A kind-bearing frame, a kind-absent frame (every payload published
+	// before this field existed), and a hostile kind: an unregistered
+	// value, and the wildcard and path characters the runbook kind's own
+	// definition rule refuses at the other end of this pipe.
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"playbook","device_id":"d","device_host":"10.0.0.1"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","device_id":"d","device_host":"10.0.0.1"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"terraform","device_id":"d"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"../../etc/passwd","device_id":"d"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"pleiades.jobs.>","device_id":"d"}`)
+
 	f.Add("")
 	f.Add("{}")
 	f.Add("null")
@@ -129,6 +139,16 @@ func FuzzJobEventDecode(f *testing.F) {
 	}
 	f.Add(string(valid))
 
+	// A kind-bearing frame, a kind-absent frame (every payload published
+	// before this field existed), and a hostile kind: an unregistered
+	// value, and the wildcard and path characters the runbook kind's own
+	// definition rule refuses at the other end of this pipe.
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"playbook","device_id":"d","device_host":"10.0.0.1"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","device_id":"d","device_host":"10.0.0.1"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"terraform","device_id":"d"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"../../etc/passwd","device_id":"d"}`)
+	f.Add(`{"job_id":"j","runbook_id":"rb","kind":"pleiades.jobs.>","device_id":"d"}`)
+
 	f.Add("")
 	f.Add("{}")
 	f.Add("null")
@@ -180,6 +200,7 @@ func FuzzJobEventDecode(f *testing.F) {
 func dispatchPayloadsEqual(a, b wire.DispatchPayload) bool {
 	if a.JobID != b.JobID ||
 		a.RunbookID != b.RunbookID ||
+		a.Kind != b.Kind ||
 		a.DeviceID != b.DeviceID ||
 		a.DeviceName != b.DeviceName ||
 		a.DeviceHost != b.DeviceHost ||

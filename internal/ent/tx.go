@@ -12,8 +12,12 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// ActivityEntry is the client for interacting with the ActivityEntry builders.
+	ActivityEntry *ActivityEntryClient
 	// Announcement is the client for interacting with the Announcement builders.
 	Announcement *AnnouncementClient
+	// Contact is the client for interacting with the Contact builders.
+	Contact *ContactClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
 	// Fact is the client for interacting with the Fact builders.
@@ -32,10 +36,16 @@ type Tx struct {
 	Revision *RevisionClient
 	// RoleBinding is the client for interacting with the RoleBinding builders.
 	RoleBinding *RoleBindingClient
+	// SavedLaunchConfig is the client for interacting with the SavedLaunchConfig builders.
+	SavedLaunchConfig *SavedLaunchConfigClient
 	// Session is the client for interacting with the Session builders.
 	Session *SessionClient
+	// SurveyQuestion is the client for interacting with the SurveyQuestion builders.
+	SurveyQuestion *SurveyQuestionClient
 	// Team is the client for interacting with the Team builders.
 	Team *TeamClient
+	// Template is the client for interacting with the Template builders.
+	Template *TemplateClient
 	// User is the client for interacting with the User builders.
 	User *UserClient
 
@@ -169,7 +179,9 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.ActivityEntry = NewActivityEntryClient(tx.config)
 	tx.Announcement = NewAnnouncementClient(tx.config)
+	tx.Contact = NewContactClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
@@ -179,8 +191,11 @@ func (tx *Tx) init() {
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)
+	tx.SavedLaunchConfig = NewSavedLaunchConfigClient(tx.config)
 	tx.Session = NewSessionClient(tx.config)
+	tx.SurveyQuestion = NewSurveyQuestionClient(tx.config)
 	tx.Team = NewTeamClient(tx.config)
+	tx.Template = NewTemplateClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }
 
@@ -191,7 +206,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: Announcement.QueryXXX(), the query will be executed
+// applies a query, for example: ActivityEntry.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.

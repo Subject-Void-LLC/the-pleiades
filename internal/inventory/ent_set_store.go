@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,10 +41,15 @@ func (s *entSetStore) Create(ctx context.Context, set Set) (Set, error) {
 		return Set{}, fmt.Errorf("inventory: a set must belong to an organization")
 	}
 
+	if err := s.assertMembersInOrganization(ctx, set.OrganizationID, set.GroupIDs, set.DeviceIDs); err != nil {
+		return Set{}, err
+	}
+
 	builder := s.client.Inventory.Create().
 		SetName(set.Name).
 		SetDescription(set.Description).
 		SetOrganizationID(set.OrganizationID).
+		SetOwner(set.Owner).
 		AddGroupIDs(set.GroupIDs...).
 		AddDeviceIDs(set.DeviceIDs...)
 
@@ -65,7 +71,6 @@ func (s *entSetStore) Get(ctx context.Context, id int) (Set, error) {
 	row, err := s.client.Inventory.Query().
 		Where(entinventory.IDEQ(id)).
 		WithOrganization().
-		WithOwner().
 		WithGroups().
 		WithDevices().
 		Only(ctx)
@@ -88,7 +93,6 @@ func (s *entSetStore) List(ctx context.Context, q SetQuery) ([]Set, error) {
 
 	query := s.client.Inventory.Query().
 		WithOrganization().
-		WithOwner().
 		WithGroups().
 		WithDevices().
 		Order(ent.Asc(entinventory.FieldID)).
@@ -126,7 +130,18 @@ func (s *entSetStore) List(ctx context.Context, q SetQuery) ([]Set, error) {
 // whole list: a merge would make removing the last device impossible, since
 // an empty submission would be indistinguishable from "no change".
 func (s *entSetStore) Update(ctx context.Context, set Set) error {
-	err := s.client.Inventory.UpdateOneID(set.ID).
+	// The organization is read from storage rather than trusted from the
+	// caller, so membership is validated against the tenant that actually
+	// owns this inventory rather than one a submission claimed.
+	current, err := s.Get(ctx, set.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.assertMembersInOrganization(ctx, current.OrganizationID, set.GroupIDs, set.DeviceIDs); err != nil {
+		return err
+	}
+
+	err = s.client.Inventory.UpdateOneID(set.ID).
 		SetName(set.Name).
 		SetDescription(set.Description).
 		ClearGroups().
@@ -162,6 +177,76 @@ func (s *entSetStore) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
+// ErrCrossTenantMember is returned when an inventory is asked to contain a
+// group or device belonging to another organization.
+var ErrCrossTenantMember = errors.New("inventory member belongs to another organization")
+
+// assertMembersInOrganization refuses membership that crosses a tenancy
+// boundary.
+//
+// This closes a real hole rather than tidying an edge case, and it is worth
+// stating plainly because the hole is not obvious from either side on its
+// own. An inventory is a *grant surface*: sharing one with a team is a
+// RoleBinding at inventory scope, and the resolver then treats every device
+// reachable through that inventory as in scope. So without this check, a
+// caller holding inventory:write in their own tenant could create an
+// inventory in their own organization, list another tenant's device ids as
+// its members, share it with their own team, and be legitimately authorized
+// against hosts they were never granted -- with every individual step
+// passing its own permission check.
+//
+// The membership write is where it has to be stopped, because by the time
+// the resolver sees it the containment is a fact and resolving it is
+// exactly the correct behaviour.
+//
+// Devices with no organization are allowed deliberately. A single-tenant
+// deployment has never populated the device -> organization edge, and
+// refusing those would make this feature unusable for the deployments most
+// likely to try it first; they belong to no tenant, so admitting them
+// crosses no boundary.
+func (s *entSetStore) assertMembersInOrganization(ctx context.Context, orgID int, groupIDs, deviceIDs []int) error {
+	if len(deviceIDs) > 0 {
+		foreign, err := s.client.Device.Query().
+			Where(
+				entdevice.IDIn(deviceIDs...),
+				entdevice.HasOrganization(),
+				entdevice.Not(entdevice.HasOrganizationWith(entorg.IDEQ(orgID))),
+			).
+			Count(ctx)
+		if err != nil {
+			return fmt.Errorf("inventory: checking device tenancy: %w", err)
+		}
+		if foreign > 0 {
+			// The count, never the ids. Reporting which devices belong to
+			// somebody else would answer a question the caller is not
+			// entitled to ask, on the exact request where they tried.
+			return fmt.Errorf("%w: %d device(s)", ErrCrossTenantMember, foreign)
+		}
+	}
+
+	if len(groupIDs) > 0 {
+		// A group has no organization edge of its own, so its tenancy is
+		// its devices'. A group holding a foreign device would smuggle
+		// that device in exactly the way the direct check above prevents.
+		foreign, err := s.client.Group.Query().
+			Where(
+				entgroup.IDIn(groupIDs...),
+				entgroup.HasDevicesWith(
+					entdevice.HasOrganization(),
+					entdevice.Not(entdevice.HasOrganizationWith(entorg.IDEQ(orgID))),
+				),
+			).
+			Count(ctx)
+		if err != nil {
+			return fmt.Errorf("inventory: checking group tenancy: %w", err)
+		}
+		if foreign > 0 {
+			return fmt.Errorf("%w: %d group(s) contain devices from another organization", ErrCrossTenantMember, foreign)
+		}
+	}
+	return nil
+}
+
 // SetsForDevice returns every Set a device is reachable through.
 //
 // Both routes count: attached directly, or through any group that contains
@@ -190,14 +275,13 @@ func hydrateSet(row *ent.Inventory) Set {
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,
+		Owner:       row.Owner,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
 	if row.Edges.Organization != nil {
 		set.OrganizationID = row.Edges.Organization.ID
-	}
-	if row.Edges.Owner != nil {
-		set.Owner = row.Edges.Owner.Email
+		set.OrganizationName = row.Edges.Organization.Name
 	}
 	for _, g := range row.Edges.Groups {
 		set.GroupIDs = append(set.GroupIDs, g.ID)
@@ -206,4 +290,27 @@ func hydrateSet(row *ent.Inventory) Set {
 		set.DeviceIDs = append(set.DeviceIDs, d.ID)
 	}
 	return set
+}
+
+// ListOrganizations reads every organization, for a form that has to offer
+// one as a choice.
+//
+// Unpaged, deliberately. Organizations are the coarsest boundary this
+// platform has -- a handful per deployment, not a fleet -- and paging a
+// <select> would mean a control that silently cannot reach the tenant
+// somebody wants. If a deployment ever has enough for this to matter, the
+// control needs to become a search rather than this needing a cursor.
+func (s *entSetStore) ListOrganizations(ctx context.Context) ([]Organization, error) {
+	rows, err := s.client.Organization.Query().
+		Order(ent.Asc(entorg.FieldName)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("inventory: listing organizations: %w", err)
+	}
+
+	out := make([]Organization, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Organization{ID: row.ID, Name: row.Name})
+	}
+	return out, nil
 }
