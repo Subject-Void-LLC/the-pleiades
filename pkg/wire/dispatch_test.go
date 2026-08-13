@@ -230,3 +230,75 @@ func TestDispatchPayload_KindIsSpelledExactly(t *testing.T) {
 		t.Errorf("the kind is encoded as %s, want a \"kind\" key", encoded)
 	}
 }
+
+// TestDispatchPayload_FieldsAndExtraVarsRoundTrip proves the two newest
+// fields (AWX_PARITY_ROADMAP.md Section 3b.1's second wire hop) survive a
+// marshal/unmarshal cycle with the exact wire keys their tags promise, the
+// same literal-JSON-string bar every other field on this struct is held to
+// (see this file's own top-of-file doc comment for why a round trip alone
+// is not enough to catch a tag typo).
+func TestDispatchPayload_FieldsAndExtraVarsRoundTrip(t *testing.T) {
+	in := DispatchPayload{
+		JobID:     "job-3",
+		RunbookID: "rb-3",
+		Fields: map[string]any{
+			"forks": float64(3),
+			"limit": "core-switch-1",
+		},
+		ExtraVars: map[string]any{"deploy_env": "prod"},
+	}
+	wantJSON := `{"job_id":"job-3","runbook_id":"rb-3","kind":"","device_id":"","device_name":"","device_host":"","interruptible":false,"ssh_port":0,"capabilities":null,"fields":{"forks":3,"limit":"core-switch-1"},"extra_vars":{"deploy_env":"prod"}}`
+
+	gotJSON, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("Marshal() returned an error: %v", err)
+	}
+	if string(gotJSON) != wantJSON {
+		t.Fatalf("Marshal() = %s, want %s", gotJSON, wantJSON)
+	}
+
+	var got DispatchPayload
+	if err := json.Unmarshal(gotJSON, &got); err != nil {
+		t.Fatalf("Unmarshal() returned an error: %v", err)
+	}
+	if !reflect.DeepEqual(got, in) {
+		t.Errorf("round trip = %+v, want %+v", got, in)
+	}
+}
+
+// TestDispatchPayload_UnsetFieldsAndExtraVarsAreOmittedFromTheWire proves a
+// dispatch launched with no Fields/ExtraVars produces no "fields"/
+// "extra_vars" key at all, matching Secrets' and Tags' own omitempty
+// contract: a launch that set nothing must not be confused, on the wire,
+// with one that set an empty map to something.
+func TestDispatchPayload_UnsetFieldsAndExtraVarsAreOmittedFromTheWire(t *testing.T) {
+	encoded, err := json.Marshal(DispatchPayload{JobID: "job-4"})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), `"fields"`) || strings.Contains(string(encoded), `"extra_vars"`) {
+		t.Errorf("Marshal() = %s, want no \"fields\" or \"extra_vars\" key for an unset payload", encoded)
+	}
+}
+
+// TestDispatchPayload_UnmarshalOmitsFieldsAndExtraVarsFromAnOlderPayload
+// proves a payload published before this phase (no "fields"/"extra_vars"
+// key at all) still decodes cleanly to nil maps, the identical
+// backward-compatibility contract
+// TestDispatchPayload_UnmarshalOmitsNewFields already proves for
+// SSHPort/Capabilities/Secrets: an old Controller's payload must not fail
+// a newer Runner's decode.
+func TestDispatchPayload_UnmarshalOmitsFieldsAndExtraVarsFromAnOlderPayload(t *testing.T) {
+	const raw = `{"job_id":"j1","runbook_id":"r1","device_id":"d1","device_name":"n1","device_host":"h1","interruptible":true}`
+
+	var got DispatchPayload
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("Unmarshal() returned an error: %v", err)
+	}
+	if got.Fields != nil {
+		t.Errorf("Fields = %#v, want nil for a payload with no \"fields\" key", got.Fields)
+	}
+	if got.ExtraVars != nil {
+		t.Errorf("ExtraVars = %#v, want nil for a payload with no \"extra_vars\" key", got.ExtraVars)
+	}
+}

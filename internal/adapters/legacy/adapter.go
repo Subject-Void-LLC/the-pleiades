@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -125,9 +126,15 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		files = append(files, ContainerFile{Content: []byte(key), ContainerPath: sshPrivateKeyContainerPath, Mode: 0o600})
 	}
 
+	fields := launch.Fields(payload.Fields)
+	argv, err := buildArgv(fields, payload.ExtraVars, inventoryContainerPath, playbookContainerPath)
+	if err != nil {
+		return fmt.Errorf("failed to build ansible-playbook argv for %s: %w", payload.DeviceName, err)
+	}
+
 	spec := ContainerSpec{
 		Image: a.image,
-		Argv:  []string{"ansible-playbook", "-v", "-i", inventoryContainerPath, playbookContainerPath},
+		Argv:  argv,
 		Env: map[string]string{
 			"ANSIBLE_FORCE_COLOR": "false",
 			"ANSIBLE_NOCOLOR":     "1",
@@ -148,9 +155,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		Networks: a.networks,
 	}
 
+	// A launch's "timeout" field is a whole-run abandon deadline for this
+	// kind (runTimeout's own doc comment), so it wraps the one call that
+	// actually blocks for the run's duration; runCtx, not ctx, is what
+	// reaches the orchestrator.
+	runCtx := ctx
+	if timeout := runTimeout(fields); timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	a.logger.Debug("running ansible-playbook container",
 		slog.String("job_id", payload.JobID), slog.String("device", payload.DeviceName), slog.String("image", a.image))
-	result, err := a.orchestrator.Run(ctx, spec)
+	result, err := a.orchestrator.Run(runCtx, spec)
 	if err != nil {
 		return fmt.Errorf("failed to run ansible-playbook container: %w", err)
 	}

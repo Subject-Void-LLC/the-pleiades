@@ -139,6 +139,55 @@ func TestAdapter_Execute_NoopWithNoChangedParamReportsOK(t *testing.T) {
 	}
 }
 
+// TestAdapter_Execute_ExtraVarsReachWhenCEL proves payload.ExtraVars
+// reaches a real runbook's when_cel condition through the whole Execute
+// method (engine.WithVariables' own doc comment on where "vars" binds),
+// not just through engine.Executor's own tests in isolation. This is
+// AWX_PARITY_ROADMAP.md Section 3b.1's own "ExtraVars folded into the
+// runbook's variable context": a conditional task only runs and reports
+// changed when the dispatched ExtraVars satisfy its condition, observed
+// through Execute's real final job.log event, the same real per-dispatch
+// bus every other test in this file already asserts against.
+//
+// The condition uses CEL's has() guard (has(vars.env) && vars.env ==
+// 'prod'), not a bare vars.env == 'prod': cel-go's map field selection
+// errors on a genuinely absent key ("no such key") rather than reading as
+// false, the identical behavior this engine's own "stat"/"nodes" roots
+// already have for an unregistered key, so a real runbook referencing an
+// optional extra var needs this same guard regardless of which root it
+// reads.
+func TestAdapter_Execute_ExtraVarsReachWhenCEL(t *testing.T) {
+	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: prod-only\n    fqcn: noop\n    when_cel: \"has(vars.env) && vars.env == 'prod'\"\n    params:\n      changed: true\n")
+
+	run := func(extraVars map[string]any) wire.JobEvent {
+		bus := &mockBus{}
+		adapter, err := NewAdapter(bus, runbooks, nil)
+		if err != nil {
+			t.Fatalf("NewAdapter: %v", err)
+		}
+		payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "pb-1", DeviceName: "router1", DeviceHost: "10.0.0.1", ExtraVars: extraVars}
+		if err := adapter.Execute(context.Background(), payload); err != nil {
+			t.Fatalf("Execute() returned unexpected error: %v", err)
+		}
+		return bus.lastJobEvent(t)
+	}
+
+	prod := run(map[string]any{"env": "prod"})
+	if prod.Status != "changed" {
+		t.Errorf("ExtraVars{env: prod} final status = %q, want %q (the when_cel-gated task should have run)", prod.Status, "changed")
+	}
+
+	dev := run(map[string]any{"env": "dev"})
+	if dev.Status != "ok" {
+		t.Errorf("ExtraVars{env: dev} final status = %q, want %q (the when_cel-gated task should have been skipped)", dev.Status, "ok")
+	}
+
+	none := run(nil)
+	if none.Status != "ok" {
+		t.Errorf("no ExtraVars at all: final status = %q, want %q (has(vars.env) should read false, not error the run)", none.Status, "ok")
+	}
+}
+
 func TestAdapter_Execute_UnregisteredFQCNFails(t *testing.T) {
 	bus := &mockBus{}
 	runbooks := writeRunbook(t, "pb-1", "id: pb-1\ntasks:\n  - name: step\n    fqcn: pkg.apt.install\n")

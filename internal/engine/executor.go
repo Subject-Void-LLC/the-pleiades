@@ -167,6 +167,54 @@ type Executor struct {
 	bus            event.Bus
 	workflow       WorkflowContext
 	maxConcurrency int
+	extraVars      map[string]interface{}
+	taskTimeout    time.Duration
+}
+
+// ExecutorOption configures optional, non-default Executor behavior,
+// mirroring internal/adapters/legacy.AdapterOption's own established
+// shape in this codebase: every real dispatch path that has no reason to
+// set one leaves it unset, and NewExecutor's existing six-argument call
+// sites (cmd/pleiades/run.go, internal/adapters/native/adapter.go, and
+// every engine test) keep compiling unchanged.
+type ExecutorOption func(*Executor)
+
+// WithVariables makes vars available to every when/when_or/when_cel
+// condition this Executor evaluates, under CEL's "vars" root (cel.go's
+// NewCELEvaluator), for the whole lifetime of a Run call. This is
+// AWX_PARITY_ROADMAP.md Section 3b.1's own "ExtraVars folded into the
+// runbook's variable context": a dispatch's resolved
+// launch.Resolved.ExtraVars is the one thing this engine has ever had a
+// reason to call a variable context at all (Task.Params carries no
+// templating syntax; see internal/adapters/native/adapter.go's own doc
+// comment on why this is the real, if narrow, hook). Unlike 'stat'/
+// 'nodes', which WorkflowContext accumulates as tasks register results,
+// vars is fixed for the whole run: the value supplied here, never mutated
+// mid-run.
+//
+// A nil or never-supplied vars is not an error: runNode defaults to an
+// empty map so 'vars' stays a valid CEL reference either way.
+func WithVariables(vars map[string]interface{}) ExecutorOption {
+	return func(x *Executor) { x.extraVars = vars }
+}
+
+// WithTaskTimeout bounds how long a single task's ActionExecutor.Execute
+// call may run before its context is canceled, applied fresh to every
+// node this Executor runs (runOne), not once for the whole Run call: the
+// runbook kind's own FieldSpec help text is explicit that this field
+// means "seconds before A TASK is abandoned," not "before the run is
+// abandoned" (contrast internal/adapters/legacy's own runTimeout, which
+// implements the playbook kind's whole-run reading of the identically
+// named field, since ansible-playbook runs as one process per play with
+// no per-task boundary this engine could reach into).
+//
+// Zero (the default, and NewExecutor's implicit prior behavior) applies
+// no deadline at all: a launch that never set "timeout" must keep running
+// exactly as long as its actions take, matching the field's own declared
+// semantics ("zero means no timeout, which is the platform default
+// rather than an omission").
+func WithTaskTimeout(d time.Duration) ExecutorOption {
+	return func(x *Executor) { x.taskTimeout = d }
 }
 
 // NewExecutor builds an Executor from its dependencies (Dependency
@@ -175,12 +223,14 @@ type Executor struct {
 // in flight at once across the whole Run call, regardless of whether that
 // concurrency comes from one node fanning out across many devices or
 // several nodes in the same graph level running at once; a value of zero
-// or less falls back to defaultMaxConcurrency.
-func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Manager, bus event.Bus, workflow WorkflowContext, maxConcurrency int) *Executor {
+// or less falls back to defaultMaxConcurrency. opts configures optional
+// behavior (WithVariables, WithTaskTimeout); every existing call site
+// that passes none keeps its exact prior behavior.
+func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Manager, bus event.Bus, workflow WorkflowContext, maxConcurrency int, opts ...ExecutorOption) *Executor {
 	if maxConcurrency <= 0 {
 		maxConcurrency = defaultMaxConcurrency
 	}
-	return &Executor{
+	x := &Executor{
 		resolver:       resolver,
 		actions:        actions,
 		locks:          locks,
@@ -188,6 +238,10 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 		workflow:       workflow,
 		maxConcurrency: maxConcurrency,
 	}
+	for _, opt := range opts {
+		opt(x)
+	}
+	return x
 }
 
 // run holds the state scoped to a single Executor.Run call: the dag being
@@ -314,14 +368,22 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err)}}
 		}
-		// Both CEL roots are bound to the identical snapshot today: "stat"
-		// for simple, non-cross-node conditions and "nodes" for Section
-		// 27-style cross-node conditions (e.g. nodes.precheck[""].ok), a
-		// deliberate scope choice recorded in cel.go's NewCELEvaluator doc
-		// comment rather than a narrower, diverging "stat" meaning nothing
-		// here needs yet.
-		vars := map[string]interface{}{"stat": tree, "nodes": tree}
-		res, err := cp.Eval(vars)
+		// "stat" and "nodes" are bound to the identical WorkflowContext
+		// snapshot today: "stat" for simple, non-cross-node conditions and
+		// "nodes" for Section 27-style cross-node conditions (e.g.
+		// nodes.precheck[""].ok), a deliberate scope choice recorded in
+		// cel.go's NewCELEvaluator doc comment rather than a narrower,
+		// diverging "stat" meaning nothing here needs yet. "vars" is
+		// different: it is r.x.extraVars (WithVariables), fixed for the
+		// whole Run call rather than grown by WorkflowContext, defaulting
+		// to an empty map so a condition can reference vars.foo on an
+		// Executor no caller supplied one for.
+		extraVars := r.x.extraVars
+		if extraVars == nil {
+			extraVars = map[string]interface{}{}
+		}
+		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars}
+		res, err := cp.Eval(condVars)
 		if err != nil {
 			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err)}}
 		}
@@ -487,7 +549,18 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		}()
 	}
 
-	actionResult, err := r.x.actions.Execute(ctx, cmd.Task, cmd.Device)
+	// WithTaskTimeout applies fresh to every task, not once for the whole
+	// Run call: a slow task earlier in the DAG must not shorten how long a
+	// later, independent task is allowed to run. Zero (the default) wraps
+	// nothing, leaving ctx exactly as the caller supplied it.
+	execCtx := ctx
+	if r.x.taskTimeout > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, r.x.taskTimeout)
+		defer cancel()
+	}
+
+	actionResult, err := r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
 	if err != nil {
 		result.Err = fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err)
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())

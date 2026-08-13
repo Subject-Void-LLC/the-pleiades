@@ -101,6 +101,18 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		Interruptible: prepared.Interruptible,
 		Capabilities:  device.Capabilities(),
 		Tags:          tagStrings(device.Tags()),
+		// Fields and ExtraVars are job's own resolved launch.Fields/
+		// ExtraVars (AWX_PARITY_ROADMAP.md Section 3b.1's second wire hop:
+		// the first hop stamped them onto job itself, at LaunchTemplate).
+		// map[string]any(job.Fields) is a bare conversion, not a copy:
+		// launch.Fields and wire.DispatchPayload.Fields share an identical
+		// underlying type (pkg/wire must never import internal/launch), so
+		// this is the same value, differently named on either side of that
+		// boundary. Every device dispatched from this job's fan-out
+		// carries an identical copy: these are launch-time values, not
+		// per-device ones.
+		Fields:    map[string]any(job.Fields),
+		ExtraVars: job.ExtraVars,
 	}
 	if sshCapable, ok := device.(capability.SSHTransportCapable); ok {
 		payload.SSHPort = sshCapable.SSHPort()

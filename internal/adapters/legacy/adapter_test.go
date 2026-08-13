@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -134,6 +135,45 @@ func TestAdapter_Execute_PublishesStartedThenParsedEvents(t *testing.T) {
 	}
 	if len(orch.lastSpec.Files) != 2 {
 		t.Errorf("got %d container files, want 2 (inventory + playbook)", len(orch.lastSpec.Files))
+	}
+}
+
+// TestAdapter_Execute_LaunchFieldsReachTheRealArgv proves payload.Fields
+// and payload.ExtraVars reach the exact ContainerSpec Execute hands to a
+// real ContainerOrchestrator, through the whole method, not just through
+// buildArgv in isolation (argv_test.go already covers that unit). This is
+// the highest-value half of AWX_PARITY_ROADMAP.md Section 3b.1: before
+// this phase, every field here was captured onto the job record and the
+// wire payload and then silently discarded, FAILURE_PATTERNS.md #116's
+// shape one hop further down the chain.
+func TestAdapter_Execute_LaunchFieldsReachTheRealArgv(t *testing.T) {
+	bus := &mockBus{}
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
+	orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte(realPlaybookOutput), ExitCode: 0}}
+	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
+
+	payload := wire.DispatchPayload{
+		JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1",
+		Fields: map[string]any{
+			"forks":     1,
+			"job_tags":  []any{"deploy"},
+			"skip_tags": []any{"slow"},
+			"limit":     "sw1",
+			"verbosity": 2,
+		},
+		ExtraVars: map[string]any{"deploy_env": "prod"},
+	}
+	if err := adapter.Execute(context.Background(), payload); err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+
+	want := []string{
+		"ansible-playbook", "-vv", "-i", "/run/pleiades/inventory.json",
+		"--limit", "sw1", "--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
+		"/run/pleiades/playbook.yml", "-e", `{"deploy_env":"prod"}`,
+	}
+	if !reflect.DeepEqual(orch.lastSpec.Argv, want) {
+		t.Errorf("real ContainerSpec.Argv = %#v, want %#v", orch.lastSpec.Argv, want)
 	}
 }
 
