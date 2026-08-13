@@ -147,9 +147,24 @@ func sortFailures(fs []Failure) {
 }
 
 // RunGoTestJSON runs `go test <args...> -json ./...` and decodes every
-// line of its JSON output stream, echoing each raw line to echo as it is
-// read (so a slow package's progress is visible live rather than silent
-// until the whole run finishes) when echo is non-nil.
+// line of its JSON output stream. When echo is non-nil, it writes one
+// line per PACKAGE-level completion event ("ok  <pkg>" or "FAIL <pkg>"),
+// the same volume plain `go test ./...` (no -v, no -json) prints by
+// default, so a slow suite's progress is still visible live without
+// reproducing every one of go test -json's own per-subtest RUN/PASS
+// events verbatim.
+//
+// This package used to tee the complete raw JSON stream to echo instead,
+// on the reasoning that live progress beats going silent for the twenty
+// minutes a full suite can take. It was real progress visibility and it
+// was also tens of thousands of lines for a single ./... run (one JSON
+// object per subtest, not per package): `.githooks/pre-push` piping that
+// volume through `git push`'s own hook-output channel twice reproduced a
+// SIGPIPE that killed the push immediately after the hook itself had
+// already printed "all checks passed" -- the hook succeeded and the push
+// still never reached the remote. Cutting the volume back down to
+// approximately one line per package (roughly 150 for this module, not
+// tens of thousands) removed the reproduction.
 //
 // Its own error return is go test's exit status, not a usage error: go
 // test exits non-zero whenever any test fails, which is the ordinary,
@@ -175,13 +190,8 @@ func RunGoTestJSON(args []string, echo io.Writer) ([]Event, error) {
 		return nil, fmt.Errorf("starting go test: %w", err)
 	}
 
-	var reader io.Reader = stdout
-	if echo != nil {
-		reader = io.TeeReader(stdout, echo)
-	}
-
 	var events []Event
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -198,6 +208,14 @@ func RunGoTestJSON(args []string, echo io.Writer) ([]Event, error) {
 			continue
 		}
 		events = append(events, evt)
+
+		if echo != nil && evt.Test == "" && (evt.Action == "pass" || evt.Action == "fail") {
+			status := "ok  "
+			if evt.Action == "fail" {
+				status = "FAIL"
+			}
+			fmt.Fprintf(echo, "%s\t%s\n", status, evt.Package)
+		}
 	}
 	scanErr := scanner.Err()
 
