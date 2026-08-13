@@ -1,4 +1,4 @@
-.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check templ-gen templ-gen-check tools hooks ui-dev ui-stop ci
+.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check templ-gen templ-gen-check tools hooks ui-dev ui-stop ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -57,15 +57,17 @@ tools:
 	@$(call ensure-tool,govulncheck,golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
 
 # hooks points this clone's Git hooks at the tracked .githooks directory,
-# so `git push` runs the same `make ci` the CI job runs and a failure
-# lands here instead of on a pushed branch. This is deliberately opt-in
-# per clone rather than automatic: Git never executes a hook that arrived
-# with a fetch until the person who cloned the repository asks it to, and
+# so `git push` runs push-gate (everything `make ci` runs, with
+# test-race/test-integration swapped for tools/testgate's more tolerant
+# equivalents; see push-gate's own comment above) and a failure lands here
+# instead of on a pushed branch. This is deliberately opt-in per clone
+# rather than automatic: Git never executes a hook that arrived with a
+# fetch until the person who cloned the repository asks it to, and
 # core.hooksPath is local config, not a tracked file. Run it once per
 # clone; see .githooks/pre-push for what it does and how to skip it.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks: 'git push' will now run .githooks/pre-push (make ci) first; skip a single push with --no-verify"
+	@echo "hooks: 'git push' will now run .githooks/pre-push (make push-gate) first; skip a single push with --no-verify"
 
 build:
 	go build ./...
@@ -203,8 +205,61 @@ docs-gen-check:
 # Phase 0 item lists `go test -race ./...` as one thing CI must run, and
 # splitting it out would make it easy to merge a PR that only ran the
 # non-race target.
+#
+# This is also, verbatim, what .github/workflows/ci.yml runs (its own `ci`
+# step is `make ci`, nothing narrower): the two targets below
+# (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
+# can run something more tolerant of known local flakiness without this
+# target itself becoming any less strict. Never make ci itself tolerant of
+# anything; it is the one target whose pass/fail this repository's actual
+# merge gate depends on.
 ci: build vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check templ-gen-check
 	@echo "ci: all checks passed"
+
+# push-gate-race and push-gate-integration run through tools/testgate
+# instead of a bare `go test`, so a test failure confined to a package
+# flaky-packages.json lists (with a written reason) is printed as a
+# warning rather than blocking. FAILURE_PATTERNS.md #61 is the incident
+# behind this: "the specific package that loses the race changes between
+# runs... is the signature of resource contention, not a code defect,"
+# discovered because a fully clean `go test ./... -race` run and this
+# sandboxed environment's Docker daemon do not reliably coexist once
+# enough packages provision real containers at once. A failure OUTSIDE
+# flaky-packages.json, or any build failure anywhere, still fails these
+# targets exactly like test-race/test-integration do; see
+# tools/testgate's own doc comment for the classification rule in full.
+push-gate-race:
+	go run ./tools/testgate
+
+push-gate-integration:
+	go run ./tools/testgate -integration
+
+# push-gate-coverage is coverage's own tolerant counterpart, for the same
+# reason push-gate-race/push-gate-integration exist: tools/coverage-check
+# runs its own full `go test ./... -cover` internally (measureCoverage),
+# entirely separately from test-race/test-integration, so a container- or
+# timing-contention failure inside THAT run was still an unconditional
+# hard failure even after push-gate-race/push-gate-integration's own
+# tolerance was added -- found by running push-gate for real and watching
+# it fail here specifically, on a flaky-packages.json package, after both
+# test targets above had already passed. -tolerant applies the identical
+# flaky-packages.json classification tools/testgate uses; see
+# tools/coverage-check's own measureCoverageTolerant doc comment for why a
+# package's coverage number is still trustworthy even when one of its
+# tests had a tolerated failure.
+push-gate-coverage:
+	go run ./tools/coverage-check -tolerant
+
+# push-gate is what .githooks/pre-push runs, in place of `make ci`: every
+# check ci runs, in the same order, except test-race/test-integration/
+# coverage are replaced by their tolerant push-gate-race/
+# push-gate-integration/push-gate-coverage counterparts above. GitHub
+# Actions never calls this target, only `make ci` directly (see ci's own
+# comment above), so nothing here weakens what actually gates a merge; it
+# only reduces how much known-flaky local noise a developer has to fight
+# through, and re-run, before a push reaches that real gate.
+push-gate: build vet fmt push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check templ-gen-check
+	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
 
 # templ-gen regenerates the view layer's templates. templ emits a
 # _templ.go beside every .templ, and both are committed.

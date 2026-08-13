@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"testing"
 )
@@ -36,5 +37,32 @@ func TestGoTestTimeoutMatchesMakefile(t *testing.T) {
 		t.Errorf("Makefile sets GO_TEST_TIMEOUT=%s but coverage-check passes -timeout %s.\n"+
 			"These bound the same suite in the same `make ci` run and must agree; change both.",
 			got, goTestTimeout)
+	}
+}
+
+// TestParseCoverageOutput_HandlesPassAndFailLines proves the shared
+// scanner both measureCoverage (fed a real go test invocation's raw
+// stdout) and measureCoverageTolerant (fed a reconstruction of go test
+// -json's own Output fields, empirically verified to carry the identical
+// lines) rely on reads a package's percentage regardless of whether that
+// package's own tests passed, matching the real behavior verified
+// directly against `go test -json -cover` on a deliberately failing
+// package: go test still prints "coverage: X% of statements" for a
+// package whose tests failed.
+func TestParseCoverageOutput_HandlesPassAndFailLines(t *testing.T) {
+	const text = `ok  	github.com/Subject-Void-LLC/the-pleiades/pkg/wire	0.009s	coverage: 91.7% of statements
+FAIL	github.com/Subject-Void-LLC/the-pleiades/tests/e2e	12.3s	coverage: 68.2% of statements
+ok  	github.com/Subject-Void-LLC/the-pleiades/internal/dispatch	0.005s	coverage: [no statements]
+`
+	got, err := parseCoverageOutput(text)
+	if err != nil {
+		t.Fatalf("parseCoverageOutput returned unexpected error: %v", err)
+	}
+	want := map[string]float64{
+		"github.com/Subject-Void-LLC/the-pleiades/pkg/wire":  91.7,
+		"github.com/Subject-Void-LLC/the-pleiades/tests/e2e": 68.2,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseCoverageOutput() = %+v, want %+v", got, want)
 	}
 }
