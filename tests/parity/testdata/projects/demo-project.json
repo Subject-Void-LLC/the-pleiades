@@ -1,0 +1,84 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 6,
+      "type": "project",
+      "url": "/api/v2/projects/6/",
+      "related": {
+        "created_by": "/api/v2/users/1/",
+        "modified_by": "/api/v2/users/1/",
+        "organization": "/api/v2/organizations/1/",
+        "teams": "/api/v2/projects/6/teams/",
+        "playbooks": "/api/v2/projects/6/playbooks/",
+        "inventories": "/api/v2/projects/6/inventories/",
+        "update": "/api/v2/projects/6/update/",
+        "project_updates": "/api/v2/projects/6/project_updates/",
+        "schedules": "/api/v2/projects/6/schedules/",
+        "activity_stream": "/api/v2/projects/6/activity_stream/",
+        "notification_templates_started": "/api/v2/projects/6/notification_templates_started/",
+        "notification_templates_success": "/api/v2/projects/6/notification_templates_success/",
+        "notification_templates_error": "/api/v2/projects/6/notification_templates_error/",
+        "access_list": "/api/v2/projects/6/access_list/",
+        "object_roles": "/api/v2/projects/6/object_roles/",
+        "copy": "/api/v2/projects/6/copy/"
+      },
+      "summary_fields": {
+        "organization": {
+          "id": 1,
+          "name": "Default",
+          "description": ""
+        },
+        "created_by": {
+          "id": 1,
+          "username": "admin",
+          "first_name": "",
+          "last_name": ""
+        },
+        "modified_by": {
+          "id": 1,
+          "username": "admin",
+          "first_name": "",
+          "last_name": ""
+        },
+        "current_update": null,
+        "last_update": {
+          "id": 204,
+          "name": "Demo Project",
+          "description": "Repository containing our playbooks",
+          "status": "successful",
+          "failed": false
+        },
+        "recent_jobs": [
+          {
+            "id": 204,
+            "status": "successful",
+            "finished": "2023-10-25T14:10:05.123456Z"
+          }
+        ]
+      },
+      "created": "2023-09-15T09:00:12.000000Z",
+      "modified": "2023-10-25T14:10:05.000000Z",
+      "name": "Demo Project",
+      "description": "Repository containing our playbooks",
+      "local_path": "",
+      "scm_type": "git",
+      "scm_url": "https://github.com/my-org/ansible-playbooks.git",
+      "scm_branch": "main",
+      "scm_refspec": "",
+      "scm_clean": false,
+      "scm_track_submodules": false,
+      "scm_delete_on_update": false,
+      "credential": 3,
+      "timeout": 0,
+      "scm_revision": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
+      "organization": 1,
+      "status": "successful",
+      "custom_virtualenv": null,
+      "allow_override": false,
+      "copy_from_dir": ""
+    }
+  ]
+}

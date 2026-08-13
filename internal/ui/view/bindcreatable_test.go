@@ -84,7 +84,7 @@ func newValues(t *testing.T, raw map[string]string) view.Values {
 	for k, v := range raw {
 		form[k] = []string{v}
 	}
-	values, undeclared := view.NewValues(bindFields, form)
+	values, undeclared := view.NewValues(bindFields, form, false)
 	if len(undeclared) > 0 {
 		t.Fatalf("test supplied undeclared keys %v", undeclared)
 	}

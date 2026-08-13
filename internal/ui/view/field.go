@@ -198,6 +198,27 @@ type Field struct {
 	// refuses to accept as writable at all.
 	InForm bool
 
+	// Immutable marks a field that is set when a record is created and
+	// never afterwards. It appears in the create form and is absent from
+	// the edit form entirely, and a submission carrying it to an update is
+	// refused as undeclared rather than ignored.
+	//
+	// It exists because the alternative was already shipping. A team's
+	// organization is carried forward from storage on every update, and the
+	// edit form still rendered the select: somebody could change it, submit,
+	// see a success, and the tenant would be unchanged. That is a control
+	// whose value is then ignored, which is the same defect the launch form
+	// was rebuilt to avoid, and it is worse here because the field it
+	// silently refuses to move is the one that decides who can reach the
+	// record.
+	//
+	// Absent rather than disabled. A disabled control still says "this is
+	// yours to decide, but not now", where the truth is that it was decided
+	// once and the decision is not revisitable. Where the value still needs
+	// to be readable after creation, a KindReadOnly field carries it: the
+	// detail page shows it, and no form offers to change it.
+	Immutable bool
+
 	// Sortable offers this column as a sort key in the list view.
 	Sortable bool
 
@@ -258,8 +279,25 @@ func (f Field) RendersBadge() bool {
 // Writable reports whether this field may appear in a form and be read
 // back off a submission. It is the one place the InForm flag and the
 // kind's own writability are combined, so no caller reimplements the rule.
+//
+// It answers "ever", which is the question Register asks. A form asks
+// WritableOn, because a field may be writable once and not again.
 func (f Field) Writable() bool {
 	return f.InForm && writableKinds[f.Kind]
+}
+
+// WritableOn reports whether this field may appear in a form of the given
+// mode and be read back off its submission.
+//
+// The two callers that matter are the form renderer and the submission
+// narrower, and they must agree: a control the renderer omits is a control
+// no honest submission carries, so the narrower reports it as undeclared
+// and the write is refused rather than silently dropping it.
+func (f Field) WritableOn(editing bool) bool {
+	if editing && f.Immutable {
+		return false
+	}
+	return f.Writable()
 }
 
 // ValidBadgeClasses is the closed set of CSS class names a BadgeClass
@@ -361,6 +399,13 @@ func validateFields(fields []Field) error {
 		if f.InForm && !writableKinds[f.Kind] {
 			return fmt.Errorf("field %q is kind %q, which cannot appear in a form", f.Name, f.Kind)
 		}
+		if f.Immutable && !f.Writable() {
+			// Immutable narrows a form from two modes to one. On a field
+			// no form ever offered it narrows nothing, so it reads as a
+			// statement about the record ("this value never changes") that
+			// the machinery does not make and nothing enforces.
+			return fmt.Errorf("field %q is marked Immutable but appears in no form", f.Name)
+		}
 		if f.MaxLen < 0 {
 			return fmt.Errorf("field %q has a negative MaxLen", f.Name)
 		}
@@ -385,7 +430,9 @@ func Validate(ctx context.Context, fields []Field, v Values) FieldErrors {
 	errs := FieldErrors{}
 
 	for _, f := range fields {
-		if !f.Writable() {
+		// The submission's own mode, so an immutable field is not required
+		// on an edit that was never offered it.
+		if !f.WritableOn(v.editing) {
 			continue
 		}
 		raw := strings.TrimSpace(v.Get(f.Name))

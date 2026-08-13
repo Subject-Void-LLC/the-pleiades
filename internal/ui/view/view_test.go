@@ -188,6 +188,12 @@ func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
 		{"timestamp in a form", func(d *view.Descriptor) {
 			d.Fields[2].InForm = true
 		}, "cannot appear in a form"},
+		// Immutable narrows a form from two modes to one. On a field no
+		// form ever offered, it narrows nothing and reads as a promise
+		// about the record that nothing is keeping.
+		{"immutable field in no form", func(d *view.Descriptor) {
+			d.Fields[2].Immutable = true
+		}, "appears in no form"},
 		{"two mobile primaries", func(d *view.Descriptor) {
 			d.Fields[1].MobilePrimary = true
 		}, "MobilePrimary"},
@@ -397,7 +403,7 @@ func TestNewValues_NarrowsToDeclaredFields(t *testing.T) {
 		"_csrf":    {"token"},  // reserved, not a field
 	}
 
-	v, undeclared := view.NewValues(testFields(), raw)
+	v, undeclared := view.NewValues(testFields(), raw, false)
 
 	if got := v.Get("name"); got != "router-1" {
 		t.Errorf("Get(name) = %q, want router-1", got)
@@ -433,7 +439,7 @@ func TestValues_BoolAndTags(t *testing.T) {
 		want bool
 	}{{"", false}, {"0", false}, {"false", false}, {"off", false}, {"no", false}, {"on", true}, {"true", true}}
 	for _, tc := range cases {
-		v, _ := view.NewValues(fields, url.Values{"enabled": {tc.raw}})
+		v, _ := view.NewValues(fields, url.Values{"enabled": {tc.raw}}, false)
 		if got := v.Bool("enabled"); got != tc.want {
 			t.Errorf("Bool(%q) = %v, want %v", tc.raw, got, tc.want)
 		}
@@ -441,12 +447,12 @@ func TestValues_BoolAndTags(t *testing.T) {
 
 	// A naive Split on empty input yields one empty tag, which persists
 	// as a device carrying a nameless tag.
-	v, _ := view.NewValues(fields, url.Values{"tags": {"  "}})
+	v, _ := view.NewValues(fields, url.Values{"tags": {"  "}}, false)
 	if got := v.Tags("tags"); got != nil {
 		t.Errorf("Tags(blank) = %v, want nil", got)
 	}
 
-	v, _ = view.NewValues(fields, url.Values{"tags": {" edge , , core "}})
+	v, _ = view.NewValues(fields, url.Values{"tags": {" edge , , core "}}, false)
 	got := v.Tags("tags")
 	if len(got) != 2 || got[0] != "edge" || got[1] != "core" {
 		t.Errorf("Tags() = %v, want [edge core]", got)
@@ -467,7 +473,7 @@ func TestValues_SelectedReadsEveryChosenOption(t *testing.T) {
 		{Name: "name", Label: "NAME", Kind: view.KindText, InForm: true},
 	}
 
-	v, _ := view.NewValues(fields, url.Values{"users": {"3", "7", "11"}})
+	v, _ := view.NewValues(fields, url.Values{"users": {"3", "7", "11"}}, false)
 	got := v.Selected("users")
 	if len(got) != 3 || got[0] != "3" || got[1] != "7" || got[2] != "11" {
 		t.Errorf("Selected() = %v, want all three chosen options", got)
@@ -476,14 +482,14 @@ func TestValues_SelectedReadsEveryChosenOption(t *testing.T) {
 	// Blank entries are dropped: a multi-select can legitimately submit
 	// nothing, and an empty string among ids is not a selection anybody
 	// made.
-	v, _ = view.NewValues(fields, url.Values{"users": {" 3 ", "", "  "}})
+	v, _ = view.NewValues(fields, url.Values{"users": {" 3 ", "", "  "}}, false)
 	if got := v.Selected("users"); len(got) != 1 || got[0] != "3" {
 		t.Errorf("Selected() with blanks = %v, want [3]", got)
 	}
 
 	// Undeclared names read as nothing, exactly as Get does, so a value
 	// this type never narrowed cannot be reached through the plural door.
-	v, _ = view.NewValues(fields, url.Values{"smuggled": {"1"}})
+	v, _ = view.NewValues(fields, url.Values{"smuggled": {"1"}}, false)
 	if got := v.Selected("smuggled"); got != nil {
 		t.Errorf("Selected(undeclared) = %v, want nil", got)
 	}
@@ -536,7 +542,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	}
 
 	t.Run("required", func(t *testing.T) {
-		v, _ := view.NewValues(fields, url.Values{"name": {"  "}})
+		v, _ := view.NewValues(fields, url.Values{"name": {"  "}}, false)
 		errs := view.Validate(t.Context(), fields, v)
 		if !errs.Any() || len(errs["name"]) == 0 {
 			t.Fatalf("Validate() = %v, want a required error on name", errs)
@@ -544,7 +550,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	})
 
 	t.Run("max length", func(t *testing.T) {
-		v, _ := view.NewValues(fields, url.Values{"name": {"far-too-long"}})
+		v, _ := view.NewValues(fields, url.Values{"name": {"far-too-long"}}, false)
 		errs := view.Validate(t.Context(), fields, v)
 		if len(errs["name"]) == 0 {
 			t.Fatalf("Validate() = %v, want a length error on name", errs)
@@ -552,7 +558,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	})
 
 	t.Run("number", func(t *testing.T) {
-		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "count": {"many"}})
+		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "count": {"many"}}, false)
 		errs := view.Validate(t.Context(), fields, v)
 		if len(errs["count"]) == 0 {
 			t.Fatalf("Validate() = %v, want a number error on count", errs)
@@ -560,7 +566,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	})
 
 	t.Run("select membership", func(t *testing.T) {
-		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "kind": {"switch"}})
+		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "kind": {"switch"}}, false)
 		errs := view.Validate(t.Context(), fields, v)
 		if len(errs["kind"]) == 0 {
 			t.Fatalf("Validate() = %v, want an option error on kind", errs)
@@ -568,7 +574,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	})
 
 	t.Run("valid input passes", func(t *testing.T) {
-		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "count": {"3"}, "kind": {"router"}})
+		v, _ := view.NewValues(fields, url.Values{"name": {"ok"}, "count": {"3"}, "kind": {"router"}}, false)
 		if errs := view.Validate(t.Context(), fields, v); errs.Any() {
 			t.Fatalf("Validate() = %v, want no errors", errs)
 		}
@@ -579,7 +585,7 @@ func TestValidate_EnforcesTheDeclaration(t *testing.T) {
 	t.Run("option lookup failure is not blamed on the user", func(t *testing.T) {
 		broken := []view.Field{{Name: "kind", Label: "KIND", Kind: view.KindSelect, InForm: true,
 			Options: func(context.Context) ([]view.Option, error) { return nil, errors.New("db down") }}}
-		v, _ := view.NewValues(broken, url.Values{"kind": {"router"}})
+		v, _ := view.NewValues(broken, url.Values{"kind": {"router"}}, false)
 		errs := view.Validate(t.Context(), broken, v)
 		if len(errs["kind"]) == 0 || !strings.Contains(errs["kind"][0], "could not be loaded") {
 			t.Fatalf("Validate() = %v, want a load-failure message", errs)
@@ -664,7 +670,7 @@ func TestBind_ValidationFailureNeverReachesThePort(t *testing.T) {
 	}
 	h := view.MustBind[device](fakeReader{}, writer, projector)
 
-	values, _ := view.NewValues(testFields(), url.Values{"name": {"router-1"}})
+	values, _ := view.NewValues(testFields(), url.Values{"name": {"router-1"}}, false)
 
 	id, errs, err := h.Create(t.Context(), values)
 	if err != nil {
@@ -692,7 +698,7 @@ func TestBind_WritesReachThePort(t *testing.T) {
 	writer := &fakeWriter{}
 	h := view.MustBind[device](fakeReader{}, writer, testProjector())
 
-	values, _ := view.NewValues(testFields(), url.Values{"name": {"router-9"}})
+	values, _ := view.NewValues(testFields(), url.Values{"name": {"router-9"}}, false)
 	id, errs, err := h.Create(t.Context(), values)
 	if err != nil || errs.Any() {
 		t.Fatalf("Create() = (%q, %v, %v)", id, errs, err)
@@ -861,5 +867,83 @@ func TestCheckReferences_RefusesAReferenceToNothing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no-such-view") {
 		t.Errorf("CheckReferences() = %q, want it to name the missing view", err)
+	}
+}
+
+// TestResolveFormFields_WithNoFieldsForIsJustTheStaticSet covers the
+// answer every view without a per-record dynamic field set gets: exactly
+// FormFieldsFor's own answer, in both modes, unchanged.
+func TestResolveFormFields_WithNoFieldsForIsJustTheStaticSet(t *testing.T) {
+	d := validDescriptor("resolve-fields-static")
+
+	create, err := d.ResolveFormFields(t.Context(), "")
+	if err != nil {
+		t.Fatalf("ResolveFormFields(create) = %v", err)
+	}
+	if len(create) != len(d.FormFieldsFor(false)) {
+		t.Errorf("ResolveFormFields(create) returned %d fields, want the same as FormFieldsFor(false)", len(create))
+	}
+
+	edit, err := d.ResolveFormFields(t.Context(), "router-1")
+	if err != nil {
+		t.Fatalf("ResolveFormFields(edit) = %v", err)
+	}
+	if len(edit) != len(d.FormFieldsFor(true)) {
+		t.Errorf("ResolveFormFields(edit) returned %d fields, want the same as FormFieldsFor(true)", len(edit))
+	}
+}
+
+// TestResolveFormFields_MergesFieldsForOnlyWhenEditing is the seam
+// Templates (internal/ui/resources/templates) is built on: FieldsFor's
+// answer is appended for an edit, and never consulted for a create, since
+// a record that does not exist yet has nothing to resolve a per-record
+// field set from.
+func TestResolveFormFields_MergesFieldsForOnlyWhenEditing(t *testing.T) {
+	extra := view.Field{Name: "forks", Label: "FORKS", Kind: view.KindNumber, InForm: true}
+	var calledWith string
+	d := validDescriptor("resolve-fields-dynamic")
+	d.FieldsFor = func(_ context.Context, id string) ([]view.Field, error) {
+		calledWith = id
+		return []view.Field{extra}, nil
+	}
+
+	create, err := d.ResolveFormFields(t.Context(), "")
+	if err != nil {
+		t.Fatalf("ResolveFormFields(create) = %v", err)
+	}
+	if len(create) != len(d.FormFieldsFor(false)) {
+		t.Errorf("ResolveFormFields(create) = %d fields, want FieldsFor left uncalled and the static set alone", len(create))
+	}
+	if calledWith != "" {
+		t.Errorf("FieldsFor was called on a create (id %q), want it never called before a record exists", calledWith)
+	}
+
+	edit, err := d.ResolveFormFields(t.Context(), "router-1")
+	if err != nil {
+		t.Fatalf("ResolveFormFields(edit) = %v", err)
+	}
+	if calledWith != "router-1" {
+		t.Errorf("FieldsFor was called with %q, want the record id", calledWith)
+	}
+	wantLen := len(d.FormFieldsFor(true)) + 1
+	if len(edit) != wantLen {
+		t.Fatalf("ResolveFormFields(edit) = %d fields, want %d (the static edit set plus FieldsFor's one)", len(edit), wantLen)
+	}
+	if edit[len(edit)-1].Name != "forks" {
+		t.Errorf("ResolveFormFields(edit) appended %q last, want the FieldsFor field", edit[len(edit)-1].Name)
+	}
+}
+
+// TestResolveFormFields_PropagatesAFieldsForError proves a resolution
+// failure is reported rather than silently rendering the static set alone,
+// which would make a broken per-record field source indistinguishable from
+// one with nothing extra to add.
+func TestResolveFormFields_PropagatesAFieldsForError(t *testing.T) {
+	wantErr := errors.New("could not resolve the record's own fields")
+	d := validDescriptor("resolve-fields-error")
+	d.FieldsFor = func(context.Context, string) ([]view.Field, error) { return nil, wantErr }
+
+	if _, err := d.ResolveFormFields(t.Context(), "router-1"); !errors.Is(err, wantErr) {
+		t.Errorf("ResolveFormFields(edit) = %v, want it to propagate FieldsFor's own error", err)
 	}
 }

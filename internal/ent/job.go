@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -53,6 +54,10 @@ type Job struct {
 	FailureReason string `json:"failure_reason,omitempty"`
 	// Fence holds the value of the "fence" field.
 	Fence int64 `json:"fence,omitempty"`
+	// Fields holds the value of the "fields" field.
+	Fields map[string]interface{} `json:"fields,omitempty"`
+	// ExtraVars holds the value of the "extra_vars" field.
+	ExtraVars map[string]interface{} `json:"extra_vars,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -82,6 +87,8 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case job.FieldFields, job.FieldExtraVars:
+			values[i] = new([]byte)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
 		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason:
@@ -221,6 +228,22 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Fence = value.Int64
 			}
+		case job.FieldFields:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field fields", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Fields); err != nil {
+					return fmt.Errorf("unmarshal field fields: %w", err)
+				}
+			}
+		case job.FieldExtraVars:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field extra_vars", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ExtraVars); err != nil {
+					return fmt.Errorf("unmarshal field extra_vars: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -323,6 +346,12 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("fence=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Fence))
+	builder.WriteString(", ")
+	builder.WriteString("fields=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Fields))
+	builder.WriteString(", ")
+	builder.WriteString("extra_vars=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExtraVars))
 	builder.WriteByte(')')
 	return builder.String()
 }

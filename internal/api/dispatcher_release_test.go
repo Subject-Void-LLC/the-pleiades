@@ -162,7 +162,9 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
 	jobStore := dispatch.NewEntJobStore(client)
 	sets := inventory.NewEntSetStore(client)
-	templates := launch.NewEntStore(client)
+	templates := launch.NewEntStore(client, launch.StaticCatalog(
+		launch.CatalogEntry{Kind: "runbook", Definition: releaseGateRunbookID},
+	))
 	runbooks := newTestRunbookSource(t, releaseGateRunbookID)
 
 	template, err := templates.Create(ctx, launch.Template{

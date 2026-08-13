@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Launchable is anything this platform can run on request.
@@ -120,6 +121,29 @@ type Template struct {
 	// leave this behind, which is why it is a plan-time hint and the
 	// executor still acquires capabilities for real at run time.
 	RequiredCaps []string
+
+	// RecentJobs is this template's most recent launches, newest first, for
+	// a list page's Activity and Last Ran columns.
+	//
+	// Nil unless something filled it in: this package does not import
+	// internal/dispatch (the launch.Store this package declares does not
+	// take a job port), so nothing here can resolve it. It exists on this
+	// struct for the same reason OrganizationName and InventoryName do --
+	// read-side convenience for a caller that already did the query, so a
+	// list page renders one aggregate fetch per page rather than one job
+	// query per row.
+	RecentJobs []JobSummary
+}
+
+// JobSummary is the sliver of a job's history a template's Activity column
+// needs: enough to render an outcome badge and a timestamp, without this
+// package importing internal/dispatch for it.
+type JobSummary struct {
+	JobID           string
+	State           string
+	DispatchedCount int
+	FailedCount     int
+	CreatedAt       time.Time
 }
 
 // Kind implements Launchable.

@@ -48,14 +48,13 @@ type Executor interface {
 // so retrying it forever is the one thing that must not happen.
 var ErrNoAdapter = fmt.Errorf("routing: no execution adapter for this kind")
 
-// DefaultKind is what an empty Kind on the wire resolves to.
-//
-// The rule lives here, at exactly one place, and it is what makes
-// wire.DispatchPayload.Kind an additive field: a dispatch published before
-// that field existed carries no kind, and must still reach the adapter it
-// was always going to reach. Defaulting it independently at two call sites
-// is how the two would eventually disagree.
-const DefaultKind = "runbook"
+// DefaultKind is what an empty Kind on the wire resolves to, restated
+// from launch.DefaultKind for this package's callers. The rule itself
+// lives in launch, beside the kind vocabulary, because the Controller's
+// fan-out applies the identical default on its side of the wire and two
+// independent statements of one default is how the two sides would
+// eventually disagree.
+const DefaultKind = launch.DefaultKind
 
 // Router picks an adapter per dispatch.
 type Router struct {
@@ -113,12 +112,7 @@ func (r *Router) Execute(ctx context.Context, payload wire.DispatchPayload) erro
 // Exported because the Controller-side check and the Runner-side lookup
 // must agree about what an empty kind means, and two implementations of one
 // default is how they would stop agreeing.
-func Resolve(kind string) string {
-	if trimmed := strings.TrimSpace(kind); trimmed != "" {
-		return trimmed
-	}
-	return DefaultKind
-}
+func Resolve(kind string) string { return launch.ResolveKind(kind) }
 
 // Routable reports whether this Router can run a kind. It is what a
 // composition root logs at startup, so an operator learns that playbooks

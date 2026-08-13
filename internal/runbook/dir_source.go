@@ -41,6 +41,16 @@ import (
 // actually fire given this regex).
 var validRunbookID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// ValidID reports whether id is a well-formed runbook id: 1 to 64
+// letters, digits, hyphens or underscores.
+//
+// Exported so the launch kind's template-time shape validation and this
+// package's own resolution guard read one definition. They used to be two
+// independent grammars, and they disagreed: the template validator
+// accepted ids up to 253 characters that this source can never resolve,
+// so a template could be saved that no launch could ever run.
+func ValidID(id string) bool { return validRunbookID.MatchString(id) }
+
 // cacheEntry is one Flyweight-cached compiled runbook, paired with the
 // source file's os.FileInfo.ModTime() recorded at compile time. A later
 // Get or GetDAG compares this against the file's current mtime to decide

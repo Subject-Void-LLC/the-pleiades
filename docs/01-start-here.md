@@ -112,7 +112,7 @@ deployment supplies `PLAYBOOK_DIR` and `ANSIBLE_RUNNER_IMAGE`, so a deployment t
 never run Ansible simply has no playbook kind to launch; and a dispatch naming a kind
 this Runner cannot run is reported on the job rather than retried forever.
 
-Four more limits are worth knowing before you rely on it once it is wired in. It runs
+Four more limits are worth knowing before you rely on it. It runs
 against exactly one device per dispatch, never a whole play's own host list, unlike a
 real Ansible run. Events are parsed from the container's captured output after the
 playbook finishes, not streamed live task by task. The fuller Run-tier vision described

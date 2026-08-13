@@ -91,6 +91,29 @@ func newTestAccessStore(t *testing.T) (access.Store, activity.Store) {
 				t.Fatalf("seeding a %s grant: %v", scope, err)
 			}
 		}
+
+		// One contact against each kind of owner, because the entity's one
+		// invariant is that it has exactly one and the two branches render
+		// differently: the organization's contact names an organization and
+		// the team's names a team, and a projection that read the wrong
+		// edge would look correct against either alone.
+		//
+		// Different channels on each, so the reach column is exercised
+		// with a contact that has an address and one that does not. Every
+		// contact carries at least one, which the store requires.
+		if _, err := raw.CreateContact(ctx, access.Contact{
+			Name: "conformance-owner" + suffix, Role: access.ContactOwner,
+			Email: "owner" + suffix + "@example.com", OrganizationID: org.ID,
+		}); err != nil {
+			t.Fatalf("seeding an organization contact: %v", err)
+		}
+		if _, err := raw.CreateContact(ctx, access.Contact{
+			Name: "conformance-rota" + suffix, Role: access.ContactEscalation,
+			Phone: "+1-555-0100", URL: "https://example.invalid/rota",
+			Notes: "Sev1 only after 22:00 UTC.", Order: 1, TeamID: team.ID,
+		}); err != nil {
+			t.Fatalf("seeding a team contact: %v", err)
+		}
 	}
 	return store, stream
 }

@@ -477,6 +477,27 @@ type Descriptor struct {
 	// running a runbook, and later cancelling or relaunching a job.
 	Actions []RecordAction
 
+	// FieldsFor optionally resolves additional fields for one record's edit
+	// form and update submission, appended after the static Fields. Nil
+	// means Fields is the whole form for every record, which is every view
+	// but one whose real field set depends on data only the record itself
+	// carries.
+	//
+	// It exists for Templates: a template's execution fields (forks, limit,
+	// and the rest) are declared per launch.Kind, and a kind arrives in a
+	// file this package has never seen, so they cannot be a fixed part of
+	// Fields the way RecordAction.FieldsFor already cannot be a fixed part
+	// of an action's Fields, for the same reason. This is that seam
+	// generalised to the record's own form rather than a second one invented
+	// for it.
+	//
+	// It never applies to create: the record does not exist yet, so there is
+	// nothing to resolve a per-record field set from. A view that needs its
+	// dynamic fields at creation, too, has to resolve them some other way,
+	// because the mechanism here is deliberately the smallest thing that
+	// covers what an edit can know that a create cannot.
+	FieldsFor func(ctx context.Context, id string) ([]Field, error)
+
 	// Applies optionally withdraws an affordance for one particular
 	// record -- an archived device offers no delete to anyone, however
 	// broadly scoped. It is api.LinkFilter's contract, re-expressed per
@@ -508,9 +529,36 @@ func (d Descriptor) ListsRecords() bool {
 // declaration order.
 func (d Descriptor) ListFields() []Field { return filterFields(d.Fields, Field.listed) }
 
-// FormFields returns the fields that appear as form controls, in
-// declaration order.
-func (d Descriptor) FormFields() []Field { return filterFields(d.Fields, Field.Writable) }
+// FormFields returns the fields a create form offers, in declaration
+// order.
+func (d Descriptor) FormFields() []Field { return d.FormFieldsFor(false) }
+
+// FormFieldsFor returns the fields a form of the given mode offers, in
+// declaration order. An edit form drops the immutable ones.
+func (d Descriptor) FormFieldsFor(editing bool) []Field {
+	return filterFields(d.Fields, func(f Field) bool { return f.WritableOn(editing) })
+}
+
+// ResolveFormFields returns the fields one record's edit form offers: the
+// static set FormFieldsFor already answers, plus whatever FieldsFor
+// resolves for that record. A create (id empty) or a view declaring no
+// FieldsFor gets exactly FormFieldsFor's answer, unchanged.
+//
+// The merged result is what the render path, the submission narrower and
+// Validate all have to agree on, so it is computed once, here, rather than
+// separately by each of them.
+func (d Descriptor) ResolveFormFields(ctx context.Context, id string) ([]Field, error) {
+	editing := id != ""
+	fields := d.FormFieldsFor(editing)
+	if !editing || d.FieldsFor == nil {
+		return fields, nil
+	}
+	extra, err := d.FieldsFor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return append(fields, extra...), nil
+}
 
 // PrimaryField returns the field a narrow viewport uses as each card's
 // heading, falling back to the identity field when none is marked.

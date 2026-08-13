@@ -72,10 +72,16 @@ func TestContacts_Lifecycle(t *testing.T) {
 	if got.Order != 10 || got.Organization != orgID {
 		t.Errorf("order or owner did not round trip: %+v", got)
 	}
-	// Rendered rather than left as an integer, for the reason the grants
-	// view's provenance column exists.
-	if want := fmt.Sprintf("organization %d", orgID); got.AccountableFor != want {
+	// The owner named rather than numbered. This used to assert
+	// "organization 1" and called that rendered, which was true only in the
+	// sense that it was not a bare integer: a caller still has to fetch the
+	// organization to learn which tenant it is, and the id is beside it in
+	// the same document for anybody who wants to.
+	if want := "organization acme"; got.AccountableFor != want {
 		t.Errorf("accountable_for = %q, want %q", got.AccountableFor, want)
+	}
+	if got.Organization != orgID {
+		t.Errorf("organization = %d, want %d: the id stays on the wire beside the name", got.Organization, orgID)
 	}
 
 	if rec := doJSON(t, router, http.MethodPatch, fmt.Sprintf("/api/v1/contacts/%d", id),

@@ -211,6 +211,30 @@ func (Job) Fields() []ent.Field {
 		// never-claimed job, since fence only carries meaning once a
 		// BeginFanOut call has bumped it at least once.
 		field.Int64("fence").Default(0),
+
+		// fields is the resolved launch.Resolved.Fields this job was
+		// dispatched with: limit, verbosity, forks, timeout, and whichever
+		// kind-specific fields (job_tags, skip_tags) its kind declares.
+		// Stamped once at creation and never changes, matching runbook_id's
+		// own "a record of what was requested" reasoning immediately above.
+		//
+		// Captured on the job record before it reaches the wire or either
+		// adapter: internal/adapters/legacy's argv construction and
+		// internal/adapters/native's extra-variable injection are a
+		// separate, not-yet-built consumer of this same data
+		// (AWX_PARITY_ROADMAP.md's launch-fields-reach-execution phase).
+		// Recording it here first is what makes the job record honest about
+		// what a launch was configured with even before that phase lands,
+		// the same incremental widening this schema's own comments describe
+		// for organization_id and failure_reason.
+		field.JSON("fields", map[string]any{}).Optional().Immutable(),
+
+		// extra_vars is the resolved launch.Resolved.ExtraVars this job was
+		// dispatched with: the template's defaults, a saved configuration,
+		// survey answers, and this launch's own overrides, already merged
+		// in that precedence order by launch.Template.Resolve. Same
+		// capture-now, consume-later status as fields above.
+		field.JSON("extra_vars", map[string]any{}).Optional().Immutable(),
 	}
 }
 

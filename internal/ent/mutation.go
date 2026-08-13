@@ -6385,6 +6385,8 @@ type JobMutation struct {
 	failure_reason      *string
 	fence               *int64
 	addfence            *int64
+	fields              *map[string]interface{}
+	extra_vars          *map[string]interface{}
 	clearedFields       map[string]struct{}
 	tasks               map[int]struct{}
 	removedtasks        map[int]struct{}
@@ -7395,6 +7397,104 @@ func (m *JobMutation) ResetFence() {
 	m.addfence = nil
 }
 
+// SetFields sets the "fields" field.
+func (m *JobMutation) SetFields(value map[string]interface{}) {
+	m.fields = &value
+}
+
+// GetFields returns the value of the "fields" field in the mutation.
+func (m *JobMutation) GetFields() (r map[string]interface{}, exists bool) {
+	v := m.fields
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFields returns the old "fields" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldFields(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFields is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFields requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFields: %w", err)
+	}
+	return oldValue.Fields, nil
+}
+
+// ClearFields clears the value of the "fields" field.
+func (m *JobMutation) ClearFields() {
+	m.fields = nil
+	m.clearedFields[job.FieldFields] = struct{}{}
+}
+
+// FieldsCleared returns if the "fields" field was cleared in this mutation.
+func (m *JobMutation) FieldsCleared() bool {
+	_, ok := m.clearedFields[job.FieldFields]
+	return ok
+}
+
+// ResetFields resets all changes to the "fields" field.
+func (m *JobMutation) ResetFields() {
+	m.fields = nil
+	delete(m.clearedFields, job.FieldFields)
+}
+
+// SetExtraVars sets the "extra_vars" field.
+func (m *JobMutation) SetExtraVars(value map[string]interface{}) {
+	m.extra_vars = &value
+}
+
+// ExtraVars returns the value of the "extra_vars" field in the mutation.
+func (m *JobMutation) ExtraVars() (r map[string]interface{}, exists bool) {
+	v := m.extra_vars
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExtraVars returns the old "extra_vars" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldExtraVars(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExtraVars is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExtraVars requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExtraVars: %w", err)
+	}
+	return oldValue.ExtraVars, nil
+}
+
+// ClearExtraVars clears the value of the "extra_vars" field.
+func (m *JobMutation) ClearExtraVars() {
+	m.extra_vars = nil
+	m.clearedFields[job.FieldExtraVars] = struct{}{}
+}
+
+// ExtraVarsCleared returns if the "extra_vars" field was cleared in this mutation.
+func (m *JobMutation) ExtraVarsCleared() bool {
+	_, ok := m.clearedFields[job.FieldExtraVars]
+	return ok
+}
+
+// ResetExtraVars resets all changes to the "extra_vars" field.
+func (m *JobMutation) ResetExtraVars() {
+	m.extra_vars = nil
+	delete(m.clearedFields, job.FieldExtraVars)
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by ids.
 func (m *JobMutation) AddTaskIDs(ids ...int) {
 	if m.tasks == nil {
@@ -7483,7 +7583,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 18)
+	fields := make([]string, 0, 20)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -7538,6 +7638,12 @@ func (m *JobMutation) Fields() []string {
 	if m.fence != nil {
 		fields = append(fields, job.FieldFence)
 	}
+	if m.fields != nil {
+		fields = append(fields, job.FieldFields)
+	}
+	if m.extra_vars != nil {
+		fields = append(fields, job.FieldExtraVars)
+	}
 	return fields
 }
 
@@ -7582,6 +7688,10 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.FailureReason()
 	case job.FieldFence:
 		return m.Fence()
+	case job.FieldFields:
+		return m.GetFields()
+	case job.FieldExtraVars:
+		return m.ExtraVars()
 	}
 	return nil, false
 }
@@ -7627,6 +7737,10 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldFailureReason(ctx)
 	case job.FieldFence:
 		return m.OldFence(ctx)
+	case job.FieldFields:
+		return m.OldFields(ctx)
+	case job.FieldExtraVars:
+		return m.OldExtraVars(ctx)
 	}
 	return nil, fmt.Errorf("unknown Job field %s", name)
 }
@@ -7761,6 +7875,20 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetFence(v)
+		return nil
+	case job.FieldFields:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFields(v)
+		return nil
+	case job.FieldExtraVars:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExtraVars(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
@@ -7912,6 +8040,12 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldFailureReason) {
 		fields = append(fields, job.FieldFailureReason)
 	}
+	if m.FieldCleared(job.FieldFields) {
+		fields = append(fields, job.FieldFields)
+	}
+	if m.FieldCleared(job.FieldExtraVars) {
+		fields = append(fields, job.FieldExtraVars)
+	}
 	return fields
 }
 
@@ -7946,6 +8080,12 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldFailureReason:
 		m.ClearFailureReason()
+		return nil
+	case job.FieldFields:
+		m.ClearFields()
+		return nil
+	case job.FieldExtraVars:
+		m.ClearExtraVars()
 		return nil
 	}
 	return fmt.Errorf("unknown Job nullable field %s", name)
@@ -8008,6 +8148,12 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldFence:
 		m.ResetFence()
+		return nil
+	case job.FieldFields:
+		m.ResetFields()
+		return nil
+	case job.FieldExtraVars:
+		m.ResetExtraVars()
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)

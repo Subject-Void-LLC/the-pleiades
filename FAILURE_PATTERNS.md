@@ -111,6 +111,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 108. A replaced doc comment survived above its replacement, so one function documented two opposite policies
 109. A testing library reached a production binary, because the package that imported it had no production caller until now
 110. A composition root omitted an optional constructor option, and the feature it enabled was refused at run time with nothing failing at build time
+111. An edit form rendered a control whose value the update then discarded, and the help text beside it had said "set once" since the day it shipped
+112. A feature shipped as four green layers that never composed, and every layer's own tests are why nobody noticed
+113. Two statements of one contract disagreed, and the reconciliation kept the wrong one
+114. A field made absent from the edit form was still demanded by the code that reads the submission, so every edit on three views failed
+115. A checkbox's edit-form prefill used a different truthiness convention than the checkbox template itself checks for
+116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
+117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
 
 ---
 

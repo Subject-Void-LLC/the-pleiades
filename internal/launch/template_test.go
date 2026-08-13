@@ -45,7 +45,7 @@ func TestTemplate_RefusesWhatCouldNeverBeLaunched(t *testing.T) {
 			return tm
 		},
 		"a default its kind has no field for": func(tm launch.Template) launch.Template {
-			tm.Defaults = launch.Fields{"tags": []string{"patch"}}
+			tm.Defaults = launch.Fields{"job_tags": []string{"patch"}}
 			return tm
 		},
 		"a default of the wrong type": func(tm launch.Template) launch.Template {

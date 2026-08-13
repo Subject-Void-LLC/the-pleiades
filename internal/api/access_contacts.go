@@ -27,9 +27,11 @@ type contactDTO struct {
 	Organization int `json:"organization,omitempty"`
 	Team         int `json:"team,omitempty"`
 
-	// AccountableFor renders the owner in words, for the reason the grants
-	// view's own provenance column exists: "organization 7" is readable
-	// where a bare integer beside two other integers is not.
+	// AccountableFor names the owner in words, for the reason the grants
+	// view's own provenance column does: a caller reading a page of these
+	// should not have to fetch a second document to learn which tenant
+	// each one answers for. The id stays beside it, so a caller that wants
+	// to follow the reference still can.
 	AccountableFor string `json:"accountable_for"`
 }
 

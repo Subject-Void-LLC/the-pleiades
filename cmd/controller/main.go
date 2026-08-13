@@ -78,6 +78,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -109,6 +110,7 @@ import (
 	// (FAILURE_PATTERNS.md #52).
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -502,6 +504,28 @@ func main() {
 		fatal("failed to init runbook source", err)
 	}
 
+	// playbooks is the unconverted-Ansible half of the launch catalog,
+	// present only when the operator points PLAYBOOK_DIR somewhere. No
+	// default directory, unlike RUNBOOK_DIR, because a deployment that has
+	// never run Ansible has no playbooks and should not be scanning a
+	// conventionally-named directory for some; absent means the playbook
+	// kind lists nothing, creating a playbook template is refused with a
+	// reason, and a playbook job is failed by the fan-out rather than
+	// guessed at. When the variable IS set, a bad path is fatal exactly
+	// like RUNBOOK_DIR's: an explicitly configured directory that cannot
+	// be read is an operator error to surface at startup.
+	//
+	// The Runner reads the same variable for the execution side
+	// (cmd/runner/main.go), the identical two-binary convention
+	// RUNBOOK_DIR already follows.
+	var playbooks *playbook.DirSource
+	if playbookDir := getenv("PLAYBOOK_DIR", ""); playbookDir != "" {
+		playbooks, err = playbook.NewDirSource(playbookDir)
+		if err != nil {
+			fatal("failed to init playbook source", err)
+		}
+	}
+
 	// credentials resolves a device's stored SSH credential at dispatch
 	// time, so worker below can attach it directly to
 	// wire.DispatchPayload.Secrets (Phase 16, Native Go Execution
@@ -544,8 +568,18 @@ func main() {
 	// launched from a template at all, and refuses it rather than falling
 	// through to an unrestricted selector: a job that could not be targeted
 	// must dispatch to nothing, never to every device the platform manages.
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials,
-		dispatch.WithSetStore(sets))
+	// The playbook kind's fan-out preparation, wired in the same breath as
+	// the source that enables it. FAILURE_PATTERNS.md #110's lesson: when a
+	// phase adds an option a feature requires, the composition root is part
+	// of that feature, not a follow-up; a Worker missing this would fail
+	// every playbook job with a correct refusal and nothing failing at
+	// build time.
+	workerOpts := []dispatch.WorkerOption{dispatch.WithSetStore(sets)}
+	if playbooks != nil {
+		workerOpts = append(workerOpts,
+			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
+	}
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup
@@ -597,7 +631,45 @@ func main() {
 	// records what a launch was configured with, and cannot administer one.
 	// api.NewTemplateHandler below takes the store itself, because
 	// administering templates is precisely what it is for.
-	templateStore := launch.NewEntStore(client)
+	// launchCatalog is every definition this deployment can launch: the
+	// runbook catalog always, the playbook catalog when PLAYBOOK_DIR is
+	// set. It feeds two consumers that must agree: the template store
+	// verifies a created template's definition resolves (through the same
+	// compile path a dispatch will use, so a runbook that exists but does
+	// not compile is refused at authoring time), and the Templates view's
+	// RUNS picker offers exactly this set, so what can be chosen and what
+	// can be saved are one list.
+	kindCatalogs := map[string]launch.KindCatalog{
+		launch.DefaultKind: launch.KindCatalogFuncs{
+			ListFunc: runbooks.List,
+			VerifyFunc: func(ctx context.Context, definition string) error {
+				if _, err := runbooks.Get(ctx, definition); err != nil {
+					if errors.Is(err, runbook.ErrNotFound) {
+						return fmt.Errorf("%w: no runbook %q", launch.ErrDefinitionNotFound, definition)
+					}
+					return fmt.Errorf("resolving runbook %q: %w", definition, err)
+				}
+				return nil
+			},
+		},
+	}
+	if playbooks != nil {
+		kindCatalogs["playbook"] = launch.KindCatalogFuncs{
+			ListFunc: playbooks.List,
+			VerifyFunc: func(ctx context.Context, definition string) error {
+				if _, err := playbooks.Get(ctx, definition); err != nil {
+					if errors.Is(err, playbook.ErrNotFound) {
+						return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
+					}
+					return fmt.Errorf("resolving playbook %q: %w", definition, err)
+				}
+				return nil
+			},
+		}
+	}
+	launchCatalog := launch.NewSourceCatalog(kindCatalogs)
+
+	templateStore := launch.NewEntStore(client, launchCatalog)
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
 		api.WithTemplates(templateStore),
 		api.WithLaunchConfigs(templateStore))
@@ -779,6 +851,7 @@ func main() {
 		Jobs:       jobStore,
 		Runbooks:   runbooks,
 		Templates:  templateStore,
+		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
 	}); err != nil {
 		fatal("failed to register UI views", err)

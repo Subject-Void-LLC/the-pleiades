@@ -13,10 +13,10 @@ package playbook
 
 import (
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	pbsource "github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 )
 
 // Kind is this kind's registry key.
@@ -69,9 +69,15 @@ func init() {
 			// than a fixed set of columns. Tags are an Ansible concept with
 			// no native equivalent, and declaring them on both kinds would
 			// put a control on the runbook launch form that nothing reads.
+			//
+			// Named job_tags rather than tags, matching AWX's own field name
+			// rather than this project's earlier choice, because an import
+			// maps AWX's ask_tags_on_launch onto Prompts by exact field name
+			// and a mismatched name made that mapping lossy
+			// (AWX_PARITY_ROADMAP.md Section 1.2).
 			{
-				Name: "tags", Type: launch.TypeStringList,
-				Label: "TAGS",
+				Name: "job_tags", Type: launch.TypeStringList,
+				Label: "JOB TAGS",
 				Help:  "Ansible's --tags: run only the tasks carrying these tags.",
 			},
 			{
@@ -84,46 +90,30 @@ func init() {
 	})
 }
 
-// validatePlaybookPath checks a playbook reference is a path that stays
-// inside the project it belongs to.
+// validatePlaybookPath checks a playbook reference is a project-relative
+// path the resolver could resolve.
 //
-// This is the boundary, and it is the one that matters most in this file.
-// The reference is a filesystem path supplied by whoever may create a
-// template, and it is handed to a process that reads it. An absolute path
-// or a traversal would let a template author read any file the runner can
-// reach, which is a class of value this repository has already had to fix
-// once at a different boundary (FAILURE_PATTERNS.md #78).
+// The grammar itself is internal/playbook.ValidateReference, imported
+// rather than restated, and both halves of that sentence matter. Imported,
+// because two independent statements of one contract do not drift apart
+// eventually, they start apart: these two did, and every definition a
+// template could store was one no dispatch could resolve.
+//
+// And a PATH, because that is what an Ansible playbook reference is. AWX
+// stores "tripplite_python/tripplite_config.yml" here, populated from a
+// scan of the project's own tree. An earlier pass reconciled the two
+// grammars onto the flat-id half instead, which made the platform unable
+// to name any playbook a real customer owns: internally consistent, and
+// useless (FAILURE_PATTERNS.md #113).
+//
+// Shape only, not existence, the same split the runbook kind draws: this
+// package imports the grammar, never the filesystem. Whether the path
+// names a real playbook is checked where the source lives, at template
+// create (the launch catalog) and again at fan-out (the dispatch worker's
+// definition source).
 func validatePlaybookPath(reference string) error {
-	raw := strings.TrimSpace(reference)
-	switch {
-	case raw == "":
+	if strings.TrimSpace(reference) == "" {
 		return fmt.Errorf("a playbook template needs a playbook path")
-	case len(raw) > 1024:
-		return fmt.Errorf("playbook path is longer than 1024 characters")
-	case strings.ContainsRune(raw, 0):
-		return fmt.Errorf("playbook path contains a null byte")
-	case strings.HasPrefix(raw, "/"), strings.HasPrefix(raw, `\`):
-		return fmt.Errorf("playbook path %q is absolute: a playbook is named relative to its own project", raw)
-	case strings.Contains(raw, `\`):
-		return fmt.Errorf("playbook path %q uses backslashes: paths here are forward-slashed on every platform", raw)
 	}
-
-	// Cleaned and compared, rather than searched for "..", so a path that
-	// merely contains those two characters inside a directory name is
-	// allowed while one that actually climbs is not.
-	cleaned := path.Clean(raw)
-	if cleaned != raw {
-		return fmt.Errorf("playbook path %q is not in its simplest form: write it as %q", raw, cleaned)
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return fmt.Errorf("playbook path %q climbs out of its project", raw)
-	}
-
-	if ext := path.Ext(cleaned); ext != ".yml" && ext != ".yaml" {
-		// Refused rather than assumed, because the alternative is handing
-		// ansible-playbook a file that is not a playbook and reporting
-		// whatever it says about it as a job failure.
-		return fmt.Errorf("playbook path %q does not name a YAML file", raw)
-	}
-	return nil
+	return pbsource.ValidateReference(reference)
 }

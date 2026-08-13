@@ -43,7 +43,12 @@ func newStoreFixture(t *testing.T) storeFixture {
 	invB := client.Inventory.Create().SetName("racks").SetOrganization(orgB).SaveX(ctx)
 
 	return storeFixture{
-		store:  launch.NewEntStore(client),
+		// The catalog lists exactly what this suite creates, so the
+		// existence check is exercised for real rather than stubbed out:
+		// a fixture template naming anything else fails loudly.
+		store: launch.NewEntStore(client, launch.StaticCatalog(
+			launch.CatalogEntry{Kind: "runbook", Definition: "patch-edge"},
+		)),
 		client: client,
 		orgA:   orgA.ID, invA: invA.ID,
 		orgB: orgB.ID, invB: invB.ID,
@@ -521,5 +526,32 @@ func TestStore_UpdateRefusesARenameOntoATakenName(t *testing.T) {
 	}
 	if read.Name != "patch" || read.Survey.Enabled {
 		t.Errorf("a refused update changed the stored template: %+v", read)
+	}
+}
+
+// TestCreate_RefusesADefinitionTheDeploymentCannotLaunch is the
+// create-time existence gate. Shape validation cannot catch this
+// ("no-such-runbook" is a perfectly shaped id), and before the catalog
+// check existed the row was saved, the launch answered 202, and the
+// mistake surfaced three stages later as a failed job at fan-out.
+func TestCreate_RefusesADefinitionTheDeploymentCannotLaunch(t *testing.T) {
+	f := newStoreFixture(t)
+	ctx := context.Background()
+
+	tmpl := f.template("ghost")
+	tmpl.Definition = "no-such-runbook"
+	_, err := f.store.Create(ctx, tmpl)
+	if !errors.Is(err, launch.ErrDefinitionNotFound) {
+		t.Fatalf("Create with an unresolvable definition = %v, want ErrDefinitionNotFound", err)
+	}
+
+	// And nothing was persisted: a refusal that left the row behind would
+	// be the old failure with an error message stapled on.
+	if templates, listErr := f.store.List(ctx, launch.Query{Limit: 50}); listErr == nil {
+		for _, saved := range templates {
+			if saved.Name == "ghost" {
+				t.Error("the refused template was persisted anyway")
+			}
+		}
 	}
 }

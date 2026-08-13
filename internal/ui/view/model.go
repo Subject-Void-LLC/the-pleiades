@@ -3,6 +3,7 @@ package view
 import (
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -184,31 +185,44 @@ var reservedFormKeys = map[string]bool{
 type Values struct {
 	declared map[string]Field
 	raw      url.Values
+
+	// editing is which form this submission came from, carried so Validate
+	// applies the same narrowing the renderer did. A create and an edit do
+	// not offer the same controls once a field is Immutable, and a
+	// validator working from the wider set would demand a value for a
+	// control the page never showed.
+	editing bool
 }
 
-// NewValues narrows raw to the writable fields in the given declaration.
-// It returns the narrowed Values and every submitted key that no field
-// declared, so a handler can reject the request outright rather than
-// silently ignoring input the caller believed was accepted -- which is
+// NewValues narrows raw to the fields the given declaration makes writable
+// in this mode. It returns the narrowed Values and every submitted key that
+// no field declared, so a handler can reject the request outright rather
+// than silently ignoring input the caller believed was accepted -- which is
 // also how a typo in a template's control name gets caught instead of
 // becoming a field that never saves.
-func NewValues(fields []Field, raw url.Values) (Values, []string) {
+//
+// editing says whether the submission is an update. It decides the set, so
+// an immutable field posted to an update comes back as undeclared: the edit
+// form never rendered it, so a submission carrying it did not come from the
+// form, and refusing is the same answer the launch form gives to a smuggled
+// control.
+func NewValues(fields []Field, raw url.Values, editing bool) (Values, []string) {
 	declared := make(map[string]Field, len(fields))
 	for _, f := range fields {
-		if f.Writable() {
+		if f.WritableOn(editing) {
 			declared[f.Name] = f
 		}
 	}
 
 	var undeclared []string
 	for key := range raw {
-		if !declared[key].Writable() && !reservedFormKeys[key] {
+		if _, ok := declared[key]; !ok && !reservedFormKeys[key] {
 			undeclared = append(undeclared, key)
 		}
 	}
 	sort.Strings(undeclared)
 
-	return Values{declared: declared, raw: raw}, undeclared
+	return Values{declared: declared, raw: raw, editing: editing}, undeclared
 }
 
 // Get returns the submitted value for a declared field, or the empty
@@ -230,6 +244,41 @@ func (v Values) Bool(name string) bool {
 	default:
 		return true
 	}
+}
+
+// Editing reports whether this submission came from an edit form rather
+// than a create form.
+//
+// A Bind function needs it for exactly one reason: an Immutable field is
+// absent from an edit submission by design, so a Bind that parses one
+// unconditionally rejects every edit. That is not hypothetical, it is the
+// defect this method was added to fix, which broke editing on three views
+// at once and passed CI because no test posted an edit form.
+//
+// The writer's Update is what supplies the real value in that case, from
+// storage, so a Bind that skips an absent immutable field is not leaving
+// it unset: it is declining to overwrite what only storage knows.
+func (v Values) Editing() bool { return v.editing }
+
+// Int returns a declared KindNumber field's value, and zero for a field
+// left empty.
+//
+// It cannot report a parse failure, and does not need to: Validate has
+// already refused a KindNumber field whose value is not a whole number, and
+// it runs before any Bind function sees the submission. So the only two
+// states reaching here are a number and an absence, and an absent optional
+// number is its zero -- which is the same answer Bool gives an unchecked
+// checkbox, for the same reason.
+//
+// It exists because four views were each reaching for strconv themselves,
+// and a fifth reading a number that Validate had already parsed once is a
+// fifth chance to disagree with it about what a number is.
+func (v Values) Int(name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v.Get(name)))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // Selected returns every value submitted for a declared KindLookup field.

@@ -219,7 +219,15 @@ func TestWorker_TheKindTravelsFromTheJobToEveryDeviceDispatch(t *testing.T) {
 
 	sets := fakeSetStore{set: inventory.Set{ID: 4, DeviceIDs: []int{21}}}
 	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil,
-		dispatch.WithSetStore(sets))
+		dispatch.WithSetStore(sets),
+		// The playbook kind's own definition source, because the fan-out
+		// prepares a job through the source its kind owns. This test used
+		// to pass without one, and that was the recorded defect: the
+		// worker rammed every job through the runbook source, so a
+		// playbook job only survived fan-out by the accident of its id
+		// naming a runbook too.
+		dispatch.WithDefinitionSource("playbook",
+			dispatch.NewPlaybookDefinitionSource(staticPlaybooks{"pb-1"})))
 
 	// A job launched from a playbook template. The kind is what the Runner
 	// routes on, so it has to reach the wire; a Runner that had to infer it
@@ -311,5 +319,72 @@ func TestJobStore_ListForTemplateAnswersWhatOneTemplateHasRun(t *testing.T) {
 	}
 	if _, err := store.ListForTemplate(ctx, 7, 0); err == nil {
 		t.Error("ListForTemplate accepted limit 0")
+	}
+}
+
+// TestJobStore_RecentForTemplatesBatchesAcrossManyTemplates is
+// RecentForTemplates: the list page's own reason ListForTemplate exists
+// for one record, batched across many, so a page of templates costs one
+// query rather than one per row.
+func TestJobStore_RecentForTemplatesBatchesAcrossManyTemplates(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+
+	// Three jobs from template 7, one from template 9, and one from
+	// neither -- the same "job launched before templates existed" control
+	// ListForTemplate's own test uses.
+	for _, j := range []*dispatch.Job{
+		{RunbookID: "pb-1", Actor: "a@example.com", TemplateID: 7, TemplateName: "patch"},
+		{RunbookID: "pb-1", Actor: "a@example.com", TemplateID: 7, TemplateName: "patch"},
+		{RunbookID: "pb-1", Actor: "a@example.com", TemplateID: 7, TemplateName: "patch"},
+		{RunbookID: "pb-1", Actor: "a@example.com", TemplateID: 9, TemplateName: "reboot"},
+		{RunbookID: "pb-1", Actor: "a@example.com", GroupName: "routers"},
+	} {
+		if err := store.Create(ctx, j); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	found, err := store.RecentForTemplates(ctx, []int{7, 9, 4242}, 2)
+	if err != nil {
+		t.Fatalf("RecentForTemplates: %v", err)
+	}
+
+	// The bound is honoured per template, not across the whole call: three
+	// jobs from template 7 come back as two, not zero and not three.
+	if len(found[7]) != 2 {
+		t.Fatalf("template 7 returned %d jobs, want 2 (perTemplate bound)", len(found[7]))
+	}
+	for _, j := range found[7] {
+		if j.TemplateID != 7 {
+			t.Errorf("a job from template %d was returned under template 7", j.TemplateID)
+		}
+	}
+	if found[7][0].JobID < found[7][1].JobID {
+		t.Errorf("template 7's jobs came back oldest first: %q before %q", found[7][0].JobID, found[7][1].JobID)
+	}
+
+	if len(found[9]) != 1 {
+		t.Fatalf("template 9 returned %d jobs, want 1", len(found[9]))
+	}
+
+	// A requested template with no jobs is absent from the map entirely,
+	// not present with an empty slice, so a caller's membership check is
+	// one map lookup.
+	if _, ok := found[4242]; ok {
+		t.Error("a template that has never run has an entry in the map")
+	}
+
+	// And a template nobody asked about (the groupless job's template,
+	// which is a zero) never appears, even though a row for it exists.
+	if _, ok := found[0]; ok {
+		t.Error("RecentForTemplates returned an entry for a template id nobody asked for")
+	}
+
+	if empty, err := store.RecentForTemplates(ctx, nil, 2); err != nil || len(empty) != 0 {
+		t.Errorf("RecentForTemplates with no template ids returned %v, %v, want an empty map and no error", empty, err)
+	}
+	if _, err := store.RecentForTemplates(ctx, []int{7}, 0); err == nil {
+		t.Error("RecentForTemplates accepted perTemplate 0")
 	}
 }

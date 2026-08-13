@@ -163,6 +163,34 @@ func TestDirSource_Get_RejectsHostileIDs(t *testing.T) {
 	}
 }
 
+// TestValidID covers the grammar the launch kind's own template-time
+// validator delegates to (internal/launch/kinds/runbook), so the two never
+// restate it independently and disagree the way they used to
+// (FAILURE_PATTERNS.md #113's playbook-side counterpart).
+func TestValidID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"ordinary id", "patch-edge-routers", true},
+		{"underscores and digits", "audit_v2", true},
+		{"empty", "", false},
+		{"too long", strings.Repeat("a", 65), false},
+		{"exactly the bound", strings.Repeat("a", 64), true},
+		{"path traversal", "../../etc/passwd", false},
+		{"embedded NUL byte", "evil\x00name", false},
+		{"forward slash", "a/b", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := runbook.ValidID(tt.id); got != tt.want {
+				t.Errorf("ValidID(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestDirSource_Get_UnrecognizedFQCN_YieldsEmptyRequired proves a task
 // whose fqcn has no entry in engine.ActionCapability compiles successfully
 // with an empty Required slice, rather than an error. This is

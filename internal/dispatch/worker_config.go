@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
 
@@ -22,10 +23,20 @@ import (
 // internal/api/dispatcher.go's DispatchRunbook used to run inline inside
 // an HTTP request.
 type Worker struct {
-	store    JobStore
-	repo     inventory.Repository
-	runbooks runbook.Source
-	bus      event.Bus
+	store JobStore
+	repo  inventory.Repository
+	// definitions prepares a job's definition through the source its KIND
+	// owns, keyed by kind, mirroring internal/adapters/routing's map on
+	// the Runner side. The native runbook entry is always present (built
+	// from NewWorker's own positional runbook source); further kinds are
+	// wired by the composition root through WithDefinitionSource. A job
+	// whose kind has no entry here fails with a reason naming the kind,
+	// never by being rammed through the runbook source: that is exactly
+	// what used to happen, and it reported every playbook job as
+	// "runbook not found" inside the Controller before the Runner's own
+	// adapter selection was ever consulted.
+	definitions map[string]DefinitionSource
+	bus         event.Bus
 	// sets resolves the Inventory a job targets, so the fan-out streams
 	// that inventory's membership rather than a free-text group name.
 	// Optional: a Worker built without one refuses a job that names an
@@ -67,9 +78,16 @@ type Worker struct {
 // than dispatching it to every device the platform manages.
 func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, credentials credential.Store, opts ...WorkerOption) *Worker {
 	w := &Worker{
-		store:          store,
-		repo:           repo,
-		runbooks:       runbooks,
+		store: store,
+		repo:  repo,
+		definitions: map[string]DefinitionSource{
+			// The native kind is positional rather than optional because
+			// every deployment has it, and because leaving the default
+			// kind's own source to an option would make "forgot to wire
+			// it" the state every Worker starts in
+			// (FAILURE_PATTERNS.md #110).
+			launch.DefaultKind: runbookDefinitionSource{src: runbooks},
+		},
 		bus:            bus,
 		credentials:    credentials,
 		fanOutLeaseTTL: DefaultFanOutLeaseTTL,
@@ -78,6 +96,16 @@ func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Sourc
 		opt(w)
 	}
 	return w
+}
+
+// WithDefinitionSource wires the definition source for one further kind,
+// so the fan-out can prepare jobs of it. A kind nobody wires is refused
+// per job with a reason naming the kind, the same fail-closed posture
+// WithSetStore's absence takes: guessing would mean resolving a playbook
+// through the runbook source, which is the recorded defect this map
+// replaced.
+func WithDefinitionSource(kind string, src DefinitionSource) WorkerOption {
+	return func(w *Worker) { w.definitions[kind] = src }
 }
 
 // WithSetStore supplies the port that resolves a job's target Inventory.

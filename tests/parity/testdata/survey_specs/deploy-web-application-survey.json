@@ -1,0 +1,54 @@
+{
+  "name": "Deploy Web Application Survey",
+  "description": "Please provide the deployment parameters before launching.",
+  "spec": [
+    {
+      "question_name": "Target Environment",
+      "question_description": "Select the environment to deploy to.",
+      "required": true,
+      "type": "multiplechoice",
+      "variable": "target_env",
+      "min": 0,
+      "max": 0,
+      "default": "dev",
+      "choices": "dev\nqa\nprod",
+      "new_question": false
+    },
+    {
+      "question_name": "Application Version",
+      "question_description": "Enter the release tag (e.g., v1.2.4).",
+      "required": true,
+      "type": "text",
+      "variable": "app_version",
+      "min": 1,
+      "max": 16,
+      "default": "latest",
+      "choices": "",
+      "new_question": false
+    },
+    {
+      "question_name": "Database Password",
+      "question_description": "Provide the DB admin password if running migrations.",
+      "required": false,
+      "type": "password",
+      "variable": "db_password",
+      "min": 0,
+      "max": 64,
+      "default": "",
+      "choices": "",
+      "new_question": false
+    },
+    {
+      "question_name": "Enable Debug Mode",
+      "question_description": "Run the application with verbose logging.",
+      "required": true,
+      "type": "multiplechoice",
+      "variable": "debug_mode",
+      "min": 0,
+      "max": 0,
+      "default": "false",
+      "choices": "true\nfalse",
+      "new_question": false
+    }
+  ]
+}

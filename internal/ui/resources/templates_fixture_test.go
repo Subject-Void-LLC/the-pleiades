@@ -40,7 +40,10 @@ func newTestTemplateStore(t *testing.T) launch.Store {
 		t.Fatalf("seeding an inventory: %v", err)
 	}
 
-	store := launch.NewEntStore(client)
+	store := launch.NewEntStore(client, launch.StaticCatalog(
+		launch.CatalogEntry{Kind: "runbook", Definition: "conformance"},
+		launch.CatalogEntry{Kind: "playbook", Definition: "tripplite_python/tripplite_config.yml"},
+	))
 
 	// Two templates, and the pair is the point. One opens two fields and
 	// asks a survey question, so the launch form has controls to render and
@@ -66,7 +69,7 @@ func newTestTemplateStore(t *testing.T) launch.Store {
 	if _, err := store.Create(ctx, launch.Template{
 		Name:        "conformance-locked",
 		KindName:    "playbook",
-		Definition:  "playbooks/site.yml",
+		Definition:  "tripplite_python/tripplite_config.yml",
 		InventoryID: set.ID,
 		Defaults:    launch.Fields{"limit": "all"},
 	}); err != nil {

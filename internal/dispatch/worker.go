@@ -12,7 +12,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -112,31 +112,52 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		}
 	}
 
-	rb, err := w.runbooks.Get(ctx, job.RunbookID)
+	// The definition is prepared through the source its KIND owns, looked
+	// up in the same map shape the Runner's adapter routing uses, so no
+	// consumer branches on kind. Resolving every job through the runbook
+	// source regardless, which is what this block used to do, reported
+	// every playbook job as "runbook not found" inside the Controller
+	// before the Runner's adapter selection was ever consulted.
+	kind := launch.ResolveKind(job.Kind)
+	source, ok := w.definitions[kind]
+	if !ok {
+		// A real, permanent failure case: a kind this Controller has no
+		// definition source for cannot become preparable by redelivery,
+		// and BeginFanOut above already made this call the job's only
+		// chance to reach a terminal state (see the retry reasoning on
+		// the resolution failure below).
+		reason := fmt.Sprintf("this controller has no definition source for %q jobs", kind)
+		slog.Error("job fan-out has no definition source for the job's kind",
+			slog.String("job_id", job.JobID),
+			slog.String("kind", kind))
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
+	prepared, reason, err := source.Prepare(ctx, job.RunbookID)
 	if err != nil {
 		// This is a real, permanent failure case the state enum could not
 		// honestly represent before internal/ent/schema/job.go added a
-		// "failed" state alongside "completed": a runbook that cannot be
-		// resolved means fan-out never even considered a single device,
-		// which "completed" with all-zero tallies would misreport as
-		// indistinguishable from a legitimate dispatch against an empty
-		// group. See that schema's own State field comment for the full
-		// reasoning.
+		// "failed" state alongside "completed": a definition that cannot
+		// be resolved means fan-out never even considered a single
+		// device, which "completed" with all-zero tallies would misreport
+		// as indistinguishable from a legitimate dispatch against an
+		// empty inventory. See that schema's own State field comment.
 		//
-		// The reason recorded on the job names only the runbook_id, never
-		// err's own text: err can carry a filesystem path or another
-		// storage-layer detail (runbook.Source.Get's own doc comment),
-		// and Job.failure_reason is a caller-readable audit field, not a
-		// server log. The full error is logged server-side only, the same
-		// posture internal/api/dispatcher.go already takes with the
-		// repository's own error text.
-		reason := fmt.Sprintf("runbook %q could not be resolved", job.RunbookID)
-		if errors.Is(err, runbook.ErrNotFound) {
-			reason = fmt.Sprintf("runbook %q not found", job.RunbookID)
-		}
-		slog.Error("job fan-out failed to resolve runbook",
+		// reason is the source's own sanitised sentence (the split
+		// DefinitionSource documents): the job record carries it, and
+		// err's full text is logged server-side only, the same posture
+		// internal/api/dispatcher.go takes with the repository's error
+		// text.
+		slog.Error("job fan-out failed to resolve the job's definition",
 			slog.String("job_id", job.JobID),
-			slog.String("runbook_id", job.RunbookID),
+			slog.String("kind", kind),
+			slog.String("definition", job.RunbookID),
 			slog.String("error", err.Error()))
 
 		// A retry cannot help past this point even for a transient
@@ -221,7 +242,7 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// payload construction, publish, and the RecordTask write for
 		// exactly one device; see that file's own doc comment for why
 		// this block lives there rather than inline in this loop.
-		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, rb, evt, device)
+		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, evt, device)
 		if err != nil {
 			if fenced(job.JobID, err) {
 				return nil

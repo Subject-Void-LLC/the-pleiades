@@ -400,10 +400,30 @@ type FormModel struct {
 	// Options holds resolved select choices, fetched before rendering so
 	// no template performs I/O.
 	Options map[string][]Option
+
+	// FieldSet is this form's resolved controls, in declaration order,
+	// already merged with whatever Descriptor.FieldsFor supplies for this
+	// record. Resolved before construction, so no template performs I/O.
+	// Nil falls back to the descriptor's static fields, which is what every
+	// view with no FieldsFor gets and what every construction site that
+	// predates this field still gets unchanged.
+	FieldSet []Field
 }
 
-// Fields are the writable fields, in declaration order.
-func (m FormModel) Fields() []Field { return m.Descriptor.FormFields() }
+// Fields are the controls this form offers, in declaration order.
+//
+// Mode-aware, because an immutable field is offered once. It reads the mode
+// off ID rather than taking one, so the set of controls and where the form
+// posts cannot disagree about which operation this is. FieldSet, when set,
+// is trusted over recomputing from the descriptor: it is what the handler
+// actually resolved this record's dynamic fields against, and recomputing
+// here would risk a second, disagreeing answer for a view that has one.
+func (m FormModel) Fields() []Field {
+	if m.FieldSet != nil {
+		return m.FieldSet
+	}
+	return m.Descriptor.FormFieldsFor(m.Editing())
+}
 
 // Editing reports whether this form updates an existing record.
 func (m FormModel) Editing() bool { return m.ID != "" }

@@ -11,16 +11,24 @@
 // phase's own Adversarial Pattern Justification both named that gap); this
 // binary is their first one.
 //
-// Deliberately out of scope: choosing between native.Adapter and
-// legacy.Adapter at runtime (PATTERNS.md's Strangler Fig entry).
-// legacy.Adapter (internal/adapters/legacy, the renamed and now-real
-// successor to internal/ansible.ReceptorAdapter, Phase 17: Legacy Ansible
-// Adapter) implements runner.ExecutionAdapter for real as of that phase,
-// which is what finally makes the Strangler Fig claim true; this binary
-// still only composes native.Adapter, since a real adapter-selection
-// mechanism needs a Launchable Kind registry (Phase 21) that does not
-// exist yet to route dispatch on, not because legacy.Adapter is unfit to
-// be wired in.
+// Adapter selection is real here (PATTERNS.md's Strangler Fig entry made
+// wiring, at last): every dispatch reaches the Agent through
+// internal/adapters/routing.Router, which resolves the kind the payload
+// carries to the adapter that kind's descriptor declares. native.Adapter
+// is always composed. legacy.Adapter (internal/adapters/legacy, Phase 17)
+// is composed only when the operator supplies both PLAYBOOK_DIR and
+// ANSIBLE_RUNNER_IMAGE, fail-open to native-only: a deployment that has
+// never run Ansible simply has no playbook kind to route, and a playbook
+// dispatch arriving anyway is refused per message (routing.ErrNoAdapter,
+// which the Agent dead-letters rather than retrying forever) instead of
+// crashing a Runner over a capability it was never given.
+//
+// Composing legacy is also what makes FAILURE_PATTERNS.md #109's recorded
+// trade real rather than theoretical: internal/adapters/legacy's
+// orchestration imports testcontainers-go, so a Runner built with it
+// links a testing library and a Docker client. The exposure was accepted
+// knowingly there, bounded by Phase 20/22's replacement of the
+// orchestrator; this comment is the import's price tag, kept beside it.
 package main
 
 import (
@@ -30,9 +38,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	// Blank-imported so every generated Collection method registers itself
 	// into pkg/collection before native.Adapter's own
 	// engine.NewCollectionActionExecutor ever looks one up, mirroring
@@ -50,6 +61,7 @@ import (
 	// route nothing at all (FAILURE_PATTERNS.md #52).
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
@@ -186,11 +198,45 @@ func main() {
 		log.Fatalf("failed to init runbook source: %v", err)
 	}
 
-	adapter, err := native.NewAdapter(bus, runbooks, logger)
+	nativeAdapter, err := native.NewAdapter(bus, runbooks, logger)
 	if err != nil {
 		log.Fatalf("failed to init native adapter: %v", err)
 	}
-	agent := runner.NewAgent(consumer, adapter, js, lockMgr, topology.MaxDeliverDefault, logger,
+	adapters := map[string]routing.Executor{"native": nativeAdapter}
+
+	// The legacy Ansible adapter, composed only when the operator supplies
+	// both halves of its configuration: the directory the playbooks live in
+	// and the container image a real ansible-playbook runs inside. Half a
+	// configuration is refused rather than half-honoured, because "I set
+	// PLAYBOOK_DIR and my playbooks silently never ran" is the exact shape
+	// of failure this repository keeps recording; a deployment that sets
+	// neither is simply a native-only Runner, and the startup log below
+	// says which kinds this process can actually run either way.
+	playbookDir := getenv("PLAYBOOK_DIR", "")
+	ansibleImage := getenv("ANSIBLE_RUNNER_IMAGE", "")
+	if (playbookDir == "") != (ansibleImage == "") {
+		log.Fatalf("PLAYBOOK_DIR and ANSIBLE_RUNNER_IMAGE must be set together: one names what to run, the other names what runs it")
+	}
+	if playbookDir != "" {
+		playbooks, err := playbook.NewDirSource(playbookDir)
+		if err != nil {
+			log.Fatalf("failed to init playbook source: %v", err)
+		}
+		adapters["legacy"] = legacy.NewAdapter(bus, playbooks, legacy.NewDockerOrchestrator(), ansibleImage, logger)
+	}
+
+	// The Router satisfies the Agent's own one-method adapter interface,
+	// so the Agent does not know it is holding a router: adding a kind
+	// changes the registry and this map, never the Agent. It is composed
+	// unconditionally, native-only included, so both configurations run
+	// the same code path and a kind with no adapter is refused per
+	// dispatch (routing.ErrNoAdapter, dead-lettered) rather than
+	// misexecuted.
+	router := routing.New(adapters)
+	logger.Info("execution adapters composed",
+		slog.String("kinds", strings.Join(router.Kinds(), ", ")))
+
+	agent := runner.NewAgent(consumer, router, js, lockMgr, topology.MaxDeliverDefault, logger,
 		tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/runner"), agentOpts...)
 
 	sig := make(chan os.Signal, 1)

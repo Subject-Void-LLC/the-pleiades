@@ -50,11 +50,18 @@ func fields(sets inventory.SetStore) []view.Field {
 		},
 		{
 			Name: "organization", Label: "ORGANIZATION", Kind: view.KindSelect,
-			Required: true, InForm: true, InList: true,
+			Required: true, Immutable: true, InForm: true, InList: true,
 			References: "organizations",
 			// A select rather than a number field: an inventory must name
 			// an organization, and a form asking somebody to type a numeric
 			// primary key is a form nobody can fill in.
+			//
+			// Immutable because Update reads it from storage regardless, for
+			// the reason that method gives: moving an inventory between
+			// tenants silently re-scopes every RoleBinding pointing at it,
+			// which is a migration rather than an edit. Offering the control
+			// anyway made that a decision somebody could take, submit and be
+			// told had succeeded.
 			Options: func(ctx context.Context) ([]view.Option, error) {
 				orgs, err := sets.ListOrganizations(ctx)
 				if err != nil {
@@ -200,14 +207,23 @@ func Register(sets inventory.SetStore) error {
 		Bind: func(v view.Values) (inventory.Set, view.FieldErrors) {
 			errs := view.FieldErrors{}
 
-			org, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
-			if err != nil || org < 1 {
-				// Blamed on the field rather than answered with a 500. A
-				// submission with no organization is the one thing the
-				// store refuses outright, so catching it here is what turns
-				// a refusal into a message next to the control.
-				errs.Add("organization", "Choose the organization this inventory belongs to.")
-				return inventory.Set{}, errs
+			// The organization is Immutable, so an edit form never renders
+			// it and an edit submission never carries it. Demanding one
+			// here refused every edit, which is what this guard fixes; on
+			// an edit Update reads the real value from storage, so leaving
+			// it zero declines to overwrite rather than unsetting it.
+			var org int
+			if !v.Editing() {
+				parsed, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
+				if err != nil || parsed < 1 {
+					// Blamed on the field rather than answered with a 500. A
+					// submission with no organization is the one thing the
+					// store refuses outright, so catching it here is what turns
+					// a refusal into a message next to the control.
+					errs.Add("organization", "Choose the organization this inventory belongs to.")
+					return inventory.Set{}, errs
+				}
+				org = parsed
 			}
 
 			return inventory.Set{

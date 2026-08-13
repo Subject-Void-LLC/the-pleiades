@@ -28,6 +28,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
 // Job is the domain view of one asynchronous dispatch request: a runbook
@@ -135,6 +137,26 @@ type Job struct {
 
 	// CreatedAt is when the job was first persisted.
 	CreatedAt time.Time
+
+	// Fields is the resolved launch.Resolved.Fields this job was
+	// dispatched with: limit, verbosity, forks, timeout, and whichever
+	// kind-specific fields its kind declares. Stamped once at creation and
+	// never changes.
+	//
+	// Captured on the record before it reaches the wire or either adapter
+	// (internal/adapters/legacy's argv construction and
+	// internal/adapters/native's extra-variable injection are a separate,
+	// not-yet-built consumer of this same data), so the job record is
+	// honest about what a launch was configured with even before that
+	// phase lands. See AWX_PARITY_ROADMAP.md.
+	Fields launch.Fields
+
+	// ExtraVars is the resolved launch.Resolved.ExtraVars this job was
+	// dispatched with: the template's defaults, a saved configuration,
+	// survey answers, and this launch's own overrides, already merged in
+	// that precedence order. Same capture-now, consume-later status as
+	// Fields above.
+	ExtraVars map[string]any
 }
 
 // JobTask is the domain view of one device's outcome within a Job's
@@ -253,6 +275,17 @@ type JobStore interface {
 	// an ordinary state rather than a missing record: this port does not
 	// know whether a template exists.
 	ListForTemplate(ctx context.Context, templateID, limit int) ([]*Job, error)
+
+	// RecentForTemplates is ListForTemplate batched across many templates at
+	// once, for a template list page's Activity and Last Ran columns.
+	//
+	// Its own method rather than a loop calling ListForTemplate per row, for
+	// the reason ListForTemplate itself exists over List: a page of fifty
+	// templates has no business costing fifty queries for data that renders
+	// two columns. A template with no jobs is simply absent from the
+	// returned map rather than present with an empty slice, so a caller's
+	// membership check is one map lookup.
+	RecentForTemplates(ctx context.Context, templateIDs []int, perTemplate int) (map[int][]*Job, error)
 
 	// BeginFanOut atomically transitions job jobID from "pending" to
 	// "fanning_out", or reclaims a job already in "fanning_out" whose

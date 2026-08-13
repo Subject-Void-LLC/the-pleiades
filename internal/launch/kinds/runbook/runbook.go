@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	rbsource "github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
 
 // Kind is this kind's registry key, and the value stored on a template.
@@ -64,35 +65,40 @@ func init() {
 	})
 }
 
-// validateRunbookID checks a runbook id is one that could name a runbook.
+// validateRunbookID checks a runbook id is one the resolver could resolve.
 //
-// Shape only, not existence: this package does not import the runbook
-// source, so it cannot say whether a runbook is there. What it can say is
-// that an id is not the kind of string that has already caused real damage
-// here. A runbook id reaches a NATS subject by concatenation
-// (FAILURE_PATTERNS.md #18 and #81) and a filesystem path through
-// filepath.Join (#78), and both were fixed at their own boundaries. This is
-// the boundary a template crosses, so it refuses the same class of value
-// rather than trusting that every downstream boundary is still guarded.
+// The grammar is internal/runbook.ValidID, imported rather than restated.
+// This validator used to state its own, and the two disagreed: it accepted
+// ids up to 253 characters where the resolver's bound is 64, so a template
+// could be saved whose launch could only ever fail. One grammar with two
+// statements is how the playbook kind shipped a worse version of the same
+// defect (its two statements were entirely disjoint), and the only fix
+// that stays fixed is one statement.
+//
+// Shape only, not existence: importing the grammar is not importing the
+// filesystem, and whether the id names a real runbook stays a question for
+// whoever holds the source (the launch catalog at create, the dispatch
+// worker at fan-out). The shape still matters in its own right: a runbook
+// id reaches a NATS subject by concatenation (FAILURE_PATTERNS.md #18 and
+// #81) and a filesystem path through filepath.Join (#78), and this is the
+// boundary a template crosses.
 func validateRunbookID(reference string) error {
 	id := strings.TrimSpace(reference)
-	switch {
-	case id == "":
+	if id == "" {
 		return fmt.Errorf("a runbook template needs a runbook id")
-	case len(id) > 253:
-		return fmt.Errorf("runbook id is longer than 253 characters")
-	case strings.ContainsAny(id, `/\.*>`+"\x00"):
+	}
+	if rbsource.ValidID(id) {
+		return nil
+	}
+
+	// Refused either way; the rest is diagnosis.
+	if len(id) > 64 {
+		return fmt.Errorf("runbook id is longer than 64 characters")
+	}
+	if strings.ContainsAny(id, `/\.*>`+"\x00") {
 		// Dots and slashes are what turn an id into a path; the NATS
 		// wildcards are what turn a subject into every subject.
 		return fmt.Errorf("runbook id %q contains a character that is not allowed in one: it reaches both a subject name and a file path", id)
 	}
-
-	for _, r := range id {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-		default:
-			return fmt.Errorf("runbook id %q contains %q, which is not a letter, digit, hyphen or underscore", id, r)
-		}
-	}
-	return nil
+	return fmt.Errorf("runbook id %q contains a character that is not a letter, digit, hyphen or underscore", id)
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/contacts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/grants"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -226,6 +227,7 @@ func (w writer) Delete(ctx context.Context, id string) error {
 type store interface {
 	access.Organizations
 	access.Bindings
+	access.Contacts
 }
 
 // Register wires the Organizations view over the access store.
@@ -251,11 +253,19 @@ func Register(store store) error {
 			Delete: &apispec.DeleteOrganization,
 		},
 		Actions: []view.RecordAction{attestAction(store)},
-		// The Access section, alongside the deployment-wide table rather
-		// than instead of it. The table is the auditor's one page; this is
-		// the answer to "who reaches this organization", asked while
-		// looking at the organization.
-		Sections: []view.Section{grants.SectionForScope(store, auth.ScopeOrganization, "organization")},
+		// Two sections, alongside the deployment-wide tables rather than
+		// instead of them. Each table is the auditor's one page; these are
+		// the answers to "who reaches this organization" and "who answers
+		// for it", asked while looking at the organization.
+		//
+		// Contacts sits under Access rather than above it because the
+		// attestation on this page is a statement about the contacts, and
+		// a reader who has just pressed Attest should land beside what they
+		// confirmed rather than scroll past a grants table to find it.
+		Sections: []view.Section{
+			grants.SectionForScope(store, auth.ScopeOrganization, "organization"),
+			contacts.SectionForOrganization(store),
+		},
 		Handlers: view.MustBind[access.Organization](reader{store}, writer{store}, view.Projector[access.Organization]{
 			Row: func(org access.Organization) view.Row {
 				return view.Row{

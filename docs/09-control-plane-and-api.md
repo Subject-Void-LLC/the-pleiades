@@ -192,11 +192,12 @@ document. The ones worth calling out:
 | View | State | Notes |
 |---|---|---|
 | Dashboard | Real | Job-outcome counts over the most recent 200 dispatches, as a chart and as an equivalent table. |
-| Templates | Real | The saved definitions this platform launches: create, edit, copy, delete, and launch. The launch form renders only the fields the template being launched actually opened, plus its survey, because a control whose value is then ignored is an affordance that does nothing. |
+| Templates | Real | The saved definitions this platform launches: create, edit, copy, delete, and launch. What a template runs is chosen from a picker over everything the deployment can resolve, runbooks and playbooks in one list, never typed; the kind is derived from the choice, and a definition that does not resolve is refused at create rather than failing later as a failed job. The launch form renders only the fields the template being launched actually opened, plus its survey, because a control whose value is then ignored is an affordance that does nothing. |
 | Inventories | Real | Full create, read, update and retire against the device repository. Device *properties* are deliberately not editable: they decrypt to real secrets, and the masking ruleset belongs to an unbuilt phase. |
 | Jobs | Real | List and open. No launch form: a job is launched from a Template. No cancel and no delete either -- there is no `job:write` scope and no cancellation path in this build, so no button is offered for one. |
 | Runbooks | Real | Read-only catalog. Runbooks come from `RUNBOOK_DIR` and from GitOps; a write path here would be a second, unversioned way to change what this platform executes. Its one action saves a runbook as a template rather than launching it, so the catalog stays a catalog and launching has one home. |
-| Organizations, Teams, Users, Access | Real | The tenancy and RBAC surface, each with an Access section on the record itself. |
+| Organizations, Teams, Users, Access | Real | The tenancy and RBAC surface, each with an Access section on the record itself. Organizations and Teams also carry a Contacts section. |
+| Contacts | Real | Who is accountable for a tenant or a team, and how to reach them. The owner is chosen once from a single control listing organizations and teams together, so "both owners" and "neither owner" are not states a form can submit. |
 | Activity | Real | Who changed which managed object, and when, written by a decorator over the store rather than by calls inside handlers. |
 | Governance | Declared | Registered so the shape and the navigation are real. Nothing backs it, and the page says so. |
 | Credentials | Declared | Unbuilt, and it will not list credential names when it is built: the set of names in a deployment is itself reconnaissance. |

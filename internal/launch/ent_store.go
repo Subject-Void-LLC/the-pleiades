@@ -19,10 +19,28 @@ const defaultPageSize = 50
 // maxPageSize is the ceiling a caller cannot raise.
 const maxPageSize = 200
 
-type entStore struct{ client *ent.Client }
+type entStore struct {
+	client  *ent.Client
+	catalog Catalog
+}
 
-// NewEntStore builds a Store over an already-open ent client.
-func NewEntStore(client *ent.Client) Store { return &entStore{client: client} }
+// NewEntStore builds the ent-backed Store over client, verifying every
+// created template's definition against catalog.
+//
+// The catalog is a required collaborator, not an option, and it panics
+// rather than degrades when absent. The optional-option shape is how the
+// fan-out worker shipped without its inventory store and refused every
+// launch at run time with nothing failing at build time
+// (FAILURE_PATTERNS.md #110); a store that silently skipped verification
+// would be worse, because nothing would refuse anything and the defect
+// this check exists to close (a template saved against a definition that
+// does not exist, failing later as a failed job) would be back.
+func NewEntStore(client *ent.Client, catalog Catalog) Store {
+	if catalog == nil {
+		panic("launch.NewEntStore: a nil Catalog would silently skip definition verification; wire one (StaticCatalog in tests)")
+	}
+	return &entStore{client: client, catalog: catalog}
+}
 
 // Create persists a new template with its survey.
 func (s *entStore) Create(ctx context.Context, tmpl Template) (Template, error) {
@@ -42,6 +60,17 @@ func (s *entStore) Create(ctx context.Context, tmpl Template) (Template, error) 
 	tmpl.OrganizationID = organizationID
 
 	if err := tmpl.Validate(); err != nil {
+		return Template{}, err
+	}
+
+	// Existence, after shape. Validate proved the definition is a
+	// reference this kind could resolve; this proves the deployment can
+	// resolve it today, through the same source a dispatch will use. It
+	// runs at create and never at update, because the definition is
+	// immutable: re-pointing a saved definition at different code is a
+	// copy, not an edit, and the update path carries the stored value
+	// forward regardless of the submission.
+	if err := s.catalog.Verify(ctx, tmpl.KindName, tmpl.Definition); err != nil {
 		return Template{}, err
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
@@ -68,6 +70,14 @@ func registerViews(t *testing.T) {
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
 			Templates: newTestTemplateStore(t),
+			// The same set the template fixture's store verifies against,
+			// so the RUNS picker offers exactly what the store accepts:
+			// the property the real composition root gets by wiring one
+			// catalog into both.
+			Catalog: launch.StaticCatalog(
+				launch.CatalogEntry{Kind: "runbook", Definition: "conformance"},
+				launch.CatalogEntry{Kind: "playbook", Definition: "tripplite_python/tripplite_config.yml"},
+			),
 			// A nil dispatcher is enough for every assertion here: the
 			// Jobs view's create path is exercised for validation and
 			// refusal, never for a successful launch, which is the
@@ -185,18 +195,28 @@ func (h *harness) get(t *testing.T, path string) *httptest.ResponseRecorder {
 // middleware instead.
 func (h *harness) post(t *testing.T, path string, form map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-
-	values := make([]string, 0, len(form)+1)
+	values := url.Values{}
 	for k, v := range form {
-		values = append(values, k+"="+v)
+		values.Set(k, v)
 	}
+	return h.postValues(t, path, values)
+}
+
+// postValues is post for a submission carrying repeated keys, which a
+// multi-select genuinely sends: a team's membership or a template's
+// promptable fields arrive as one key repeated per chosen option, and
+// flattening them to one value is how a round-trip silently deletes
+// membership.
+func (h *harness) postValues(t *testing.T, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+
 	sess, err := h.store.Resolve(context.Background(), h.token)
 	if err != nil {
 		t.Fatalf("resolving the harness session: %v", err)
 	}
-	values = append(values, "_csrf="+session.CSRFToken(sess.CSRFKey, h.token))
+	form.Set("_csrf", session.CSRFToken(sess.CSRFKey, h.token))
 
-	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(strings.Join(values, "&")))
+	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.authenticate(r)
 
@@ -421,6 +441,21 @@ func (s *fakeJobStore) ListForTemplate(_ context.Context, templateID, limit int)
 		if j.TemplateID == templateID && len(out) < limit {
 			out = append(out, j)
 		}
+	}
+	return out, nil
+}
+
+func (s *fakeJobStore) RecentForTemplates(_ context.Context, templateIDs []int, perTemplate int) (map[int][]*dispatch.Job, error) {
+	wanted := make(map[int]bool, len(templateIDs))
+	for _, id := range templateIDs {
+		wanted[id] = true
+	}
+	out := map[int][]*dispatch.Job{}
+	for _, j := range s.jobs {
+		if !wanted[j.TemplateID] || len(out[j.TemplateID]) >= perTemplate {
+			continue
+		}
+		out[j.TemplateID] = append(out[j.TemplateID], j)
 	}
 	return out, nil
 }

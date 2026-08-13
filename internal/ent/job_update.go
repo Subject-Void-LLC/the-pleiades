@@ -306,6 +306,12 @@ func (_u *JobUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedFence(); ok {
 		_spec.AddField(job.FieldFence, field.TypeInt64, value)
 	}
+	if _u.mutation.FieldsCleared() {
+		_spec.ClearField(job.FieldFields, field.TypeJSON)
+	}
+	if _u.mutation.ExtraVarsCleared() {
+		_spec.ClearField(job.FieldExtraVars, field.TypeJSON)
+	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -677,6 +683,12 @@ func (_u *JobUpdateOne) sqlSave(ctx context.Context) (_node *Job, err error) {
 	}
 	if value, ok := _u.mutation.AddedFence(); ok {
 		_spec.AddField(job.FieldFence, field.TypeInt64, value)
+	}
+	if _u.mutation.FieldsCleared() {
+		_spec.ClearField(job.FieldFields, field.TypeJSON)
+	}
+	if _u.mutation.ExtraVarsCleared() {
+		_spec.ClearField(job.FieldExtraVars, field.TypeJSON)
 	}
 	if _u.mutation.TasksCleared() {
 		edge := &sqlgraph.EdgeSpec{

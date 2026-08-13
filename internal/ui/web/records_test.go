@@ -60,6 +60,21 @@ var registerRecordViews = sync.OnceFunc(func() {
 			{Name: "name", Label: "NAME", Kind: view.KindText, Required: true,
 				MaxLen: 64, Autocomplete: "off", InList: true, InForm: true, MobilePrimary: true},
 		},
+		// A per-record edit field, exactly the seam Templates
+		// (internal/ui/resources/templates) is built on: the record named
+		// "broken" cannot resolve its own fields at all, and every other
+		// one gets one extra control alongside the static "name" field.
+		// This is Descriptor.FieldsFor, not the "vary" action's own
+		// per-action FieldsFor above -- the two are deliberately
+		// independent seams, and this view exercises both.
+		FieldsFor: func(_ context.Context, id string) ([]view.Field, error) {
+			if id == "broken" {
+				return nil, errors.New("deliberate record-field resolution failure")
+			}
+			return []view.Field{
+				{Name: "extra", Label: "EXTRA", Kind: view.KindText, Autocomplete: "off", InForm: true},
+			}, nil
+		},
 		Ops: view.Ops{
 			List:   &apispec.ListDevices,
 			Get:    &apispec.GetDevice,
@@ -315,6 +330,33 @@ func TestForms_RenderForCreateAndEdit(t *testing.T) {
 			t.Error("the edit form did not prefill the stored value")
 		}
 	})
+
+	t.Run("edit renders the record's own dynamic fields", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/alpha/edit")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `name="extra"`) {
+			t.Error("the edit form does not render the control Descriptor.FieldsFor resolved for this record")
+		}
+	})
+
+	t.Run("create never resolves the per-record dynamic fields", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/new")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), `name="extra"`) {
+			t.Error("the create form renders a control FieldsFor resolved, but no record exists yet to resolve one from")
+		}
+	})
+
+	t.Run("a FieldsFor failure is a server error, not a blank form", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/broken/edit")
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500 when the record's own fields cannot be resolved", rec.Code)
+		}
+	})
 }
 
 func TestWrites_UpdateAndDeleteRedirect(t *testing.T) {
@@ -324,6 +366,24 @@ func TestWrites_UpdateAndDeleteRedirect(t *testing.T) {
 		rec := p.post(t, "/ui/"+gadgetView+"/alpha", "name=renamed")
 		if rec.Code != http.StatusSeeOther {
 			t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("update accepts the record's own dynamic field", func(t *testing.T) {
+		rec := p.post(t, "/ui/"+gadgetView+"/alpha", "name=alpha&extra=set")
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("update reports a FieldsFor failure as a server error", func(t *testing.T) {
+		// update resolves the record's own fields independently of
+		// editForm, before it can even parse the submission against them,
+		// so this is its own code path to the same failure, not a repeat
+		// of the GET-side assertion above.
+		rec := p.post(t, "/ui/"+gadgetView+"/broken", "name=broken")
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500 when the record's own fields cannot be resolved", rec.Code)
 		}
 	})
 

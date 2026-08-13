@@ -1,0 +1,122 @@
+{
+  "id": 42,
+  "type": "job_template",
+  "url": "/api/v2/job_templates/42/",
+  "related": {
+    "created_by": "/api/v2/users/1/",
+    "modified_by": "/api/v2/users/1/",
+    "labels": "/api/v2/job_templates/42/labels/",
+    "inventory": "/api/v2/inventories/7/",
+    "project": "/api/v2/projects/12/",
+    "extra_credentials": "/api/v2/job_templates/42/extra_credentials/",
+    "credentials": "/api/v2/job_templates/42/credentials/",
+    "jobs": "/api/v2/job_templates/42/jobs/",
+    "launch": "/api/v2/job_templates/42/launch/",
+    "schedules": "/api/v2/job_templates/42/schedules/",
+    "activity_stream": "/api/v2/job_templates/42/activity_stream/",
+    "notification_templates_started": "/api/v2/job_templates/42/notification_templates_started/",
+    "notification_templates_success": "/api/v2/job_templates/42/notification_templates_success/",
+    "notification_templates_error": "/api/v2/job_templates/42/notification_templates_error/",
+    "instance_groups": "/api/v2/job_templates/42/instance_groups/",
+    "webhook_key": "/api/v2/job_templates/42/webhook_key/",
+    "webhook_receiver": "/api/v2/job_templates/42/github/"
+  },
+  "summary_fields": {
+    "inventory": {
+      "id": 7,
+      "name": "Dynamic AWS Inventory",
+      "description": "EC2 nodes via plugin",
+      "has_active_failures": false,
+      "total_hosts": 128,
+      "hosts_with_active_failures": 3,
+      "organization_id": 2
+    },
+    "project": {
+      "id": 12,
+      "name": "Infrastructure Automation",
+      "description": "Terraform and Ansible core playbooks",
+      "status": "successful",
+      "scm_type": "git"
+    },
+    "created_by": {
+      "id": 1,
+      "username": "admin",
+      "first_name": "",
+      "last_name": ""
+    },
+    "labels": {
+      "count": 3,
+      "results": [
+        { "id": 5, "name": "production" },
+        { "id": 8, "name": "network" },
+        { "id": 12, "name": "auto-remediation" }
+      ]
+    },
+    "credentials": [
+      { "id": 4, "name": "SSH Machine Key", "description": "Standard ec2-user key", "kind": "ssh", "cloud": false },
+      { "id": 9, "name": "HashiCorp Vault", "description": "App Secrets", "kind": "vault", "cloud": false },
+      { "id": 15, "name": "AWS IAM Role", "description": "EC2 provisioning role", "kind": "aws", "cloud": true }
+    ],
+    "instance_groups": [
+      { "id": 2, "name": "dmz_nodes", "is_container_group": false },
+      { "id": 5, "name": "eks_runners", "is_container_group": true }
+    ],
+    "webhook_credential": {
+      "id": 22,
+      "name": "GitHub Webhook Secret",
+      "description": "Validates payload signature",
+      "kind": "webhook_token",
+      "cloud": false
+    },
+    "recent_jobs": [
+      { "id": 1024, "status": "successful", "finished": "2026-08-12T14:32:01.123456Z" }
+    ]
+  },
+  "created": "2025-11-10T08:15:30.000000Z",
+  "modified": "2026-08-12T10:30:00.000000Z",
+  "name": "Full Stack Remediation",
+  "description": "Complex template with labels, webhooks, and multiple creds",
+  "job_type": "run",
+  "inventory": 7,
+  "project": 12,
+  "playbook": "remediation/main.yml",
+  "scm_branch": "release/v2",
+  "forks": 50,
+  "limit": "tag_Environment_Prod",
+  "verbosity": 1,
+  "extra_vars": "---\nstrict_mode: true\ntarget_vlan: 1042",
+  "job_tags": "network, security",
+  "force_handlers": true,
+  "skip_tags": "debug",
+  "start_at_task": "",
+  "timeout": 3600,
+  "use_fact_cache": true,
+  "organization": 2,
+  "host_config_key": "xxyyzz112233",
+  "ask_scm_branch_on_launch": false,
+  "ask_diff_mode_on_launch": false,
+  "ask_variables_on_launch": true,
+  "ask_limit_on_launch": true,
+  "ask_tags_on_launch": true,
+  "ask_skip_tags_on_launch": true,
+  "ask_job_type_on_launch": false,
+  "ask_verbosity_on_launch": false,
+  "ask_inventory_on_launch": false,
+  "ask_credential_on_launch": true,
+  "ask_execution_environment_on_launch": false,
+  "ask_labels_on_launch": false,
+  "ask_forks_on_launch": false,
+  "ask_job_slice_count_on_launch": false,
+  "ask_timeout_on_launch": false,
+  "ask_instance_groups_on_launch": false,
+  "survey_enabled": true,
+  "become_enabled": true,
+  "diff_mode": true,
+  "allow_simultaneous": true,
+  "custom_virtualenv": null,
+  "job_slice_count": 4,
+  "webhook_service": "github",
+  "webhook_credential": 22,
+  "execution_environment": 3,
+  "prevent_instance_group_fallback": false
+}

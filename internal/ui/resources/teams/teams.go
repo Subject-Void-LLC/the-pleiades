@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/contacts"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/grants"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -33,6 +34,7 @@ type store interface {
 	access.Organizations
 	access.Users
 	access.Bindings
+	access.Contacts
 }
 
 // fields declare the shape. The organization is a select rather than a
@@ -49,10 +51,17 @@ func fields(s store) []view.Field {
 		},
 		{
 			Name: "organization", Label: "ORGANIZATION", Kind: view.KindSelect,
-			Required: true, InList: true, InForm: true,
+			Required: true, Immutable: true, InList: true, InForm: true,
 			References: "organizations",
-			Help:       "Set once. Moving a team between tenants would silently re-scope every grant it holds.",
-			Options:    organizationOptions(s),
+			// The help text said "set once" from the day this shipped, and
+			// the edit form rendered the control anyway. Update has always
+			// read the organization from storage, so what a reader could do
+			// was pick a different tenant, submit, be told it saved, and
+			// have every grant the team holds stay exactly where it was.
+			// Immutable is what makes the sentence true rather than
+			// aspirational.
+			Help:    "Set once. Moving a team between tenants would silently re-scope every grant it holds.",
+			Options: organizationOptions(s),
 		},
 		{
 			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
@@ -214,7 +223,15 @@ func Register(s store) error {
 		// What this team reaches, on the team. The other direction from an
 		// organization's own section: a team holds grants, it is never the
 		// target of one.
-		Sections: []view.Section{grants.SectionForTeam(s)},
+		// What this team reaches, and who answers for it. A team is where
+		// the two questions meet: it is the holder of every grant its
+		// members have, so a team with permissions and no named owner is
+		// the single finding an access review most wants surfaced, and
+		// putting both on one page is what makes it visible.
+		Sections: []view.Section{
+			grants.SectionForTeam(s),
+			contacts.SectionForTeam(s),
+		},
 		Ops: view.Ops{
 			List:   &apispec.ListTeams,
 			Get:    &apispec.GetTeam,
@@ -260,9 +277,17 @@ func Register(s store) error {
 				if name == "" {
 					errs.Add("name", "A team needs a name.")
 				}
-				org, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
-				if err != nil || org < 1 {
-					errs.Add("organization", "Choose the organization this team belongs to.")
+				// Immutable, so an edit never carries one and Update reads
+				// it from storage. Parsing it unconditionally refused every
+				// team edit with an error naming a control the form did not
+				// render.
+				var org int
+				if !v.Editing() {
+					parsed, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
+					if err != nil || parsed < 1 {
+						errs.Add("organization", "Choose the organization this team belongs to.")
+					}
+					org = parsed
 				}
 				// Selected, not Tags: a multi-select submits one value per
 				// chosen option, and reading it through the singular

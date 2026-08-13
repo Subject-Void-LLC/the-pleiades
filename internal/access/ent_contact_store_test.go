@@ -777,3 +777,99 @@ func TestResolveScopeNames_EveryScopeTypeReportsItsOwnFailure(t *testing.T) {
 		t.Errorf("resolving a system grant hit the database: %v", err)
 	}
 }
+
+// TestContacts_TheUnnarrowedListingPagesWithoutLosingRows covers the
+// deployment-wide management listing, which is the one caller permitted to
+// ask for every contact at once.
+//
+// Paging here is keyset on the id, so the sort has to end at the cursor's
+// own column. Sorted by display order instead, "everything after id 4"
+// applied to a page whose last row happens to be id 4 while id 5 sorts
+// ahead of it returns id 5 twice and never returns the rows below the
+// cursor at all: on this entity, an accountability record silently missing
+// from a review.
+//
+// The display orders below run opposite to the ids deliberately. That is
+// the arrangement where the two orderings disagree, and a fixture that let
+// every row share one display order would pass against either
+// implementation, since ent breaks the tie on the id and the two sorts
+// collapse into the same thing.
+func TestContacts_TheUnnarrowedListingPagesWithoutLosingRows(t *testing.T) {
+	store, _ := newTestStore(t)
+	ctx := context.Background()
+	orgID := seedOrg(t, store, "acme")
+	teamID := seedTeam(t, store, orgID, "netops")
+
+	names := []string{"alpha", "bravo", "charlie", "delta", "echo"}
+	want := map[string]bool{}
+	for i, name := range names {
+		want[name] = false
+		owner := access.Contact{
+			Name: name, Role: access.ContactOwner, Email: name + "@example.com",
+			Order: len(names) - i,
+		}
+		// Alternating owners, because the management listing spans both
+		// and a query that joined only one of the two edges would drop
+		// half of them.
+		if i%2 == 1 {
+			owner.TeamID = teamID
+		} else {
+			owner.OrganizationID = orgID
+		}
+		if _, err := store.CreateContact(ctx, owner); err != nil {
+			t.Fatalf("seeding %q: %v", name, err)
+		}
+	}
+
+	// Two at a time, walking the cursor exactly as the view's reader does.
+	seen := 0
+	for after := 0; ; {
+		page, err := store.ListContacts(ctx, access.ContactQuery{
+			Query: access.Query{After: after, Limit: 2},
+		})
+		if err != nil {
+			t.Fatalf("ListContacts: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, c := range page {
+			if _, declared := want[c.Name]; !declared {
+				t.Fatalf("page returned unknown contact %q", c.Name)
+			}
+			if want[c.Name] {
+				t.Errorf("contact %q appeared on more than one page", c.Name)
+			}
+			want[c.Name] = true
+			seen++
+		}
+		after = page[len(page)-1].ID
+	}
+
+	if seen != len(want) {
+		t.Errorf("walked %d contacts, want %d", seen, len(want))
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("contact %q was never returned by any page", name)
+		}
+	}
+
+	// And the owner is named on the way out, from the row the store had
+	// already loaded to know which of the two edges was set.
+	all, err := store.ListContacts(ctx, access.ContactQuery{Query: access.Query{Limit: 10}})
+	if err != nil {
+		t.Fatalf("ListContacts: %v", err)
+	}
+	for _, c := range all {
+		if c.OwnedByOrganization() && c.OrganizationName != "acme" {
+			t.Errorf("contact %q reports organization name %q, want %q", c.Name, c.OrganizationName, "acme")
+		}
+		if !c.OwnedByOrganization() && c.TeamName != "netops" {
+			t.Errorf("contact %q reports team name %q, want %q", c.Name, c.TeamName, "netops")
+		}
+		if strings.ContainsAny(c.Owner(), "0123456789") {
+			t.Errorf("Owner() = %q, which puts a primary key in front of a reader", c.Owner())
+		}
+	}
+}

@@ -428,6 +428,13 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 		TemplateID:     tmpl.ID,
 		TemplateName:   tmpl.Name,
 		LaunchConfigID: configID,
+		// Captured on the record now, ahead of the wire and either
+		// adapter actually reading them back: see dispatch.Job.Fields'
+		// own doc comment for what still has to be built before these
+		// values reach a real ansible-playbook invocation or a native
+		// runbook's variable context.
+		Fields:    resolved.Fields,
+		ExtraVars: resolved.ExtraVars,
 	}
 	if err := d.jobs.Create(ctx, job); err != nil {
 		return "", ignored, fmt.Errorf("create job %s: %w", jobID, err)

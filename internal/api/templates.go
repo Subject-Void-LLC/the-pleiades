@@ -609,6 +609,15 @@ func (h *TemplateHandler) respondStoreError(w http.ResponseWriter, r *http.Reque
 		RespondError(w, r, http.StatusForbidden, "that inventory belongs to another organization")
 	case errors.Is(err, launch.ErrInvalidTemplate), errors.Is(err, launch.ErrUnknownKind), errors.Is(err, launch.ErrInvalidSurvey):
 		RespondError(w, r, http.StatusBadRequest, err.Error())
+	case errors.Is(err, launch.ErrDefinitionNotFound):
+		// 400, not 404: the URL resolved fine, it is the submitted
+		// definition that names nothing this deployment can launch. The
+		// message is the domain error's own, which says whether the
+		// definition is unknown or the deployment has no source for the
+		// kind at all; both are the author's to act on, at create time,
+		// which is the entire point of checking here rather than letting
+		// the launch fail later as a failed job.
+		RespondError(w, r, http.StatusBadRequest, err.Error())
 	default:
 		h.logger.ErrorContext(r.Context(), "template store operation failed",
 			slog.String("op", op),

@@ -143,6 +143,42 @@ func TestLaunchTemplate_WritesTheTenantAJobInheritsFromItsInventory(t *testing.T
 	}
 }
 
+// TestLaunchTemplate_CapturesWhatItResolvedOntoTheJob proves the job record
+// carries what this launch actually resolved to: the promptable field's own
+// override, and the locked field's template default. This is the first hop
+// AWX_PARITY_ROADMAP.md's launch-fields-reach-execution phase builds on --
+// nothing downstream can be asked to honour a value the job record itself
+// does not carry.
+func TestLaunchTemplate_CapturesWhatItResolvedOntoTheJob(t *testing.T) {
+	jobs := newTestJobStore(t)
+	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, newCapturingBus(),
+		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}),
+		api.WithLaunchConfigs(&recordingConfigs{}))
+
+	// limit is promptable; forks is not. An override for the promptable
+	// one plus the template's own default for the locked one is what
+	// should reach the job record.
+	jobID, ignored, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12,
+		launch.Config{Overrides: launch.Fields{"limit": "edge-02"}})
+	if err != nil {
+		t.Fatalf("LaunchTemplate: %v", err)
+	}
+	if len(ignored) != 0 {
+		t.Fatalf("an open override was reported as ignored: %+v", ignored)
+	}
+
+	job, _, err := jobs.Get(context.Background(), jobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if job.Fields.String("limit") != "edge-02" {
+		t.Errorf("job.Fields[limit] = %q, want the launch's own override edge-02", job.Fields.String("limit"))
+	}
+	if job.Fields.Int("forks") != 5 {
+		t.Errorf("job.Fields[forks] = %d, want the template's own default 5", job.Fields.Int("forks"))
+	}
+}
+
 func TestLaunchTemplate_ReportsWhatItRefusedRatherThanRefusingTheLaunch(t *testing.T) {
 	jobs := newTestJobStore(t)
 	configs := &recordingConfigs{}

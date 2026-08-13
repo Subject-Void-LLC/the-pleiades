@@ -64,7 +64,15 @@ func newTemplateFixture(t *testing.T) *templateFixture {
 	invA := client.Inventory.Create().SetName("edge routers").SetOrganization(orgA).SaveX(ctx)
 	invB := client.Inventory.Create().SetName("racks").SetOrganization(orgB).SaveX(ctx)
 
-	store := launch.NewEntStore(client)
+	store := launch.NewEntStore(client, launch.StaticCatalog(
+		// The two ids the fixture's runbook source resolves, mirrored
+		// here, plus "other" as a playbook: one id launchable under both
+		// kinds, so a kind-confusion bug cannot hide behind disjoint
+		// names.
+		launch.CatalogEntry{Kind: "runbook", Definition: "patch-edge"},
+		launch.CatalogEntry{Kind: "runbook", Definition: "other"},
+		launch.CatalogEntry{Kind: "playbook", Definition: "playbooks/other.yml"},
+	))
 	jobs := dispatch.NewEntJobStore(client)
 
 	// The same concrete store reaches the Dispatcher through two narrow

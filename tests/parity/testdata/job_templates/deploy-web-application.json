@@ -1,0 +1,98 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 14,
+      "type": "job_template",
+      "url": "/api/v2/job_templates/14/",
+      "related": {
+        "created_by": "/api/v2/users/1/",
+        "modified_by": "/api/v2/users/1/",
+        "labels": "/api/v2/job_templates/14/labels/",
+        "inventory": "/api/v2/inventories/2/",
+        "project": "/api/v2/projects/6/",
+        "extra_credentials": "/api/v2/job_templates/14/extra_credentials/",
+        "credentials": "/api/v2/job_templates/14/credentials/",
+        "jobs": "/api/v2/job_templates/14/jobs/",
+        "launch": "/api/v2/job_templates/14/launch/",
+        "schedules": "/api/v2/job_templates/14/schedules/",
+        "activity_stream": "/api/v2/job_templates/14/activity_stream/",
+        "notification_templates_started": "/api/v2/job_templates/14/notification_templates_started/",
+        "notification_templates_success": "/api/v2/job_templates/14/notification_templates_success/",
+        "notification_templates_error": "/api/v2/job_templates/14/notification_templates_error/"
+      },
+      "summary_fields": {
+        "inventory": {
+          "id": 2,
+          "name": "Demo Inventory",
+          "description": "Standard environment inventory",
+          "has_active_failures": false,
+          "total_hosts": 4,
+          "hosts_with_active_failures": 0,
+          "organization_id": 1
+        },
+        "project": {
+          "id": 6,
+          "name": "Demo Project",
+          "description": "Repository containing our playbooks",
+          "status": "successful",
+          "scm_type": "git"
+        },
+        "created_by": {
+          "id": 1,
+          "username": "admin",
+          "first_name": "",
+          "last_name": ""
+        },
+        "recent_jobs": [
+          {
+            "id": 120,
+            "status": "successful",
+            "finished": "2023-10-25T14:32:01.123456Z"
+          }
+        ]
+      },
+      "created": "2023-10-01T10:15:30.000000Z",
+      "modified": "2023-10-25T14:30:00.000000Z",
+      "name": "Deploy Web Application",
+      "description": "Pulls latest code and deploys to frontend servers",
+      "job_type": "run",
+      "inventory": 2,
+      "project": 6,
+      "playbook": "deploy_frontend.yml",
+      "scm_branch": "main",
+      "forks": 0,
+      "limit": "web_servers",
+      "verbosity": 0,
+      "extra_vars": "---\napp_version: 1.2.4\nforce_restart: true",
+      "job_tags": "deploy, frontend",
+      "force_handlers": false,
+      "skip_tags": "",
+      "start_at_task": "",
+      "timeout": 0,
+      "use_fact_cache": false,
+      "organization": 1,
+      "host_config_key": "",
+      "ask_scm_branch_on_launch": false,
+      "ask_diff_mode_on_launch": false,
+      "ask_variables_on_launch": true,
+      "ask_limit_on_launch": true,
+      "ask_tags_on_launch": false,
+      "ask_skip_tags_on_launch": false,
+      "ask_job_type_on_launch": false,
+      "ask_verbosity_on_launch": false,
+      "ask_inventory_on_launch": false,
+      "ask_credential_on_launch": false,
+      "survey_enabled": true,
+      "become_enabled": true,
+      "diff_mode": false,
+      "allow_simultaneous": false,
+      "custom_virtualenv": null,
+      "job_slice_count": 1,
+      "webhook_service": "",
+      "webhook_credential": null
+    }
+  ]
+}

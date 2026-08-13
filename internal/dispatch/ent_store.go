@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
 // heartbeatRefreshInterval is the minimum real time RecordTask lets pass
@@ -63,6 +64,18 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 	}
 	if j.LaunchConfigID > 0 {
 		create = create.SetLaunchConfigID(j.LaunchConfigID)
+	}
+	// Set only when non-empty, the same "absent means not supplied" rule
+	// the JSON columns carry everywhere else this platform stores a launch
+	// field map (launch.Fields.Has's own doc comment): a nil map and an
+	// empty one both marshal the same way but a caller reading j.Fields
+	// back should not have to tell an ordinary launch with nothing
+	// promptable apart from one this store forgot to persist.
+	if len(j.Fields) > 0 {
+		create = create.SetFields(j.Fields)
+	}
+	if len(j.ExtraVars) > 0 {
+		create = create.SetExtraVars(j.ExtraVars)
 	}
 	// job_id has a DefaultFunc (newJobID, internal/ent/schema/job.go), but
 	// a caller-supplied JobID is honored when present, mirroring
@@ -143,6 +156,45 @@ func (s *entJobStore) ListForTemplate(ctx context.Context, templateID, limit int
 	return jobs, nil
 }
 
+// RecentForTemplates returns, for each of templateIDs, its perTemplate most
+// recent jobs, newest first. See JobStore.RecentForTemplates.
+//
+// One query rather than a window-function top-N-per-group: it asks for
+// perTemplate*len(templateIDs) rows across every named template ordered
+// newest first, then groups client-side, keeping only the first perTemplate
+// seen per template. That bound is exact -- newest-first means the rows
+// dropped for a template that ran more often than its neighbours are always
+// its oldest, never its most recent -- and it keeps this store reading
+// through ent's query builder like everywhere else in it, rather than the
+// one place that dropped to raw SQL for a window function.
+func (s *entJobStore) RecentForTemplates(ctx context.Context, templateIDs []int, perTemplate int) (map[int][]*Job, error) {
+	if perTemplate <= 0 {
+		return nil, fmt.Errorf("recent-for-templates limit must be positive, got %d", perTemplate)
+	}
+	if len(templateIDs) == 0 {
+		return map[int][]*Job{}, nil
+	}
+
+	rows, err := s.client.Job.Query().
+		Where(job.TemplateIDIn(templateIDs...)).
+		Order(ent.Desc(job.FieldJobID)).
+		Limit(perTemplate * len(templateIDs)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent jobs for %d templates: %w", len(templateIDs), err)
+	}
+
+	out := make(map[int][]*Job, len(templateIDs))
+	for _, row := range rows {
+		j := toJob(row)
+		if len(out[j.TemplateID]) >= perTemplate {
+			continue
+		}
+		out[j.TemplateID] = append(out[j.TemplateID], j)
+	}
+	return out, nil
+}
+
 // Get loads job jobID and every JobTask recorded against it. See
 // JobStore.Get.
 func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, error) {
@@ -212,6 +264,12 @@ func toJob(row *ent.Job) *Job {
 	}
 	if row.LaunchConfigID != nil {
 		job.LaunchConfigID = *row.LaunchConfigID
+	}
+	if len(row.Fields) > 0 {
+		job.Fields = launch.Fields(row.Fields)
+	}
+	if len(row.ExtraVars) > 0 {
+		job.ExtraVars = row.ExtraVars
 	}
 	return job
 }

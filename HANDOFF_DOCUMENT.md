@@ -4,89 +4,72 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**This session built Phase 18 (The Grand Integration Test), and it grew a real production half.**
-Branch is `feature/The-Grand-Integration-Test`. **Nothing is committed**; commit messages are drafted
-in Phase 18's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` and running them was never requested.
+**Branch `feature/Brutalist-UI-Scaffold`. Directive: get the front end to visual/structural
+completion first, then build the APIs behind it, and update the plan documents so nothing found
+along the way is lost. Everything below is uncommitted, held per standing instruction.**
 
-**Why the phase grew.** The checklist reads as test hardening, but exploration found the test could
-never have been representative: `cmd/controller` opened SQLite only (`ent.OpenEmbedded`), and
-`internal/ent/migrate` registered one dialect, while `tests/e2e` started a PostgreSQL container and
-brought its schema up with `client.Schema.Create` (ent's automatic diff-and-apply, which no binary
-uses). The most integration-shaped test in the repository validated a database configuration that
-existed nowhere. The user's decision was PostgreSQL in production behind a real database abstraction,
-with SQLite retained as a second adapter, all inside Phase 18.
+**Front end: B1, B2 and B3 of `.SPECIFICATION/AWX_PARITY_ROADMAP.md`'s Tranche B, all built and
+tested, no shortcuts.** B1 (typed execution fields with per-field prompt checkboxes, replacing the
+old union multi-select) needed a real framework addition: `view.Descriptor.FieldsFor` and
+`Descriptor.ResolveFormFields`, threaded through `internal/ui/web/resources.go`'s render and bind
+paths, mirroring `RecordAction.FieldsFor`'s existing per-record pattern. New file
+`internal/ui/resources/templates/defaults.go`. Also renamed the `tags` launch field to `job_tags`
+(roadmap Section 1.2's prep step, needed for a lossless AWX import later) and fixed a real,
+independently-found bug while in the code: `allow_simultaneous`'s edit-form prefill used `yesNo()`
+("yes"/"no") where the checkbox template only renders `checked` for the literal string `"true"`, so
+a `true`-valued template silently flipped to `false` on an untouched save (`FAILURE_PATTERNS.md`
+#115). B2 (Activity + Last Ran columns) needed a new `dispatch.JobStore.RecentForTemplates`, batching
+`ListForTemplate` across a whole list page in one query rather than one per row, since
+`Projector[T].Row` has no per-page context to draw on; the Activity badge reads `FailedCount` rather
+than trusting `State` alone (see the severed-link finding below). B3 (Labels) registered as the
+eighth declared view, same shape as the other seven. Verified by the pre-existing
+`editform_conformance_test.go` plus new tests: `internal/ui/resources/templates_defaults_test.go`
+(4 tests), `internal/dispatch/worker_targeting_test.go`'s
+`TestJobStore_RecentForTemplatesBatchesAcrossManyTemplates`.
 
-**What's real, part A, the database abstraction.** `internal/ent.OpenDatabase(ctx, Config{DSN})` is the
-one seam every composition root now uses; it resolves a dialect from the DSN scheme and delegates to
-`open_sqlite.go` or `open_postgres.go`. `OpenEmbedded` survives as the SQLite shorthand, so
-`internal/crypto` and the existing ent tests did not churn. `migrate.Apply` is genuinely
-dialect-agnostic now: `migrationSource` carries its own `insertVersion` statement, because `applyOne`
-recorded versions with a `?` placeholder that `lib/pq` rejects, and rejects inside the same transaction
-as the DDL, so the failure would have read as broken DDL (`FAILURE_PATTERNS.md` #92, verified against a
-real server: `pq: syntax error at or near ","`). `internal/ent/migrate/gen` takes a dialect argument and
-generated `migrations/postgres/0001_initial.sql`; the Postgres set starts squashed on purpose, since
-ent can only diff against the schema it desires today. `cmd/controller` resolves `DB_DSN`, with
-`DB_PATH` kept as the SQLite shorthand and both-set as a startup error.
+**Backend: found two severed links reading the dispatch path end to end, closed the first one's
+first hop.** `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b has the full writeup with file:line
+evidence for both; `FAILURE_PATTERNS.md` #116-117 and `LESSONS_LEARNED.md` #105 record them as
+findings. In short: `launch.Template.Resolve` has always correctly computed `Resolved.Fields` and
+`Resolved.ExtraVars`, and `internal/api/dispatcher.go`'s `LaunchTemplate` read them out of `resolved`
+and never referenced them again — every execution field B1's new UI lets an author set was inert.
+Closed this session's first hop: `dispatch.Job` gained `Fields`/`ExtraVars` columns (ent schema +
+migrations `sqlite/0011` and `postgres/0008`), and `LaunchTemplate` now stamps them, tested end to
+end against a real store. **Still open and NOT attempted**: the wire (`pkg/wire.DispatchPayload` has
+no field for this yet) and both adapters (`internal/adapters/legacy/adapter.go`'s argv is still
+hardcoded — no `--limit`/`--tags`/`--forks`/etc; the native adapter's extra-vars injection point was
+not audited). Separately, confirmed but not touched: a job's `state`/tallies describe fan-out
+publish outcomes, not per-device execution outcomes, and the Runner already reliably publishes real
+per-device results (`internal/runner/wal.go`'s `ResultEntry`, via `topology.ResultSubject`) that
+nothing on the Controller side has ever subscribed to — `ResultWAL`'s own doc comment says as much.
+Both were sized and left for a dedicated design-then-build pass rather than rushed: they cross a wire
+contract with a literal shape assertion and a state-machine design question (what happens if a Runner
+never reports back), and attempting either under the time remaining in an already-long session was
+judged the likeliest way to reproduce the exact "passed its own tests, still wrong" pattern this
+project has been burned by three times.
 
-**What's real, part B, the test.** `tests/e2e` now builds `cmd/controller` and `cmd/runner` in
-`TestMain` and runs both as real subprocesses against a real PostgreSQL container and a real NATS
-container, driven over a real socket with real HS256 tokens (`authtest.NewWithSecret`, added because a
-random binary secret cannot survive an environment variable). It seeds five devices across two groups
-through the same `OpenDatabase` seam and the same versioned migrations, with the envelope encryption
-hook installed so the controller decrypts rows a different process wrote. It asserts per-device
-dispatch payload contents field by field against the seeded identifiers, reads the job back out of
-PostgreSQL, checks properties are ciphertext at rest with a raw query, and holds tallies at 2/1/0 so a
-bug reporting one number for all three cannot pass. Every wait names a signal; there are no sleeps.
+**Next step.** Run `make ci` (serially; do not run it concurrently with further edits,
+`FAILURE_PATTERNS.md` #104). Then the commit message. After that, in the order
+`.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b lays out: the wire extension is the smallest next
+piece, then the legacy adapter's argv (highest value, since its whole configuration surface is a
+command line), then the native adapter, then read PLAN.md Sections 16-17 before starting the
+Controller-side result subscriber. B2's own remaining scope (the expandable row summary; a real
+multi-badge activity strip, which needs `internal/ui/render/views.templ`'s list-cell rendering
+extended to support more than one badge per cell) is written up at the end of Section 3b's session
+update, not silently dropped.
 
-**The adversarial evidence, which is the part worth trusting.** Disabling the inventory group predicate
-produced exactly the designed failure (`dispatched=4`, untargeted devices named); the old single-group
-count-only test would have passed that broken code. The zero-trust assertion needed **three**
-independent layers broken before an unauthenticated dispatch got through: `AuthMiddleware`,
-`RequireScope`'s own identity check, and `DispatchRunbook`'s own. That is real defense in depth and is
-recorded as `LESSONS_LEARNED.md` #95.
-
-**Verified green.** `make test-integration` passes clean end to end under `-race` with `-count=1`,
-confirmed on repeated runs: every package `ok`, zero failures, with `tests/e2e` at roughly 72 seconds
-including the chaos suite. `build`, `vet` (both tag passes), `fmt`, `test-race`, `coverage` (99
-packages, none below floor), `gosec` (one finding, individually waived), `govulncheck` (none),
-`docs-lint` and `docs-gen-check` are all green. The two-adapter conformance suite passes against both
-SQLite and real PostgreSQL, and the migration parity test passes on both dialects. Phase 18's checklist
-is fully closed, 16 of 16.
-
-**The supporting gates are real, not deferred.** Fuzzing: `internal/ent.FuzzResolveDSN` (roughly 879,000
-executions clean) plus `pkg/wire`'s first two fuzz targets ever. Benchmark: accept-to-completion across
-the whole mesh measures roughly **37 ms** against roughly **650 ms** for a real `ansible-playbook` run
-over the same host count, measured as a sibling on identical hardware in the same run, with the "these
-do not measure the same work" caveat written into the benchmark's own doc comment rather than buried.
-Chaos: a real Toxiproxy fronting both containers, cutting each boundary in turn. The PostgreSQL half is
-genuinely new coverage, since nothing else in this repository cuts a database connection, and it proves
-the property that matters: with the database severed a launch is refused with 5xx, rather than accepted
-with a 202 the system could never honor.
-
-**Deployment honesty.** `docker-compose.yml`'s `DB_DSN` is read for the first time, and the compose
-controller's three missing startup requirements (`MASTER_ENCRYPTION_KEY`, `JWT_SECRET`, `RUNBOOK_DIR`)
-are fixed, along with the same `RUNBOOK_DIR` gap in both Dockerfiles. **Compose still cannot come up
-cleanly**: its NATS healthcheck invokes a binary the image does not contain, which is Phase 20's item
-and is not claimed as fixed. `FAILURE_PATTERNS.md` #93 records the whole finding.
-
-**Next step.** Phase 18 is closed and nothing is committed; the six drafted commit messages live in
-Phase 18's own checklist. `AWX_PARITY.md` gates Phase 21 on Phase 18 being green, so Phase 21 (The
-`Launchable` Abstraction) is now unblocked. Two things this phase deliberately did not fix, both owned
-elsewhere: the compose NATS healthcheck (Phase 20), and the fact that `cmd/runner` still composes only
-`native.Adapter`, so nothing routes a dispatch to the legacy Ansible adapter (Phase 21's Kind registry).
-
-**Files changed this session:** `internal/ent/{open,open_sqlite,open_postgres,embedded}.go` plus
-`open_internal_test.go`, `open_fuzz_test.go`, `conformance_test.go`, `conformance_backends_test.go`,
-`parity_integration_test.go`; `internal/ent/migrate/{apply.go,apply_test.go,parity_test.go}` and
-`migrate/gen/main.go`; `internal/ent/migrate/migrations/postgres/0001_initial.sql` (new, generated);
-`cmd/controller/main.go` (+`config_test.go`); `internal/auth/authtest/issuer.go`;
-`internal/archtest/layering_test.go`; `pkg/wire/dispatch_fuzz_test.go` (new); all of `tests/e2e/`
-(`harness_test.go`, `harness_seed_test.go`, `integration_test.go`, `integration_assert_test.go`,
-`integration_bench_test.go`, `integration_chaos_test.go`, `racebudget_test.go`,
-`racebudget_race_test.go`); `Makefile`; `docker-compose.yml`;
-`Dockerfile.controller`; `Dockerfile.runner`; `docs/02-get-started.md`;
-`docs/09-control-plane-and-api.md`; `changelog/postgres-backend.added.md` (new); plus the gitignored
-`.SPECIFICATION/IMPLEMENTATION.md` and the `FAILURE_PATTERNS`/`LESSONS_LEARNED` index and archive pairs.
+**Files changed this session:** `internal/ui/view/{view.go,pagemodels.go}` (FieldsFor seam),
+`internal/ui/web/resources.go` (threaded through render/bind), `internal/launch/kinds/playbook/
+playbook.go` (+tests) (tags→job_tags), `internal/ui/resources/templates/{templates.go,defaults.go
+(new)}`, `internal/ui/resources/{templates_defaults_test.go (new),harness_test.go}`,
+`internal/dispatch/{job.go,ent_store.go,ent_store_test.go,worker_targeting_test.go}`
+(RecentForTemplates), `internal/ui/resources/labels/labels.go` (new) + `registrars.go`,
+`internal/launch/template.go` (RecentJobs/JobSummary), `internal/ent/schema/job.go` +
+regenerated `internal/ent/*` + `internal/ent/migrate/migrations/{sqlite/0011,postgres/0008}`
+(Job.Fields/ExtraVars), `internal/api/dispatcher.go` (+`dispatcher_template_test.go`) (stamps them),
+`tests/parity/fields_job_template.go` + regenerated `GAPS.md`, `.SPECIFICATION/AWX_PARITY_ROADMAP.md`
+(Section 3b, new), `FAILURE_PATTERNS`/`FAILURE_PATTERNS_ARCHIVE` (#115-117),
+`LESSONS_LEARNED`/`LESSONS_LEARNED_ARCHIVE` (#105).
 
 ---
 

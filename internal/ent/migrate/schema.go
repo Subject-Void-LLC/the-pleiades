@@ -245,6 +245,8 @@ var (
 		{Name: "failed_count", Type: field.TypeInt, Default: 0},
 		{Name: "failure_reason", Type: field.TypeString, Nullable: true},
 		{Name: "fence", Type: field.TypeInt64, Default: 0},
+		{Name: "fields", Type: field.TypeJSON, Nullable: true},
+		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{

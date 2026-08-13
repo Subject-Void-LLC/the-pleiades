@@ -140,6 +140,18 @@ type Contact struct {
 	OrganizationID int
 	TeamID         int
 
+	// OrganizationName and TeamName are the owner resolved to something a
+	// reader can act on, whichever of the two is set.
+	//
+	// They are free: every contact query already eager-loads its owner in
+	// order to know which of the two it is, and the hydrator was reading
+	// the id off the loaded row and discarding the name. Carrying them on
+	// the domain type rather than looking them up in each view is the rule
+	// Binding.TeamName follows, for the reason the store is where the row
+	// already is.
+	OrganizationName string
+	TeamName         string
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -148,13 +160,31 @@ type Contact struct {
 // rather than a team.
 func (c Contact) OwnedByOrganization() bool { return c.OrganizationID > 0 }
 
-// Owner renders which record this contact belongs to, in words, for a column
-// a reader can scan without already knowing the primary keys.
+// Owner renders which record this contact belongs to, in words.
+//
+// The name where it is known, because "organization 7" makes the reader do
+// the join and then asks them to remember the answer. This used to render
+// exactly that and argued it was readable, which was true and beside the
+// point: the id is only readable in the sense that it is not a blank.
+//
+// An unhydrated contact falls back to the id rather than to a blank, and
+// says nothing about the owner being gone. A contact's owner cannot dangle
+// (the edge cascades, so deleting an organization deletes its contacts), so
+// unlike a role binding's scope target there is no deleted case to
+// distinguish. What this fallback marks is a value that was built by hand
+// rather than read from storage.
 func (c Contact) Owner() string {
 	if c.OwnedByOrganization() {
-		return "organization " + strconv.Itoa(c.OrganizationID)
+		return "organization " + ownerLabelOrID(c.OrganizationName, c.OrganizationID)
 	}
-	return "team " + strconv.Itoa(c.TeamID)
+	return "team " + ownerLabelOrID(c.TeamName, c.TeamID)
+}
+
+func ownerLabelOrID(name string, id int) string {
+	if name != "" {
+		return name
+	}
+	return strconv.Itoa(id)
 }
 
 // Attestation is the dated statement that somebody confirmed a record's

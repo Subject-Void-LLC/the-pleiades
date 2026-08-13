@@ -26,6 +26,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	entinventory "github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 )
 
 // seededDevice is one inventory fixture row plus the identifier the
@@ -355,4 +356,39 @@ func describeTasks(job jobResponse) string {
 		parts = append(parts, fmt.Sprintf("%s=%s(%s)", task.DeviceName, task.Outcome, task.Reason))
 	}
 	return strings.Join(parts, " ")
+}
+
+// seedPlaybookTemplate adds a playbook-kind template against the same
+// "edge routers" inventory the runbook template targets, so the two kinds'
+// jobs differ in exactly one variable: the adapter their kind routes to.
+//
+// Seeded directly like seedInventory's own templates, through the same
+// versioned migrations, before the controller starts.
+func seedPlaybookTemplate(tb testing.TB, dsn string) int {
+	tb.Helper()
+	ctx := context.Background()
+
+	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dsn})
+	if err != nil {
+		tb.Fatalf("opening the database to seed the playbook template: %v", err)
+	}
+	defer client.Close()
+
+	set, err := client.Inventory.Query().Where(entinventory.NameEQ("edge routers")).Only(ctx)
+	if err != nil {
+		tb.Fatalf("finding the seeded inventory: %v", err)
+	}
+	org, err := set.QueryOrganization().Only(ctx)
+	if err != nil {
+		tb.Fatalf("finding the seeded organization: %v", err)
+	}
+
+	template := client.Template.Create().
+		SetName("the ansible half of the mesh").
+		SetKind("playbook").
+		SetDefinition(harnessPlaybookID).
+		SetOrganization(org).
+		SetInventory(set).
+		SaveX(ctx)
+	return template.ID
 }

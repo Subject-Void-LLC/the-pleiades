@@ -1085,6 +1085,26 @@ func FenceLTE(v int64) predicate.Job {
 	return predicate.Job(sql.FieldLTE(FieldFence, v))
 }
 
+// FieldsIsNil applies the IsNil predicate on the "fields" field.
+func FieldsIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldFields))
+}
+
+// FieldsNotNil applies the NotNil predicate on the "fields" field.
+func FieldsNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldFields))
+}
+
+// ExtraVarsIsNil applies the IsNil predicate on the "extra_vars" field.
+func ExtraVarsIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldExtraVars))
+}
+
+// ExtraVarsNotNil applies the NotNil predicate on the "extra_vars" field.
+func ExtraVarsNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldExtraVars))
+}
+
 // HasTasks applies the HasEdge predicate on the "tasks" edge.
 func HasTasks() predicate.Job {
 	return predicate.Job(func(s *sql.Selector) {

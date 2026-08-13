@@ -51,6 +51,26 @@ var ErrInvalidTemplate = errors.New("launch: template is not launchable")
 // declares it must be.
 var ErrInvalidField = errors.New("launch: value is not valid for this field")
 
+// DefaultKind is what an absent kind resolves to: the native runbook.
+//
+// The rule lives here, in the package that owns the kind vocabulary, at
+// exactly one place. It is what makes the kind an additive field on every
+// record that carries one: a job or a dispatch created before the field
+// existed carries none, and must still reach the executor it was always
+// going to reach. It used to live only in internal/adapters/routing, which
+// left the Controller's own fan-out with no statement of the rule at all,
+// and a second statement would eventually disagree with the first.
+const DefaultKind = "runbook"
+
+// ResolveKind normalises a kind read off a stored record or the wire:
+// trimmed, and DefaultKind when absent.
+func ResolveKind(kind string) string {
+	if trimmed := strings.TrimSpace(kind); trimmed != "" {
+		return trimmed
+	}
+	return DefaultKind
+}
+
 // FieldType is the shape a launch field's value takes.
 //
 // A small closed set rather than reflection over an arbitrary Go type. The

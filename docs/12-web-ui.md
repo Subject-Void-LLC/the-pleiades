@@ -74,14 +74,15 @@ being told.
 | Views | Dashboard | Real | Job outcomes across the most recent 200 dispatches, as a chart and as an equivalent table, plus any live operator announcements. |
 | Views | Jobs | Real | List and open jobs, and watch a running job's live output. A job is launched from a Template, so this view has no launch form of its own. |
 | Views | Activity Stream | Real | Who changed which managed object, and when. Append-only: it offers no way to edit or remove what it says. |
-| Resources | Templates | Real | The saved definitions this platform launches: what to run, where, and how. Create, edit, copy, delete and launch, with the survey a launch is asked and the jobs it has run on the record itself. |
+| Resources | Templates | Real | The saved definitions this platform launches: what to run, where, and how. What it runs is picked from the deployment's own catalog (runbooks, and playbooks when `PLAYBOOK_DIR` is configured), never typed, and the kind badge is derived from that choice. Create, edit, copy, delete and launch, with the survey a launch is asked and the jobs it has run on the record itself. |
 | Resources | Credentials | Declared | Unbuilt. Note that it will not become a browsable catalog of credential names: see the absences below. |
 | Resources | Runbooks | Real | Read-only catalog of what can be dispatched, with each runbook's required capabilities. Its one action saves a runbook as a template rather than launching it. |
 | Resources | Inventories | Real | Create, read, update and delete the shareable device sets a dispatch targets. |
 | Resources | Devices | Real | Create, read, update and retire devices. |
-| Access | Organizations | Real | The tenancy boundary, its contacts and escalation information, and its ownership attestation. |
-| Access | Teams | Real | The principals roles are granted to, with the same ownership metadata an organization carries. |
+| Access | Organizations | Real | The tenancy boundary, with the grants made against it and the contacts accountable for it on the record itself, plus its ownership attestation. |
+| Access | Teams | Real | The principals roles are granted to, with what the team reaches and who answers for it, and the same ownership metadata an organization carries. |
 | Access | Users | Real | The identities a token's subject maps onto, and their team membership. |
+| Access | Contacts | Real | Who is accountable for a tenant or a team, and how to reach them, across the whole deployment. The page an access review reads to find the tenants nobody is named against. |
 | Access | Access | Real | Every role binding in the deployment: who reaches what, and where each grant sits. |
 | Administration | Governance | Declared | Registered so the shape and navigation are real. Nothing backs it yet. |
 

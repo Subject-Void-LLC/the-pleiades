@@ -365,7 +365,10 @@ func (h *Handler) runAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values, undeclared := view.NewValues(fields, r.PostForm)
+	// Never editing: an action prompt is not an edit form. It carries the
+	// action's own resolved fields rather than the resource's, and each of
+	// them is answered afresh every time the action runs.
+	values, undeclared := view.NewValues(fields, r.PostForm, false)
 	if len(undeclared) > 0 {
 		http.Error(w, "submission contains fields this action does not declare", http.StatusBadRequest)
 		return
@@ -473,7 +476,7 @@ func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderForm(w, r, d, "", map[string]string{}, view.FieldErrors{}, http.StatusOK)
+	h.renderForm(w, r, d, "", d.FormFieldsFor(false), map[string]string{}, view.FieldErrors{}, http.StatusOK)
 }
 
 func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
@@ -492,16 +495,30 @@ func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
 		h.notFound(w, r)
 		return
 	}
-	h.renderForm(w, r, d, id, values, view.FieldErrors{}, http.StatusOK)
+
+	fields, err := d.ResolveFormFields(r.Context(), id)
+	if err != nil {
+		h.serverError(w, r, "resolve fields for "+d.Name, err)
+		return
+	}
+	h.renderForm(w, r, d, id, fields, values, view.FieldErrors{}, http.StatusOK)
 }
 
 // renderForm resolves every select's options before rendering, so no
 // template performs I/O.
+//
+// fields is this render's resolved control set: the descriptor's static
+// form fields for a create, and ResolveFormFields' merged answer for an
+// edit. It is a parameter rather than derived here from d and id, because
+// the id alone would be ambiguous the moment a validation failure
+// redisplays a create form (id is legitimately empty on both a create and
+// an edit whose record could not be found) -- the caller already knows
+// which mode it is in and resolved accordingly.
 func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, d view.Descriptor,
-	id string, values map[string]string, errs view.FieldErrors, status int) {
+	id string, fields []view.Field, values map[string]string, errs view.FieldErrors, status int) {
 
 	options := map[string][]view.Option{}
-	for _, f := range d.FormFields() {
+	for _, f := range fields {
 		if !f.OffersChoices() || f.Options == nil {
 			continue
 		}
@@ -520,6 +537,7 @@ func (h *Handler) renderForm(w http.ResponseWriter, r *http.Request, d view.Desc
 		Values:     values,
 		Errors:     errs,
 		Options:    options,
+		FieldSet:   fields,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -539,17 +557,18 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values, submitted, ok := h.formValues(w, r, d)
+	fields := d.FormFieldsFor(false)
+	values, submitted, ok := h.formValues(w, r, fields, false)
 	if !ok {
 		return
 	}
 
-	if errs := view.Validate(r.Context(), d.Fields, values); errs.Any() {
+	if errs := view.Validate(r.Context(), fields, values); errs.Any() {
 		// 422 rather than 200, so the status says what happened even
 		// though the body is a form. The submitted values are redisplayed
 		// rather than cleared: making someone retype a form to discover
 		// what was wrong with it is its own accessibility problem.
-		h.renderForm(w, r, d, "", submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, "", fields, submitted, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -559,7 +578,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, "", submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, "", fields, submitted, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -586,13 +605,19 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-	values, submitted, ok := h.formValues(w, r, d)
+	fields, err := d.ResolveFormFields(r.Context(), id)
+	if err != nil {
+		h.serverError(w, r, "resolve fields for "+d.Name, err)
+		return
+	}
+
+	values, submitted, ok := h.formValues(w, r, fields, true)
 	if !ok {
 		return
 	}
 
-	if errs := view.Validate(r.Context(), d.Fields, values); errs.Any() {
-		h.renderForm(w, r, d, id, submitted, errs, http.StatusUnprocessableEntity)
+	if errs := view.Validate(r.Context(), fields, values); errs.Any() {
+		h.renderForm(w, r, d, id, fields, submitted, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -602,7 +627,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errs.Any() {
-		h.renderForm(w, r, d, id, submitted, errs, http.StatusUnprocessableEntity)
+		h.renderForm(w, r, d, id, fields, submitted, errs, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -632,21 +657,28 @@ func (h *Handler) destroy(w http.ResponseWriter, r *http.Request) {
 // input a caller believed was accepted is how somebody ends up certain
 // they changed something they did not, and it is also how a typo in a
 // control name becomes a field that never saves.
-func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, d view.Descriptor) (view.Values, map[string]string, bool) {
+//
+// fields is the resolved control set the render side already agreed on --
+// the descriptor's static fields for a create, ResolveFormFields' merged
+// answer for an edit -- so the renderer and the narrower cannot disagree
+// about what this submission was allowed to carry. editing selects which
+// mode NewValues measures Immutable against; an immutable field posted to
+// an update is therefore undeclared rather than quietly dropped.
+func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []view.Field, editing bool) (view.Values, map[string]string, bool) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "malformed form submission", http.StatusBadRequest)
 		return view.Values{}, nil, false
 	}
 
-	values, undeclared := view.NewValues(d.Fields, r.PostForm)
+	values, undeclared := view.NewValues(fields, r.PostForm, editing)
 	if len(undeclared) > 0 {
 		http.Error(w, "submission contains fields this resource does not declare", http.StatusBadRequest)
 		return view.Values{}, nil, false
 	}
 
 	// Keep what was typed, for redisplay on a validation failure.
-	submitted := make(map[string]string, len(d.Fields))
-	for _, f := range d.FormFields() {
+	submitted := make(map[string]string, len(fields))
+	for _, f := range fields {
 		submitted[f.Name] = values.Get(f.Name)
 	}
 	return values, submitted, true

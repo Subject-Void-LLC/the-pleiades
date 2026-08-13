@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -53,38 +53,6 @@ const (
 	ansibleGateSSHPassword  = "release-gate-p17-password"
 	ansibleGateNetworkAlias = "sshd-target"
 )
-
-// ansibleRunnerImageTag is the fixed local tag buildAnsibleRunnerImage
-// builds Dockerfile.legacy-ansible-runner under, once per test run.
-const ansibleRunnerImageTag = "pleiades/legacy-ansible-runner:release-gate"
-
-// buildAnsibleRunnerImage builds the real, repository-committed
-// Dockerfile.legacy-ansible-runner via a real `docker build`, the same
-// image a real Runner deployment would run, rather than a synthetic
-// stand-in. Skips the calling test if docker is not on PATH, matching
-// this file's own testing.Short() skip convention for the rest of this
-// Release Gate.
-func buildAnsibleRunnerImage(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not found on PATH")
-	}
-
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("failed to resolve repository root: %v", err)
-	}
-	dockerfile := filepath.Join(repoRoot, "Dockerfile.legacy-ansible-runner")
-	if _, err := os.Stat(dockerfile); err != nil {
-		t.Fatalf("Dockerfile.legacy-ansible-runner not found at %s: %v", dockerfile, err)
-	}
-
-	cmd := exec.Command("docker", "build", "-f", dockerfile, "-t", ansibleRunnerImageTag, repoRoot)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("docker build failed: %v\n%s", err, out)
-	}
-	return ansibleRunnerImageTag
-}
 
 // startSSHDOnNetwork starts a real openssh-server container attached to
 // networkName under the stable alias ansibleGateNetworkAlias, so a
@@ -129,7 +97,7 @@ func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleRel
 	t.Helper()
 	ctx := context.Background()
 
-	image := buildAnsibleRunnerImage(t)
+	image := testsupport.BuildAnsibleRunnerImage(t)
 
 	net, err := network.New(ctx)
 	if err != nil {
@@ -179,7 +147,7 @@ func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleRel
 	if err := os.WriteFile(filepath.Join(playbookDir, "upgrade.yml"), []byte(playbookYAML), 0o644); err != nil {
 		t.Fatalf("failed to write playbook fixture: %v", err)
 	}
-	playbooks, err := legacy.NewDirPlaybookSource(playbookDir)
+	playbooks, err := playbook.NewDirSource(playbookDir)
 	if err != nil {
 		t.Fatalf("failed to init playbook source: %v", err)
 	}
@@ -283,7 +251,7 @@ func TestAnsibleReleaseGate_RealPlaybookThroughTheFullChain(t *testing.T) {
 	jobID := uuid.New().String()
 	payload := wire.DispatchPayload{
 		JobID:        jobID,
-		RunbookID:    "upgrade",
+		RunbookID:    "upgrade.yml",
 		DeviceID:     "release-gate-device",
 		DeviceName:   "sw1",
 		DeviceHost:   ansibleGateNetworkAlias,
@@ -358,7 +326,7 @@ func TestAnsibleReleaseGate_WrongSecretFails(t *testing.T) {
 	jobID := uuid.New().String()
 	payload := wire.DispatchPayload{
 		JobID:      jobID,
-		RunbookID:  "upgrade",
+		RunbookID:  "upgrade.yml",
 		DeviceID:   "release-gate-device",
 		DeviceName: "sw1",
 		DeviceHost: ansibleGateNetworkAlias,

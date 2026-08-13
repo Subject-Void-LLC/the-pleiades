@@ -106,6 +106,9 @@ story, per `.AGENTS/AGENTS.md`.
 100. **A shell reports the last command in any compound, so `| tail`, `; echo` and `&& x` all discard the status that mattered; confirm a gate's own success line in a captured log rather than trusting an exit code or a fixed-length tail.**
 101. **Anything that must happen on every write to a port belongs in a decorator over that port, composed once: list the port's callers first, because if there is more than one kind, the call site is the wrong place and the second kind is the one that gets forgotten.**
 102. **When which controls a form shows is stored in the row rather than written in the code, the field declaration has to become a function of the row: rendering all of them and reporting the refused ones afterwards is an affordance that does nothing, and disabling them is the same lie with better manners.**
+103. **Do not measure coverage of code whose branches are chosen by a timer: separate the loop from the work, so the loop's test owns the scheduling and the work's test calls the work. A test that passes reliably can still cover unreliably, and a ratchet reads that as a regression.**
+104. **A conformance measurement is code that can be wrong, and its characteristic failure is a hole shaped like the thing it measures: every "not worth representing" verdict is a place it stops looking, so record what makes a field dismissible and re-derive those verdicts whenever new input arrives.**
+105. **A struct returned by a resolver is a checklist, not a report: before calling a resolve-and-persist path complete, grep for a second reference to every field the resolver's own return type declares, downstream of the call site that received it.**
 
 ---
 

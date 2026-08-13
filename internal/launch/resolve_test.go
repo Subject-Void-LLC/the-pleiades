@@ -213,21 +213,21 @@ func TestResolve_ALockedSavedConfigurationIsReportedAgainstItsOwnLayer(t *testin
 func TestResolve_AFieldTheKindDoesNotHaveIsReportedDifferentlyFromALockedOne(t *testing.T) {
 	tmpl := gateTemplate()
 
-	// tags is a real field, but of the playbook kind. A runbook template
-	// has no such field at all, which is a different thing from having one
-	// that is locked, and a caller can act on the difference: one means
-	// edit the template, the other means stop sending it.
+	// job_tags is a real field, but of the playbook kind. A runbook
+	// template has no such field at all, which is a different thing from
+	// having one that is locked, and a caller can act on the difference:
+	// one means edit the template, the other means stop sending it.
 	_, ignored, err := tmpl.Resolve(context.Background(), launch.Config{
-		Overrides: launch.Fields{"tags": []string{"patch"}},
+		Overrides: launch.Fields{"job_tags": []string{"patch"}},
 	})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(ignored) != 1 || ignored[0].Name != "tags" {
-		t.Fatalf("Resolve reported %+v, want tags alone", ignored)
+	if len(ignored) != 1 || ignored[0].Name != "job_tags" {
+		t.Fatalf("Resolve reported %+v, want job_tags alone", ignored)
 	}
 	if ignored[0].Reason != launch.ReasonUnknownField {
-		t.Errorf("tags was ignored for reason %q, want the unknown-field reason", ignored[0].Reason)
+		t.Errorf("job_tags was ignored for reason %q, want the unknown-field reason", ignored[0].Reason)
 	}
 }
 

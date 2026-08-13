@@ -36,6 +36,18 @@
       "line": "93",
       "rule_id": "G124",
       "reason": "Owned by Phase 19 (Brutalist UI Scaffold). This is Handler.writeInsecurePreference, the development-only path for the three appearance cookies (skin, theme, accessibility mode), and the missing Secure attribute is the entire purpose of the function. Secure requires HTTPS and a developer on http://localhost has none; PLEIADES_UI_INSECURE_COOKIES=1 is the stated opt-out and cmd/controller logs a startup warning whenever it is set. The finding is deliberately isolated here: writePreference was split into two cookie literals specifically so the production path is provably correct to gosec and carries no waiver, rather than sharing one literal with a computed Secure field that would have put a waiver on the path real deployments use. Everything not requiring TLS is retained on this path too, and these cookies were made HttpOnly while fixing this -- nothing in the application reads them from script, since the server resolves all three axes and renders them as attributes, so leaving them script-readable bought nothing. They carry a preference, never a credential. Re-verify at Phase 20, which owns TLS termination and may make the insecure path unnecessary."
+    },
+    {
+      "file": "tests/parity/awx.go",
+      "line": "154",
+      "rule_id": "G101",
+      "reason": "Owned by P0 (the AWX parity corpus, .SPECIFICATION/AWX_PARITY_ROADMAP.md). This is the ObjectType constant CredentialTypes = \"credential_types\", the corpus's name for AWX's /api/v2/credential_types/ endpoint and its testdata subdirectory. G101 pattern-matches the substring \"credential\" in an identifier and a string literal and flags it as a possible hardcoded secret; there is no secret here, only a resource name this project did not choose (AWX's own). Renaming it would break the stated contract that ObjectType's value is literally the AWX endpoint's plural (this file's own ObjectType doc comment), for no security benefit. Re-verify if this constant's value ever changes to something gosec's heuristic was actually built to catch."
+    },
+    {
+      "file": "internal/testsupport/ansible_image.go",
+      "line": "38",
+      "rule_id": "G204",
+      "reason": "Owned by the template-kind-routing rebuild (FAILURE_PATTERNS.md #112, HANDOFF_ARCHIVE.md's \"Phase 21 shipped, the template rebuild\" entry), which moved this test-only image builder out of cmd/runner's release gate so tests/e2e could share it. BuildAnsibleRunnerImage runs `docker build -f <dockerfile> -t <tag> <root>`, and G204 flags dockerfile and root as caller-controlled variables reaching exec.Command. Neither is: dockerfile is this package's own repoRoot(tb) plus the fixed, repository-committed literal \"Dockerfile.legacy-ansible-runner\", and root is repoRoot(tb) itself, found by walking up from the test binary's own working directory until a go.mod is found, never from any external input. This is a testing.TB-gated helper (tb.Helper(), tb.Skip if docker is absent), unreachable from any production binary or network-facing path; gosec's taint analysis has no way to see that \"variable\" here means \"computed by this process from its own module root,\" not \"supplied by a caller.\""
     }
   ]
 }

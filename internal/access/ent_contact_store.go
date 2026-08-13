@@ -72,16 +72,33 @@ func (s *entStore) GetContact(ctx context.Context, id int) (Contact, error) {
 // ListContacts returns a page of contacts for one owner, or across the
 // deployment when no owner is named.
 //
-// Ordered by display order and then by id, because an escalation path is a
-// sequence: "who do I try first" is the question being asked, and answering
-// it in insertion order would make the order depend on which contact somebody
-// happened to type in first.
+// A contact list narrowed to one owner is ordered by display order and then
+// by id, because an escalation path is a sequence: "who do I try first" is
+// the question being asked, and answering it in insertion order would make
+// the order depend on which contact somebody happened to type in first.
+//
+// The unnarrowed listing is ordered by id alone, and the difference is not
+// cosmetic. Paging here is keyset on the id, so a sort that does not end at
+// the cursor's own column is a sort the cursor cannot walk: with two
+// contacts sharing a display order, "everything after id 7" applied to a
+// page sorted by display order skips rows and repeats others, which on this
+// entity means an accountability record silently missing from a review. The
+// escalation sequence is what makes display order meaningful and it only
+// exists within one owner, so across the deployment there is nothing being
+// given up.
 func (s *entStore) ListContacts(ctx context.Context, q ContactQuery) ([]Contact, error) {
+	scoped := q.OrganizationID > 0 || q.TeamID > 0
+
 	query := s.client.Contact.Query().
 		WithOrganization().
 		WithTeam().
-		Order(ent.Asc(entcontact.FieldDisplayOrder), ent.Asc(entcontact.FieldID)).
 		Limit(boundLimit(q.Limit))
+
+	if scoped {
+		query = query.Order(ent.Asc(entcontact.FieldDisplayOrder), ent.Asc(entcontact.FieldID))
+	} else {
+		query = query.Order(ent.Asc(entcontact.FieldID))
+	}
 
 	if q.OrganizationID > 0 {
 		query = query.Where(entcontact.HasOrganizationWith(entorg.IDEQ(q.OrganizationID)))
@@ -175,11 +192,18 @@ func hydrateContact(row *ent.Contact) Contact {
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
 	}
+	// The name as well as the id, from the row that is already loaded. The
+	// eager load is not for this: it is how the store knows which of the
+	// two owners is set at all. Reading the name off it costs nothing and
+	// is the difference between a page that says "Network" and one that
+	// says 7.
 	if row.Edges.Organization != nil {
 		contact.OrganizationID = row.Edges.Organization.ID
+		contact.OrganizationName = row.Edges.Organization.Name
 	}
 	if row.Edges.Team != nil {
 		contact.TeamID = row.Edges.Team.ID
+		contact.TeamName = row.Edges.Team.Name
 	}
 	return contact
 }

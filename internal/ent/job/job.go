@@ -51,6 +51,10 @@ const (
 	FieldFailureReason = "failure_reason"
 	// FieldFence holds the string denoting the fence field in the database.
 	FieldFence = "fence"
+	// FieldFields holds the string denoting the fields field in the database.
+	FieldFields = "fields"
+	// FieldExtraVars holds the string denoting the extra_vars field in the database.
+	FieldExtraVars = "extra_vars"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -85,6 +89,8 @@ var Columns = []string{
 	FieldFailedCount,
 	FieldFailureReason,
 	FieldFence,
+	FieldFields,
+	FieldExtraVars,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

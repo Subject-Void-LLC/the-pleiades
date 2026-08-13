@@ -1,0 +1,20 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 12,
+      "type": "schedule",
+      "url": "/api/v2/schedules/12/",
+      "name": "Nightly Git Sync",
+      "enabled": true,
+      "dtstart": "2023-01-01T00:00:00Z",
+      "dtend": null,
+      "rrule": "DTSTART:20230101T000000Z RRULE:FREQ=DAILY;INTERVAL=1",
+      "next_run": "2023-10-26T00:00:00Z",
+      "timezone": "America/New_York",
+      "extra_data": {}
+    }
+  ]
+}

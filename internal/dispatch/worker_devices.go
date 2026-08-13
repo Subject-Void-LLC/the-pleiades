@@ -18,7 +18,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -42,7 +41,7 @@ import (
 // fatal: a wrapped ErrFenced means this call's own claim was superseded
 // mid-device and the caller must stop the whole loop immediately, not
 // merely skip this one device.
-func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, rb *runbook.Runbook, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
+func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
 	if ok, reason := engine.LifecycleAdmits(device); !ok {
 		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
@@ -55,7 +54,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		return OutcomeSkipped, nil
 	}
 
-	if ok, reason := engine.CapabilityAdmits(device, rb.Required); !ok {
+	if ok, reason := engine.CapabilityAdmits(device, prepared.Required); !ok {
 		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
 			DeviceName: device.Name(),
@@ -99,7 +98,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		DeviceID:      string(device.ID()),
 		DeviceName:    device.Name(),
 		DeviceHost:    host,
-		Interruptible: rb.Interruptible,
+		Interruptible: prepared.Interruptible,
 		Capabilities:  device.Capabilities(),
 		Tags:          tagStrings(device.Tags()),
 	}

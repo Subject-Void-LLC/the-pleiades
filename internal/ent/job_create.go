@@ -249,6 +249,18 @@ func (_c *JobCreate) SetNillableFence(v *int64) *JobCreate {
 	return _c
 }
 
+// SetFields sets the "fields" field.
+func (_c *JobCreate) SetFields(v map[string]interface{}) *JobCreate {
+	_c.mutation.SetFields(v)
+	return _c
+}
+
+// SetExtraVars sets the "extra_vars" field.
+func (_c *JobCreate) SetExtraVars(v map[string]interface{}) *JobCreate {
+	_c.mutation.SetExtraVars(v)
+	return _c
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by IDs.
 func (_c *JobCreate) AddTaskIDs(ids ...int) *JobCreate {
 	_c.mutation.AddTaskIDs(ids...)
@@ -485,6 +497,14 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Fence(); ok {
 		_spec.SetField(job.FieldFence, field.TypeInt64, value)
 		_node.Fence = value
+	}
+	if value, ok := _c.mutation.GetFields(); ok {
+		_spec.SetField(job.FieldFields, field.TypeJSON, value)
+		_node.Fields = value
+	}
+	if value, ok := _c.mutation.ExtraVars(); ok {
+		_spec.SetField(job.FieldExtraVars, field.TypeJSON, value)
+		_node.ExtraVars = value
 	}
 	if nodes := _c.mutation.TasksIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

@@ -23,9 +23,9 @@ package templates
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
@@ -41,7 +41,7 @@ const Name = "templates"
 
 // fields drive the table, the form, the detail list, validation and the
 // mobile card layout from one declaration.
-func fields(sets inventory.SetStore) []view.Field {
+func fields(sets inventory.SetStore, catalog launch.Catalog) []view.Field {
 	return []view.Field{
 		{
 			Name: "name", Label: "NAME", Kind: view.KindText,
@@ -51,24 +51,42 @@ func fields(sets inventory.SetStore) []view.Field {
 			InForm:        true,
 			MobilePrimary: true,
 		},
+		// KIND is derived, never asked. AWX's template form has no such
+		// control either: you pick the content, and what it is follows.
+		// This used to be a select the operator answered beside a
+		// free-text definition, which made an inconsistent pair (kind
+		// runbook, definition site) a submittable state and made the
+		// operator perform the router's job.
 		{
-			Name: "kind", Label: "KIND", Kind: view.KindSelect,
-			Required: true, InForm: true, InList: true,
+			Name: "kind", Label: "KIND", Kind: view.KindBadge,
+			InList:     true,
 			BadgeClass: kindBadge,
-			Help:       "What sort of thing this runs, which decides the executor it reaches.",
-			Options:    kindOptions,
+			Help:       "What sort of thing this runs, which decides the executor it reaches. Derived from what you chose to run, never chosen on its own.",
 		},
+		// RUNS is a choice over the catalog, never typed. Each option is
+		// one definition the platform can resolve right now, runbooks and
+		// playbooks in one list, and the submitted value carries the kind
+		// with it. It used to be a free-text control asking for "the
+		// runbook id or playbook path", which inverted the defining
+		// property of a template form: the operator had to already know
+		// what only the catalog knows, a typo saved fine and failed later
+		// as a failed job, and the enumeration was one call away the
+		// whole time (the Runbooks view was already built on it).
+		//
+		// Set once, both halves: re-pointing a saved definition at
+		// different code, while it keeps its name, its grants and its job
+		// history, is a copy rather than an edit.
 		{
-			Name: "definition", Label: "RUNS", Kind: view.KindText,
-			Required: true, MaxLen: 512, Autocomplete: "off",
-			InForm: true, InList: true,
-			Help: "The runbook id or playbook path this template runs. Not editable afterwards: re-pointing a saved definition at different code, while it keeps its name, its grants and its job history, is a copy rather than an edit.",
+			Name: "definition", Label: "RUNS", Kind: view.KindSelect,
+			Required: true, Immutable: true, InForm: true, InList: true,
+			Help:    "What this template runs, chosen from everything this deployment can launch. Set once: a template that pointed at different code would keep its name, its grants and its job history.",
+			Options: runsOptions(catalog),
 		},
 		{
 			Name: "inventory", Label: "INVENTORY", Kind: view.KindSelect,
-			Required: true, InForm: true, InList: true,
+			Required: true, Immutable: true, InForm: true, InList: true,
 			References: "inventories",
-			Help:       "The set of devices this runs against. Required, and it is what gives every job this template launches its organization.",
+			Help:       "The set of devices this runs against. Required, and it is what gives every job this template launches its organization. Set once, because moving it would re-tenant every job this template goes on to launch.",
 			Options:    inventoryOptions(sets),
 		},
 		{
@@ -83,15 +101,6 @@ func fields(sets inventory.SetStore) []view.Field {
 			Help: "What this template is for, for somebody who did not write it.",
 		},
 		{
-			Name: "prompts", Label: "PROMPT ON LAUNCH", Kind: view.KindLookup,
-			InForm: true,
-			Help:   "Which fields a launch may override. Everything else is locked to what this template was saved with, and a launch supplying a locked field is told so by name rather than having it applied or silently dropped.",
-			// Options come from the registered kinds rather than from this
-			// package, because the field set is per kind: a template of a
-			// kind this file has never seen still renders its own fields.
-			Options: promptOptions,
-		},
-		{
 			Name: "allow_simultaneous", Label: "ALLOW PARALLEL RUNS", Kind: view.KindBool,
 			InForm: true,
 			Help:   "Whether more than one job from this template may run at once. Off by default: two runs of the same change against the same fleet is more often a mistake than an intention.",
@@ -101,7 +110,61 @@ func fields(sets inventory.SetStore) []view.Field {
 			InList: true,
 			Help:   "How many questions a launching operator is asked. The questions themselves are listed below.",
 		},
+		{
+			Name: "activity", Label: "ACTIVITY", Kind: view.KindBadge,
+			InList:     true,
+			BadgeClass: activityBadge,
+			Help:       "This template's most recent job. A completed dispatch that never reached any device reads as failed, since \"completed\" means the fan-out finished, not that it reached anywhere.",
+		},
+		{
+			Name: "last_ran", Label: "LAST RAN", Kind: view.KindText,
+			InList: true,
+			Help:   "When this template was last launched.",
+		},
 	}
+}
+
+// activityLabel says what a template's most recent job actually did, in
+// the one word a list cell can carry.
+//
+// It reads FailedCount rather than trusting State alone, because a
+// "completed" job (internal/ent/schema/job.go's own State comment: dispatch
+// tallies finishing, not per-device execution success) with a nonzero
+// FailedCount still failed to reach every device it targeted, and a green
+// "completed" badge on that row would hide it.
+func activityLabel(j launch.JobSummary) string {
+	if j.FailedCount > 0 {
+		return "failed"
+	}
+	return j.State
+}
+
+// activityBadge colours the Activity cell. "never run" gets a neutral
+// badge, a different fact from a job that ran and failed, and every other
+// value reuses the same state colouring the Completed jobs section already
+// applies (sections.go's stateBadge), so a template's list row and its own
+// detail page never disagree about what a state means.
+func activityBadge(value string) string {
+	if value == "never run" {
+		return "badge-neutral"
+	}
+	return stateBadge(value)
+}
+
+// activityCell and lastRanCell read the same RecentJobs slice for the two
+// facts the list renders about it: what happened, and when.
+func activityCell(recent []launch.JobSummary) string {
+	if len(recent) == 0 {
+		return "never run"
+	}
+	return activityLabel(recent[0])
+}
+
+func lastRanCell(recent []launch.JobSummary) string {
+	if len(recent) == 0 {
+		return ""
+	}
+	return recent[0].CreatedAt.UTC().Format(time.RFC3339)
 }
 
 // kindBadge paints the kind indicator from the descriptor's own declared
@@ -114,43 +177,51 @@ func kindBadge(kind string) string {
 	return "badge-changed"
 }
 
-// kindOptions offers every registered kind. A template of an unregistered
-// kind cannot be created, which is what makes the badge honest.
-func kindOptions(context.Context) ([]view.Option, error) {
-	descriptors := launch.Kinds()
-	out := make([]view.Option, 0, len(descriptors))
-	for _, d := range descriptors {
-		out = append(out, view.Option{Label: d.Label, Value: d.Kind})
-	}
-	return out, nil
+// runsSeparator joins a kind to its definition in the picker's submitted
+// value, and splits them back apart in Bind. The kind grammar forbids a
+// colon (registry keys are lowercase words), so the split is unambiguous.
+const runsSeparator = ":"
+
+// runsValue is the picker's submitted encoding of one catalog entry, the
+// same kind-carrying single-value shape the Contacts view's owner control
+// uses: one control, so an inconsistent pair is not a submittable state.
+func runsValue(entry launch.CatalogEntry) string {
+	return entry.Kind + runsSeparator + entry.Definition
 }
 
-// promptOptions is the union of the fields every registered kind declares.
+// runsOptions offers every definition the deployment can launch, both
+// kinds in one list, each labelled with what it is.
 //
-// A union rather than the chosen kind's own set, and that is an honest
-// limitation rather than a design: the option list is resolved before the
-// form is rendered, so it cannot depend on a value the reader has not
-// picked yet. Choosing a field the selected kind does not have is refused
-// at the write with a message naming it, which is a legible failure rather
-// than a silent one. The alternative, offering only what every kind shares,
-// would hide a playbook's tags from a form that can perfectly well set
-// them.
-func promptOptions(context.Context) ([]view.Option, error) {
-	seen := map[string]string{}
-	for _, d := range launch.Kinds() {
-		for _, f := range d.Fields {
-			if _, ok := seen[f.Name]; !ok {
-				seen[f.Name] = f.Label
-			}
+// This is AWX's auto-populated Playbook dropdown, adapted to a platform
+// with two content sources instead of one project checkout. The option
+// set IS the authorization to save: view.Validate refuses a submitted
+// value that was never offered, and the store re-verifies against the
+// same catalog for callers that do not come through this form, so what
+// can be picked and what can be saved are one list read twice.
+//
+// Deliberately no typed fallback, unlike AWX's. Its own documentation
+// says what the fallback is worth ("If you enter a filename that is not
+// valid, the template will display an error, or cause the job to fail"),
+// and the failure mode it produces here, a template that saves and then
+// fails as a failed job, is the one this control exists to remove. The
+// JSON API remains the escape hatch for automation that knows what it
+// wants, and it is verified at create too.
+func runsOptions(catalog launch.Catalog) func(context.Context) ([]view.Option, error) {
+	return func(ctx context.Context) ([]view.Option, error) {
+		entries, err := catalog.List(ctx)
+		if err != nil {
+			return nil, err
 		}
+		out := make([]view.Option, 0, len(entries))
+		for _, entry := range entries {
+			label := entry.Definition
+			if d, ok := launch.Lookup(entry.Kind); ok {
+				label += " (" + d.Label + ")"
+			}
+			out = append(out, view.Option{Label: label, Value: runsValue(entry)})
+		}
+		return out, nil
 	}
-
-	out := make([]view.Option, 0, len(seen))
-	for name, label := range seen {
-		out = append(out, view.Option{Label: label, Value: name})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Value < out[j].Value })
-	return out, nil
 }
 
 // inventoryOptions offers the inventories a template may target. A select
@@ -178,8 +249,16 @@ func inventoryOptions(sets inventory.SetStore) func(context.Context) ([]view.Opt
 	}
 }
 
+// recentJobsPerTemplate bounds the list page's Activity column: enough to
+// show a short recent-outcome history without a row growing without bound
+// for a template that has run thousands of times.
+const recentJobsPerTemplate = 3
+
 // reader adapts the launch.Store's read half.
-type reader struct{ store launch.Store }
+type reader struct {
+	store launch.Store
+	jobs  dispatch.JobStore
+}
 
 func (r reader) List(ctx context.Context, q view.Query) (view.Page[launch.Template], error) {
 	limit := q.Limit
@@ -211,7 +290,51 @@ func (r reader) List(ctx context.Context, q view.Query) (view.Page[launch.Templa
 		page.Items = found[:limit]
 		page.NextCursor = strconv.Itoa(found[limit-1].ID)
 	}
+
+	// One batched fetch for the whole page's Activity and Last Ran columns,
+	// attached onto each template before it is erased into a Row, rather
+	// than one job query per row (AWX_PARITY_ROADMAP.md B2's own gate).
+	if err := r.attachRecentJobs(ctx, page.Items); err != nil {
+		return view.Page[launch.Template]{}, err
+	}
 	return page, nil
+}
+
+// attachRecentJobs fills in each template's RecentJobs in place, from one
+// RecentForTemplates call across the whole page.
+func (r reader) attachRecentJobs(ctx context.Context, items []launch.Template) error {
+	if r.jobs == nil || len(items) == 0 {
+		return nil
+	}
+
+	ids := make([]int, len(items))
+	for i, tmpl := range items {
+		ids[i] = tmpl.ID
+	}
+
+	byTemplate, err := r.jobs.RecentForTemplates(ctx, ids, recentJobsPerTemplate)
+	if err != nil {
+		return err
+	}
+
+	for i := range items {
+		tmpl := &items[i]
+		found := byTemplate[tmpl.ID]
+		if len(found) == 0 {
+			continue
+		}
+		tmpl.RecentJobs = make([]launch.JobSummary, 0, len(found))
+		for _, j := range found {
+			tmpl.RecentJobs = append(tmpl.RecentJobs, launch.JobSummary{
+				JobID:           j.JobID,
+				State:           j.State,
+				DispatchedCount: j.DispatchedCount,
+				FailedCount:     j.FailedCount,
+				CreatedAt:       j.CreatedAt,
+			})
+		}
+	}
+	return nil
 }
 
 func (r reader) Get(ctx context.Context, id string) (launch.Template, error) {
@@ -219,7 +342,19 @@ func (r reader) Get(ctx context.Context, id string) (launch.Template, error) {
 	if err != nil {
 		return launch.Template{}, launch.ErrNotFound
 	}
-	return r.store.Get(ctx, numeric)
+	tmpl, err := r.store.Get(ctx, numeric)
+	if err != nil {
+		return launch.Template{}, err
+	}
+
+	// Filled in the same way List's page is, on a slice of one, so a
+	// template's own detail page and its row on the list agree about what
+	// its Activity and Last Ran say.
+	items := []launch.Template{tmpl}
+	if err := r.attachRecentJobs(ctx, items); err != nil {
+		return launch.Template{}, err
+	}
+	return items[0], nil
 }
 
 // writer adapts the write half.
@@ -284,43 +419,94 @@ func projector() view.Projector[launch.Template] {
 					"definition":         tmpl.Definition,
 					"inventory":          tmpl.InventoryName,
 					"organization":       tmpl.OrganizationName,
-					"prompts":            strings.Join(tmpl.Prompts, ", "),
 					"allow_simultaneous": yesNo(tmpl.AllowSimultaneous),
 					"survey":             surveySummary(tmpl.Survey),
+					"activity":           activityCell(tmpl.RecentJobs),
+					"last_ran":           lastRanCell(tmpl.RecentJobs),
 				},
 			}
 		},
+		// The edit form's prefill: the static fields here, plus this
+		// template's own kind fields from defaultsValues (defaults.go),
+		// which is where "prompts" now lives, one checkbox per field
+		// instead of the one control this used to be.
+		//
+		// allow_simultaneous is "true"/absent rather than yesNo's
+		// "yes"/"no": the checkbox control only renders `checked` for the
+		// literal string "true" (view/field.templ), so prefilling "yes"
+		// left every KindBool control unchecked regardless of the stored
+		// value. A template saved with AllowSimultaneous true would open
+		// for editing showing it off, and saving with nothing else changed
+		// would silently turn it off for real -- the same class of defect
+		// view.Field.Immutable exists to catch, just not one it covers,
+		// since this field is not immutable, it was just prefilled wrong.
 		Form: func(tmpl launch.Template) map[string]string {
-			return map[string]string{
-				"name":               tmpl.Name,
-				"description":        tmpl.Description,
-				"kind":               tmpl.KindName,
-				"definition":         tmpl.Definition,
-				"inventory":          strconv.Itoa(tmpl.InventoryID),
-				"prompts":            strings.Join(tmpl.Prompts, ","),
-				"allow_simultaneous": yesNo(tmpl.AllowSimultaneous),
+			values := map[string]string{
+				"name":        tmpl.Name,
+				"description": tmpl.Description,
+				"inventory":   strconv.Itoa(tmpl.InventoryID),
 			}
+			if tmpl.AllowSimultaneous {
+				values["allow_simultaneous"] = "true"
+			}
+			for name, value := range defaultsValues(tmpl) {
+				values[name] = value
+			}
+			return values
 		},
 		Bind: func(v view.Values) (launch.Template, view.FieldErrors) {
 			errs := view.FieldErrors{}
 
-			inventoryID, err := strconv.Atoi(strings.TrimSpace(v.Get("inventory")))
-			if err != nil || inventoryID < 1 {
-				// Blamed on the field rather than answered with a 500. A
-				// template with no inventory is the one thing the store
-				// refuses outright, so catching it here is what turns a
-				// refusal into a message next to the control.
-				errs.Add("inventory", "Choose the inventory this template runs against.")
-				return launch.Template{}, errs
+			// Both the inventory and the definition are Immutable, so an
+			// edit form renders neither and an edit submission carries
+			// neither; Update reads both from storage. Parsing them
+			// unconditionally refused every template edit.
+			var inventoryID int
+			var kindName, definition string
+			if !v.Editing() {
+				parsed, err := strconv.Atoi(strings.TrimSpace(v.Get("inventory")))
+				if err != nil || parsed < 1 {
+					// Blamed on the field rather than answered with a 500. A
+					// template with no inventory is the one thing the store
+					// refuses outright, so catching it here is what turns a
+					// refusal into a message next to the control.
+					errs.Add("inventory", "Choose the inventory this template runs against.")
+					return launch.Template{}, errs
+				}
+				inventoryID = parsed
+
+				// The picker's value carries both halves; the kind is derived
+				// from the choice, never submitted on its own. view.Validate
+				// has already refused a value the catalog never offered, so a
+				// malformed one here means the option set itself was misbuilt,
+				// which is a field error rather than a panic.
+				kind, def, found := strings.Cut(strings.TrimSpace(v.Get("definition")), runsSeparator)
+				if !found || kind == "" || def == "" {
+					errs.Add("definition", "Choose what this template runs.")
+					return launch.Template{}, errs
+				}
+				kindName, definition = kind, def
+			}
+
+			// A create submission carries none of these controls at all
+			// (defaultsFields only resolves on an edit), so this reads as
+			// empty for one without needing its own branch: Values answers
+			// empty for a name its descriptor never declared.
+			defaults, prompts, defaultsErrs := bindDefaults(v)
+			for name, messages := range defaultsErrs {
+				for _, m := range messages {
+					errs.Add(name, m)
+				}
 			}
 
 			return launch.Template{
 				Name:              v.Get("name"),
 				Description:       v.Get("description"),
-				KindName:          strings.TrimSpace(v.Get("kind")),
-				Definition:        strings.TrimSpace(v.Get("definition")),
+				KindName:          kindName,
+				Definition:        definition,
 				InventoryID:       inventoryID,
-				Prompts:           v.Selected("prompts"),
+				Defaults:          defaults,
+				Prompts:           prompts,
 				AllowSimultaneous: v.Bool("allow_simultaneous"),
 			}, errs
 		},
@@ -357,7 +543,7 @@ func yesNo(v bool) string {
 // fill the inventory select, the dispatcher launches, the jobs answer "what
 // has this run", and the bindings answer "who can reach it".
 func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStore,
-	dispatcher *api.Dispatcher, bindings access.Bindings) error {
+	dispatcher *api.Dispatcher, bindings access.Bindings, catalog launch.Catalog) error {
 
 	return view.Register(view.Descriptor{
 		Name:     Name,
@@ -371,7 +557,12 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 		Summary:  "What to run, where to run it, and how: the saved definitions this platform launches.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   fields(sets),
+		Fields:   fields(sets, catalog),
+		// One control and one checkbox per field of this template's own
+		// kind, resolved per record because the field set is per kind
+		// (defaults.go). Never offered on create: the kind is not chosen
+		// until the RUNS picker's submission is parsed.
+		FieldsFor: defaultsFields(store),
 		Ops: view.Ops{
 			List:   &apispec.ListTemplates,
 			Get:    &apispec.GetTemplate,
@@ -389,6 +580,6 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 			notificationsSection(),
 			completedJobsSection(jobs),
 		},
-		Handlers: view.MustBind(reader{store}, writer{store}, projector()),
+		Handlers: view.MustBind(reader{store: store, jobs: jobs}, writer{store}, projector()),
 	})
 }

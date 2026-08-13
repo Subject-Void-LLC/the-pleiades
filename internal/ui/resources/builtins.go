@@ -63,6 +63,12 @@ type Deps struct {
 	// Templates is the saved definitions this platform launches, and the
 	// one port the Templates view both reads and writes.
 	Templates launch.Store
+
+	// Catalog is every definition the deployment can launch, feeding the
+	// Templates form's RUNS picker. The same value the template store
+	// verifies creates against, wired once in the composition root, so
+	// what the form offers and what the store accepts are one list.
+	Catalog launch.Catalog
 }
 
 // Registrar registers one view over the available ports.
