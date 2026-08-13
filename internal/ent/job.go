@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,8 +28,20 @@ type Job struct {
 	RunbookID string `json:"runbook_id,omitempty"`
 	// GroupName holds the value of the "group_name" field.
 	GroupName string `json:"group_name,omitempty"`
+	// InventoryID holds the value of the "inventory_id" field.
+	InventoryID *int `json:"inventory_id,omitempty"`
+	// TemplateID holds the value of the "template_id" field.
+	TemplateID *int `json:"template_id,omitempty"`
+	// TemplateName holds the value of the "template_name" field.
+	TemplateName string `json:"template_name,omitempty"`
+	// LaunchConfigID holds the value of the "launch_config_id" field.
+	LaunchConfigID *int `json:"launch_config_id,omitempty"`
+	// Kind holds the value of the "kind" field.
+	Kind string `json:"kind,omitempty"`
 	// Actor holds the value of the "actor" field.
 	Actor string `json:"actor,omitempty"`
+	// OrganizationID holds the value of the "organization_id" field.
+	OrganizationID *int `json:"organization_id,omitempty"`
 	// State holds the value of the "state" field.
 	State job.State `json:"state,omitempty"`
 	// DispatchedCount holds the value of the "dispatched_count" field.
@@ -41,6 +54,10 @@ type Job struct {
 	FailureReason string `json:"failure_reason,omitempty"`
 	// Fence holds the value of the "fence" field.
 	Fence int64 `json:"fence,omitempty"`
+	// Fields holds the value of the "fields" field.
+	Fields map[string]interface{} `json:"fields,omitempty"`
+	// ExtraVars holds the value of the "extra_vars" field.
+	ExtraVars map[string]interface{} `json:"extra_vars,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -70,9 +87,11 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
+		case job.FieldFields, job.FieldExtraVars:
+			values[i] = new([]byte)
+		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
-		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldActor, job.FieldState, job.FieldFailureReason:
+		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason:
 			values[i] = new(sql.NullString)
 		case job.FieldCreatedAt, job.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -127,11 +146,51 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.GroupName = value.String
 			}
+		case job.FieldInventoryID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field inventory_id", values[i])
+			} else if value.Valid {
+				_m.InventoryID = new(int)
+				*_m.InventoryID = int(value.Int64)
+			}
+		case job.FieldTemplateID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field template_id", values[i])
+			} else if value.Valid {
+				_m.TemplateID = new(int)
+				*_m.TemplateID = int(value.Int64)
+			}
+		case job.FieldTemplateName:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field template_name", values[i])
+			} else if value.Valid {
+				_m.TemplateName = value.String
+			}
+		case job.FieldLaunchConfigID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field launch_config_id", values[i])
+			} else if value.Valid {
+				_m.LaunchConfigID = new(int)
+				*_m.LaunchConfigID = int(value.Int64)
+			}
+		case job.FieldKind:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field kind", values[i])
+			} else if value.Valid {
+				_m.Kind = value.String
+			}
 		case job.FieldActor:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field actor", values[i])
 			} else if value.Valid {
 				_m.Actor = value.String
+			}
+		case job.FieldOrganizationID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field organization_id", values[i])
+			} else if value.Valid {
+				_m.OrganizationID = new(int)
+				*_m.OrganizationID = int(value.Int64)
 			}
 		case job.FieldState:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -168,6 +227,22 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field fence", values[i])
 			} else if value.Valid {
 				_m.Fence = value.Int64
+			}
+		case job.FieldFields:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field fields", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Fields); err != nil {
+					return fmt.Errorf("unmarshal field fields: %w", err)
+				}
+			}
+		case job.FieldExtraVars:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field extra_vars", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ExtraVars); err != nil {
+					return fmt.Errorf("unmarshal field extra_vars: %w", err)
+				}
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -225,8 +300,34 @@ func (_m *Job) String() string {
 	builder.WriteString("group_name=")
 	builder.WriteString(_m.GroupName)
 	builder.WriteString(", ")
+	if v := _m.InventoryID; v != nil {
+		builder.WriteString("inventory_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.TemplateID; v != nil {
+		builder.WriteString("template_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("template_name=")
+	builder.WriteString(_m.TemplateName)
+	builder.WriteString(", ")
+	if v := _m.LaunchConfigID; v != nil {
+		builder.WriteString("launch_config_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("kind=")
+	builder.WriteString(_m.Kind)
+	builder.WriteString(", ")
 	builder.WriteString("actor=")
 	builder.WriteString(_m.Actor)
+	builder.WriteString(", ")
+	if v := _m.OrganizationID; v != nil {
+		builder.WriteString("organization_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("state=")
 	builder.WriteString(fmt.Sprintf("%v", _m.State))
@@ -245,6 +346,12 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("fence=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Fence))
+	builder.WriteString(", ")
+	builder.WriteString("fields=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Fields))
+	builder.WriteString(", ")
+	builder.WriteString("extra_vars=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExtraVars))
 	builder.WriteByte(')')
 	return builder.String()
 }

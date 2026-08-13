@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
@@ -64,9 +65,23 @@ func NewFileRepository(inventoryPath string, factory *ItemFactory) Repository {
 // TestFileRepository_Selector_GroupNameIgnored pins this down so a future
 // change cannot silently start erroring on it instead.
 //
+// sel.Membership is refused rather than ignored, which is the opposite
+// treatment to sel.GroupName above and deliberately so. An ignored
+// GroupName is a filter that fails to narrow, which this tier has always
+// done and which a test pins. An ignored Membership would turn "dispatch
+// to the devices in this inventory" into "dispatch to every host in the
+// file", because ignoring a restriction here means streaming everything.
+// The difference is between a filter that does not narrow and a boundary
+// that does not hold.
+//
 // Items it yields carry Version but not History, matching the Repository
 // interface's documented list-view contract (iterator.go).
 func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (Iterator, error) {
+	if sel.Membership != nil {
+		return nil, fmt.Errorf("%w: the file-backed inventory has no groups or inventories to resolve a membership against",
+			ErrSelectorUnsupported)
+	}
+
 	hosts, err := ReadHosts(r.hostsPath)
 	if err != nil {
 		return nil, err
@@ -89,6 +104,23 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 			return nil, fmt.Errorf("factory failed to build item %s: %w", h.Name, err)
 		}
 		items = append(items, item)
+	}
+
+	// Order by DeviceID, matching the ent adapter, which has always
+	// ordered its stream that way. This adapter previously yielded
+	// hosts.yaml's own file order, which is not a total order over the
+	// data at all -- reordering two lines in the file changed the stream
+	// -- so Selector.After could not have meant anything here. The two
+	// adapters are documented to behave identically to callers, and a
+	// cursor is the point where "identically" stops being a nicety.
+	sort.Slice(items, func(a, b int) bool { return items[a].ID() < items[b].ID() })
+
+	if sel.After != "" {
+		cut := sort.Search(len(items), func(idx int) bool { return items[idx].ID() > sel.After })
+		items = items[cut:]
+	}
+	if sel.Limit > 0 && len(items) > sel.Limit {
+		items = items[:sel.Limit]
 	}
 
 	return &fileIterator{items: items}, nil

@@ -28,6 +28,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
 // Job is the domain view of one asynchronous dispatch request: a runbook
@@ -54,7 +56,50 @@ type Job struct {
 	// GroupName restricts the dispatch to devices in the named group. An
 	// empty GroupName means no restriction, mirroring
 	// pkg/inventory.Selector.GroupName's own documented zero value.
+	//
+	// SUPERSEDED by InventoryID as of Phase 21, and written empty by every
+	// remaining path. See internal/ent/schema/job.go's own field for why
+	// the column stays rather than being dropped.
 	GroupName string
+
+	// InventoryID is what this dispatch targets: the shareable device set
+	// the template names. The Worker streams its membership, which is its
+	// groups plus the devices attached to it directly.
+	//
+	// Its zero value does NOT mean "everything", unlike GroupName's above,
+	// and that inversion is the point. An inventory that selects nothing
+	// must dispatch to nothing: pkg/inventory.Selector.Membership is a
+	// pointer for exactly this reason, and a job carrying no inventory is
+	// refused rather than fanned out to the fleet.
+	InventoryID int
+
+	// TemplateID and TemplateName record which saved definition this job
+	// came from. The name is captured beside the id because a template's
+	// job history has to outlive the template.
+	TemplateID   int
+	TemplateName string
+
+	// LaunchConfigID names the stored configuration this job was launched
+	// with: the overrides and survey answers the caller supplied. Zero
+	// means the launch supplied nothing, so there was nothing to record.
+	//
+	// It is what a relaunch reads to repeat the run rather than merely
+	// re-running the template as saved.
+	LaunchConfigID int
+
+	// Kind is the launch kind this job ran as, and therefore which
+	// execution adapter handles it. It travels to the Runner on the
+	// dispatch payload; it is recorded here so a job record says what it
+	// was without joining back to a template that may since be gone.
+	Kind string
+
+	// OrganizationID is the tenancy boundary this dispatch happened
+	// inside, taken from the template's inventory at launch.
+	//
+	// Zero means unscoped, which is what a job created by a path naming no
+	// template would carry. Every path that exists today writes it, which
+	// is what finally gives the column a writer.
+	OrganizationID int
 	// Actor is the identity subject that requested the job, stamped once
 	// at creation. The Worker publishes every per-device dispatch event
 	// with this Actor, since there is no live HTTP caller identity left
@@ -73,8 +118,45 @@ type Job struct {
 	DispatchedCount int
 	SkippedCount    int
 	FailedCount     int
+	// FailureReason explains a "failed" State: why the fan-out could not
+	// begin, or could not finish. Empty for every other state.
+	//
+	// Plumbed through as of Phase 21, which this struct's own doc comment
+	// anticipated ("a later stage that does can widen this struct then").
+	// The stage arrived because a job can now fail for reasons an operator
+	// has to act on and cannot guess: the inventory it targets was
+	// deleted, or contains no devices. Without this the job record said
+	// "failed" and nothing else, and the explanation existed only in a log
+	// line on whichever replica happened to run the fan-out.
+	//
+	// It carries only sanitised text. internal/ent/schema/job.go's own
+	// field states the rule: it must name a job's own inputs and never
+	// echo a storage error, which can carry a table name, a column or a
+	// host.
+	FailureReason string
+
 	// CreatedAt is when the job was first persisted.
 	CreatedAt time.Time
+
+	// Fields is the resolved launch.Resolved.Fields this job was
+	// dispatched with: limit, verbosity, forks, timeout, and whichever
+	// kind-specific fields its kind declares. Stamped once at creation and
+	// never changes.
+	//
+	// Captured on the record before it reaches the wire or either adapter
+	// (internal/adapters/legacy's argv construction and
+	// internal/adapters/native's extra-variable injection are a separate,
+	// not-yet-built consumer of this same data), so the job record is
+	// honest about what a launch was configured with even before that
+	// phase lands. See AWX_PARITY_ROADMAP.md.
+	Fields launch.Fields
+
+	// ExtraVars is the resolved launch.Resolved.ExtraVars this job was
+	// dispatched with: the template's defaults, a saved configuration,
+	// survey answers, and this launch's own overrides, already merged in
+	// that precedence order. Same capture-now, consume-later status as
+	// Fields above.
+	ExtraVars map[string]any
 }
 
 // JobTask is the domain view of one device's outcome within a Job's
@@ -160,6 +242,50 @@ type JobStore interface {
 	// recorded against it so far, or ErrJobNotFound if no such job
 	// exists.
 	Get(ctx context.Context, jobID string) (*Job, []JobTask, error)
+
+	// List returns up to limit jobs, newest first, resuming after the
+	// given cursor (a job id, or empty for the first page).
+	//
+	// It carries no JobTask rows. A list view does not display per-device
+	// outcomes, and loading them for every job would be a query per row
+	// for data nothing renders -- the same list-view contract
+	// inventory.Repository.GetGroup already documents for device history.
+	//
+	// Ordering is newest-first on the job id, which is not an arbitrary
+	// choice of column: the schema defaults it to a UUIDv7, so it is
+	// time-ordered, unique and indexed, making it both the natural
+	// recency sort and a valid keyset cursor with no second index and no
+	// tiebreaker. Paging on created_at alone would need one, since two
+	// jobs launched in the same instant would share a cursor and each
+	// page boundary could then drop or repeat one.
+	List(ctx context.Context, after string, limit int) ([]*Job, error)
+
+	// ListForTemplate returns the jobs one template launched, newest
+	// first, bounded by limit.
+	//
+	// Its own method rather than a filter on List, because it answers a
+	// different question with a different index: List pages the whole
+	// history on the job id, while this is the "what has this template
+	// run" a template's detail page asks, served by the template_id index
+	// the Job schema declares for exactly this. Filtering a page of the
+	// global list in Go would scan the fastest-growing table here to find
+	// a handful of rows.
+	//
+	// A template that has never run returns no jobs and no error, which is
+	// an ordinary state rather than a missing record: this port does not
+	// know whether a template exists.
+	ListForTemplate(ctx context.Context, templateID, limit int) ([]*Job, error)
+
+	// RecentForTemplates is ListForTemplate batched across many templates at
+	// once, for a template list page's Activity and Last Ran columns.
+	//
+	// Its own method rather than a loop calling ListForTemplate per row, for
+	// the reason ListForTemplate itself exists over List: a page of fifty
+	// templates has no business costing fifty queries for data that renders
+	// two columns. A template with no jobs is simply absent from the
+	// returned map rather than present with an empty slice, so a caller's
+	// membership check is one map lookup.
+	RecentForTemplates(ctx context.Context, templateIDs []int, perTemplate int) (map[int][]*Job, error)
 
 	// BeginFanOut atomically transitions job jobID from "pending" to
 	// "fanning_out", or reclaims a job already in "fanning_out" whose

@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 )
 
 // heartbeatRefreshInterval is the minimum real time RecordTask lets pass
@@ -38,7 +39,44 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 	create := s.client.Job.Create().
 		SetRunbookID(j.RunbookID).
 		SetGroupName(j.GroupName).
-		SetActor(j.Actor)
+		SetActor(j.Actor).
+		SetTemplateName(j.TemplateName).
+		SetKind(j.Kind)
+
+	// The four denormalized references, each written only when it has a
+	// value: the columns are Optional and Nillable, and a stored zero would
+	// claim a record with that id rather than saying there is none.
+	//
+	// This is the line that gives Job.organization_id its first writer. The
+	// value originates on the template, derived from its inventory's
+	// required organization edge when the template was saved, and travels
+	// here through launch.Resolved. Before Phase 21 a dispatch named a
+	// free-text group, which has no tenant to inherit, so the column had
+	// existed since Phase 14 with nothing ever setting it.
+	if j.InventoryID > 0 {
+		create = create.SetInventoryID(j.InventoryID)
+	}
+	if j.TemplateID > 0 {
+		create = create.SetTemplateID(j.TemplateID)
+	}
+	if j.OrganizationID > 0 {
+		create = create.SetOrganizationID(j.OrganizationID)
+	}
+	if j.LaunchConfigID > 0 {
+		create = create.SetLaunchConfigID(j.LaunchConfigID)
+	}
+	// Set only when non-empty, the same "absent means not supplied" rule
+	// the JSON columns carry everywhere else this platform stores a launch
+	// field map (launch.Fields.Has's own doc comment): a nil map and an
+	// empty one both marshal the same way but a caller reading j.Fields
+	// back should not have to tell an ordinary launch with nothing
+	// promptable apart from one this store forgot to persist.
+	if len(j.Fields) > 0 {
+		create = create.SetFields(j.Fields)
+	}
+	if len(j.ExtraVars) > 0 {
+		create = create.SetExtraVars(j.ExtraVars)
+	}
 	// job_id has a DefaultFunc (newJobID, internal/ent/schema/job.go), but
 	// a caller-supplied JobID is honored when present, mirroring
 	// device.go's own optional-override-of-a-generated-default pattern:
@@ -61,6 +99,100 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 	j.State = row.State.String()
 	j.CreatedAt = row.CreatedAt
 	return nil
+}
+
+// List returns up to limit jobs, newest first, resuming after the cursor.
+// See JobStore.List.
+func (s *entJobStore) List(ctx context.Context, after string, limit int) ([]*Job, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("job list limit must be positive, got %d", limit)
+	}
+
+	query := s.client.Job.Query().
+		Order(ent.Desc(job.FieldJobID)).
+		Limit(limit)
+	if after != "" {
+		query = query.Where(job.JobIDLT(after))
+	}
+
+	rows, err := query.All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs: %w", err)
+	}
+
+	jobs := make([]*Job, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, toJob(row))
+	}
+	return jobs, nil
+}
+
+// ListForTemplate returns the jobs one template launched, newest first.
+// See JobStore.ListForTemplate.
+func (s *entJobStore) ListForTemplate(ctx context.Context, templateID, limit int) ([]*Job, error) {
+	if templateID <= 0 {
+		// Refused rather than treated as "no template", which would return
+		// every job created before templates existed as though one
+		// particular template had launched them all.
+		return nil, fmt.Errorf("job list template id must be positive, got %d", templateID)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("job list limit must be positive, got %d", limit)
+	}
+
+	rows, err := s.client.Job.Query().
+		Where(job.TemplateIDEQ(templateID)).
+		Order(ent.Desc(job.FieldJobID)).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list jobs for template %d: %w", templateID, err)
+	}
+
+	jobs := make([]*Job, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, toJob(row))
+	}
+	return jobs, nil
+}
+
+// RecentForTemplates returns, for each of templateIDs, its perTemplate most
+// recent jobs, newest first. See JobStore.RecentForTemplates.
+//
+// One query rather than a window-function top-N-per-group: it asks for
+// perTemplate*len(templateIDs) rows across every named template ordered
+// newest first, then groups client-side, keeping only the first perTemplate
+// seen per template. That bound is exact -- newest-first means the rows
+// dropped for a template that ran more often than its neighbours are always
+// its oldest, never its most recent -- and it keeps this store reading
+// through ent's query builder like everywhere else in it, rather than the
+// one place that dropped to raw SQL for a window function.
+func (s *entJobStore) RecentForTemplates(ctx context.Context, templateIDs []int, perTemplate int) (map[int][]*Job, error) {
+	if perTemplate <= 0 {
+		return nil, fmt.Errorf("recent-for-templates limit must be positive, got %d", perTemplate)
+	}
+	if len(templateIDs) == 0 {
+		return map[int][]*Job{}, nil
+	}
+
+	rows, err := s.client.Job.Query().
+		Where(job.TemplateIDIn(templateIDs...)).
+		Order(ent.Desc(job.FieldJobID)).
+		Limit(perTemplate * len(templateIDs)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent jobs for %d templates: %w", len(templateIDs), err)
+	}
+
+	out := make(map[int][]*Job, len(templateIDs))
+	for _, row := range rows {
+		j := toJob(row)
+		if len(out[j.TemplateID]) >= perTemplate {
+			continue
+		}
+		out[j.TemplateID] = append(out[j.TemplateID], j)
+	}
+	return out, nil
 }
 
 // Get loads job jobID and every JobTask recorded against it. See
@@ -102,17 +234,44 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 // Job, the one place ent's shape meets the domain model for this store,
 // mirroring internal/inventory/ent_repository.go's toRecord.
 func toJob(row *ent.Job) *Job {
-	return &Job{
+	job := &Job{
 		JobID:           row.JobID,
 		RunbookID:       row.RunbookID,
 		GroupName:       row.GroupName,
+		TemplateName:    row.TemplateName,
+		Kind:            row.Kind,
 		Actor:           row.Actor,
 		State:           row.State.String(),
 		DispatchedCount: row.DispatchedCount,
 		SkippedCount:    row.SkippedCount,
 		FailedCount:     row.FailedCount,
+		FailureReason:   row.FailureReason,
 		CreatedAt:       row.CreatedAt,
 	}
+
+	// The four nillable references. A nil column means the job names no
+	// such record, which is a different fact from naming record zero, so
+	// the domain zero value is only ever reached by way of an absent
+	// column rather than by dereferencing one that is not there.
+	if row.InventoryID != nil {
+		job.InventoryID = *row.InventoryID
+	}
+	if row.TemplateID != nil {
+		job.TemplateID = *row.TemplateID
+	}
+	if row.OrganizationID != nil {
+		job.OrganizationID = *row.OrganizationID
+	}
+	if row.LaunchConfigID != nil {
+		job.LaunchConfigID = *row.LaunchConfigID
+	}
+	if len(row.Fields) > 0 {
+		job.Fields = launch.Fields(row.Fields)
+	}
+	if len(row.ExtraVars) > 0 {
+		job.ExtraVars = row.ExtraVars
+	}
+	return job
 }
 
 // BeginFanOut atomically claims jobID's fan-out, either the normal pending

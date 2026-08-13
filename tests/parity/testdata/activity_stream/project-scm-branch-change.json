@@ -1,0 +1,25 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 5043,
+      "type": "activity_stream",
+      "operation": "update",
+      "timestamp": "2023-10-20T09:14:22.000000Z",
+      "actor": {
+        "id": 4,
+        "username": "rrizzo"
+      },
+      "changes": {
+        "scm_branch": [
+          "develop",
+          "main"
+        ]
+      },
+      "object1": "project",
+      "object1_search_fields": "Demo Project"
+    }
+  ]
+}

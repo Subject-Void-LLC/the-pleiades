@@ -4,6 +4,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+	"entgo.io/ent/schema/index"
 
 	"github.com/google/uuid"
 )
@@ -58,11 +59,100 @@ func (Job) Fields() []ent.Field {
 		// restriction (dispatch to every device), which is a legitimate
 		// value this schema must be able to store, not an omission to
 		// reject.
+		//
+		// SUPERSEDED by inventory_id below, as of Phase 21. A launch now
+		// names a template, and a template names an inventory; there is no
+		// remaining path that targets a bare group name. The column stays,
+		// written empty, rather than being dropped, and that is a decision
+		// rather than an oversight: FAILURE_PATTERNS.md #59 records that
+		// this repository's migration generator silently never emits DROP
+		// COLUMN, so removing a NOT NULL column means a hand-written
+		// migration in two dialects, which is its own change with its own
+		// test rather than a side effect of this one.
 		field.String("group_name").Immutable(),
+
+		// inventory_id is what the dispatch actually targets: the shareable
+		// device set the template names. The worker streams its membership,
+		// which is its groups plus the devices attached to it directly.
+		//
+		// Denormalized rather than an edge, for the reason organization_id
+		// gives below and JobTask.device_name gives for itself: a job is a
+		// historical record. An edge would mean deleting an inventory
+		// either cascades away every job that ever ran against it or is
+		// blocked by them, and "what did this dispatch target" is precisely
+		// the question somebody has after the inventory is gone.
+		//
+		// Optional and Nillable because the column has to tolerate a job
+		// created by a path that names no inventory. Every path that exists
+		// today writes it.
+		field.Int("inventory_id").Optional().Nillable().Immutable(),
+
+		// template_id and template_name record which saved definition this
+		// job came from, captured at launch.
+		//
+		// The name is captured beside the id for the reason
+		// ActivityEntry.object_name is: a template's job history has to
+		// outlive the template, and a job row that resolved the name live
+		// would describe nothing once somebody deleted it. The id is kept
+		// too, so a template's own Completed Jobs section is one indexed
+		// query rather than a scan.
+		field.Int("template_id").Optional().Nillable().Immutable(),
+		field.String("template_name").Optional().Immutable(),
+
+		// launch_config_id names the SavedLaunchConfig this job was
+		// launched with: the bundle of overrides and survey answers the
+		// caller supplied, stored before the job so the job can point at
+		// it.
+		//
+		// It is what makes relaunch mean what its name says. Without it a
+		// relaunch could only re-run the template as saved, which for any
+		// job launched with overrides would quietly run something other
+		// than the job it claims to be repeating -- and for a template with
+		// a required survey question, something that would not run at all.
+		//
+		// Nil for a launch that supplied nothing, which is not the same as
+		// "supplied an empty configuration": there is no row because there
+		// was nothing to record, and a relaunch of such a job correctly
+		// re-runs the template's own defaults.
+		//
+		// Denormalized rather than an edge, for the reason template_id and
+		// organization_id give above: a job is a historical record, and an
+		// edge would make deleting a template either cascade away the jobs
+		// it launched or be blocked by them. A dangling id here is the
+		// honest outcome, and Relaunch reports the configuration as gone
+		// rather than silently launching without it.
+		field.Int("launch_config_id").Optional().Nillable().Immutable(),
+
+		// kind is the launch kind this job ran as: which registered
+		// descriptor, and therefore which execution adapter, handled it.
+		//
+		// Recorded so a job record says what it was without joining back to
+		// a template that may since have been deleted, and so a jobs list
+		// can show whether a run was native or sandboxed. A plain string
+		// rather than an ent enum, for the reason Template.kind gives: the
+		// kind vocabulary is an open registry, and an enum would put a
+		// closed copy of it in two dialects' DDL.
+		field.String("kind").Optional().Immutable(),
 		// actor is the identity subject that requested the job, stamped
 		// once at creation so the audit trail can always answer "who asked
 		// for this dispatch" without depending on a separate log surviving.
 		field.String("actor").NotEmpty().Immutable(),
+		// organization_id is the tenancy boundary this dispatch happened
+		// inside, stamped once at launch and never resolved live.
+		//
+		// Denormalized on purpose, matching group_name and actor directly
+		// above rather than being an edge. A job is a historical record,
+		// and joining back through the group to whichever inventory holds
+		// it today would let a later re-parenting silently rewrite which
+		// tenant a past dispatch appears to belong to. The same reasoning
+		// the JobTask schema gives for capturing DeviceName at dispatch
+		// time rather than linking to a device that may since be renamed.
+		//
+		// Optional and Nillable because a dispatch against a group that
+		// belongs to no inventory has no organization to stamp, which is
+		// the ordinary case in a single-tenant deployment. Nil means
+		// "unscoped", never "unknown".
+		field.Int("organization_id").Optional().Nillable().Immutable(),
 		// state is the job's lifecycle: "pending" (created, not yet picked
 		// up), "fanning_out" (a worker is actively dispatching to devices),
 		// "completed" (every device has been dispatched, skipped, or
@@ -121,6 +211,30 @@ func (Job) Fields() []ent.Field {
 		// never-claimed job, since fence only carries meaning once a
 		// BeginFanOut call has bumped it at least once.
 		field.Int64("fence").Default(0),
+
+		// fields is the resolved launch.Resolved.Fields this job was
+		// dispatched with: limit, verbosity, forks, timeout, and whichever
+		// kind-specific fields (job_tags, skip_tags) its kind declares.
+		// Stamped once at creation and never changes, matching runbook_id's
+		// own "a record of what was requested" reasoning immediately above.
+		//
+		// Captured on the job record before it reaches the wire or either
+		// adapter: internal/adapters/legacy's argv construction and
+		// internal/adapters/native's extra-variable injection are a
+		// separate, not-yet-built consumer of this same data
+		// (AWX_PARITY_ROADMAP.md's launch-fields-reach-execution phase).
+		// Recording it here first is what makes the job record honest about
+		// what a launch was configured with even before that phase lands,
+		// the same incremental widening this schema's own comments describe
+		// for organization_id and failure_reason.
+		field.JSON("fields", map[string]any{}).Optional().Immutable(),
+
+		// extra_vars is the resolved launch.Resolved.ExtraVars this job was
+		// dispatched with: the template's defaults, a saved configuration,
+		// survey answers, and this launch's own overrides, already merged
+		// in that precedence order by launch.Template.Resolve. Same
+		// capture-now, consume-later status as fields above.
+		field.JSON("extra_vars", map[string]any{}).Optional().Immutable(),
 	}
 }
 
@@ -129,5 +243,16 @@ func (Job) Edges() []ent.Edge {
 	return []ent.Edge{
 		// A job has many per-device task outcomes, its fan-out record.
 		edge.To("tasks", JobTask.Type),
+	}
+}
+
+// Indexes of the Job.
+func (Job) Indexes() []ent.Index {
+	return []ent.Index{
+		// "what has this template run" is a template detail page's own
+		// Completed Jobs section, and it is the only cross-job query this
+		// phase adds. Indexed rather than scanned, because the jobs table
+		// is the one that grows fastest here.
+		index.Fields("template_id"),
 	}
 }

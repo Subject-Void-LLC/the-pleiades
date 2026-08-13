@@ -18,8 +18,10 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // openConformanceClient opens a client against a fresh database for the
@@ -393,6 +395,298 @@ func TestConformance_ConcurrentWrites(t *testing.T) {
 			}
 			if count := client.Device.Query().CountX(ctx); count != writers {
 				t.Fatalf("after %d concurrent writes the table holds %d rows", writers, count)
+			}
+		})
+	}
+}
+
+// TestConformance_ContactsCascadeWithTheirOwner proves the ON DELETE
+// CASCADE on both of a Contact's owner edges is really emitted by each
+// dialect's migration, rather than only by the one that happened to be
+// generated first.
+//
+// It is the only cascade in this schema and it is load bearing. A Contact
+// attaches to exactly one of an Organization or a Team, an invariant the
+// repository enforces because ent cannot express it. Under ent's default of
+// nulling the reference, deleting an owner would leave a row attached to
+// neither, which is precisely the record the write path refuses to accept:
+// the database would manufacture a state no caller could have created.
+//
+// It lives here rather than in internal/access so the assertion runs on both
+// backends. internal/access is container free and would only ever prove it
+// for SQLite, and a foreign key clause is exactly the kind of thing two
+// dialects disagree about.
+func TestConformance_ContactsCascadeWithTheirOwner(t *testing.T) {
+	for _, backend := range conformanceBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			client, _ := openConformanceClient(t, backend)
+			ctx := context.Background()
+
+			org := client.Organization.Create().SetName("acme").SaveX(ctx)
+			team := client.Team.Create().SetName("netops").SetOrganization(org).SaveX(ctx)
+
+			client.Contact.Create().
+				SetName("Platform owner").
+				SetRole("owner").
+				SetEmail("platform@example.com").
+				SetOrganization(org).
+				SaveX(ctx)
+			client.Contact.Create().
+				SetName("Netops rota").
+				SetRole("escalation").
+				SetPhone("+1-555-0100").
+				SetDisplayOrder(10).
+				SetTeam(team).
+				SaveX(ctx)
+
+			if n := client.Contact.Query().CountX(ctx); n != 2 {
+				t.Fatalf("seeded %d contacts, want 2", n)
+			}
+
+			// The team goes first: an organization holding a team cannot be
+			// deleted at all, because a team's organization edge is
+			// required. That refusal is separate and correct, and tripping
+			// it here would hide whether the cascade works.
+			client.Team.DeleteOne(team).ExecX(ctx)
+			if n := client.Contact.Query().CountX(ctx); n != 1 {
+				t.Fatalf("deleting a team left %d contacts, want 1: its own contact outlived it, owned by nothing", n)
+			}
+
+			client.Organization.DeleteOne(org).ExecX(ctx)
+			if n := client.Contact.Query().CountX(ctx); n != 0 {
+				t.Fatalf("deleting an organization left %d contacts, each attached to neither an organization nor a team", n)
+			}
+		})
+	}
+}
+
+// TestConformance_ActivityOutlivesWhatItDescribes proves an activity entry
+// survives the deletion of the object it is about, on both dialects.
+//
+// This is the assertion behind ActivityEntry carrying a kind string and a
+// bare integer instead of edges. An edge would mean a foreign key, and a
+// foreign key means the deletion of an object either cascades away its own
+// audit trail or is refused by it. "Who deleted this, and when" is exactly
+// the entry somebody needs after the object is gone, so the trail has to
+// outlive its subject.
+//
+// It lives here rather than in internal/activity for the reason the cascade
+// test above states: internal/activity is container free and would only ever
+// prove it for SQLite, and referential behaviour is precisely what two
+// dialects disagree about. The relationship being asserted is a negative --
+// that no constraint exists -- which is the kind that gets introduced by
+// accident later, by somebody adding the edge that looks obviously missing.
+func TestConformance_ActivityOutlivesWhatItDescribes(t *testing.T) {
+	for _, backend := range conformanceBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			client, _ := openConformanceClient(t, backend)
+			ctx := context.Background()
+
+			org := client.Organization.Create().SetName("acme").SaveX(ctx)
+
+			client.ActivityEntry.Create().
+				SetActor("ada@example.com").
+				SetAction("created").
+				SetObjectKind("organization").
+				SetObjectID(org.ID).
+				SetObjectName("acme").
+				SaveX(ctx)
+			client.ActivityEntry.Create().
+				SetActor("grace@example.com").
+				SetAction("deleted").
+				SetObjectKind("organization").
+				SetObjectID(org.ID).
+				SetObjectName("acme").
+				SaveX(ctx)
+
+			client.Organization.DeleteOne(org).ExecX(ctx)
+
+			entries := client.ActivityEntry.Query().
+				Where(activityentry.ObjectKindEQ("organization"), activityentry.ObjectIDEQ(org.ID)).
+				Order(ent.Asc(activityentry.FieldID)).
+				AllX(ctx)
+			if len(entries) != 2 {
+				t.Fatalf("deleting the organization left %d of its 2 activity entries: "+
+					"the audit trail did not outlive what it describes", len(entries))
+			}
+
+			// The name is still there too. An entry that resolved the name
+			// live would now describe nothing, which is the same loss in a
+			// quieter form.
+			if entries[1].ObjectName != "acme" {
+				t.Errorf("the deletion entry names %q after the object was removed, want %q captured at the time",
+					entries[1].ObjectName, "acme")
+			}
+			if entries[1].ObjectID != org.ID {
+				t.Errorf("the deletion entry names object %d, want the deleted organization's own id %d",
+					entries[1].ObjectID, org.ID)
+			}
+		})
+	}
+}
+
+// TestConformance_LaunchTemplateRoundTrip proves the Phase 21 entities
+// really exist on both dialects, with the columns and constraints the Go
+// code expects.
+//
+// It exists because nothing else would have caught a migration that applied
+// cleanly and produced the wrong schema. The other conformance tests here
+// cover the entities that predate this phase; a template's columns are
+// exercised by no query anywhere until the API and the UI arrive, so a
+// missing column would first surface at run time in a deployment rather
+// than in a build.
+//
+// The doc comment on internal/ent/migrate/parity_test.go says the stronger
+// claim, that each dialect's committed migrations bring a database all the
+// way to the schema ent currently desires, "lives behind the integration
+// build tag in parity_integration_test.go". That file does not exist. Until
+// it does, per-entity round trips like this one, run against both real
+// backends, are what actually holds the claim up.
+func TestConformance_LaunchTemplateRoundTrip(t *testing.T) {
+	for _, backend := range conformanceBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			client, _ := openConformanceClient(t, backend)
+			ctx := context.Background()
+
+			org := client.Organization.Create().SetName("acme").SaveX(ctx)
+			inv := client.Inventory.Create().SetName("edge").SetOrganization(org).SaveX(ctx)
+
+			tmpl := client.Template.Create().
+				SetName("patch the edge routers").
+				SetKind("runbook").
+				SetDefinition("patch-edge").
+				SetDefaults(map[string]any{"limit": "edge-*", "forks": 5}).
+				SetPrompts([]string{"limit"}).
+				SetRequiredCaps([]string{"SSHCapable"}).
+				SetSurveyEnabled(true).
+				SetOrganization(org).
+				SetInventory(inv).
+				SaveX(ctx)
+
+			client.SurveyQuestion.Create().
+				SetVariable("target_version").
+				SetLabel("Version").
+				SetQuestionType("multiplechoice").
+				SetRequired(true).
+				SetChoices([]string{"17.3", "17.6"}).
+				SetDisplayOrder(1).
+				SetTemplate(tmpl).
+				SaveX(ctx)
+
+			client.SavedLaunchConfig.Create().
+				SetName("nightly").
+				SetFields(map[string]any{"limit": "edge-01"}).
+				SetAnswers(map[string]any{"target_version": "17.6"}).
+				SetTemplate(tmpl).
+				SaveX(ctx)
+
+			// The JSON columns survive a round trip with their shapes
+			// intact. A map that came back as a string, or a list that came
+			// back as a map, would still "work" until something read it.
+			read := client.Template.Query().
+				Where(template.IDEQ(tmpl.ID)).
+				WithSurveyQuestions().
+				WithSavedConfigs().
+				WithOrganization().
+				WithInventory().
+				OnlyX(ctx)
+
+			if read.Defaults["limit"] != "edge-*" {
+				t.Errorf("defaults came back as %#v", read.Defaults)
+			}
+			if len(read.Prompts) != 1 || read.Prompts[0] != "limit" {
+				t.Errorf("prompts came back as %#v", read.Prompts)
+			}
+			if len(read.Edges.SurveyQuestions) != 1 {
+				t.Fatalf("the template carries %d questions, want 1", len(read.Edges.SurveyQuestions))
+			}
+			if choices := read.Edges.SurveyQuestions[0].Choices; len(choices) != 2 {
+				t.Errorf("the question's choices came back as %#v", choices)
+			}
+			if read.Edges.Organization == nil || read.Edges.Inventory == nil {
+				t.Fatal("the template lost one of its two required edges")
+			}
+
+			// A name is unique within an organization, not globally: two
+			// tenants both having a "patch the edge routers" template is
+			// the ordinary case, and the constraint belongs to the schema
+			// rather than to the Go code above it.
+			other := client.Organization.Create().SetName("other").SaveX(ctx)
+			otherInv := client.Inventory.Create().SetName("edge").SetOrganization(other).SaveX(ctx)
+			if _, err := client.Template.Create().
+				SetName("patch the edge routers").
+				SetKind("runbook").SetDefinition("patch-edge").
+				SetOrganization(other).SetInventory(otherInv).
+				Save(ctx); err != nil {
+				t.Errorf("a second tenant could not reuse a template name: %v", err)
+			}
+			if _, err := client.Template.Create().
+				SetName("patch the edge routers").
+				SetKind("runbook").SetDefinition("patch-edge").
+				SetOrganization(org).SetInventory(inv).
+				Save(ctx); err == nil {
+				t.Error("one organization holds two templates with the same name")
+			}
+		})
+	}
+}
+
+// TestConformance_TemplateChildrenCascadeButJobsDoNot pins the two opposite
+// referential decisions this phase makes, on both dialects.
+//
+// A survey question and a saved configuration belong to their template and
+// are meaningless without it, so they cascade. A job does not: it carries
+// template_id as a plain column with no foreign key, because a job is a
+// historical record and "what did this template run" is precisely the
+// question somebody has after the template is gone. Getting either
+// backwards is invisible until the day somebody deletes a template.
+func TestConformance_TemplateChildrenCascadeButJobsDoNot(t *testing.T) {
+	for _, backend := range conformanceBackends() {
+		t.Run(backend.name, func(t *testing.T) {
+			client, _ := openConformanceClient(t, backend)
+			ctx := context.Background()
+
+			org := client.Organization.Create().SetName("acme").SaveX(ctx)
+			inv := client.Inventory.Create().SetName("edge").SetOrganization(org).SaveX(ctx)
+			tmpl := client.Template.Create().
+				SetName("patch").SetKind("runbook").SetDefinition("patch-edge").
+				SetOrganization(org).SetInventory(inv).SaveX(ctx)
+
+			client.SurveyQuestion.Create().
+				SetVariable("v").SetLabel("V").SetQuestionType("text").
+				SetTemplate(tmpl).SaveX(ctx)
+			client.SavedLaunchConfig.Create().SetName("nightly").SetTemplate(tmpl).SaveX(ctx)
+
+			client.Job.Create().
+				SetRunbookID("patch-edge").
+				SetGroupName("").
+				SetActor("ada@example.com").
+				SetTemplateID(tmpl.ID).
+				SetTemplateName("patch").
+				SetKind("runbook").
+				SetInventoryID(inv.ID).
+				SetOrganizationID(org.ID).
+				SaveX(ctx)
+
+			client.Template.DeleteOne(tmpl).ExecX(ctx)
+
+			if n := client.SurveyQuestion.Query().CountX(ctx); n != 0 {
+				t.Errorf("deleting a template left %d survey questions attached to nothing", n)
+			}
+			if n := client.SavedLaunchConfig.Query().CountX(ctx); n != 0 {
+				t.Errorf("deleting a template left %d saved configurations attached to nothing", n)
+			}
+
+			// The job survived, and still says what it ran.
+			jobs := client.Job.Query().AllX(ctx)
+			if len(jobs) != 1 {
+				t.Fatalf("deleting a template took %d of its jobs with it", 1-len(jobs))
+			}
+			if jobs[0].TemplateName != "patch" {
+				t.Errorf("the surviving job names template %q, want the name captured at launch", jobs[0].TemplateName)
+			}
+			if jobs[0].TemplateID == nil || *jobs[0].TemplateID != tmpl.ID {
+				t.Error("the surviving job lost the id of the template it ran")
 			}
 		})
 	}

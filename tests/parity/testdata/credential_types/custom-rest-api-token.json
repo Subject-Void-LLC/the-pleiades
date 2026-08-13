@@ -1,0 +1,67 @@
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 18,
+      "type": "credential_type",
+      "url": "/api/v2/credential_types/18/",
+      "related": {
+        "created_by": "/api/v2/users/1/",
+        "modified_by": "/api/v2/users/1/",
+        "credentials": "/api/v2/credential_types/18/credentials/",
+        "activity_stream": "/api/v2/credential_types/18/activity_stream/"
+      },
+      "summary_fields": {
+        "created_by": {
+          "id": 1,
+          "username": "admin",
+          "first_name": "",
+          "last_name": ""
+        },
+        "modified_by": {
+          "id": 1,
+          "username": "admin",
+          "first_name": "",
+          "last_name": ""
+        }
+      },
+      "created": "2023-11-01T10:15:30.000000Z",
+      "modified": "2023-11-01T10:15:30.000000Z",
+      "name": "Custom REST API Token",
+      "description": "Bearer token and base URL for custom REST API integrations",
+      "kind": "cloud",
+      "namespace": "custom_api_token",
+      "managed": false,
+      "inputs": {
+        "fields": [
+          {
+            "id": "api_token",
+            "type": "string",
+            "label": "API Bearer Token",
+            "secret": true
+          },
+          {
+            "id": "api_url",
+            "type": "string",
+            "label": "API Base URL"
+          }
+        ],
+        "required": [
+          "api_token",
+          "api_url"
+        ]
+      },
+      "injectors": {
+        "env": {
+          "REST_API_TOKEN": "{{ api_token }}",
+          "REST_API_URL": "{{ api_url }}"
+        },
+        "extra_vars": {
+          "ansible_api_token": "{{ api_token }}"
+        }
+      }
+    }
+  ]
+}

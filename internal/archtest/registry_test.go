@@ -16,13 +16,18 @@ import "testing"
 // registryConsumers is every package known to build its own vocabulary on
 // pkg/registry.Registry rather than a bespoke map: pkg/capability's
 // capability vocabulary, internal/inventory/record's device-type table
-// (both Phase 6), and pkg/collection's namespaced method registry (Phase
-// 31, this primitive's third consumer).
+// (both Phase 6), pkg/collection's namespaced method registry (Phase 31,
+// this primitive's third consumer), internal/inventory/syncplugin's plugin
+// table, and internal/ui/view's web UI resource table (Phase 19, the
+// fifth). The UI entry matters for the same reason as the rest: a view
+// registry is exactly the kind of table somebody would otherwise hand-roll
+// as a map[string]Descriptor beside the four that already exist.
 var registryConsumers = map[string]bool{
 	modulePath + "/pkg/capability":                true,
 	modulePath + "/internal/inventory/record":     true,
 	modulePath + "/pkg/collection":                true,
 	modulePath + "/internal/inventory/syncplugin": true,
+	modulePath + "/internal/ui/view":              true,
 }
 
 // TestKnownRegistryConsumersImportPkgRegistry asserts every package on the

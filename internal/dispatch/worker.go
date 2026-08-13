@@ -11,7 +11,8 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -111,31 +112,52 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		}
 	}
 
-	rb, err := w.runbooks.Get(ctx, job.RunbookID)
+	// The definition is prepared through the source its KIND owns, looked
+	// up in the same map shape the Runner's adapter routing uses, so no
+	// consumer branches on kind. Resolving every job through the runbook
+	// source regardless, which is what this block used to do, reported
+	// every playbook job as "runbook not found" inside the Controller
+	// before the Runner's adapter selection was ever consulted.
+	kind := launch.ResolveKind(job.Kind)
+	source, ok := w.definitions[kind]
+	if !ok {
+		// A real, permanent failure case: a kind this Controller has no
+		// definition source for cannot become preparable by redelivery,
+		// and BeginFanOut above already made this call the job's only
+		// chance to reach a terminal state (see the retry reasoning on
+		// the resolution failure below).
+		reason := fmt.Sprintf("this controller has no definition source for %q jobs", kind)
+		slog.Error("job fan-out has no definition source for the job's kind",
+			slog.String("job_id", job.JobID),
+			slog.String("kind", kind))
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
+	prepared, reason, err := source.Prepare(ctx, job.RunbookID)
 	if err != nil {
 		// This is a real, permanent failure case the state enum could not
 		// honestly represent before internal/ent/schema/job.go added a
-		// "failed" state alongside "completed": a runbook that cannot be
-		// resolved means fan-out never even considered a single device,
-		// which "completed" with all-zero tallies would misreport as
-		// indistinguishable from a legitimate dispatch against an empty
-		// group. See that schema's own State field comment for the full
-		// reasoning.
+		// "failed" state alongside "completed": a definition that cannot
+		// be resolved means fan-out never even considered a single
+		// device, which "completed" with all-zero tallies would misreport
+		// as indistinguishable from a legitimate dispatch against an
+		// empty inventory. See that schema's own State field comment.
 		//
-		// The reason recorded on the job names only the runbook_id, never
-		// err's own text: err can carry a filesystem path or another
-		// storage-layer detail (runbook.Source.Get's own doc comment),
-		// and Job.failure_reason is a caller-readable audit field, not a
-		// server log. The full error is logged server-side only, the same
-		// posture internal/api/dispatcher.go already takes with the
-		// repository's own error text.
-		reason := fmt.Sprintf("runbook %q could not be resolved", job.RunbookID)
-		if errors.Is(err, runbook.ErrNotFound) {
-			reason = fmt.Sprintf("runbook %q not found", job.RunbookID)
-		}
-		slog.Error("job fan-out failed to resolve runbook",
+		// reason is the source's own sanitised sentence (the split
+		// DefinitionSource documents): the job record carries it, and
+		// err's full text is logged server-side only, the same posture
+		// internal/api/dispatcher.go takes with the repository's error
+		// text.
+		slog.Error("job fan-out failed to resolve the job's definition",
 			slog.String("job_id", job.JobID),
-			slog.String("runbook_id", job.RunbookID),
+			slog.String("kind", kind),
+			slog.String("definition", job.RunbookID),
 			slog.String("error", err.Error()))
 
 		// A retry cannot help past this point even for a transient
@@ -156,17 +178,33 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
-	iter, err := w.repo.GetGroup(ctx, pkginventory.Selector{GroupName: job.GroupName})
+	selector, reason, err := w.targetSelector(ctx, job)
 	if err != nil {
-		// Mirrors internal/api/dispatcher.go's own posture: the
-		// repository's own error text is logged server-side only, never
-		// surfaced onto the job resource, since it can name tables,
-		// columns, and hosts.
+		// The repository's own error text is logged server-side only and
+		// never surfaced onto the job resource, mirroring
+		// internal/api/dispatcher.go's posture: it can name tables,
+		// columns and hosts. reason is the sanitised sentence a caller
+		// polling the job actually reads.
+		slog.Error("job fan-out could not resolve its targets",
+			slog.String("job_id", job.JobID),
+			slog.Int("inventory_id", job.InventoryID),
+			slog.String("error", err.Error()))
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
+	iter, err := w.repo.GetGroup(ctx, selector)
+	if err != nil {
 		slog.Error("job fan-out failed to query inventory",
 			slog.String("job_id", job.JobID),
-			slog.String("group", job.GroupName),
+			slog.Int("inventory_id", job.InventoryID),
 			slog.String("error", err.Error()))
-		if failErr := w.store.Fail(ctx, job.JobID, fence, fmt.Sprintf("failed to query group %q", job.GroupName)); failErr != nil {
+		if failErr := w.store.Fail(ctx, job.JobID, fence, "failed to query the devices this job targets"); failErr != nil {
 			if fenced(job.JobID, failErr) {
 				return nil
 			}
@@ -204,7 +242,7 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// payload construction, publish, and the RecordTask write for
 		// exactly one device; see that file's own doc comment for why
 		// this block lives there rather than inline in this loop.
-		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, rb, evt, device)
+		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, evt, device)
 		if err != nil {
 			if fenced(job.JobID, err) {
 				return nil
@@ -245,4 +283,56 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return fmt.Errorf("failed to complete job %s: %w", job.JobID, err)
 	}
 	return nil
+}
+
+// targetSelector resolves what a job dispatches against.
+//
+// It returns the selector, and on failure a sanitised reason the job record
+// can carry. Two return values rather than one error because the two
+// audiences are different: the error is for the operator reading logs and
+// may name storage internals, the reason is for whoever is polling the job
+// and must not.
+//
+// A job naming an inventory streams that inventory's membership: its groups
+// plus the devices attached to it directly, as one query the database
+// de-duplicates. A job naming none is a pre-Phase-21 record, and streams by
+// group name exactly as it always did.
+//
+// Three refusals, and each exists because the alternative is worse than an
+// error:
+//
+//   - No set store wired. A Worker built without one cannot resolve an
+//     inventory, and falling through to an unrestricted selector would
+//     dispatch to every device the platform manages.
+//   - The inventory is gone. Somebody deleted the set a template names;
+//     the job says so rather than running against nothing or everything.
+//   - The inventory is empty. A fan-out that reaches zero devices is
+//     indistinguishable from one that failed, so the job says which it was.
+func (w *Worker) targetSelector(ctx context.Context, job *Job) (pkginventory.Selector, string, error) {
+	if job.InventoryID <= 0 {
+		return pkginventory.Selector{GroupName: job.GroupName}, "", nil
+	}
+
+	if w.sets == nil {
+		return pkginventory.Selector{}, "this controller cannot resolve the inventory this job targets",
+			fmt.Errorf("worker has no inventory set store, so job %s cannot be targeted", job.JobID)
+	}
+
+	set, err := w.sets.Get(ctx, job.InventoryID)
+	if err != nil {
+		if errors.Is(err, inventory.ErrSetNotFound) {
+			return pkginventory.Selector{},
+				fmt.Sprintf("inventory %d no longer exists", job.InventoryID), err
+		}
+		return pkginventory.Selector{},
+			fmt.Sprintf("failed to resolve inventory %d", job.InventoryID), err
+	}
+
+	if set.Empty() {
+		return pkginventory.Selector{},
+			fmt.Sprintf("inventory %d contains no devices", job.InventoryID),
+			fmt.Errorf("inventory %d is empty", job.InventoryID)
+	}
+
+	return set.Selector(), "", nil
 }

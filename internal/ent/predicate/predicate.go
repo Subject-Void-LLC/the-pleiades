@@ -6,6 +6,15 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// ActivityEntry is the predicate function for activityentry builders.
+type ActivityEntry func(*sql.Selector)
+
+// Announcement is the predicate function for announcement builders.
+type Announcement func(*sql.Selector)
+
+// Contact is the predicate function for contact builders.
+type Contact func(*sql.Selector)
+
 // Device is the predicate function for device builders.
 type Device func(*sql.Selector)
 
@@ -14,6 +23,9 @@ type Fact func(*sql.Selector)
 
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
+
+// Inventory is the predicate function for inventory builders.
+type Inventory func(*sql.Selector)
 
 // Job is the predicate function for job builders.
 type Job func(*sql.Selector)
@@ -30,8 +42,20 @@ type Revision func(*sql.Selector)
 // RoleBinding is the predicate function for rolebinding builders.
 type RoleBinding func(*sql.Selector)
 
+// SavedLaunchConfig is the predicate function for savedlaunchconfig builders.
+type SavedLaunchConfig func(*sql.Selector)
+
+// Session is the predicate function for session builders.
+type Session func(*sql.Selector)
+
+// SurveyQuestion is the predicate function for surveyquestion builders.
+type SurveyQuestion func(*sql.Selector)
+
 // Team is the predicate function for team builders.
 type Team func(*sql.Selector)
+
+// Template is the predicate function for template builders.
+type Template func(*sql.Selector)
 
 // User is the predicate function for user builders.
 type User func(*sql.Selector)

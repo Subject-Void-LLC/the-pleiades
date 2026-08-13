@@ -104,13 +104,15 @@ credential genuinely fails to authenticate; see
 [Migrating from Ansible](03-migrating-from-ansible.md#running-an-unconverted-playbook)
 for exactly what that proves and does not yet prove.
 
-**This is not yet reachable from a real dispatch.** The `runner` binary a real deployment
-runs still only ever composes the native adapter; nothing chooses between the two per
-job, because no job-kind registry exists yet to route on. So today this adapter is real
-and independently tested, not something a `pleiades` user or a `POST
-/api/v1/jobs/dispatch` call can select.
+**A real dispatch can now reach it.** The `runner` binary composes both adapters and
+routes each dispatch on the launch kind it carries, resolved from an open registry: a
+template of kind `runbook` reaches the native adapter and one of kind `playbook`
+reaches this one. Two conditions apply. The legacy adapter is composed only when the
+deployment supplies `PLAYBOOK_DIR` and `ANSIBLE_RUNNER_IMAGE`, so a deployment that has
+never run Ansible simply has no playbook kind to launch; and a dispatch naming a kind
+this Runner cannot run is reported on the job rather than retried forever.
 
-Four more limits are worth knowing before you rely on it once it is wired in. It runs
+Four more limits are worth knowing before you rely on it. It runs
 against exactly one device per dispatch, never a whole play's own host list, unlike a
 real Ansible run. Events are parsed from the container's captured output after the
 playbook finishes, not streamed live task by task. The fuller Run-tier vision described

@@ -63,9 +63,11 @@ type DeviceEdges struct {
 	Groups []*Group `json:"groups,omitempty"`
 	// Organization holds the value of the organization edge.
 	Organization *Organization `json:"organization,omitempty"`
+	// Inventories holds the value of the inventories edge.
+	Inventories []*Inventory `json:"inventories,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
 }
 
 // ParentOrErr returns the Parent value or an error if the edge
@@ -124,6 +126,15 @@ func (e DeviceEdges) OrganizationOrErr() (*Organization, error) {
 		return nil, &NotFoundError{label: organization.Label}
 	}
 	return nil, &NotLoadedError{edge: "organization"}
+}
+
+// InventoriesOrErr returns the Inventories value or an error if the edge
+// was not loaded in eager-loading.
+func (e DeviceEdges) InventoriesOrErr() ([]*Inventory, error) {
+	if e.loadedTypes[6] {
+		return e.Inventories, nil
+	}
+	return nil, &NotLoadedError{edge: "inventories"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -290,6 +301,11 @@ func (_m *Device) QueryGroups() *GroupQuery {
 // QueryOrganization queries the "organization" edge of the Device entity.
 func (_m *Device) QueryOrganization() *OrganizationQuery {
 	return NewDeviceClient(_m.config).QueryOrganization(_m)
+}
+
+// QueryInventories queries the "inventories" edge of the Device entity.
+func (_m *Device) QueryInventories() *InventoryQuery {
+	return NewDeviceClient(_m.config).QueryInventories(_m)
 }
 
 // Update returns a builder for updating this Device.

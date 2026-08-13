@@ -11,6 +11,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/go-chi/chi/v5"
@@ -32,7 +34,21 @@ type JobRepository interface {
 	// JobTask recorded against it so far, or an error satisfying
 	// errors.Is(err, dispatch.ErrJobNotFound) if no such job exists.
 	Get(ctx context.Context, jobID string) (*dispatch.Job, []dispatch.JobTask, error)
+
+	// List returns up to limit jobs, newest first, resuming after the
+	// given opaque cursor. It carries no JobTask rows: a list view does
+	// not display per-device outcomes.
+	List(ctx context.Context, after string, limit int) ([]*dispatch.Job, error)
 }
+
+// defaultJobListLimit and maxJobListLimit bound a job list page, matching
+// the device list's own bounds and existing for the same reason: the cap
+// is the server's, so ?limit=100000 is not a supported way to ask it to
+// hold the entire job history in memory.
+const (
+	defaultJobListLimit = 50
+	maxJobListLimit     = 200
+)
 
 // JobHandler serves the Job resource.
 type JobHandler struct {
@@ -67,8 +83,30 @@ type jobResponse struct {
 
 	JobID     string `json:"job_id"`
 	RunbookID string `json:"runbook_id"`
-	GroupName string `json:"group_name"`
 	State     string `json:"state"`
+
+	// Template, TemplateName, Inventory and Organization are what this job
+	// was launched from and whose it is, captured at launch rather than
+	// resolved live: a job is a historical record, and a rename or a
+	// deletion afterwards must not rewrite what it says it ran.
+	//
+	// They replace the group name a job used to carry. A free-text group
+	// had no tenant, so a job launched that way belonged to no
+	// organization and named no saved definition, which is the state Phase
+	// 21 exists to end.
+	Template     int    `json:"template,omitempty"`
+	TemplateName string `json:"template_name,omitempty"`
+	Inventory    int    `json:"inventory,omitempty"`
+	Organization int    `json:"organization,omitempty"`
+
+	// Kind is which registered launch kind ran, and therefore which
+	// execution adapter handled it.
+	Kind string `json:"kind,omitempty"`
+
+	// FailureReason explains a failed state, and is empty for every other
+	// one. It carries only facts a job-resource reader may see, never a
+	// raw internal error.
+	FailureReason string `json:"failure_reason,omitempty"`
 
 	// Dispatched, Skipped, and Failed are the terminal per-device
 	// tallies (dispatch.Job's own DispatchedCount/SkippedCount/
@@ -103,14 +141,19 @@ func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 	}
 
 	return jobResponse{
-		JobID:      job.JobID,
-		RunbookID:  job.RunbookID,
-		GroupName:  job.GroupName,
-		State:      job.State,
-		Dispatched: job.DispatchedCount,
-		Skipped:    job.SkippedCount,
-		Failed:     job.FailedCount,
-		Tasks:      dtos,
+		JobID:         job.JobID,
+		RunbookID:     job.RunbookID,
+		State:         job.State,
+		Template:      job.TemplateID,
+		TemplateName:  job.TemplateName,
+		Inventory:     job.InventoryID,
+		Organization:  job.OrganizationID,
+		Kind:          job.Kind,
+		FailureReason: job.FailureReason,
+		Dispatched:    job.DispatchedCount,
+		Skipped:       job.SkippedCount,
+		Failed:        job.FailedCount,
+		Tasks:         dtos,
 	}
 }
 
@@ -152,5 +195,87 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dto := toJobResponse(job, tasks)
+	Respond(w, r, http.StatusOK, &dto)
+}
+
+// jobSummaryDTO is one job in a list: identity, state, and tallies,
+// without the per-device task rows a detail view shows. A list of a
+// thousand jobs must not carry a hundred thousand task rows nobody
+// rendered.
+type jobSummaryDTO struct {
+	JobID        string `json:"job_id"`
+	RunbookID    string `json:"runbook_id"`
+	State        string `json:"state"`
+	TemplateName string `json:"template_name,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Actor        string `json:"actor"`
+	Dispatched   int    `json:"dispatched"`
+	Skipped      int    `json:"skipped"`
+	Failed       int    `json:"failed"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// jobListDTO is one page of jobs, newest first.
+type jobListDTO struct {
+	LinkSet
+
+	Jobs       []jobSummaryDTO `json:"jobs"`
+	NextCursor string          `json:"next_cursor"`
+}
+
+// List serves a bounded, keyset-paginated page of jobs, newest first.
+func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit := defaultJobListLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			RespondError(w, r, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		limit = min(parsed, maxJobListLimit)
+	}
+
+	after := r.URL.Query().Get("after")
+	if after != "" {
+		// The cursor is a job id, and a job id is a UUID. Validating it
+		// here is the same guard StreamLogs applies to {id}: the value
+		// reaches a storage query, and accepting arbitrary text would mean
+		// a caller choosing what that query compares against.
+		if _, err := uuid.Parse(after); err != nil {
+			RespondError(w, r, http.StatusBadRequest, "after must be a UUID")
+			return
+		}
+	}
+
+	// One more than asked for, so the presence of a next page is observed
+	// rather than inferred from a full page.
+	jobs, err := h.jobs.List(r.Context(), after, limit+1)
+	if err != nil {
+		loggerFrom(r).ErrorContext(r.Context(), "failed to list jobs",
+			slog.String("error", err.Error()))
+		RespondError(w, r, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	dto := jobListDTO{Jobs: make([]jobSummaryDTO, 0, limit)}
+	for _, j := range jobs {
+		if len(dto.Jobs) == limit {
+			dto.NextCursor = dto.Jobs[limit-1].JobID
+			break
+		}
+		dto.Jobs = append(dto.Jobs, jobSummaryDTO{
+			JobID:        j.JobID,
+			RunbookID:    j.RunbookID,
+			State:        j.State,
+			TemplateName: j.TemplateName,
+			Kind:         j.Kind,
+			Actor:        j.Actor,
+			Dispatched:   j.DispatchedCount,
+			Skipped:      j.SkippedCount,
+			Failed:       j.FailedCount,
+			CreatedAt:    j.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
 	Respond(w, r, http.StatusOK, &dto)
 }

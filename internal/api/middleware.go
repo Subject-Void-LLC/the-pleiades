@@ -229,24 +229,106 @@ type TokenValidator interface {
 // header must carry.
 const bearerPrefix = "Bearer "
 
-// AuthMiddleware rejects any request without a valid Bearer token and
-// places the resolved identity in the request context for downstream
+// CredentialSource resolves one kind of credential off a request.
+//
+// It exists because a browser cannot present a Bearer token: an
+// EventSource cannot set headers at all, so the SSE job-log stream was
+// unreachable from any browser client until a second credential kind
+// existed. The alternative to this interface was for the web UI to write
+// its own identity into its own context key, which cannot work --
+// identityKey is unexported, so nothing outside this package can put an
+// identity where IdentityFromContext will find it. Generalizing here,
+// rather than opening a second door, keeps one place writing identity into
+// a request and one place answering 401.
+type CredentialSource interface {
+	// Name identifies this source in logs.
+	Name() string
+
+	// Resolve returns the identity this request carries for this kind of
+	// credential.
+	//
+	// It returns (nil, nil) when the request carries no credential of
+	// this kind at all, which is deliberately distinct from returning an
+	// error. "Not my kind of request" must fall through to the next
+	// source; "a credential of my kind, and it is bad" must not.
+	Resolve(r *http.Request) (*auth.Identity, error)
+}
+
+// BearerSource resolves an Authorization: Bearer token. It is the
+// credential kind every API and CLI client uses, and its behaviour is
+// unchanged from when it was the only one.
+type BearerSource struct {
+	Validator TokenValidator
+}
+
+// Name implements CredentialSource.
+func (BearerSource) Name() string { return "bearer" }
+
+// Resolve implements CredentialSource.
+func (s BearerSource) Resolve(r *http.Request) (*auth.Identity, error) {
+	authHeader := r.Header.Get("Authorization")
+	if len(authHeader) <= len(bearerPrefix) || authHeader[:len(bearerPrefix)] != bearerPrefix {
+		// No Bearer credential present. Not an error: another source may
+		// still authenticate this request.
+		return nil, nil
+	}
+	return s.Validator.ValidateToken(r.Context(), authHeader[len(bearerPrefix):])
+}
+
+// IdentityMiddleware authenticates a request against each source in turn
+// and places the resolved identity in the request context, for downstream
 // handlers and for the rate limiter's per-identity keying.
-func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
+//
+// Source order is significant and is the caller's to choose. Bearer must
+// come before any ambient credential: an explicit Authorization header is
+// an unambiguous statement of intent, while a cookie is sent by the
+// browser whether or not the caller meant it, so trying the cookie first
+// would let a stale session silently override a token a caller took the
+// trouble to supply.
+//
+// unauthorized renders the failure. It is a parameter because the two
+// subtrees need different answers to the same condition: the JSON API owes
+// an unauthenticated caller 401 with a machine-readable body, while the UI
+// owes a browser a redirect to its login page. A single hardcoded response
+// would make one of the two wrong. A nil unauthorized falls back to the
+// API's 401.
+func IdentityMiddleware(unauthorized http.HandlerFunc, sources ...CredentialSource) func(http.Handler) http.Handler {
+	if unauthorized == nil {
+		unauthorized = func(w http.ResponseWriter, r *http.Request) {
+			RespondError(w, r, http.StatusUnauthorized, "unauthorized")
+		}
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if len(authHeader) <= len(bearerPrefix) || authHeader[:len(bearerPrefix)] != bearerPrefix {
-				RespondError(w, r, http.StatusUnauthorized, "unauthorized")
+			for _, source := range sources {
+				identity, err := source.Resolve(r)
+				if err != nil {
+					// A credential of this kind was presented and is not
+					// valid. Falling through to the next source here
+					// would let a bad token be rescued by an ambient
+					// cookie, which is the opposite of what presenting a
+					// token means.
+					unauthorized(w, r)
+					return
+				}
+				if identity == nil {
+					continue
+				}
+				ctx := context.WithValue(r.Context(), identityKey, identity)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			identity, err := validator.ValidateToken(r.Context(), authHeader[len(bearerPrefix):])
-			if err != nil {
-				RespondError(w, r, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-			ctx := context.WithValue(r.Context(), identityKey, identity)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			unauthorized(w, r)
 		})
 	}
+}
+
+// AuthMiddleware rejects any request without a valid Bearer token and
+// places the resolved identity in the request context.
+//
+// It is kept verbatim as a one-line wrapper so every existing caller and
+// test is untouched by the generalization above.
+func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
+	return IdentityMiddleware(nil, BearerSource{Validator: validator})
 }

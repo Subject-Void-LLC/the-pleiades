@@ -1,7 +1,14 @@
 // This file is Phase 14's Release Gate: a caller with runbook:execute
-// launches a dispatch against a 10,000-device group, the real, unmodified
-// production pipeline (Dispatcher, the real Bus, Worker, JobStore) fans it
-// out entirely off the HTTP request, and every single device is reached.
+// launches a template against a 10,000-device inventory, the real,
+// unmodified production pipeline (Dispatcher, the real Bus, Worker,
+// JobStore) fans it out entirely off the HTTP request, and every single
+// device is reached.
+//
+// It launches a stored template rather than naming a group in a query
+// string, because that is the only launch surface there is as of Phase 21.
+// The gate is unchanged in what it proves and gains one property it could
+// not state before: the job it produces carries the organization its
+// inventory belongs to, so 10,000 dispatches are attributable to a tenant.
 //
 // Every component below is the real one, per RULE 0, mirroring
 // hateoas_release_test.go's own precedent exactly: the router is
@@ -32,15 +39,19 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	_ "github.com/mattn/go-sqlite3"
@@ -137,9 +148,34 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	group := client.Group.Create().SetName("release-gate-fleet").SaveX(ctx)
 	attachReleaseGateDevices(t, ctx, client, group.ID, devices)
 
+	// The tenant, the inventory that holds the fleet, and the template that
+	// runs against it. The inventory names the GROUP rather than the ten
+	// thousand devices directly, so the membership the Worker streams is
+	// resolved exactly as a real deployment's is.
+	org := client.Organization.Create().SetName("release-gate-org").SaveX(ctx)
+	set := client.Inventory.Create().
+		SetName("release-gate-inventory").
+		SetOrganization(org).
+		AddGroups(group).
+		SaveX(ctx)
+
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
 	jobStore := dispatch.NewEntJobStore(client)
+	sets := inventory.NewEntSetStore(client)
+	templates := launch.NewEntStore(client, launch.StaticCatalog(
+		launch.CatalogEntry{Kind: "runbook", Definition: releaseGateRunbookID},
+	))
 	runbooks := newTestRunbookSource(t, releaseGateRunbookID)
+
+	template, err := templates.Create(ctx, launch.Template{
+		Name:        "release gate",
+		KindName:    "runbook",
+		Definition:  releaseGateRunbookID,
+		InventoryID: set.ID,
+	})
+	if err != nil {
+		t.Fatalf("creating the release gate template: %v", err)
+	}
 
 	// countingBus wraps a real event.NewInProcessBus and records every
 	// publish, so the count of wire.DispatchPayload messages actually
@@ -147,12 +183,13 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	// own stored tally alone.
 	bus := newCapturingBus()
 
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, nil, dispatch.WithSetStore(sets))
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
 
-	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
+	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
+		api.WithTemplates(templates), api.WithLaunchConfigs(templates))
 	jobsHandler := api.NewJobHandler(jobStore)
 
 	// The real auth pipeline, wired exactly as cmd/controller/main.go
@@ -162,32 +199,36 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	issuer := authtest.New(t, "release-gate-issuer", "release-gate-audience")
 	chain := auth.AdmissionChain{auth.NewTokenScopeRule(issuer.Evaluator())}
 	admission := auth.Admission{Chain: chain, Recorder: auth.NewSlogRecorder(slog.New(slog.NewJSONHandler(io.Discard, nil)))}
-	hateoasGen, err := auth.NewAdmissionHATEOASGenerator(chain)
-	if err != nil {
+	hateoasGen, gerr := auth.NewAdmissionHATEOASGenerator(chain)
+	if err = gerr; err != nil {
 		t.Fatalf("building HATEOAS generator: %v", err)
 	}
 
-	router, err := api.NewRouter(api.RouterConfig{
+	var router http.Handler
+	router, err = api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Auth:      api.AuthMiddleware(issuer.Evaluator()),
 		Admission: admission,
 		HATEOAS:   hateoasGen,
 		Routes: []api.Route{
-			{Method: http.MethodPost, Pattern: "/jobs/dispatch", Scope: auth.ScopeRunbookExecute, Rel: auth.RelExecute, Handler: dispatcher.DispatchRunbook},
-			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: jobsHandler.Get},
+			apispec.LaunchTemplate.Route(dispatcher.LaunchFromTemplate),
+			apispec.GetJob.Route(jobsHandler.Get),
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
 
+	// runbook:execute and job:read, and deliberately NOT template:write.
+	// Launching a saved definition must not require the right to change
+	// what it runs, which is the whole reason the two scopes are separate.
 	identity := &auth.Identity{
 		Subject: "release-gate-operator@example.com",
 		Role:    auth.RoleOperator,
 		Scopes:  []auth.Scope{auth.ScopeRunbookExecute, auth.ScopeJobRead},
 	}
 
-	target := api.APIVersionPrefix + "/jobs/dispatch?group=release-gate-fleet&runbook=" + releaseGateRunbookID
+	target := api.APIVersionPrefix + "/templates/" + strconv.Itoa(template.ID) + "/launch"
 	req := httptest.NewRequest(http.MethodPost, target, nil)
 	req.Header.Set("Authorization", issuer.BearerToken(t, identity))
 

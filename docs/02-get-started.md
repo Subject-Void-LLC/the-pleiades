@@ -224,16 +224,32 @@ $ curl -s http://localhost:8080/readyz
 {"status":"ready","checks":{"database":"ok","nats":"ok"}}
 ```
 
-### Dispatch a job over the real API
+### Launch a job over the real API
 
 Minted a JWT signed with the same `JWT_SECRET`, claiming `role: admin` (see
-`cmd/demo/main.go` for the same pattern this project's own demo binary uses):
+`cmd/demo/main.go` for the same pattern this project's own demo binary uses).
+
+A launch names a **template**: the saved definition of what to run, where to run it,
+and how. Create one first, naming the inventory it targets:
 
 ```console
-$ curl -s -X POST "http://localhost:8080/api/v1/jobs/dispatch?group=lab&runbook=sample" \
-    -H "Authorization: Bearer $TOKEN"
-{"_links":[{"rel":"execute","href":"/api/v1/jobs/dispatch","method":"POST"}],"status":"accepted","job_id":"2cd07f0c-460d-40e4-a8d9-498314c7a5aa"}
+$ curl -s -X POST "http://localhost:8080/api/v1/templates" \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"name":"sample","kind":"runbook","definition":"sample","inventory":1}'
+{"id":1,"name":"sample","kind":"runbook","kind_label":"Runbook","definition":"sample","inventory":1,"organization":1,"prompts":[],"allow_simultaneous":false}
 ```
+
+Then launch it:
+
+```console
+$ curl -s -X POST "http://localhost:8080/api/v1/templates/1/launch" \
+    -H "Authorization: Bearer $TOKEN"
+{"_links":[{"rel":"execute","href":"/api/v1/templates/1/launch","method":"POST"}],"status":"accepted","job_id":"2cd07f0c-460d-40e4-a8d9-498314c7a5aa","ignored_fields":[]}
+```
+
+`ignored_fields` is empty here because this launch supplied nothing. A template
+declares which of its fields a launch may override; supplying one it does not is
+reported by name rather than silently applied or silently dropped.
 
 ```console
 $ curl -s "http://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa" \
@@ -242,7 +258,7 @@ $ curl -s "http://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5a
   "_links": [{"rel": "self", "href": "/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa", "method": "GET"}],
   "job_id": "2cd07f0c-460d-40e4-a8d9-498314c7a5aa",
   "runbook_id": "sample",
-  "group_name": "lab",
+  "group_name": "",
   "state": "completed",
   "dispatched": 0,
   "skipped": 0,
@@ -251,11 +267,11 @@ $ curl -s "http://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5a
 }
 ```
 
-`dispatched: 0` is honest, not broken: the Controller's own inventory (a separate
-store from the Walk-tier CLI's local `inventory.yaml`) has no devices in group `lab`
-yet, and there is no device-create endpoint in the API today, only `GET` and
-`DELETE`. Populating the Controller's inventory is not yet a documented path; this
-page will grow one once it exists.
+`dispatched: 0` is honest, not broken: the inventory this template names holds no
+devices yet. The Controller's own inventory is a separate store from the Walk-tier
+CLI's local `inventory.yaml`, and populating it means creating devices
+(`POST /api/v1/inventory/devices`), grouping them, and putting those groups in an
+Inventory (`POST /api/v1/inventories`) for a template to target.
 
 ### Watch the log stream
 
@@ -273,7 +289,7 @@ reason `dispatched` was 0 above.
 ### The HATEOAS `Allow` header is real too
 
 ```console
-$ curl -s -X OPTIONS "http://localhost:8080/api/v1/jobs/dispatch" -H "Authorization: Bearer $TOKEN" -i
+$ curl -s -X OPTIONS "http://localhost:8080/api/v1/templates/1/launch" -H "Authorization: Bearer $TOKEN" -i
 HTTP/1.1 204 No Content
 Allow: OPTIONS, POST
 ```

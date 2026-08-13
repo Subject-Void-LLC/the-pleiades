@@ -75,9 +75,93 @@ func (_c *JobCreate) SetGroupName(v string) *JobCreate {
 	return _c
 }
 
+// SetInventoryID sets the "inventory_id" field.
+func (_c *JobCreate) SetInventoryID(v int) *JobCreate {
+	_c.mutation.SetInventoryID(v)
+	return _c
+}
+
+// SetNillableInventoryID sets the "inventory_id" field if the given value is not nil.
+func (_c *JobCreate) SetNillableInventoryID(v *int) *JobCreate {
+	if v != nil {
+		_c.SetInventoryID(*v)
+	}
+	return _c
+}
+
+// SetTemplateID sets the "template_id" field.
+func (_c *JobCreate) SetTemplateID(v int) *JobCreate {
+	_c.mutation.SetTemplateID(v)
+	return _c
+}
+
+// SetNillableTemplateID sets the "template_id" field if the given value is not nil.
+func (_c *JobCreate) SetNillableTemplateID(v *int) *JobCreate {
+	if v != nil {
+		_c.SetTemplateID(*v)
+	}
+	return _c
+}
+
+// SetTemplateName sets the "template_name" field.
+func (_c *JobCreate) SetTemplateName(v string) *JobCreate {
+	_c.mutation.SetTemplateName(v)
+	return _c
+}
+
+// SetNillableTemplateName sets the "template_name" field if the given value is not nil.
+func (_c *JobCreate) SetNillableTemplateName(v *string) *JobCreate {
+	if v != nil {
+		_c.SetTemplateName(*v)
+	}
+	return _c
+}
+
+// SetLaunchConfigID sets the "launch_config_id" field.
+func (_c *JobCreate) SetLaunchConfigID(v int) *JobCreate {
+	_c.mutation.SetLaunchConfigID(v)
+	return _c
+}
+
+// SetNillableLaunchConfigID sets the "launch_config_id" field if the given value is not nil.
+func (_c *JobCreate) SetNillableLaunchConfigID(v *int) *JobCreate {
+	if v != nil {
+		_c.SetLaunchConfigID(*v)
+	}
+	return _c
+}
+
+// SetKind sets the "kind" field.
+func (_c *JobCreate) SetKind(v string) *JobCreate {
+	_c.mutation.SetKind(v)
+	return _c
+}
+
+// SetNillableKind sets the "kind" field if the given value is not nil.
+func (_c *JobCreate) SetNillableKind(v *string) *JobCreate {
+	if v != nil {
+		_c.SetKind(*v)
+	}
+	return _c
+}
+
 // SetActor sets the "actor" field.
 func (_c *JobCreate) SetActor(v string) *JobCreate {
 	_c.mutation.SetActor(v)
+	return _c
+}
+
+// SetOrganizationID sets the "organization_id" field.
+func (_c *JobCreate) SetOrganizationID(v int) *JobCreate {
+	_c.mutation.SetOrganizationID(v)
+	return _c
+}
+
+// SetNillableOrganizationID sets the "organization_id" field if the given value is not nil.
+func (_c *JobCreate) SetNillableOrganizationID(v *int) *JobCreate {
+	if v != nil {
+		_c.SetOrganizationID(*v)
+	}
 	return _c
 }
 
@@ -162,6 +246,18 @@ func (_c *JobCreate) SetNillableFence(v *int64) *JobCreate {
 	if v != nil {
 		_c.SetFence(*v)
 	}
+	return _c
+}
+
+// SetFields sets the "fields" field.
+func (_c *JobCreate) SetFields(v map[string]interface{}) *JobCreate {
+	_c.mutation.SetFields(v)
+	return _c
+}
+
+// SetExtraVars sets the "extra_vars" field.
+func (_c *JobCreate) SetExtraVars(v map[string]interface{}) *JobCreate {
+	_c.mutation.SetExtraVars(v)
 	return _c
 }
 
@@ -350,9 +446,33 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 		_spec.SetField(job.FieldGroupName, field.TypeString, value)
 		_node.GroupName = value
 	}
+	if value, ok := _c.mutation.InventoryID(); ok {
+		_spec.SetField(job.FieldInventoryID, field.TypeInt, value)
+		_node.InventoryID = &value
+	}
+	if value, ok := _c.mutation.TemplateID(); ok {
+		_spec.SetField(job.FieldTemplateID, field.TypeInt, value)
+		_node.TemplateID = &value
+	}
+	if value, ok := _c.mutation.TemplateName(); ok {
+		_spec.SetField(job.FieldTemplateName, field.TypeString, value)
+		_node.TemplateName = value
+	}
+	if value, ok := _c.mutation.LaunchConfigID(); ok {
+		_spec.SetField(job.FieldLaunchConfigID, field.TypeInt, value)
+		_node.LaunchConfigID = &value
+	}
+	if value, ok := _c.mutation.Kind(); ok {
+		_spec.SetField(job.FieldKind, field.TypeString, value)
+		_node.Kind = value
+	}
 	if value, ok := _c.mutation.Actor(); ok {
 		_spec.SetField(job.FieldActor, field.TypeString, value)
 		_node.Actor = value
+	}
+	if value, ok := _c.mutation.OrganizationID(); ok {
+		_spec.SetField(job.FieldOrganizationID, field.TypeInt, value)
+		_node.OrganizationID = &value
 	}
 	if value, ok := _c.mutation.State(); ok {
 		_spec.SetField(job.FieldState, field.TypeEnum, value)
@@ -377,6 +497,14 @@ func (_c *JobCreate) createSpec() (*Job, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Fence(); ok {
 		_spec.SetField(job.FieldFence, field.TypeInt64, value)
 		_node.Fence = value
+	}
+	if value, ok := _c.mutation.GetFields(); ok {
+		_spec.SetField(job.FieldFields, field.TypeJSON, value)
+		_node.Fields = value
+	}
+	if value, ok := _c.mutation.ExtraVars(); ok {
+		_spec.SetField(job.FieldExtraVars, field.TypeJSON, value)
+		_node.ExtraVars = value
 	}
 	if nodes := _c.mutation.TasksIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

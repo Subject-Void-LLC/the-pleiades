@@ -25,33 +25,30 @@ order, before its own handler ever runs.
 
 ## The route table, generated
 
-The five real routes are generated documentation, not hand-maintained prose:
+The route table is generated documentation, not hand-maintained prose:
 [the OpenAPI document](reference/schemas/openapi.json) (also served live at
 `/api/v1/openapi.json`) and [the CLI reference](reference/cli.md) share the same
 "generate from one source" discipline every other reference page in this set does.
 Both `cmd/controller`'s real router and the generated OpenAPI document build from
-the same `internal/apispec` endpoint values, so for a route that appears in both,
-the method, pattern, required scope, and hypermedia relation cannot drift: the
-router asks each endpoint for its own `Route`, which copies all four fields off the
-exact value the document is rendered from.
+the same `internal/apispec` endpoint values, so the method, pattern, required scope,
+and hypermedia relation cannot drift: the router asks each endpoint for its own
+`Route`, which copies all four fields off the exact value the document is rendered
+from.
 
-**Which routes are on the list is not enforced.** The generator walks the
-`apispec.Endpoints` slice, while `cmd/controller` names its five endpoints one at a
-time in its own route table. Nothing compares the two sets. Add a sixth endpoint to
-the slice, forget to register it, and the build says nothing: `go build` and `go vet`
-both pass, no test notices, and the served document then advertises a route no
-handler was ever mounted for. The request falls through to the router's not-found
-path instead of reaching any handler. So trust a listed route's method, pattern,
-scope, and relation. Do not read the list itself as proof that every route on it
-exists; call a route against a running controller before you build on it.
+**Set membership is enforced too, and that is a change from what this book used to
+say.** It previously warned that nothing compared the two sets, so an endpoint added
+to the spec and never mounted would be advertised and 404. It is now checked in both
+directions at startup: the controller pairs every declared endpoint with a handler by
+name and refuses to start if any endpoint has none, or if any handler is registered
+under a name no endpoint declares. A route the document lists is therefore a route
+the server serves.
 
-| Method | Pattern | Scope | Relation |
-|---|---|---|---|
-| POST | `/jobs/dispatch` | `runbook:execute` | `execute` |
-| GET | `/jobs/{id}` | `job:read` | `self` |
-| GET | `/jobs/{id}/logs` | `job:read` | `logs` |
-| GET | `/inventory/devices/{name}` | `inventory:read` | `self` |
-| DELETE | `/inventory/devices/{name}` | `inventory:write` | `delete` |
+Read the OpenAPI document for the full list rather than a table here, which is
+exactly the drift this section is describing. What follows is the shape of it:
+runbooks and templates (the saved definitions of what to run, where, and how), jobs
+and their live log streams, the inventory (devices, groups and the shareable
+Inventories above them), the access surface (organizations, teams, users, contacts
+and role bindings), the activity stream, and operator announcements.
 
 Three more operational endpoints exist outside the versioned, authenticated
 `/api/v1` prefix entirely, on purpose: `/healthz` and `/readyz` are orchestrator
@@ -68,8 +65,8 @@ static shape, so there is nothing to protect and no caller to turn away.
 Two separate mechanisms answer two separate questions, and conflating them is the
 most common way to misread this API.
 
-**Which permission scope does this route require?** Every route's `Scope` (the table
-above) is checked against the calling identity's JWT `Scopes` claim. A caller with
+**Which permission scope does this route require?** Every route's `Scope` (in the
+generated document) is checked against the calling identity's JWT `Scopes` claim. A caller with
 the `admin` role bypasses this check entirely, for every scope, unconditionally. A
 caller without the `admin` role needs the specific scope a route declares, present
 in their token, or `*` (a wildcard scope). There is no static "role X always gets
@@ -102,27 +99,28 @@ holding only a narrow scope has no business reading.
 A successful response embeds a `_links` array: every affordance the calling identity
 is actually authorized to take against that resource right now, computed once by a
 single builder shared between the `_links` array and the `Allow` header an `OPTIONS`
-request returns, so the two can never disagree. Six relation names exist today:
+request returns, so the two can never disagree. Seven relation names exist today:
 
 | Relation | Meaning |
 |---|---|
 | `self` | This resource's own canonical URL. |
-| `create` | Not used by any route in the table above yet. |
-| `update` | Not used by any route in the table above yet. |
+| `collection` | The collection this resource belongs to. |
+| `create` | Create a new member of this collection. |
+| `update` | Modify this resource in place. |
 | `delete` | Retire this resource. |
-| `execute` | Trigger an action against this resource (dispatch a runbook). |
+| `copy` | Duplicate this resource. Its own relation rather than `create`, because a relation is unique per resource and the two would otherwise be indistinguishable on a page that offers both. |
+| `execute` | Run this resource: launch a template, relaunch a job. |
 | `logs` | Stream this resource's live progress. |
-
-`create` and `update` are declared but unused: no route in the current table needs
-them yet, and they exist so a future route does not need a new relation vocabulary
-invented for it.
 
 ## Pagination
 
-No route returns a paginated list today: `GET /jobs/{id}` and
-`GET /inventory/devices/{name}` both read exactly one resource by ID. Nothing in
-this API defines a pagination shape yet; a future list endpoint will need one, not
-inherit an assumption from what exists today.
+Every list route is keyset paged, never offset. An offset over a table being written
+to skips and repeats rows, which on an inventory list means a device silently missing
+from one page while another is shown twice. Pass the previous page's cursor back as
+`?after=`: a job id for the job list, since job ids are UUIDv7 and therefore
+time-ordered, and the last numeric id for everything keyed on one. The page size is
+the server's to cap, so `?limit=100000` is not a supported way to ask it to hold an
+entire fleet in memory.
 
 ## The SSE job log stream
 
@@ -170,32 +168,50 @@ codebase today; treat any mention of one as aspirational until this line is remo
 
 ## Web UI
 
-A mockup, all six routes. Five render hardcoded content and issue no network request
-at all. The sixth is an SSE job log viewer whose streaming code is real, and it
-cannot reach this API for three independent reasons, each enough on its own:
+Server-rendered, served by `cmd/controller` itself at `/ui`, same-origin, from assets
+compiled into the binary. There is no separate front-end build, no Node toolchain, no
+nginx image and no reverse-proxy seam between the two: browse to the controller's own
+address and add `/ui`.
 
-- **It requests the wrong job.** `web/src/views/JobDetails.tsx` sets
-  `const jobId = "123"` instead of reading the `:id` that its own `/jobs/:id` route
-  declares, so every visit asks for job `"123"`. This endpoint requires a UUID (see
-  [the SSE job log stream](#the-sse-job-log-stream) above), so even an authenticated
-  version of that request answers `400 {"error":"job id must be a UUID"}`.
-- **It calls the wrong address, and nothing forwards.** The URL is hardcoded to
-  `http://localhost:8081`. `cmd/controller` listens on `:8080` unless `LISTEN_ADDR`
-  overrides it, `web/vite.config.ts` declares no `server.proxy`, and `web/nginx.conf`
-  serves static files with no `/api` location at all. Port 8081 belongs to `cmd/demo`,
-  which wires the same authentication middleware this router does, so aiming there
-  does not help either.
-- **`EventSource` cannot authenticate.** Every route under `/api/v1` requires
-  `Authorization: Bearer <token>`. An `EventSource` cannot be given request headers:
-  its constructor takes a URL and a `withCredentials` flag, nothing more. This API
-  reads a token from nowhere else either, no cookie and no query parameter, so the
-  request arrives anonymous and is rejected 401 before any handler runs. That 401
-  carries no `Access-Control-Allow-Origin` header, so a browser will not release the
-  response to the page: the failure surfaces as a bare error event, not as the 401 it
-  was. The `Access-Control-Allow-Origin: *` that the log handler does set is set
-  inside the handler, which an unauthenticated request never reaches.
+Sign in at `/ui/login` by pasting a token this control plane already accepts. It is
+validated by the same evaluator the `Authorization: Bearer` path uses and exchanged
+for a server-side session cookie, so the UI adds no second notion of who a caller is
+and no password store. Interactive sign-in through an identity provider is deferred
+to its own phase; token paste is the bootstrap and break-glass path.
 
-The endpoint itself is sound: an authenticated `GET` with a real job UUID answers
-`200 text/event-stream` and an `event: init` frame. Nothing the UI sends gets past
-any of the three problems above. Treat the UI as `experimental` and prefer the API
-directly, or the CLI, for anything that matters today.
+That cookie is also what makes the SSE job log viewer work. An `EventSource` cannot
+be given request headers -- its constructor takes a URL and a `withCredentials` flag,
+nothing more -- so while `Authorization: Bearer` was the only credential this API
+accepted, no browser could reach the stream at all. `/api/v1` now accepts a Bearer
+header **or** a session cookie, resolved by one middleware into one identity, and the
+log viewer at `/ui/jobs/{id}/logs` connects with the cookie alone.
+
+Which views do anything is decided per view and stated on the page rather than in this
+document. The ones worth calling out:
+
+| View | State | Notes |
+|---|---|---|
+| Dashboard | Real | Job-outcome counts over the most recent 200 dispatches, as a chart and as an equivalent table. |
+| Templates | Real | The saved definitions this platform launches: create, edit, copy, delete, and launch. What a template runs is chosen from a picker over everything the deployment can resolve, runbooks and playbooks in one list, never typed; the kind is derived from the choice, and a definition that does not resolve is refused at create rather than failing later as a failed job. The launch form renders only the fields the template being launched actually opened, plus its survey, because a control whose value is then ignored is an affordance that does nothing. |
+| Inventories | Real | Full create, read, update and retire against the device repository. Device *properties* are deliberately not editable: they decrypt to real secrets, and the masking ruleset belongs to an unbuilt phase. |
+| Jobs | Real | List and open. No launch form: a job is launched from a Template. No cancel and no delete either -- there is no `job:write` scope and no cancellation path in this build, so no button is offered for one. |
+| Runbooks | Real | Read-only catalog. Runbooks come from `RUNBOOK_DIR` and from GitOps; a write path here would be a second, unversioned way to change what this platform executes. Its one action saves a runbook as a template rather than launching it, so the catalog stays a catalog and launching has one home. |
+| Organizations, Teams, Users, Access | Real | The tenancy and RBAC surface, each with an Access section on the record itself. Organizations and Teams also carry a Contacts section. |
+| Contacts | Real | Who is accountable for a tenant or a team, and how to reach them. The owner is chosen once from a single control listing organizations and teams together, so "both owners" and "neither owner" are not states a form can submit. |
+| Activity | Real | Who changed which managed object, and when, written by a decorator over the store rather than by calls inside handlers. |
+| Governance | Declared | Registered so the shape and the navigation are real. Nothing backs it, and the page says so. |
+| Credentials | Declared | Unbuilt, and it will not list credential names when it is built: the set of names in a deployment is itself reconnaissance. |
+
+A view registered as *declared* renders an explicit "declared, not implemented" panel.
+That distinction is load-bearing: an empty table and an unimplemented view look
+identical to a reader, and the difference between "nothing has happened yet" and "this
+does not work" is exactly the one worth being told.
+
+Accessibility is a build gate rather than a review item. Every registered view is
+rendered through the real templates in the conformance suite and asserted against a
+shared set of checks -- one `h1`, one `main`, a labelled control for every input, no
+positive `tabindex`, no duplicate ids, no dangling `aria-describedby`, a skip link
+first in the tab order. Colour contrast is computed from the stylesheet's own tokens
+across every skin and theme combination. What no Go test can cover -- focus order
+making sense, error text explaining anything, a screen reader's actual reading -- is
+covered by the manual script in [the web UI page](12-web-ui.md).

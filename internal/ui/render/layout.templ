@@ -1,0 +1,201 @@
+package render
+
+import (
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/static"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+)
+
+// Layout is every page's chrome.
+//
+// The document is assembled server-side including the theme, which is why
+// there is no inline bootstrap script anywhere below: data-theme is
+// already correct in the first byte the browser reads, so there is no
+// flash to suppress and nothing for the content security policy to have
+// to permit.
+templ Layout(page view.PageModel) {
+	<!DOCTYPE html>
+	<html lang="en" data-skin={ page.Skin } data-theme={ page.Theme } data-a11y={ page.AccessibleMode() }>
+		<head>
+			<meta charset="utf-8"/>
+			// No user-scalable=no and no maximum-scale: pinch zoom is how
+			// a low-vision user reads a page, and taking it away is a
+			// WCAG failure, not a layout preference.
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ page.DocumentTitle() }</title>
+			<link rel="stylesheet" href={ page.AssetPath(static.Path("app.css")) }/>
+			// Ported from the deleted SPA rather than redrawn. It is
+			// content-hashed like every other asset, so a browser caches it
+			// forever and a change to it is a different URL.
+			<link rel="icon" type="image/svg+xml" href={ page.AssetPath(static.Path("favicon.svg")) }/>
+			<script src={ page.AssetPath(static.Path("vendor/htmx.min.js")) } defer></script>
+			<script src={ page.AssetPath(static.Path("app.js")) } defer></script>
+			if page.Chart != nil {
+				<script src={ page.AssetPath(static.Path("vendor/echarts.min.js")) } defer></script>
+				<script src={ page.AssetPath(static.Path("chart.js")) } defer></script>
+			}
+			if page.Stream != nil {
+				<script src={ page.AssetPath(static.Path("stream.js")) } defer></script>
+			}
+		</head>
+		// One hx-headers on body carries the CSRF token on every HTMX
+		// request in the application, so no author ever writes CSRF
+		// handling into a template.
+		<body hx-headers={ page.CSRFHeaders() }>
+			// The skip link is the first focusable element on the page.
+			// Without it a keyboard user tabs the entire sidebar before
+			// reaching content, on every single navigation.
+			if page.Banner.Configured() {
+				// Top and bottom, per the classification standard: a
+				// marking that scrolls out of view is not on the part of
+				// the screen being read or photographed. It is first in
+				// the DOM so a screen reader reaches it before anything
+				// else, which is the same reason it is first visually.
+				<div class={ "env-banner", "env-banner-top", page.Banner.Class() }>{ page.Banner.Label() }</div>
+			}
+			<a class="skip-link" href="#main">Skip to main content</a>
+			// The live region exists empty on every page. A region
+			// inserted together with its text is never announced: the
+			// screen reader has nothing to observe changing.
+			<div id="live-announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+			<div class="layout">
+				@sidebar(page)
+				<main id="main" class="main" tabindex="-1">
+					{ children... }
+				</main>
+			</div>
+			if page.Banner.Configured() {
+				<div class={ "env-banner", "env-banner-bottom", page.Banner.Class() }>{ page.Banner.Label() }</div>
+			}
+		</body>
+	</html>
+}
+
+// sidebar renders identity, navigation and the theme control.
+templ sidebar(page view.PageModel) {
+	<aside class="sidebar">
+		<div class="sidebar-brand">Pleiades</div>
+		<div class="sidebar-version">{ page.Version }</div>
+		// A native disclosure rather than a scripted menu. Below the
+		// breakpoint the summary is the mobile menu button, drawn as a
+		// hamburger in CSS; above it, the summary is hidden and the
+		// navigation is held open. Either way the browser owns the
+		// expanded state, the keyboard behaviour and the announcement,
+		// which a hand-built button would need aria-expanded and script
+		// to reproduce -- and the CSP carries no 'unsafe-inline'.
+		//
+		// The word "Navigation" is the control's accessible name and has
+		// to stay: the hamburger is a background, so a summary holding
+		// only the icon would announce as an unnamed toggle.
+		<details class="nav-disclosure" open>
+			<summary>Navigation</summary>
+			// One landmark, not one per group. Every landmark needs a
+			// unique accessible name, and five of them would turn a
+			// screen reader's landmark list from one entry into five.
+			// The groups are headings inside it instead, which also
+			// gives heading navigation into the sidebar.
+			<nav aria-label="Main">
+				for _, section := range page.Nav {
+					if section.Heading() {
+						<h2 class="nav-group" id={ section.ID }>{ section.Label }</h2>
+						<ul class="nav-list" aria-labelledby={ section.ID }>
+							@navItems(section)
+						</ul>
+					} else {
+						<ul class="nav-list">
+							@navItems(section)
+						</ul>
+					}
+				}
+			</nav>
+		</details>
+		@appearanceControls(page)
+		@sessionControls(page)
+	</aside>
+}
+
+// sessionControls name who is signed in and offer the way out.
+//
+// A POST rather than a link. Sign-out deletes the session row, and anything
+// reachable by GET is eventually reached by a link prefetcher, a corporate
+// scanner or somebody's accelerator extension -- all of which would sign
+// the user out of a page they were reading. Going through a form also means
+// sign-out carries the CSRF token like every other write in the
+// application, rather than being the one state change that does not.
+templ sessionControls(page view.PageModel) {
+	if page.SignedIn() {
+		<div class="session">
+			<p class="session-subject">
+				<span class="session-label">Signed in as</span>
+				<span class="session-name">{ page.Subject }</span>
+			</p>
+			<form method="post" action={ page.LogoutAction() }>
+				<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+				<button class="btn" type="submit">Sign out</button>
+			</form>
+		</div>
+	}
+}
+
+// appearanceControls are the three orthogonal appearance axes.
+//
+// All three post real forms, so every one works with scripting disabled and
+// none needs client-side persistence. Each is its own <fieldset> with its
+// own <legend>, so a screen reader user hears what a group of buttons is
+// for before hearing the buttons.
+templ appearanceControls(page view.PageModel) {
+	<div class="appearance">
+		<form class="theme-switch" method="post" action={ page.SkinAction() }>
+			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+			<fieldset>
+				<legend>Style</legend>
+				<div class="theme-options">
+					for _, opt := range page.SkinOptions() {
+						<button type="submit" name="skin" value={ opt.Value } aria-pressed={ opt.Pressed }>{ opt.Label }</button>
+					}
+				</div>
+			</fieldset>
+		</form>
+		// Three buttons, not a toggle: "follow the system" has to stay
+		// reachable after the user has expressed a preference, and a
+		// two-state control cannot express it.
+		<form class="theme-switch" method="post" action={ page.ThemeAction() }>
+			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+			<fieldset>
+				<legend>Theme</legend>
+				<div class="theme-options">
+					for _, opt := range page.ThemeOptions() {
+						<button type="submit" name="theme" value={ opt.Value } aria-pressed={ opt.Pressed }>{ opt.Label }</button>
+					}
+				</div>
+			</fieldset>
+		</form>
+		// A prominent control rather than a buried preference: a mode
+		// nobody can find is a mode nobody uses. It is never a degraded
+		// mode -- every feature stays exactly where it was.
+		<form class="theme-switch" method="post" action={ page.A11yAction() }>
+			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+			<fieldset>
+				<legend>Accessibility</legend>
+				<div class="theme-options">
+					<button type="submit" name="a11y" value={ page.A11yNext() } aria-pressed={ page.A11yPressed() }>
+						High contrast
+					</button>
+				</div>
+			</fieldset>
+		</form>
+	</div>
+}
+
+// navItems renders one group's entries. Its own component so the labelled
+// and unlabelled lists cannot drift apart.
+templ navItems(section view.NavSection) {
+	for _, item := range section.Items {
+		<li>
+			if item.Current {
+				<a href={ item.Href } aria-current="page">{ item.Label }</a>
+			} else {
+				<a href={ item.Href }>{ item.Label }</a>
+			}
+		</li>
+	}
+}

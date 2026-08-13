@@ -4,6 +4,160 @@ Full session-by-session history for `HANDOFF_DOCUMENT.md`, most recent supersede
 
 ---
 
+## Previous session: Phase 21 shipped, the template rebuild, and the Immutable seam
+
+**This session ran long and did three things on `feature/The-Grand-Integration-Test`: shipped and
+committed Phase 21 plus the Phase 19 UI surface (commit `5dbc35b`), built the Contacts view and the
+Immutable form-field seam (uncommitted), and then, on the user's audit, tore out and rebuilt the
+template authoring path because the shipped version was functionally useless (uncommitted).**
+
+**Part 1, committed as `5dbc35b`.** Templates, the open kind registry, surveys with encrypted password
+answers, saved launch configs with relaunch, one launch surface (`POST /templates/{id}/launch`;
+`/jobs/dispatch` removed), tenancy derived from the inventory, the server-rendered UI resource layer,
+organizations/teams/users/grants, the activity stream, per-object Access sections.
+
+**Part 2, the Contacts view.** `internal/ui/resources/contacts/` over the pre-existing `access.Contacts`
+port, plus Contacts sections on Organization and Team detail pages. The owner is one select over both
+owner types (`organization:3` / `team:5` values), set once. That "set once" needed a framework seam:
+`view.Field.Immutable` (in the create form, absent from the edit form, refused if smuggled to an
+update), which also fixed five already-shipped controls an edit silently ignored (a team's and an
+inventory's organization; a template's kind, definition and inventory). `FAILURE_PATTERNS.md` #111.
+Also: contact owners render as names; the unnarrowed contact listing's sort now matches its keyset
+cursor; `internal/dispatch`'s coverage flake was a timer-driven test, fixed by driving `Reaper.sweep`
+directly (`LESSONS_LEARNED.md` #103).
+
+**Part 3, the rebuild, and read FAILURE_PATTERNS.md #112 before touching any of this.** The audit
+found: the template form asked for a free-text "runbook id or playbook path"; existence was checked
+nowhere (a bogus definition 201'd, 202'd, then died at fan-out as a failed job); and the playbook kind
+was a facade behind four independent walls (no enumeration anywhere, the worker resolved every job
+through the runbook source, no binary composed `routing.Router` or the legacy adapter, and the
+template-side path grammar was disjoint from the resolver's id grammar, so nothing savable could ever
+run). `docs/01` and FAILURE_PATTERNS #109 claimed wiring that did not exist; #109 now carries a dated
+correction and the claim is finally true. What landed: `internal/playbook` (DirSource with Get+List,
+exported `ValidID`); both kind validators delegate to their source package's grammar;
+`launch.Catalog` wired from the real sources, consumed by the store at create AND the Templates form's
+RUNS picker (one select over both kinds, `kind:definition` values, kind badge derived);
+per-kind `dispatch.DefinitionSource` at fan-out; `PLAYBOOK_DIR` in both binaries; `cmd/runner`
+composes `routing.Router` over native+legacy, fail-open, refusing a half-set `PLAYBOOK_DIR`/
+`ANSIBLE_RUNNER_IMAGE` pair. The runner binary now genuinely links testcontainers (#109's accepted
+trade, real at last).
+
+**The gate:** `TestGrandIntegration_EachKindReachesItsOwnAdapter` (tests/e2e, `withAnsible()` harness
+option) launches one runbook and one playbook template through the production binaries and asserts
+each job's log stream carries its own engine's output and not the other's. Green. The playbook
+fixture is `connection: local` deliberately; real SSH-over-network execution stays the job of
+cmd/runner's ansible release gate, whose image builder moved to
+`testsupport.BuildAnsibleRunnerImage`.
+
+**Next step.** Serial `make ci` was running at handoff (Docker-infra flakes under parallel load are
+the known noise; every affected package passes serially). Then the commit message for parts 2 and 3.
+Deferred with owners: compose NATS healthcheck (Phase 20), credential binding (Phase 22), replacing
+the testcontainers orchestrator (Phase 20/22), organization visibility (unowned, phase-sized: nothing
+narrows reads by the caller's tenant today).
+
+**Files changed this session (uncommitted parts):** `internal/playbook/` (new),
+`internal/launch/{catalog.go,catalog_test.go,launch.go,ent_store.go,kinds/*}`,
+`internal/dispatch/{definition_source.go,worker.go,worker_config.go,worker_devices.go,
+worker_kinds_test.go,reaper_sweep_test.go,export_test.go}`, `internal/adapters/{legacy/playbook_source.go,
+routing/router.go}`, `cmd/{controller,runner}/main.go`, `internal/ui/resources/{contacts/,templates/,
+teams/,organizations/,inventories/,registrars.go,builtins.go}` plus their tests,
+`internal/ui/{view,web}/` (Immutable seam), `internal/access/{contact.go,ent_contact_store.go}`,
+`internal/api/{access_contacts.go,templates.go}`, `internal/testsupport/ansible_image.go` (new),
+`tests/e2e/{harness_test.go,harness_seed_test.go,integration_adapters_test.go}`, `docs/{01,09,12}`,
+`changelog/` (three new fragments), `coverage-floor.json`, the `FAILURE_PATTERNS`/`LESSONS_LEARNED`
+pairs (#111, #112, #103, #109 correction), and the gitignored `.SPECIFICATION/{IMPLEMENTATION,
+AWX_PARITY}.md`.
+
+---
+
+## Previous session: Phase 18, the Grand Integration Test
+
+**This session built Phase 18 (The Grand Integration Test), and it grew a real production half.**
+Branch is `feature/The-Grand-Integration-Test`. **Nothing is committed**; commit messages are drafted
+in Phase 18's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` and running them was never requested.
+
+**Why the phase grew.** The checklist reads as test hardening, but exploration found the test could
+never have been representative: `cmd/controller` opened SQLite only (`ent.OpenEmbedded`), and
+`internal/ent/migrate` registered one dialect, while `tests/e2e` started a PostgreSQL container and
+brought its schema up with `client.Schema.Create` (ent's automatic diff-and-apply, which no binary
+uses). The most integration-shaped test in the repository validated a database configuration that
+existed nowhere. The user's decision was PostgreSQL in production behind a real database abstraction,
+with SQLite retained as a second adapter, all inside Phase 18.
+
+**What's real, part A, the database abstraction.** `internal/ent.OpenDatabase(ctx, Config{DSN})` is the
+one seam every composition root now uses; it resolves a dialect from the DSN scheme and delegates to
+`open_sqlite.go` or `open_postgres.go`. `OpenEmbedded` survives as the SQLite shorthand, so
+`internal/crypto` and the existing ent tests did not churn. `migrate.Apply` is genuinely
+dialect-agnostic now: `migrationSource` carries its own `insertVersion` statement, because `applyOne`
+recorded versions with a `?` placeholder that `lib/pq` rejects, and rejects inside the same transaction
+as the DDL, so the failure would have read as broken DDL (`FAILURE_PATTERNS.md` #92, verified against a
+real server: `pq: syntax error at or near ","`). `internal/ent/migrate/gen` takes a dialect argument and
+generated `migrations/postgres/0001_initial.sql`; the Postgres set starts squashed on purpose, since
+ent can only diff against the schema it desires today. `cmd/controller` resolves `DB_DSN`, with
+`DB_PATH` kept as the SQLite shorthand and both-set as a startup error.
+
+**What's real, part B, the test.** `tests/e2e` now builds `cmd/controller` and `cmd/runner` in
+`TestMain` and runs both as real subprocesses against a real PostgreSQL container and a real NATS
+container, driven over a real socket with real HS256 tokens (`authtest.NewWithSecret`, added because a
+random binary secret cannot survive an environment variable). It seeds five devices across two groups
+through the same `OpenDatabase` seam and the same versioned migrations, with the envelope encryption
+hook installed so the controller decrypts rows a different process wrote. It asserts per-device
+dispatch payload contents field by field against the seeded identifiers, reads the job back out of
+PostgreSQL, checks properties are ciphertext at rest with a raw query, and holds tallies at 2/1/0 so a
+bug reporting one number for all three cannot pass. Every wait names a signal; there are no sleeps.
+
+**The adversarial evidence, which is the part worth trusting.** Disabling the inventory group predicate
+produced exactly the designed failure (`dispatched=4`, untargeted devices named); the old single-group
+count-only test would have passed that broken code. The zero-trust assertion needed **three**
+independent layers broken before an unauthenticated dispatch got through: `AuthMiddleware`,
+`RequireScope`'s own identity check, and `DispatchRunbook`'s own. That is real defense in depth and is
+recorded as `LESSONS_LEARNED.md` #95.
+
+**Verified green.** `make test-integration` passes clean end to end under `-race` with `-count=1`,
+confirmed on repeated runs: every package `ok`, zero failures, with `tests/e2e` at roughly 72 seconds
+including the chaos suite. `build`, `vet` (both tag passes), `fmt`, `test-race`, `coverage` (99
+packages, none below floor), `gosec` (one finding, individually waived), `govulncheck` (none),
+`docs-lint` and `docs-gen-check` are all green. The two-adapter conformance suite passes against both
+SQLite and real PostgreSQL, and the migration parity test passes on both dialects. Phase 18's checklist
+is fully closed, 16 of 16.
+
+**The supporting gates are real, not deferred.** Fuzzing: `internal/ent.FuzzResolveDSN` (roughly 879,000
+executions clean) plus `pkg/wire`'s first two fuzz targets ever. Benchmark: accept-to-completion across
+the whole mesh measures roughly **37 ms** against roughly **650 ms** for a real `ansible-playbook` run
+over the same host count, measured as a sibling on identical hardware in the same run, with the "these
+do not measure the same work" caveat written into the benchmark's own doc comment rather than buried.
+Chaos: a real Toxiproxy fronting both containers, cutting each boundary in turn. The PostgreSQL half is
+genuinely new coverage, since nothing else in this repository cuts a database connection, and it proves
+the property that matters: with the database severed a launch is refused with 5xx, rather than accepted
+with a 202 the system could never honor.
+
+**Deployment honesty.** `docker-compose.yml`'s `DB_DSN` is read for the first time, and the compose
+controller's three missing startup requirements (`MASTER_ENCRYPTION_KEY`, `JWT_SECRET`, `RUNBOOK_DIR`)
+are fixed, along with the same `RUNBOOK_DIR` gap in both Dockerfiles. **Compose still cannot come up
+cleanly**: its NATS healthcheck invokes a binary the image does not contain, which is Phase 20's item
+and is not claimed as fixed. `FAILURE_PATTERNS.md` #93 records the whole finding.
+
+**Next step.** Phase 18 is closed and nothing is committed; the six drafted commit messages live in
+Phase 18's own checklist. `AWX_PARITY.md` gates Phase 21 on Phase 18 being green, so Phase 21 (The
+`Launchable` Abstraction) is now unblocked. Two things this phase deliberately did not fix, both owned
+elsewhere: the compose NATS healthcheck (Phase 20), and the fact that `cmd/runner` still composes only
+`native.Adapter`, so nothing routes a dispatch to the legacy Ansible adapter (Phase 21's Kind registry).
+
+**Files changed this session:** `internal/ent/{open,open_sqlite,open_postgres,embedded}.go` plus
+`open_internal_test.go`, `open_fuzz_test.go`, `conformance_test.go`, `conformance_backends_test.go`,
+`parity_integration_test.go`; `internal/ent/migrate/{apply.go,apply_test.go,parity_test.go}` and
+`migrate/gen/main.go`; `internal/ent/migrate/migrations/postgres/0001_initial.sql` (new, generated);
+`cmd/controller/main.go` (+`config_test.go`); `internal/auth/authtest/issuer.go`;
+`internal/archtest/layering_test.go`; `pkg/wire/dispatch_fuzz_test.go` (new); all of `tests/e2e/`
+(`harness_test.go`, `harness_seed_test.go`, `integration_test.go`, `integration_assert_test.go`,
+`integration_bench_test.go`, `integration_chaos_test.go`, `racebudget_test.go`,
+`racebudget_race_test.go`); `Makefile`; `docker-compose.yml`;
+`Dockerfile.controller`; `Dockerfile.runner`; `docs/02-get-started.md`;
+`docs/09-control-plane-and-api.md`; `changelog/postgres-backend.added.md` (new); plus the gitignored
+`.SPECIFICATION/IMPLEMENTATION.md` and the `FAILURE_PATTERNS`/`LESSONS_LEARNED` index and archive pairs.
+
+---
+
 ## Previous session: Phase 17, the Legacy Ansible Adapter
 
 **This session built Phase 17 (Legacy Ansible Adapter) in full**, the next unbuilt phase after Phase 16

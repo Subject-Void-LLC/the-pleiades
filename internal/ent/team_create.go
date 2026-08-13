@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
@@ -57,6 +58,48 @@ func (_c *TeamCreate) SetName(v string) *TeamCreate {
 	return _c
 }
 
+// SetDescription sets the "description" field.
+func (_c *TeamCreate) SetDescription(v string) *TeamCreate {
+	_c.mutation.SetDescription(v)
+	return _c
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_c *TeamCreate) SetNillableDescription(v *string) *TeamCreate {
+	if v != nil {
+		_c.SetDescription(*v)
+	}
+	return _c
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_c *TeamCreate) SetAttestedBy(v string) *TeamCreate {
+	_c.mutation.SetAttestedBy(v)
+	return _c
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_c *TeamCreate) SetNillableAttestedBy(v *string) *TeamCreate {
+	if v != nil {
+		_c.SetAttestedBy(*v)
+	}
+	return _c
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_c *TeamCreate) SetAttestedAt(v time.Time) *TeamCreate {
+	_c.mutation.SetAttestedAt(v)
+	return _c
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_c *TeamCreate) SetNillableAttestedAt(v *time.Time) *TeamCreate {
+	if v != nil {
+		_c.SetAttestedAt(*v)
+	}
+	return _c
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_c *TeamCreate) SetOrganizationID(id int) *TeamCreate {
 	_c.mutation.SetOrganizationID(id)
@@ -96,6 +139,21 @@ func (_c *TeamCreate) AddRoleBindings(v ...*RoleBinding) *TeamCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddRoleBindingIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_c *TeamCreate) AddContactIDs(ids ...int) *TeamCreate {
+	_c.mutation.AddContactIDs(ids...)
+	return _c
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_c *TeamCreate) AddContacts(v ...*Contact) *TeamCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddContactIDs(ids...)
 }
 
 // Mutation returns the TeamMutation object of the builder.
@@ -200,6 +258,18 @@ func (_c *TeamCreate) createSpec() (*Team, *sqlgraph.CreateSpec) {
 		_spec.SetField(team.FieldName, field.TypeString, value)
 		_node.Name = value
 	}
+	if value, ok := _c.mutation.Description(); ok {
+		_spec.SetField(team.FieldDescription, field.TypeString, value)
+		_node.Description = value
+	}
+	if value, ok := _c.mutation.AttestedBy(); ok {
+		_spec.SetField(team.FieldAttestedBy, field.TypeString, value)
+		_node.AttestedBy = value
+	}
+	if value, ok := _c.mutation.AttestedAt(); ok {
+		_spec.SetField(team.FieldAttestedAt, field.TypeTime, value)
+		_node.AttestedAt = &value
+	}
 	if nodes := _c.mutation.OrganizationIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -242,6 +312,22 @@ func (_c *TeamCreate) createSpec() (*Team, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(rolebinding.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

@@ -23,6 +23,26 @@ type Organization struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
+	// Description holds the value of the "description" field.
+	Description string `json:"description,omitempty"`
+	// Classification holds the value of the "classification" field.
+	Classification string `json:"classification,omitempty"`
+	// ChangeWindow holds the value of the "change_window" field.
+	ChangeWindow string `json:"change_window,omitempty"`
+	// Frozen holds the value of the "frozen" field.
+	Frozen bool `json:"frozen,omitempty"`
+	// FreezeReason holds the value of the "freeze_reason" field.
+	FreezeReason string `json:"freeze_reason,omitempty"`
+	// CostCentre holds the value of the "cost_centre" field.
+	CostCentre string `json:"cost_centre,omitempty"`
+	// TicketKey holds the value of the "ticket_key" field.
+	TicketKey string `json:"ticket_key,omitempty"`
+	// CmdbID holds the value of the "cmdb_id" field.
+	CmdbID string `json:"cmdb_id,omitempty"`
+	// AttestedBy holds the value of the "attested_by" field.
+	AttestedBy string `json:"attested_by,omitempty"`
+	// AttestedAt holds the value of the "attested_at" field.
+	AttestedAt *time.Time `json:"attested_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the OrganizationQuery when eager-loading is set.
 	Edges        OrganizationEdges `json:"edges"`
@@ -35,9 +55,17 @@ type OrganizationEdges struct {
 	Devices []*Device `json:"devices,omitempty"`
 	// Teams holds the value of the teams edge.
 	Teams []*Team `json:"teams,omitempty"`
+	// Inventories holds the value of the inventories edge.
+	Inventories []*Inventory `json:"inventories,omitempty"`
+	// Templates holds the value of the templates edge.
+	Templates []*Template `json:"templates,omitempty"`
+	// Announcements holds the value of the announcements edge.
+	Announcements []*Announcement `json:"announcements,omitempty"`
+	// Contacts holds the value of the contacts edge.
+	Contacts []*Contact `json:"contacts,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [6]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -58,16 +86,54 @@ func (e OrganizationEdges) TeamsOrErr() ([]*Team, error) {
 	return nil, &NotLoadedError{edge: "teams"}
 }
 
+// InventoriesOrErr returns the Inventories value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) InventoriesOrErr() ([]*Inventory, error) {
+	if e.loadedTypes[2] {
+		return e.Inventories, nil
+	}
+	return nil, &NotLoadedError{edge: "inventories"}
+}
+
+// TemplatesOrErr returns the Templates value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) TemplatesOrErr() ([]*Template, error) {
+	if e.loadedTypes[3] {
+		return e.Templates, nil
+	}
+	return nil, &NotLoadedError{edge: "templates"}
+}
+
+// AnnouncementsOrErr returns the Announcements value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
+	if e.loadedTypes[4] {
+		return e.Announcements, nil
+	}
+	return nil, &NotLoadedError{edge: "announcements"}
+}
+
+// ContactsOrErr returns the Contacts value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) ContactsOrErr() ([]*Contact, error) {
+	if e.loadedTypes[5] {
+		return e.Contacts, nil
+	}
+	return nil, &NotLoadedError{edge: "contacts"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Organization) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case organization.FieldFrozen:
+			values[i] = new(sql.NullBool)
 		case organization.FieldID:
 			values[i] = new(sql.NullInt64)
-		case organization.FieldName:
+		case organization.FieldName, organization.FieldDescription, organization.FieldClassification, organization.FieldChangeWindow, organization.FieldFreezeReason, organization.FieldCostCentre, organization.FieldTicketKey, organization.FieldCmdbID, organization.FieldAttestedBy:
 			values[i] = new(sql.NullString)
-		case organization.FieldCreatedAt, organization.FieldUpdatedAt:
+		case organization.FieldCreatedAt, organization.FieldUpdatedAt, organization.FieldAttestedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -108,6 +174,67 @@ func (_m *Organization) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Name = value.String
 			}
+		case organization.FieldDescription:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field description", values[i])
+			} else if value.Valid {
+				_m.Description = value.String
+			}
+		case organization.FieldClassification:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field classification", values[i])
+			} else if value.Valid {
+				_m.Classification = value.String
+			}
+		case organization.FieldChangeWindow:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field change_window", values[i])
+			} else if value.Valid {
+				_m.ChangeWindow = value.String
+			}
+		case organization.FieldFrozen:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field frozen", values[i])
+			} else if value.Valid {
+				_m.Frozen = value.Bool
+			}
+		case organization.FieldFreezeReason:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field freeze_reason", values[i])
+			} else if value.Valid {
+				_m.FreezeReason = value.String
+			}
+		case organization.FieldCostCentre:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field cost_centre", values[i])
+			} else if value.Valid {
+				_m.CostCentre = value.String
+			}
+		case organization.FieldTicketKey:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field ticket_key", values[i])
+			} else if value.Valid {
+				_m.TicketKey = value.String
+			}
+		case organization.FieldCmdbID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field cmdb_id", values[i])
+			} else if value.Valid {
+				_m.CmdbID = value.String
+			}
+		case organization.FieldAttestedBy:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field attested_by", values[i])
+			} else if value.Valid {
+				_m.AttestedBy = value.String
+			}
+		case organization.FieldAttestedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field attested_at", values[i])
+			} else if value.Valid {
+				_m.AttestedAt = new(time.Time)
+				*_m.AttestedAt = value.Time
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -129,6 +256,26 @@ func (_m *Organization) QueryDevices() *DeviceQuery {
 // QueryTeams queries the "teams" edge of the Organization entity.
 func (_m *Organization) QueryTeams() *TeamQuery {
 	return NewOrganizationClient(_m.config).QueryTeams(_m)
+}
+
+// QueryInventories queries the "inventories" edge of the Organization entity.
+func (_m *Organization) QueryInventories() *InventoryQuery {
+	return NewOrganizationClient(_m.config).QueryInventories(_m)
+}
+
+// QueryTemplates queries the "templates" edge of the Organization entity.
+func (_m *Organization) QueryTemplates() *TemplateQuery {
+	return NewOrganizationClient(_m.config).QueryTemplates(_m)
+}
+
+// QueryAnnouncements queries the "announcements" edge of the Organization entity.
+func (_m *Organization) QueryAnnouncements() *AnnouncementQuery {
+	return NewOrganizationClient(_m.config).QueryAnnouncements(_m)
+}
+
+// QueryContacts queries the "contacts" edge of the Organization entity.
+func (_m *Organization) QueryContacts() *ContactQuery {
+	return NewOrganizationClient(_m.config).QueryContacts(_m)
 }
 
 // Update returns a builder for updating this Organization.
@@ -162,6 +309,38 @@ func (_m *Organization) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
+	builder.WriteString(", ")
+	builder.WriteString("description=")
+	builder.WriteString(_m.Description)
+	builder.WriteString(", ")
+	builder.WriteString("classification=")
+	builder.WriteString(_m.Classification)
+	builder.WriteString(", ")
+	builder.WriteString("change_window=")
+	builder.WriteString(_m.ChangeWindow)
+	builder.WriteString(", ")
+	builder.WriteString("frozen=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Frozen))
+	builder.WriteString(", ")
+	builder.WriteString("freeze_reason=")
+	builder.WriteString(_m.FreezeReason)
+	builder.WriteString(", ")
+	builder.WriteString("cost_centre=")
+	builder.WriteString(_m.CostCentre)
+	builder.WriteString(", ")
+	builder.WriteString("ticket_key=")
+	builder.WriteString(_m.TicketKey)
+	builder.WriteString(", ")
+	builder.WriteString("cmdb_id=")
+	builder.WriteString(_m.CmdbID)
+	builder.WriteString(", ")
+	builder.WriteString("attested_by=")
+	builder.WriteString(_m.AttestedBy)
+	builder.WriteString(", ")
+	if v := _m.AttestedAt; v != nil {
+		builder.WriteString("attested_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

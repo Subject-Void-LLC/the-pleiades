@@ -78,6 +78,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -88,6 +89,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -98,10 +102,22 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	// The built-in launch kinds. A blank import because their init()
+	// functions are the only thing that populates internal/launch's
+	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
+	// (FAILURE_PATTERNS.md #52).
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+	uiweb "github.com/Subject-Void-LLC/the-pleiades/internal/ui/web"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus"
@@ -109,6 +125,11 @@ import (
 
 // serviceName identifies this process in every span it emits.
 const serviceName = "pleiades-controller"
+
+// serviceVersion is the build identifier the UI shows in its sidebar. It
+// is a constant rather than a linker flag for now: Phase 20 owns release
+// packaging and is where a real version stamp belongs.
+const serviceVersion = "v0.1.0-alpha"
 
 // schedulerLeaseKey is the well-known key every controller replica
 // contends for to become the one holder of the scheduler lease. It lives
@@ -125,6 +146,25 @@ const schedulerLeaseKey = "pleiades-scheduler-leader"
 // elections, and there is no reason a replica's reaper leadership should
 // be coupled to its (still-unclaimed, Phase 23) scheduler leadership.
 const fanOutReaperLeaseKey = "pleiades-fanout-reaper-leader"
+
+// actorFromRequest is the activity stream's ActorSource: who is making the
+// change carried by this context.
+//
+// It reads the authenticated identity the auth middleware placed there,
+// which is the same value for a Bearer token and for a browser session,
+// because internal/api owns the one context key both credential kinds write
+// through. That is what makes one decorator cover both write surfaces.
+//
+// An empty return is not a default. It means no identity reached the store,
+// and access.NewAuditedStore refuses the write rather than recording it
+// against nobody: see access.ErrUnattributed for why an audit trail with
+// anonymous rows is worse than one with gaps.
+func actorFromRequest(ctx context.Context) string {
+	if identity, ok := api.IdentityFromContext(ctx); ok {
+		return identity.Subject
+	}
+	return ""
+}
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -464,6 +504,28 @@ func main() {
 		fatal("failed to init runbook source", err)
 	}
 
+	// playbooks is the unconverted-Ansible half of the launch catalog,
+	// present only when the operator points PLAYBOOK_DIR somewhere. No
+	// default directory, unlike RUNBOOK_DIR, because a deployment that has
+	// never run Ansible has no playbooks and should not be scanning a
+	// conventionally-named directory for some; absent means the playbook
+	// kind lists nothing, creating a playbook template is refused with a
+	// reason, and a playbook job is failed by the fan-out rather than
+	// guessed at. When the variable IS set, a bad path is fatal exactly
+	// like RUNBOOK_DIR's: an explicitly configured directory that cannot
+	// be read is an operator error to surface at startup.
+	//
+	// The Runner reads the same variable for the execution side
+	// (cmd/runner/main.go), the identical two-binary convention
+	// RUNBOOK_DIR already follows.
+	var playbooks *playbook.DirSource
+	if playbookDir := getenv("PLAYBOOK_DIR", ""); playbookDir != "" {
+		playbooks, err = playbook.NewDirSource(playbookDir)
+		if err != nil {
+			fatal("failed to init playbook source", err)
+		}
+	}
+
 	// credentials resolves a device's stored SSH credential at dispatch
 	// time, so worker below can attach it directly to
 	// wire.DispatchPayload.Secrets (Phase 16, Native Go Execution
@@ -485,6 +547,12 @@ func main() {
 	// what worker below claims fan-out ownership through.
 	jobStore := dispatch.NewEntJobStore(client)
 
+	// sets is the Inventory store: the named, shareable device sets a
+	// template targets. Constructed here rather than beside the UI's own
+	// handlers because the fan-out worker below needs it to resolve what a
+	// job actually dispatches against.
+	sets := inventory.NewEntSetStore(client)
+
 	// worker is the durable job.requested consumer (internal/dispatch's
 	// own doc comment: PLAN.md Section 28.4's "a durable worker performs
 	// the actual per-device fan-out later, off the HTTP request path
@@ -494,7 +562,24 @@ func main() {
 	// HandleJobRequested has everything it needs to resolve the job,
 	// stream the target group, admit or skip each device, and publish a
 	// wire.DispatchPayload per admitted device.
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials)
+	//
+	// WithSetStore is what lets it resolve the Inventory a job names into
+	// the devices it holds. Without it the Worker cannot target a job
+	// launched from a template at all, and refuses it rather than falling
+	// through to an unrestricted selector: a job that could not be targeted
+	// must dispatch to nothing, never to every device the platform manages.
+	// The playbook kind's fan-out preparation, wired in the same breath as
+	// the source that enables it. FAILURE_PATTERNS.md #110's lesson: when a
+	// phase adds an option a feature requires, the composition root is part
+	// of that feature, not a follow-up; a Worker missing this would fail
+	// every playbook job with a correct refusal and nothing failing at
+	// build time.
+	workerOpts := []dispatch.WorkerOption{dispatch.WithSetStore(sets)}
+	if playbooks != nil {
+		workerOpts = append(workerOpts,
+			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
+	}
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup
@@ -541,10 +626,85 @@ func main() {
 		reaper.Run(ctx, reaperElector.IsLeader)
 	}()
 
-	dispatcher := api.NewDispatcher(runbooks, jobStore, bus)
+	// The template store, and the two narrow ports the Dispatcher takes off
+	// it. One concrete value, two interfaces: launching reads a template and
+	// records what a launch was configured with, and cannot administer one.
+	// api.NewTemplateHandler below takes the store itself, because
+	// administering templates is precisely what it is for.
+	// launchCatalog is every definition this deployment can launch: the
+	// runbook catalog always, the playbook catalog when PLAYBOOK_DIR is
+	// set. It feeds two consumers that must agree: the template store
+	// verifies a created template's definition resolves (through the same
+	// compile path a dispatch will use, so a runbook that exists but does
+	// not compile is refused at authoring time), and the Templates view's
+	// RUNS picker offers exactly this set, so what can be chosen and what
+	// can be saved are one list.
+	kindCatalogs := map[string]launch.KindCatalog{
+		launch.DefaultKind: launch.KindCatalogFuncs{
+			ListFunc: runbooks.List,
+			VerifyFunc: func(ctx context.Context, definition string) error {
+				if _, err := runbooks.Get(ctx, definition); err != nil {
+					if errors.Is(err, runbook.ErrNotFound) {
+						return fmt.Errorf("%w: no runbook %q", launch.ErrDefinitionNotFound, definition)
+					}
+					return fmt.Errorf("resolving runbook %q: %w", definition, err)
+				}
+				return nil
+			},
+		},
+	}
+	if playbooks != nil {
+		kindCatalogs["playbook"] = launch.KindCatalogFuncs{
+			ListFunc: playbooks.List,
+			VerifyFunc: func(ctx context.Context, definition string) error {
+				if _, err := playbooks.Get(ctx, definition); err != nil {
+					if errors.Is(err, playbook.ErrNotFound) {
+						return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
+					}
+					return fmt.Errorf("resolving playbook %q: %w", definition, err)
+				}
+				return nil
+			},
+		}
+	}
+	launchCatalog := launch.NewSourceCatalog(kindCatalogs)
+
+	templateStore := launch.NewEntStore(client, launchCatalog)
+	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
+		api.WithTemplates(templateStore),
+		api.WithLaunchConfigs(templateStore))
+	templates := api.NewTemplateHandler(templateStore, logger)
 	streamer := api.NewLogStreamer(js)
-	devices := api.NewDeviceHandler(repo, logger)
+	// The factory is the same one the repository hydrates stored rows
+	// with, so a device created over the API is built by exactly the code
+	// path that rebuilds one read back out of storage. A second factory
+	// here would be a second answer to "which Go type is a linux_server".
+	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
+	catalog := api.NewRunbookHandler(runbooks, logger)
+
+	// The two resources the web UI's navigation is built around: the
+	// shareable device sets a runbook is dispatched against, and the
+	// operator broadcast the dashboard renders.
+	inventories := api.NewInventoryHandler(sets, logger)
+	announcements := api.NewAnnouncementHandler(announce.NewEntStore(client), logger)
+
+	// The access administration surface. Without it none of the four
+	// entities the RBAC resolver reads could be created at all, which is
+	// what left the tenancy axis unusable and the Inventories create form
+	// unsubmittable (FAILURE_PATTERNS.md #101).
+	// The activity stream, and the decorator that writes it.
+	//
+	// Wrapped here, once, rather than recorded from inside the handlers.
+	// One value feeds both write surfaces -- the JSON API's handlers below
+	// and the web UI's own writers, which reach the store directly and pass
+	// through no handler at all -- so wrapping it at the single point they
+	// share is what makes the audit trail cover both. Recording from
+	// handlers would have covered one and left the other silent.
+	activityStream := activity.NewEntStore(client)
+	accessStore := access.NewAuditedStore(access.NewEntStore(client), activityStream, actorFromRequest, logger)
+	accounts := api.NewAccessHandler(accessStore, logger)
+	activityLog := api.NewActivityHandler(activityStream, logger)
 
 	// chain is Phase 8's own Chain of Responsibility. It carries one rule
 	// today, NewTokenScopeRule, the token-scope axis. The Team/RoleBinding
@@ -590,6 +750,161 @@ func main() {
 	// is nil, so "every application route is versioned, authenticated,
 	// throttled, and authorized" holds structurally: there is no way to
 	// register a route here that skips any of the four.
+	// Each Route pairs apispec's documented Method/Pattern/Scope/Rel with
+	// this process's own real handler method value: the same data
+	// tools/gendocs reads to emit the OpenAPI document and the generated
+	// API reference page, so neither can ever describe a route this
+	// server does not actually serve, or vice versa.
+	//
+	// apispec.Routes pairs the two sets by name and refuses to return a
+	// route table if either side has an entry the other lacks, so this
+	// process cannot start while advertising a route it does not mount.
+	// The previous hand-written literal could not make that promise: a
+	// new Endpoint that nobody added here 404'd silently.
+	routes, err := apispec.Routes(map[string]http.HandlerFunc{
+		apispec.ListJobs.Name:      jobs.List,
+		apispec.GetJob.Name:        jobs.Get,
+		apispec.StreamJobLogs.Name: streamer.StreamLogs,
+		apispec.RelaunchJob.Name:   dispatcher.RelaunchJob,
+
+		// Templates split across two handlers on purpose, along the same
+		// line the scopes split on: administering one is the TemplateHandler
+		// under template:read/template:write, running one is the Dispatcher
+		// under runbook:execute.
+		apispec.ListTemplates.Name:        templates.List,
+		apispec.GetTemplate.Name:          templates.Get,
+		apispec.CreateTemplate.Name:       templates.Create,
+		apispec.UpdateTemplate.Name:       templates.Update,
+		apispec.DeleteTemplate.Name:       templates.Delete,
+		apispec.CopyTemplate.Name:         templates.Copy,
+		apispec.LaunchTemplate.Name:       dispatcher.LaunchFromTemplate,
+		apispec.ListTemplateConfigs.Name:  templates.ListConfigs,
+		apispec.CreateTemplateConfig.Name: templates.CreateConfig,
+		apispec.ListDevices.Name:          devices.List,
+		apispec.CreateDevice.Name:         devices.Create,
+		apispec.GetDevice.Name:            devices.Get,
+		apispec.UpdateDevice.Name:         devices.Update,
+		apispec.DeleteDevice.Name:         devices.Delete,
+		apispec.ListRunbooks.Name:         catalog.List,
+		apispec.GetRunbook.Name:           catalog.Get,
+
+		apispec.ListInventories.Name: inventories.List,
+		apispec.GetInventory.Name:    inventories.Get,
+		apispec.CreateInventory.Name: inventories.Create,
+		apispec.UpdateInventory.Name: inventories.Update,
+		apispec.DeleteInventory.Name: inventories.Delete,
+
+		apispec.ListAnnouncements.Name:  announcements.List,
+		apispec.CreateAnnouncement.Name: announcements.Create,
+		apispec.UpdateAnnouncement.Name: announcements.Update,
+		apispec.DeleteAnnouncement.Name: announcements.Delete,
+
+		apispec.ListOrganizations.Name:  accounts.ListOrganizations,
+		apispec.GetOrganization.Name:    accounts.GetOrganization,
+		apispec.CreateOrganization.Name: accounts.CreateOrganization,
+		apispec.UpdateOrganization.Name: accounts.UpdateOrganization,
+		apispec.DeleteOrganization.Name: accounts.DeleteOrganization,
+		apispec.AttestOrganization.Name: accounts.AttestOrganization,
+
+		apispec.ListTeams.Name:  accounts.ListTeams,
+		apispec.GetTeam.Name:    accounts.GetTeam,
+		apispec.CreateTeam.Name: accounts.CreateTeam,
+		apispec.UpdateTeam.Name: accounts.UpdateTeam,
+		apispec.DeleteTeam.Name: accounts.DeleteTeam,
+		apispec.AttestTeam.Name: accounts.AttestTeam,
+
+		apispec.ListUsers.Name:  accounts.ListUsers,
+		apispec.GetUser.Name:    accounts.GetUser,
+		apispec.CreateUser.Name: accounts.CreateUser,
+		apispec.UpdateUser.Name: accounts.UpdateUser,
+		apispec.DeleteUser.Name: accounts.DeleteUser,
+
+		apispec.ListBindings.Name:  accounts.ListBindings,
+		apispec.GetBinding.Name:    accounts.GetBinding,
+		apispec.CreateBinding.Name: accounts.CreateBinding,
+		apispec.UpdateBinding.Name: accounts.UpdateBinding,
+		apispec.DeleteBinding.Name: accounts.DeleteBinding,
+
+		apispec.ListActivity.Name:     activityLog.ListActivity,
+		apispec.GetActivityEntry.Name: activityLog.GetActivityEntry,
+
+		apispec.ListContacts.Name:  accounts.ListContacts,
+		apispec.GetContact.Name:    accounts.GetContact,
+		apispec.CreateContact.Name: accounts.CreateContact,
+		apispec.UpdateContact.Name: accounts.UpdateContact,
+		apispec.DeleteContact.Name: accounts.DeleteContact,
+	})
+	if err != nil {
+		fatal("api route table does not match the declared endpoints", err)
+	}
+
+	// The web UI. Registering the view resources fails closed: a
+	// controller that cannot build its own UI must not start and then
+	// serve broken pages.
+	if err := resources.RegisterAll(resources.Deps{
+		Access:     accessStore,
+		Activity:   activityStream,
+		Inventory:  repo,
+		Sets:       sets,
+		Announce:   announce.NewEntStore(client),
+		Factory:    inventory.NewItemFactory(),
+		Jobs:       jobStore,
+		Runbooks:   runbooks,
+		Templates:  templateStore,
+		Catalog:    launchCatalog,
+		Dispatcher: dispatcher,
+	}); err != nil {
+		fatal("failed to register UI views", err)
+	}
+
+	// __Host- cookies require Secure, Secure requires HTTPS, and a
+	// developer on http://localhost has neither. The opt-out is named,
+	// and it announces itself at startup rather than being discovered in
+	// a header dump later.
+	insecureCookies := os.Getenv("PLEIADES_UI_INSECURE_COOKIES") == "1"
+	if insecureCookies {
+		logger.Warn("PLEIADES_UI_INSECURE_COOKIES is set: the session cookie drops the __Host- prefix and the Secure attribute; never set this in a deployment anyone else can reach")
+	}
+
+	// The environment / classification banner. It is deployment
+	// configuration and fails closed: an unknown level is a startup error
+	// rather than a silently omitted marking, because an operator who
+	// configured a classification banner and got none would believe a
+	// marking was displayed when it was not.
+	banner, err := view.ParseBanner(os.Getenv("PLEIADES_BANNER_LEVEL"), os.Getenv("PLEIADES_BANNER_TEXT"))
+	if err != nil {
+		fatal("invalid banner configuration", err)
+	}
+
+	sessions := session.NewEntStore(client)
+	// One codec, shared by the UI subtree and the JSON API's cookie
+	// credential source. Two codecs could disagree about the cookie's name,
+	// and a session written under one name and read under another fails as
+	// "not signed in" rather than as a configuration error.
+	cookieCodec := session.CookieCodec{Insecure: insecureCookies}
+
+	ui := uiweb.New(uiweb.Config{
+		Prefix:    "/ui",
+		Version:   serviceVersion,
+		Banner:    banner,
+		Sessions:  sessions,
+		Cookie:    cookieCodec,
+		Tokens:    evaluator,
+		HATEOAS:   hateoas,
+		Admission: admission,
+		Logger:    logger,
+	})
+
+	// One replica sweeps expired sessions, behind the same election every
+	// other cluster singleton here runs behind.
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		session.SweepExpired(ctx, sessions, 10*time.Minute, reaperElector.IsLeader, func(n int) {
+			logger.Info("swept expired sessions", slog.Int("count", n))
+		})
+	}()
+
 	r, err := api.NewRouter(api.RouterConfig{
 		Logger:      logger,
 		Tracer:      tracerProvider.Tracer("github.com/Subject-Void-LLC/the-pleiades/internal/api"),
@@ -597,21 +912,25 @@ func main() {
 		Registry:    metricsRegistry,
 		Readiness:   readinessChecks(nc, client),
 		RateLimiter: rateLimiter,
-		Auth:        api.AuthMiddleware(evaluator),
-		Admission:   admission,
-		HATEOAS:     hateoas,
-		// Each Route pairs apispec's documented Method/Pattern/Scope/Rel
-		// with this process's own real handler method value: the same
-		// data tools/gendocs reads to emit the OpenAPI document and the
-		// generated API reference page, so neither can ever describe a
-		// route this server does not actually serve, or vice versa.
-		Routes: []api.Route{
-			apispec.DispatchRunbook.Route(dispatcher.DispatchRunbook),
-			apispec.GetJob.Route(jobs.Get),
-			apispec.StreamJobLogs.Route(streamer.StreamLogs),
-			apispec.GetDevice.Route(devices.Get),
-			apispec.DeleteDevice.Route(devices.Delete),
-		},
+		// Two credential kinds, in this order. An Authorization header is
+		// an unambiguous statement of intent; a cookie is ambient, so
+		// cookie-first would let a stale session silently override a token
+		// a caller deliberately supplied.
+		//
+		// The cookie source on the JSON API is the entire fix for the SSE
+		// log stream. An EventSource cannot set headers at all, so with
+		// Bearer as the only accepted credential that endpoint was
+		// unreachable from any browser regardless of what the UI looked
+		// like -- and this line, not the UI, is what closes it.
+		Auth: api.IdentityMiddleware(nil,
+			api.BearerSource{Validator: evaluator},
+			session.CookieSource{Store: sessions, Cookie: cookieCodec},
+		),
+		Admission: admission,
+		HATEOAS:   hateoas,
+		Routes:    routes,
+		UI:        ui.Routes(),
+		UIPrefix:  "/ui",
 	})
 	if err != nil {
 		fatal("failed to build router", err)

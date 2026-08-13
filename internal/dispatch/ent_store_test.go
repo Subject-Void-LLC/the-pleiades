@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	// Aliased entjob: this file's existing tests already name their local
 	// *dispatch.Job variable "job", so importing internal/ent/job under its
 	// default name would shadow every one of those existing local
@@ -66,6 +67,61 @@ func TestEntJobStore_CreateAndGet(t *testing.T) {
 	}
 	if len(tasks) != 0 {
 		t.Errorf("Get returned %d tasks for a fresh job, want 0", len(tasks))
+	}
+}
+
+// TestEntJobStore_CreateAndGet_CapturesLaunchFields proves the job record
+// carries what a launch was configured with: the first hop of
+// AWX_PARITY_ROADMAP.md's launch-fields-reach-execution phase, ahead of the
+// wire and either adapter actually consuming it.
+func TestEntJobStore_CreateAndGet_CapturesLaunchFields(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newTestStore(t)
+
+	job := &dispatch.Job{
+		RunbookID: "pb-1",
+		Actor:     "user@example.com",
+		Fields:    launch.Fields{"limit": "edge-*", "forks": 5},
+		ExtraVars: map[string]any{"target_version": "17.3"},
+	}
+	if err := store.Create(ctx, job); err != nil {
+		t.Fatalf("Create returned unexpected error: %v", err)
+	}
+
+	got, _, err := store.Get(ctx, job.JobID)
+	if err != nil {
+		t.Fatalf("Get returned unexpected error: %v", err)
+	}
+	if got.Fields.String("limit") != "edge-*" || got.Fields.Int("forks") != 5 {
+		t.Errorf("Get returned Fields %+v, want limit=edge-* forks=5", got.Fields)
+	}
+	if got.ExtraVars["target_version"] != "17.3" {
+		t.Errorf("Get returned ExtraVars %+v, want target_version=17.3", got.ExtraVars)
+	}
+}
+
+// TestEntJobStore_CreateAndGet_LeavesEmptyLaunchFieldsAbsent proves an
+// ordinary launch that opened nothing is not indistinguishable, on
+// inspection, from one this store simply forgot to persist: Fields and
+// ExtraVars come back nil rather than an empty, present map.
+func TestEntJobStore_CreateAndGet_LeavesEmptyLaunchFieldsAbsent(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newTestStore(t)
+
+	job := &dispatch.Job{RunbookID: "pb-1", Actor: "user@example.com"}
+	if err := store.Create(ctx, job); err != nil {
+		t.Fatalf("Create returned unexpected error: %v", err)
+	}
+
+	got, _, err := store.Get(ctx, job.JobID)
+	if err != nil {
+		t.Fatalf("Get returned unexpected error: %v", err)
+	}
+	if got.Fields != nil {
+		t.Errorf("Get returned Fields %+v for a launch that opened nothing, want nil", got.Fields)
+	}
+	if got.ExtraVars != nil {
+		t.Errorf("Get returned ExtraVars %+v for a launch that opened nothing, want nil", got.ExtraVars)
 	}
 }
 

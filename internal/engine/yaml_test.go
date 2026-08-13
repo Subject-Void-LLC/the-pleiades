@@ -407,3 +407,75 @@ func TestBuildFromYAML_RejectsAliasBomb(t *testing.T) {
 		t.Fatalf("expected rejection well before this, took %v: %v", elapsed, err)
 	}
 }
+
+// TestBuildFromYAML_CatalogMetadata proves the fields a catalog browses by
+// survive the real parse-and-compile path.
+//
+// They are worth a test of their own rather than being assumed: they are
+// the only fields in a runbook that nothing in execution reads, so a
+// regression that dropped them would break no run, fail no existing test,
+// and show up as a catalog that has quietly gone blank.
+//
+// The labels-not-tags decision is asserted here too. Ansible's tags: means
+// task selection at run time, Pleiades is a superset of Ansible, and a
+// runbook that spelled its catalog filters "tags" would collide with that
+// the day real tag selection lands.
+func TestBuildFromYAML_CatalogMetadata(t *testing.T) {
+	const payload = `
+id: patch-tuesday
+name: Monthly Patch Window
+metadata:
+  description: Applies pending security updates and reboots if required.
+  category: patching
+  labels:
+    - compliance
+    - disruptive
+tasks:
+  - name: step
+    fqcn: noop
+`
+
+	eval, _ := engine.NewCELEvaluator()
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(payload))
+	if err != nil {
+		t.Fatalf("BuildFromYAML() = %v, want nil", err)
+	}
+
+	if dag.Name != "Monthly Patch Window" {
+		t.Errorf("Name = %q, want the play's own name:", dag.Name)
+	}
+	if dag.Metadata.Description == "" {
+		t.Error("Description was dropped between the file and the compiled DAG")
+	}
+	if dag.Metadata.Category != "patching" {
+		t.Errorf("Category = %q, want patching", dag.Metadata.Category)
+	}
+	if len(dag.Metadata.Labels) != 2 {
+		t.Fatalf("Labels = %v, want two", dag.Metadata.Labels)
+	}
+}
+
+// TestBuildFromYAML_CatalogMetadataIsOptional: every field added here is
+// additive, so a runbook written before they existed must still compile
+// unchanged. This is the assertion that would fail if any of them were
+// accidentally made required.
+func TestBuildFromYAML_CatalogMetadataIsOptional(t *testing.T) {
+	const payload = `
+id: bare
+tasks:
+  - name: step
+    fqcn: noop
+`
+
+	eval, _ := engine.NewCELEvaluator()
+	dag, err := engine.NewBuilder(eval).BuildFromYAML([]byte(payload))
+	if err != nil {
+		t.Fatalf("BuildFromYAML() on a runbook with no catalog metadata = %v, want nil", err)
+	}
+	if dag.Name != "" {
+		t.Errorf("Name = %q, want empty so the catalog can fall back to the id", dag.Name)
+	}
+	if dag.Metadata.Category != "" || len(dag.Metadata.Labels) != 0 {
+		t.Error("absent catalog metadata decoded as something other than its zero value")
+	}
+}

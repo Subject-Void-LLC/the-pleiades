@@ -72,6 +72,26 @@ type Runbook struct {
 	// on lost lease heartbeat (internal/runner's executeWithLease) or let
 	// it run to completion.
 	Interruptible bool
+
+	// Name, Description, Category and Labels are the catalog metadata a
+	// reader browsing runbooks needs and an executor does not. They come
+	// straight from the compiled WorkflowDef, so a runbook is described by
+	// its own file rather than by a database row somebody has to remember
+	// to keep in step with it.
+	//
+	// Name falls back to ID when the file sets none, so a catalog never
+	// renders a blank row for a runbook that is perfectly dispatchable.
+	Name        string
+	Description string
+	Category    string
+
+	// Labels are the free-form filter axis. They are deliberately not
+	// called tags: Ansible's tags: already means task selection at run
+	// time (--tags/--skip-tags), Pleiades is a superset of Ansible, and
+	// spending that word on catalog filtering would make implementing the
+	// real thing later either impossible or gratuitously incompatible.
+	// AWX draws the same line -- Labels organize, tags select.
+	Labels []string
 }
 
 // Source resolves a runbook ID to its compiled Runbook. It is the seam a
@@ -91,6 +111,22 @@ type Source interface {
 	// backing store, never echoing an id that failed validation back into
 	// an error.
 	Get(ctx context.Context, id string) (*Runbook, error)
+
+	// List returns every runbook id this Source can resolve, sorted.
+	//
+	// It returns ids rather than compiled *Runbook values on purpose. A
+	// catalog listing exists to answer "what can I run", and compiling
+	// every runbook to answer it would make the cost of opening a list
+	// page scale with the size and complexity of the whole runbook
+	// library -- for capability data the list does not display. A caller
+	// that needs a specific runbook's requirements asks Get for that one.
+	//
+	// An id that cannot be resolved is omitted rather than reported: a
+	// single malformed file must not make the entire catalog
+	// unreadable. Implementations that can distinguish "unreadable
+	// backing store" from "one bad entry" still return an error for the
+	// former.
+	List(ctx context.Context) ([]string, error)
 
 	// GetDAG resolves id to its full compiled *engine.DAG, the same
 	// underlying compilation Get's own Runbook.Required is derived from,

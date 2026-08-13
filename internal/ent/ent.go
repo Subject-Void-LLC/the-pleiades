@@ -12,15 +12,23 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
@@ -82,16 +90,24 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			device.Table:       device.ValidColumn,
-			fact.Table:         fact.ValidColumn,
-			group.Table:        group.ValidColumn,
-			job.Table:          job.ValidColumn,
-			jobtask.Table:      jobtask.ValidColumn,
-			organization.Table: organization.ValidColumn,
-			revision.Table:     revision.ValidColumn,
-			rolebinding.Table:  rolebinding.ValidColumn,
-			team.Table:         team.ValidColumn,
-			user.Table:         user.ValidColumn,
+			activityentry.Table:     activityentry.ValidColumn,
+			announcement.Table:      announcement.ValidColumn,
+			contact.Table:           contact.ValidColumn,
+			device.Table:            device.ValidColumn,
+			fact.Table:              fact.ValidColumn,
+			group.Table:             group.ValidColumn,
+			inventory.Table:         inventory.ValidColumn,
+			job.Table:               job.ValidColumn,
+			jobtask.Table:           jobtask.ValidColumn,
+			organization.Table:      organization.ValidColumn,
+			revision.Table:          revision.ValidColumn,
+			rolebinding.Table:       rolebinding.ValidColumn,
+			savedlaunchconfig.Table: savedlaunchconfig.ValidColumn,
+			session.Table:           session.ValidColumn,
+			surveyquestion.Table:    surveyquestion.ValidColumn,
+			team.Table:              team.ValidColumn,
+			template.Table:          template.ValidColumn,
+			user.Table:              user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

@@ -34,6 +34,7 @@ func jobsRouter(t *testing.T, jobs api.JobRepository) http.Handler {
 		Admission: &fakeAdmitter{},
 		HATEOAS:   allowAllGenerator(t),
 		Routes: []api.Route{
+			{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeJobRead, Rel: auth.RelCollection, Handler: handler.List},
 			{Method: http.MethodGet, Pattern: "/jobs/{id}", Scope: auth.ScopeJobRead, Rel: auth.RelSelf, Handler: handler.Get},
 		},
 	})
@@ -54,6 +55,10 @@ type erroringJobRepository struct{}
 
 func (erroringJobRepository) Get(ctx context.Context, jobID string) (*dispatch.Job, []dispatch.JobTask, error) {
 	return nil, nil, errors.New("deliberate store failure")
+}
+
+func (erroringJobRepository) List(ctx context.Context, after string, limit int) ([]*dispatch.Job, error) {
+	return nil, errors.New("deliberate store failure")
 }
 
 // TestJobHandler_StoreErrorReturns500 proves a backing-store failure that
@@ -174,7 +179,11 @@ func TestJobHandler_RendersJobWithTasks(t *testing.T) {
 	store := newTestJobStore(t)
 	ctx := context.Background()
 
-	job := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "operator@example.com"}
+	job := &dispatch.Job{
+		RunbookID: "pb-1", Actor: "operator@example.com",
+		TemplateID: 12, TemplateName: "patch the edge routers",
+		InventoryID: 7, OrganizationID: 3, Kind: "runbook",
+	}
 	if err := store.Create(ctx, job); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -215,10 +224,15 @@ func TestJobHandler_RendersJobWithTasks(t *testing.T) {
 	}
 
 	var body struct {
-		JobID      string                       `json:"job_id"`
-		RunbookID  string                       `json:"runbook_id"`
-		GroupName  string                       `json:"group_name"`
-		State      string                       `json:"state"`
+		JobID        string `json:"job_id"`
+		RunbookID    string `json:"runbook_id"`
+		State        string `json:"state"`
+		Template     int    `json:"template"`
+		TemplateName string `json:"template_name"`
+		Inventory    int    `json:"inventory"`
+		Organization int    `json:"organization"`
+		Kind         string `json:"kind"`
+
 		Dispatched int                          `json:"dispatched"`
 		Skipped    int                          `json:"skipped"`
 		Failed     int                          `json:"failed"`
@@ -228,8 +242,20 @@ func TestJobHandler_RendersJobWithTasks(t *testing.T) {
 		t.Fatalf("body is not JSON: %q: %v", rr.Body.String(), err)
 	}
 
-	if body.JobID != job.JobID || body.RunbookID != "pb-1" || body.GroupName != "routers" {
-		t.Errorf("job fields = %+v, want JobID=%q RunbookID=pb-1 GroupName=routers", body, job.JobID)
+	if body.JobID != job.JobID || body.RunbookID != "pb-1" {
+		t.Errorf("job fields = %+v, want JobID=%q RunbookID=pb-1", body, job.JobID)
+	}
+	// What a job says it came from, which is what replaced the group name
+	// it used to carry: a template, the inventory it targeted, and the
+	// tenant that inventory gave it.
+	if body.Template != 12 || body.TemplateName != "patch the edge routers" {
+		t.Errorf("job reports template %d/%q, want the one it was launched from", body.Template, body.TemplateName)
+	}
+	if body.Inventory != 7 || body.Organization != 3 {
+		t.Errorf("job reports inventory %d in organization %d, want 7 in 3", body.Inventory, body.Organization)
+	}
+	if body.Kind != "runbook" {
+		t.Errorf("job reports kind %q, want runbook", body.Kind)
 	}
 	if body.State != "completed" {
 		t.Errorf("state = %q, want %q", body.State, "completed")

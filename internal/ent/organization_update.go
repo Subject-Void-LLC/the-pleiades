@@ -11,10 +11,14 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
 // OrganizationUpdate is the builder for updating Organization entities.
@@ -50,6 +54,200 @@ func (_u *OrganizationUpdate) SetNillableName(v *string) *OrganizationUpdate {
 	return _u
 }
 
+// SetDescription sets the "description" field.
+func (_u *OrganizationUpdate) SetDescription(v string) *OrganizationUpdate {
+	_u.mutation.SetDescription(v)
+	return _u
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableDescription(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetDescription(*v)
+	}
+	return _u
+}
+
+// ClearDescription clears the value of the "description" field.
+func (_u *OrganizationUpdate) ClearDescription() *OrganizationUpdate {
+	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetClassification sets the "classification" field.
+func (_u *OrganizationUpdate) SetClassification(v string) *OrganizationUpdate {
+	_u.mutation.SetClassification(v)
+	return _u
+}
+
+// SetNillableClassification sets the "classification" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableClassification(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetClassification(*v)
+	}
+	return _u
+}
+
+// ClearClassification clears the value of the "classification" field.
+func (_u *OrganizationUpdate) ClearClassification() *OrganizationUpdate {
+	_u.mutation.ClearClassification()
+	return _u
+}
+
+// SetChangeWindow sets the "change_window" field.
+func (_u *OrganizationUpdate) SetChangeWindow(v string) *OrganizationUpdate {
+	_u.mutation.SetChangeWindow(v)
+	return _u
+}
+
+// SetNillableChangeWindow sets the "change_window" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableChangeWindow(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetChangeWindow(*v)
+	}
+	return _u
+}
+
+// ClearChangeWindow clears the value of the "change_window" field.
+func (_u *OrganizationUpdate) ClearChangeWindow() *OrganizationUpdate {
+	_u.mutation.ClearChangeWindow()
+	return _u
+}
+
+// SetFrozen sets the "frozen" field.
+func (_u *OrganizationUpdate) SetFrozen(v bool) *OrganizationUpdate {
+	_u.mutation.SetFrozen(v)
+	return _u
+}
+
+// SetNillableFrozen sets the "frozen" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableFrozen(v *bool) *OrganizationUpdate {
+	if v != nil {
+		_u.SetFrozen(*v)
+	}
+	return _u
+}
+
+// SetFreezeReason sets the "freeze_reason" field.
+func (_u *OrganizationUpdate) SetFreezeReason(v string) *OrganizationUpdate {
+	_u.mutation.SetFreezeReason(v)
+	return _u
+}
+
+// SetNillableFreezeReason sets the "freeze_reason" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableFreezeReason(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetFreezeReason(*v)
+	}
+	return _u
+}
+
+// ClearFreezeReason clears the value of the "freeze_reason" field.
+func (_u *OrganizationUpdate) ClearFreezeReason() *OrganizationUpdate {
+	_u.mutation.ClearFreezeReason()
+	return _u
+}
+
+// SetCostCentre sets the "cost_centre" field.
+func (_u *OrganizationUpdate) SetCostCentre(v string) *OrganizationUpdate {
+	_u.mutation.SetCostCentre(v)
+	return _u
+}
+
+// SetNillableCostCentre sets the "cost_centre" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableCostCentre(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetCostCentre(*v)
+	}
+	return _u
+}
+
+// ClearCostCentre clears the value of the "cost_centre" field.
+func (_u *OrganizationUpdate) ClearCostCentre() *OrganizationUpdate {
+	_u.mutation.ClearCostCentre()
+	return _u
+}
+
+// SetTicketKey sets the "ticket_key" field.
+func (_u *OrganizationUpdate) SetTicketKey(v string) *OrganizationUpdate {
+	_u.mutation.SetTicketKey(v)
+	return _u
+}
+
+// SetNillableTicketKey sets the "ticket_key" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableTicketKey(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetTicketKey(*v)
+	}
+	return _u
+}
+
+// ClearTicketKey clears the value of the "ticket_key" field.
+func (_u *OrganizationUpdate) ClearTicketKey() *OrganizationUpdate {
+	_u.mutation.ClearTicketKey()
+	return _u
+}
+
+// SetCmdbID sets the "cmdb_id" field.
+func (_u *OrganizationUpdate) SetCmdbID(v string) *OrganizationUpdate {
+	_u.mutation.SetCmdbID(v)
+	return _u
+}
+
+// SetNillableCmdbID sets the "cmdb_id" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableCmdbID(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetCmdbID(*v)
+	}
+	return _u
+}
+
+// ClearCmdbID clears the value of the "cmdb_id" field.
+func (_u *OrganizationUpdate) ClearCmdbID() *OrganizationUpdate {
+	_u.mutation.ClearCmdbID()
+	return _u
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_u *OrganizationUpdate) SetAttestedBy(v string) *OrganizationUpdate {
+	_u.mutation.SetAttestedBy(v)
+	return _u
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableAttestedBy(v *string) *OrganizationUpdate {
+	if v != nil {
+		_u.SetAttestedBy(*v)
+	}
+	return _u
+}
+
+// ClearAttestedBy clears the value of the "attested_by" field.
+func (_u *OrganizationUpdate) ClearAttestedBy() *OrganizationUpdate {
+	_u.mutation.ClearAttestedBy()
+	return _u
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_u *OrganizationUpdate) SetAttestedAt(v time.Time) *OrganizationUpdate {
+	_u.mutation.SetAttestedAt(v)
+	return _u
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_u *OrganizationUpdate) SetNillableAttestedAt(v *time.Time) *OrganizationUpdate {
+	if v != nil {
+		_u.SetAttestedAt(*v)
+	}
+	return _u
+}
+
+// ClearAttestedAt clears the value of the "attested_at" field.
+func (_u *OrganizationUpdate) ClearAttestedAt() *OrganizationUpdate {
+	_u.mutation.ClearAttestedAt()
+	return _u
+}
+
 // AddDeviceIDs adds the "devices" edge to the Device entity by IDs.
 func (_u *OrganizationUpdate) AddDeviceIDs(ids ...int) *OrganizationUpdate {
 	_u.mutation.AddDeviceIDs(ids...)
@@ -78,6 +276,66 @@ func (_u *OrganizationUpdate) AddTeams(v ...*Team) *OrganizationUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddTeamIDs(ids...)
+}
+
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_u *OrganizationUpdate) AddInventoryIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddInventoryIDs(ids...)
+	return _u
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdate) AddInventories(v ...*Inventory) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInventoryIDs(ids...)
+}
+
+// AddTemplateIDs adds the "templates" edge to the Template entity by IDs.
+func (_u *OrganizationUpdate) AddTemplateIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddTemplateIDs(ids...)
+	return _u
+}
+
+// AddTemplates adds the "templates" edges to the Template entity.
+func (_u *OrganizationUpdate) AddTemplates(v ...*Template) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTemplateIDs(ids...)
+}
+
+// AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
+func (_u *OrganizationUpdate) AddAnnouncementIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddAnnouncementIDs(ids...)
+	return _u
+}
+
+// AddAnnouncements adds the "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdate) AddAnnouncements(v ...*Announcement) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAnnouncementIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_u *OrganizationUpdate) AddContactIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddContactIDs(ids...)
+	return _u
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_u *OrganizationUpdate) AddContacts(v ...*Contact) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddContactIDs(ids...)
 }
 
 // Mutation returns the OrganizationMutation object of the builder.
@@ -125,6 +383,90 @@ func (_u *OrganizationUpdate) RemoveTeams(v ...*Team) *OrganizationUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearInventories clears all "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdate) ClearInventories() *OrganizationUpdate {
+	_u.mutation.ClearInventories()
+	return _u
+}
+
+// RemoveInventoryIDs removes the "inventories" edge to Inventory entities by IDs.
+func (_u *OrganizationUpdate) RemoveInventoryIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveInventoryIDs(ids...)
+	return _u
+}
+
+// RemoveInventories removes "inventories" edges to Inventory entities.
+func (_u *OrganizationUpdate) RemoveInventories(v ...*Inventory) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInventoryIDs(ids...)
+}
+
+// ClearTemplates clears all "templates" edges to the Template entity.
+func (_u *OrganizationUpdate) ClearTemplates() *OrganizationUpdate {
+	_u.mutation.ClearTemplates()
+	return _u
+}
+
+// RemoveTemplateIDs removes the "templates" edge to Template entities by IDs.
+func (_u *OrganizationUpdate) RemoveTemplateIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveTemplateIDs(ids...)
+	return _u
+}
+
+// RemoveTemplates removes "templates" edges to Template entities.
+func (_u *OrganizationUpdate) RemoveTemplates(v ...*Template) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearAnnouncements clears all "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdate) ClearAnnouncements() *OrganizationUpdate {
+	_u.mutation.ClearAnnouncements()
+	return _u
+}
+
+// RemoveAnnouncementIDs removes the "announcements" edge to Announcement entities by IDs.
+func (_u *OrganizationUpdate) RemoveAnnouncementIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveAnnouncementIDs(ids...)
+	return _u
+}
+
+// RemoveAnnouncements removes "announcements" edges to Announcement entities.
+func (_u *OrganizationUpdate) RemoveAnnouncements(v ...*Announcement) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAnnouncementIDs(ids...)
+}
+
+// ClearContacts clears all "contacts" edges to the Contact entity.
+func (_u *OrganizationUpdate) ClearContacts() *OrganizationUpdate {
+	_u.mutation.ClearContacts()
+	return _u
+}
+
+// RemoveContactIDs removes the "contacts" edge to Contact entities by IDs.
+func (_u *OrganizationUpdate) RemoveContactIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveContactIDs(ids...)
+	return _u
+}
+
+// RemoveContacts removes "contacts" edges to Contact entities.
+func (_u *OrganizationUpdate) RemoveContacts(v ...*Contact) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveContactIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -190,6 +532,63 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(organization.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Description(); ok {
+		_spec.SetField(organization.FieldDescription, field.TypeString, value)
+	}
+	if _u.mutation.DescriptionCleared() {
+		_spec.ClearField(organization.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.Classification(); ok {
+		_spec.SetField(organization.FieldClassification, field.TypeString, value)
+	}
+	if _u.mutation.ClassificationCleared() {
+		_spec.ClearField(organization.FieldClassification, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChangeWindow(); ok {
+		_spec.SetField(organization.FieldChangeWindow, field.TypeString, value)
+	}
+	if _u.mutation.ChangeWindowCleared() {
+		_spec.ClearField(organization.FieldChangeWindow, field.TypeString)
+	}
+	if value, ok := _u.mutation.Frozen(); ok {
+		_spec.SetField(organization.FieldFrozen, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.FreezeReason(); ok {
+		_spec.SetField(organization.FieldFreezeReason, field.TypeString, value)
+	}
+	if _u.mutation.FreezeReasonCleared() {
+		_spec.ClearField(organization.FieldFreezeReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.CostCentre(); ok {
+		_spec.SetField(organization.FieldCostCentre, field.TypeString, value)
+	}
+	if _u.mutation.CostCentreCleared() {
+		_spec.ClearField(organization.FieldCostCentre, field.TypeString)
+	}
+	if value, ok := _u.mutation.TicketKey(); ok {
+		_spec.SetField(organization.FieldTicketKey, field.TypeString, value)
+	}
+	if _u.mutation.TicketKeyCleared() {
+		_spec.ClearField(organization.FieldTicketKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.CmdbID(); ok {
+		_spec.SetField(organization.FieldCmdbID, field.TypeString, value)
+	}
+	if _u.mutation.CmdbIDCleared() {
+		_spec.ClearField(organization.FieldCmdbID, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedBy(); ok {
+		_spec.SetField(organization.FieldAttestedBy, field.TypeString, value)
+	}
+	if _u.mutation.AttestedByCleared() {
+		_spec.ClearField(organization.FieldAttestedBy, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedAt(); ok {
+		_spec.SetField(organization.FieldAttestedAt, field.TypeTime, value)
+	}
+	if _u.mutation.AttestedAtCleared() {
+		_spec.ClearField(organization.FieldAttestedAt, field.TypeTime)
 	}
 	if _u.mutation.DevicesCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -281,6 +680,186 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTemplatesIDs(); len(nodes) > 0 && !_u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TemplatesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAnnouncementsIDs(); len(nodes) > 0 && !_u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AnnouncementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedContactsIDs(); len(nodes) > 0 && !_u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{organization.Label}
@@ -321,6 +900,200 @@ func (_u *OrganizationUpdateOne) SetNillableName(v *string) *OrganizationUpdateO
 	return _u
 }
 
+// SetDescription sets the "description" field.
+func (_u *OrganizationUpdateOne) SetDescription(v string) *OrganizationUpdateOne {
+	_u.mutation.SetDescription(v)
+	return _u
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableDescription(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetDescription(*v)
+	}
+	return _u
+}
+
+// ClearDescription clears the value of the "description" field.
+func (_u *OrganizationUpdateOne) ClearDescription() *OrganizationUpdateOne {
+	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetClassification sets the "classification" field.
+func (_u *OrganizationUpdateOne) SetClassification(v string) *OrganizationUpdateOne {
+	_u.mutation.SetClassification(v)
+	return _u
+}
+
+// SetNillableClassification sets the "classification" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableClassification(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetClassification(*v)
+	}
+	return _u
+}
+
+// ClearClassification clears the value of the "classification" field.
+func (_u *OrganizationUpdateOne) ClearClassification() *OrganizationUpdateOne {
+	_u.mutation.ClearClassification()
+	return _u
+}
+
+// SetChangeWindow sets the "change_window" field.
+func (_u *OrganizationUpdateOne) SetChangeWindow(v string) *OrganizationUpdateOne {
+	_u.mutation.SetChangeWindow(v)
+	return _u
+}
+
+// SetNillableChangeWindow sets the "change_window" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableChangeWindow(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetChangeWindow(*v)
+	}
+	return _u
+}
+
+// ClearChangeWindow clears the value of the "change_window" field.
+func (_u *OrganizationUpdateOne) ClearChangeWindow() *OrganizationUpdateOne {
+	_u.mutation.ClearChangeWindow()
+	return _u
+}
+
+// SetFrozen sets the "frozen" field.
+func (_u *OrganizationUpdateOne) SetFrozen(v bool) *OrganizationUpdateOne {
+	_u.mutation.SetFrozen(v)
+	return _u
+}
+
+// SetNillableFrozen sets the "frozen" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableFrozen(v *bool) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetFrozen(*v)
+	}
+	return _u
+}
+
+// SetFreezeReason sets the "freeze_reason" field.
+func (_u *OrganizationUpdateOne) SetFreezeReason(v string) *OrganizationUpdateOne {
+	_u.mutation.SetFreezeReason(v)
+	return _u
+}
+
+// SetNillableFreezeReason sets the "freeze_reason" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableFreezeReason(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetFreezeReason(*v)
+	}
+	return _u
+}
+
+// ClearFreezeReason clears the value of the "freeze_reason" field.
+func (_u *OrganizationUpdateOne) ClearFreezeReason() *OrganizationUpdateOne {
+	_u.mutation.ClearFreezeReason()
+	return _u
+}
+
+// SetCostCentre sets the "cost_centre" field.
+func (_u *OrganizationUpdateOne) SetCostCentre(v string) *OrganizationUpdateOne {
+	_u.mutation.SetCostCentre(v)
+	return _u
+}
+
+// SetNillableCostCentre sets the "cost_centre" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableCostCentre(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetCostCentre(*v)
+	}
+	return _u
+}
+
+// ClearCostCentre clears the value of the "cost_centre" field.
+func (_u *OrganizationUpdateOne) ClearCostCentre() *OrganizationUpdateOne {
+	_u.mutation.ClearCostCentre()
+	return _u
+}
+
+// SetTicketKey sets the "ticket_key" field.
+func (_u *OrganizationUpdateOne) SetTicketKey(v string) *OrganizationUpdateOne {
+	_u.mutation.SetTicketKey(v)
+	return _u
+}
+
+// SetNillableTicketKey sets the "ticket_key" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableTicketKey(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetTicketKey(*v)
+	}
+	return _u
+}
+
+// ClearTicketKey clears the value of the "ticket_key" field.
+func (_u *OrganizationUpdateOne) ClearTicketKey() *OrganizationUpdateOne {
+	_u.mutation.ClearTicketKey()
+	return _u
+}
+
+// SetCmdbID sets the "cmdb_id" field.
+func (_u *OrganizationUpdateOne) SetCmdbID(v string) *OrganizationUpdateOne {
+	_u.mutation.SetCmdbID(v)
+	return _u
+}
+
+// SetNillableCmdbID sets the "cmdb_id" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableCmdbID(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetCmdbID(*v)
+	}
+	return _u
+}
+
+// ClearCmdbID clears the value of the "cmdb_id" field.
+func (_u *OrganizationUpdateOne) ClearCmdbID() *OrganizationUpdateOne {
+	_u.mutation.ClearCmdbID()
+	return _u
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_u *OrganizationUpdateOne) SetAttestedBy(v string) *OrganizationUpdateOne {
+	_u.mutation.SetAttestedBy(v)
+	return _u
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableAttestedBy(v *string) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetAttestedBy(*v)
+	}
+	return _u
+}
+
+// ClearAttestedBy clears the value of the "attested_by" field.
+func (_u *OrganizationUpdateOne) ClearAttestedBy() *OrganizationUpdateOne {
+	_u.mutation.ClearAttestedBy()
+	return _u
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_u *OrganizationUpdateOne) SetAttestedAt(v time.Time) *OrganizationUpdateOne {
+	_u.mutation.SetAttestedAt(v)
+	return _u
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_u *OrganizationUpdateOne) SetNillableAttestedAt(v *time.Time) *OrganizationUpdateOne {
+	if v != nil {
+		_u.SetAttestedAt(*v)
+	}
+	return _u
+}
+
+// ClearAttestedAt clears the value of the "attested_at" field.
+func (_u *OrganizationUpdateOne) ClearAttestedAt() *OrganizationUpdateOne {
+	_u.mutation.ClearAttestedAt()
+	return _u
+}
+
 // AddDeviceIDs adds the "devices" edge to the Device entity by IDs.
 func (_u *OrganizationUpdateOne) AddDeviceIDs(ids ...int) *OrganizationUpdateOne {
 	_u.mutation.AddDeviceIDs(ids...)
@@ -349,6 +1122,66 @@ func (_u *OrganizationUpdateOne) AddTeams(v ...*Team) *OrganizationUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddTeamIDs(ids...)
+}
+
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_u *OrganizationUpdateOne) AddInventoryIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddInventoryIDs(ids...)
+	return _u
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdateOne) AddInventories(v ...*Inventory) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInventoryIDs(ids...)
+}
+
+// AddTemplateIDs adds the "templates" edge to the Template entity by IDs.
+func (_u *OrganizationUpdateOne) AddTemplateIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddTemplateIDs(ids...)
+	return _u
+}
+
+// AddTemplates adds the "templates" edges to the Template entity.
+func (_u *OrganizationUpdateOne) AddTemplates(v ...*Template) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTemplateIDs(ids...)
+}
+
+// AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
+func (_u *OrganizationUpdateOne) AddAnnouncementIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddAnnouncementIDs(ids...)
+	return _u
+}
+
+// AddAnnouncements adds the "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdateOne) AddAnnouncements(v ...*Announcement) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAnnouncementIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_u *OrganizationUpdateOne) AddContactIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddContactIDs(ids...)
+	return _u
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_u *OrganizationUpdateOne) AddContacts(v ...*Contact) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddContactIDs(ids...)
 }
 
 // Mutation returns the OrganizationMutation object of the builder.
@@ -396,6 +1229,90 @@ func (_u *OrganizationUpdateOne) RemoveTeams(v ...*Team) *OrganizationUpdateOne 
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearInventories clears all "inventories" edges to the Inventory entity.
+func (_u *OrganizationUpdateOne) ClearInventories() *OrganizationUpdateOne {
+	_u.mutation.ClearInventories()
+	return _u
+}
+
+// RemoveInventoryIDs removes the "inventories" edge to Inventory entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveInventoryIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveInventoryIDs(ids...)
+	return _u
+}
+
+// RemoveInventories removes "inventories" edges to Inventory entities.
+func (_u *OrganizationUpdateOne) RemoveInventories(v ...*Inventory) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInventoryIDs(ids...)
+}
+
+// ClearTemplates clears all "templates" edges to the Template entity.
+func (_u *OrganizationUpdateOne) ClearTemplates() *OrganizationUpdateOne {
+	_u.mutation.ClearTemplates()
+	return _u
+}
+
+// RemoveTemplateIDs removes the "templates" edge to Template entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveTemplateIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveTemplateIDs(ids...)
+	return _u
+}
+
+// RemoveTemplates removes "templates" edges to Template entities.
+func (_u *OrganizationUpdateOne) RemoveTemplates(v ...*Template) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearAnnouncements clears all "announcements" edges to the Announcement entity.
+func (_u *OrganizationUpdateOne) ClearAnnouncements() *OrganizationUpdateOne {
+	_u.mutation.ClearAnnouncements()
+	return _u
+}
+
+// RemoveAnnouncementIDs removes the "announcements" edge to Announcement entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveAnnouncementIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveAnnouncementIDs(ids...)
+	return _u
+}
+
+// RemoveAnnouncements removes "announcements" edges to Announcement entities.
+func (_u *OrganizationUpdateOne) RemoveAnnouncements(v ...*Announcement) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAnnouncementIDs(ids...)
+}
+
+// ClearContacts clears all "contacts" edges to the Contact entity.
+func (_u *OrganizationUpdateOne) ClearContacts() *OrganizationUpdateOne {
+	_u.mutation.ClearContacts()
+	return _u
+}
+
+// RemoveContactIDs removes the "contacts" edge to Contact entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveContactIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveContactIDs(ids...)
+	return _u
+}
+
+// RemoveContacts removes "contacts" edges to Contact entities.
+func (_u *OrganizationUpdateOne) RemoveContacts(v ...*Contact) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveContactIDs(ids...)
 }
 
 // Where appends a list predicates to the OrganizationUpdate builder.
@@ -492,6 +1409,63 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(organization.FieldName, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.Description(); ok {
+		_spec.SetField(organization.FieldDescription, field.TypeString, value)
+	}
+	if _u.mutation.DescriptionCleared() {
+		_spec.ClearField(organization.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.Classification(); ok {
+		_spec.SetField(organization.FieldClassification, field.TypeString, value)
+	}
+	if _u.mutation.ClassificationCleared() {
+		_spec.ClearField(organization.FieldClassification, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChangeWindow(); ok {
+		_spec.SetField(organization.FieldChangeWindow, field.TypeString, value)
+	}
+	if _u.mutation.ChangeWindowCleared() {
+		_spec.ClearField(organization.FieldChangeWindow, field.TypeString)
+	}
+	if value, ok := _u.mutation.Frozen(); ok {
+		_spec.SetField(organization.FieldFrozen, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.FreezeReason(); ok {
+		_spec.SetField(organization.FieldFreezeReason, field.TypeString, value)
+	}
+	if _u.mutation.FreezeReasonCleared() {
+		_spec.ClearField(organization.FieldFreezeReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.CostCentre(); ok {
+		_spec.SetField(organization.FieldCostCentre, field.TypeString, value)
+	}
+	if _u.mutation.CostCentreCleared() {
+		_spec.ClearField(organization.FieldCostCentre, field.TypeString)
+	}
+	if value, ok := _u.mutation.TicketKey(); ok {
+		_spec.SetField(organization.FieldTicketKey, field.TypeString, value)
+	}
+	if _u.mutation.TicketKeyCleared() {
+		_spec.ClearField(organization.FieldTicketKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.CmdbID(); ok {
+		_spec.SetField(organization.FieldCmdbID, field.TypeString, value)
+	}
+	if _u.mutation.CmdbIDCleared() {
+		_spec.ClearField(organization.FieldCmdbID, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedBy(); ok {
+		_spec.SetField(organization.FieldAttestedBy, field.TypeString, value)
+	}
+	if _u.mutation.AttestedByCleared() {
+		_spec.ClearField(organization.FieldAttestedBy, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedAt(); ok {
+		_spec.SetField(organization.FieldAttestedAt, field.TypeTime, value)
+	}
+	if _u.mutation.AttestedAtCleared() {
+		_spec.ClearField(organization.FieldAttestedAt, field.TypeTime)
+	}
 	if _u.mutation.DevicesCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -575,6 +1549,186 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInventoriesIDs(); len(nodes) > 0 && !_u.mutation.InventoriesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.InventoriesTable,
+			Columns: []string{organization.InventoriesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTemplatesIDs(); len(nodes) > 0 && !_u.mutation.TemplatesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TemplatesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.TemplatesTable,
+			Columns: []string{organization.TemplatesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAnnouncementsIDs(); len(nodes) > 0 && !_u.mutation.AnnouncementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AnnouncementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.AnnouncementsTable,
+			Columns: []string{organization.AnnouncementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(announcement.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedContactsIDs(); len(nodes) > 0 && !_u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.ContactsTable,
+			Columns: []string{organization.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

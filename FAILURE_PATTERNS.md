@@ -94,6 +94,30 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 91. A test container the production code path never used, hiding a database configuration that existed nowhere
 92. A dialect map that made a migration runner look portable while one statement inside it was not
 93. A compose file setting a configuration key no code read, in front of a service nothing used
+94. An unanchored `vendor/` gitignore pattern silently excluded embedded third-party assets, so the committed tree did not build
+95. A wildcard CORS header on an endpoint that had just become cookie-authenticated
+96. The credential-source generalization was built, tested, and never wired into the composition root
+97. An inventory is a grant surface, so unvalidated membership is a cross-tenant privilege escalation with every individual step passing its own check
+98. `scopeRule` discards the Role the resolver returned, so every RoleBinding's role is decorative
+99. A RoleBinding with `scope_id = 0` is a system-wide Allow, and nothing rejects one
+100. A record action's affordance never entered the candidate set, so its control rendered for nobody, on every page, with no error anywhere
+101. A required select whose only option source has no writer anywhere, so the create form it gates could never be submitted
+102. HTMX was downloaded on every page and invoked by nothing, so half the request pipeline's fragment handling was unreachable (fixed: live refresh now uses it)
+103. A PATCH decoded an absent list and an explicit empty list identically, so renaming a record silently emptied its membership
+104. A review agent wrote a file into the working tree, and CI failed on somebody else's scratch
+105. A guard ran after the deletions it was guarding, so a refusal destroyed the data it refused to destroy
+106. Two opposite constraint violations arrived as one ent error type, so "still referenced" was reported as "already exists"
+107. A list rendered a foreign key, so the reader had to do the join
+108. A replaced doc comment survived above its replacement, so one function documented two opposite policies
+109. A testing library reached a production binary, because the package that imported it had no production caller until now
+110. A composition root omitted an optional constructor option, and the feature it enabled was refused at run time with nothing failing at build time
+111. An edit form rendered a control whose value the update then discarded, and the help text beside it had said "set once" since the day it shipped
+112. A feature shipped as four green layers that never composed, and every layer's own tests are why nobody noticed
+113. Two statements of one contract disagreed, and the reconciliation kept the wrong one
+114. A field made absent from the edit form was still demanded by the code that reads the submission, so every edit on three views failed
+115. A checkbox's edit-form prefill used a different truthiness convention than the checkbox template itself checks for
+116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
+117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
 
 ---
 

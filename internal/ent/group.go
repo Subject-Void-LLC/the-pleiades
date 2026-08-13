@@ -37,9 +37,11 @@ type GroupEdges struct {
 	Parents []*Group `json:"parents,omitempty"`
 	// Children holds the value of the children edge.
 	Children []*Group `json:"children,omitempty"`
+	// Inventories holds the value of the inventories edge.
+	Inventories []*Inventory `json:"inventories,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -67,6 +69,15 @@ func (e GroupEdges) ChildrenOrErr() ([]*Group, error) {
 		return e.Children, nil
 	}
 	return nil, &NotLoadedError{edge: "children"}
+}
+
+// InventoriesOrErr returns the Inventories value or an error if the edge
+// was not loaded in eager-loading.
+func (e GroupEdges) InventoriesOrErr() ([]*Inventory, error) {
+	if e.loadedTypes[3] {
+		return e.Inventories, nil
+	}
+	return nil, &NotLoadedError{edge: "inventories"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -145,6 +156,11 @@ func (_m *Group) QueryParents() *GroupQuery {
 // QueryChildren queries the "children" edge of the Group entity.
 func (_m *Group) QueryChildren() *GroupQuery {
 	return NewGroupClient(_m.config).QueryChildren(_m)
+}
+
+// QueryInventories queries the "inventories" edge of the Group entity.
+func (_m *Group) QueryInventories() *InventoryQuery {
+	return NewGroupClient(_m.config).QueryInventories(_m)
 }
 
 // Update returns a builder for updating this Group.

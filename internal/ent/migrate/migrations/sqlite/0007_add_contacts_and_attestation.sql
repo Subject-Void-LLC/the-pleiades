@@ -1,0 +1,14 @@
+PRAGMA foreign_keys = off;
+PRAGMA foreign_keys = off;
+CREATE TABLE `new_organizations` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL, `description` text NULL, `classification` text NULL, `change_window` text NULL, `frozen` bool NOT NULL DEFAULT (false), `freeze_reason` text NULL, `cost_centre` text NULL, `ticket_key` text NULL, `cmdb_id` text NULL, `attested_by` text NULL, `attested_at` datetime NULL);
+INSERT INTO `new_organizations` (`id`, `created_at`, `updated_at`, `name`) SELECT `id`, `created_at`, `updated_at`, `name` FROM `organizations`;
+DROP TABLE `organizations`;
+ALTER TABLE `new_organizations` RENAME TO `organizations`;
+CREATE UNIQUE INDEX `organizations_name_key` ON `organizations` (`name`);
+ALTER TABLE `teams` ADD COLUMN `description` text NULL;
+ALTER TABLE `teams` ADD COLUMN `attested_by` text NULL;
+ALTER TABLE `teams` ADD COLUMN `attested_at` datetime NULL;
+CREATE TABLE `contacts` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL, `role` text NOT NULL, `email` text NULL, `phone` text NULL, `url` text NULL, `notes` text NULL, `display_order` integer NOT NULL DEFAULT (0), `organization_contacts` integer NULL, `team_contacts` integer NULL, CONSTRAINT `contacts_organizations_contacts` FOREIGN KEY (`organization_contacts`) REFERENCES `organizations` (`id`) ON DELETE CASCADE, CONSTRAINT `contacts_teams_contacts` FOREIGN KEY (`team_contacts`) REFERENCES `teams` (`id`) ON DELETE CASCADE);
+CREATE INDEX `contact_role_display_order` ON `contacts` (`role`, `display_order`);
+PRAGMA foreign_keys = on;
+PRAGMA foreign_keys = on;

@@ -1,0 +1,9 @@
+PRAGMA foreign_keys = off;
+ALTER TABLE `jobs` ADD COLUMN `organization_id` integer NULL;
+CREATE TABLE `announcements` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `title` text NOT NULL, `body` text NOT NULL, `level` text NOT NULL DEFAULT ('info'), `starts_at` datetime NULL, `ends_at` datetime NULL, `author` text NOT NULL, `organization_announcements` integer NULL, CONSTRAINT `announcements_organizations_announcements` FOREIGN KEY (`organization_announcements`) REFERENCES `organizations` (`id`) ON DELETE SET NULL);
+CREATE INDEX `announcement_starts_at_ends_at` ON `announcements` (`starts_at`, `ends_at`);
+CREATE TABLE `inventories` (`id` integer NOT NULL PRIMARY KEY AUTOINCREMENT, `created_at` datetime NOT NULL, `updated_at` datetime NOT NULL, `name` text NOT NULL, `description` text NULL, `owner` text NULL, `organization_inventories` integer NOT NULL, CONSTRAINT `inventories_organizations_inventories` FOREIGN KEY (`organization_inventories`) REFERENCES `organizations` (`id`) ON DELETE NO ACTION);
+CREATE UNIQUE INDEX `inventory_name_organization_inventories` ON `inventories` (`name`, `organization_inventories`);
+CREATE TABLE `inventory_groups` (`inventory_id` integer NOT NULL, `group_id` integer NOT NULL, PRIMARY KEY (`inventory_id`, `group_id`), CONSTRAINT `inventory_groups_inventory_id` FOREIGN KEY (`inventory_id`) REFERENCES `inventories` (`id`) ON DELETE CASCADE, CONSTRAINT `inventory_groups_group_id` FOREIGN KEY (`group_id`) REFERENCES `groups` (`id`) ON DELETE CASCADE);
+CREATE TABLE `inventory_devices` (`inventory_id` integer NOT NULL, `device_id` integer NOT NULL, PRIMARY KEY (`inventory_id`, `device_id`), CONSTRAINT `inventory_devices_inventory_id` FOREIGN KEY (`inventory_id`) REFERENCES `inventories` (`id`) ON DELETE CASCADE, CONSTRAINT `inventory_devices_device_id` FOREIGN KEY (`device_id`) REFERENCES `devices` (`id`) ON DELETE CASCADE);
+PRAGMA foreign_keys = on;

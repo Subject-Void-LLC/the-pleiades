@@ -85,6 +85,19 @@ const (
 	// harnessRunbookID is the runbook every dispatch in this package
 	// names.
 	harnessRunbookID = "ping"
+
+	// harnessPlaybookID names the playbook the withAnsible harness seeds
+	// and its gate launches. A project-relative PATH in a subdirectory,
+	// deliberately: that is the shape a production Ascender template
+	// stores ("tripplite_python/tripplite_config.yml"), and a fixture at
+	// the tree root would pass against a resolver that cannot descend.
+	harnessPlaybookID = "network_automation/hello_mesh.yml"
+
+	// harnessPlaybookTaskName is the task the fixture playbook runs,
+	// asserted against the job's log events: seeing it there proves a
+	// real ansible-playbook parsed and executed this exact file inside
+	// the legacy adapter's sandbox, through the production binaries.
+	harnessPlaybookTaskName = "prove the legacy adapter ran ansible"
 )
 
 // Binaries built once per test binary by TestMain.
@@ -174,14 +187,49 @@ type harness struct {
 	// database generated, which the wire assertions compare against.
 	devices []*seededDevice
 
+	// templateID is the seeded template every launch in this suite runs.
+	// A template rather than a group name, because a launch names a saved
+	// definition now and that is what gives its job a tenant.
+	templateID int
+
+	// emptyTemplateID names an inventory that selects nothing, which is
+	// the fail-closed control: it must dispatch to nothing rather than to
+	// everything.
+	emptyTemplateID int
+
+	// The Ansible half, present only when the harness was started
+	// withAnsible: the shared playbook directory, the runner image, and a
+	// template whose kind routes to the legacy adapter. Empty otherwise,
+	// so the other tests do not pay for a docker build they never use.
+	playbookDir        string
+	ansibleImage       string
+	playbookTemplateID int
+
 	controller *managedProc
 	runner     *managedProc
+}
+
+// harnessOption configures optional harness surface before any container
+// or binary starts.
+type harnessOption func(tb testing.TB, h *harness)
+
+// withAnsible equips the mesh to run the playbook kind for real: the
+// repository's own ansible-runner image, a playbook directory both
+// binaries read (the same two-binary PLAYBOOK_DIR convention RUNBOOK_DIR
+// follows), and a seeded playbook template against the same inventory the
+// runbook template targets.
+func withAnsible() harnessOption {
+	return func(tb testing.TB, h *harness) {
+		h.ansibleImage = testsupport.BuildAnsibleRunnerImage(tb)
+		h.playbookDir = tb.TempDir()
+		writePlaybookFixture(tb, h.playbookDir)
+	}
 }
 
 // startHarness brings up the full mesh and returns it ready to drive.
 //
 // The ordering is load bearing and is called out at each step.
-func startHarness(tb testing.TB) *harness {
+func startHarness(tb testing.TB, opts ...harnessOption) *harness {
 	tb.Helper()
 
 	// Registered first so that, under tb.Cleanup's last-added-first-called
@@ -210,6 +258,13 @@ func startHarness(tb testing.TB) *harness {
 
 	ctx := context.Background()
 	h := &harness{}
+
+	// Options run before the containers so an option that must skip (no
+	// docker for the ansible image build) skips before anything is paid
+	// for.
+	for _, opt := range opts {
+		opt(tb, h)
+	}
 
 	// 1. The two containers. Started before anything that needs them, and
 	// with an explicit startup timeout rather than testcontainers' own
@@ -264,7 +319,10 @@ func (h *harness) wire(tb testing.TB) {
 	// 4. Seed inventory, through the same open seam and the same
 	// versioned migrations the controller itself uses, then close the
 	// client before the controller starts.
-	h.devices = seedInventory(tb, h.dsn)
+	h.devices, h.templateID, h.emptyTemplateID = seedInventory(tb, h.dsn)
+	if h.playbookDir != "" {
+		h.playbookTemplateID = seedPlaybookTemplate(tb, h.dsn)
+	}
 
 	// 5. The controller, then the runner.
 	h.startController(tb)
@@ -326,7 +384,7 @@ func (h *harness) startController(tb testing.TB) {
 	port := freeTCPPort(tb)
 	h.baseURL = "http://127.0.0.1:" + strconv.Itoa(port)
 
-	h.controller = h.startProcess(tb, "controller", controllerBinPath, []string{
+	h.controller = h.startProcess(tb, "controller", controllerBinPath, append([]string{
 		"DB_DSN=" + h.dsn,
 		"NATS_URL=" + h.natsURL,
 		"LISTEN_ADDR=127.0.0.1:" + strconv.Itoa(port),
@@ -345,7 +403,14 @@ func (h *harness) startController(tb testing.TB) {
 		// is set, so a local collector configuration must not be able to
 		// change what this test exercises.
 		"OTEL_TRACES_EXPORTER=none",
-	})
+		// The harness speaks plain HTTP to a loopback port. A __Host-
+		// prefixed cookie is browser-enforced to require Secure, Secure
+		// requires HTTPS, so the UI's session cookie would be unusable
+		// here -- which would make every web UI assertion a test of TLS
+		// rather than of the UI. This is the documented opt-out, and the
+		// controller logs a warning whenever it is set.
+		"PLEIADES_UI_INSECURE_COOKIES=1",
+	}, h.playbookEnv(false)...))
 
 	// /healthz proves the socket is bound. /readyz is the stronger claim
 	// and the one worth waiting on: it runs a real NATS connectivity
@@ -360,12 +425,12 @@ func (h *harness) startController(tb testing.TB) {
 func (h *harness) startRunner(tb testing.TB) {
 	tb.Helper()
 
-	h.runner = h.startProcess(tb, "runner", runnerBinPath, []string{
+	h.runner = h.startProcess(tb, "runner", runnerBinPath, append([]string{
 		"NATS_URL=" + h.natsURL,
 		"RUNBOOK_DIR=" + h.runbookDir,
 		"RUNNER_WAL_DIR=" + tb.TempDir(),
 		"OTEL_TRACES_EXPORTER=none",
-	})
+	}, h.playbookEnv(true)...))
 
 	// Readiness is the durable consumer existing, not a log line: that
 	// consumer is the exact resource a dispatch has to land on, so
@@ -388,6 +453,22 @@ func (h *harness) startRunner(tb testing.TB) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// playbookEnv is the Ansible half's environment, empty when the harness
+// was started without it. Both binaries read PLAYBOOK_DIR (the controller
+// for its catalog and fan-out verification, the runner for execution);
+// only the runner needs the image, and it refuses the directory without
+// the image by design, which is why the pair travels together.
+func (h *harness) playbookEnv(runner bool) []string {
+	if h.playbookDir == "" {
+		return nil
+	}
+	env := []string{"PLAYBOOK_DIR=" + h.playbookDir}
+	if runner {
+		env = append(env, "ANSIBLE_RUNNER_IMAGE="+h.ansibleImage)
+	}
+	return env
 }
 
 // startProcess launches one binary with the given environment and drains
@@ -522,5 +603,35 @@ func writeRunbookFixture(tb testing.TB, dir string) {
 	content := "id: " + harnessRunbookID + "\ntasks:\n  - name: step\n    fqcn: noop\n"
 	if err := os.WriteFile(filepath.Join(dir, harnessRunbookID+".yaml"), []byte(content), 0o600); err != nil {
 		tb.Fatalf("writing the runbook fixture: %v", err)
+	}
+}
+
+// writePlaybookFixture writes the playbook the withAnsible harness runs.
+//
+// connection: local, deliberately. The legacy adapter's ansible container
+// runs on Docker's own network, while this harness's devices advertise
+// loopback host-mapped ports only the test host can reach, so an SSH
+// connection from inside that container would be testing Docker's
+// topology rather than this platform's wiring. Reaching a real device
+// over the network from the real container is cmd/runner's Ansible
+// release gate, which attaches both containers to one network; what THIS
+// fixture proves is the half that gate cannot: that the production
+// binaries route a playbook-kind job into that adapter at all.
+func writePlaybookFixture(tb testing.TB, dir string) {
+	tb.Helper()
+	content := `---
+- hosts: all
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: ` + harnessPlaybookTaskName + `
+      ansible.builtin.command: /bin/true
+`
+	abs := filepath.Join(dir, filepath.FromSlash(harnessPlaybookID))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
+		tb.Fatalf("making the playbook fixture directory: %v", err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
+		tb.Fatalf("writing the playbook fixture: %v", err)
 	}
 }

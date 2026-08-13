@@ -68,17 +68,52 @@ func (r *entRepository) GetGroup(ctx context.Context, sel inventory.Selector) (I
 		query = query.Where(device.HasGroupsWith(group.NameEQ(sel.GroupName)))
 	}
 
+	// Membership is the contents of one Inventory: the devices in any of
+	// its groups, plus the devices attached to it directly. One OR pushed
+	// down to SQL rather than two queries the caller unions, so the
+	// database de-duplicates a device reachable both ways and the stream
+	// stays a stream.
+	//
+	// The empty case is the one that matters. Both IN clauses are empty
+	// for an Inventory that contains nothing, and ent renders an empty IN
+	// as FALSE rather than as no predicate at all, so the stream is empty
+	// too. That is the required behaviour, not a convenience: an empty
+	// membership that fell through to "no restriction" would turn a
+	// dispatch against an empty inventory into a dispatch against every
+	// device the platform manages. TestEntRepository_EmptyMembership
+	// selects nothing is what holds ent to it.
+	if sel.Membership != nil {
+		query = query.Where(device.Or(
+			device.HasGroupsWith(group.IDIn(sel.Membership.GroupIDs...)),
+			device.IDIn(sel.Membership.DeviceIDs...),
+		))
+	}
+
 	// Keyset-paginated iterator: batches page on device_id, the stable,
 	// indexed, time-ordered (UUIDv7) column this schema was built to
 	// support (internal/ent/schema/device.go). In production Postgres, a
 	// server-side cursor (DECLARE cursor_name CURSOR FOR...) is another
 	// option, but keyset batching needs no such driver-specific feature
 	// and works identically across SQL dialects.
-	return &entIterator{
+	it := &entIterator{
 		query:     query,
 		factory:   r.factory,
 		batchSize: 1000,
-	}, nil
+		limited:   sel.Limit > 0,
+		remaining: sel.Limit,
+	}
+
+	// A caller-supplied cursor seeds the same mechanism batching already
+	// uses: marking the iterator started with that cursor makes the very
+	// first fetch a WHERE device_id > after, exactly as a mid-stream batch
+	// boundary does. Resuming a page is therefore not a second code path,
+	// which is what keeps the two from drifting apart.
+	if sel.After != "" {
+		it.started = true
+		it.cursor = string(sel.After)
+	}
+
+	return it, nil
 }
 
 // GetByName loads one device by its unique name, together with its stored
@@ -185,6 +220,16 @@ type entIterator struct {
 	started bool
 	cursor  string
 	buffer  []*ent.Device
+
+	// limited and remaining carry Selector.Limit. They are two fields
+	// rather than one sentinel because zero is a real, common value with
+	// the opposite meaning: every pre-existing caller passes Limit 0 and
+	// means "no bound", while a paging caller whose remaining count has
+	// reached 0 means "stop now". Folding them together would make the
+	// dispatch fan-out yield nothing.
+	limited   bool
+	remaining int
+
 	index   int
 	current inventory.InventoryItem
 	err     error
@@ -214,6 +259,12 @@ func (i *entIterator) Next(ctx context.Context) bool {
 		return false
 	}
 
+	// A bounded stream reports EOF once it has yielded its allowance,
+	// whatever remains buffered or unfetched.
+	if i.limited && i.remaining <= 0 {
+		return false
+	}
+
 	// If we still have items in the buffer, just advance the index
 	if i.index < len(i.buffer) {
 		item, err := i.build(i.buffer[i.index])
@@ -223,6 +274,7 @@ func (i *entIterator) Next(ctx context.Context) bool {
 		}
 		i.current = item
 		i.index++
+		i.remaining--
 		return true
 	}
 
@@ -231,7 +283,14 @@ func (i *entIterator) Next(ctx context.Context) bool {
 	// at construction time. i.query already carries Order(ByDeviceID())
 	// from GetGroup; only the cursor predicate and the limit are added
 	// per batch here.
-	q := i.query.Clone().Limit(i.batchSize)
+	// A bounded stream never fetches more rows than it may still yield, so
+	// a caller asking for ten devices reads ten, not a thousand.
+	size := i.batchSize
+	if i.limited && i.remaining < size {
+		size = i.remaining
+	}
+
+	q := i.query.Clone().Limit(size)
 	if i.started {
 		q = q.Where(device.DeviceIDGT(i.cursor))
 	}
@@ -259,6 +318,7 @@ func (i *entIterator) Next(ctx context.Context) bool {
 
 	i.current = item
 	i.index++
+	i.remaining--
 	return true
 }
 

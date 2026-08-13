@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 )
 
 // GroupCreate is the builder for creating a Group entity.
@@ -98,6 +99,21 @@ func (_c *GroupCreate) AddChildren(v ...*Group) *GroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddChildIDs(ids...)
+}
+
+// AddInventoryIDs adds the "inventories" edge to the Inventory entity by IDs.
+func (_c *GroupCreate) AddInventoryIDs(ids ...int) *GroupCreate {
+	_c.mutation.AddInventoryIDs(ids...)
+	return _c
+}
+
+// AddInventories adds the "inventories" edges to the Inventory entity.
+func (_c *GroupCreate) AddInventories(v ...*Inventory) *GroupCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInventoryIDs(ids...)
 }
 
 // Mutation returns the GroupMutation object of the builder.
@@ -240,6 +256,22 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InventoriesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.InventoriesTable,
+			Columns: group.InventoriesPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(inventory.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

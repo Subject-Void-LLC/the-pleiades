@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/playbook"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -79,12 +80,12 @@ func (f *fakeOrchestrator) Run(ctx context.Context, spec legacy.ContainerSpec) (
 func writePlaybook(t *testing.T, id, content string) legacy.PlaybookSource {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, id+".yml"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(id)), []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write playbook fixture: %v", err)
 	}
-	src, err := legacy.NewDirPlaybookSource(dir)
+	src, err := playbook.NewDirSource(dir)
 	if err != nil {
-		t.Fatalf("NewDirPlaybookSource: %v", err)
+		t.Fatalf("playbook.NewDirSource: %v", err)
 	}
 	return src
 }
@@ -103,11 +104,11 @@ sw1                        : ok=1    changed=0    unreachable=0    failed=0    s
 
 func TestAdapter_Execute_PublishesStartedThenParsedEvents(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte(realPlaybookOutput), ExitCode: 0}}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "pleiades/legacy-ansible-runner:test", nil)
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade", DeviceID: "d1", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceID: "d1", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	if err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
@@ -138,17 +139,17 @@ func TestAdapter_Execute_PublishesStartedThenParsedEvents(t *testing.T) {
 
 func TestAdapter_Execute_UnknownPlaybookReturnsError(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "does-not-exist", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "does-not-exist.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	err := adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected an error for an unresolvable playbook, got nil")
 	}
-	if !errors.Is(err, legacy.ErrPlaybookNotFound) {
-		t.Errorf("error = %v, want it to wrap ErrPlaybookNotFound", err)
+	if !errors.Is(err, playbook.ErrNotFound) {
+		t.Errorf("error = %v, want it to wrap playbook.ErrNotFound", err)
 	}
 	// The container must never have been run: a "started" event is fine
 	// (published before playbook resolution), but no provisioning attempt
@@ -160,7 +161,7 @@ func TestAdapter_Execute_UnknownPlaybookReturnsError(t *testing.T) {
 
 func TestAdapter_Execute_MasksSecretsInPublishedMessages(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	secretPassword := "hunter2-super-secret"
 	output := `
 PLAY [all] *********************************************************************
@@ -177,7 +178,7 @@ sw1                        : ok=1    changed=0    unreachable=0    failed=0    s
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{
-		JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1",
+		JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1",
 		Secrets: credential.Flatten(credential.Credential{Username: "svc", Password: secretPassword}),
 	}
 	if err := adapter.Execute(context.Background(), payload); err != nil {
@@ -193,13 +194,13 @@ sw1                        : ok=1    changed=0    unreachable=0    failed=0    s
 
 func TestAdapter_Execute_NonZeroExitWithNoRecapReportsFailed(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	// A container that crashed before printing anything Ansible-shaped:
 	// no PLAY RECAP for ParseStdout to derive a completion event from.
 	orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte("panic: something went very wrong\n"), ExitCode: 1}}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	err := adapter.Execute(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit with no parseable summary, got nil")
@@ -214,22 +215,22 @@ func TestAdapter_Execute_NonZeroExitWithNoRecapReportsFailed(t *testing.T) {
 
 func TestAdapter_Execute_PropagatesOrchestratorFailure(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{err: errors.New("deliberate: docker daemon unreachable")}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	if err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("expected Execute to propagate the orchestrator's own error, got nil")
 	}
 }
 
 func TestAdapter_Execute_PropagatesPublishFailure(t *testing.T) {
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{}
 	adapter := legacy.NewAdapter(failingBus{}, playbooks, orch, "irrelevant", nil)
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	if err := adapter.Execute(context.Background(), payload); err == nil {
 		t.Fatal("expected Execute to propagate the started-event publish failure, got nil")
 	}
@@ -243,11 +244,11 @@ func TestAdapter_Execute_PropagatesPublishFailure(t *testing.T) {
 // sshd target.
 func TestWithNetworks_AttachesConfiguredNetworksToEveryContainerSpec(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{result: legacy.ContainerResult{Output: []byte(realPlaybookOutput), ExitCode: 0}}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil, legacy.WithNetworks([]string{"my-net"}))
 
-	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
+	payload := wire.DispatchPayload{JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1"}
 	if err := adapter.Execute(context.Background(), payload); err != nil {
 		t.Fatalf("Execute returned unexpected error: %v", err)
 	}
@@ -258,12 +259,12 @@ func TestWithNetworks_AttachesConfiguredNetworksToEveryContainerSpec(t *testing.
 
 func TestAdapter_Execute_PassphraseProtectedKeyFailsBeforeRunningContainer(t *testing.T) {
 	bus := &mockBus{}
-	playbooks := writePlaybook(t, "upgrade", "---\n- hosts: all\n")
+	playbooks := writePlaybook(t, "upgrade.yml", "---\n- hosts: all\n")
 	orch := &fakeOrchestrator{}
 	adapter := legacy.NewAdapter(bus, playbooks, orch, "irrelevant", nil)
 
 	payload := wire.DispatchPayload{
-		JobID: "job-1", RunbookID: "upgrade", DeviceName: "sw1", DeviceHost: "10.0.0.1",
+		JobID: "job-1", RunbookID: "upgrade.yml", DeviceName: "sw1", DeviceHost: "10.0.0.1",
 		Secrets: credential.Flatten(credential.Credential{
 			Username: "svc", PrivateKeyPEM: []byte("fake-key"), Passphrase: "secret-passphrase",
 		}),

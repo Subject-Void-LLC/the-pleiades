@@ -1,36 +1,38 @@
 package api_test
 
 import (
-	"net/http/httptest"
+	"context"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds"
 )
 
-// BenchmarkDispatchRunbook measures the cost of a launch itself: one Job
-// row persisted through a real dispatch.JobStore, plus one job.requested
-// event published through a real event.Bus.
+// BenchmarkLaunchTemplate measures the cost of a launch itself: resolving a
+// template, recording what the launch supplied, persisting one Job row
+// through a real dispatch.JobStore, and publishing one job.requested event
+// through a real event.Bus.
 //
-// Before Phase 14, this benchmark measured DispatchRunbook's own inline
-// per-device fan-out loop over a fixed device count, because that loop ran
-// synchronously inside the HTTP request. That loop no longer exists here:
-// internal/dispatch.Worker now owns fan-out entirely, off the request path,
-// so DispatchRunbook's own cost is now constant with respect to how many
-// devices a dispatch will eventually reach. Benchmarking per-device
-// fan-out throughput is internal/dispatch's own concern now, not this
-// package's.
-func BenchmarkDispatchRunbook(b *testing.B) {
-	runbooks := newTestRunbookSource(b, "pb-1")
-	jobs := newTestJobStore(b)
-	bus := event.NewInProcessBus()
-	dispatcher := api.NewDispatcher(runbooks, jobs, bus)
+// Constant with respect to how many devices the dispatch will eventually
+// reach, and that is the property worth having a benchmark for.
+// internal/dispatch.Worker owns fan-out entirely, off the request path, so
+// a launch against ten devices and one against ten thousand cost the same
+// here; a change that made this scale with fleet size would be putting the
+// fan-out back where Phase 14 took it out of.
+func BenchmarkLaunchTemplate(b *testing.B) {
+	dispatcher := api.NewDispatcher(newTestRunbookSource(b, "pb-1"), newTestJobStore(b), event.NewInProcessBus(),
+		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}),
+		api.WithLaunchConfigs(&recordingConfigs{}))
 
-	req := dispatchTestRequest(b, "routers", "pb-1")
+	ctx := context.Background()
+	cfg := launch.Config{Overrides: launch.Fields{"limit": "edge-01"}}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rr := httptest.NewRecorder()
-		dispatcher.DispatchRunbook(rr, req)
+	for range b.N {
+		if _, _, err := dispatcher.LaunchTemplate(ctx, "bench@example.com", 12, cfg); err != nil {
+			b.Fatalf("LaunchTemplate: %v", err)
+		}
 	}
 }

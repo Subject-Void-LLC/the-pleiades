@@ -121,6 +121,14 @@ func (Device) Edges() []ent.Edge {
 		edge.From("organization", Organization.Type).
 			Ref("devices").
 			Unique(),
+		// Inventories this device is attached to directly, with no
+		// intervening group -- the "ungrouped hosts" case every real
+		// inventory eventually has. A device reachable through a group in
+		// the same inventory does not need this edge; it exists so a
+		// device can be in an inventory without inventing a group to hold
+		// it (Inventory.devices is the owning side).
+		edge.From("inventories", Inventory.Type).
+			Ref("devices"),
 	}
 }
 

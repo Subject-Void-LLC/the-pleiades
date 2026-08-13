@@ -176,6 +176,18 @@ func NewScopeRule(resolver *ScopeResolver, lookup TeamLookup) AdmissionRule {
 
 // Check implements AdmissionRule. An unauthenticated identity, a team
 // lookup failure, and a resolution failure all fail closed to Deny.
+//
+// The resolved Role is deliberately not compared against the operation being
+// attempted, and that gap is FAILURE_PATTERNS #98 rather than an oversight.
+// Satisfying the role axis needs a rule mapping an operation onto a minimum
+// role, and AdmissionRequest carries a RequiredScope but no required role.
+// Choosing that mapping belongs to the phase that puts this rule into a
+// running chain, which no phase has yet done: inventing it here would settle
+// a policy question in the one place nobody would look for it.
+//
+// A clean Deny returns a nil error, preserving the distinction hateoas.go
+// relies on: an error means the chain could not reach a verdict, a Deny with
+// no error means it reached one.
 func (r *scopeRule) Check(ctx context.Context, id *Identity, req AdmissionRequest) (Effect, error) {
 	if id == nil {
 		return EffectDeny, fmt.Errorf("auth: unauthenticated identity")
@@ -184,6 +196,8 @@ func (r *scopeRule) Check(ctx context.Context, id *Identity, req AdmissionReques
 	if err != nil {
 		return EffectDeny, fmt.Errorf("auth: looking up teams for %q: %w", id.Subject, err)
 	}
+	// The discarded first return is the resolved Role, and discarding it is
+	// FAILURE_PATTERNS #98 as described above, not an oversight.
 	_, effect, err := r.resolver.Resolve(ctx, teamIDs, req.Target)
 	if err != nil {
 		return EffectDeny, err

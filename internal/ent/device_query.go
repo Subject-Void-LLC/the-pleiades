@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
@@ -33,6 +34,7 @@ type DeviceQuery struct {
 	withRevisions    *RevisionQuery
 	withGroups       *GroupQuery
 	withOrganization *OrganizationQuery
+	withInventories  *InventoryQuery
 	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -195,6 +197,28 @@ func (_q *DeviceQuery) QueryOrganization() *OrganizationQuery {
 			sqlgraph.From(device.Table, device.FieldID, selector),
 			sqlgraph.To(organization.Table, organization.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, device.OrganizationTable, device.OrganizationColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryInventories chains the current query on the "inventories" edge.
+func (_q *DeviceQuery) QueryInventories() *InventoryQuery {
+	query := (&InventoryClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, selector),
+			sqlgraph.To(inventory.Table, inventory.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, device.InventoriesTable, device.InventoriesPrimaryKey...),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -400,6 +424,7 @@ func (_q *DeviceQuery) Clone() *DeviceQuery {
 		withRevisions:    _q.withRevisions.Clone(),
 		withGroups:       _q.withGroups.Clone(),
 		withOrganization: _q.withOrganization.Clone(),
+		withInventories:  _q.withInventories.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -469,6 +494,17 @@ func (_q *DeviceQuery) WithOrganization(opts ...func(*OrganizationQuery)) *Devic
 		opt(query)
 	}
 	_q.withOrganization = query
+	return _q
+}
+
+// WithInventories tells the query-builder to eager-load the nodes that are connected to
+// the "inventories" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DeviceQuery) WithInventories(opts ...func(*InventoryQuery)) *DeviceQuery {
+	query := (&InventoryClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withInventories = query
 	return _q
 }
 
@@ -551,13 +587,14 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 		nodes       = []*Device{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [7]bool{
 			_q.withParent != nil,
 			_q.withChildren != nil,
 			_q.withFacts != nil,
 			_q.withRevisions != nil,
 			_q.withGroups != nil,
 			_q.withOrganization != nil,
+			_q.withInventories != nil,
 		}
 	)
 	if _q.withParent != nil || _q.withOrganization != nil {
@@ -621,6 +658,13 @@ func (_q *DeviceQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Devic
 	if query := _q.withOrganization; query != nil {
 		if err := _q.loadOrganization(ctx, query, nodes, nil,
 			func(n *Device, e *Organization) { n.Edges.Organization = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withInventories; query != nil {
+		if err := _q.loadInventories(ctx, query, nodes,
+			func(n *Device) { n.Edges.Inventories = []*Inventory{} },
+			func(n *Device, e *Inventory) { n.Edges.Inventories = append(n.Edges.Inventories, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -841,6 +885,67 @@ func (_q *DeviceQuery) loadOrganization(ctx context.Context, query *Organization
 		}
 		for i := range nodes {
 			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *DeviceQuery) loadInventories(ctx context.Context, query *InventoryQuery, nodes []*Device, init func(*Device), assign func(*Device, *Inventory)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int]*Device)
+	nids := make(map[int]map[*Device]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(device.InventoriesTable)
+		s.Join(joinT).On(s.C(inventory.FieldID), joinT.C(device.InventoriesPrimaryKey[0]))
+		s.Where(sql.InValues(joinT.C(device.InventoriesPrimaryKey[1]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(device.InventoriesPrimaryKey[1]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := int(values[0].(*sql.NullInt64).Int64)
+				inValue := int(values[1].(*sql.NullInt64).Int64)
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Device]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*Inventory](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "inventories" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
 		}
 	}
 	return nil

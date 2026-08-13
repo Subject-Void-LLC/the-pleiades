@@ -25,8 +25,20 @@ const (
 	FieldRunbookID = "runbook_id"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
+	// FieldInventoryID holds the string denoting the inventory_id field in the database.
+	FieldInventoryID = "inventory_id"
+	// FieldTemplateID holds the string denoting the template_id field in the database.
+	FieldTemplateID = "template_id"
+	// FieldTemplateName holds the string denoting the template_name field in the database.
+	FieldTemplateName = "template_name"
+	// FieldLaunchConfigID holds the string denoting the launch_config_id field in the database.
+	FieldLaunchConfigID = "launch_config_id"
+	// FieldKind holds the string denoting the kind field in the database.
+	FieldKind = "kind"
 	// FieldActor holds the string denoting the actor field in the database.
 	FieldActor = "actor"
+	// FieldOrganizationID holds the string denoting the organization_id field in the database.
+	FieldOrganizationID = "organization_id"
 	// FieldState holds the string denoting the state field in the database.
 	FieldState = "state"
 	// FieldDispatchedCount holds the string denoting the dispatched_count field in the database.
@@ -39,6 +51,10 @@ const (
 	FieldFailureReason = "failure_reason"
 	// FieldFence holds the string denoting the fence field in the database.
 	FieldFence = "fence"
+	// FieldFields holds the string denoting the fields field in the database.
+	FieldFields = "fields"
+	// FieldExtraVars holds the string denoting the extra_vars field in the database.
+	FieldExtraVars = "extra_vars"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -60,13 +76,21 @@ var Columns = []string{
 	FieldJobID,
 	FieldRunbookID,
 	FieldGroupName,
+	FieldInventoryID,
+	FieldTemplateID,
+	FieldTemplateName,
+	FieldLaunchConfigID,
+	FieldKind,
 	FieldActor,
+	FieldOrganizationID,
 	FieldState,
 	FieldDispatchedCount,
 	FieldSkippedCount,
 	FieldFailedCount,
 	FieldFailureReason,
 	FieldFence,
+	FieldFields,
+	FieldExtraVars,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -165,9 +189,39 @@ func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupName, opts...).ToFunc()
 }
 
+// ByInventoryID orders the results by the inventory_id field.
+func ByInventoryID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInventoryID, opts...).ToFunc()
+}
+
+// ByTemplateID orders the results by the template_id field.
+func ByTemplateID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTemplateID, opts...).ToFunc()
+}
+
+// ByTemplateName orders the results by the template_name field.
+func ByTemplateName(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTemplateName, opts...).ToFunc()
+}
+
+// ByLaunchConfigID orders the results by the launch_config_id field.
+func ByLaunchConfigID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLaunchConfigID, opts...).ToFunc()
+}
+
+// ByKind orders the results by the kind field.
+func ByKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKind, opts...).ToFunc()
+}
+
 // ByActor orders the results by the actor field.
 func ByActor(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldActor, opts...).ToFunc()
+}
+
+// ByOrganizationID orders the results by the organization_id field.
+func ByOrganizationID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOrganizationID, opts...).ToFunc()
 }
 
 // ByState orders the results by the state field.

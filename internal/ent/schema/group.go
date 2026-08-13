@@ -45,5 +45,12 @@ func (Group) Edges() []ent.Edge {
 		// parent.
 		edge.To("children", Group.Type).
 			From("parents"),
+		// Inventories containing this group. Many-to-many rather than one
+		// owner, because a group legitimately belongs to more than one:
+		// "database servers" appears in both the DBA team's inventory and
+		// the platform team's, and duplicating it would be two things to
+		// keep in step (Inventory.groups is the owning side).
+		edge.From("inventories", Inventory.Type).
+			Ref("groups"),
 	}
 }

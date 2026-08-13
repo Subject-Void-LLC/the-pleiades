@@ -1,0 +1,1105 @@
+/*
+ * Pleiades control plane -- neo-brutalist stylesheet.
+ *
+ * Two complete themes, one token set. Every colour is declared once per
+ * theme as a custom property on :root, and nothing below the token blocks
+ * names a literal colour: a rule that hardcodes one is a rule that is
+ * wrong in the other theme, and there is no third place to fix it.
+ *
+ * The theme is resolved server-side and rendered as data-theme on <html>,
+ * so there is no flash of the wrong theme and no inline bootstrap script.
+ * That matters beyond aesthetics: the content security policy this UI
+ * ships under carries no 'unsafe-inline', and the usual no-flash trick is
+ * exactly an inline script. Server rendering makes the problem disappear
+ * rather than requiring a nonce for it.
+ *
+ * Three states, never a boolean. Bare :root is light. The media query
+ * covers "the user has expressed no preference to us, so follow the OS",
+ * guarded by :not([data-theme="light"]) so an explicit light choice wins
+ * over a dark OS. The attribute selector covers an explicit choice in
+ * either direction. A boolean would have no way to say "follow the OS"
+ * once the user had ever touched the control.
+ */
+
+/* ---- Token vocabulary ----
+ *
+ * Two skins, three appearance modes, one set of token NAMES. Every
+ * component rule below reads var(--fg), var(--border), var(--shadow-offset)
+ * and so on, so a skin is a block of values rather than a second
+ * stylesheet -- a skin needing its own component rules would be a fork,
+ * not a skin.
+ *
+ * Three orthogonal axes, all resolved server-side onto <html>:
+ *   data-skin  = brutalist | las-ventanas
+ *   data-theme = (absent, follow the OS) | light | dark
+ *   data-a11y  = (absent) | true
+ *
+ * Because all three are attributes present in the first byte, there is no
+ * flash of the wrong anything and no inline bootstrap script -- which is
+ * what lets the content security policy carry no 'unsafe-inline'.
+ */
+
+/* ================= SKIN: BRUTALIST (default) ================= */
+
+:root,
+:root[data-skin="brutalist"] {
+  --bg: #ffffff;
+  --bg-raised: #f2f2f2;
+  --fg: #000000;
+  --fg-muted: #595959;
+  --border: #000000;
+  --border-interactive: #000000;
+  --link: #0000ff;
+  --shadow: #000000;
+
+  /* Status fills. Black text sits on every one of these in every skin and
+   * both themes, so the status vocabulary never changes underneath a
+   * reader. Blue is the one inversion: it takes light text. */
+  --fill-ok: #00ff00;
+  --fill-failed: #ff0000;
+  --fill-changed: #ffff00;
+  --fill-skipped: #ffd700;
+  --fill-neutral: #d4d4d4;
+  --fill-info: #0000ff;
+  --on-fill: #000000;
+  --on-fill-info: #ffffff;
+
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --border-width: 4px;
+  --rule-width: 1px;
+  --shadow-offset: 5px;
+  --heading-weight: 900;
+  --heading-tracking: -0.05em;
+  --heading-case: uppercase;
+  --sidebar-width: 280px;
+  --breakpoint: 48rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-skin="las-ventanas"]) {
+    --bg: #0a0a0c;
+    --bg-raised: #1a1a1e;
+    --fg: #f5f2eb;
+    --fg-muted: #a8a49b;
+    --border: #f5f2eb;
+    --border-interactive: #f5f2eb;
+    /* Pure #0000FF is 2.30:1 here and fails outright. Blue carries the
+     * lowest luminance coefficient of any hue, so it is the one colour
+     * that cannot survive both themes unchanged. */
+    --link: #7a7aff;
+    --shadow: #f5f2eb;
+    --fill-neutral: #3a3a3e;
+  }
+}
+
+:root[data-theme="dark"]:not([data-skin="las-ventanas"]) {
+  --bg: #0a0a0c;
+  --bg-raised: #1a1a1e;
+  --fg: #f5f2eb;
+  --fg-muted: #a8a49b;
+  --border: #f5f2eb;
+  --border-interactive: #f5f2eb;
+  --link: #7a7aff;
+  --shadow: #f5f2eb;
+  --fill-neutral: #3a3a3e;
+}
+
+/* ================= SKIN: LAS VENTANAS =================
+ *
+ * Subject Void's design language: tinted black and cream rather than pure
+ * black and white, Facebook Blue as the single accent, 2px borders, and no
+ * drop shadows at all.
+ *
+ * Five values differ from the source design system, and each is a measured
+ * contrast failure rather than a preference:
+ *
+ *   --link (light)       #1877F2 -> #1464CC    3.99 -> 5.32
+ *   --on-fill-info (lt)  cream   -> #0A0F1A    3.99 -> 4.52
+ *   --link (dark)        #1464CC -> #4D94FF    3.40 -> 6.66
+ *   --fg-muted (light)   #8895A7 -> #5F6B7D    2.87 -> 4.83
+ *   --border-interactive split from the 1.44:1 hairline
+ *
+ * Facebook Blue is kept everywhere it works -- as a fill, as large text, as
+ * a non-text boundary, and as a dark-mode link at 4.52:1. It is withdrawn
+ * only from small light-mode text, the one place 3.99:1 is a real barrier.
+ *
+ * Fonts are named but never fetched: a CDN link is unusable in an
+ * air-gapped install, so a locally installed Space Grotesk is used when
+ * present and a system stack otherwise.
+ */
+
+:root[data-skin="las-ventanas"] {
+  --bg: #faf8f5;
+  --bg-raised: #f0ede8;
+  --fg: #0a0f1a;
+  --fg-muted: #5f6b7d;
+  --border: #d6d0c8;
+  --border-interactive: #6b6459;
+  --link: #1464cc;
+  --shadow: transparent;
+
+  --fill-ok: #00ff00;
+  --fill-failed: #ff0000;
+  --fill-changed: #ffff00;
+  --fill-skipped: #ffd700;
+  --fill-neutral: #e7e4df;
+  --fill-info: #1877f2;
+  --on-fill: #000000;
+  --on-fill-info: #0a0f1a;
+
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --border-width: 2px;
+  --rule-width: 1px;
+  --shadow-offset: 0px;
+  --heading-weight: 700;
+  --heading-tracking: -0.02em;
+  --heading-case: none;
+  --sidebar-width: 280px;
+  --breakpoint: 48rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-skin="las-ventanas"]:not([data-theme="light"]) {
+    --bg: #0a0f1a;
+    --bg-raised: #141b2d;
+    --fg: #faf8f5;
+    --fg-muted: #8895a7;
+    --border: #2a3347;
+    --border-interactive: #6d7893;
+    --link: #4d94ff;
+    --shadow: transparent;
+    --fill-neutral: #1a2235;
+    --on-fill-info: #0a0f1a;
+  }
+}
+
+:root[data-skin="las-ventanas"][data-theme="dark"] {
+  --bg: #0a0f1a;
+  --bg-raised: #141b2d;
+  --fg: #faf8f5;
+  --fg-muted: #8895a7;
+  --border: #2a3347;
+  --border-interactive: #6d7893;
+  --link: #4d94ff;
+  --shadow: transparent;
+  --fill-neutral: #1a2235;
+  --on-fill-info: #0a0f1a;
+}
+
+/* ================= ACCESSIBILITY MODE =================
+ *
+ * The explicit in-app override, applied over whichever skin and theme are
+ * active. It is never a degraded mode: every feature, column and action
+ * stays exactly where it was, and only the rendering changes.
+ *
+ * These are Subject Void's own a11y values, and they measure well --
+ * 20.41:1 text in both directions, and #FFFF00 on near-black at 19.00:1,
+ * which is a better dark accent than any blue can be.
+ */
+:root[data-a11y="true"] {
+  --bg: #ffffff;
+  --bg-raised: #ffffff;
+  --fg: #030508;
+  --fg-muted: #2a3347;
+  --border: #030508;
+  --border-interactive: #030508;
+  --link: #0000ff;
+  --shadow: #030508;
+  --fill-neutral: #ffffff;
+  /* The info fill is overridden here as well as its text colour. Without
+   * it, accessibility mode over Las Ventanas kept that skin's Facebook
+   * Blue fill under this mode's white label and measured 4.23:1 -- a
+   * cross-axis failure neither block was wrong about on its own, and the
+   * reason the contrast gate walks the whole matrix rather than each axis
+   * separately. */
+  --fill-info: #0000ff;
+  --on-fill: #000000;
+  --on-fill-info: #ffffff;
+  --border-width: 3px;
+  --rule-width: 2px;
+}
+
+:root[data-a11y="true"][data-theme="dark"] {
+  --bg: #030508;
+  --bg-raised: #030508;
+  --fg: #ffffff;
+  --fg-muted: #c8cdd6;
+  --border: #ffffff;
+  --border-interactive: #ffffff;
+  --link: #ffff00;
+  --shadow: #ffffff;
+  --fill-neutral: #030508;
+  --fill-info: #ffff00;
+  --on-fill-info: #030508;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-a11y="true"]:not([data-theme="light"]) {
+    --bg: #030508;
+    --bg-raised: #030508;
+    --fg: #ffffff;
+    --fg-muted: #c8cdd6;
+    --border: #ffffff;
+    --border-interactive: #ffffff;
+    --link: #ffff00;
+    --shadow: #ffffff;
+    --fill-neutral: #030508;
+    --fill-info: #ffff00;
+    --on-fill-info: #030508;
+  }
+}
+
+/* Accessibility mode also stills the interface and underlines every link.
+ * Those are behaviours rather than colours, so they live here rather than
+ * among the tokens. */
+:root[data-a11y="true"] *,
+:root[data-a11y="true"] *::before,
+:root[data-a11y="true"] *::after {
+  transition-duration: 0.001s !important;
+  animation-duration: 0.001s !important;
+}
+
+:root[data-a11y="true"] a:not(.btn) {
+  text-decoration: underline !important;
+  text-underline-offset: 4px;
+}
+
+:root[data-a11y="true"] *:focus-visible {
+  outline: 4px solid var(--link) !important;
+  outline-offset: 4px !important;
+}
+
+/* ---- Reset ----
+ * border-radius and the timing function are forced, because they are the
+ * aesthetic. box-shadow is deliberately NOT reset away: the hard,
+ * non-blurry offset shadow is the signature of this style, and the
+ * previous stylesheet's blanket `box-shadow: none !important` would have
+ * made it impossible to draw. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border-radius: 0 !important;
+  transition-timing-function: linear !important;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  /* dvh, not vh: a mobile browser's collapsing toolbar makes 100vh taller
+   * than the visible viewport, which clips the bottom of the log stream
+   * exactly where the newest lines are. */
+  min-height: 100dvh;
+}
+
+/* The deliberate inversion carried over from the previous stylesheet:
+ * monospace for data, sans for headings. */
+p,
+td,
+dd,
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+h1,
+h2,
+h3 {
+  text-transform: var(--heading-case);
+  line-height: 1.1;
+}
+h1 { font-size: 3rem; font-weight: var(--heading-weight); letter-spacing: var(--heading-tracking); }
+h2 { font-size: 2rem; font-weight: var(--heading-weight); letter-spacing: var(--heading-tracking); }
+h3 { font-size: 1.5rem; font-weight: var(--heading-weight); }
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* ---- Accessibility primitives ---- */
+
+/* Never remove an outline without replacing it in the same rule. */
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The skip link is the first focusable element on every page, hidden
+ * until focused. Without it a keyboard user tabs the whole sidebar before
+ * reaching content, on every single page load. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--border-width) solid var(--border);
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+/* Reduce, not remove: the state change still happens, it simply stops
+ * moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Layout ---- */
+
+.layout {
+  display: flex;
+  min-height: 100dvh;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
+  border-right: var(--border-width) solid var(--border);
+  padding: 1.5rem;
+}
+
+.sidebar-brand {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+.sidebar-version {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+/* Above the breakpoint the disclosure is not a control: the sidebar is
+ * always open, so the toggle is hidden and the navigation is shown
+ * whatever state the element itself is in. Setting display on a
+ * non-summary child is what overrides the engine's own hiding of a closed
+ * <details>, and it is the only reason somebody who collapsed the menu on
+ * a phone is not handed an empty sidebar on a laptop.
+ *
+ * This is the one min-width query in the file, because it is the one rule
+ * that must not reach the narrow layout: applied unconditionally it would
+ * hold the navigation open against the toggle and there would be nothing
+ * for the hamburger to do. */
+@media (min-width: 48.0625rem) {
+  .nav-disclosure > summary {
+    display: none;
+  }
+  .nav-disclosure > nav {
+    display: block;
+  }
+}
+
+/* A group heading is a label on a list, not a section title in the
+ * document. It carries an h2 so the sidebar is reachable by heading
+ * navigation and so each <ul> has something to be labelled by, but it is
+ * sized as the caption it reads as. */
+.nav-group {
+  margin-top: 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  /* The sidebar is a fixed 280px and a group name is not length-checked
+   * anywhere, so a long one wraps rather than running out through the
+   * border. This is what the unstyled heading did: at h2 size
+   * ADMINISTRATION was wider than the column it sat in. */
+  overflow-wrap: break-word;
+}
+
+.nav-list {
+  list-style: none;
+  margin-top: 1.5rem;
+}
+/* The heading already provides the separation the top margin exists for. */
+.nav-group + .nav-list {
+  margin-top: 0.5rem;
+}
+.nav-list li + li {
+  border-top: var(--rule-width) solid var(--border);
+}
+.nav-list a {
+  display: block;
+  padding: 0.75rem 0.5rem;
+  color: var(--fg);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.nav-list a:hover {
+  background: var(--bg-raised);
+}
+.nav-list a[aria-current="page"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.main {
+  flex: 1 1 auto;
+  padding: 2rem;
+  min-width: 0; /* lets children shrink instead of forcing a page-wide scroll */
+}
+
+.view-header {
+  border-bottom: var(--border-width) solid var(--border);
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+}
+.view-summary {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+/* ---- The brutalist block: the shape everything reuses ---- */
+.block {
+  background: var(--bg);
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+}
+
+/* ---- Controls ---- */
+
+.btn {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 0.6rem 1rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  cursor: pointer;
+  text-decoration: none;
+  /* 24x24 is the AA floor; this clears it in every direction. */
+  min-height: 2.75rem;
+}
+.btn:hover {
+  background: var(--fill-ok);
+  color: var(--on-fill);
+}
+.btn:active {
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+  box-shadow: none;
+}
+.btn-danger:hover {
+  background: var(--fill-failed);
+  color: var(--on-fill);
+}
+
+label {
+  display: block;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.field + .field {
+  margin-top: 1.25rem;
+}
+.field-hint {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.field-required {
+  /* The word, not a colour and not an asterisk: "required" signalled by a
+   * red star is signalled only to people who see red stars. */
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 0.6rem;
+  background: var(--bg);
+  color: var(--fg);
+  /* The border is this control's only boundary, so it carries the full
+   * structural weight rather than a hairline. */
+  border: var(--border-width) solid var(--border-interactive);
+  min-height: 2.75rem;
+}
+[aria-invalid="true"] {
+  border-color: var(--fill-failed);
+  /* Never colour alone: the field also gets a text message wired through
+   * aria-describedby, and the summary above the form repeats it. */
+  border-style: dashed;
+}
+
+/* A row of buttons that terminates a region gets noticeably more space
+ * above it than the gap between two fields (1.25rem), plus a rule.
+ *
+ * Without it the commit control reads as one more row of the form rather
+ * than as the end of it, which is both a legibility problem and a
+ * mis-click risk on an action that writes to real inventory.
+ *
+ * This carries more weight in this design than it would elsewhere:
+ * elevation is forbidden in one skin and absent in the other, and colour is
+ * reserved for status and classification, so whitespace is the only
+ * grouping signal left. Being stingy with it is a structural problem, not a
+ * matter of taste.
+ */
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: var(--rule-width) solid var(--border);
+}
+
+.error-summary {
+  border: var(--border-width) solid var(--fill-failed);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+.error-summary ul {
+  margin-left: 1.25rem;
+}
+
+/* ---- Status badges: the word, always ---- */
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border: 2px solid var(--border);
+  color: var(--on-fill);
+}
+.badge-ok { background: var(--fill-ok); }
+.badge-failed { background: var(--fill-failed); }
+.badge-changed { background: var(--fill-changed); }
+.badge-skipped { background: var(--fill-skipped); }
+.badge-neutral { background: var(--fill-neutral); color: var(--fg); }
+
+/* ---- Tables ---- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.6rem 0.5rem;
+  border-bottom: var(--rule-width) solid var(--border);
+}
+.table th {
+  border-bottom: var(--border-width) solid var(--border);
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+}
+.table tbody tr:hover {
+  background: var(--bg-raised);
+}
+
+/* Wide content scrolls inside its own container. The page body must never
+ * scroll horizontally -- that is the reflow failure SC 1.4.10 names. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* ---- Detail list ---- */
+.detail-list {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 0.5rem 1rem;
+}
+.detail-list dt {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--fg-muted);
+}
+
+/* ---- Chart ----
+ *
+ * The graphic and its table sit side by side and the table is not a
+ * fallback: it is always rendered, always populated by the server, and is
+ * the authoritative version of the figures. Below the breakpoint the two
+ * stack, table first, because on a phone the numbers are more use than a
+ * 300-pixel-wide bar chart. */
+.chart-section {
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: var(--border-width) solid var(--border);
+}
+.chart-caption {
+  color: var(--fg-muted);
+  max-width: 60ch;
+}
+.chart-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+.chart-canvas {
+  /* A fixed height because ECharts measures its container: a canvas in an
+   * auto-height box resolves to zero and renders nothing at all. */
+  min-height: 18rem;
+  border: var(--border-width) solid var(--border);
+  background: var(--bg-raised);
+}
+.chart-table {
+  font-size: 0.9rem;
+}
+.chart-table tfoot th,
+.chart-table tfoot td {
+  border-top: var(--border-width) solid var(--border);
+  border-bottom: 0;
+  font-weight: 700;
+}
+
+/* ---- Live log stream ----
+ *
+ * The one view designed for a narrow screen first. Lines wrap rather than
+ * scrolling sideways, because asking someone to pan horizontally to finish
+ * reading a stack trace on a phone is the reflow failure SC 1.4.10 exists
+ * to name. */
+.stream-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+.stream-controls .field {
+  margin-bottom: 0;
+  flex: 1 1 14rem;
+}
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+.field-inline label {
+  margin-bottom: 0;
+}
+.stream-status {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--fg-muted);
+}
+.stream-log {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border: var(--border-width) solid var(--border);
+  background: var(--bg-raised);
+  /* dvh, not vh: a mobile browser's collapsing toolbar makes vh taller than
+   * the visible viewport, which clips the last lines of a log behind it --
+   * on precisely the device where this page matters most. */
+  max-height: 60dvh;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+.stream-line {
+  padding: 0.15rem 0.25rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stream-line-meta {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+/* ---- Theme control ---- */
+.theme-switch {
+  margin-top: 2rem;
+  border-top: var(--rule-width) solid var(--border);
+  padding-top: 1rem;
+}
+.theme-switch fieldset {
+  border: 0;
+}
+.theme-switch legend {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.theme-options {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+.theme-options button {
+  flex: 1 1 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  padding: 0.4rem 0.2rem;
+  min-height: 2.75rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--border);
+  cursor: pointer;
+}
+.theme-options button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+/* ---- Session block ----
+ *
+ * Last in the sidebar. Sign-out is a destructive-ish action and putting it
+ * anywhere near the navigation invites the mis-click, so it sits below the
+ * appearance controls with the same separating rule those use. */
+.session {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: var(--rule-width) solid var(--border);
+}
+.session-subject {
+  margin-bottom: 0.75rem;
+}
+.session-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.session-name {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  /* A subject can be a long machine identity, and a sidebar is narrow. It
+   * wraps rather than overflowing its own container. */
+  overflow-wrap: anywhere;
+}
+.session .btn {
+  width: 100%;
+  text-align: center;
+}
+
+/* ---- Declared-but-not-implemented panel ---- */
+.declared {
+  border: var(--border-width) dashed var(--border);
+  padding: 2rem;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+/* ---- Chart ---- */
+.chart-figure {
+  border: var(--border-width) solid var(--border);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  padding: 1rem;
+}
+.chart-canvas {
+  width: 100%;
+  height: 320px;
+}
+.chart-figure figcaption {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  margin-top: 0.5rem;
+}
+
+/* ---- Environment / classification banner ----
+ *
+ * Top and bottom of every page, because that is what the classification
+ * standard requires: a marking that scrolls out of view is not on the part
+ * of the screen someone is reading, screenshotting or photographing.
+ *
+ * These colours are deliberately NOT theme tokens and do not change
+ * between light and dark. Six of them are published IC/DoD banner-marking
+ * colours whose values are prescribed rather than chosen, and a SECRET
+ * banner that rendered a different colour at night would be wrong in a way
+ * no amount of visual consistency would justify. The text colour is paired
+ * per level so each pair clears 4.5:1; contrast_test.go asserts all nine.
+ */
+.env-banner {
+  position: sticky;
+  z-index: 100;
+  padding: 0.35rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+  border: 0;
+}
+.env-banner-top { top: 0; }
+.env-banner-bottom { bottom: 0; }
+
+/* A sticky bar can cover the element a keyboard user just moved to, which
+ * is the failure SC 2.4.11 names. Reserving scroll margin the height of
+ * both bars means a focused control is never parked underneath one. */
+:where(a, button, input, select, textarea, [tabindex]) {
+  scroll-margin-block: 3rem;
+}
+
+.banner-unclassified  { background: #007a33; color: #ffffff; }
+.banner-cui           { background: #502b85; color: #ffffff; }
+.banner-confidential  { background: #0033a0; color: #ffffff; }
+.banner-secret        { background: #c8102e; color: #ffffff; }
+.banner-topsecret     { background: #ff8c00; color: #000000; }
+.banner-topsecret-sci { background: #fce83a; color: #000000; }
+.banner-development   { background: #0f6e6e; color: #ffffff; }
+.banner-staging       { background: #8a5a00; color: #ffffff; }
+.banner-production    { background: #7a0019; color: #ffffff; }
+
+/* A classification marking has to survive printing. Browsers strip
+ * background colours by default to save ink, which would silently drop the
+ * one thing on the page that legally has to be on it, so colour adjustment
+ * is forced here and the banner is repeated on every printed page. */
+@media print {
+  .env-banner {
+    position: fixed;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .env-banner-top { top: 0; }
+  .env-banner-bottom { bottom: 0; }
+  .sidebar { display: none; }
+}
+
+/* ---- Responsive ----
+ * Reflow to 320px with no two-dimensional scrolling is SC 1.4.10, so
+ * mobile support and AA compliance are the same work rather than two
+ * projects. */
+@media (max-width: 48rem) {
+  .layout {
+    display: block;
+  }
+
+  /* The sidebar becomes a native disclosure. <details>/<summary> brings
+   * its own keyboard behaviour, its own expanded/collapsed state, and its
+   * own screen reader announcement -- no ARIA, no JavaScript, and nothing
+   * to get wrong. A raw disclosure triangle is also entirely at home in
+   * this design language. */
+  .sidebar {
+    width: auto;
+    flex: none;
+    border-right: 0;
+    border-bottom: var(--border-width) solid var(--border);
+    padding: 1rem;
+  }
+  /* Below the breakpoint the summary becomes the toggle, and the toggle
+   * is drawn as a hamburger. The word stays beside it: an icon is not an
+   * accessible name, and a control announcing only as "trigram for
+   * heaven, expanded" is worse than an unstyled one.
+   *
+   * The bars are drawn rather than set as a content: "\2630" glyph for
+   * that same reason -- generated text is announced by several screen
+   * readers, so a decorative glyph would end up in the control's name
+   * with no markup available to exclude it. An empty pseudo-element
+   * announces nothing. */
+  .nav-disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 0.75rem 0;
+    cursor: pointer;
+    min-height: 2.75rem;
+    /* Suppresses the triangle everywhere except Safari, which draws its
+     * own through a pseudo-element list-style does not reach. */
+    list-style: none;
+  }
+  .nav-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* Three bars from two borders plus the box's own background. The outer
+   * two survive forced-colors mode, where a background colour is replaced
+   * by the system canvas and a border colour is not, so the control
+   * degrades to a legible two-bar mark rather than to nothing. */
+  .nav-disclosure > summary::before {
+    content: "";
+    flex: none;
+    width: 1.15rem;
+    height: 0.8rem;
+    border-top: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    background: linear-gradient(currentColor, currentColor) center / 100% 2px no-repeat;
+  }
+
+  .main {
+    padding: 1rem;
+  }
+
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.5rem; }
+
+  /* Table before graphic on a narrow screen. A bar chart squeezed into
+   * 320px conveys less than the four numbers it was drawn from, and the
+   * table is the authoritative rendering anyway. */
+  .chart-layout {
+    grid-template-columns: 1fr;
+  }
+  .chart-canvas {
+    order: 2;
+    min-height: 14rem;
+  }
+  .chart-table {
+    order: 1;
+  }
+
+  .detail-list {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  .detail-list dd + dt {
+    margin-top: 0.75rem;
+  }
+
+  /* A table cannot reflow, so below the breakpoint each row becomes a
+   * card whose labels come from the same Field declaration that produced
+   * the column headers. The mobile layout is therefore free per resource
+   * rather than a second thing to write. */
+  .table thead {
+    display: none;
+  }
+  .table,
+  .table tbody,
+  .table tfoot,
+  .table tr,
+  .table td,
+  /* Row headers become blocks too. The chart table uses th[scope="row"]
+   * for its status column, and without this it would stay a table cell
+   * inside a card and sit alongside the block elements rather than above
+   * them. */
+  .table tbody th,
+  .table tfoot th {
+    display: block;
+    width: 100%;
+  }
+  .table tr {
+    border: var(--border-width) solid var(--border);
+    box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+    margin-bottom: 1.25rem;
+    padding: 0.5rem;
+  }
+  .table td {
+    border-bottom: var(--rule-width) solid var(--border);
+    padding: 0.5rem 0.25rem;
+  }
+  .table td:last-child {
+    border-bottom: 0;
+  }
+  /* data-label is rendered from Field.Label, so a cell still says what it
+   * is once its column header is gone. */
+  .table td::before,
+  .table tbody th[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+  }
+  .table td[data-primary="true"] {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  /* The log gets more of the screen on a phone than on a desktop, because
+   * on a phone it is usually the only thing being looked at. */
+  .stream-log {
+    max-height: 70dvh;
+  }
+  .stream-controls {
+    gap: 0.75rem;
+  }
+}
+
+/* A touch target is bigger than a mouse target. 44px is the iOS HIG
+ * figure and comfortably clears SC 2.5.8's 24px floor. */
+@media (pointer: coarse) {
+  .btn,
+  .nav-list a,
+  .theme-options button,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* Windows High Contrast: the one place the user has explicitly overridden
+ * every colour choice made above, so system keywords are used and nothing
+ * tries to preserve branding through it. */
+@media (forced-colors: active) {
+  .block,
+  .btn,
+  .table th,
+  .table td,
+  input,
+  select,
+  textarea {
+    border-color: ButtonText;
+  }
+  .badge {
+    border-color: CanvasText;
+    forced-color-adjust: none;
+  }
+}

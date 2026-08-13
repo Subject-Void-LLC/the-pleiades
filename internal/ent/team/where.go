@@ -70,6 +70,21 @@ func Name(v string) predicate.Team {
 	return predicate.Team(sql.FieldEQ(FieldName, v))
 }
 
+// Description applies equality check predicate on the "description" field. It's identical to DescriptionEQ.
+func Description(v string) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldDescription, v))
+}
+
+// AttestedBy applies equality check predicate on the "attested_by" field. It's identical to AttestedByEQ.
+func AttestedBy(v string) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldAttestedBy, v))
+}
+
+// AttestedAt applies equality check predicate on the "attested_at" field. It's identical to AttestedAtEQ.
+func AttestedAt(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldAttestedAt, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Team {
 	return predicate.Team(sql.FieldEQ(FieldCreatedAt, v))
@@ -215,6 +230,206 @@ func NameContainsFold(v string) predicate.Team {
 	return predicate.Team(sql.FieldContainsFold(FieldName, v))
 }
 
+// DescriptionEQ applies the EQ predicate on the "description" field.
+func DescriptionEQ(v string) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldDescription, v))
+}
+
+// DescriptionNEQ applies the NEQ predicate on the "description" field.
+func DescriptionNEQ(v string) predicate.Team {
+	return predicate.Team(sql.FieldNEQ(FieldDescription, v))
+}
+
+// DescriptionIn applies the In predicate on the "description" field.
+func DescriptionIn(vs ...string) predicate.Team {
+	return predicate.Team(sql.FieldIn(FieldDescription, vs...))
+}
+
+// DescriptionNotIn applies the NotIn predicate on the "description" field.
+func DescriptionNotIn(vs ...string) predicate.Team {
+	return predicate.Team(sql.FieldNotIn(FieldDescription, vs...))
+}
+
+// DescriptionGT applies the GT predicate on the "description" field.
+func DescriptionGT(v string) predicate.Team {
+	return predicate.Team(sql.FieldGT(FieldDescription, v))
+}
+
+// DescriptionGTE applies the GTE predicate on the "description" field.
+func DescriptionGTE(v string) predicate.Team {
+	return predicate.Team(sql.FieldGTE(FieldDescription, v))
+}
+
+// DescriptionLT applies the LT predicate on the "description" field.
+func DescriptionLT(v string) predicate.Team {
+	return predicate.Team(sql.FieldLT(FieldDescription, v))
+}
+
+// DescriptionLTE applies the LTE predicate on the "description" field.
+func DescriptionLTE(v string) predicate.Team {
+	return predicate.Team(sql.FieldLTE(FieldDescription, v))
+}
+
+// DescriptionContains applies the Contains predicate on the "description" field.
+func DescriptionContains(v string) predicate.Team {
+	return predicate.Team(sql.FieldContains(FieldDescription, v))
+}
+
+// DescriptionHasPrefix applies the HasPrefix predicate on the "description" field.
+func DescriptionHasPrefix(v string) predicate.Team {
+	return predicate.Team(sql.FieldHasPrefix(FieldDescription, v))
+}
+
+// DescriptionHasSuffix applies the HasSuffix predicate on the "description" field.
+func DescriptionHasSuffix(v string) predicate.Team {
+	return predicate.Team(sql.FieldHasSuffix(FieldDescription, v))
+}
+
+// DescriptionIsNil applies the IsNil predicate on the "description" field.
+func DescriptionIsNil() predicate.Team {
+	return predicate.Team(sql.FieldIsNull(FieldDescription))
+}
+
+// DescriptionNotNil applies the NotNil predicate on the "description" field.
+func DescriptionNotNil() predicate.Team {
+	return predicate.Team(sql.FieldNotNull(FieldDescription))
+}
+
+// DescriptionEqualFold applies the EqualFold predicate on the "description" field.
+func DescriptionEqualFold(v string) predicate.Team {
+	return predicate.Team(sql.FieldEqualFold(FieldDescription, v))
+}
+
+// DescriptionContainsFold applies the ContainsFold predicate on the "description" field.
+func DescriptionContainsFold(v string) predicate.Team {
+	return predicate.Team(sql.FieldContainsFold(FieldDescription, v))
+}
+
+// AttestedByEQ applies the EQ predicate on the "attested_by" field.
+func AttestedByEQ(v string) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldAttestedBy, v))
+}
+
+// AttestedByNEQ applies the NEQ predicate on the "attested_by" field.
+func AttestedByNEQ(v string) predicate.Team {
+	return predicate.Team(sql.FieldNEQ(FieldAttestedBy, v))
+}
+
+// AttestedByIn applies the In predicate on the "attested_by" field.
+func AttestedByIn(vs ...string) predicate.Team {
+	return predicate.Team(sql.FieldIn(FieldAttestedBy, vs...))
+}
+
+// AttestedByNotIn applies the NotIn predicate on the "attested_by" field.
+func AttestedByNotIn(vs ...string) predicate.Team {
+	return predicate.Team(sql.FieldNotIn(FieldAttestedBy, vs...))
+}
+
+// AttestedByGT applies the GT predicate on the "attested_by" field.
+func AttestedByGT(v string) predicate.Team {
+	return predicate.Team(sql.FieldGT(FieldAttestedBy, v))
+}
+
+// AttestedByGTE applies the GTE predicate on the "attested_by" field.
+func AttestedByGTE(v string) predicate.Team {
+	return predicate.Team(sql.FieldGTE(FieldAttestedBy, v))
+}
+
+// AttestedByLT applies the LT predicate on the "attested_by" field.
+func AttestedByLT(v string) predicate.Team {
+	return predicate.Team(sql.FieldLT(FieldAttestedBy, v))
+}
+
+// AttestedByLTE applies the LTE predicate on the "attested_by" field.
+func AttestedByLTE(v string) predicate.Team {
+	return predicate.Team(sql.FieldLTE(FieldAttestedBy, v))
+}
+
+// AttestedByContains applies the Contains predicate on the "attested_by" field.
+func AttestedByContains(v string) predicate.Team {
+	return predicate.Team(sql.FieldContains(FieldAttestedBy, v))
+}
+
+// AttestedByHasPrefix applies the HasPrefix predicate on the "attested_by" field.
+func AttestedByHasPrefix(v string) predicate.Team {
+	return predicate.Team(sql.FieldHasPrefix(FieldAttestedBy, v))
+}
+
+// AttestedByHasSuffix applies the HasSuffix predicate on the "attested_by" field.
+func AttestedByHasSuffix(v string) predicate.Team {
+	return predicate.Team(sql.FieldHasSuffix(FieldAttestedBy, v))
+}
+
+// AttestedByIsNil applies the IsNil predicate on the "attested_by" field.
+func AttestedByIsNil() predicate.Team {
+	return predicate.Team(sql.FieldIsNull(FieldAttestedBy))
+}
+
+// AttestedByNotNil applies the NotNil predicate on the "attested_by" field.
+func AttestedByNotNil() predicate.Team {
+	return predicate.Team(sql.FieldNotNull(FieldAttestedBy))
+}
+
+// AttestedByEqualFold applies the EqualFold predicate on the "attested_by" field.
+func AttestedByEqualFold(v string) predicate.Team {
+	return predicate.Team(sql.FieldEqualFold(FieldAttestedBy, v))
+}
+
+// AttestedByContainsFold applies the ContainsFold predicate on the "attested_by" field.
+func AttestedByContainsFold(v string) predicate.Team {
+	return predicate.Team(sql.FieldContainsFold(FieldAttestedBy, v))
+}
+
+// AttestedAtEQ applies the EQ predicate on the "attested_at" field.
+func AttestedAtEQ(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldEQ(FieldAttestedAt, v))
+}
+
+// AttestedAtNEQ applies the NEQ predicate on the "attested_at" field.
+func AttestedAtNEQ(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldNEQ(FieldAttestedAt, v))
+}
+
+// AttestedAtIn applies the In predicate on the "attested_at" field.
+func AttestedAtIn(vs ...time.Time) predicate.Team {
+	return predicate.Team(sql.FieldIn(FieldAttestedAt, vs...))
+}
+
+// AttestedAtNotIn applies the NotIn predicate on the "attested_at" field.
+func AttestedAtNotIn(vs ...time.Time) predicate.Team {
+	return predicate.Team(sql.FieldNotIn(FieldAttestedAt, vs...))
+}
+
+// AttestedAtGT applies the GT predicate on the "attested_at" field.
+func AttestedAtGT(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldGT(FieldAttestedAt, v))
+}
+
+// AttestedAtGTE applies the GTE predicate on the "attested_at" field.
+func AttestedAtGTE(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldGTE(FieldAttestedAt, v))
+}
+
+// AttestedAtLT applies the LT predicate on the "attested_at" field.
+func AttestedAtLT(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldLT(FieldAttestedAt, v))
+}
+
+// AttestedAtLTE applies the LTE predicate on the "attested_at" field.
+func AttestedAtLTE(v time.Time) predicate.Team {
+	return predicate.Team(sql.FieldLTE(FieldAttestedAt, v))
+}
+
+// AttestedAtIsNil applies the IsNil predicate on the "attested_at" field.
+func AttestedAtIsNil() predicate.Team {
+	return predicate.Team(sql.FieldIsNull(FieldAttestedAt))
+}
+
+// AttestedAtNotNil applies the NotNil predicate on the "attested_at" field.
+func AttestedAtNotNil() predicate.Team {
+	return predicate.Team(sql.FieldNotNull(FieldAttestedAt))
+}
+
 // HasOrganization applies the HasEdge predicate on the "organization" edge.
 func HasOrganization() predicate.Team {
 	return predicate.Team(func(s *sql.Selector) {
@@ -276,6 +491,29 @@ func HasRoleBindings() predicate.Team {
 func HasRoleBindingsWith(preds ...predicate.RoleBinding) predicate.Team {
 	return predicate.Team(func(s *sql.Selector) {
 		step := newRoleBindingsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasContacts applies the HasEdge predicate on the "contacts" edge.
+func HasContacts() predicate.Team {
+	return predicate.Team(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ContactsTable, ContactsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasContactsWith applies the HasEdge predicate on the "contacts" edge with a given conditions (other predicates).
+func HasContactsWith(preds ...predicate.Contact) predicate.Team {
+	return predicate.Team(func(s *sql.Selector) {
+		step := newContactsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

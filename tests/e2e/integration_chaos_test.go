@@ -233,7 +233,7 @@ func TestChaos_PostgresSeverance(t *testing.T) {
 
 	// The load-bearing assertion. A launch must not be accepted when the
 	// job row cannot be written.
-	status, body := ch.dispatch(t, token, targetGroup, harnessRunbookID)
+	status, body := ch.launch(t, token)
 	if status == http.StatusAccepted {
 		t.Fatalf("a dispatch was accepted with the database severed, so a caller holds a job id for work that was never recorded. Body: %s", body)
 	}
@@ -255,7 +255,7 @@ func TestChaos_PostgresSeverance(t *testing.T) {
 func (ch *chaosHarness) completeOneDispatch(t *testing.T, token, phase string) {
 	t.Helper()
 
-	status, body := ch.dispatch(t, token, targetGroup, harnessRunbookID)
+	status, body := ch.launch(t, token)
 	if status != http.StatusAccepted {
 		t.Fatalf("[%s] dispatch returned %d, want 202. Body: %s\n%s", phase, status, body, ch.controller.output())
 	}

@@ -19,12 +19,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
+	entinventory "github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 )
 
 // seededDevice is one inventory fixture row plus the identifier the
@@ -85,7 +87,7 @@ func seedFixture() []*seededDevice {
 // the cross-process key path. Seeding encrypted means the controller has
 // to decrypt rows it did not write, which is a real claim, and it makes a
 // key mismatch fail loudly instead of silently.
-func seedInventory(tb testing.TB, dsn string) []*seededDevice {
+func seedInventory(tb testing.TB, dsn string) ([]*seededDevice, int, int) {
 	tb.Helper()
 	ctx := context.Background()
 
@@ -124,11 +126,60 @@ func seedInventory(tb testing.TB, dsn string) []*seededDevice {
 		byGroup[d.group] = append(byGroup[d.group], row)
 	}
 
+	groups := map[string]*ent.Group{}
 	for _, group := range []string{targetGroup, untargetGroup} {
-		client.Group.Create().SetName(group).AddDevices(byGroup[group]...).SaveX(ctx)
+		groups[group] = client.Group.Create().SetName(group).AddDevices(byGroup[group]...).SaveX(ctx)
 	}
 
-	return devices
+	// The template this suite launches, and the organization and inventory
+	// it needs to exist at all.
+	//
+	// Seeded rather than created over HTTP, for the same reason the devices
+	// are: this is the fixture the assertions are about, not a claim about
+	// the write path, and internal/api's own suite already drives template
+	// creation through the real router. What the launch below then proves
+	// is the thing only a real mesh can: that a job launched from a stored
+	// template reaches a real Runner over real NATS, carrying the tenant it
+	// inherited from its inventory.
+	//
+	// The inventory holds the edge GROUP rather than the two edge devices
+	// directly, so the membership the Worker streams is resolved through a
+	// group exactly as a real deployment's is. rtr3 and rtr4 stay outside
+	// it, which is what keeps group filtering the only variable in the
+	// tallies below.
+	org := client.Organization.Create().SetName("e2e").SaveX(ctx)
+	set := client.Inventory.Create().
+		SetName("edge routers").
+		SetOrganization(org).
+		AddGroups(groups[targetGroup]).
+		SaveX(ctx)
+	template := client.Template.Create().
+		SetName("the grand integration test").
+		SetKind("runbook").
+		SetDefinition(harnessRunbookID).
+		SetOrganization(org).
+		SetInventory(set).
+		SaveX(ctx)
+
+	// A second template against an inventory that selects nothing, which
+	// is the fail-closed control. It is the most dangerous shape this
+	// layer has: an empty selector that failed OPEN would turn a targeted
+	// change into a fleet-wide one, and pkg/inventory.Selector.Membership
+	// is a pointer precisely so that "no members" and "no restriction"
+	// cannot be the same value.
+	empty := client.Inventory.Create().
+		SetName("nothing at all").
+		SetOrganization(org).
+		SaveX(ctx)
+	emptyTemplate := client.Template.Create().
+		SetName("targets nothing").
+		SetKind("runbook").
+		SetDefinition(harnessRunbookID).
+		SetOrganization(org).
+		SetInventory(empty).
+		SaveX(ctx)
+
+	return devices, template.ID, emptyTemplate.ID
 }
 
 // masterKeyBytes decodes the harness master encryption key into the raw
@@ -172,16 +223,30 @@ func (h *harness) do(tb testing.TB, method, path, bearer string) (int, []byte) {
 	return resp.StatusCode, body
 }
 
-// dispatch launches runbookID against group and returns the raw response.
+// launch runs the seeded template and returns the raw response.
 //
-// The query string is assembled with url.Values so a group or runbook
-// name carrying a reserved character cannot change the shape of the
-// request, which matters because the fuzz target drives this same helper
-// with arbitrary values.
-func (h *harness) dispatch(tb testing.TB, bearer, group, runbook string) (int, []byte) {
+// It replaces a dispatch that named a free-text group and a runbook id in a
+// query string. That path is gone: a group name has no tenant, so the job
+// it produced belonged to no organization, and nothing recorded which saved
+// definition had been run. A template names an inventory, an inventory
+// carries a required organization, so the job this produces has an owner by
+// construction -- which is the property assertJobTenanted below checks.
+func (h *harness) launch(tb testing.TB, bearer string) (int, []byte) {
 	tb.Helper()
-	query := url.Values{"group": {group}, "runbook": {runbook}}
-	return h.do(tb, http.MethodPost, "/api/v1/jobs/dispatch?"+query.Encode(), bearer)
+	return h.launchTemplate(tb, bearer, h.templateID)
+}
+
+// launchTemplate runs one template by id, so a test can name a template
+// that does not exist.
+//
+// The id is path-escaped rather than concatenated, for the same reason the
+// dispatch helper it replaces assembled its query with url.Values: the fuzz
+// target drives this with arbitrary values, and a value carrying a slash
+// must not be able to change which route it reaches.
+func (h *harness) launchTemplate(tb testing.TB, bearer string, templateID int) (int, []byte) {
+	tb.Helper()
+	return h.do(tb, http.MethodPost,
+		"/api/v1/templates/"+url.PathEscape(strconv.Itoa(templateID))+"/launch", bearer)
 }
 
 // waitForHTTPStatus polls path until it answers with want, or fails.
@@ -218,14 +283,18 @@ func (h *harness) waitForHTTPStatus(tb testing.TB, path string, want int, what s
 
 // jobResponse is the subset of the job view this package asserts on.
 type jobResponse struct {
-	JobID      string `json:"job_id"`
-	RunbookID  string `json:"runbook_id"`
-	GroupName  string `json:"group_name"`
-	State      string `json:"state"`
-	Dispatched int    `json:"dispatched"`
-	Skipped    int    `json:"skipped"`
-	Failed     int    `json:"failed"`
-	Tasks      []struct {
+	JobID        string `json:"job_id"`
+	RunbookID    string `json:"runbook_id"`
+	State        string `json:"state"`
+	Template     int    `json:"template"`
+	TemplateName string `json:"template_name"`
+	Inventory    int    `json:"inventory"`
+	Organization int    `json:"organization"`
+	Kind         string `json:"kind"`
+	Dispatched   int    `json:"dispatched"`
+	Skipped      int    `json:"skipped"`
+	Failed       int    `json:"failed"`
+	Tasks        []struct {
 		DeviceID   string `json:"device_id"`
 		DeviceName string `json:"device_name"`
 		Outcome    string `json:"outcome"`
@@ -287,4 +356,39 @@ func describeTasks(job jobResponse) string {
 		parts = append(parts, fmt.Sprintf("%s=%s(%s)", task.DeviceName, task.Outcome, task.Reason))
 	}
 	return strings.Join(parts, " ")
+}
+
+// seedPlaybookTemplate adds a playbook-kind template against the same
+// "edge routers" inventory the runbook template targets, so the two kinds'
+// jobs differ in exactly one variable: the adapter their kind routes to.
+//
+// Seeded directly like seedInventory's own templates, through the same
+// versioned migrations, before the controller starts.
+func seedPlaybookTemplate(tb testing.TB, dsn string) int {
+	tb.Helper()
+	ctx := context.Background()
+
+	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dsn})
+	if err != nil {
+		tb.Fatalf("opening the database to seed the playbook template: %v", err)
+	}
+	defer client.Close()
+
+	set, err := client.Inventory.Query().Where(entinventory.NameEQ("edge routers")).Only(ctx)
+	if err != nil {
+		tb.Fatalf("finding the seeded inventory: %v", err)
+	}
+	org, err := set.QueryOrganization().Only(ctx)
+	if err != nil {
+		tb.Fatalf("finding the seeded organization: %v", err)
+	}
+
+	template := client.Template.Create().
+		SetName("the ansible half of the mesh").
+		SetKind("playbook").
+		SetDefinition(harnessPlaybookID).
+		SetOrganization(org).
+		SetInventory(set).
+		SaveX(ctx)
+	return template.ID
 }

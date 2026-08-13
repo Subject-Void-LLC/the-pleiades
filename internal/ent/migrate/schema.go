@@ -8,6 +8,111 @@ import (
 )
 
 var (
+	// ActivityEntriesColumns holds the columns for the "activity_entries" table.
+	ActivityEntriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "actor", Type: field.TypeString},
+		{Name: "action", Type: field.TypeString},
+		{Name: "object_kind", Type: field.TypeString},
+		{Name: "object_id", Type: field.TypeInt},
+		{Name: "object_name", Type: field.TypeString, Nullable: true},
+	}
+	// ActivityEntriesTable holds the schema information for the "activity_entries" table.
+	ActivityEntriesTable = &schema.Table{
+		Name:       "activity_entries",
+		Columns:    ActivityEntriesColumns,
+		PrimaryKey: []*schema.Column{ActivityEntriesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "activityentry_actor",
+				Unique:  false,
+				Columns: []*schema.Column{ActivityEntriesColumns[3]},
+			},
+			{
+				Name:    "activityentry_object_kind_object_id",
+				Unique:  false,
+				Columns: []*schema.Column{ActivityEntriesColumns[5], ActivityEntriesColumns[6]},
+			},
+		},
+	}
+	// AnnouncementsColumns holds the columns for the "announcements" table.
+	AnnouncementsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "title", Type: field.TypeString},
+		{Name: "body", Type: field.TypeString, Size: 2147483647},
+		{Name: "level", Type: field.TypeString, Default: "info"},
+		{Name: "starts_at", Type: field.TypeTime, Nullable: true},
+		{Name: "ends_at", Type: field.TypeTime, Nullable: true},
+		{Name: "author", Type: field.TypeString},
+		{Name: "organization_announcements", Type: field.TypeInt, Nullable: true},
+	}
+	// AnnouncementsTable holds the schema information for the "announcements" table.
+	AnnouncementsTable = &schema.Table{
+		Name:       "announcements",
+		Columns:    AnnouncementsColumns,
+		PrimaryKey: []*schema.Column{AnnouncementsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "announcements_organizations_announcements",
+				Columns:    []*schema.Column{AnnouncementsColumns[9]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "announcement_starts_at_ends_at",
+				Unique:  false,
+				Columns: []*schema.Column{AnnouncementsColumns[6], AnnouncementsColumns[7]},
+			},
+		},
+	}
+	// ContactsColumns holds the columns for the "contacts" table.
+	ContactsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "role", Type: field.TypeString},
+		{Name: "email", Type: field.TypeString, Nullable: true},
+		{Name: "phone", Type: field.TypeString, Nullable: true},
+		{Name: "url", Type: field.TypeString, Nullable: true},
+		{Name: "notes", Type: field.TypeString, Nullable: true},
+		{Name: "display_order", Type: field.TypeInt, Default: 0},
+		{Name: "organization_contacts", Type: field.TypeInt, Nullable: true},
+		{Name: "team_contacts", Type: field.TypeInt, Nullable: true},
+	}
+	// ContactsTable holds the schema information for the "contacts" table.
+	ContactsTable = &schema.Table{
+		Name:       "contacts",
+		Columns:    ContactsColumns,
+		PrimaryKey: []*schema.Column{ContactsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "contacts_organizations_contacts",
+				Columns:    []*schema.Column{ContactsColumns[10]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "contacts_teams_contacts",
+				Columns:    []*schema.Column{ContactsColumns[11]},
+				RefColumns: []*schema.Column{TeamsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "contact_role_display_order",
+				Unique:  false,
+				Columns: []*schema.Column{ContactsColumns[4], ContactsColumns[9]},
+			},
+		},
+	}
 	// DevicesColumns holds the columns for the "devices" table.
 	DevicesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -88,6 +193,37 @@ var (
 		Columns:    GroupsColumns,
 		PrimaryKey: []*schema.Column{GroupsColumns[0]},
 	}
+	// InventoriesColumns holds the columns for the "inventories" table.
+	InventoriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "owner", Type: field.TypeString, Nullable: true},
+		{Name: "organization_inventories", Type: field.TypeInt},
+	}
+	// InventoriesTable holds the schema information for the "inventories" table.
+	InventoriesTable = &schema.Table{
+		Name:       "inventories",
+		Columns:    InventoriesColumns,
+		PrimaryKey: []*schema.Column{InventoriesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventories_organizations_inventories",
+				Columns:    []*schema.Column{InventoriesColumns[6]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "inventory_name_organization_inventories",
+				Unique:  true,
+				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[6]},
+			},
+		},
+	}
 	// JobsColumns holds the columns for the "jobs" table.
 	JobsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -96,19 +232,34 @@ var (
 		{Name: "job_id", Type: field.TypeString, Unique: true},
 		{Name: "runbook_id", Type: field.TypeString},
 		{Name: "group_name", Type: field.TypeString},
+		{Name: "inventory_id", Type: field.TypeInt, Nullable: true},
+		{Name: "template_id", Type: field.TypeInt, Nullable: true},
+		{Name: "template_name", Type: field.TypeString, Nullable: true},
+		{Name: "launch_config_id", Type: field.TypeInt, Nullable: true},
+		{Name: "kind", Type: field.TypeString, Nullable: true},
 		{Name: "actor", Type: field.TypeString},
+		{Name: "organization_id", Type: field.TypeInt, Nullable: true},
 		{Name: "state", Type: field.TypeEnum, Enums: []string{"pending", "fanning_out", "completed", "failed"}, Default: "pending"},
 		{Name: "dispatched_count", Type: field.TypeInt, Default: 0},
 		{Name: "skipped_count", Type: field.TypeInt, Default: 0},
 		{Name: "failed_count", Type: field.TypeInt, Default: 0},
 		{Name: "failure_reason", Type: field.TypeString, Nullable: true},
 		{Name: "fence", Type: field.TypeInt64, Default: 0},
+		{Name: "fields", Type: field.TypeJSON, Nullable: true},
+		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{
 		Name:       "jobs",
 		Columns:    JobsColumns,
 		PrimaryKey: []*schema.Column{JobsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "job_template_id",
+				Unique:  false,
+				Columns: []*schema.Column{JobsColumns[7]},
+			},
+		},
 	}
 	// JobTasksColumns holds the columns for the "job_tasks" table.
 	JobTasksColumns = []*schema.Column{
@@ -148,6 +299,16 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "name", Type: field.TypeString, Unique: true},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "classification", Type: field.TypeString, Nullable: true},
+		{Name: "change_window", Type: field.TypeString, Nullable: true},
+		{Name: "frozen", Type: field.TypeBool, Default: false},
+		{Name: "freeze_reason", Type: field.TypeString, Nullable: true},
+		{Name: "cost_centre", Type: field.TypeString, Nullable: true},
+		{Name: "ticket_key", Type: field.TypeString, Nullable: true},
+		{Name: "cmdb_id", Type: field.TypeString, Nullable: true},
+		{Name: "attested_by", Type: field.TypeString, Nullable: true},
+		{Name: "attested_at", Type: field.TypeTime, Nullable: true},
 	}
 	// OrganizationsTable holds the schema information for the "organizations" table.
 	OrganizationsTable = &schema.Table{
@@ -225,12 +386,121 @@ var (
 			},
 		},
 	}
+	// SavedLaunchConfigsColumns holds the columns for the "saved_launch_configs" table.
+	SavedLaunchConfigsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString, Nullable: true},
+		{Name: "fields", Type: field.TypeJSON, Nullable: true},
+		{Name: "answers", Type: field.TypeJSON, Nullable: true},
+		{Name: "template_saved_configs", Type: field.TypeInt},
+	}
+	// SavedLaunchConfigsTable holds the schema information for the "saved_launch_configs" table.
+	SavedLaunchConfigsTable = &schema.Table{
+		Name:       "saved_launch_configs",
+		Columns:    SavedLaunchConfigsColumns,
+		PrimaryKey: []*schema.Column{SavedLaunchConfigsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "saved_launch_configs_templates_saved_configs",
+				Columns:    []*schema.Column{SavedLaunchConfigsColumns[6]},
+				RefColumns: []*schema.Column{TemplatesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "savedlaunchconfig_name_template_saved_configs",
+				Unique:  false,
+				Columns: []*schema.Column{SavedLaunchConfigsColumns[3], SavedLaunchConfigsColumns[6]},
+			},
+		},
+	}
+	// SessionsColumns holds the columns for the "sessions" table.
+	SessionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "token_hash", Type: field.TypeBytes, Unique: true, Size: 32},
+		{Name: "subject", Type: field.TypeString},
+		{Name: "role", Type: field.TypeString},
+		{Name: "scopes", Type: field.TypeJSON, Nullable: true},
+		{Name: "csrf_key", Type: field.TypeBytes, Size: 32},
+		{Name: "idle_expires_at", Type: field.TypeTime},
+		{Name: "absolute_expires_at", Type: field.TypeTime},
+		{Name: "last_seen_at", Type: field.TypeTime},
+	}
+	// SessionsTable holds the schema information for the "sessions" table.
+	SessionsTable = &schema.Table{
+		Name:       "sessions",
+		Columns:    SessionsColumns,
+		PrimaryKey: []*schema.Column{SessionsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "session_token_hash",
+				Unique:  false,
+				Columns: []*schema.Column{SessionsColumns[3]},
+			},
+			{
+				Name:    "session_absolute_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{SessionsColumns[9]},
+			},
+		},
+	}
+	// SurveyQuestionsColumns holds the columns for the "survey_questions" table.
+	SurveyQuestionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "variable", Type: field.TypeString},
+		{Name: "label", Type: field.TypeString},
+		{Name: "help", Type: field.TypeString, Nullable: true},
+		{Name: "question_type", Type: field.TypeString},
+		{Name: "required", Type: field.TypeBool, Default: false},
+		{Name: "default_value", Type: field.TypeString, Nullable: true},
+		{Name: "choices", Type: field.TypeJSON, Nullable: true},
+		{Name: "min_value", Type: field.TypeInt, Default: 0},
+		{Name: "max_value", Type: field.TypeInt, Default: 0},
+		{Name: "display_order", Type: field.TypeInt, Default: 0},
+		{Name: "template_survey_questions", Type: field.TypeInt},
+	}
+	// SurveyQuestionsTable holds the schema information for the "survey_questions" table.
+	SurveyQuestionsTable = &schema.Table{
+		Name:       "survey_questions",
+		Columns:    SurveyQuestionsColumns,
+		PrimaryKey: []*schema.Column{SurveyQuestionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "survey_questions_templates_survey_questions",
+				Columns:    []*schema.Column{SurveyQuestionsColumns[13]},
+				RefColumns: []*schema.Column{TemplatesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "surveyquestion_display_order_template_survey_questions",
+				Unique:  false,
+				Columns: []*schema.Column{SurveyQuestionsColumns[12], SurveyQuestionsColumns[13]},
+			},
+			{
+				Name:    "surveyquestion_variable_template_survey_questions",
+				Unique:  true,
+				Columns: []*schema.Column{SurveyQuestionsColumns[3], SurveyQuestionsColumns[13]},
+			},
+		},
+	}
 	// TeamsColumns holds the columns for the "teams" table.
 	TeamsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "attested_by", Type: field.TypeString, Nullable: true},
+		{Name: "attested_at", Type: field.TypeTime, Nullable: true},
 		{Name: "organization_teams", Type: field.TypeInt},
 	}
 	// TeamsTable holds the schema information for the "teams" table.
@@ -241,9 +511,58 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "teams_organizations_teams",
-				Columns:    []*schema.Column{TeamsColumns[4]},
+				Columns:    []*schema.Column{TeamsColumns[7]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// TemplatesColumns holds the columns for the "templates" table.
+	TemplatesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "kind", Type: field.TypeString},
+		{Name: "definition", Type: field.TypeString},
+		{Name: "defaults", Type: field.TypeJSON, Nullable: true},
+		{Name: "prompts", Type: field.TypeJSON, Nullable: true},
+		{Name: "required_caps", Type: field.TypeJSON, Nullable: true},
+		{Name: "survey_enabled", Type: field.TypeBool, Default: false},
+		{Name: "allow_simultaneous", Type: field.TypeBool, Default: false},
+		{Name: "inventory_templates", Type: field.TypeInt},
+		{Name: "organization_templates", Type: field.TypeInt},
+	}
+	// TemplatesTable holds the schema information for the "templates" table.
+	TemplatesTable = &schema.Table{
+		Name:       "templates",
+		Columns:    TemplatesColumns,
+		PrimaryKey: []*schema.Column{TemplatesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "templates_inventories_templates",
+				Columns:    []*schema.Column{TemplatesColumns[12]},
+				RefColumns: []*schema.Column{InventoriesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "templates_organizations_templates",
+				Columns:    []*schema.Column{TemplatesColumns[13]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "template_name_organization_templates",
+				Unique:  true,
+				Columns: []*schema.Column{TemplatesColumns[3], TemplatesColumns[13]},
+			},
+			{
+				Name:    "template_kind_definition",
+				Unique:  false,
+				Columns: []*schema.Column{TemplatesColumns[5], TemplatesColumns[6]},
 			},
 		},
 	}
@@ -310,6 +629,56 @@ var (
 			},
 		},
 	}
+	// InventoryGroupsColumns holds the columns for the "inventory_groups" table.
+	InventoryGroupsColumns = []*schema.Column{
+		{Name: "inventory_id", Type: field.TypeInt},
+		{Name: "group_id", Type: field.TypeInt},
+	}
+	// InventoryGroupsTable holds the schema information for the "inventory_groups" table.
+	InventoryGroupsTable = &schema.Table{
+		Name:       "inventory_groups",
+		Columns:    InventoryGroupsColumns,
+		PrimaryKey: []*schema.Column{InventoryGroupsColumns[0], InventoryGroupsColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventory_groups_inventory_id",
+				Columns:    []*schema.Column{InventoryGroupsColumns[0]},
+				RefColumns: []*schema.Column{InventoriesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "inventory_groups_group_id",
+				Columns:    []*schema.Column{InventoryGroupsColumns[1]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
+	// InventoryDevicesColumns holds the columns for the "inventory_devices" table.
+	InventoryDevicesColumns = []*schema.Column{
+		{Name: "inventory_id", Type: field.TypeInt},
+		{Name: "device_id", Type: field.TypeInt},
+	}
+	// InventoryDevicesTable holds the schema information for the "inventory_devices" table.
+	InventoryDevicesTable = &schema.Table{
+		Name:       "inventory_devices",
+		Columns:    InventoryDevicesColumns,
+		PrimaryKey: []*schema.Column{InventoryDevicesColumns[0], InventoryDevicesColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "inventory_devices_inventory_id",
+				Columns:    []*schema.Column{InventoryDevicesColumns[0]},
+				RefColumns: []*schema.Column{InventoriesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "inventory_devices_device_id",
+				Columns:    []*schema.Column{InventoryDevicesColumns[1]},
+				RefColumns: []*schema.Column{DevicesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// TeamUsersColumns holds the columns for the "team_users" table.
 	TeamUsersColumns = []*schema.Column{
 		{Name: "team_id", Type: field.TypeInt},
@@ -337,34 +706,56 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		ActivityEntriesTable,
+		AnnouncementsTable,
+		ContactsTable,
 		DevicesTable,
 		FactsTable,
 		GroupsTable,
+		InventoriesTable,
 		JobsTable,
 		JobTasksTable,
 		OrganizationsTable,
 		RevisionsTable,
 		RoleBindingsTable,
+		SavedLaunchConfigsTable,
+		SessionsTable,
+		SurveyQuestionsTable,
 		TeamsTable,
+		TemplatesTable,
 		UsersTable,
 		GroupDevicesTable,
 		GroupChildrenTable,
+		InventoryGroupsTable,
+		InventoryDevicesTable,
 		TeamUsersTable,
 	}
 )
 
 func init() {
+	AnnouncementsTable.ForeignKeys[0].RefTable = OrganizationsTable
+	ContactsTable.ForeignKeys[0].RefTable = OrganizationsTable
+	ContactsTable.ForeignKeys[1].RefTable = TeamsTable
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
+	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
+	SavedLaunchConfigsTable.ForeignKeys[0].RefTable = TemplatesTable
+	SurveyQuestionsTable.ForeignKeys[0].RefTable = TemplatesTable
 	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable
+	TemplatesTable.ForeignKeys[0].RefTable = InventoriesTable
+	TemplatesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	GroupDevicesTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	GroupChildrenTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupChildrenTable.ForeignKeys[1].RefTable = GroupsTable
+	InventoryGroupsTable.ForeignKeys[0].RefTable = InventoriesTable
+	InventoryGroupsTable.ForeignKeys[1].RefTable = GroupsTable
+	InventoryDevicesTable.ForeignKeys[0].RefTable = InventoriesTable
+	InventoryDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	TeamUsersTable.ForeignKeys[0].RefTable = TeamsTable
 	TeamUsersTable.ForeignKeys[1].RefTable = UsersTable
 }

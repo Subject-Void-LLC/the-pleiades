@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 )
 
@@ -22,10 +23,25 @@ import (
 // internal/api/dispatcher.go's DispatchRunbook used to run inline inside
 // an HTTP request.
 type Worker struct {
-	store    JobStore
-	repo     inventory.Repository
-	runbooks runbook.Source
-	bus      event.Bus
+	store JobStore
+	repo  inventory.Repository
+	// definitions prepares a job's definition through the source its KIND
+	// owns, keyed by kind, mirroring internal/adapters/routing's map on
+	// the Runner side. The native runbook entry is always present (built
+	// from NewWorker's own positional runbook source); further kinds are
+	// wired by the composition root through WithDefinitionSource. A job
+	// whose kind has no entry here fails with a reason naming the kind,
+	// never by being rammed through the runbook source: that is exactly
+	// what used to happen, and it reported every playbook job as
+	// "runbook not found" inside the Controller before the Runner's own
+	// adapter selection was ever consulted.
+	definitions map[string]DefinitionSource
+	bus         event.Bus
+	// sets resolves the Inventory a job targets, so the fan-out streams
+	// that inventory's membership rather than a free-text group name.
+	// Optional: a Worker built without one refuses a job that names an
+	// inventory rather than silently falling back to the whole fleet.
+	sets inventory.SetStore
 	// credentials resolves a device's stored credential at fan-out time,
 	// so it can be attached directly to wire.DispatchPayload.Secrets
 	// (PLAN.md Section 17's Just-in-Time delivery principle: the Runner
@@ -44,21 +60,34 @@ type Worker struct {
 	fanOutLeaseTTL time.Duration
 }
 
-// NewWorker builds a Worker over its five collaborator ports: store
-// persists job and per-device task state, repo streams the target
-// inventory group, runbooks resolves a job's RunbookID to its compiled
-// capability requirements, bus is where a per-device dispatch event is
-// published to and where job.requested itself is consumed from, and
-// credentials resolves each admitted device's stored credential so it can
-// be attached to the dispatch payload. opts applies optional, non-default
+// NewWorker builds a Worker over its five required collaborator ports:
+// store persists job and per-device task state, repo streams the target
+// devices, runbooks resolves a job's RunbookID to its compiled capability
+// requirements, bus is where a per-device dispatch event is published to
+// and where job.requested itself is consumed from, and credentials
+// resolves each admitted device's stored credential so it can be attached
+// to the dispatch payload. opts applies optional, non-default
 // configuration (see WorkerOption); every existing caller (e.g.
 // cmd/controller/main.go) can omit it entirely and gets
 // DefaultFanOutLeaseTTL.
+//
+// The Inventory port is supplied through WithSetStore rather than
+// positionally, so that the several existing test harnesses that build a
+// Worker keep compiling. That is a convenience, not a permission: a Worker
+// with no set store fails a job that names an inventory, loudly, rather
+// than dispatching it to every device the platform manages.
 func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Source, bus event.Bus, credentials credential.Store, opts ...WorkerOption) *Worker {
 	w := &Worker{
-		store:          store,
-		repo:           repo,
-		runbooks:       runbooks,
+		store: store,
+		repo:  repo,
+		definitions: map[string]DefinitionSource{
+			// The native kind is positional rather than optional because
+			// every deployment has it, and because leaving the default
+			// kind's own source to an option would make "forgot to wire
+			// it" the state every Worker starts in
+			// (FAILURE_PATTERNS.md #110).
+			launch.DefaultKind: runbookDefinitionSource{src: runbooks},
+		},
 		bus:            bus,
 		credentials:    credentials,
 		fanOutLeaseTTL: DefaultFanOutLeaseTTL,
@@ -67,6 +96,25 @@ func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Sourc
 		opt(w)
 	}
 	return w
+}
+
+// WithDefinitionSource wires the definition source for one further kind,
+// so the fan-out can prepare jobs of it. A kind nobody wires is refused
+// per job with a reason naming the kind, the same fail-closed posture
+// WithSetStore's absence takes: guessing would mean resolving a playbook
+// through the runbook source, which is the recorded defect this map
+// replaced.
+func WithDefinitionSource(kind string, src DefinitionSource) WorkerOption {
+	return func(w *Worker) { w.definitions[kind] = src }
+}
+
+// WithSetStore supplies the port that resolves a job's target Inventory.
+//
+// A Worker without it can still run a job that names no inventory, which
+// is what every pre-Phase-21 job is. It cannot run one that does, and says
+// so on the job record rather than guessing.
+func WithSetStore(sets inventory.SetStore) WorkerOption {
+	return func(w *Worker) { w.sets = sets }
 }
 
 // WorkerOption configures optional, non-default behavior on a Worker built

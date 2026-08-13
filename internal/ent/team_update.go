@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -48,6 +49,66 @@ func (_u *TeamUpdate) SetNillableName(v *string) *TeamUpdate {
 	if v != nil {
 		_u.SetName(*v)
 	}
+	return _u
+}
+
+// SetDescription sets the "description" field.
+func (_u *TeamUpdate) SetDescription(v string) *TeamUpdate {
+	_u.mutation.SetDescription(v)
+	return _u
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_u *TeamUpdate) SetNillableDescription(v *string) *TeamUpdate {
+	if v != nil {
+		_u.SetDescription(*v)
+	}
+	return _u
+}
+
+// ClearDescription clears the value of the "description" field.
+func (_u *TeamUpdate) ClearDescription() *TeamUpdate {
+	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_u *TeamUpdate) SetAttestedBy(v string) *TeamUpdate {
+	_u.mutation.SetAttestedBy(v)
+	return _u
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_u *TeamUpdate) SetNillableAttestedBy(v *string) *TeamUpdate {
+	if v != nil {
+		_u.SetAttestedBy(*v)
+	}
+	return _u
+}
+
+// ClearAttestedBy clears the value of the "attested_by" field.
+func (_u *TeamUpdate) ClearAttestedBy() *TeamUpdate {
+	_u.mutation.ClearAttestedBy()
+	return _u
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_u *TeamUpdate) SetAttestedAt(v time.Time) *TeamUpdate {
+	_u.mutation.SetAttestedAt(v)
+	return _u
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_u *TeamUpdate) SetNillableAttestedAt(v *time.Time) *TeamUpdate {
+	if v != nil {
+		_u.SetAttestedAt(*v)
+	}
+	return _u
+}
+
+// ClearAttestedAt clears the value of the "attested_at" field.
+func (_u *TeamUpdate) ClearAttestedAt() *TeamUpdate {
+	_u.mutation.ClearAttestedAt()
 	return _u
 }
 
@@ -90,6 +151,21 @@ func (_u *TeamUpdate) AddRoleBindings(v ...*RoleBinding) *TeamUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddRoleBindingIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_u *TeamUpdate) AddContactIDs(ids ...int) *TeamUpdate {
+	_u.mutation.AddContactIDs(ids...)
+	return _u
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_u *TeamUpdate) AddContacts(v ...*Contact) *TeamUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddContactIDs(ids...)
 }
 
 // Mutation returns the TeamMutation object of the builder.
@@ -143,6 +219,27 @@ func (_u *TeamUpdate) RemoveRoleBindings(v ...*RoleBinding) *TeamUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRoleBindingIDs(ids...)
+}
+
+// ClearContacts clears all "contacts" edges to the Contact entity.
+func (_u *TeamUpdate) ClearContacts() *TeamUpdate {
+	_u.mutation.ClearContacts()
+	return _u
+}
+
+// RemoveContactIDs removes the "contacts" edge to Contact entities by IDs.
+func (_u *TeamUpdate) RemoveContactIDs(ids ...int) *TeamUpdate {
+	_u.mutation.RemoveContactIDs(ids...)
+	return _u
+}
+
+// RemoveContacts removes "contacts" edges to Contact entities.
+func (_u *TeamUpdate) RemoveContacts(v ...*Contact) *TeamUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveContactIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -211,6 +308,24 @@ func (_u *TeamUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(team.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Description(); ok {
+		_spec.SetField(team.FieldDescription, field.TypeString, value)
+	}
+	if _u.mutation.DescriptionCleared() {
+		_spec.ClearField(team.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedBy(); ok {
+		_spec.SetField(team.FieldAttestedBy, field.TypeString, value)
+	}
+	if _u.mutation.AttestedByCleared() {
+		_spec.ClearField(team.FieldAttestedBy, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedAt(); ok {
+		_spec.SetField(team.FieldAttestedAt, field.TypeTime, value)
+	}
+	if _u.mutation.AttestedAtCleared() {
+		_spec.ClearField(team.FieldAttestedAt, field.TypeTime)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -331,6 +446,51 @@ func (_u *TeamUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedContactsIDs(); len(nodes) > 0 && !_u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{team.Label}
@@ -368,6 +528,66 @@ func (_u *TeamUpdateOne) SetNillableName(v *string) *TeamUpdateOne {
 	if v != nil {
 		_u.SetName(*v)
 	}
+	return _u
+}
+
+// SetDescription sets the "description" field.
+func (_u *TeamUpdateOne) SetDescription(v string) *TeamUpdateOne {
+	_u.mutation.SetDescription(v)
+	return _u
+}
+
+// SetNillableDescription sets the "description" field if the given value is not nil.
+func (_u *TeamUpdateOne) SetNillableDescription(v *string) *TeamUpdateOne {
+	if v != nil {
+		_u.SetDescription(*v)
+	}
+	return _u
+}
+
+// ClearDescription clears the value of the "description" field.
+func (_u *TeamUpdateOne) ClearDescription() *TeamUpdateOne {
+	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetAttestedBy sets the "attested_by" field.
+func (_u *TeamUpdateOne) SetAttestedBy(v string) *TeamUpdateOne {
+	_u.mutation.SetAttestedBy(v)
+	return _u
+}
+
+// SetNillableAttestedBy sets the "attested_by" field if the given value is not nil.
+func (_u *TeamUpdateOne) SetNillableAttestedBy(v *string) *TeamUpdateOne {
+	if v != nil {
+		_u.SetAttestedBy(*v)
+	}
+	return _u
+}
+
+// ClearAttestedBy clears the value of the "attested_by" field.
+func (_u *TeamUpdateOne) ClearAttestedBy() *TeamUpdateOne {
+	_u.mutation.ClearAttestedBy()
+	return _u
+}
+
+// SetAttestedAt sets the "attested_at" field.
+func (_u *TeamUpdateOne) SetAttestedAt(v time.Time) *TeamUpdateOne {
+	_u.mutation.SetAttestedAt(v)
+	return _u
+}
+
+// SetNillableAttestedAt sets the "attested_at" field if the given value is not nil.
+func (_u *TeamUpdateOne) SetNillableAttestedAt(v *time.Time) *TeamUpdateOne {
+	if v != nil {
+		_u.SetAttestedAt(*v)
+	}
+	return _u
+}
+
+// ClearAttestedAt clears the value of the "attested_at" field.
+func (_u *TeamUpdateOne) ClearAttestedAt() *TeamUpdateOne {
+	_u.mutation.ClearAttestedAt()
 	return _u
 }
 
@@ -410,6 +630,21 @@ func (_u *TeamUpdateOne) AddRoleBindings(v ...*RoleBinding) *TeamUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddRoleBindingIDs(ids...)
+}
+
+// AddContactIDs adds the "contacts" edge to the Contact entity by IDs.
+func (_u *TeamUpdateOne) AddContactIDs(ids ...int) *TeamUpdateOne {
+	_u.mutation.AddContactIDs(ids...)
+	return _u
+}
+
+// AddContacts adds the "contacts" edges to the Contact entity.
+func (_u *TeamUpdateOne) AddContacts(v ...*Contact) *TeamUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddContactIDs(ids...)
 }
 
 // Mutation returns the TeamMutation object of the builder.
@@ -463,6 +698,27 @@ func (_u *TeamUpdateOne) RemoveRoleBindings(v ...*RoleBinding) *TeamUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRoleBindingIDs(ids...)
+}
+
+// ClearContacts clears all "contacts" edges to the Contact entity.
+func (_u *TeamUpdateOne) ClearContacts() *TeamUpdateOne {
+	_u.mutation.ClearContacts()
+	return _u
+}
+
+// RemoveContactIDs removes the "contacts" edge to Contact entities by IDs.
+func (_u *TeamUpdateOne) RemoveContactIDs(ids ...int) *TeamUpdateOne {
+	_u.mutation.RemoveContactIDs(ids...)
+	return _u
+}
+
+// RemoveContacts removes "contacts" edges to Contact entities.
+func (_u *TeamUpdateOne) RemoveContacts(v ...*Contact) *TeamUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveContactIDs(ids...)
 }
 
 // Where appends a list predicates to the TeamUpdate builder.
@@ -562,6 +818,24 @@ func (_u *TeamUpdateOne) sqlSave(ctx context.Context) (_node *Team, err error) {
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(team.FieldName, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.Description(); ok {
+		_spec.SetField(team.FieldDescription, field.TypeString, value)
+	}
+	if _u.mutation.DescriptionCleared() {
+		_spec.ClearField(team.FieldDescription, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedBy(); ok {
+		_spec.SetField(team.FieldAttestedBy, field.TypeString, value)
+	}
+	if _u.mutation.AttestedByCleared() {
+		_spec.ClearField(team.FieldAttestedBy, field.TypeString)
+	}
+	if value, ok := _u.mutation.AttestedAt(); ok {
+		_spec.SetField(team.FieldAttestedAt, field.TypeTime, value)
+	}
+	if _u.mutation.AttestedAtCleared() {
+		_spec.ClearField(team.FieldAttestedAt, field.TypeTime)
+	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -674,6 +948,51 @@ func (_u *TeamUpdateOne) sqlSave(ctx context.Context) (_node *Team, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(rolebinding.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedContactsIDs(); len(nodes) > 0 && !_u.mutation.ContactsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ContactsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   team.ContactsTable,
+			Columns: []string{team.ContactsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(contact.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

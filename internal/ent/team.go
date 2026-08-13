@@ -24,6 +24,12 @@ type Team struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
+	// Description holds the value of the "description" field.
+	Description string `json:"description,omitempty"`
+	// AttestedBy holds the value of the "attested_by" field.
+	AttestedBy string `json:"attested_by,omitempty"`
+	// AttestedAt holds the value of the "attested_at" field.
+	AttestedAt *time.Time `json:"attested_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the TeamQuery when eager-loading is set.
 	Edges              TeamEdges `json:"edges"`
@@ -39,9 +45,11 @@ type TeamEdges struct {
 	Users []*User `json:"users,omitempty"`
 	// RoleBindings holds the value of the role_bindings edge.
 	RoleBindings []*RoleBinding `json:"role_bindings,omitempty"`
+	// Contacts holds the value of the contacts edge.
+	Contacts []*Contact `json:"contacts,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // OrganizationOrErr returns the Organization value or an error if the edge
@@ -73,6 +81,15 @@ func (e TeamEdges) RoleBindingsOrErr() ([]*RoleBinding, error) {
 	return nil, &NotLoadedError{edge: "role_bindings"}
 }
 
+// ContactsOrErr returns the Contacts value or an error if the edge
+// was not loaded in eager-loading.
+func (e TeamEdges) ContactsOrErr() ([]*Contact, error) {
+	if e.loadedTypes[3] {
+		return e.Contacts, nil
+	}
+	return nil, &NotLoadedError{edge: "contacts"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*Team) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -80,9 +97,9 @@ func (*Team) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case team.FieldID:
 			values[i] = new(sql.NullInt64)
-		case team.FieldName:
+		case team.FieldName, team.FieldDescription, team.FieldAttestedBy:
 			values[i] = new(sql.NullString)
-		case team.FieldCreatedAt, team.FieldUpdatedAt:
+		case team.FieldCreatedAt, team.FieldUpdatedAt, team.FieldAttestedAt:
 			values[i] = new(sql.NullTime)
 		case team.ForeignKeys[0]: // organization_teams
 			values[i] = new(sql.NullInt64)
@@ -125,6 +142,25 @@ func (_m *Team) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Name = value.String
 			}
+		case team.FieldDescription:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field description", values[i])
+			} else if value.Valid {
+				_m.Description = value.String
+			}
+		case team.FieldAttestedBy:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field attested_by", values[i])
+			} else if value.Valid {
+				_m.AttestedBy = value.String
+			}
+		case team.FieldAttestedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field attested_at", values[i])
+			} else if value.Valid {
+				_m.AttestedAt = new(time.Time)
+				*_m.AttestedAt = value.Time
+			}
 		case team.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field organization_teams", value)
@@ -160,6 +196,11 @@ func (_m *Team) QueryRoleBindings() *RoleBindingQuery {
 	return NewTeamClient(_m.config).QueryRoleBindings(_m)
 }
 
+// QueryContacts queries the "contacts" edge of the Team entity.
+func (_m *Team) QueryContacts() *ContactQuery {
+	return NewTeamClient(_m.config).QueryContacts(_m)
+}
+
 // Update returns a builder for updating this Team.
 // Note that you need to call Team.Unwrap() before calling this method if this Team
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -191,6 +232,17 @@ func (_m *Team) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("name=")
 	builder.WriteString(_m.Name)
+	builder.WriteString(", ")
+	builder.WriteString("description=")
+	builder.WriteString(_m.Description)
+	builder.WriteString(", ")
+	builder.WriteString("attested_by=")
+	builder.WriteString(_m.AttestedBy)
+	builder.WriteString(", ")
+	if v := _m.AttestedAt; v != nil {
+		builder.WriteString("attested_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

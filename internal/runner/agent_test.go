@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runner"
@@ -332,4 +333,40 @@ func TestAgent_HandleMessage_MalformedDispatchPayloadInsideValidEnvelope(t *test
 	agent := runner.NewAgent(consumer, &MockAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
 
 	runAgentUntil(t, agent, msg.term.Load, 10*time.Second)
+}
+
+// unroutableAdapter stands in for a Router that has no adapter for the
+// dispatched kind. It returns the Router's own sentinel, which is what the
+// Agent branches on.
+type unroutableAdapter struct{}
+
+func (unroutableAdapter) Execute(context.Context, wire.DispatchPayload) error {
+	return fmt.Errorf("%w: %q", routing.ErrNoAdapter, "playbook")
+}
+
+// TestAgent_HandleMessage_AnUnroutableKindIsReportedThenTerminated covers
+// the one failure that would otherwise be invisible everywhere.
+//
+// Term produces no bus traffic at all, and the Controller has already
+// written a JobTask row saying this device was dispatched. Without the
+// report, a kind this fleet cannot run would leave the job saying
+// "dispatched" forever, and the only symptom an operator would ever see is
+// a run that never finishes.
+//
+// Terminated rather than Nak'd, because redelivery cannot help: this binary
+// will not grow an adapter between two deliveries of the same message, so a
+// Nak retries to maxDeliver and then dead-letters something that never ran.
+func TestAgent_HandleMessage_AnUnroutableKindIsReportedThenTerminated(t *testing.T) {
+	msg := &nakTrackingMsg{MockMsg: &MockMsg{data: wireWrapDispatchPayload(dispatchPayloadJSON("device-1"))}}
+	consumer := &MockConsumer{PayloadMsgs: []jetstream.Msg{msg}}
+	agent := runner.NewAgent(consumer, unroutableAdapter{}, nil, lock.NewInProcessManager(), 5, slog.Default(), nil)
+
+	runAgentUntil(t, agent, msg.term.Load, 10*time.Second)
+
+	if msg.naked.Load() {
+		t.Error("an unroutable kind was Nak'd for redelivery, which can never make it routable")
+	}
+	if msg.ack.Load() {
+		t.Error("an unroutable kind was acked as if it had run")
+	}
 }

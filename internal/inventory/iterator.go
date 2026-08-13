@@ -47,6 +47,16 @@ var ErrItemNotFound = errors.New("inventory item not found")
 // a second insert.
 var ErrItemExists = errors.New("inventory item already exists")
 
+// ErrSelectorUnsupported is returned by GetGroup when a Selector asks for a
+// restriction this backend cannot apply.
+//
+// Returned rather than ignored, and only for restrictions whose omission
+// would widen the result. A backend that cannot narrow and says nothing has
+// answered a different question than the one asked, and on a dispatch the
+// difference between "the devices in this inventory" and "every device" is
+// the entire safety boundary.
+var ErrSelectorUnsupported = errors.New("inventory backend cannot apply this selector")
+
 // Repository defines the data access methods for the inventory state. It
 // is the pluggable port every tier's inventory backend satisfies: an
 // ent-backed repository at Crawl and above, a YAML-backed one at Walk.
