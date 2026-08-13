@@ -44,6 +44,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/native"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	// Blank-imported so every generated Collection method registers itself
 	// into pkg/collection before native.Adapter's own
 	// engine.NewCollectionActionExecutor ever looks one up, mirroring
@@ -108,7 +109,20 @@ func main() {
 	}
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
-	logger := slog.Default()
+
+	// This process handles secrets more directly than any other: it holds
+	// a dispatch's credentials in memory and shells out to real transports
+	// with them, so it is the last place that should log unmasked.
+	//
+	// Before Phase 22 this line read slog.Default(), the unconfigured
+	// process default, which meant plain text to stderr with no masking of
+	// any kind. Both halves matter and both are here: the structured path
+	// through ReplaceAttr, and the standard library's log package, which
+	// this file alone calls a dozen times on its fatal paths and which
+	// bypasses slog entirely.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, redact.Shared().HandlerOptions(slog.LevelInfo)))
+	slog.SetDefault(logger)
+	log.SetOutput(redact.Shared().Writer(os.Stderr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

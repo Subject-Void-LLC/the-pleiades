@@ -1,13 +1,17 @@
-package credential_test
+package redact
+
+// The tests relocated from internal/credential/mask_test.go alongside the
+// algorithm they cover. They are an internal test package because
+// maskLiterals is unexported: the public surface is Masker.Text, which also
+// applies pattern rules, and these cases are about the by-value channel
+// alone. Masker.Text has its own tests in masker_test.go.
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
-func TestMask(t *testing.T) {
+func TestMaskLiterals(t *testing.T) {
 	tests := []struct {
 		name    string
 		secrets []string
@@ -90,24 +94,24 @@ func TestMask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := credential.Mask(tt.secrets, tt.text)
+			got := maskLiterals(tt.secrets, tt.text)
 			if got != tt.want {
-				t.Errorf("Mask(%v, %q) = %q, want %q", tt.secrets, tt.text, got, tt.want)
+				t.Errorf("maskLiterals(%v, %q) = %q, want %q", tt.secrets, tt.text, got, tt.want)
 			}
 		})
 	}
 }
 
-// TestMask_LongestFirstLeavesNoResidualFragment is a dedicated regression
+// TestMaskLiterals_LongestFirstLeavesNoResidualFragment is a dedicated regression
 // test for the exact scenario the overlapping-secrets rule exists for: a
 // shorter secret that is a prefix of a longer one must not cause the
 // longer secret's suffix to leak next to the placeholder.
-func TestMask_LongestFirstLeavesNoResidualFragment(t *testing.T) {
+func TestMaskLiterals_LongestFirstLeavesNoResidualFragment(t *testing.T) {
 	password := "abc"
 	passphrase := "abcdef"
 	text := "login abcdef now"
 
-	got := credential.Mask([]string{password, passphrase}, text)
+	got := maskLiterals([]string{password, passphrase}, text)
 
 	if strings.Contains(got, "def") {
 		t.Fatalf("residual fragment of the longer secret leaked: %q", got)
@@ -118,13 +122,13 @@ func TestMask_LongestFirstLeavesNoResidualFragment(t *testing.T) {
 	}
 }
 
-// TestMask_AllAsteriskSecretIsDocumentedException proves the simplest
+// TestMaskLiterals_AllAsteriskSecretIsDocumentedException proves the simplest
 // case of the documented exception to "the output never contains the
 // secret": a secret made entirely of asterisks cannot be distinguished
 // from maskPlaceholder itself, so the output legitimately still contains
 // that substring, even though the real occurrence was fully replaced.
-func TestMask_AllAsteriskSecretIsDocumentedException(t *testing.T) {
-	got := credential.Mask([]string{"**"}, "key=** end")
+func TestMaskLiterals_AllAsteriskSecretIsDocumentedException(t *testing.T) {
+	got := maskLiterals([]string{"**"}, "key=** end")
 	if !strings.Contains(got, "**") {
 		t.Fatalf("expected the documented exception to hold (output still contains \"**\"), got %q", got)
 	}
@@ -136,22 +140,22 @@ func TestMask_AllAsteriskSecretIsDocumentedException(t *testing.T) {
 	}
 }
 
-// TestMask_LeadingAsteriskBoundaryException is a named regression test
+// TestMaskLiterals_LeadingAsteriskBoundaryException is a named regression test
 // for a fuzz-discovered instance of the same documented exception (see
-// mask.go): a secret that merely starts (or ends) with '*', not one made
+// literal.go): a secret that merely starts (or ends) with '*', not one made
 // entirely of asterisks, can also be reconstructed across a
 // placeholder's boundary when adjacent leftover text happens to
-// continue the pattern. FuzzMask found secret=`*"` text=`*""` as a
+// continue the pattern. FuzzMaskNeverEmitsASecret found secret=`*"` text=`*""` as a
 // minimal failing case before this exception was broadened to cover it;
 // this pins that exact shape down the same way
 // TestBuildFromYAML_RejectsAliasBomb (internal/engine/yaml_test.go) pins
 // a curated, known-attack-shape regression rather than leaving it to be
 // rediscovered by chance.
-func TestMask_LeadingAsteriskBoundaryException(t *testing.T) {
+func TestMaskLiterals_LeadingAsteriskBoundaryException(t *testing.T) {
 	secret := `*"`
 	text := `*""`
 
-	got := credential.Mask([]string{secret}, text)
+	got := maskLiterals([]string{secret}, text)
 
 	// The real occurrence (the first two characters) is masked...
 	want := "********\""

@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -177,7 +178,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	status, message := "ok", ""
 	sawCompletion := false
 	for _, evt := range ParseStdout(result.Output, time.Now()) {
-		evt.EventData.Message = credential.Mask(secrets, evt.EventData.Message)
+		evt.EventData.Message = redact.Text(secrets, evt.EventData.Message)
 		if err := a.publish(ctx, payload.JobID, evt); err != nil {
 			return fmt.Errorf("failed to publish parsed event: %w", err)
 		}
@@ -196,7 +197,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		message = fmt.Sprintf("ansible-playbook exited %d with no parseable summary", result.ExitCode)
 		completed := wire.JobEvent{Status: status, Host: payload.DeviceHost, Task: "task.completed"}
 		completed.Timestamp = time.Now().UTC().Format(time.RFC3339)
-		completed.EventData.Message = credential.Mask(secrets, message)
+		completed.EventData.Message = redact.Text(secrets, message)
 		if err := a.publish(ctx, payload.JobID, completed); err != nil {
 			return fmt.Errorf("failed to publish completion event: %w", err)
 		}

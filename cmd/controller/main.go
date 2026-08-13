@@ -80,6 +80,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -104,6 +105,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	// The built-in launch kinds. A blank import because their init()
 	// functions are the only thing that populates internal/launch's
 	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
@@ -394,8 +396,26 @@ func main() {
 	// rather than each package building its own from a package-level var.
 	// slog.SetDefault means the packages this phase did not touch still
 	// emit the same JSON to the same place instead of plain text.
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	//
+	// The handler options carry the shared secret-masking ruleset. They are
+	// built by redact rather than written out here, so a handler cannot be
+	// constructed that holds the ruleset and forgot to install it, and
+	// internal/archtest fails the build if any binary passes nil here
+	// instead. The ruleset has to reach the logger through ReplaceAttr
+	// rather than through a wrapping slog.Handler: a wrapper cannot see
+	// attributes added with Logger.With, because those are pre-formatted
+	// into a byte buffer at WithAttrs time, and it sees the message only as
+	// an opaque string. internal/redact's wrapper_control_test.go
+	// demonstrates both failures against a real wrapping handler.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, redact.Shared().HandlerOptions(slog.LevelInfo)))
 	slog.SetDefault(logger)
+
+	// The corollary, and the reason it is two lines instead of one: a
+	// log.Fatalf or a log.Printf from any dependency bypasses slog
+	// entirely and still reaches an operator's terminal. A masking control
+	// that covers the structured path and not the failure path emits
+	// unmasked exactly when things are going wrong.
+	log.SetOutput(redact.Shared().Writer(os.Stderr))
 
 	// One private Prometheus registry, not the process-global default:
 	// two routers in one process (or one process that later grows a

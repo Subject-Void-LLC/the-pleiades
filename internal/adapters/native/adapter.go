@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -212,7 +213,7 @@ func summarize(result engine.RunResult, changed bool, secrets []string) (status,
 		var errs []string
 		for _, node := range result.Nodes {
 			if node.Err != nil {
-				errs = append(errs, credential.Mask(secrets, node.Err.Error()))
+				errs = append(errs, redact.Text(secrets, node.Err.Error()))
 			}
 		}
 		return "failed", strings.Join(errs, "; ")

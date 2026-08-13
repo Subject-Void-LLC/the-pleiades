@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
@@ -172,7 +173,7 @@ func runRunbook(args []string) error {
 			// prints, Run has already returned the complete secret set,
 			// not just whatever publish's own best-effort, in-flight
 			// masking knew about when that node's own event went out.
-			fmt.Printf("  %s: FAILED: %v\n", label, credential.Mask(result.Secrets, node.Err.Error()))
+			fmt.Printf("  %s: FAILED: %v\n", label, redact.Text(result.Secrets, node.Err.Error()))
 		case node.Skipped:
 			fmt.Printf("  %s: skipped (%s)\n", label, node.SkipReason)
 		case node.Changed:
@@ -240,7 +241,7 @@ func printMetadata(metadata map[string]interface{}, secrets []string) {
 				prefix = fmt.Sprintf("    [%s] ", deviceID)
 			}
 			for _, k := range keys {
-				value := credential.Mask(secrets, fmt.Sprintf("%v", stats[k]))
+				value := redact.Text(secrets, fmt.Sprintf("%v", stats[k]))
 				fmt.Printf("%s%s: %s\n", prefix, k, value)
 			}
 		}

@@ -1,0 +1,143 @@
+{
+  "_comment": [
+    "The shared secret-masking ruleset, as data.",
+    "",
+    "PLAN.md Section 25 lists this as a Build Once Contract with four call",
+    "sites: the native adapter, legacy stdout, credential handling, and the",
+    "Ansible callback bridge. The last of those is Python, which is why this",
+    "is a JSON file rather than a Go slice: one artifact, read by both",
+    "languages, so the two halves cannot drift.",
+    "",
+    "HONEST STATUS: the Python half does not exist yet. Phase 22 ships this",
+    "file, the Go embed, and the COPY into the legacy runner image. Phase 25",
+    "writes the callback plugin that reads it. Saying the ruleset is applied",
+    "in Go and Python today would be a false claim, so this comment says so",
+    "instead.",
+    "",
+    "There is deliberately no rule kind for a literal secret VALUE. A value",
+    "worth masking is never known at build time and must never be committed",
+    "to a file, so runtime values travel through redact.Literals instead.",
+    "That is the third channel, and it is code rather than data on purpose.",
+    "",
+    "Each pattern rule carries a prefilter and samples. The prefilter is a set",
+    "of cheap lowercase substrings, at least one of which any match must",
+    "contain; a line containing none of them skips the regex entirely, which is",
+    "what keeps masking off the critical path of every log line. The samples are",
+    "strings the rule MUST mask. They exist because a wrong prefilter would",
+    "silently disable its own rule, and a silently disabled masking rule is the",
+    "worst failure this file has available: the tests assert every sample both",
+    "passes its prefilter and is actually masked, so the prefilter cannot drift",
+    "away from the pattern it guards."
+  ],
+  "rules": [
+    {
+      "name": "credential_field_names",
+      "kind": "key",
+      "keys": [
+        "password",
+        "passphrase",
+        "private_key",
+        "private_key_pem",
+        "ssh_key_data",
+        "ssh_key_unlock",
+        "secret",
+        "client_secret",
+        "api_key",
+        "api_token",
+        "token",
+        "access_token",
+        "refresh_token",
+        "authorization",
+        "auth",
+        "credential",
+        "credentials"
+      ],
+      "description": "Structured-log attribute names whose value is a secret by construction. A key rule is only applicable where the attribute name is still visible, which is inside slog.HandlerOptions.ReplaceAttr and nowhere else. This is the concrete reason the ordering constraint on the logging seam exists."
+    },
+    {
+      "name": "ansible_credential_field_names",
+      "kind": "key",
+      "keys": [
+        "ansible_password",
+        "ansible_become_password",
+        "ansible_become_pass",
+        "ansible_ssh_pass",
+        "ansible_ssh_private_key_file",
+        "vault_password"
+      ],
+      "description": "The same rule for Ansible's own variable names, which appear as attribute keys once the legacy adapter's inventory and callback output are logged."
+    },
+    {
+      "name": "pem_private_key",
+      "kind": "pattern",
+      "pattern": "(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+      "description": "A PEM private key block, in any of its forms (RSA, EC, OPENSSH, PKCS8). Secret by construction: no PEM private key is ever safe to print, whether or not this process knows it is a credential. The (?s) flag lets the dot cross the newlines a PEM block always contains, and the lazy .*? stops at the first END line so two adjacent keys do not merge into one match.",
+      "prefilter": [
+        "private key"
+      ],
+      "samples": [
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJBAK\n-----END RSA PRIVATE KEY-----",
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----"
+      ]
+    },
+    {
+      "name": "bearer_token",
+      "kind": "pattern",
+      "pattern": "(?i)\\bBearer[ \\t]+[A-Za-z0-9\\-._~+/]+=*",
+      "description": "An HTTP Authorization bearer token, which reaches a log whenever a request header is dumped. Matches the scheme word too, so the masked output shows that authorization was present without showing what it was.",
+      "prefilter": [
+        "bearer"
+      ],
+      "samples": [
+        "Bearer abc123DEF456ghi789",
+        "bearer eyJhbGci.dGVzdA.sig"
+      ]
+    },
+    {
+      "name": "json_web_token",
+      "kind": "pattern",
+      "pattern": "\\beyJ[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]*",
+      "description": "A JWT. The eyJ prefix is the base64url encoding of the opening of every JOSE header, so this is distinctive enough to carry almost no false-positive risk, and a JWT in a log line is a session anybody reading that line can replay.",
+      "prefilter": [
+        "eyj"
+      ],
+      "samples": [
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dBjftJeZ4CVP"
+      ]
+    },
+    {
+      "name": "aws_access_key_id",
+      "kind": "pattern",
+      "pattern": "\\b(AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}\\b",
+      "description": "An AWS access key identifier, across the documented resource-type prefixes. The matching secret access key is deliberately NOT a pattern rule: it is 40 characters of base64 with no distinguishing prefix, so a pattern for it would scrub unrelated hashes, git object ids and base64 payloads out of every log line in the system. That value is covered by the literal channel instead, where its exact bytes are known.",
+      "prefilter": [
+        "akia",
+        "asia",
+        "agpa",
+        "aida",
+        "aroa",
+        "anpa",
+        "anva",
+        "abia",
+        "acca"
+      ],
+      "samples": [
+        "AKIAIOSFODNN7EXAMPLE",
+        "ASIAIOSFODNN7EXAMPLE"
+      ]
+    },
+    {
+      "name": "url_userinfo",
+      "kind": "pattern",
+      "pattern": "\\b[a-zA-Z][a-zA-Z0-9+.-]*://[^/\\s:@]+:[^/\\s:@]+@",
+      "description": "Credentials embedded in a URL, the shape a database DSN or a git remote takes. The match includes the scheme, so the masked output loses the scheme along with the credentials. That is accepted rather than worked around: RE2 has no lookbehind, so matching the userinfo alone is not expressible, and a replacement template that reassembled the surviving parts would be a place to get a leak wrong.",
+      "prefilter": [
+        "://"
+      ],
+      "samples": [
+        "postgres://admin:hunter2@db.internal:5432/x",
+        "https://u:p@example.com/"
+      ]
+    }
+  ]
+}

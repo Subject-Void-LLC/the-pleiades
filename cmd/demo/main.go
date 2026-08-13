@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/golang-jwt/jwt/v5"
@@ -120,6 +121,14 @@ func mintDemoToken() (auth.Evaluator, string, error) {
 }
 
 func main() {
+	// This binary logs entirely through the standard library's log
+	// package, which bypasses slog, so the writer decorator is the whole
+	// masking seam here rather than half of it. It is wired even though
+	// this is a demo: the corollary to the ordering constraint is that
+	// EVERY terminal writer carries the ruleset, and a binary exempted
+	// because it seemed unimportant is exactly how the exemption spreads.
+	log.SetOutput(redact.Shared().Writer(os.Stderr))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

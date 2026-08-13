@@ -118,6 +118,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 115. A checkbox's edit-form prefill used a different truthiness convention than the checkbox template itself checks for
 116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
 117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
+118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
 
 ---
 

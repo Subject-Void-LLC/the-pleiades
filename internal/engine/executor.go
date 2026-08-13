@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/google/uuid"
 )
@@ -644,7 +644,7 @@ func (r *run) publish(nodeID string, task *Task, host, status, message string) {
 		label = task.FQCN
 	}
 	if message != "" {
-		message = credential.Mask(r.secrets.Snapshot(), message)
+		message = redact.Text(r.secrets.Snapshot(), message)
 	}
 
 	var payload nodeEvent
