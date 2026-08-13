@@ -1830,6 +1830,1597 @@
         "x-link-relation": "update"
       }
     },
+    "/credential-types": {
+      "get": {
+        "description": "Returns the types an organization can use: its own custom ones plus every managed type. A query filtered to one tenant would hide the entire built-in catalog, since a managed type belongs to nobody.",
+        "operationId": "list_credential_types",
+        "parameters": [
+          {
+            "description": "Whose custom types to include alongside the managed ones.",
+            "in": "query",
+            "name": "organization",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential_types": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "description": {
+                            "description": "",
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "injectors": {
+                            "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                            "properties": {
+                              "env": {
+                                "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                                "type": "object"
+                              },
+                              "extra_vars": {
+                                "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                                "type": "object"
+                              },
+                              "file": {
+                                "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                                "type": "object"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "inputs": {
+                            "description": "What a credential of this type holds.",
+                            "properties": {
+                              "fields": {
+                                "description": "The inputs, in the order a form should show them.",
+                                "items": {
+                                  "properties": {
+                                    "ask_at_runtime": {
+                                      "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                      "type": "boolean"
+                                    },
+                                    "choices": {
+                                      "description": "An optional bounded value set.",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "default": {
+                                      "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                      "type": "string"
+                                    },
+                                    "format": {
+                                      "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                      "type": "string"
+                                    },
+                                    "help_text": {
+                                      "description": "Explanatory text a form shows beneath the control.",
+                                      "type": "string"
+                                    },
+                                    "id": {
+                                      "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "description": "What a form shows above the control.",
+                                      "type": "string"
+                                    },
+                                    "multiline": {
+                                      "description": "Whether a form should render a text area.",
+                                      "type": "boolean"
+                                    },
+                                    "secret": {
+                                      "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                      "type": "boolean"
+                                    },
+                                    "type": {
+                                      "description": "\"string\" or \"boolean\". Absent means string.",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "required": {
+                                "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "kind": {
+                            "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                            "type": "string"
+                          },
+                          "managed": {
+                            "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                            "type": "boolean"
+                          },
+                          "name": {
+                            "description": "What a reader picks it by, unique within an organization.",
+                            "type": "string"
+                          },
+                          "namespace": {
+                            "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The visible credential types."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "organization is not a valid integer."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:read"
+            ]
+          }
+        ],
+        "summary": "List credential types",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Defines a new custom credential type. Every injector template is compiled here, and one referencing an input the type does not declare is refused, so a template that cannot render is never stored.",
+        "operationId": "create_credential_type",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the type does not validate."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name or namespace is already taken."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Create a credential type",
+        "x-link-relation": "create"
+      }
+    },
+    "/credential-types/{id}": {
+      "delete": {
+        "description": "Removes a custom type. Refused while credentials still use it, with a count: a credential whose type vanished cannot be injected, and discovering that at somebody's launch is worse than being refused here.",
+        "operationId": "delete_credential_type",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The type is managed and cannot be deleted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Credentials still use this type."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Delete a credential type",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Returns one type with its full input schema and injector document.",
+        "operationId": "get_credential_type",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The credential type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:read"
+            ]
+          }
+        ],
+        "summary": "Get one credential type",
+        "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Replaces a custom type's editable fields. The namespace is immutable and a supplied one is ignored rather than refused, so a form that round-trips every field it rendered does not fail on a field it was never allowed to change. A managed type is refused outright.",
+        "operationId": "update_credential_type",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the type does not validate."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The type is managed and cannot be modified."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Update a credential type",
+        "x-link-relation": "update"
+      }
+    },
+    "/credential-types/{id}/test": {
+      "post": {
+        "description": "Renders this type's injectors against values the caller supplies, and reports what it would produce with every value masked. No stored credential is read and nothing is written. It is how an author finds a miswritten injector before a run does.",
+        "operationId": "test_credential_type",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "env": {
+                      "description": "The environment variable names.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "extra_vars": {
+                      "description": "The extra-variable keys, dotted for nested ones.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "file_labels": {
+                      "description": "The generated file labels. One empty entry means the single-file spelling.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "What the injectors would produce."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or a template could not render against the supplied values."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Test a credential type's injectors",
+        "x-link-relation": "execute"
+      }
+    },
+    "/credentials": {
+      "get": {
+        "description": "Returns one organization's credentials, with every secret input redacted.",
+        "operationId": "list_credentials",
+        "parameters": [
+          {
+            "description": "Whose credentials to list.",
+            "in": "query",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credentials": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "credential_type": {
+                            "type": "integer"
+                          },
+                          "credential_type_name": {
+                            "description": "The type's name, carried so a reader does not need a second request.",
+                            "type": "string"
+                          },
+                          "credential_type_namespace": {
+                            "description": "The type's stable identifier.",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "",
+                            "type": "string"
+                          },
+                          "external": {
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "inputs": {
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "type": "object"
+                          },
+                          "kind": {
+                            "description": "The type's kind, carried for the same reason.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "What a reader picks it by, unique within an organization.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "type": "integer"
+                          },
+                          "templates": {
+                            "description": "The templates this credential is bound to.",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The organization's credentials."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "organization is missing or not a valid integer."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:read"
+            ]
+          }
+        ],
+        "summary": "List credentials",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Stores a new credential. Values are supplied in full here and are encrypted before they reach the database; the response returns them redacted, which is the only form any read ever produces.",
+        "operationId": "create_credential",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential_type": {
+                      "type": "integer"
+                    },
+                    "credential_type_name": {
+                      "description": "The type's name, carried so a reader does not need a second request.",
+                      "type": "string"
+                    },
+                    "credential_type_namespace": {
+                      "description": "The type's stable identifier.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "external": {
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "type": "object"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "inputs": {
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The type's kind, carried for the same reason.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "type": "integer"
+                    },
+                    "templates": {
+                      "description": "The templates this credential is bound to.",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created credential, redacted."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the values do not satisfy the type."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "That name is already taken in the organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Create a credential",
+        "x-link-relation": "create"
+      }
+    },
+    "/credentials/{id}": {
+      "delete": {
+        "description": "Removes a credential and every binding to it. Templates that bound it survive, holding nothing: the alternative, refusing while it is bound, would mean a compromised credential could not be removed until every template using it had been edited first.",
+        "operationId": "delete_credential",
+        "parameters": [
+          {
+            "description": "The credential's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Delete a credential",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Returns one credential with every secret input redacted.",
+        "operationId": "get_credential",
+        "parameters": [
+          {
+            "description": "The credential's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential_type": {
+                      "type": "integer"
+                    },
+                    "credential_type_name": {
+                      "description": "The type's name, carried so a reader does not need a second request.",
+                      "type": "string"
+                    },
+                    "credential_type_namespace": {
+                      "description": "The type's stable identifier.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "external": {
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "type": "object"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "inputs": {
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The type's kind, carried for the same reason.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "type": "integer"
+                    },
+                    "templates": {
+                      "description": "The templates this credential is bound to.",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The credential."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:read"
+            ]
+          }
+        ],
+        "summary": "Get one credential",
+        "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Replaces a credential's values. An input submitted as \"$encrypted$\" is left at whatever is stored, which is what lets a form round-trip: it renders the marker for a secret, an operator edits an unrelated field, and submitting does not overwrite the secret with the marker text. Submit a real value to rotate one.",
+        "operationId": "update_credential",
+        "parameters": [
+          {
+            "description": "The credential's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential_type": {
+                      "type": "integer"
+                    },
+                    "credential_type_name": {
+                      "description": "The type's name, carried so a reader does not need a second request.",
+                      "type": "string"
+                    },
+                    "credential_type_namespace": {
+                      "description": "The type's stable identifier.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "external": {
+                      "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                      "type": "object"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "inputs": {
+                      "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The type's kind, carried for the same reason.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "type": "integer"
+                    },
+                    "templates": {
+                      "description": "The templates this credential is bound to.",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated credential, redacted."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the values do not satisfy the type."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Update a credential",
+        "x-link-relation": "update"
+      }
+    },
     "/inventories": {
       "get": {
         "description": "Returns the inventories this caller may reach, keyset-paged. An inventory is a named, shareable set of devices; sharing one with another team is a role binding at inventory scope, not a field on this resource.",
@@ -6525,6 +8116,340 @@
         ],
         "summary": "Copy a template",
         "x-link-relation": "copy"
+      }
+    },
+    "/templates/{id}/credentials": {
+      "get": {
+        "description": "Returns what this template runs as, with every secret input redacted.",
+        "operationId": "list_template_credentials",
+        "parameters": [
+          {
+            "description": "The template's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credentials": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "credential_type": {
+                            "type": "integer"
+                          },
+                          "credential_type_name": {
+                            "description": "The type's name, carried so a reader does not need a second request.",
+                            "type": "string"
+                          },
+                          "credential_type_namespace": {
+                            "description": "The type's stable identifier.",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "",
+                            "type": "string"
+                          },
+                          "external": {
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "inputs": {
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "type": "object"
+                          },
+                          "kind": {
+                            "description": "The type's kind, carried for the same reason.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "What a reader picks it by, unique within an organization.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "type": "integer"
+                          },
+                          "templates": {
+                            "description": "The templates this credential is bound to.",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The bound credentials."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "template:read"
+            ]
+          }
+        ],
+        "summary": "List a template's credentials",
+        "x-link-relation": "collection"
+      },
+      "put": {
+        "description": "Replaces the whole set, so an empty list unbinds everything. At most one credential of each kind may be bound, except vault credentials, which may repeat while each carries a distinct vault identifier. A conflicting set is refused with both credentials named, since the caller has to choose which to drop.",
+        "operationId": "set_template_credentials",
+        "parameters": [
+          {
+            "description": "The template's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credentials": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "credential_type": {
+                            "type": "integer"
+                          },
+                          "credential_type_name": {
+                            "description": "The type's name, carried so a reader does not need a second request.",
+                            "type": "string"
+                          },
+                          "credential_type_namespace": {
+                            "description": "The type's stable identifier.",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "",
+                            "type": "string"
+                          },
+                          "external": {
+                            "description": "External secret-manager references, keyed by input id, resolved just in time before a run. NOT redacted: a reference is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "inputs": {
+                            "description": "The credential's values, keyed by input id. A value for an input the type marks secret reads back as \"$encrypted$\" and never as itself. There is no endpoint, parameter or header that returns the real value: it is decrypted only at dispatch, inside the process that injects it. Submitting the marker back on an update leaves the stored value alone, so editing an unrelated field does not destroy a secret.",
+                            "type": "object"
+                          },
+                          "kind": {
+                            "description": "The type's kind, carried for the same reason.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "What a reader picks it by, unique within an organization.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "type": "integer"
+                          },
+                          "templates": {
+                            "description": "The templates this credential is bound to.",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The bound credentials, redacted."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id, or one credential does not exist."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Two of the supplied credentials cannot be bound together."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Replace a template's credentials",
+        "x-link-relation": "update"
       }
     },
     "/templates/{id}/launch": {

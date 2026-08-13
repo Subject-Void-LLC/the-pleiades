@@ -92,18 +92,27 @@ var CredentialTypeFields = []Field{
 	{Name: "created", Status: Metadata},
 	{Name: "modified", Status: Metadata},
 
-	{Name: "name", Status: Gap, Phase: "A2 Credential Types"},
-	{Name: "description", Status: Gap, Phase: "A2 Credential Types"},
-	{Name: "kind", Status: Gap, Phase: "A2 Credential Types", Note: `AWX's coarse grouping (cloud, net, ssh, vault). It is what the "one credential per type, vault exempted" bind rule keys on.`},
-	{Name: "namespace", Status: Gap, Phase: "A2 Credential Types", Note: "stable identifier for a managed type; a custom type carries its own"},
-	{Name: "managed", Status: Gap, Phase: "A2 Credential Types", Note: "whether AWX ships it. A managed type cannot be edited, which an import must respect rather than recreating the built-ins as custom types."},
+	{Name: "name", Status: Represented, Ours: "credtype.CredentialType.Name"},
+	{Name: "description", Status: Represented, Ours: "credtype.CredentialType.Description"},
 	{
-		Name: "inputs", Status: Gap, Phase: "A2 Credential Types",
-		Note: `the schema: fields with id, type, label and secret, plus a required list. "secret": true is what decides encryption at rest and redaction on the way out, and our survey layer already draws that line the same way.`,
+		Name: "kind", Status: Represented, Ours: "credtype.CredentialType.Kind",
+		Note: `AWX's coarse grouping (cloud, net, ssh, vault). It is what the "one credential per type, vault exempted" bind rule keys on, which is why credtype.Kind is a closed twelve-value vocabulary rather than a free string: an open one would make that rule unenforceable.`,
 	},
 	{
-		Name: "injectors", Status: Gap, Phase: "A2 Credential Types",
-		Note: `how a secret reaches Ansible: env, extra_vars, file and multi-key file, with values written as Jinja templates over the input ids ("{{ api_token }}"). This is what makes the shared renderer a hard requirement rather than a convenience, and C3 Notifications reuses it.`,
+		Name: "namespace", Status: Represented, Ours: "credtype.CredentialType.Namespace",
+		Note: "stable identifier for a managed type; a custom type carries its own, and the corpus fixture proves it (custom_api_token). It is what an import keys on to decide whether a type already exists, so it is required here rather than managed-only.",
+	},
+	{
+		Name: "managed", Status: Represented, Ours: "credtype.CredentialType.Managed",
+		Note: "whether AWX ships it. A managed type cannot be edited, which an import must respect rather than recreating the built-ins as custom types.",
+	},
+	{
+		Name: "inputs", Status: Represented, Ours: "credtype.CredentialType.Inputs",
+		Note: `the schema: fields with id, type, label and secret, plus a required list. "secret": true is what decides encryption at rest and redaction on the way out; InputSchema.SecretFields is the single place that decision is made, mirroring launch.Survey.SecretVariables for survey answers. The two schemas stay parallel rather than merged because AWX has two vocabularies (seven survey question types encoding secrecy IN the type, two credential input types encoding it in an orthogonal boolean), and merging them would produce values an import has nowhere to put.`,
+	},
+	{
+		Name: "injectors", Status: Represented, Ours: "credtype.CredentialType.Injectors",
+		Note: `how a secret reaches Ansible: env, extra_vars, file and multi-key file, with values written as Jinja templates over the input ids ("{{ api_token }}"). This is what made the shared renderer (internal/render) a hard requirement rather than a convenience, and C3 Notifications reuses it. Injectors.Validate compiles every template at SAVE time and refuses one naming an input the type does not declare, so a launch can never fail on an undefined variable.`,
 	},
 }
 

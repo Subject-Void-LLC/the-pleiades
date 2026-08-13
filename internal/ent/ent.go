@@ -15,6 +15,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
@@ -93,6 +95,8 @@ func checkColumn(t, c string) error {
 			activityentry.Table:     activityentry.ValidColumn,
 			announcement.Table:      announcement.ValidColumn,
 			contact.Table:           contact.ValidColumn,
+			credential.Table:        credential.ValidColumn,
+			credentialtype.Table:    credentialtype.ValidColumn,
 			device.Table:            device.ValidColumn,
 			fact.Table:              fact.ValidColumn,
 			group.Table:             group.ValidColumn,

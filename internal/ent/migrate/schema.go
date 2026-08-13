@@ -113,6 +113,91 @@ var (
 			},
 		},
 	}
+	// CredentialsColumns holds the columns for the "credentials" table.
+	CredentialsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "inputs", Type: field.TypeJSON, Nullable: true},
+		{Name: "external", Type: field.TypeJSON, Nullable: true},
+		{Name: "secret_binding", Type: field.TypeString},
+		{Name: "credential_type_credentials", Type: field.TypeInt},
+		{Name: "organization_credentials", Type: field.TypeInt},
+	}
+	// CredentialsTable holds the schema information for the "credentials" table.
+	CredentialsTable = &schema.Table{
+		Name:       "credentials",
+		Columns:    CredentialsColumns,
+		PrimaryKey: []*schema.Column{CredentialsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "credentials_credential_types_credentials",
+				Columns:    []*schema.Column{CredentialsColumns[8]},
+				RefColumns: []*schema.Column{CredentialTypesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "credentials_organizations_credentials",
+				Columns:    []*schema.Column{CredentialsColumns[9]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "credential_name_organization_credentials",
+				Unique:  true,
+				Columns: []*schema.Column{CredentialsColumns[3], CredentialsColumns[9]},
+			},
+		},
+	}
+	// CredentialTypesColumns holds the columns for the "credential_types" table.
+	CredentialTypesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "kind", Type: field.TypeString},
+		{Name: "namespace", Type: field.TypeString},
+		{Name: "managed", Type: field.TypeBool, Default: false},
+		{Name: "inputs", Type: field.TypeJSON, Nullable: true},
+		{Name: "injectors", Type: field.TypeJSON, Nullable: true},
+		{Name: "organization_credential_types", Type: field.TypeInt, Nullable: true},
+	}
+	// CredentialTypesTable holds the schema information for the "credential_types" table.
+	CredentialTypesTable = &schema.Table{
+		Name:       "credential_types",
+		Columns:    CredentialTypesColumns,
+		PrimaryKey: []*schema.Column{CredentialTypesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "credential_types_organizations_credential_types",
+				Columns:    []*schema.Column{CredentialTypesColumns[10]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "credentialtype_namespace",
+				Unique:  true,
+				Columns: []*schema.Column{CredentialTypesColumns[6]},
+			},
+			{
+				Name:    "credentialtype_name_organization_credential_types",
+				Unique:  true,
+				Columns: []*schema.Column{CredentialTypesColumns[3], CredentialTypesColumns[10]},
+			},
+			{
+				Name:    "credentialtype_kind",
+				Unique:  false,
+				Columns: []*schema.Column{CredentialTypesColumns[5]},
+			},
+		},
+	}
 	// DevicesColumns holds the columns for the "devices" table.
 	DevicesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -704,11 +789,38 @@ var (
 			},
 		},
 	}
+	// TemplateCredentialsColumns holds the columns for the "template_credentials" table.
+	TemplateCredentialsColumns = []*schema.Column{
+		{Name: "template_id", Type: field.TypeInt},
+		{Name: "credential_id", Type: field.TypeInt},
+	}
+	// TemplateCredentialsTable holds the schema information for the "template_credentials" table.
+	TemplateCredentialsTable = &schema.Table{
+		Name:       "template_credentials",
+		Columns:    TemplateCredentialsColumns,
+		PrimaryKey: []*schema.Column{TemplateCredentialsColumns[0], TemplateCredentialsColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "template_credentials_template_id",
+				Columns:    []*schema.Column{TemplateCredentialsColumns[0]},
+				RefColumns: []*schema.Column{TemplatesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "template_credentials_credential_id",
+				Columns:    []*schema.Column{TemplateCredentialsColumns[1]},
+				RefColumns: []*schema.Column{CredentialsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		ActivityEntriesTable,
 		AnnouncementsTable,
 		ContactsTable,
+		CredentialsTable,
+		CredentialTypesTable,
 		DevicesTable,
 		FactsTable,
 		GroupsTable,
@@ -729,6 +841,7 @@ var (
 		InventoryGroupsTable,
 		InventoryDevicesTable,
 		TeamUsersTable,
+		TemplateCredentialsTable,
 	}
 )
 
@@ -736,6 +849,9 @@ func init() {
 	AnnouncementsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	ContactsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	ContactsTable.ForeignKeys[1].RefTable = TeamsTable
+	CredentialsTable.ForeignKeys[0].RefTable = CredentialTypesTable
+	CredentialsTable.ForeignKeys[1].RefTable = OrganizationsTable
+	CredentialTypesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
@@ -758,4 +874,6 @@ func init() {
 	InventoryDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	TeamUsersTable.ForeignKeys[0].RefTable = TeamsTable
 	TeamUsersTable.ForeignKeys[1].RefTable = UsersTable
+	TemplateCredentialsTable.ForeignKeys[0].RefTable = TemplatesTable
+	TemplateCredentialsTable.ForeignKeys[1].RefTable = CredentialsTable
 }

@@ -97,6 +97,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
@@ -106,6 +107,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	// The built-in launch kinds. A blank import because their init()
 	// functions are the only thing that populates internal/launch's
 	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
@@ -461,6 +463,26 @@ func main() {
 	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
 	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
 
+	// Survey answers. This pair was written, tested, and then registered
+	// nowhere: until Phase 22 it was referenced only from its own package
+	// test, which meant SavedLaunchConfig.answers was stored in plaintext
+	// while internal/apispec's own saved-configuration schema told API
+	// callers it was encrypted at rest. A shipped false claim about a
+	// security control is worse than a missing control, because it stops
+	// anybody looking. TestEveryCryptoHookIsComposed now fails the build if
+	// a hook this package exports is left unregistered again.
+	client.SavedLaunchConfig.Use(crypto.SavedLaunchConfigAnswersHook(envelopeSvc))
+	client.SavedLaunchConfig.Intercept(crypto.SavedLaunchConfigAnswersInterceptor(envelopeSvc))
+
+	// Credential inputs, using the BOUND envelope: the ciphertext is
+	// cryptographically tied to its own row, so a database writer cannot
+	// relocate one organization's secrets onto another organization's
+	// credential and have the platform inject them. Device and
+	// SavedLaunchConfig remain on the unbound form; internal/crypto/
+	// envelope_bound.go records why that is acceptable there and not here.
+	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
+	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
+
 	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
 
 	repo := inventory.NewEntRepository(client, inventory.NewItemFactory())
@@ -558,7 +580,22 @@ func main() {
 	// controller with no credentials configured yet still starts cleanly
 	// and only touches disk the first time a dispatch actually needs one.
 	credentialsDir := getenv("CONTROLLER_CREDENTIALS_DIR", ".")
-	credentials := credential.NewLazyFileStore(credentialsDir)
+	deviceCredentials := credential.NewLazyFileStore(credentialsDir)
+
+	// The Crawl-tier credential surface, which is a different axis from
+	// the per-device file store above rather than a replacement for it.
+	// That store answers "what does this DEVICE authenticate with"; this
+	// one answers "what does this TEMPLATE run as", which is AWX's own
+	// model and the one an imported job template needs. Both survive: the
+	// fan-out consults a template's machine credential first and falls
+	// back to the file store, so every dispatch that worked before this
+	// phase still works unchanged.
+	//
+	// The store gets a render engine because it validates a credential
+	// type's injector templates at the write, so an author learns about a
+	// template naming an input the type does not declare when they save
+	// it rather than when an operator launches a job.
+	credentialStore := credstore.NewEntStore(client, render.New())
 
 	// jobStore persists Job and JobTask rows over the same already-open
 	// Device client every other repository in this process shares. It
@@ -599,7 +636,7 @@ func main() {
 		workerOpts = append(workerOpts,
 			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
 	}
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials, workerOpts...)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, deviceCredentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup
@@ -694,6 +731,7 @@ func main() {
 		api.WithTemplates(templateStore),
 		api.WithLaunchConfigs(templateStore))
 	templates := api.NewTemplateHandler(templateStore, logger)
+	credentials := api.NewCredentialHandler(credentialStore, render.New())
 	streamer := api.NewLogStreamer(js)
 	// The factory is the same one the repository hydrates stored rows
 	// with, so a device created over the API is built by exactly the code
@@ -800,13 +838,31 @@ func main() {
 		apispec.LaunchTemplate.Name:       dispatcher.LaunchFromTemplate,
 		apispec.ListTemplateConfigs.Name:  templates.ListConfigs,
 		apispec.CreateTemplateConfig.Name: templates.CreateConfig,
-		apispec.ListDevices.Name:          devices.List,
-		apispec.CreateDevice.Name:         devices.Create,
-		apispec.GetDevice.Name:            devices.Get,
-		apispec.UpdateDevice.Name:         devices.Update,
-		apispec.DeleteDevice.Name:         devices.Delete,
-		apispec.ListRunbooks.Name:         catalog.List,
-		apispec.GetRunbook.Name:           catalog.Get,
+
+		// The credential surface. Every one of these handlers holds
+		// credentials (the credstore.Store projection) and never the
+		// resolver, so none of them can return a plaintext secret; that is
+		// enforced by internal/archtest rather than by this comment.
+		apispec.ListCredentialTypes.Name:      credentials.ListCredentialTypes,
+		apispec.GetCredentialType.Name:        credentials.GetCredentialType,
+		apispec.CreateCredentialType.Name:     credentials.CreateCredentialType,
+		apispec.UpdateCredentialType.Name:     credentials.UpdateCredentialType,
+		apispec.DeleteCredentialType.Name:     credentials.DeleteCredentialType,
+		apispec.TestCredentialType.Name:       credentials.TestCredentialType,
+		apispec.ListCredentials.Name:          credentials.ListCredentials,
+		apispec.GetCredential.Name:            credentials.GetCredential,
+		apispec.CreateCredential.Name:         credentials.CreateCredential,
+		apispec.UpdateCredential.Name:         credentials.UpdateCredential,
+		apispec.DeleteCredentialEndpoint.Name: credentials.DeleteCredential,
+		apispec.ListTemplateCredentials.Name:  credentials.ListTemplateCredentials,
+		apispec.SetTemplateCredentials.Name:   credentials.SetTemplateCredentials,
+		apispec.ListDevices.Name:              devices.List,
+		apispec.CreateDevice.Name:             devices.Create,
+		apispec.GetDevice.Name:                devices.Get,
+		apispec.UpdateDevice.Name:             devices.Update,
+		apispec.DeleteDevice.Name:             devices.Delete,
+		apispec.ListRunbooks.Name:             catalog.List,
+		apispec.GetRunbook.Name:               catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,

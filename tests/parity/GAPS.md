@@ -20,12 +20,12 @@ ever carry.
 | `job_template_related` | 0/9 | 0 | 0 | 9 | 0 |
 | `projects` | 0/18 | 0 | 0 | 18 | 0 |
 | `project_updates` | 0/9 | 0 | 0 | 9 | 0 |
-| `credential_types` | 0/7 | 0 | 0 | 7 | 0 |
+| `credential_types` | 7/7 | 7 | 0 | 0 | 0 |
 | `survey_specs` | 1/3 | 0 | 1 | 2 | 0 |
 | `survey_questions` | 9/9 | 5 | 4 | 0 | 0 |
 | `schedules` | 1/8 | 0 | 1 | 7 | 0 |
 | `activity_stream` | 5/6 | 1 | 4 | 1 | 0 |
-| **total** | **37/119** | 13 | 24 | 80 | 2 |
+| **total** | **44/119** | 20 | 24 | 73 | 2 |
 
 Corpus: 16 object(s) across 10 resource types.
 
@@ -41,7 +41,7 @@ are gone from this list.
 | A1 Projects | 1 | `job_templates.project` |
 | A1a local-path projects | 5 | `projects.description`, `projects.local_path`, `projects.name`, `projects.organization`, `projects.status` |
 | A1b git sync | 17 | `job_templates.ask_scm_branch_on_launch`, `job_templates.scm_branch`, `project_updates.job_tags`, `project_updates.job_type`, `project_updates.project`, `project_updates.scm_revision`, `projects.allow_override`, `projects.copy_from_dir`, `projects.scm_branch`, `projects.scm_clean`, `projects.scm_delete_on_update`, `projects.scm_refspec`, `projects.scm_revision`, `projects.scm_track_submodules`, `projects.scm_type`, `projects.scm_url`, `projects.timeout` |
-| A2 Credential Types | 11 | `credential_types.description`, `credential_types.injectors`, `credential_types.inputs`, `credential_types.kind`, `credential_types.managed`, `credential_types.name`, `credential_types.namespace`, `job_template_related.extra_credentials`, `job_template_summary_fields.credentials`, `job_templates.ask_credential_on_launch`, `projects.credential` |
+| A2 Credential Types | 4 | `job_template_related.extra_credentials`, `job_template_summary_fields.credentials`, `job_templates.ask_credential_on_launch`, `projects.credential` |
 | A3 Execution Environments | 5 | `job_templates.ask_execution_environment_on_launch`, `job_templates.custom_virtualenv`, `job_templates.execution_environment`, `project_updates.execution_environment`, `projects.custom_virtualenv` |
 | B1 typed fields and per-field prompts | 1 | `job_templates.ask_inventory_on_launch` |
 | B2 List metadata | 1 | `job_template_summary_fields.recent_jobs` |
@@ -257,19 +257,19 @@ are gone from this list.
 
 ## `credential_types`
 
-0 of 7 meaningful fields carried. Corpus: custom-rest-api-token.json.
+7 of 7 meaningful fields carried. Corpus: custom-rest-api-token.json.
 
-### Gaps (7)
+### Represented (7)
 
-| Field | Owning phase | Notes |
+| Field | Lands in | Notes |
 |---|---|---|
-| `description` | A2 Credential Types | none |
-| `injectors` | A2 Credential Types | how a secret reaches Ansible: env, extra_vars, file and multi-key file, with values written as Jinja templates over the input ids ("{{ api_token }}"). This is what makes the shared renderer a hard requirement rather than a convenience, and C3 Notifications reuses it. |
-| `inputs` | A2 Credential Types | the schema: fields with id, type, label and secret, plus a required list. "secret": true is what decides encryption at rest and redaction on the way out, and our survey layer already draws that line the same way. |
-| `kind` | A2 Credential Types | AWX's coarse grouping (cloud, net, ssh, vault). It is what the "one credential per type, vault exempted" bind rule keys on. |
-| `managed` | A2 Credential Types | whether AWX ships it. A managed type cannot be edited, which an import must respect rather than recreating the built-ins as custom types. |
-| `name` | A2 Credential Types | none |
-| `namespace` | A2 Credential Types | stable identifier for a managed type; a custom type carries its own |
+| `description` | `credtype.CredentialType.Description` | none |
+| `injectors` | `credtype.CredentialType.Injectors` | how a secret reaches Ansible: env, extra_vars, file and multi-key file, with values written as Jinja templates over the input ids ("{{ api_token }}"). This is what made the shared renderer (internal/render) a hard requirement rather than a convenience, and C3 Notifications reuses it. Injectors.Validate compiles every template at SAVE time and refuses one naming an input the type does not declare, so a launch can never fail on an undefined variable. |
+| `inputs` | `credtype.CredentialType.Inputs` | the schema: fields with id, type, label and secret, plus a required list. "secret": true is what decides encryption at rest and redaction on the way out; InputSchema.SecretFields is the single place that decision is made, mirroring launch.Survey.SecretVariables for survey answers. The two schemas stay parallel rather than merged because AWX has two vocabularies (seven survey question types encoding secrecy IN the type, two credential input types encoding it in an orthogonal boolean), and merging them would produce values an import has nowhere to put. |
+| `kind` | `credtype.CredentialType.Kind` | AWX's coarse grouping (cloud, net, ssh, vault). It is what the "one credential per type, vault exempted" bind rule keys on, which is why credtype.Kind is a closed twelve-value vocabulary rather than a free string: an open one would make that rule unenforceable. |
+| `managed` | `credtype.CredentialType.Managed` | whether AWX ships it. A managed type cannot be edited, which an import must respect rather than recreating the built-ins as custom types. |
+| `name` | `credtype.CredentialType.Name` | none |
+| `namespace` | `credtype.CredentialType.Namespace` | stable identifier for a managed type; a custom type carries its own, and the corpus fixture proves it (custom_api_token). It is what an import keys on to decide whether a type already exists, so it is required here rather than managed-only. |
 
 ### AWX REST envelope (7)
 
