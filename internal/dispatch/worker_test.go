@@ -23,6 +23,7 @@ import (
 	entjob "github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -228,6 +229,27 @@ func requestJob(t *testing.T, ctx context.Context, store dispatch.JobStore, runb
 	t.Helper()
 
 	job := &dispatch.Job{RunbookID: runbookID, GroupName: groupName, Actor: "user@example.com"}
+	if err := store.Create(ctx, job); err != nil {
+		t.Fatalf("Create returned unexpected error: %v", err)
+	}
+
+	data, err := json.Marshal(map[string]string{"job_id": job.JobID})
+	if err != nil {
+		t.Fatalf("failed to marshal job.requested payload: %v", err)
+	}
+	return event.Event{ID: uuid.New().String(), Type: "job.requested", Data: data}
+}
+
+// requestJobWithLaunchFields is requestJob, plus a job.Fields/ExtraVars the
+// caller supplies, for tests proving admitAndDispatchDevice carries a job's
+// resolved launch fields onto the wire (AWX_PARITY_ROADMAP.md Section
+// 3b.1's second hop). A separate helper rather than widening requestJob's
+// own signature: requestJob has more than a dozen call sites that have no
+// reason to know about launch fields at all.
+func requestJobWithLaunchFields(t *testing.T, ctx context.Context, store dispatch.JobStore, runbookID, groupName string, fields launch.Fields, extraVars map[string]any) event.Event {
+	t.Helper()
+
+	job := &dispatch.Job{RunbookID: runbookID, GroupName: groupName, Actor: "user@example.com", Fields: fields, ExtraVars: extraVars}
 	if err := store.Create(ctx, job); err != nil {
 		t.Fatalf("Create returned unexpected error: %v", err)
 	}
@@ -509,6 +531,71 @@ func TestWorker_HandleJobRequested_UntaggedDeviceOmitsTags(t *testing.T) {
 
 	if strings.Contains(string(bus.last().Data), `"tags"`) {
 		t.Errorf("published payload contains a \"tags\" key for an untagged device: %s", bus.last().Data)
+	}
+}
+
+// TestWorker_HandleJobRequested_AttachesFieldsAndExtraVars proves
+// admitAndDispatchDevice carries job's own resolved launch.Fields and
+// ExtraVars onto wire.DispatchPayload.Fields/ExtraVars.
+// AWX_PARITY_ROADMAP.md Section 3b.1's own diagnosis of this defect: a
+// job's Fields/ExtraVars were captured on the record and never referenced
+// again anywhere in the codebase, so every execution field the launch
+// form let an author set was inert. This is the second of the two wire
+// hops that closes: worker_devices.go's payload literal now reads job.
+// Fields/job.ExtraVars, not just job.RunbookID/job.Kind.
+func TestWorker_HandleJobRequested_AttachesFieldsAndExtraVars(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := capableDevice("dev-id-fields", "core-switch-4", "10.0.0.9")
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	fields := launch.Fields{"forks": 3, "limit": "core-switch-4"}
+	extraVars := map[string]any{"deploy_env": "prod"}
+	evt := requestJobWithLaunchFields(t, ctx, store, "pb-1", "routers", fields, extraVars)
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	var payload wire.DispatchPayload
+	if err := json.Unmarshal(bus.last().Data, &payload); err != nil {
+		t.Fatalf("failed to decode published DispatchPayload: %v", err)
+	}
+	// The published payload went through a real JSON encode/decode
+	// (capturingBus wraps a real event.Bus), so "forks" comes back as
+	// float64, not int: encoding/json's own untyped-number rule for
+	// map[string]any, the same reason launch.Fields.Int accepts float64 as
+	// one of its input shapes.
+	wantFields := map[string]any{"forks": float64(3), "limit": "core-switch-4"}
+	if !reflect.DeepEqual(payload.Fields, wantFields) {
+		t.Errorf("Fields = %#v, want %#v", payload.Fields, wantFields)
+	}
+	if !reflect.DeepEqual(payload.ExtraVars, extraVars) {
+		t.Errorf("ExtraVars = %#v, want %#v", payload.ExtraVars, extraVars)
+	}
+}
+
+// TestWorker_HandleJobRequested_NoLaunchFieldsOmitsThemFromTheWire proves a
+// job created with no Fields/ExtraVars (the shape every pre-3b.1 launch
+// path still produces, and requestJob's own default) publishes a payload
+// with neither key, matching DispatchPayload.Fields/ExtraVars' own
+// omitempty contract.
+func TestWorker_HandleJobRequested_NoLaunchFieldsOmitsThemFromTheWire(t *testing.T) {
+	ctx := t.Context()
+	store := newTestJobStore(t)
+	bus := newCapturingBus()
+	device := capableDevice("dev-id-nofields", "core-switch-5", "10.0.0.9")
+	repo := &fakeRepository{Devices: []pkginventory.InventoryItem{device}}
+	worker := dispatch.NewWorker(store, repo, newTestRunbookSource(t), bus, nil)
+
+	evt := requestJob(t, ctx, store, "pb-1", "routers")
+	if err := worker.HandleJobRequested(evt); err != nil {
+		t.Fatalf("HandleJobRequested returned unexpected error: %v", err)
+	}
+
+	if strings.Contains(string(bus.last().Data), `"fields"`) || strings.Contains(string(bus.last().Data), `"extra_vars"`) {
+		t.Errorf("published payload contains a \"fields\" or \"extra_vars\" key for a job with neither: %s", bus.last().Data)
 	}
 }
 

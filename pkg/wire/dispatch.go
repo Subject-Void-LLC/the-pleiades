@@ -175,4 +175,37 @@ type DispatchPayload struct {
 	// "[catalyst_lab]" group header). omitempty keeps an untagged
 	// dispatch's wire form free of a bare "tags":[].
 	Tags []string `json:"tags,omitempty"`
+
+	// Fields is the resolved launch.Resolved.Fields (AWX_PARITY_ROADMAP.md
+	// Section 3b.1) this dispatch was launched with: forks, limit,
+	// verbosity, timeout, and whichever kind-specific fields the launch's
+	// kind declares (e.g. job_tags/skip_tags for the playbook kind). It is
+	// carried as plain map[string]any rather than internal/launch.Fields:
+	// this package must never import internal/ (see this file's own doc
+	// comment on why DeviceID/DeviceName stay plain too), and the two
+	// types share an identical underlying type, so
+	// internal/adapters/legacy and internal/adapters/native convert back
+	// with a bare type conversion (launch.Fields(payload.Fields)) to reuse
+	// launch.Fields' own typed accessors rather than re-deriving them here.
+	//
+	// This is the second of the two wire hops the roadmap's own Section
+	// 3b.1 names: internal/dispatch.Job already captured this value on the
+	// job record (the first hop); this field is what finally lets it reach
+	// a Runner. omitempty keeps a dispatch launched with no fields set free
+	// of a bare "fields":{}, matching Secrets and Tags above; an absent key
+	// decodes to a nil map, which every reader here treats identically to
+	// an empty one.
+	Fields map[string]any `json:"fields,omitempty"`
+
+	// ExtraVars is the resolved launch.Resolved.ExtraVars this dispatch was
+	// launched with: the template's defaults, a saved configuration, and
+	// this launch's own overrides, already merged in that precedence
+	// order. Same additive, omitempty, plain-map-not-launch.Fields
+	// reasoning as Fields above, and it is genuinely a separate field
+	// rather than Fields["extra_vars"]: launch.Resolved itself already
+	// pulls it out for the identical convenience (internal/launch's own
+	// resolve.go), and duplicating that split here means a Runner never
+	// has to know "extra_vars" is the one Fields key that means something
+	// different from the rest.
+	ExtraVars map[string]any `json:"extra_vars,omitempty"`
 }

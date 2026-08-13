@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
@@ -138,6 +139,21 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	nodeBus := event.NewInProcessBus()
 	defer nodeBus.Close()
 
+	// forks and limit (payload.Fields) are deliberately not consumed here.
+	// engine.NewExecutor's maxConcurrency parameter is the only knob that
+	// could stand in for "forks," but singleDeviceResolver always resolves
+	// every task to this call's one already-selected device (resolver.go),
+	// and every device-targeting task acquires an exclusive per-device
+	// lock before running (executor.go's runOne): two tasks racing the
+	// same device serialize on that lock regardless of maxConcurrency, so
+	// there is no concurrency dimension within one Execute call for forks
+	// to bound. Wiring it through anyway would set a real parameter to a
+	// real value with no observable effect, exactly the "correctly
+	// computed and never actually read" shape FAILURE_PATTERNS.md #116
+	// already named for this same job's Fields before this phase.
+	// limit has the identical non-answer: device selection already
+	// happened upstream, in internal/dispatch's own fan-out, before this
+	// payload ever existed. See LESSONS_LEARNED.md for the recorded rule.
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},
 		actions,
@@ -145,6 +161,8 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		nodeBus,
 		engine.NewInProcessWorkflowContext(),
 		0,
+		engine.WithVariables(payload.ExtraVars),
+		engine.WithTaskTimeout(taskTimeout(launch.Fields(payload.Fields))),
 	)
 
 	result, runErr := executor.Run(ctx, dag)

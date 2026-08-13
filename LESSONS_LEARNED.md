@@ -109,6 +109,7 @@ story, per `.AGENTS/AGENTS.md`.
 103. **Do not measure coverage of code whose branches are chosen by a timer: separate the loop from the work, so the loop's test owns the scheduling and the work's test calls the work. A test that passes reliably can still cover unreliably, and a ratchet reads that as a regression.**
 104. **A conformance measurement is code that can be wrong, and its characteristic failure is a hole shaped like the thing it measures: every "not worth representing" verdict is a place it stops looking, so record what makes a field dismissible and re-derive those verdicts whenever new input arrives.**
 105. **A struct returned by a resolver is a checklist, not a report: before calling a resolve-and-persist path complete, grep for a second reference to every field the resolver's own return type declares, downstream of the call site that received it.**
+106. **A parameter that merely shares a field's name and domain concept (forks ~ concurrency) is not wired to it until the parameter's actual arity at *this* call site is checked — a resolver that can only ever return one item makes any concurrency bound over its result unobservable, no matter what value is passed.**
 
 ---
 

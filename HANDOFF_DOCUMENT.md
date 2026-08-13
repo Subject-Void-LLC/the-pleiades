@@ -4,72 +4,93 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Brutalist-UI-Scaffold`. Directive: get the front end to visual/structural
-completion first, then build the APIs behind it, and update the plan documents so nothing found
-along the way is lost. Everything below is uncommitted, held per standing instruction.**
+**Branch `feature/Brutalist-UI-Scaffold`. Directive: close the rest of
+`.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.1 ("launch fields never reached execution"), the
+two remaining hops after the prior session captured `Resolved.Fields`/`ExtraVars` onto the job
+record. Everything below is uncommitted, held per standing instruction (a commit message is
+prepared but no commit was made).**
 
-**Front end: B1, B2 and B3 of `.SPECIFICATION/AWX_PARITY_ROADMAP.md`'s Tranche B, all built and
-tested, no shortcuts.** B1 (typed execution fields with per-field prompt checkboxes, replacing the
-old union multi-select) needed a real framework addition: `view.Descriptor.FieldsFor` and
-`Descriptor.ResolveFormFields`, threaded through `internal/ui/web/resources.go`'s render and bind
-paths, mirroring `RecordAction.FieldsFor`'s existing per-record pattern. New file
-`internal/ui/resources/templates/defaults.go`. Also renamed the `tags` launch field to `job_tags`
-(roadmap Section 1.2's prep step, needed for a lossless AWX import later) and fixed a real,
-independently-found bug while in the code: `allow_simultaneous`'s edit-form prefill used `yesNo()`
-("yes"/"no") where the checkbox template only renders `checked` for the literal string `"true"`, so
-a `true`-valued template silently flipped to `false` on an untouched save (`FAILURE_PATTERNS.md`
-#115). B2 (Activity + Last Ran columns) needed a new `dispatch.JobStore.RecentForTemplates`, batching
-`ListForTemplate` across a whole list page in one query rather than one per row, since
-`Projector[T].Row` has no per-page context to draw on; the Activity badge reads `FailedCount` rather
-than trusting `State` alone (see the severed-link finding below). B3 (Labels) registered as the
-eighth declared view, same shape as the other seven. Verified by the pre-existing
-`editform_conformance_test.go` plus new tests: `internal/ui/resources/templates_defaults_test.go`
-(4 tests), `internal/dispatch/worker_targeting_test.go`'s
-`TestJobStore_RecentForTemplatesBatchesAcrossManyTemplates`.
+**Section 3b.1 is now CLOSED.** Both remaining hops built and tested against real infrastructure,
+no shortcuts. Full file:line detail lives in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.1's
+own "Status: CLOSED" writeup; the summary:
 
-**Backend: found two severed links reading the dispatch path end to end, closed the first one's
-first hop.** `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b has the full writeup with file:line
-evidence for both; `FAILURE_PATTERNS.md` #116-117 and `LESSONS_LEARNED.md` #105 record them as
-findings. In short: `launch.Template.Resolve` has always correctly computed `Resolved.Fields` and
-`Resolved.ExtraVars`, and `internal/api/dispatcher.go`'s `LaunchTemplate` read them out of `resolved`
-and never referenced them again — every execution field B1's new UI lets an author set was inert.
-Closed this session's first hop: `dispatch.Job` gained `Fields`/`ExtraVars` columns (ent schema +
-migrations `sqlite/0011` and `postgres/0008`), and `LaunchTemplate` now stamps them, tested end to
-end against a real store. **Still open and NOT attempted**: the wire (`pkg/wire.DispatchPayload` has
-no field for this yet) and both adapters (`internal/adapters/legacy/adapter.go`'s argv is still
-hardcoded — no `--limit`/`--tags`/`--forks`/etc; the native adapter's extra-vars injection point was
-not audited). Separately, confirmed but not touched: a job's `state`/tallies describe fan-out
-publish outcomes, not per-device execution outcomes, and the Runner already reliably publishes real
-per-device results (`internal/runner/wal.go`'s `ResultEntry`, via `topology.ResultSubject`) that
-nothing on the Controller side has ever subscribed to — `ResultWAL`'s own doc comment says as much.
-Both were sized and left for a dedicated design-then-build pass rather than rushed: they cross a wire
-contract with a literal shape assertion and a state-machine design question (what happens if a Runner
-never reports back), and attempting either under the time remaining in an already-long session was
-judged the likeliest way to reproduce the exact "passed its own tests, still wrong" pattern this
-project has been burned by three times.
+1. **The wire.** `pkg/wire.DispatchPayload` gained `Fields`/`ExtraVars map[string]any` (additive,
+   `omitempty`, following the `Kind`/`Interruptible` precedent), and
+   `internal/dispatch/worker_devices.go`'s payload build site now reads `job.Fields`/`job.ExtraVars`
+   onto it.
+2. **The legacy adapter.** `internal/adapters/legacy/argv.go` (new) replaces the hardcoded
+   `ansible-playbook -v -i ...` literal with real `--limit`/`--forks`/`--tags`/`--skip-tags`/`-e`
+   construction and per-run `timeout` (via a context deadline around the container run, since
+   `ansible-playbook` has no run-timeout flag of its own). Proven against a **real Docker
+   container**: `cmd/runner/ansible_release_gate_test.go`'s new
+   `TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation` dispatches with `forks: 1` and
+   `job_tags: [deploy]`, asserts the exact argv the real Docker daemon started the real container
+   with (a new `observingOrchestrator` test double wraps the real `DockerOrchestrator`, changing
+   nothing about what executes), and asserts behaviorally that `--tags` really excluded an untagged
+   task from a real two-task play.
+3. **The native adapter.** `engine.Executor` did **not** already have any variable-override or
+   per-task-timeout plumbing (confirmed via `gopls references` on its two production call sites, not
+   assumed) — this was new engine work, not just adapter work. `ExtraVars` now reaches a runbook's
+   `when_cel` conditions through a new `"vars"` CEL root (`engine.WithVariables`); `timeout` is now
+   a genuine **per-task** abort (`engine.WithTaskTimeout`, wrapping each device's own `ctx` inside
+   `runOne`, not the whole `Run` call) — the runbook kind's FieldSpec text says "per task", the
+   opposite of the playbook kind's "per run" reading of the same field name, and both adapters now
+   honor their own kind's stated semantics correctly. **`forks`/`limit` are deliberately NOT wired**
+   for the native adapter: `singleDeviceResolver` always resolves every task to the one device this
+   Runner invocation already got dispatched, and every device-targeting task takes an exclusive
+   per-device lock before running, so there is no concurrency dimension within one `Execute` call for
+   `forks` to bound — wiring it into `maxConcurrency` anyway would have been a real parameter set to
+   a real value with a provably zero effect, forever. This is `LESSONS_LEARNED.md` #106, found and
+   documented, not shipped as a bug.
 
-**Next step.** Run `make ci` (serially; do not run it concurrently with further edits,
-`FAILURE_PATTERNS.md` #104). Then the commit message. After that, in the order
-`.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b lays out: the wire extension is the smallest next
-piece, then the legacy adapter's argv (highest value, since its whole configuration surface is a
-command line), then the native adapter, then read PLAN.md Sections 16-17 before starting the
-Controller-side result subscriber. B2's own remaining scope (the expandable row summary; a real
-multi-badge activity strip, which needs `internal/ui/render/views.templ`'s list-cell rendering
-extended to support more than one badge per cell) is written up at the end of Section 3b's session
-update, not silently dropped.
+**`make ci` is green, verified more rigorously than a single pass, because the first attempts
+weren't clean and each failure needed to be run down rather than dismissed.** `go build`, `go vet`,
+`gofmt`, `gosec` (8 pre-existing waived findings, none new), `govulncheck` (0), `coverage-check`
+(146 packages measured, none below floor), `docs-lint`, `docs-gen-check`, and `templ-gen-check` all
+passed cleanly on the first try. `test-race` and `test-integration` (`go test -race ./...` and
+`go test -tags integration -race ./...`, the whole module) each flaked inside `make ci` itself, and
+each flake was run down individually rather than assumed benign, per standing instruction:
 
-**Files changed this session:** `internal/ui/view/{view.go,pagemodels.go}` (FieldsFor seam),
-`internal/ui/web/resources.go` (threaded through render/bind), `internal/launch/kinds/playbook/
-playbook.go` (+tests) (tags→job_tags), `internal/ui/resources/templates/{templates.go,defaults.go
-(new)}`, `internal/ui/resources/{templates_defaults_test.go (new),harness_test.go}`,
-`internal/dispatch/{job.go,ent_store.go,ent_store_test.go,worker_targeting_test.go}`
-(RecentForTemplates), `internal/ui/resources/labels/labels.go` (new) + `registrars.go`,
-`internal/launch/template.go` (RecentJobs/JobSummary), `internal/ent/schema/job.go` +
-regenerated `internal/ent/*` + `internal/ent/migrate/migrations/{sqlite/0011,postgres/0008}`
-(Job.Fields/ExtraVars), `internal/api/dispatcher.go` (+`dispatcher_template_test.go`) (stamps them),
-`tests/parity/fields_job_template.go` + regenerated `GAPS.md`, `.SPECIFICATION/AWX_PARITY_ROADMAP.md`
-(Section 3b, new), `FAILURE_PATTERNS`/`FAILURE_PATTERNS_ARCHIVE` (#115-117),
-`LESSONS_LEARNED`/`LESSONS_LEARNED_ARCHIVE` (#105).
+- `test-race` failed twice, on `TestCLI_RunExecutesSSHTransport` (`cmd/pleiades`) and
+  `TestAgent_FailedExecutionEventuallyDeadLetters`/`TestAgent_ReleaseGate_
+  PullsFiveDispatchesWithoutDuplicating` (`internal/runner`) across the two attempts — all Docker
+  port-mapping races (`port "X/tcp" not found`), none in a package this session touched. All three
+  passed cleanly in an isolated serial rerun. A full, uninterrupted `go test -race -timeout 20m ./...`
+  run (not stopped at the first failing package the way `make`'s own chained targets are) then
+  completed with exit 0 and zero `FAIL` lines across the entire module.
+- `test-integration` failed three times across three attempts, on three **different** tests each
+  time: `TestGrandIntegration_EachKindReachesItsOwnAdapter` (`tests/e2e`, 913s before failing, "job's
+  log stream never mentioned 'native execution'", with the runner subprocess's own log showing a
+  redelivery/device-lock-contention loop), then a clean pass, then
+  `TestControllerLeaderElection_ReleaseGate` (`cmd/controller`, "SPLIT BRAIN DETECTED"). Different
+  package losing the race each run is `FAILURE_PATTERNS.md` #61's own named signature for resource
+  contention under this sandboxed environment's full parallel `-race` load, not a code defect, and
+  that entry names `TestGrandIntegration` specifically as a repeat offender. The first failure was
+  serious enough (a trivial single-`noop`-task runbook hanging) to verify past what the standing
+  instruction technically requires: `git stash -u` reverted every uncommitted change from this
+  session, the identical isolated test command was run against that clean baseline (pass, 12.91s),
+  the stash was restored (`git stash pop`), and the identical command was run again against this
+  session's own code (pass, 14.19s) — proving the hang was not reachable from this session's diff at
+  all. Both later flakes (a clean full run, then the unrelated leader-election split-brain) were each
+  reconfirmed passing in isolation the same way. No fix was needed or made for any of these; they are
+  documented here because "make ci is green" should mean something more specific than "it printed
+  PASS eventually."
+
+**Next step.** Nothing blocking. Section 3b.2 (a job's "completed" state describing fan-out, not
+execution) is next in the roadmap's own dependency order, and is explicitly a separate,
+design-then-build phase (PLAN.md Sections 16-17 first) — do not start it assuming this session's
+work belongs to the same commit. Tranche B's own remaining scope (B2's expandable row summary, the
+real multi-badge activity strip) is still open and was not touched this session either.
+
+**Files changed this session:** `pkg/wire/{dispatch.go,dispatch_test.go}` (Fields/ExtraVars),
+`internal/dispatch/{worker_devices.go,worker_test.go}` (payload build site + tests),
+`internal/adapters/legacy/{adapter.go,argv.go (new),argv_test.go (new),adapter_test.go}` (argv
+construction, run timeout, tests), `internal/engine/{executor.go,cel.go,executor_variables_test.go
+(new)}` (`ExecutorOption`, `WithVariables`, `WithTaskTimeout`, `"vars"` CEL root), `internal/adapters/
+native/{adapter.go,fields.go (new),fields_test.go (new),adapter_test.go}` (ExtraVars/timeout wiring,
+forks/limit doc comment, tests), `cmd/runner/ansible_release_gate_test.go` (`observingOrchestrator`,
+new real-container test), `.SPECIFICATION/AWX_PARITY_ROADMAP.md` (Section 3b.1 closed),
+`LESSONS_LEARNED`/`LESSONS_LEARNED_ARCHIVE` (#106).
 
 ---
 

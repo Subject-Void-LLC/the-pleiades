@@ -7,13 +7,14 @@
 // and a package with no recorded floor yet is reported, not failed, so
 // adding a new package never blocks CI by itself.
 //
-// Usage: go run ./tools/coverage-check
+// Usage: go run ./tools/coverage-check [-tolerant]
 package main
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,7 +22,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/tools/internal/flakegate"
 )
+
+// flakyPackagesPath is the repo-relative path to the waiver file
+// -tolerant mode reads, the same constant tools/testgate uses for the
+// same reason (this tool is invoked from the repo root).
+const flakyPackagesPath = "flaky-packages.json"
 
 // tolerance absorbs floating point rounding in go test's own printed
 // percentage; a package must drop by more than this to count as a real
@@ -57,19 +65,27 @@ type floorFile struct {
 }
 
 func main() {
-	if err := run(); err != nil {
+	tolerant := flag.Bool("tolerant", false, "warn instead of fail on a test failure confined to a flaky-packages.json package (used by push-gate, never by ci)")
+	flag.Parse()
+
+	if err := run(*tolerant); err != nil {
 		fmt.Fprintln(os.Stderr, "coverage-check:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(tolerant bool) error {
 	floors, err := loadFloorFile("coverage-floor.json")
 	if err != nil {
 		return fmt.Errorf("loading coverage-floor.json: %w", err)
 	}
 
-	measured, err := measureCoverage()
+	var measured map[string]float64
+	if tolerant {
+		measured, err = measureCoverageTolerant()
+	} else {
+		measured, err = measureCoverage()
+	}
 	if err != nil {
 		return err
 	}
@@ -154,8 +170,87 @@ func measureCoverage() (map[string]float64, error) {
 	// the copy leaves the original intact for the error built at the end.
 	out := stdout.String()
 
+	results, err := parseCoverageOutput(out)
+	if err != nil {
+		return nil, err
+	}
+
+	if runErr != nil {
+		return nil, fmt.Errorf("go test ./... failed (a test failure, not a coverage question, must be fixed first): %v\n%s", runErr, failureOutput(out, stderr.String()))
+	}
+	return results, nil
+}
+
+// measureCoverageTolerant is measureCoverage's -tolerant counterpart: it
+// runs the identical suite (-cover -count=1, same goTestTimeout) through
+// flakegate.RunGoTestJSON instead of a bare exec.Command, so a test
+// failure confined to a flaky-packages.json package is a warning rather
+// than a reason to discard every coverage number the run produced. A
+// package with a tolerated failure is not excluded from the returned map
+// on that basis alone: go test still prints a "coverage: X% of
+// statements" line for a package whose tests failed (verified directly
+// against a real deliberately-failing package before relying on it), so
+// the number parseCoverageOutput finds is real and worth keeping. Only a
+// hard failure (a failure outside flaky-packages.json, or any build
+// failure) still aborts the whole measurement, exactly like
+// measureCoverage does for any failure at all.
+func measureCoverageTolerant() (map[string]float64, error) {
+	tolerated, err := flakegate.LoadTolerated(flakyPackagesPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading %s: %w", flakyPackagesPath, err)
+	}
+
+	events, waitErr := flakegate.RunGoTestJSON([]string{"-cover", "-count=1", "-timeout", goTestTimeout}, os.Stdout)
+	hard, warned := flakegate.Classify(events, tolerated)
+
+	var out strings.Builder
+	for _, evt := range events {
+		out.WriteString(evt.Output)
+	}
+
+	results, err := parseCoverageOutput(out.String())
+	if err != nil {
+		return nil, err
+	}
+
+	if len(warned) > 0 {
+		fmt.Printf("coverage-check: %d test failure(s) confined to flaky-packages.json packages, coverage still measured where a number was printed:\n", len(warned))
+		for pkg := range flakegate.FailedPackages(warned) {
+			fmt.Printf("  %s\n", pkg)
+		}
+	}
+
+	if len(hard) > 0 {
+		fmt.Fprintf(os.Stderr, "coverage-check: %d failure(s) NOT in flaky-packages.json, or a build failure (never tolerated); see output above:\n", len(hard))
+		for _, f := range hard {
+			if f.Test == "" {
+				fmt.Fprintf(os.Stderr, "  %s: build failed\n", f.Package)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Package, f.Test)
+		}
+		return nil, fmt.Errorf("%d failure(s) outside flaky-packages.json", len(hard))
+	}
+
+	if waitErr != nil && len(events) == 0 {
+		return nil, fmt.Errorf("go test produced no output at all: %w", waitErr)
+	}
+	return results, nil
+}
+
+// parseCoverageOutput scans text (either a real go test invocation's raw
+// stdout, or the reconstructed concatenation of every go test -json
+// event's own Output field, which carries the identical human-readable
+// lines go test always prints even in -json mode) for each package's own
+// "coverage: X% of statements" line. A package go test reports with no
+// numeric percentage at all (a test-only package with nothing to
+// instrument, "[no statements]") is simply absent from the result, not
+// reported as 0%, since coverage-floor.json's own "excluded" entries for
+// those packages document why deliberately rather than this tool silently
+// treating "nothing to measure" the same as "measured and found lacking."
+func parseCoverageOutput(text string) (map[string]float64, error) {
 	results := make(map[string]float64)
-	scanner := bufio.NewScanner(strings.NewReader(out))
+	scanner := bufio.NewScanner(strings.NewReader(text))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -178,10 +273,6 @@ func measureCoverage() (map[string]float64, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scanning go test output: %w", err)
-	}
-
-	if runErr != nil {
-		return nil, fmt.Errorf("go test ./... failed (a test failure, not a coverage question, must be fixed first): %v\n%s", runErr, failureOutput(out, stderr.String()))
 	}
 	return results, nil
 }

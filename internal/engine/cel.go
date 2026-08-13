@@ -75,9 +75,20 @@ func NewCELEvaluator() (Evaluator, error) {
 	// identical WorkflowContext snapshot (executor.go), a deliberate,
 	// stated scope choice, not an oversight: no caller today has a reason
 	// to give 'stat' a narrower, device-only meaning distinct from 'nodes'.
+	//
+	// 'vars' holds a dispatch's own resolved launch.Resolved.ExtraVars
+	// (AWX_PARITY_ROADMAP.md Section 3b.1), an Executor-wide constant for
+	// the whole Run call rather than anything WorkflowContext accumulates:
+	// unlike 'stat'/'nodes', which grow as earlier tasks register results,
+	// 'vars' is the same map for every node from the moment Run starts.
+	// Executor.runNode binds it from Executor.extraVars (WithVariables),
+	// defaulting to an empty map so a condition can reference vars.foo
+	// even on a dag no ExecutorOption ever set it for, rather than a CEL
+	// evaluation error about a missing attribute.
 	env, err := cel.NewEnv(
 		cel.Variable("stat", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("nodes", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL env: %w", err)

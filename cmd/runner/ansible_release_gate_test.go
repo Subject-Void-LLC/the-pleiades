@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,12 +87,44 @@ func startSSHDOnNetwork(t *testing.T, networkName string) {
 	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
 }
 
+// observingOrchestrator wraps a real legacy.ContainerOrchestrator,
+// recording the last ContainerSpec it was given, so a Release Gate test
+// can assert on the real argv a real container really ran with
+// (AWX_PARITY_ROADMAP.md Section 3b.1's own gate text: "asserted from the
+// sandboxed process's own argv"), without any production code exposing
+// that internal detail for a test's sake. legacy.DockerOrchestrator.Run
+// passes spec.Argv straight into testcontainers.ContainerRequest.Cmd with
+// no transformation (docker_orchestrator.go), so the spec recorded here
+// is genuinely the argv the real Docker daemon received for the real
+// container this file's own SSH/remote-command assertions already prove
+// really ran; Run itself still delegates to the real orchestrator, so
+// wrapping it changes nothing about what actually executes.
+type observingOrchestrator struct {
+	real legacy.ContainerOrchestrator
+	mu   sync.Mutex
+	last legacy.ContainerSpec
+}
+
+func (o *observingOrchestrator) Run(ctx context.Context, spec legacy.ContainerSpec) (legacy.ContainerResult, error) {
+	o.mu.Lock()
+	o.last = spec
+	o.mu.Unlock()
+	return o.real.Run(ctx, spec)
+}
+
+func (o *observingOrchestrator) lastSpec() legacy.ContainerSpec {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.last
+}
+
 // ansibleReleaseGateHarness bundles the real NATS container plus the real
 // Runner-mesh objects (legacy.Adapter, runner.Agent) every test in this
 // file needs.
 type ansibleReleaseGateHarness struct {
-	bus event.Bus
-	js  jetstream.JetStream
+	bus  event.Bus
+	js   jetstream.JetStream
+	orch *observingOrchestrator
 }
 
 func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleReleaseGateHarness {
@@ -152,14 +186,15 @@ func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleRel
 		t.Fatalf("failed to init playbook source: %v", err)
 	}
 
-	adapter := legacy.NewAdapter(bus, playbooks, legacy.NewDockerOrchestrator(), image, nil, legacy.WithNetworks([]string{net.Name}))
+	orch := &observingOrchestrator{real: legacy.NewDockerOrchestrator()}
+	adapter := legacy.NewAdapter(bus, playbooks, orch, image, nil, legacy.WithNetworks([]string{net.Name}))
 	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
 
 	agentCtx, cancelAgent := context.WithCancel(ctx)
 	t.Cleanup(cancelAgent)
 	go func() { _ = agent.Run(agentCtx) }()
 
-	return &ansibleReleaseGateHarness{bus: bus, js: js}
+	return &ansibleReleaseGateHarness{bus: bus, js: js, orch: orch}
 }
 
 // dispatch publishes payload to the real dispatch subject and waits for a
@@ -339,5 +374,96 @@ func TestAnsibleReleaseGate_WrongSecretFails(t *testing.T) {
 
 	if final.Status != "failed" {
 		t.Fatalf("final status = %q, want %q: a wrong password must not authenticate: events=%+v", final.Status, "failed", events)
+	}
+}
+
+// taggedReleaseGatePlaybook carries two independently tagged tasks, so
+// TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation can prove
+// --tags/--skip-tags genuinely change which tasks a real ansible-playbook
+// run executes, not just that the flag appears on the command line.
+const taggedReleaseGatePlaybook = `---
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: deploy task
+      tags: [deploy]
+      raw: echo deploy-ran
+      changed_when: false
+    - name: other task
+      tags: [other]
+      raw: echo other-ran
+      changed_when: false
+`
+
+// TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation is
+// AWX_PARITY_ROADMAP.md Section 3b.1's own stated gate, run for real: "a
+// template launched with forks: 3 and job_tags: [deploy] open, overridden
+// at launch to forks: 1, produces a real ansible-playbook invocation ...
+// that actually used forks 1 and tag deploy, asserted from the sandboxed
+// process's own argv[.] ... never from the job record alone."
+//
+// Two kinds of evidence, both real, both from this one dispatch:
+//  1. observingOrchestrator's recorded ContainerSpec.Argv, the exact
+//     argument vector the real Docker daemon started the real container
+//     with, proves --forks 1, --tags deploy, --limit, and -v all reached
+//     the real invocation at the position buildArgv documents.
+//  2. The parsed job.log event stream proves --tags genuinely filtered
+//     which tasks ran: "deploy task" carries the "deploy" tag and its own
+//     event appears; "other task" carries "other" and is absent
+//     entirely, not merely marked skipped, because ansible-playbook
+//     excludes a non-matching-tag task from the play before it ever
+//     starts.
+func TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+	h := newAnsibleReleaseGateHarness(t, taggedReleaseGatePlaybook)
+
+	jobID := uuid.New().String()
+	payload := wire.DispatchPayload{
+		JobID:      jobID,
+		RunbookID:  "upgrade.yml",
+		DeviceID:   "release-gate-device",
+		DeviceName: "sw1",
+		DeviceHost: ansibleGateNetworkAlias,
+		SSHPort:    2222,
+		Secrets:    credential.Flatten(credential.Credential{Username: ansibleGateSSHUser, Password: ansibleGateSSHPassword}),
+		Fields: map[string]any{
+			"forks":     1,
+			"job_tags":  []any{"deploy"},
+			"limit":     "sw1",
+			"verbosity": 1,
+		},
+	}
+
+	events := h.dispatch(t, payload)
+	final := events[len(events)-1]
+	if final.Status != "ok" {
+		t.Fatalf("final status = %q, want %q: events=%+v", final.Status, "ok", events)
+	}
+
+	wantArgv := []string{
+		"ansible-playbook", "-v", "-i", "/run/pleiades/inventory.json",
+		"--limit", "sw1", "--forks", "1", "--tags", "deploy",
+		"/run/pleiades/playbook.yml",
+	}
+	if gotArgv := h.orch.lastSpec().Argv; !reflect.DeepEqual(gotArgv, wantArgv) {
+		t.Errorf("real ContainerSpec.Argv (what the real Docker daemon started the real container with) = %#v, want %#v", gotArgv, wantArgv)
+	}
+
+	var sawDeployTask, sawOtherTask bool
+	for _, evt := range events {
+		if evt.Task == "deploy task" {
+			sawDeployTask = true
+		}
+		if evt.Task == "other task" {
+			sawOtherTask = true
+		}
+	}
+	if !sawDeployTask {
+		t.Errorf("no event for \"deploy task\": job_tags: [deploy] should have let it run: events=%+v", events)
+	}
+	if sawOtherTask {
+		t.Errorf("saw an event for \"other task\": job_tags: [deploy] should have excluded it from the play entirely: events=%+v", events)
 	}
 }

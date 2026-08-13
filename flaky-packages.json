@@ -1,0 +1,53 @@
+{
+  "_comment": "Packages whose own tests provision real ephemeral infrastructure (Docker containers via testcontainers-go, or multi-process real-time distributed coordination), so a test failure inside one of them is, per FAILURE_PATTERNS.md #61, at least as likely to be local resource contention as a real defect: 'the specific package that loses the race changes between runs... is the signature of resource contention, not a code defect.' tools/testgate (the local pre-push gate; see .githooks/pre-push and the Makefile's push-gate target) downgrades a test failure confined to a package listed here to a warning rather than blocking the push. GitHub Actions (.github/workflows/ci.yml) is unaffected: it runs `make ci` directly, which uses the bare, non-tolerant test-race/test-integration targets, so this file changes nothing about what actually gates a merge, only how much local noise a developer has to fight through before pushing. Every entry names one package by its full import path and a reason grepped/derived from real evidence (a specific test, a specific failure shape, or CLAUDE.md's own list of Docker-dependent packages), never a directory glob or 'seems container-ish' guess. A package that stops provisioning real infrastructure should be removed from this list in the same change that removes the infrastructure, the same staleness discipline gosec-waivers.json's own header asks for.",
+  "packages": [
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/tests/e2e",
+      "reason": "FAILURE_PATTERNS.md #61 names TestGrandIntegration specifically as a repeat offender under full parallel `-race` load. Confirmed again in the AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-12/13): TestGrandIntegration_EachKindReachesItsOwnAdapter hung 913s behind a device-lock-contention redelivery loop, and a later run failed a different test, TestGrandIntegration, on a NATS container port-mapping race ('port \"4222/tcp\" not found'). Both reproduced as clean, fast passes every time when rerun in isolation, and a git-stash baseline comparison proved the first failure was not reachable from that session's own diff at all."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/event",
+      "reason": "FAILURE_PATTERNS.md #61 names TestNatsBus_SurvivesConnectionSeverance and TestNatsBusPublish_DistinctEventsBothStored as failing under full-suite parallel load and passing individually every time. Dials a real, ephemeral NATS container per CLAUDE.md's own list of Docker-dependent packages."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/lock",
+      "reason": "FAILURE_PATTERNS.md #61 names TestNewNatsLockManagerRejectsOldServer as failing under full-suite parallel load and passing individually every time. Starts up to seven real containers in a single package (the Makefile's own GO_TEST_TIMEOUT comment), the heaviest real-infrastructure user in the module."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh",
+      "reason": "CLAUDE.md's own list of packages that dial real ephemeral Docker containers (NATS, sshd) names this one alongside internal/lock and internal/event; not yet observed to flake directly, but genuinely container-dependent by the identical mechanism, and excluding it while including its two named siblings would be an arbitrary distinction with no evidentiary basis either way."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/runner",
+      "reason": "AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-12): TestAgent_FailedExecutionEventuallyDeadLetters and TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating both failed under full-suite parallel load on a real NATS container port-mapping race ('connection string: port \"4222/tcp\" not found'), each confirmed passing individually afterward."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades",
+      "reason": "AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-12): TestCLI_RunExecutesSSHTransport failed under full-suite parallel load ('failed to get mapped port: port \"2222/tcp\" not found', a real ephemeral sshd container's own port-mapping race), confirmed passing individually afterward."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/cmd/controller",
+      "reason": "AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-13): TestControllerLeaderElection_ReleaseGate reported 'SPLIT BRAIN DETECTED' under full-suite parallel load, a real multi-replica timing race against a real NATS-backed lease, confirmed passing individually afterward. Real-container tests generally (see internal/adapters/legacy's own Release Gate, run from this package's test binary indirectly through tests/e2e, and this package's own leader-election gate) live here."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/election",
+      "reason": "AWX_PARITY_ROADMAP.md 3b.1 session (2026-08-13): TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover failed under full-suite parallel load (a real three-replica timing race against a real NATS-backed lease, the same mechanism cmd/controller's own leader-election gate exercises one layer up), confirmed passing individually afterward."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/cmd/runner",
+      "reason": "Real Docker container tests (the Ansible and native adapter Release Gates, internal/adapters/legacy.DockerOrchestrator and the SSH mesh's own ephemeral sshd containers) run from this package's own test binary; not yet observed to flake in a full-suite run, but structurally identical in kind to cmd/pleiades and internal/runner above, both of which have."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy",
+      "reason": "internal/adapters/legacy/docker_orchestrator_test.go and its own release-gate-style tests provision real ephemeral Docker containers directly (testcontainers-go), the same mechanism cmd/runner's Ansible Release Gate composes one layer up."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/topology",
+      "reason": "internal/topology/stream_container_test.go provisions a real ephemeral NATS/JetStream container directly (testcontainers-go) to prove stream/consumer configuration against a real server, not a fake."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/ent",
+      "reason": "internal/ent/conformance_backends_test.go provisions a real ephemeral Postgres container directly (testcontainers-go) to run the same conformance suite against both SQLite and Postgres backends."
+    }
+  ]
+}

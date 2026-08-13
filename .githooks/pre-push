@@ -1,23 +1,32 @@
 #!/bin/sh
 #
-# pre-push: run the same `make ci` target the GitHub Actions workflow
-# runs, so that a check which would fail in CI fails here first, before
-# anything is pushed. The two are the same command against the same
-# pinned scanner versions (see the Makefile's GOSEC_VERSION and
-# GOVULNCHECK_VERSION, which .github/workflows/ci.yml installs by calling
-# `make tools` rather than naming versions of its own), so a pass here is
-# real evidence about CI rather than a weaker local approximation.
+# pre-push: run `make push-gate`, everything the GitHub Actions workflow's
+# `make ci` runs (the same build/vet/fmt/gosec/govulncheck/coverage/docs
+# checks, against the same pinned scanner versions: see the Makefile's
+# GOSEC_VERSION and GOVULNCHECK_VERSION, which .github/workflows/ci.yml
+# installs by calling `make tools` rather than naming versions of its
+# own), except test-race/test-integration run through tools/testgate
+# instead of bare `go test`. testgate still fails this hook on anything
+# `make ci` would fail on; the one thing it does differently is print a
+# warning, rather than fail, for a test failure confined to a package
+# flaky-packages.json names with a written reason -- packages that
+# provision real ephemeral Docker containers or real multi-replica timing
+# races, which FAILURE_PATTERNS.md #61 already documents flaking under
+# this sandboxed environment's own full parallel `-race` load and passing
+# individually every time. `make ci` itself (what GitHub Actions actually
+# runs) is untouched by any of this and stays exactly as strict as before.
 #
 # Enable once per clone with `make hooks`. Skip a single push with
-# `git push --no-verify` -- worth knowing about, because `make ci`
-# includes `go test -race ./...` and several packages dial real ephemeral
+# `git push --no-verify` -- worth knowing about, because push-gate still
+# runs the full `-race` suite and several packages dial real ephemeral
 # Docker containers, so a full run takes minutes and needs Docker up.
 #
 # Nothing here is a substitute for CI: this runs on one machine, with one
 # Go toolchain, and a green run here can still meet a red run there (a
 # newly published vulnerability advisory being the likeliest reason, since
-# govulncheck queries a live database). It closes the gap; it does not
-# pretend to eliminate it.
+# govulncheck queries a live database, or a warned-but-not-blocked failure
+# above that would have been a real failure on a less contended machine).
+# It closes the gap; it does not pretend to eliminate it.
 
 set -eu
 
@@ -39,8 +48,8 @@ if [ "$only_deletes" = yes ]; then
 	exit 0
 fi
 
-echo "pre-push: running 'make ci' (the same target CI runs); skip with 'git push --no-verify'"
+echo "pre-push: running 'make push-gate' (everything 'make ci' runs, tolerant of known-flaky tests in flaky-packages.json); skip with 'git push --no-verify'"
 
 # exec, so make's own exit status is the hook's exit status and a failing
 # check aborts the push.
-exec make ci
+exec make push-gate
