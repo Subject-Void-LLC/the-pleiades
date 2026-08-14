@@ -740,6 +740,14 @@ func (f failingCredentialStore) ListTypes(context.Context, int) ([]credstore.Cre
 	return nil, f.err
 }
 
+func (f failingCredentialStore) ListAllTypes(context.Context) ([]credstore.CredentialType, error) {
+	return nil, f.err
+}
+
+func (f failingCredentialStore) ListAllCredentials(context.Context) ([]credstore.Credential, error) {
+	return nil, f.err
+}
+
 func (f failingCredentialStore) CreateType(context.Context, int, credtype.CredentialType) (credstore.CredentialType, error) {
 	return credstore.CredentialType{}, f.err
 }
@@ -902,23 +910,81 @@ func TestMalformedBodiesOnEveryWriteRouteAnswerBadRequest(t *testing.T) {
 
 // TestPreviewWithNoBodyIsAccepted covers the deliberate optionality.
 //
-// Previewing with no values at all is meaningful for a type whose inputs
-// all declare defaults, and refusing an empty request would make the
-// simplest case the awkward one.
+// Previewing with no values at all is meaningful, and refusing an empty
+// request would make the simplest case the awkward one.
+//
+// This assertion was inverted, and the correction is worth stating rather
+// than quietly making. It used to expect a 400, because the preview built
+// its namespace from the supplied values alone and the renderer is
+// strict-undefined, so an unsupplied input failed the render. That told an
+// author their credential type was broken when it was not: a real run of
+// the same type, by a credential that left the same optional input blank,
+// renders fine and injects an empty value, which is also what AWX does.
+// A preview that disagrees with the run is worse than no preview, since
+// its whole purpose is to answer "would this work" before somebody
+// launches a job. See FAILURE_PATTERNS.md #121 for the same defect on the
+// injection path, which is where it was found first.
 func TestPreviewWithNoBodyIsAccepted(t *testing.T) {
 	t.Parallel()
 
 	f := newCredentialFixture(t)
 
-	// This type's api_token has no default, so the preview reports that the
-	// template cannot render rather than a decoding failure. Either way it
-	// must not be a 500.
 	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/credential-types/%d/test", f.typeID), nil)
-	if status >= 500 {
-		t.Fatalf("an empty preview request answered %d: %s", status, body)
+	if status != http.StatusOK {
+		t.Fatalf("an empty preview request answered %d, want 200: %s", status, body)
 	}
+	// The SHAPE, which is what this endpoint reports: the variable the type
+	// would set, with no value in the response.
+	if !strings.Contains(string(body), "API_TOKEN") {
+		t.Errorf("the preview does not report the variable this type sets: %s", body)
+	}
+}
+
+// TestPreviewReportsATemplateThatCannotRender covers the 400 path, using a
+// type that is genuinely unrenderable rather than one whose optional input
+// was merely left blank.
+//
+// The reserved namespace is a declared name, so the type saves cleanly, but
+// it only holds a filename when the type actually generates a file. Nothing
+// but a render discovers that, which is why this endpoint renders rather
+// than only listing keys.
+func TestPreviewReportsATemplateThatCannotRender(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	created := map[string]any{
+		"name":         "Addresses A File It Never Writes",
+		"namespace":    "no_such_file",
+		"kind":         "cloud",
+		"organization": f.orgA,
+		"inputs": map[string]any{
+			"fields": []any{map[string]any{"id": "token", "label": "Token", "secret": true}},
+		},
+		"injectors": map[string]any{"env": map[string]any{"TOKEN": "{{ tower.filename }}"}},
+	}
+	status, body := f.do(t, http.MethodPost, "/api/v1/credential-types", created)
+	if status != http.StatusCreated {
+		t.Fatalf("creating the type answered %d: %s", status, body)
+	}
+
+	var decoded struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decoding the created type: %v", err)
+	}
+
+	status, body = f.do(t, http.MethodPost,
+		fmt.Sprintf("/api/v1/credential-types/%d/test", decoded.ID),
+		map[string]any{"inputs": map[string]string{"token": "t"}})
 	if status != http.StatusBadRequest {
-		t.Errorf("answered %d, want 400 naming the template that could not render: %s", status, body)
+		t.Fatalf("answered %d, want 400: %s", status, body)
+	}
+	// The message names the target, so an author knows which template to
+	// fix, and quotes no value.
+	if !strings.Contains(string(body), "TOKEN") {
+		t.Errorf("the refusal does not name the failing template: %s", body)
 	}
 }
 

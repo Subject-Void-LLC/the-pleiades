@@ -9123,7 +9123,7 @@
           }
         ],
         "summary": "Replace a template's credentials",
-        "x-link-relation": "update"
+        "x-link-relation": "credentials"
       }
     },
     "/templates/{id}/launch": {

@@ -121,6 +121,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
 119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FOUND, NOT FIXED)
 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
+121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
 
 ---
 

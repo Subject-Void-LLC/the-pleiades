@@ -24,9 +24,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -69,6 +71,19 @@ type Deps struct {
 	// verifies creates against, wired once in the composition root, so
 	// what the form offers and what the store accepts are one list.
 	Catalog launch.Catalog
+
+	// Credentials is the control-plane credential store, which is the
+	// REDACTED half of the pair: its projection has no field for a secret
+	// value, so a view holding it cannot disclose one. The plaintext half
+	// lives in internal/credstore/resolve, which internal/archtest forbids
+	// this side of the system from importing at all.
+	Credentials credstore.Store
+
+	// Render is the one template engine, handed to the Credential Types
+	// view so its Test action renders an injector document the same way a
+	// dispatch does. A second engine here would mean an author's test and
+	// their run could disagree.
+	Render render.Engine
 }
 
 // Registrar registers one view over the available ports.

@@ -438,7 +438,7 @@ var SetTemplateCredentials = Endpoint{
 	Method:  http.MethodPut,
 	Pattern: "/templates/{id}/credentials",
 	Scope:   auth.ScopeCredentialWrite,
-	Rel:     auth.RelUpdate,
+	Rel:     auth.RelCredentials,
 	Summary: "Replace a template's credentials",
 	Description: "Replaces the whole set, so an empty list unbinds everything. At most one credential of each kind " +
 		"may be bound, except vault credentials, which may repeat while each carries a distinct vault identifier. " +

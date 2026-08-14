@@ -106,6 +106,27 @@ list the available inventory sync plugins
 
 `pleiades inventory plugins`
 
+## pleiades import
+
+read another platform's export and report what this one would do with it (see 'pleiades import --help')
+
+`pleiades import [flags]`
+
+### pleiades import awx-credential-types
+
+check an AWX credential type export against this platform, before a migration
+
+`pleiades import awx-credential-types <export.json> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --out | `string` | - | directory to write each importable type into as JSON, ready to POST to /credential-types |
+| --quiet | `bool` | `false` | report only the types this platform would not import |
+
+`pleiades import awx-credential-types credential_types.json`
+
+`pleiades import awx-credential-types --out ./types credential_types.json`
+
 ## pleiades forge
 
 authoring and migration tooling (see 'pleiades forge --help')

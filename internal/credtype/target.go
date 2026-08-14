@@ -238,6 +238,11 @@ func (envTarget) Apply(req Request, art *Artifact) error {
 		if err != nil {
 			return err
 		}
+		if value == "" && inj.OmitsEmpty(name) {
+			// Unset rather than set-to-empty. See Injectors.OmitEmpty for
+			// why the two are different to the thing reading the variable.
+			continue
+		}
 		art.Env[name] = value
 	}
 	return nil
@@ -287,9 +292,27 @@ func (machineTarget) Phase() Phase { return PhaseValues }
 // become_password among them, is an ordinary input its own injector
 // document can reference; see this package's MachineInput* constants for
 // why that is the design rather than an omission.
+//
+// # Why a network credential is a machine credential here
+//
+// Two kinds reach this target, and the second one is a judgement worth
+// writing down. AWX's net credential type declares exactly these four
+// inputs under exactly these ids, and AWX consumes them by handing them to
+// the network connection plugins, which reach the device over SSH. This
+// platform's only transport is that same SSH, so the four values mean the
+// same thing here that they mean there.
+//
+// The alternative was to ship net with no target at all, and that is the
+// worse answer rather than the more cautious one: the type would store a
+// username and a private key that nothing ever read, which is
+// FAILURE_PATTERNS.md #116's shape, and the operator's run would fail to
+// authenticate against a device whose credential they had correctly filled
+// in. The kinds stay distinct everywhere else, including in the
+// one-credential-per-kind binding rule, so a template may still bind one
+// machine credential and one network credential.
 func (machineTarget) Apply(req Request, art *Artifact) error {
 	cred := req.Credential
-	if cred.Type.Kind != KindSSH {
+	if cred.Type.Kind != KindSSH && cred.Type.Kind != KindNet {
 		return nil
 	}
 

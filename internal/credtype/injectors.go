@@ -115,6 +115,59 @@ type Injectors struct {
 	// "template.<label>". The two are mutually exclusive within one type,
 	// which is AWX's own rule.
 	File map[string]string `json:"file,omitempty"`
+
+	// OmitEmpty names environment variables that are left UNSET when their
+	// rendered value is empty, rather than being set to the empty string.
+	//
+	// # This is the one field on this struct that is not AWX's
+	//
+	// Every other field decodes an AWX export unchanged, which is the
+	// property this package's doc comment calls load bearing. This one has
+	// no AWX counterpart, and adding it does not weaken that property: an
+	// export that has never heard of it simply omits it, and an omitted
+	// list means "set every variable", which is exactly what AWX's own
+	// data-driven injectors do. Nothing that decoded before decodes
+	// differently now.
+	//
+	// It exists because AWX has this behaviour and expresses it in Python
+	// rather than in data. Its aws credential type sets AWS_SECURITY_TOKEN
+	// and AWS_SESSION_TOKEN only when has_input('security_token') is true,
+	// and skips them entirely otherwise. The distinction is not cosmetic:
+	// botocore treats a session token that is present and empty as a
+	// credential to use, and fails the request with InvalidClientTokenId
+	// instead of falling back to the access key and secret. Setting the
+	// variable to "" would turn a working AWS credential into an
+	// authentication failure attributed to the wrong subsystem, which is
+	// the precise failure this whole phase exists to avoid.
+	//
+	// So a type whose behaviour AWX only expresses in code can be expressed
+	// here in data. The trade is that such a type is OURS rather than a
+	// faithful copy of an AWX document, and for the seven types AWX
+	// implements with custom_injectors that costs nothing, because AWX has
+	// no document for them to be faithful to: its API serializes their
+	// injectors as an empty object.
+	//
+	// Environment variables only, deliberately. No AWX managed type gates
+	// an extra variable or a file this way, and a list that silently
+	// accepted names of things it does not act on would be the shape
+	// FAILURE_PATTERNS.md #116 describes. Validate refuses a name that is
+	// not a declared environment variable in this same document.
+	OmitEmpty []string `json:"omit_empty,omitempty"`
+}
+
+// OmitsEmpty reports whether the named environment variable is left unset
+// when its rendered value is empty.
+//
+// A method rather than a map built by every caller, so the one rule lives
+// in one place: the injector applies it at run time and Validate checks the
+// list names something real at save time.
+func (inj Injectors) OmitsEmpty(name string) bool {
+	for _, n := range inj.OmitEmpty {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Empty reports whether this document injects nothing at all. A type with
@@ -167,11 +220,38 @@ func (inj Injectors) Validate(schema InputSchema, eng render.Engine) error {
 		}
 	}
 
+	if err := inj.validateOmitEmpty(); err != nil {
+		return err
+	}
+
 	if err := inj.validateExtraVars(known, eng, nil); err != nil {
 		return err
 	}
 
 	return inj.validateFile(known, eng)
+}
+
+// validateOmitEmpty checks that every name in the list is an environment
+// variable this same document actually sets.
+//
+// A name that matches nothing is refused rather than ignored. Ignoring it
+// would mean a type whose author wrote AWS_SESSION_TOKEN where they meant
+// AWS_SECURITY_TOKEN saves cleanly, injects an empty session token, and
+// fails authentication at run time with nothing pointing back here.
+func (inj Injectors) validateOmitEmpty() error {
+	seen := make(map[string]bool, len(inj.OmitEmpty))
+	for _, name := range inj.OmitEmpty {
+		if _, sets := inj.Env[name]; !sets {
+			return fmt.Errorf(
+				"%w: omit_empty names %q, which this type's env injector does not set",
+				ErrInvalidType, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: omit_empty names %q twice", ErrInvalidType, name)
+		}
+		seen[name] = true
+	}
+	return nil
 }
 
 // validateExtraVars walks the extra-variable tree, which may nest.
@@ -357,18 +437,16 @@ func (inj Injectors) Preview(schema InputSchema, eng render.Engine, inputs map[s
 		return Preview{}, fmt.Errorf("%w: a render engine is required to preview injectors", ErrInvalidType)
 	}
 
-	vars := make(map[string]any, len(inputs)+2)
-	for id, v := range inputs {
-		vars[id] = v
-	}
-	// Defaults fill in what the caller did not supply, so a preview does
-	// not report an undefined-variable failure for an input the type
-	// itself would have answered.
-	for id, v := range schema.Defaults() {
-		if _, supplied := vars[id]; !supplied {
-			vars[id] = v
-		}
-	}
+	// The same namespace a real injection builds, through the same
+	// function, which is the only way a preview can be trusted. Seeding
+	// every declared input here rather than only the supplied ones is what
+	// stops the preview reporting a failure a run would not have: an
+	// author testing a type with two of its five optional inputs filled in
+	// would otherwise be told their document cannot render, and it can.
+	// See Credential.RenderVars for why the seeding is safe.
+	vars := Credential{Type: CredentialType{Inputs: schema}, Inputs: inputs}.
+		WithDefaults().
+		RenderVars()
 
 	// The reserved namespace, with placeholder paths. A real injection
 	// computes these from the credential's own id, which a preview does
@@ -396,14 +474,22 @@ func (inj Injectors) Preview(schema InputSchema, eng render.Engine, inputs map[s
 	var out Preview
 
 	for name, tmpl := range inj.Env {
-		if err := renderForPreview(eng, vars, "env "+name, tmpl); err != nil {
+		value, err := renderForPreview(eng, vars, "env "+name, tmpl)
+		if err != nil {
 			return Preview{}, err
+		}
+		if value == "" && inj.OmitsEmpty(name) {
+			// The preview reports the shape a RUN would produce, so a
+			// variable this document would leave unset is absent here too.
+			// Listing it anyway would tell an author their dummy values
+			// produce a variable that they do not.
+			continue
 		}
 		out.Env = append(out.Env, name)
 	}
 
 	if err := walkExtraVars(inj.ExtraVars, nil, func(where, tmpl string) error {
-		if err := renderForPreview(eng, vars, "extra_vars "+where, tmpl); err != nil {
+		if _, err := renderForPreview(eng, vars, "extra_vars "+where, tmpl); err != nil {
 			return err
 		}
 		out.ExtraVars = append(out.ExtraVars, where)
@@ -413,7 +499,7 @@ func (inj Injectors) Preview(schema InputSchema, eng render.Engine, inputs map[s
 	}
 
 	for key, tmpl := range inj.File {
-		if err := renderForPreview(eng, vars, "file "+key, tmpl); err != nil {
+		if _, err := renderForPreview(eng, vars, "file "+key, tmpl); err != nil {
 			return Preview{}, err
 		}
 	}
@@ -429,15 +515,22 @@ func (inj Injectors) Preview(schema InputSchema, eng render.Engine, inputs map[s
 // mistake a preview for a description of a run.
 const previewFilePath = "/run/pleiades/credentials/<preview>"
 
-// renderForPreview renders one template and discards the result, reporting
-// a failure with enough context to fix it and without quoting any value.
-func renderForPreview(eng render.Engine, vars map[string]any, where, source string) error {
+// renderForPreview renders one template, reporting a failure with enough
+// context to fix it and without quoting any value.
+//
+// It returns the rendered text so the caller can apply the same
+// omit-when-empty rule a real injection applies, and that value is used for
+// nothing else. A preview never puts a rendered value in its result: the
+// endpoint behind it exists to report shape, and returning values would
+// turn an authoring aid into an oracle.
+func renderForPreview(eng render.Engine, vars map[string]any, where, source string) (string, error) {
 	compiled, err := eng.Compile(source)
 	if err != nil {
-		return fmt.Errorf("%w: the %s template is not valid: %s", ErrInvalidType, where, err)
+		return "", fmt.Errorf("%w: the %s template is not valid: %s", ErrInvalidType, where, err)
 	}
-	if _, err := compiled.Render(vars); err != nil {
-		return fmt.Errorf("%w: the %s template could not render: %s", ErrInvalidType, where, err)
+	out, err := compiled.Render(vars)
+	if err != nil {
+		return "", fmt.Errorf("%w: the %s template could not render: %s", ErrInvalidType, where, err)
 	}
-	return nil
+	return out, nil
 }

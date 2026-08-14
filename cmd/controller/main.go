@@ -101,6 +101,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	credfile "github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
@@ -600,6 +601,15 @@ func main() {
 	// it rather than when an operator launches a job.
 	credentialStore := credstore.NewEntStore(client, render.New())
 
+	// The credential types this build ships, installed on every startup
+	// rather than by a migration, because a migration cannot be re-run when
+	// a later release adds a type or corrects one. See
+	// credstore.ReconcileManaged for why a failure here warns rather than
+	// stopping the controller.
+	if err := credstore.ReconcileManaged(ctx, credentialStore, managed.Types(), logger); err != nil {
+		logger.WarnContext(ctx, "some managed credential types are not installed", "error", err)
+	}
+
 	// credentialResolver is the OTHER credential port, and the split
 	// between the two is a security boundary rather than a naming choice:
 	// credentialStore above cannot return a plaintext secret because its
@@ -979,6 +989,16 @@ func main() {
 		Templates:  templateStore,
 		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
+		// The redacted credential store, never the resolver: the UI's
+		// credential views hold a projection with no field a plaintext
+		// value could occupy, and internal/archtest fails the build if
+		// this side of the system ever imports the package that can
+		// decrypt one.
+		Credentials: credentialStore,
+		// The same render engine the store validates injector templates
+		// with, so the Credential Types view's Test action and a real
+		// dispatch cannot disagree about what a document produces.
+		Render: render.New(),
 	}); err != nil {
 		fatal("failed to register UI views", err)
 	}

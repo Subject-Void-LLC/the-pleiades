@@ -87,19 +87,30 @@ func TestPreviewFillsDefaultsBeforeRendering(t *testing.T) {
 
 // TestPreviewReportsATemplateThatCannotRender is the whole reason the
 // preview renders rather than only listing keys.
+//
+// The case had to change when the preview started seeding every declared
+// input, and the new one is a better test of the same property. It used to
+// use a type whose input was simply unsupplied, which is not a broken
+// template at all: a real run of that type, by a credential leaving the
+// same optional blank, renders fine and injects an empty value. Asserting
+// a failure there made the preview disagree with the run it exists to
+// predict.
+//
+// This case is genuinely unrenderable and Validate genuinely accepts it.
+// The reserved namespace is a declared name, so the save-time check passes,
+// but it only holds a filename when the type actually generates a file, and
+// this one does not. Nothing but a render can discover that.
 func TestPreviewReportsATemplateThatCannotRender(t *testing.T) {
 	t.Parallel()
 
 	schema := credtype.InputSchema{Fields: []credtype.InputField{
 		{ID: "api_token", Label: "Token", Secret: true},
 	}}
-	// Valid against the schema, so Validate accepts it, and unrenderable
-	// with these values, which only a render can discover.
-	inj := credtype.Injectors{Env: map[string]string{"TOKEN": "{{ api_token }}"}}
+	inj := credtype.Injectors{Env: map[string]string{"TOKEN": "{{ tower.filename }}"}}
 
 	_, err := inj.Preview(schema, render.New(), nil)
 	if err == nil {
-		t.Fatal("Preview() succeeded with no value for a required input")
+		t.Fatal("Preview() succeeded for a template addressing a file this type never generates")
 	}
 	if !errors.Is(err, credtype.ErrInvalidType) {
 		t.Errorf("error = %v, want one matching ErrInvalidType", err)

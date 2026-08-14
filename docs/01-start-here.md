@@ -123,6 +123,26 @@ The one-credential-per-kind binding rule, with vault credentials exempted while 
 carries a distinct identifier, is enforced by the application and not by the database.
 A writer going straight to SQL can still violate it.
 
+**Six credential types ship with the platform, and sixteen more are named as gaps.**
+Machine, Vault, Network, Amazon Web Services, Red Hat Ansible Automation Platform and
+HCP Terraform are installed on every controller start under the same namespaces AWX
+uses, so an import reuses them rather than recreating them. That is fewer than it may
+sound like it should be, and the reason is a fact about AWX rather than about this
+platform: most of AWX's own managed types build their environment in Python rather
+than in an injector document, so there is no document to copy. Sixteen are recognised
+and reported as not implemented with the specific reason for each, and `pleiades
+import awx-credential-types` tells you which of them your own export actually
+contains, offline, before a migration window. See
+[Migrating credentials](03-migrating-from-ansible.md#migrating-credentials).
+
+**The web UI reads the credential surface and does not author it.** Credentials and
+credential types are listed, a type's injectors can be tested against sample values
+you supply, a template's page offers a control for what it runs as, and its launch
+form prompts for inputs that are asked at launch and never stored. Creating and
+editing a credential type stays on the API deliberately: an injector document decides
+what environment the customer's playbook runs with, which is closer to code than to
+configuration.
+
 **An unconverted Ansible playbook can also really run, against one device at a time,
 once something wires the adapter in.** A second execution adapter now exists alongside
 the native one: given a dispatched device and a legacy playbook, it spins up a fresh,

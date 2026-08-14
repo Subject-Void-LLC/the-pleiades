@@ -1558,3 +1558,53 @@ The mistake was cheap to catch and would have been expensive to discover late: i
 A restated contract needs a test holding both halves together, or it drifts, and the drift here is silent in the worst direction: a machine credential injected under a key the transport does not read presents as an authentication failure against the device rather than as a bug in this repository. The test cannot live in either package, because either one importing the other is the cycle. It lives in `credtype_test`, an EXTERNAL test package, which is compiled after both and may import either. That is the general escape hatch and it is worth knowing about before it is needed.
 
 **Rule.** Before importing anything into a package that generated code depends on, run `go list -deps` on the candidate and look for the generated package. When the answer is that the import is impossible, restate the contract and put the agreement test in an external test package (`foo_test`), which is the one place both sides are importable at once.
+
+## 109. A plan's count of what an external system offers is a claim about that system, and the system's own source is the only thing that settles it
+
+**The incident.** The plan for Phase 22's third stage said that roughly twenty of
+AWX's managed credential types have injectors that are "pure data", and that shipping
+them was therefore a copying exercise. The stage's deliverable was sized around that
+number: about twenty types shipped, five declared and not implemented.
+
+The number is wrong, and not marginally. AWX registers twenty-two managed credential
+types, and exactly ONE of them has a data injector document this platform can copy.
+Seven build their environment in Python through a `custom_injectors` function and
+their injector document is empty; two use Jinja control flow that this platform's
+renderer refuses by design; twelve declare no injectors at all because something other
+than injection consumes them. The stage shipped six types and declared sixteen, which
+is close to the inverse of what was planned.
+
+**How it was found, and how nearly it was not.** The plan's claim is plausible. AWX
+documents credential types as data, its API returns an `injectors` object for every
+one of them, and the public documentation for writing a custom credential type is
+entirely about that document. Reading about AWX supports the claim; only reading AWX
+refutes it. The refutation took one fetch of
+`awx_plugins.credentials.plugins`, which is a file, not an argument.
+
+The failure mode if it had not been checked is the expensive one. The types would have
+been transcribed from memory and documentation, they would have validated, they would
+have passed every test written against them, and they would have injected environments
+that differ from AWX's in ways nobody notices until a customer's playbook authenticates
+against the wrong thing. `aws` is the concrete case: transcribed naively it sets
+`AWS_SESSION_TOKEN` to the empty string when no session token is configured, and
+botocore treats a present-but-empty session token as a credential to use, failing the
+request instead of falling back to the access key. A silent authentication failure
+attributed to the wrong subsystem, which is precisely what the phase existed to
+prevent.
+
+**What changed as a result.** Correcting the map came before the code, per the
+Architecture Mismatch protocol, and the correction lives in the package doc of the
+thing it governs. The fidelity test also changed shape: for the seven Python types
+there is no document to be faithful TO, so faithfulness is measured on the resulting
+environment rather than on the document, which is what licensed adding one field AWX
+does not have (`Injectors.OmitEmpty`) in order to reproduce a condition AWX expresses
+in code.
+
+**The rule.** When a plan quantifies what an external system provides ("about twenty
+of its types", "most of its endpoints", "all of these are declarative"), that is a
+factual claim about somebody else's code, and it is the kind of claim that is written
+from documentation and believed from familiarity. Fetch the authority and count,
+before sizing the work around the number. When the count is wrong, the deliverable
+changes, and shipping the planned quantity by transcribing from memory produces
+artifacts that pass their own tests and are wrong against the system they exist to be
+compatible with.

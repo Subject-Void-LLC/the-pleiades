@@ -101,6 +101,25 @@ func (s *entStore) ListTypes(ctx context.Context, organizationID int) ([]Credent
 	return out, nil
 }
 
+// ListAllTypes returns every credential type across every tenant. See the
+// interface for why this is a separate method rather than a zero
+// organization.
+func (s *entStore) ListAllTypes(ctx context.Context) ([]CredentialType, error) {
+	rows, err := s.client.CredentialType.Query().
+		WithOrganization().
+		Order(ent.Asc(credentialtype.FieldName)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("credstore: listing every credential type: %w", err)
+	}
+
+	out := make([]CredentialType, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, typeFromRow(row))
+	}
+	return out, nil
+}
+
 // CreateType stores a new custom credential type.
 func (s *entStore) CreateType(ctx context.Context, organizationID int, ct credtype.CredentialType) (CredentialType, error) {
 	if err := ct.Validate(s.engine); err != nil {
@@ -288,7 +307,7 @@ func typeFromRow(row *ent.CredentialType) CredentialType {
 		},
 	}
 	if org := row.Edges.Organization; org != nil {
-		out.OrganizationID = org.ID
+		out.OrganizationID, out.OrganizationName = org.ID, org.Name
 	}
 	return out
 }

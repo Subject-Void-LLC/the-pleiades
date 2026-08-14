@@ -72,6 +72,20 @@ const (
 	// RelLogs is the affordance that streams a job's live output.
 	// api.LogStreamer's own relation.
 	RelLogs LinkRel = "logs"
+
+	// RelCredentials is the affordance that replaces what a template runs
+	// as.
+	//
+	// Its own relation rather than RelUpdate, for the reason RelCopy gives
+	// above and with a sharper consequence here. A relation is unique per
+	// resource, so sharing "update" with the template's own edit would
+	// give one page two affordances a client cannot tell apart. It would
+	// also conflate two different privileges: editing a template is
+	// template:write and decides WHAT runs, while binding a credential is
+	// credential:write and decides what it runs AS, which is the higher
+	// of the two. A client reading "update" and inferring it may do both
+	// would be inferring wrongly.
+	RelCredentials LinkRel = "credentials"
 )
 
 // Affordance is one candidate action, described purely in authorization

@@ -275,7 +275,8 @@ plainly rather than implying a rough match exists.
 |---|---|---|
 | Job template | A Template, launched via `POST /api/v1/templates/{id}/launch` | `beta`: the API, the dispatcher, and the runner's execution against a real device are all real (see [Start here](01-start-here.md) for credential-handling limits). A template names what to run, the inventory to run it against, the values it runs with, which of those a launch may override, and a survey; a template of kind `playbook` reaches the second execution adapter, which runs an *unconverted* playbook unmodified inside a fresh container. See [Running an unconverted playbook](#running-an-unconverted-playbook) below |
 | Inventory | `inventory.yaml`, or a synced inventory via a sync plugin | `beta` (static), `experimental` (sync plugins; only `catalyst_center` exists beyond the built-in `static_yaml`, and it registers as `implemented`, not `declared`: an authenticated, paged REST sync against Cisco Catalyst Center) |
-| Credential | A `pleiades add-credential` entry in the local encrypted store | `beta`, Walk tier only. No credential *types* (only username+password/key), no injector engine |
+| Credential | A Credential of a declared type, bound to a template | `beta`: types, the injector engine, binding and injection at dispatch are all real. Six AWX types ship under their own namespaces; sixteen more are recognised and not implemented. See [Migrating credentials](#migrating-credentials) below |
+| Credential type | A Credential Type, defined as data over the API or imported from an AWX export | `beta`: an AWX export decodes with no translation layer. `env` and `file` injectors run on the Ansible path only |
 | Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
 | Survey | none | `design`, not built |
 | Approval node | none | `design`, not built |
@@ -284,6 +285,65 @@ plainly rather than implying a rough match exists.
 | Execution environment | none | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
 | Instance group | none | `design`, not built. No capacity/admission control exists yet |
 | RBAC (organizations, teams, roles) | The control plane's own RBAC | `beta`, real and tested, but the object model has not been checked against AWX's own for parity |
+
+## Migrating credentials
+
+This is the part of an AWX migration that decides whether anything runs, because a
+customer's playbook reads the environment variables their credential type injects. A
+type that does not import is a playbook that does not run.
+
+Check before you commit to a window. Export your credential types from AWX and run:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" \
+  https://awx.example.com/api/v2/credential_types/ > credential_types.json
+
+pleiades import awx-credential-types credential_types.json
+```
+
+It runs offline, needs no controller, and reports one line per type saying whether
+Pleiades would import it, already ships it, or cannot run it yet and exactly why. It
+exits non-zero when something would not import, so it works as a gate in a migration
+script rather than only by eye. `--out ./types` writes each importable type as a
+document ready to post to `/credential-types`.
+
+Four outcomes, and each means something different for you:
+
+**Importable.** A custom type whose injector document Pleiades understands. Post it and
+create your credentials against it. This is the common case for the types your own
+team wrote, which are also the ones your playbooks actually depend on.
+
+**Already shipped.** A namespace Pleiades ships itself: `ssh`, `vault`, `net`, `aws`,
+`controller` or `hcp_terraform`. Reuse it. Do not recreate it as a custom type: it
+would work at first and then silently stop tracking the shipped one when a later
+release corrects it.
+
+**Not implemented.** A type AWX manages and Pleiades does not, reported with the
+reason. Most are one of three things: AWX builds the type's environment in Python
+rather than in an injector document, so there is no document to import (`gce`,
+`azure_rm`, `openstack`, `vmware`, `kubernetes_bearer_token`, `terraform`); the
+document uses Jinja control flow, which this platform's renderer refuses rather than
+passing through as text (`insights`, `rhv`); or the type feeds a subsystem that does
+not exist here, such as project source-control sync, webhooks, execution-environment
+pulls or content signing (`scm`, `github_token`, `gitlab_token`,
+`bitbucket_dc_token`, `registry`, `galaxy_api_token`, `gpg_public_key`,
+`satellite6`).
+
+**Refused.** The type is malformed against its own schema, most often an injector
+template naming an input the type does not declare. This is a problem in the export
+rather than a gap here, and the message names the template and the input.
+
+Two behaviours are worth knowing before you compare a Pleiades run against an AWX one.
+An injected variable whose input was left blank is SET to the empty string, not
+omitted, which is what AWX does; the `aws` type is the exception, because AWX skips
+its session-token variables entirely when no token is configured and setting them to
+empty would fail authentication rather than being ignored. And a boolean input renders
+as `True` or `False`, matching AWX's Python capitalisation, so a playbook comparing
+against the literal string keeps working.
+
+Credential values themselves do not migrate. AWX will not export them, and neither
+platform has a way to read one back out, which is the property you want. Recreate the
+values against the imported types.
 
 ## Running an unconverted playbook
 

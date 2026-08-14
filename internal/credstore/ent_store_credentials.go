@@ -49,6 +49,35 @@ func (s *entStore) ListCredentials(ctx context.Context, organizationID int) ([]C
 	return out, nil
 }
 
+// ListAllCredentials returns every credential across every tenant,
+// redacted. See the interface for what that discloses and why it is
+// offered.
+//
+// It shares project() with every other read path, which is the part that
+// matters: the redaction is applied in one function rather than per query,
+// so a new listing cannot be the one that forgets it.
+func (s *entStore) ListAllCredentials(ctx context.Context) ([]Credential, error) {
+	rows, err := s.client.Credential.Query().
+		WithCredentialType().
+		WithOrganization().
+		WithTemplates().
+		Order(ent.Asc(credential.FieldName)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("credstore: listing every credential: %w", err)
+	}
+
+	out := make([]Credential, 0, len(rows))
+	for _, row := range rows {
+		projected, projectErr := s.project(ctx, row)
+		if projectErr != nil {
+			return nil, projectErr
+		}
+		out = append(out, projected)
+	}
+	return out, nil
+}
+
 // CreateCredential stores a new credential.
 //
 // inputs carries REAL values on the way in, which is the asymmetry this

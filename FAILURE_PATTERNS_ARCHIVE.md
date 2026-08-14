@@ -3156,3 +3156,67 @@ The reasoning error is worth naming: "mask more" feels conservative because the 
 The property is now held by a fuzz target rather than by a table, in both directions: a rendered value containing a secret must be declared secret, and a rendered value not containing one must not be. Both halves fail in opposite ways, and a table would only have covered the cases somebody thought of.
 
 **Lesson.** When a value crosses a process boundary, every property of it that is not carried explicitly is gone, and "which of these is secret" is exactly the kind of property that looks recoverable and is not. Do not let the receiving side infer it. More generally: when a safety control has an obvious conservative direction, look for what that direction costs on an axis the risk assessment did not include, because a control with a free "safer" setting is usually one whose cost has simply not been measured yet. Here the cost was permanent corruption of the operator's own debugging output, and it took a release gate running the whole thing for real to make it visible; every unit test in the package passed, because none of them asserted that a *non*-secret value survives.
+
+## 121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
+
+**Symptom.** Nothing, for a whole stage. Every unit test passed, the fuzzers were
+clean, both release gates were green, and the injector had been proven end to end
+against a real `ansible-playbook` in a real container. The defect surfaced only when
+the next stage transcribed a REAL AWX managed credential type (`controller`) into the
+catalog and ran it: an operator authenticating with an OAuth token rather than a
+password supplies no `username` and no `password`, and the entire injection failed
+with an undefined-variable error. Not that one variable: the whole credential, so the
+job could not run at all.
+
+**Root cause.** `Credential.RenderVars` built the render namespace from the values the
+credential actually held. The renderer is strict-undefined by design, so a template
+referencing a declared-but-unsupplied optional input hit a name that was not in the
+map, and strict-undefined did exactly what it was built to do.
+
+The design reasoning behind strict-undefined was sound and remains so: an unreferenced
+name silently becoming `""` is how a missing input injects an empty secret. What was
+wrong was the assumption that the check had only one job. It has two, and they are
+separated in time. Catching a name that is not a declared input is a check about the
+TYPE, and `Injectors.Validate` already performs it at the moment the type is saved,
+which is where Architecture Principle 5 wants it. Catching an input a particular
+credential left blank is a check about the CREDENTIAL, and refusing there is wrong,
+because a blank optional is legal by construction.
+
+Every test written for the stage used a credential that supplied every input its
+templates referenced. That is the natural thing to write when inventing a fixture, and
+it is exactly the case that cannot fail. AWX's own data is full of the other case:
+`controller` declares six inputs and requires one.
+
+**Fix.** `RenderVars` now seeds every DECLARED input, using the schema rather than the
+stored values, so an unsupplied optional renders empty and an undeclared name remains
+impossible. That is also AWX's own behaviour, which matters more than the reasoning,
+because what a migrated playbook observes is the resulting environment: AWX renders
+under ordinary Jinja `Undefined`, so a blank optional input's variable is SET, to the
+empty string.
+
+Losing the accidental protection strict-undefined had been providing needed its own
+replacement, because one real case still had to fail: a required input that was
+prompted at launch and never answered. `Credential.checkReady` now demands a value for
+every required input at injection time, with none of the three exemptions
+`CheckValues` allows at save time (a default, an external reference, a launch prompt),
+because by injection all three have already been resolved. The error names the input,
+which the undefined-variable error never did.
+
+Two related AWX behaviours were transcribed at the same time, for the same
+observable-result reason: a boolean input renders in Python's capitalisation
+(`True`/`False`, and `False` when unset), and an `ssh_private_key`-format input gains
+a trailing newline if it lacks one.
+
+**Lesson.** A validation rule that is correct at one moment can be wrong at another,
+and a single implementation placed at the later moment will look correct for as long
+as the fixtures happen to satisfy it. The general failure is a check that answers "is
+this well formed?" being asked where the real question is "is this ready to use?".
+Separate them explicitly, and write the fixture that only the later check can catch.
+
+The second half is about where the defect came from. Every test in the stage was
+written by the same person who wrote the code, against invented data, and invented
+data encodes the author's own assumptions twice. The bug survived a fuzzer and two
+container-backed release gates and was killed by transcribing twenty lines of somebody
+else's real configuration. When a subsystem exists to be compatible with an external
+system, take its fixtures from that system's own source early, not at the end as a
+finishing step.

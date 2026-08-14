@@ -75,6 +75,13 @@ type CredentialType struct {
 	// which belongs to nobody and is usable by everybody.
 	OrganizationID int
 
+	// OrganizationName is the tenant's name, carried so a cross-tenant
+	// list renders the name rather than the primary key. A column reading
+	// "ORGANIZATION: 1" has not saved the reader a join, it has moved the
+	// join into their head; Credential already carries the name for the
+	// same reason.
+	OrganizationName string
+
 	credtype.CredentialType
 }
 
@@ -145,6 +152,26 @@ type TypeReader interface {
 	// ListTypes returns the types visible to an organization: its own
 	// custom ones plus every managed type, which belong to nobody.
 	ListTypes(ctx context.Context, organizationID int) ([]CredentialType, error)
+
+	// ListAllTypes returns every credential type across every tenant.
+	//
+	// It is a separate method rather than ListTypes with a zero
+	// organization, because zero already means something there: the
+	// managed types and nothing else. Overloading it would have widened
+	// an existing API response, since the credential-type endpoint passes
+	// zero when its organization query parameter is absent.
+	//
+	// It exists for the administrative UI, which is cross-tenant by
+	// construction: its Inventories, Teams and Organizations views all
+	// list every record with an ORGANIZATION column, and a Credential
+	// Types view that showed only the managed ones would be a list of six
+	// rows that never changes. A type is a SCHEMA rather than a secret --
+	// it declares that a token exists, never what it is -- so this
+	// discloses which vendors a deployment integrates with and nothing
+	// more. That is a real disclosure and it is why this is a distinct
+	// method behind the credential:read scope rather than the default
+	// reading of the one above.
+	ListAllTypes(ctx context.Context) ([]CredentialType, error)
 }
 
 // Store is the whole persistence surface.
@@ -184,6 +211,25 @@ type Store interface {
 
 	// ListCredentials returns an organization's credentials, redacted.
 	ListCredentials(ctx context.Context, organizationID int) ([]Credential, error)
+
+	// ListAllCredentials returns every credential across every tenant,
+	// redacted.
+	//
+	// The symmetric method to ListAllTypes and it exists for the same
+	// consumer, but it needs its own justification because the disclosure
+	// is larger: a credential NAME is operational information in a way a
+	// type name is not.
+	//
+	// Two things make it the right thing to offer. The projection cannot
+	// carry a secret value at all, so what is disclosed is the existence
+	// of a credential, its type, its tenant and what it is bound to.
+	// And the alternative is worse: rotation is impossible without
+	// enumeration, and "which credentials exist and which are stale" is
+	// the single question an operator most needs answered about secrets.
+	// See internal/ui/resources/credentials for the revision of the
+	// earlier commitment not to enumerate, and why the scope rather than
+	// the absence of a list is the control.
+	ListAllCredentials(ctx context.Context) ([]Credential, error)
 
 	// CreateCredential stores a new credential. inputs carries real
 	// values on the way IN, which is the asymmetry this whole package

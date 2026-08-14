@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
@@ -70,6 +71,12 @@ func registerViews(t *testing.T) {
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
 			Templates: newTestTemplateStore(t),
+			// The credential pair: the store whose projection cannot carry
+			// a plaintext value, and the one render engine, so the
+			// Credential Types view's Test action renders an injector
+			// document exactly the way a dispatch does.
+			Credentials: newTestCredentialStore(t),
+			Render:      render.New(),
 			// The same set the template fixture's store verifies against,
 			// so the RUNS picker offers exactly what the store accepts:
 			// the property the real composition root gets by wiring one

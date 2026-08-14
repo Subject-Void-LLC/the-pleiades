@@ -33,7 +33,7 @@ const surveyPrefix = "answer_"
 
 // launchAction runs a template, prompting for whatever it lets a launcher
 // decide.
-func launchAction(store launch.Store, dispatcher *api.Dispatcher) view.RecordAction {
+func launchAction(store launch.Store, dispatcher *api.Dispatcher, creds credentials) view.RecordAction {
 	return view.RecordAction{
 		Name:     "launch",
 		Label:    "Launch",
@@ -51,7 +51,7 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher) view.RecordAct
 				// be guessing at controls.
 				return nil, nil
 			}
-			return launchFields(tmpl)
+			return launchFields(ctx, tmpl, creds, id)
 		},
 
 		Submit: func(ctx context.Context, id string, v view.Values) (string, view.FieldErrors, error) {
@@ -78,21 +78,20 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher) view.RecordAct
 				return "", errs, nil
 			}
 
+			// The prompted credential inputs, read back off the same
+			// controls this form rendered. They are a separate argument
+			// rather than part of cfg, and that is the never-persist rule
+			// as a property of the types: recordConfig takes a
+			// launch.Config, so the function that writes to the database is
+			// structurally unable to see these values.
+			prompted := bindPromptedCredentials(promptFields(ctx, creds, templateID), v)
+
 			// api.Dispatcher.LaunchTemplate, the same method the JSON API's
 			// own handler calls. A view layer that reimplemented
 			// resolve-record-persist-publish would have two orderings to
 			// keep in agreement, and the one that drifts is always the one
 			// with fewer readers.
-			// No prompted credential inputs yet: this form offers no
-			// controls for them, so passing anything would be inventing
-			// values nobody typed. The controls are a named follow-up (a
-			// KindPassword field per prompted input, named
-			// credential_<id>_<inputid>, mirroring the answer_ prefix
-			// convention below), and until they exist a template bound to a
-			// credential that prompts fails at fan-out with a reason naming
-			// the input. That is loud rather than silent, which is the
-			// acceptable half of an unfinished feature.
-			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, nil)
+			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, prompted)
 			switch {
 			case errors.Is(err, launch.ErrNotFound):
 				return "", view.FieldErrors{"": {"That template no longer exists. Reload the list."}}, nil
@@ -129,7 +128,7 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher) view.RecordAct
 // Order matters. The fields decide how the run is bounded and the survey
 // asks for values the automation reads, so the launch controls come first
 // and the questions follow, which is the order AWX prompts in too.
-func launchFields(tmpl launch.Template) ([]view.Field, error) {
+func launchFields(ctx context.Context, tmpl launch.Template, creds credentials, id string) ([]view.Field, error) {
 	d, err := tmpl.Descriptor()
 	if err != nil {
 		// A template whose kind is no longer registered offers no controls.
@@ -152,7 +151,34 @@ func launchFields(tmpl launch.Template) ([]view.Field, error) {
 			out = append(out, questionField(q))
 		}
 	}
-	return out, nil
+
+	// The credential prompts last, after the fields that bound the run and
+	// the questions the automation reads. They are the one group whose
+	// values are never stored, so they read as the final thing asked for
+	// rather than as another saved setting.
+	templateID, err := strconv.Atoi(id)
+	if err != nil {
+		return out, nil
+	}
+	return append(out, promptFields(ctx, creds, templateID)...), nil
+}
+
+// promptFields resolves the prompted credential controls for one template,
+// or none when there is no credential surface wired.
+//
+// One function for both callers, which is what keeps the form and the
+// submission in agreement: the controls the form renders are exactly the
+// controls the submission is read back through, so a value can neither
+// arrive undeclared nor be silently dropped.
+func promptFields(ctx context.Context, creds credentials, templateID int) []view.Field {
+	if creds == nil {
+		return nil
+	}
+	fields, err := promptedCredentialFields(creds, templateID)(ctx)
+	if err != nil {
+		return nil
+	}
+	return fields
 }
 
 // fieldFor renders one launch field as a form control, carrying the
