@@ -87,10 +87,61 @@ wrong credential genuinely fails to authenticate.
 Two limits are worth knowing before you rely on it. The Controller resolves a device's
 credential and attaches it to the dispatch message, so a secret is present in the
 message broker's storage until that message ages out; plan your broker retention
-accordingly. And credential storage itself is still the same encrypted local file the
-CLI uses, not the full secret manager described in
-[Running in production](10-running-in-production.md): no rotation, no Vault, no PFX
-handling yet.
+accordingly. Credential types make this **larger in volume and identical in kind**: a
+template bound to a cloud credential and two file-generating credentials puts several
+more values on the same message, including whole PEM bodies. And the full secret
+manager described in [Running in production](10-running-in-production.md) is still not
+built: no key rotation for credential rows, no PFX handling.
+
+**Credential types and injectors are real.** An administrator can define a credential
+type as data, over the API, with an input schema and an injector document, exactly as
+they would in AWX; a real AWX export decodes into it with no translation layer.
+Credentials of that type are bound to a template, resolved at the moment a job fans
+out rather than when it was queued, and injected into the run as environment
+variables, extra variables and generated files. A machine credential bound to a
+template authenticates every device in the fan-out, and the per-device credential
+store remains the fallback, so nothing that worked before still needs changing.
+
+Four limits are worth knowing.
+
+`env` and `file` injectors work on the Ansible path only. The native Go execution path
+keeps the stricter rule that a secret never enters a process environment or a file on
+the runner's own disk, so it refuses a credential type using either, at the moment you
+bind it and again if a dispatch reaches it another way. Extra-variable injection works
+on both paths.
+
+One external secret source is implemented: files, which is how a Kubernetes projected
+volume, a Vault Agent sidecar and the External Secrets Operator all deliver secrets.
+Eight more are named after their AWX equivalents and return an explicit
+"declared but not implemented" error rather than resolving to nothing.
+
+A credential input prompted at launch is never stored, which means a job launched with
+one cannot be relaunched: the platform says so and points at the launch endpoint
+rather than silently repeating the run without it.
+
+The one-credential-per-kind binding rule, with vault credentials exempted while each
+carries a distinct identifier, is enforced by the application and not by the database.
+A writer going straight to SQL can still violate it.
+
+**Six credential types ship with the platform, and sixteen more are named as gaps.**
+Machine, Vault, Network, Amazon Web Services, Red Hat Ansible Automation Platform and
+HCP Terraform are installed on every controller start under the same namespaces AWX
+uses, so an import reuses them rather than recreating them. That is fewer than it may
+sound like it should be, and the reason is a fact about AWX rather than about this
+platform: most of AWX's own managed types build their environment in Python rather
+than in an injector document, so there is no document to copy. Sixteen are recognised
+and reported as not implemented with the specific reason for each, and `pleiades
+import awx-credential-types` tells you which of them your own export actually
+contains, offline, before a migration window. See
+[Migrating credentials](03-migrating-from-ansible.md#migrating-credentials).
+
+**The web UI reads the credential surface and does not author it.** Credentials and
+credential types are listed, a type's injectors can be tested against sample values
+you supply, a template's page offers a control for what it runs as, and its launch
+form prompts for inputs that are asked at launch and never stored. Creating and
+editing a credential type stays on the API deliberately: an injector document decides
+what environment the customer's playbook runs with, which is closer to code than to
+configuration.
 
 **An unconverted Ansible playbook can also really run, against one device at a time,
 once something wires the adapter in.** A second execution adapter now exists alongside
@@ -167,8 +218,10 @@ Things a real Ansible user will look for and not currently find:
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
 - No scheduler, no notifications, no webhooks, no surveys, no approval workflows, no
   execution environments.
-- No Vault, KMS, or other external secrets manager: credentials live in a local,
-  encrypted file only.
+- No Vault, KMS or other external secrets manager as a first-class integration.
+  Credential types can read an input from a file on the Controller, which covers a
+  Vault Agent sidecar or an External Secrets Operator, and the eight named external
+  sources are declared and not implemented.
 
 None of these are secret. They are the honest gap between "what AWX does today" and
 "what Pleiades does today," and closing them is the bulk of the open roadmap.

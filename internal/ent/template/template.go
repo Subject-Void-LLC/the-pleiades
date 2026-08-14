@@ -44,6 +44,8 @@ const (
 	EdgeSurveyQuestions = "survey_questions"
 	// EdgeSavedConfigs holds the string denoting the saved_configs edge name in mutations.
 	EdgeSavedConfigs = "saved_configs"
+	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
+	EdgeCredentials = "credentials"
 	// Table holds the table name of the template in the database.
 	Table = "templates"
 	// OrganizationTable is the table that holds the organization relation/edge.
@@ -74,6 +76,11 @@ const (
 	SavedConfigsInverseTable = "saved_launch_configs"
 	// SavedConfigsColumn is the table column denoting the saved_configs relation/edge.
 	SavedConfigsColumn = "template_saved_configs"
+	// CredentialsTable is the table that holds the credentials relation/edge. The primary key declared below.
+	CredentialsTable = "template_credentials"
+	// CredentialsInverseTable is the table name for the Credential entity.
+	// It exists in this package in order to avoid circular dependency with the "credential" package.
+	CredentialsInverseTable = "credentials"
 )
 
 // Columns holds all SQL columns for template fields.
@@ -98,6 +105,12 @@ var ForeignKeys = []string{
 	"inventory_templates",
 	"organization_templates",
 }
+
+var (
+	// CredentialsPrimaryKey and CredentialsColumn2 are the table columns denoting the
+	// primary key for the credentials relation (M2M).
+	CredentialsPrimaryKey = []string{"template_id", "credential_id"}
+)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -222,6 +235,20 @@ func BySavedConfigs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newSavedConfigsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByCredentialsCount orders the results by credentials count.
+func ByCredentialsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCredentialsStep(), opts...)
+	}
+}
+
+// ByCredentials orders the results by credentials terms.
+func ByCredentials(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCredentialsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -248,5 +275,12 @@ func newSavedConfigsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SavedConfigsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, SavedConfigsTable, SavedConfigsColumn),
+	)
+}
+func newCredentialsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CredentialsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, false, CredentialsTable, CredentialsPrimaryKey...),
 	)
 }

@@ -1,0 +1,26 @@
+{
+  "name": "Network",
+  "namespace": "net",
+  "kind": "net",
+  "managed": true,
+  "description": "A network device credential. Its four transport inputs reach the device over the same SSH the machine credential uses.",
+  "inputs": {
+    "fields": [
+      {"id": "username", "label": "Username", "type": "string"},
+      {"id": "password", "label": "Password", "type": "string", "secret": true},
+      {
+        "id": "ssh_key_data",
+        "label": "SSH Private Key",
+        "type": "string",
+        "format": "ssh_private_key",
+        "secret": true,
+        "multiline": true
+      },
+      {"id": "ssh_key_unlock", "label": "Private Key Passphrase", "type": "string", "secret": true},
+      {"id": "authorize", "label": "Authorize", "type": "boolean"},
+      {"id": "authorize_password", "label": "Authorize Password", "type": "string", "secret": true}
+    ],
+    "required": ["username"]
+  },
+  "injectors": {}
+}

@@ -105,6 +105,21 @@ func (Organization) Edges() []ent.Edge {
 		// silently destroying the saved definitions of everything it runs,
 		// the same posture its inventories get.
 		edge.To("templates", Template.Type),
+
+		// The credential types this tenant defined. A MANAGED type has no
+		// organization at all (the edge is optional on the other side), so
+		// this holds only the custom ones somebody here wrote. Not
+		// cascaded: deleting an organization with credential types still
+		// bound to templates should fail rather than silently take the
+		// bindings with it.
+		edge.To("credential_types", CredentialType.Type),
+
+		// The credentials this tenant owns. Not cascaded, and this one
+		// matters more than the others: a cascade here would delete real
+		// secret material as a side effect of an organization delete,
+		// which is the kind of destruction that should require naming what
+		// is being destroyed.
+		edge.To("credentials", Credential.Type),
 		// An Announcement optionally belongs to one Organization. The
 		// absence is meaningful: no organization means system-wide, shown
 		// to everybody, which is what a platform maintenance notice has to

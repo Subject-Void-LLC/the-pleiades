@@ -144,6 +144,30 @@ func (Template) Edges() []ent.Edge {
 		// Saved launch configurations, same ownership and same cascade.
 		edge.To("saved_configs", SavedLaunchConfig.Type).
 			Annotations(entsql.OnDelete(entsql.Cascade)),
+
+		// The credentials this template runs as.
+		//
+		// Many to many. ent cascades the JOIN rows on both sides, which is
+		// exactly right and worth stating precisely, because "cascade" on
+		// a table holding secrets is the kind of word that gets misread:
+		// deleting a template removes its BINDINGS, not the credentials
+		// they point at, and deleting a credential removes its bindings,
+		// not the templates. A credential outlives every template that
+		// binds it. Nothing here can destroy secret material as a side
+		// effect of deleting something else.
+		//
+		// This is the axis AWX has and this platform did not. Before it,
+		// authentication was resolved per device from a file-backed store
+		// keyed by device name, which cannot express the case the parity
+		// corpus shows plainly: one job template binding an ssh, a vault
+		// and an aws credential at once. Both axes now exist, and the
+		// precedence between them is stated at the one place they meet
+		// (internal/dispatch's fan-out): a machine credential bound here
+		// supplies auth for every device in the fan-out, AWX's own
+		// semantics, and the per-device store is the fallback consulted
+		// only when a template binds none. That keeps every Walk-tier
+		// dispatch and every pre-existing Crawl dispatch working unchanged.
+		edge.To("credentials", Credential.Type),
 	}
 }
 

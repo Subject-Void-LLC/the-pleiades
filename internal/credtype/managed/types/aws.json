@@ -1,0 +1,30 @@
+{
+  "name": "Amazon Web Services",
+  "namespace": "aws",
+  "kind": "cloud",
+  "managed": true,
+  "description": "An AWS access key and secret key, optionally with a Security Token Service token.",
+  "inputs": {
+    "fields": [
+      {"id": "username", "label": "Access Key", "type": "string"},
+      {"id": "password", "label": "Secret Key", "type": "string", "secret": true},
+      {
+        "id": "security_token",
+        "label": "STS Token",
+        "type": "string",
+        "secret": true,
+        "help_text": "Security Token Service (STS) is a web service that enables you to request temporary, limited-privilege credentials for AWS Identity and Access Management (IAM) users."
+      }
+    ],
+    "required": ["username", "password"]
+  },
+  "injectors": {
+    "env": {
+      "AWS_ACCESS_KEY_ID": "{{ username }}",
+      "AWS_SECRET_ACCESS_KEY": "{{ password }}",
+      "AWS_SECURITY_TOKEN": "{{ security_token }}",
+      "AWS_SESSION_TOKEN": "{{ security_token }}"
+    },
+    "omit_empty": ["AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]
+  }
+}

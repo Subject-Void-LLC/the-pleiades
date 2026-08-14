@@ -14,6 +14,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -25,16 +27,18 @@ import (
 // OrganizationQuery is the builder for querying Organization entities.
 type OrganizationQuery struct {
 	config
-	ctx               *QueryContext
-	order             []organization.OrderOption
-	inters            []Interceptor
-	predicates        []predicate.Organization
-	withDevices       *DeviceQuery
-	withTeams         *TeamQuery
-	withInventories   *InventoryQuery
-	withTemplates     *TemplateQuery
-	withAnnouncements *AnnouncementQuery
-	withContacts      *ContactQuery
+	ctx                 *QueryContext
+	order               []organization.OrderOption
+	inters              []Interceptor
+	predicates          []predicate.Organization
+	withDevices         *DeviceQuery
+	withTeams           *TeamQuery
+	withInventories     *InventoryQuery
+	withTemplates       *TemplateQuery
+	withCredentialTypes *CredentialTypeQuery
+	withCredentials     *CredentialQuery
+	withAnnouncements   *AnnouncementQuery
+	withContacts        *ContactQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -152,6 +156,50 @@ func (_q *OrganizationQuery) QueryTemplates() *TemplateQuery {
 			sqlgraph.From(organization.Table, organization.FieldID, selector),
 			sqlgraph.To(template.Table, template.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, organization.TemplatesTable, organization.TemplatesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryCredentialTypes chains the current query on the "credential_types" edge.
+func (_q *OrganizationQuery) QueryCredentialTypes() *CredentialTypeQuery {
+	query := (&CredentialTypeClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(credentialtype.Table, credentialtype.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.CredentialTypesTable, organization.CredentialTypesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryCredentials chains the current query on the "credentials" edge.
+func (_q *OrganizationQuery) QueryCredentials() *CredentialQuery {
+	query := (&CredentialClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(credential.Table, credential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.CredentialsTable, organization.CredentialsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -390,17 +438,19 @@ func (_q *OrganizationQuery) Clone() *OrganizationQuery {
 		return nil
 	}
 	return &OrganizationQuery{
-		config:            _q.config,
-		ctx:               _q.ctx.Clone(),
-		order:             append([]organization.OrderOption{}, _q.order...),
-		inters:            append([]Interceptor{}, _q.inters...),
-		predicates:        append([]predicate.Organization{}, _q.predicates...),
-		withDevices:       _q.withDevices.Clone(),
-		withTeams:         _q.withTeams.Clone(),
-		withInventories:   _q.withInventories.Clone(),
-		withTemplates:     _q.withTemplates.Clone(),
-		withAnnouncements: _q.withAnnouncements.Clone(),
-		withContacts:      _q.withContacts.Clone(),
+		config:              _q.config,
+		ctx:                 _q.ctx.Clone(),
+		order:               append([]organization.OrderOption{}, _q.order...),
+		inters:              append([]Interceptor{}, _q.inters...),
+		predicates:          append([]predicate.Organization{}, _q.predicates...),
+		withDevices:         _q.withDevices.Clone(),
+		withTeams:           _q.withTeams.Clone(),
+		withInventories:     _q.withInventories.Clone(),
+		withTemplates:       _q.withTemplates.Clone(),
+		withCredentialTypes: _q.withCredentialTypes.Clone(),
+		withCredentials:     _q.withCredentials.Clone(),
+		withAnnouncements:   _q.withAnnouncements.Clone(),
+		withContacts:        _q.withContacts.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -448,6 +498,28 @@ func (_q *OrganizationQuery) WithTemplates(opts ...func(*TemplateQuery)) *Organi
 		opt(query)
 	}
 	_q.withTemplates = query
+	return _q
+}
+
+// WithCredentialTypes tells the query-builder to eager-load the nodes that are connected to
+// the "credential_types" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithCredentialTypes(opts ...func(*CredentialTypeQuery)) *OrganizationQuery {
+	query := (&CredentialTypeClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withCredentialTypes = query
+	return _q
+}
+
+// WithCredentials tells the query-builder to eager-load the nodes that are connected to
+// the "credentials" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithCredentials(opts ...func(*CredentialQuery)) *OrganizationQuery {
+	query := (&CredentialClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withCredentials = query
 	return _q
 }
 
@@ -551,11 +623,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Organization{}
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [8]bool{
 			_q.withDevices != nil,
 			_q.withTeams != nil,
 			_q.withInventories != nil,
 			_q.withTemplates != nil,
+			_q.withCredentialTypes != nil,
+			_q.withCredentials != nil,
 			_q.withAnnouncements != nil,
 			_q.withContacts != nil,
 		}
@@ -603,6 +677,20 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		if err := _q.loadTemplates(ctx, query, nodes,
 			func(n *Organization) { n.Edges.Templates = []*Template{} },
 			func(n *Organization, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withCredentialTypes; query != nil {
+		if err := _q.loadCredentialTypes(ctx, query, nodes,
+			func(n *Organization) { n.Edges.CredentialTypes = []*CredentialType{} },
+			func(n *Organization, e *CredentialType) { n.Edges.CredentialTypes = append(n.Edges.CredentialTypes, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withCredentials; query != nil {
+		if err := _q.loadCredentials(ctx, query, nodes,
+			func(n *Organization) { n.Edges.Credentials = []*Credential{} },
+			func(n *Organization, e *Credential) { n.Edges.Credentials = append(n.Edges.Credentials, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -742,6 +830,68 @@ func (_q *OrganizationQuery) loadTemplates(ctx context.Context, query *TemplateQ
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "organization_templates" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadCredentialTypes(ctx context.Context, query *CredentialTypeQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *CredentialType)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.CredentialType(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.CredentialTypesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_credential_types
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_credential_types" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_credential_types" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadCredentials(ctx context.Context, query *CredentialQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *Credential)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Credential(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.CredentialsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_credentials
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_credentials" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_credentials" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

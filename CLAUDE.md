@@ -41,7 +41,22 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   device's credential and attaches it to the dispatch payload, so a secret rides the one
   JetStream stream and can persist there for up to its retention window; and PLAN.md Section
   17.4's full `CredentialStore` (rotation, Vault, PFX) is still unbuilt, with the Controller
-  using the same file-backed store the Walk tier does.
+  using the same file-backed store the Walk tier does for per-device credentials.
+- **Credential types and the injector engine are real (Phase 22).** A type is data
+  (`internal/credtype`), an AWX export decodes into it with no translation layer, and its
+  injectors are rendered by the one shared template engine (`internal/render`) and injected
+  at fan-out into env vars, extra vars and generated files. Bound credentials reach a real
+  `ansible-playbook` in a real container, proven by
+  `cmd/runner/ansible_injection_release_gate_test.go` and by
+  `tests/e2e/credential_injection_test.go` through the real binaries. Four caveats, each
+  enforced rather than merely stated: `env` and `file` injectors are refused on the native
+  Go path (Section 29.4 keeps the stricter rule there) at bind time and again at run time;
+  one external secret source is implemented (`file`) and eight are declared-not-implemented;
+  a prompted credential input is never stored, so such a job cannot be relaunched; and the
+  one-per-kind binding rule is application-enforced, not a database constraint. The
+  JetStream caveat above gets **larger in volume and identical in kind**: a template
+  binding a cloud credential plus two file-generating ones puts several more secrets on
+  the same message, including whole PEM bodies.
 - **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
   Center) and `net.ssh.ping` are implemented.** Everything else returns an explicit "declared
   but not implemented" error rather than a silent no-op.

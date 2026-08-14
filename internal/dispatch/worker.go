@@ -67,6 +67,14 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return fmt.Errorf("failed to decode job.requested payload: %w", err)
 	}
 
+	// Prompted credential inputs live on this Worker for exactly the span
+	// of this call, and the deferred forget runs on every exit path,
+	// including the ones that return before injection: a plaintext value
+	// held past the fan-out that needed it is a plaintext value held for no
+	// reason.
+	w.rememberPrompted(payload.JobID, payload.Prompted)
+	defer w.forgetPrompted(payload.JobID)
+
 	began, fence, err := w.store.BeginFanOut(ctx, payload.JobID, w.fanOutLeaseTTL)
 	if err != nil {
 		return fmt.Errorf("failed to begin fan-out for job %s: %w", payload.JobID, err)
@@ -178,6 +186,37 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
+	// Credentials are resolved and rendered ONCE per job, here, before any
+	// device is considered, rather than once per device inside the loop.
+	// They are launch-time values: every device in a fan-out receives the
+	// identical artifact, so rendering per device would repeat the same
+	// work ten thousand times and register the same secrets ten thousand
+	// times with the masking set.
+	//
+	// A failure fails the whole job rather than recording a per-device
+	// outcome, and that is the honest shape: a credential that cannot be
+	// resolved or rendered is not a property of any one device, and writing
+	// ten thousand identical JobTask rows saying so would bury the one
+	// sentence an operator needs. It is the same treatment source.Prepare's
+	// failure above already gets, for the same reason.
+	injected, reason, err := w.injectFor(ctx, job)
+	if err != nil {
+		// The full error is logged server-side; reason is the sanitised
+		// sentence the job record carries. Neither ever contains a
+		// credential value: internal/credtype's own messages are written to
+		// that rule, and resolve's are too.
+		slog.Error("job fan-out could not inject its credentials",
+			slog.String("job_id", job.JobID),
+			slog.String("error", err.Error()))
+		if failErr := w.store.Fail(ctx, job.JobID, fence, reason); failErr != nil {
+			if fenced(job.JobID, failErr) {
+				return nil
+			}
+			return fmt.Errorf("failed to record job %s as failed: %w", job.JobID, failErr)
+		}
+		return nil
+	}
+
 	selector, reason, err := w.targetSelector(ctx, job)
 	if err != nil {
 		// The repository's own error text is logged server-side only and
@@ -242,7 +281,7 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		// payload construction, publish, and the RecordTask write for
 		// exactly one device; see that file's own doc comment for why
 		// this block lives there rather than inline in this loop.
-		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, evt, device)
+		outcome, err := w.admitAndDispatchDevice(ctx, job, fence, prepared, injected, evt, device)
 		if err != nil {
 			if fenced(job.JobID, err) {
 				return nil

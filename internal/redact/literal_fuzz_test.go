@@ -1,18 +1,16 @@
-package credential_test
+package redact
 
 import (
 	"strings"
 	"testing"
-
-	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
-// FuzzMask fuzzes Mask with a single (secret, text) pair, asserting the
+// FuzzMaskNeverEmitsASecret fuzzes the by-value channel with a single (secret, text) pair, asserting the
 // two invariants Mask's doc comment promises: it never panics, and
 // (except for the documented leading/trailing-asterisk exception, see
-// mask.go) if secret is non-empty and actually occurs in text, the
+// literal.go) if secret is non-empty and actually occurs in text, the
 // masked output never contains secret as a substring.
-func FuzzMask(f *testing.F) {
+func FuzzMaskNeverEmitsASecret(f *testing.F) {
 	f.Add("", "")
 	f.Add("secret", "the secret is secret")
 	f.Add("abc", "abcdef")
@@ -23,13 +21,13 @@ func FuzzMask(f *testing.F) {
 	f.Add("", "some text with no secrets")
 	f.Add("tok", "tok-tok-tok")
 	// A middle-asterisk secret: never subject to the boundary exception
-	// (see mask.go's doc comment for why), so this must always hold.
+	// (see literal.go's doc comment for why), so this must always hold.
 	f.Add("a*b", "xa*by")
 	// The exact placeholder-boundary reconstruction this test's exception
 	// carve-out exists for: masking `*"` inside `*""` leaves a trailing
 	// `"` right after the placeholder, whose last `*` and that leftover
-	// `"` spell the secret back out. See TestMask_LeadingAsteriskBoundaryException
-	// (mask_test.go) for the same shape as a permanent, named regression.
+	// `"` spell the secret back out. See TestMaskLiterals_LeadingAsteriskBoundaryException
+	// (literal_test.go) for the same shape as a permanent, named regression.
 	f.Add("*\"", "*\"\"")
 
 	f.Fuzz(func(t *testing.T, secret, text string) {
@@ -41,10 +39,10 @@ func FuzzMask(f *testing.F) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					t.Fatalf("Mask panicked on secret=%q text=%q: %v", secret, text, r)
+					t.Fatalf("maskLiterals panicked on secret=%q text=%q: %v", secret, text, r)
 				}
 			}()
-			out = credential.Mask([]string{secret}, text)
+			out = maskLiterals([]string{secret}, text)
 		}()
 
 		if secret == "" {
@@ -58,7 +56,7 @@ func FuzzMask(f *testing.F) {
 			return
 		}
 
-		// Documented exception (mask.go): a secret starting or ending
+		// Documented exception (literal.go): a secret starting or ending
 		// with '*' can be reconstructed across a placeholder's boundary
 		// with adjacent, unrelated leftover text, since the placeholder
 		// itself is built from '*' and Mask inserts no separator. Skip

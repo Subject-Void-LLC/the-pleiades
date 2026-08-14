@@ -1,0 +1,21 @@
+{
+  "name": "Vault",
+  "namespace": "vault",
+  "kind": "vault",
+  "managed": true,
+  "description": "An Ansible Vault password, optionally carrying the identifier that lets several be used in one run.",
+  "inputs": {
+    "fields": [
+      {"id": "vault_password", "label": "Vault Password", "type": "string", "secret": true, "ask_at_runtime": true},
+      {
+        "id": "vault_id",
+        "label": "Vault Identifier",
+        "type": "string",
+        "format": "vault_id",
+        "help_text": "Specify an (optional) Vault ID. This is equivalent to specifying the --vault-id Ansible parameter for providing multiple Vault passwords."
+      }
+    ],
+    "required": ["vault_password"]
+  },
+  "injectors": {}
+}

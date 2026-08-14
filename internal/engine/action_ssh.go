@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
@@ -128,7 +129,7 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 
 	result, err := binding.Transport.Exec(ctx, target, cred, command)
 	if err != nil {
-		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %s", task.FQCN, device.Name(), credential.Mask(secrets, err.Error()))
+		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %s", task.FQCN, device.Name(), redact.Text(secrets, err.Error()))
 	}
 
 	// Mask every secret value this credential actually carries out of the
@@ -137,8 +138,8 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	// phase's masking-ruleset requirement: a command that happens to echo
 	// its own password or key material back must never leak it past this
 	// point.
-	stdout := credential.Mask(secrets, result.Stdout)
-	stderr := credential.Mask(secrets, result.Stderr)
+	stdout := redact.Text(secrets, result.Stdout)
+	stderr := redact.Text(secrets, result.Stderr)
 
 	if result.ExitCode != 0 {
 		return ActionResult{}, fmt.Errorf(

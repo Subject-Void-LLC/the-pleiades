@@ -110,4 +110,31 @@ const (
 	// either -- the admission chain checks each scope by name, so a token
 	// meant to browse and launch carries both.
 	ScopeRunbookRead Scope = "runbook:read"
+
+	// ScopeCredentialRead grants the right to see that a credential
+	// exists, what type it is, and which templates bind it.
+	//
+	// It never grants the right to read a secret value, and that is a
+	// property of the code rather than of this comment: no endpoint
+	// returns one. The read path holds a credstore.Store, whose projection
+	// replaces every secret input with a redaction marker and has no field
+	// a real value could occupy, and the interface that can decrypt lives
+	// in a package internal/api is forbidden by internal/archtest from
+	// importing. Granting this scope to somebody is granting them a
+	// catalog, not a keyring.
+	ScopeCredentialRead Scope = "credential:read"
+
+	// ScopeCredentialWrite grants create, update and delete of credentials
+	// and custom credential types, and binding a credential to a template.
+	//
+	// Binding is deliberately here rather than under ScopeTemplateWrite,
+	// and the distinction is the same one ScopeTemplateWrite and
+	// ScopeRunbookExecute already draw from the other direction. A template
+	// author decides WHAT runs. Whoever binds a credential decides what it
+	// runs AS, which is the higher privilege of the two: it is the
+	// difference between writing a playbook and choosing which production
+	// account executes it. An operator trusted to maintain templates does
+	// not thereby acquire the right to point one at the domain admin
+	// credential.
+	ScopeCredentialWrite Scope = "credential:write"
 )

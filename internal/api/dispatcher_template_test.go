@@ -109,7 +109,7 @@ func TestLaunchTemplate_WritesTheTenantAJobInheritsFromItsInventory(t *testing.T
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, newCapturingBus(),
 		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
 
-	jobID, ignored, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{})
+	jobID, ignored, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil)
 	if err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestLaunchTemplate_CapturesWhatItResolvedOntoTheJob(t *testing.T) {
 	// one plus the template's own default for the locked one is what
 	// should reach the job record.
 	jobID, ignored, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12,
-		launch.Config{Overrides: launch.Fields{"limit": "edge-02"}})
+		launch.Config{Overrides: launch.Fields{"limit": "edge-02"}}, nil)
 	if err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestLaunchTemplate_ReportsWhatItRefusedRatherThanRefusingTheLaunch(t *testi
 
 	jobID, ignored, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{
 		Overrides: launch.Fields{"limit": "edge-01", "forks": 100},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestLaunchTemplate_RefusesWhatNoConfigurationCouldFix(t *testing.T) {
 
 	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{
 		Answers: map[string]any{"version": "99.9"},
-	}); !errors.Is(err, launch.ErrSurveyAnswer) {
+	}, nil); !errors.Is(err, launch.ErrSurveyAnswer) {
 		t.Errorf("LaunchTemplate with an invalid answer returned %v, want ErrSurveyAnswer", err)
 	}
 
@@ -249,7 +249,7 @@ func TestLaunchTemplate_RefusesWhenTheTemplatePortIsNotWired(t *testing.T) {
 	// A convenience for existing harnesses is not a permission. Falling
 	// back to a launch that names no template would produce a job with no
 	// tenant and no kind, which is the state this phase exists to end.
-	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}); err == nil {
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil); err == nil {
 		t.Error("LaunchTemplate succeeded with no template port wired")
 	}
 }
@@ -258,7 +258,7 @@ func TestLaunchTemplate_ReportsAMissingTemplate(t *testing.T) {
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), newTestJobStore(t), newCapturingBus(),
 		api.WithTemplates(stubTemplates{err: launch.ErrNotFound}))
 
-	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 99, launch.Config{}); !errors.Is(err, launch.ErrNotFound) {
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 99, launch.Config{}, nil); !errors.Is(err, launch.ErrNotFound) {
 		t.Errorf("LaunchTemplate of a missing template returned %v, want ErrNotFound", err)
 	}
 }
@@ -271,7 +271,7 @@ func TestLaunchTemplate_ReportsAFailedPersistAndAFailedPublish(t *testing.T) {
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), failingJobs, newCapturingBus(),
 		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
 
-	jobID, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{})
+	jobID, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil)
 	if err == nil {
 		t.Error("LaunchTemplate reported success when the job could not be persisted")
 	}
@@ -287,7 +287,7 @@ func TestLaunchTemplate_ReportsAFailedPersistAndAFailedPublish(t *testing.T) {
 	dispatcher = api.NewDispatcher(newTestRunbookSource(t, "pb-1"), jobs, &erroringBus{err: errors.New("nats is down")},
 		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
 
-	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}); err == nil {
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil); err == nil {
 		t.Error("LaunchTemplate reported success when the event could not be published")
 	}
 }
@@ -304,14 +304,14 @@ func TestLaunchTemplate_RefusesToLaunchWithAConfigurationItCannotRecord(t *testi
 
 	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{
 		Overrides: launch.Fields{"limit": "edge-01"},
-	}); err == nil {
+	}, nil); err == nil {
 		t.Error("LaunchTemplate recorded nothing and reported success")
 	}
 
 	// A launch that supplied nothing has nothing to record, so it is
 	// unaffected: the refusal is about losing information, not about the
 	// port being absent.
-	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}); err != nil {
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil); err != nil {
 		t.Errorf("LaunchTemplate with nothing to record: %v", err)
 	}
 }

@@ -71,6 +71,9 @@ func openAPIPaths() map[string]any {
 		if len(ep.Params) == 0 {
 			delete(methodObj, "parameters")
 		}
+		if body := openAPIRequestBody(ep); body != nil {
+			methodObj["requestBody"] = body
+		}
 
 		pathItem, ok := paths[ep.Pattern].(map[string]any)
 		if !ok {
@@ -80,6 +83,50 @@ func openAPIPaths() map[string]any {
 		pathItem[openAPIMethodKey(ep.Method)] = methodObj
 	}
 	return paths
+}
+
+// openAPIRequestBody renders an endpoint's declared request schema, or nil
+// when it accepts no body.
+//
+// # Why this exists
+//
+// apispec.Endpoint has carried RequestContentType and RequestSchema since
+// the route table was written, more than twenty endpoints declare them, and
+// until Phase 22 this generator emitted none of them. Every one of those
+// schemas was correctly declared and never read by anything downstream,
+// which is FAILURE_PATTERNS.md #116's exact shape, here in the documentation
+// generator rather than in an execution path.
+//
+// The consequence was concrete rather than cosmetic: the published OpenAPI
+// document described how to CALL every endpoint and not what to send to any
+// of them, so a client generated from it could read a credential and could
+// not create one.
+//
+// # required
+//
+// It is read off the schema itself rather than declared separately, because
+// a second place to say which fields are required is a second place for the
+// answer to be wrong. A schema with no "required" key produces a body with
+// no required list, which is correct for the several endpoints whose fields
+// are all optional (a launch that supplies nothing is a POST with no body).
+func openAPIRequestBody(ep apispec.Endpoint) map[string]any {
+	if ep.RequestContentType == "" || len(ep.RequestSchema) == 0 {
+		return nil
+	}
+
+	// Required when the schema names a required field. An endpoint whose
+	// fields are all optional accepts a request with no body at all, and
+	// marking that required would make a legal call look illegal.
+	required, _ := ep.RequestSchema["required"].([]any)
+
+	return map[string]any{
+		"required": len(required) > 0,
+		"content": map[string]any{
+			ep.RequestContentType: map[string]any{
+				"schema": ep.RequestSchema,
+			},
+		},
+	}
 }
 
 func openAPIMethodKey(method string) string {

@@ -2,7 +2,7 @@ module github.com/Subject-Void-LLC/the-pleiades
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	entgo.io/ent v0.14.6

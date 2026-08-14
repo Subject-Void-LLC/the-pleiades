@@ -1532,3 +1532,130 @@ The generalizable check: when a resolve-and-persist path is declared complete, l
 It would also have had zero observable effect, on every real dispatch, forever. `internal/adapters/native`'s `singleDeviceResolver.Resolve` ignores whatever target string a task names and always returns the one device this Runner invocation was dispatched against, by design: a `wire.DispatchPayload` already names one already-admitted device, and the per-device fan-out that would give "forks" something real to bound happens one layer up, in `internal/dispatch`'s own `Worker` loop, over NATS, never inside one `Execute` call. Every device-targeting task also acquires an exclusive per-device lock before running (`executor.go`'s `runOne`), unconditionally. So even two independent tasks in the same DAG level, both resolving to that one device, would serialize on the lock regardless of `maxConcurrency`'s value. There is no path through this call, for any real dispatch, where more than one action targeting that device is ever in flight at once — the parameter would have been read, stored, and never once made a scheduling difference.
 
 **Why it generalises.** A roadmap or a spec naming a target parameter ("wire X into the engine's own concurrency control") is telling you where a mechanism with that shape already lives in the codebase, not asserting that connecting a new field to it will do anything — the mechanism's own arity at the *specific call site* being changed still has to be checked. The tell here was available without reading a line of `internal/dispatch`: `NewAdapter`'s own doc comment already states this Adapter is scoped to "the one device this payload names," and a resolver with exactly one possible return value can never make a bound on the size of that return value observable, no matter what the bound is set to. Before wiring a resolved field into a parameter that merely shares its name and domain concept with the field (forks ~ concurrency, limit ~ target-set size), trace what that parameter actually bounds at *this* call site, not what it bounds in general or at a different call site in the same codebase — `internal/engine/executor_test.go`'s own `TestExecutor_ConcurrencyBound` proves `maxConcurrency` genuinely works, over eight *devices* one call resolves to; it says nothing about a resolver that can only ever resolve to one. Wiring a real value into a real parameter with a provably absent effect is worse than leaving the field unread and documenting it as inert: on inspection, it reads as fixed.
+
+## 107. A shared-primitive table's "Build by" column is a claim about ordering that its own call sites can falsify, and the first consumer is the one that finds out
+
+**What happened.** `PLAN.md` Section 25 lists the contracts that must have exactly one implementation in this codebase, each with a "Build by" phase and a "Call sites" list. Its "Template renderer" row named Phase 28 as the builder and listed credential injectors first among the call sites. Phase 22 owns credential injectors, and Phase 22 comes first.
+
+An AWX injector document writes every value as a Jinja template over the credential type's own input ids (`{{ api_token }}`), which the committed parity corpus shows directly. So there is no version of Phase 22 that ships injectors without a renderer. Honoring the table as written left exactly two options, and both are defects: build a private renderer inside the credential package, which is the second implementation Section 25 exists to forbid, or ship the phase without its central feature.
+
+The disagreement was not hidden. `IMPLEMENTATION.md` Phase 22's own checklist says "Build the one shared Jinja-compatible renderer with compile-and-cache, consumed later by Phase 28." Phase 28's checklist says "Render messages through the Phase 22 renderer. A second renderer is a gate failure." `AWX_PARITY_ROADMAP.md`'s A2 section lists the renderer among A2's contents. Three documents agreed with each other and only the table disagreed, and the table is the one a reader consults when asking "who builds this."
+
+**Why it generalises.** This is the fourth correction of this exact shape on this one table. Three earlier ones moved the hierarchical policy resolver and the typed generic Registry from Phase 21 to Phase 6, and keyset pagination from Phase 23 to Phase 7. In every case the table named a phase that consumed the primitive prominently rather than the phase that first structurally required it, and in every case the phase's own checklist body already said the right thing. The pattern is stable enough to state as a rule: a summary table that attributes ownership across phases ages against the phase bodies it summarizes, because a phase body gets edited by whoever is doing that phase and the table gets edited by nobody.
+
+The check is cheap and specific. Before consuming a Section 25 primitive, read the "Call sites" column, find the earliest phase named there, and open that phase's own checklist. If the earliest call site's phase precedes the "Build by" phase, the table is stale and correcting it is the first commit of the work, not a documentation cleanup afterwards. `.AGENTS/AGENTS.md`'s Architecture Mismatch and Map Verification Protocol already requires this ("If the map is missing an entry you need, add the entry to the map before you write the code"), and the reason it is worth restating here is that a stale "Build by" does not read like a missing entry. It reads like a decision, and a decision is the thing an implementer is least likely to second-guess.
+
+## 108. A package generated code imports can never import anything that imports the generated code, and the escape hatch is an external test package
+
+**The incident.** Phase 22's plan gave `internal/credtype` an `Artifact.Machine()` returning `credential.Credential`, which required `internal/credtype` to import `internal/credential`. It cannot. `internal/ent` imports `internal/credtype` for its own `field.JSON` column types, and `internal/credential`'s dependency closure reaches `internal/ent` through `internal/crypto`. The import would have closed a four-package cycle and nothing in the module would have built.
+
+The mistake was cheap to catch and would have been expensive to discover late: it was found with one `go list -deps` before any code was written, and would otherwise have surfaced as a compile failure only after the accessor, its callers and its tests existed.
+
+**What made it non-obvious.** `internal/credtype` is a pure domain package with no storage, no encryption and no database, and its own package comment says so. Nothing about reading it suggests it sits *under* the ORM. The dependency runs the other way from how the packages read: the generated code imports the domain type, so the domain type inherits a constraint from a package it has never heard of and would never think to check.
+
+**The consequence, and the recovery.** `Artifact.Machine()` returns the flattened `map[string]string` instead, which turned out to be better anyway: the one consumer assigns it straight to `wire.DispatchPayload.Secrets`, which is already that type, so the accessor removed a conversion rather than adding one. The four key names (`username`, `password`, `private_key_pem`, `passphrase`) are restated in `credtype` rather than imported, following the precedent `internal/catalog/net/catalyst/client.go` already sets for a related reason and which `internal/credential/flatten.go`'s own doc comment already anticipated ("the literal strings are the contract").
+
+A restated contract needs a test holding both halves together, or it drifts, and the drift here is silent in the worst direction: a machine credential injected under a key the transport does not read presents as an authentication failure against the device rather than as a bug in this repository. The test cannot live in either package, because either one importing the other is the cycle. It lives in `credtype_test`, an EXTERNAL test package, which is compiled after both and may import either. That is the general escape hatch and it is worth knowing about before it is needed.
+
+**Rule.** Before importing anything into a package that generated code depends on, run `go list -deps` on the candidate and look for the generated package. When the answer is that the import is impossible, restate the contract and put the agreement test in an external test package (`foo_test`), which is the one place both sides are importable at once.
+
+## 109. A plan's count of what an external system offers is a claim about that system, and the system's own source is the only thing that settles it
+
+**The incident.** The plan for Phase 22's third stage said that roughly twenty of
+AWX's managed credential types have injectors that are "pure data", and that shipping
+them was therefore a copying exercise. The stage's deliverable was sized around that
+number: about twenty types shipped, five declared and not implemented.
+
+The number is wrong, and not marginally. AWX registers twenty-two managed credential
+types, and exactly ONE of them has a data injector document this platform can copy.
+Seven build their environment in Python through a `custom_injectors` function and
+their injector document is empty; two use Jinja control flow that this platform's
+renderer refuses by design; twelve declare no injectors at all because something other
+than injection consumes them. The stage shipped six types and declared sixteen, which
+is close to the inverse of what was planned.
+
+**How it was found, and how nearly it was not.** The plan's claim is plausible. AWX
+documents credential types as data, its API returns an `injectors` object for every
+one of them, and the public documentation for writing a custom credential type is
+entirely about that document. Reading about AWX supports the claim; only reading AWX
+refutes it. The refutation took one fetch of
+`awx_plugins.credentials.plugins`, which is a file, not an argument.
+
+The failure mode if it had not been checked is the expensive one. The types would have
+been transcribed from memory and documentation, they would have validated, they would
+have passed every test written against them, and they would have injected environments
+that differ from AWX's in ways nobody notices until a customer's playbook authenticates
+against the wrong thing. `aws` is the concrete case: transcribed naively it sets
+`AWS_SESSION_TOKEN` to the empty string when no session token is configured, and
+botocore treats a present-but-empty session token as a credential to use, failing the
+request instead of falling back to the access key. A silent authentication failure
+attributed to the wrong subsystem, which is precisely what the phase existed to
+prevent.
+
+**What changed as a result.** Correcting the map came before the code, per the
+Architecture Mismatch protocol, and the correction lives in the package doc of the
+thing it governs. The fidelity test also changed shape: for the seven Python types
+there is no document to be faithful TO, so faithfulness is measured on the resulting
+environment rather than on the document, which is what licensed adding one field AWX
+does not have (`Injectors.OmitEmpty`) in order to reproduce a condition AWX expresses
+in code.
+
+**The rule.** When a plan quantifies what an external system provides ("about twenty
+of its types", "most of its endpoints", "all of these are declarative"), that is a
+factual claim about somebody else's code, and it is the kind of claim that is written
+from documentation and believed from familiarity. Fetch the authority and count,
+before sizing the work around the number. When the count is wrong, the deliverable
+changes, and shipping the planned quantity by transcribing from memory produces
+artifacts that pass their own tests and are wrong against the system they exist to be
+compatible with.
+
+## 110. A gate that is red for a reason unrelated to the diff is still a red gate, and deferring it also blinds every gate behind it
+
+**The incident.** Phase 22c ended with `govulncheck` reporting six standard-library
+advisories. The session's handoff recorded this honestly and in detail: the findings
+were verified pre-existing by stashing every change and re-running, they were
+`go1.26.5` advisories fixed in `go1.26.6`, and they were correctly described as "a
+toolchain bump unrelated to this work." Every word of that is true. The branch was
+pushed anyway, GitHub Actions ran `make ci` on it, `govulncheck` failed exactly as it
+had locally, and the build went red on a commit whose diff had nothing to do with the
+finding.
+
+**Why "pre-existing" was the wrong category.** The verification was real and the
+conclusion drawn from it was not. Establishing that a finding predates the diff answers
+"whose fault is this", which no gate asks. `make ci` asks whether the tree passes now,
+and the CI job runs the identical target from the identical `Makefile` against the
+identical pinned scanner. There is no reading of "unrelated to this work" under which
+that job goes green. The provenance investigation and the push decision were about
+different questions, and the answer to the first was allowed to settle the second.
+
+**`govulncheck` specifically has no stable notion of "pre-existing."** The `Makefile`'s
+own comment above `GOVULNCHECK_VERSION` says the scanner is pinned but the database is
+not: it is fetched from `vuln.go.dev` at run time, by design, "so a newly published
+advisory against a dependency still fails CI the day it lands." That cuts in both
+directions. It is what makes a red `govulncheck` genuinely not the diff's fault — the
+advisory can appear against a tree nobody touched. It is also what makes deferring one
+unsafe, because the finding does not age out; the next CI run inherits it, and so does
+the next contributor, who now cannot tell their own regression from the carried-over
+one. The whole class is cheap to clear: this one was a single character in `go.mod`,
+`toolchain go1.26.5` to `go1.26.6`, which took all six findings to zero.
+
+**The part that cost the most information.** `make ci` is a sequential prerequisite
+list — `build vet fmt test-race test-integration gosec govulncheck coverage docs-lint
+docs-gen-check templ-gen-check` — and stops at the first failure. `govulncheck` sits
+ahead of four other checks. The same handoff recorded a *second* known-red item,
+`docs-gen-check`, which lives behind it. The CI log therefore reported one problem, not
+two, and said nothing whatsoever about `coverage`, `docs-lint`, `docs-gen-check` or
+`templ-gen-check` — they never executed. Deferring an early gate does not leave the
+later ones passing, it leaves them unobserved, and it converts one red build into a
+sequence of them, each revealing the next failure only after the previous is fixed.
+(Here the four behind it turned out to be green, which is luck, not evidence: it was
+unknowable until `govulncheck` was cleared.)
+
+**The rule.** Do not push with a gate red, whatever the diff's relationship to the
+failure. "Pre-existing", "flaky", "unrelated", and "someone else's" are explanations
+for a failure, never authorizations to ship past one — the only sanctioned tolerance in
+this repository is the explicit, named, written-reason kind (`flaky-packages.json`,
+`gosec-waivers.json`), and a finding that fits none of those categories is work, not
+context. When a gate is red for a genuinely external reason, fix the external thing or
+add it to the waiver file with its reason; both are commits, and both are cheaper than
+the red build plus the unobserved gates queued behind it.

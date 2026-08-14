@@ -29,6 +29,7 @@ var commands = map[string]commandFunc{
 	"validate":       runValidate,
 	"run":            runRunbook,
 	"forge":          runForge,
+	"import":         runImport,
 	"inventory":      runInventory,
 	"doc":            runDoc,
 	"version":        runVersion,

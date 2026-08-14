@@ -13,6 +13,8 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -308,6 +310,36 @@ func (_u *OrganizationUpdate) AddTemplates(v ...*Template) *OrganizationUpdate {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
+func (_u *OrganizationUpdate) AddCredentialTypeIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddCredentialTypeIDs(ids...)
+	return _u
+}
+
+// AddCredentialTypes adds the "credential_types" edges to the CredentialType entity.
+func (_u *OrganizationUpdate) AddCredentialTypes(v ...*CredentialType) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialTypeIDs(ids...)
+}
+
+// AddCredentialIDs adds the "credentials" edge to the Credential entity by IDs.
+func (_u *OrganizationUpdate) AddCredentialIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddCredentialIDs(ids...)
+	return _u
+}
+
+// AddCredentials adds the "credentials" edges to the Credential entity.
+func (_u *OrganizationUpdate) AddCredentials(v ...*Credential) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialIDs(ids...)
+}
+
 // AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
 func (_u *OrganizationUpdate) AddAnnouncementIDs(ids ...int) *OrganizationUpdate {
 	_u.mutation.AddAnnouncementIDs(ids...)
@@ -425,6 +457,48 @@ func (_u *OrganizationUpdate) RemoveTemplates(v ...*Template) *OrganizationUpdat
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
+func (_u *OrganizationUpdate) ClearCredentialTypes() *OrganizationUpdate {
+	_u.mutation.ClearCredentialTypes()
+	return _u
+}
+
+// RemoveCredentialTypeIDs removes the "credential_types" edge to CredentialType entities by IDs.
+func (_u *OrganizationUpdate) RemoveCredentialTypeIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveCredentialTypeIDs(ids...)
+	return _u
+}
+
+// RemoveCredentialTypes removes "credential_types" edges to CredentialType entities.
+func (_u *OrganizationUpdate) RemoveCredentialTypes(v ...*CredentialType) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialTypeIDs(ids...)
+}
+
+// ClearCredentials clears all "credentials" edges to the Credential entity.
+func (_u *OrganizationUpdate) ClearCredentials() *OrganizationUpdate {
+	_u.mutation.ClearCredentials()
+	return _u
+}
+
+// RemoveCredentialIDs removes the "credentials" edge to Credential entities by IDs.
+func (_u *OrganizationUpdate) RemoveCredentialIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveCredentialIDs(ids...)
+	return _u
+}
+
+// RemoveCredentials removes "credentials" edges to Credential entities.
+func (_u *OrganizationUpdate) RemoveCredentials(v ...*Credential) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialIDs(ids...)
 }
 
 // ClearAnnouncements clears all "announcements" edges to the Announcement entity.
@@ -763,6 +837,96 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CredentialTypesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialTypesIDs(); len(nodes) > 0 && !_u.mutation.CredentialTypesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialTypesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialsIDs(); len(nodes) > 0 && !_u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -1154,6 +1318,36 @@ func (_u *OrganizationUpdateOne) AddTemplates(v ...*Template) *OrganizationUpdat
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
+func (_u *OrganizationUpdateOne) AddCredentialTypeIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddCredentialTypeIDs(ids...)
+	return _u
+}
+
+// AddCredentialTypes adds the "credential_types" edges to the CredentialType entity.
+func (_u *OrganizationUpdateOne) AddCredentialTypes(v ...*CredentialType) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialTypeIDs(ids...)
+}
+
+// AddCredentialIDs adds the "credentials" edge to the Credential entity by IDs.
+func (_u *OrganizationUpdateOne) AddCredentialIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddCredentialIDs(ids...)
+	return _u
+}
+
+// AddCredentials adds the "credentials" edges to the Credential entity.
+func (_u *OrganizationUpdateOne) AddCredentials(v ...*Credential) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialIDs(ids...)
+}
+
 // AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by IDs.
 func (_u *OrganizationUpdateOne) AddAnnouncementIDs(ids ...int) *OrganizationUpdateOne {
 	_u.mutation.AddAnnouncementIDs(ids...)
@@ -1271,6 +1465,48 @@ func (_u *OrganizationUpdateOne) RemoveTemplates(v ...*Template) *OrganizationUp
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
+func (_u *OrganizationUpdateOne) ClearCredentialTypes() *OrganizationUpdateOne {
+	_u.mutation.ClearCredentialTypes()
+	return _u
+}
+
+// RemoveCredentialTypeIDs removes the "credential_types" edge to CredentialType entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveCredentialTypeIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveCredentialTypeIDs(ids...)
+	return _u
+}
+
+// RemoveCredentialTypes removes "credential_types" edges to CredentialType entities.
+func (_u *OrganizationUpdateOne) RemoveCredentialTypes(v ...*CredentialType) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialTypeIDs(ids...)
+}
+
+// ClearCredentials clears all "credentials" edges to the Credential entity.
+func (_u *OrganizationUpdateOne) ClearCredentials() *OrganizationUpdateOne {
+	_u.mutation.ClearCredentials()
+	return _u
+}
+
+// RemoveCredentialIDs removes the "credentials" edge to Credential entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveCredentialIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveCredentialIDs(ids...)
+	return _u
+}
+
+// RemoveCredentials removes "credentials" edges to Credential entities.
+func (_u *OrganizationUpdateOne) RemoveCredentials(v ...*Credential) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialIDs(ids...)
 }
 
 // ClearAnnouncements clears all "announcements" edges to the Announcement entity.
@@ -1639,6 +1875,96 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CredentialTypesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialTypesIDs(); len(nodes) > 0 && !_u.mutation.CredentialTypesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialTypesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialTypesTable,
+			Columns: []string{organization.CredentialTypesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialtype.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialsIDs(); len(nodes) > 0 && !_u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.CredentialsTable,
+			Columns: []string{organization.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

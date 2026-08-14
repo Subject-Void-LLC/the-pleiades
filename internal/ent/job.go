@@ -58,6 +58,8 @@ type Job struct {
 	Fields map[string]interface{} `json:"fields,omitempty"`
 	// ExtraVars holds the value of the "extra_vars" field.
 	ExtraVars map[string]interface{} `json:"extra_vars,omitempty"`
+	// CredentialIds holds the value of the "credential_ids" field.
+	CredentialIds []int `json:"credential_ids,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the JobQuery when eager-loading is set.
 	Edges        JobEdges `json:"edges"`
@@ -87,7 +89,7 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case job.FieldFields, job.FieldExtraVars:
+		case job.FieldFields, job.FieldExtraVars, job.FieldCredentialIds:
 			values[i] = new([]byte)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
@@ -244,6 +246,14 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field extra_vars: %w", err)
 				}
 			}
+		case job.FieldCredentialIds:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field credential_ids", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.CredentialIds); err != nil {
+					return fmt.Errorf("unmarshal field credential_ids: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -352,6 +362,9 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("extra_vars=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ExtraVars))
+	builder.WriteString(", ")
+	builder.WriteString("credential_ids=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CredentialIds))
 	builder.WriteByte(')')
 	return builder.String()
 }

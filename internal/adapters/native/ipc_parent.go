@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -142,8 +142,8 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		e.logger.Debug("failed to close response pipe write end", slog.String("error", closeErr.Error()))
 	}
 
-	capturedOut := credential.Mask(secrets, stdout.String())
-	capturedErr := credential.Mask(secrets, stderr.String())
+	capturedOut := redact.Text(secrets, stdout.String())
+	capturedErr := redact.Text(secrets, stderr.String())
 
 	if e.logger != nil && (capturedOut != "" || capturedErr != "") {
 		e.logger.Debug("collection subprocess output",
@@ -161,7 +161,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 		return collection.Result{}, nil, fmt.Errorf("collection method %q: failed to decode subprocess response: %w (stderr: %s)", desc.Name, read.err, capturedErr)
 	}
 	if read.resp.Error != "" {
-		return collection.Result{}, nil, errors.New(credential.Mask(secrets, read.resp.Error))
+		return collection.Result{}, nil, errors.New(redact.Text(secrets, read.resp.Error))
 	}
 
 	return collection.Result{Changed: read.resp.Changed}, read.resp.Facts, nil

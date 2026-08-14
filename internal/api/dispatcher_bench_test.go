@@ -31,7 +31,7 @@ func BenchmarkLaunchTemplate(b *testing.B) {
 
 	b.ResetTimer()
 	for range b.N {
-		if _, _, err := dispatcher.LaunchTemplate(ctx, "bench@example.com", 12, cfg); err != nil {
+		if _, _, err := dispatcher.LaunchTemplate(ctx, "bench@example.com", 12, cfg, nil); err != nil {
 			b.Fatalf("LaunchTemplate: %v", err)
 		}
 	}

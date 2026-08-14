@@ -525,6 +525,20 @@ func (h *harness) startProcess(tb testing.TB, name, bin string, env []string) *m
 }
 
 // record appends one output line, keeping only the most recent ones.
+// pid returns the running process's own operating-system id, or zero if it
+// has not started or has already been reaped.
+//
+// It exists for the credential injection gate, which reads the Runner's own
+// /proc/<pid>/environ to prove PLAN.md Section 17.5's rule holds for the
+// Runner host: Section 29.4's exception permits a secret in the EPHEMERAL
+// CONTAINER's environment, never in the long-lived process that started it.
+func (p *managedProc) pid() int {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
 func (p *managedProc) record(line string) {
 	const keep = 60
 	p.mu.Lock()

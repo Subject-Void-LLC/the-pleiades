@@ -41,8 +41,8 @@ func registrars() []Registrar {
 		func(d Deps) error { return activity.Register(d.Activity) },
 		func(Deps) error { return approvals.Register() },
 		func(d Deps) error { return contacts.Register(d.Access) },
-		func(Deps) error { return credentials.Register() },
-		func(Deps) error { return credentialtypes.Register() },
+		func(d Deps) error { return credentials.Register(d.Credentials) },
+		func(d Deps) error { return credentialtypes.Register(d.Credentials, d.Render) },
 		func(d Deps) error { return dashboard.Register(d.Jobs, d.Announce) },
 		func(d Deps) error { return devices.Register(d.Inventory, d.Factory) },
 		func(Deps) error { return executionenvs.Register() },
@@ -59,7 +59,7 @@ func registrars() []Registrar {
 		func(Deps) error { return schedules.Register() },
 		func(d Deps) error { return teams.Register(d.Access) },
 		func(d Deps) error {
-			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog)
+			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog, d.Credentials)
 		},
 		func(d Deps) error { return users.Register(d.Access) },
 	}

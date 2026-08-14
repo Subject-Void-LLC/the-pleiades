@@ -133,6 +133,28 @@ type Template struct {
 	// list page renders one aggregate fetch per page rather than one job
 	// query per row.
 	RecentJobs []JobSummary
+
+	// CredentialIDs are the credentials bound to this template, in binding
+	// order, as opaque integers.
+	//
+	// Opaque is the whole design, and it is the same trick RecentJobs above
+	// uses for the same reason. A credential is a credtype.CredentialType
+	// with an input schema and an injector document, and this package
+	// importing internal/credtype would make internal/launch a package about
+	// credentials as well as about launching. It is not: it decides WHAT
+	// runs and with WHICH values, and a credential decides what the run
+	// authenticates AS, which is a different question answered at a
+	// different moment (fan-out) by a different package (internal/dispatch).
+	//
+	// So these ids are copied through untouched. Nothing here reads one,
+	// validates one, or knows what one points at. The binding rule
+	// (credtype.CheckBinding) runs where the bindings are written, and
+	// resolution runs at fan-out.
+	//
+	// The order is meaningful and is preserved: vault credentials reach
+	// ansible-playbook as ordered --vault-id arguments, and re-sorting here
+	// would silently reorder them.
+	CredentialIDs []int
 }
 
 // JobSummary is the sliver of a job's history a template's Activity column
@@ -253,6 +275,16 @@ type Resolved struct {
 	// ExtraVars is the merged variable set: template defaults, then the
 	// saved configuration, then survey answers, then this launch's own.
 	ExtraVars map[string]any
+
+	// CredentialIDs are the template's bound credentials, copied through as
+	// opaque integers. See Template.CredentialIDs for why they are opaque
+	// and why the order is preserved.
+	//
+	// A launch cannot add to or remove from this list. Which credentials a
+	// definition runs with is the template's decision, not the launching
+	// operator's: the two are different privileges, which is why binding
+	// sits under credential:write rather than under template:write.
+	CredentialIDs []int
 
 	AllowSimultaneous bool
 }

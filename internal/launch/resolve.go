@@ -156,6 +156,11 @@ func (t Template) Resolve(ctx context.Context, cfg Config) (Resolved, []IgnoredF
 		Fields:            result,
 		ExtraVars:         result.Map(extraVarsField),
 		AllowSimultaneous: t.AllowSimultaneous,
+		// Copied through untouched, and deliberately not merged with
+		// anything a caller supplied: cfg carries no credential ids and
+		// cannot, because which credentials a definition runs with is the
+		// template's decision rather than the launching operator's.
+		CredentialIDs: append([]int(nil), t.CredentialIDs...),
 	}, ignored, nil
 }
 

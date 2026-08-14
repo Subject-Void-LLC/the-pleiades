@@ -8,6 +8,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/activityentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/group"
@@ -117,6 +119,60 @@ func init() {
 	contactDescDisplayOrder := contactFields[6].Descriptor()
 	// contact.DefaultDisplayOrder holds the default value on creation for the display_order field.
 	contact.DefaultDisplayOrder = contactDescDisplayOrder.Default.(int)
+	credentialMixin := schema.Credential{}.Mixin()
+	credentialMixinFields0 := credentialMixin[0].Fields()
+	_ = credentialMixinFields0
+	credentialFields := schema.Credential{}.Fields()
+	_ = credentialFields
+	// credentialDescCreatedAt is the schema descriptor for created_at field.
+	credentialDescCreatedAt := credentialMixinFields0[0].Descriptor()
+	// credential.DefaultCreatedAt holds the default value on creation for the created_at field.
+	credential.DefaultCreatedAt = credentialDescCreatedAt.Default.(func() time.Time)
+	// credentialDescUpdatedAt is the schema descriptor for updated_at field.
+	credentialDescUpdatedAt := credentialMixinFields0[1].Descriptor()
+	// credential.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	credential.DefaultUpdatedAt = credentialDescUpdatedAt.Default.(func() time.Time)
+	// credential.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	credential.UpdateDefaultUpdatedAt = credentialDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// credentialDescName is the schema descriptor for name field.
+	credentialDescName := credentialFields[0].Descriptor()
+	// credential.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	credential.NameValidator = credentialDescName.Validators[0].(func(string) error)
+	// credentialDescSecretBinding is the schema descriptor for secret_binding field.
+	credentialDescSecretBinding := credentialFields[4].Descriptor()
+	// credential.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	credential.DefaultSecretBinding = credentialDescSecretBinding.Default.(func() string)
+	credentialtypeMixin := schema.CredentialType{}.Mixin()
+	credentialtypeMixinFields0 := credentialtypeMixin[0].Fields()
+	_ = credentialtypeMixinFields0
+	credentialtypeFields := schema.CredentialType{}.Fields()
+	_ = credentialtypeFields
+	// credentialtypeDescCreatedAt is the schema descriptor for created_at field.
+	credentialtypeDescCreatedAt := credentialtypeMixinFields0[0].Descriptor()
+	// credentialtype.DefaultCreatedAt holds the default value on creation for the created_at field.
+	credentialtype.DefaultCreatedAt = credentialtypeDescCreatedAt.Default.(func() time.Time)
+	// credentialtypeDescUpdatedAt is the schema descriptor for updated_at field.
+	credentialtypeDescUpdatedAt := credentialtypeMixinFields0[1].Descriptor()
+	// credentialtype.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	credentialtype.DefaultUpdatedAt = credentialtypeDescUpdatedAt.Default.(func() time.Time)
+	// credentialtype.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	credentialtype.UpdateDefaultUpdatedAt = credentialtypeDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// credentialtypeDescName is the schema descriptor for name field.
+	credentialtypeDescName := credentialtypeFields[0].Descriptor()
+	// credentialtype.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	credentialtype.NameValidator = credentialtypeDescName.Validators[0].(func(string) error)
+	// credentialtypeDescKind is the schema descriptor for kind field.
+	credentialtypeDescKind := credentialtypeFields[2].Descriptor()
+	// credentialtype.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	credentialtype.KindValidator = credentialtypeDescKind.Validators[0].(func(string) error)
+	// credentialtypeDescNamespace is the schema descriptor for namespace field.
+	credentialtypeDescNamespace := credentialtypeFields[3].Descriptor()
+	// credentialtype.NamespaceValidator is a validator for the "namespace" field. It is called by the builders before save.
+	credentialtype.NamespaceValidator = credentialtypeDescNamespace.Validators[0].(func(string) error)
+	// credentialtypeDescManaged is the schema descriptor for managed field.
+	credentialtypeDescManaged := credentialtypeFields[4].Descriptor()
+	// credentialtype.DefaultManaged holds the default value on creation for the managed field.
+	credentialtype.DefaultManaged = credentialtypeDescManaged.Default.(bool)
 	deviceMixin := schema.Device{}.Mixin()
 	deviceMixinFields0 := deviceMixin[0].Fields()
 	_ = deviceMixinFields0

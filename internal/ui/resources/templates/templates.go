@@ -543,7 +543,8 @@ func yesNo(v bool) string {
 // fill the inventory select, the dispatcher launches, the jobs answer "what
 // has this run", and the bindings answer "who can reach it".
 func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStore,
-	dispatcher *api.Dispatcher, bindings access.Bindings, catalog launch.Catalog) error {
+	dispatcher *api.Dispatcher, bindings access.Bindings, catalog launch.Catalog,
+	creds credentials) error {
 
 	return view.Register(view.Descriptor{
 		Name:     Name,
@@ -571,7 +572,8 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 			Delete: &apispec.DeleteTemplate,
 		},
 		Actions: []view.RecordAction{
-			launchAction(store, dispatcher),
+			launchAction(store, dispatcher, creds),
+			bindCredentialsAction(creds),
 			copyAction(store),
 		},
 		Sections: []view.Section{

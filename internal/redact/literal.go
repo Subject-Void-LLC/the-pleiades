@@ -1,11 +1,24 @@
-package credential
+package redact
 
 import (
 	"sort"
 	"strings"
 )
 
-// maskPlaceholder replaces every masked secret occurrence in Mask's
+// The by-value masking channel: a substring scrub over exact secret values
+// this process knows the bytes of.
+//
+// This algorithm was written for Phase 16 and lived in
+// internal/credential/mask.go as credential.Mask until Phase 22 moved it
+// here. It is relocated verbatim, doc comment included, rather than
+// rewritten. PLAN.md Section 25 allows the masking ruleset exactly one
+// implementation, and the choice was between this tested one and a new one;
+// a new one would have had to rediscover the asterisk-edge exception below,
+// which was found the hard way. credential.Mask no longer exists: a
+// surviving delegation would have been two names for one thing, which is
+// the duplication this section forbids under a different spelling.
+
+// maskPlaceholder replaces every masked secret occurrence in maskLiterals'
 // output, regardless of the length of the secret it stands in for.
 // Using a fixed placeholder instead of one sized to the secret is
 // deliberate: a variable-length placeholder would leak the secret's
@@ -13,11 +26,10 @@ import (
 // of side channel this function exists to close.
 const maskPlaceholder = "********"
 
-// Mask returns a copy of text with every non-empty string in secrets
-// replaced by maskPlaceholder wherever it appears as a substring. It is
-// this phase's minimal version of a masking ruleset: it exists so that
-// command output which happens to echo a password or key back does not
-// leak it into logs or an ActionResult's captured output.
+// maskLiterals returns a copy of text with every non-empty string in
+// secrets replaced by maskPlaceholder wherever it appears as a substring.
+// It exists so that command output which happens to echo a password or key
+// back does not leak it into logs or an ActionResult's captured output.
 //
 // Two rules make the result deterministic and safe:
 //
@@ -35,14 +47,14 @@ const maskPlaceholder = "********"
 //     secret before a shorter one gets a chance to carve into it.
 //
 // All matching happens against the original text before any placeholder
-// is inserted: Mask never re-scans its own output for further matches.
+// is inserted: this never re-scans its own output for further matches.
 // That means a secret equal to "*" or equal to maskPlaceholder itself
 // can only match real occurrences already present in the input text, not
-// occurrences of maskPlaceholder that Mask itself just produced.
+// occurrences of maskPlaceholder that were just produced here.
 //
 // There is one documented exception to "the output never contains the
 // secret," and it is broader than just "the secret is all asterisks":
-// Mask inserts no separator between a placeholder and the original text
+// no separator is inserted between a placeholder and the original text
 // immediately before or after it, so if a secret starts or ends with an
 // asterisk, the placeholder's own boundary asterisks can combine with
 // adjacent, unrelated leftover text to accidentally spell the secret
@@ -60,17 +72,33 @@ const maskPlaceholder = "********"
 // again within the span of one secret unless every character it crosses
 // is itself `*`. Concretely: the exception applies exactly when secret
 // has a leading or trailing '*' (a secret made solely of asterisks is
-// simply the case where both ends qualify); Mask still fully replaces
-// every real occurrence of such a secret (so its exact length and
+// simply the case where both ends qualify); every real occurrence of such
+// a secret is still fully replaced (so its exact length and
 // position in the original text are hidden), but "the output contains no
 // substring equal to the secret" is not a claim this function can make
 // for that shape of secret. Every other secret is not subject to this
 // exception.
 //
-// Mask never panics, regardless of nil or empty secrets, nil or empty
-// text, or secrets that repeat or overlap in any way.
-func Mask(secrets []string, text string) string {
+// maskLiterals never panics, regardless of nil or empty secrets, nil or
+// empty text, or secrets that repeat or overlap in any way.
+func maskLiterals(secrets []string, text string) string {
 	if text == "" || len(secrets) == 0 {
+		return text
+	}
+
+	// The short circuit, added in Phase 22 and worth its own explanation
+	// because it changes nothing about the result and a great deal about
+	// the cost.
+	//
+	// Almost every string handed to this function contains no secret at
+	// all: it is an ordinary log line in a process that happens to hold
+	// live credentials. The work below (sorting the secret list, allocating
+	// a claim table the length of the text, building a new string) is all
+	// wasted on that case, and it was being paid on every log line of every
+	// binary. Scanning first costs the same string searches the claim pass
+	// would have done anyway, allocates nothing, and returns the original
+	// string unchanged when there is nothing to do.
+	if !anySecretPresent(secrets, text) {
 		return text
 	}
 
@@ -92,10 +120,25 @@ func Mask(secrets []string, text string) string {
 	return buildMasked(claimed, text)
 }
 
+// anySecretPresent reports whether any non-empty secret occurs in text.
+//
+// Empty secrets are skipped here for the same reason maskLiterals skips
+// them: strings.Contains reports true for the empty string against any
+// text, so counting one would defeat the short circuit entirely and make
+// every call take the slow path.
+func anySecretPresent(secrets []string, text string) bool {
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(text, secret) {
+			return true
+		}
+	}
+	return false
+}
+
 // nonEmptySortedLongestFirst returns the non-empty entries of secrets,
-// sorted longest-first (rule 2 of Mask's doc comment). Ties break on the
-// string value itself so the result does not depend on the caller's
-// input order when two secrets share a length, keeping Mask's output
+// sorted longest-first (rule 2 of maskLiterals' doc comment). Ties break on
+// the string value itself so the result does not depend on the caller's
+// input order when two secrets share a length, keeping the output
 // deterministic for a given set of secrets regardless of how the caller
 // happened to list them.
 func nonEmptySortedLongestFirst(secrets []string) []string {
@@ -116,9 +159,9 @@ func nonEmptySortedLongestFirst(secrets []string) []string {
 
 // claimSecretOccurrences scans text left to right for non-overlapping
 // occurrences of secret and marks their byte ranges as claimed. A byte
-// already claimed by an earlier (longer, since Mask sorts longest-first)
-// secret is left alone: this is what stops a shorter secret from
-// re-claiming, and thus visually splitting, a span a longer secret
+// already claimed by an earlier (longer, since the caller sorts
+// longest-first) secret is left alone: this is what stops a shorter secret
+// from re-claiming, and thus visually splitting, a span a longer secret
 // already fully covers.
 func claimSecretOccurrences(claimed []bool, text, secret string) {
 	start := 0

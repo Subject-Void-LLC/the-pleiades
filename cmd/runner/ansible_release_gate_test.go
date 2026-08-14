@@ -3,6 +3,7 @@ package main_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -129,6 +130,18 @@ type ansibleReleaseGateHarness struct {
 
 func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleReleaseGateHarness {
 	t.Helper()
+	return newAnsibleReleaseGateHarnessWithLogger(t, playbookYAML, nil)
+}
+
+// newAnsibleReleaseGateHarnessWithLogger is the same harness with the
+// adapter's logger supplied by the caller.
+//
+// It exists for the injection gate's leak run, which asserts against every
+// byte the adapter's own logger wrote. A nil logger keeps
+// legacy.NewAdapter's own slog.Default() fallback, which is what every
+// other test in this package wants.
+func newAnsibleReleaseGateHarnessWithLogger(t *testing.T, playbookYAML string, logger *slog.Logger) *ansibleReleaseGateHarness {
+	t.Helper()
 	ctx := context.Background()
 
 	image := testsupport.BuildAnsibleRunnerImage(t)
@@ -187,7 +200,7 @@ func newAnsibleReleaseGateHarness(t *testing.T, playbookYAML string) *ansibleRel
 	}
 
 	orch := &observingOrchestrator{real: legacy.NewDockerOrchestrator()}
-	adapter := legacy.NewAdapter(bus, playbooks, orch, image, nil, legacy.WithNetworks([]string{net.Name}))
+	adapter := legacy.NewAdapter(bus, playbooks, orch, image, logger, legacy.WithNetworks([]string{net.Name}))
 	agent := runner.NewAgent(consumer, adapter, js, lock.NewInProcessManager(), topology.MaxDeliverDefault, nil, nil)
 
 	agentCtx, cancelAgent := context.WithCancel(ctx)

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
@@ -31,6 +32,7 @@ type TemplateQuery struct {
 	withInventory       *InventoryQuery
 	withSurveyQuestions *SurveyQuestionQuery
 	withSavedConfigs    *SavedLaunchConfigQuery
+	withCredentials     *CredentialQuery
 	withFKs             bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -149,6 +151,28 @@ func (_q *TemplateQuery) QuerySavedConfigs() *SavedLaunchConfigQuery {
 			sqlgraph.From(template.Table, template.FieldID, selector),
 			sqlgraph.To(savedlaunchconfig.Table, savedlaunchconfig.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, template.SavedConfigsTable, template.SavedConfigsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryCredentials chains the current query on the "credentials" edge.
+func (_q *TemplateQuery) QueryCredentials() *CredentialQuery {
+	query := (&CredentialClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(template.Table, template.FieldID, selector),
+			sqlgraph.To(credential.Table, credential.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, template.CredentialsTable, template.CredentialsPrimaryKey...),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -352,6 +376,7 @@ func (_q *TemplateQuery) Clone() *TemplateQuery {
 		withInventory:       _q.withInventory.Clone(),
 		withSurveyQuestions: _q.withSurveyQuestions.Clone(),
 		withSavedConfigs:    _q.withSavedConfigs.Clone(),
+		withCredentials:     _q.withCredentials.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -399,6 +424,17 @@ func (_q *TemplateQuery) WithSavedConfigs(opts ...func(*SavedLaunchConfigQuery))
 		opt(query)
 	}
 	_q.withSavedConfigs = query
+	return _q
+}
+
+// WithCredentials tells the query-builder to eager-load the nodes that are connected to
+// the "credentials" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *TemplateQuery) WithCredentials(opts ...func(*CredentialQuery)) *TemplateQuery {
+	query := (&CredentialClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withCredentials = query
 	return _q
 }
 
@@ -481,11 +517,12 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 		nodes       = []*Template{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
 			_q.withOrganization != nil,
 			_q.withInventory != nil,
 			_q.withSurveyQuestions != nil,
 			_q.withSavedConfigs != nil,
+			_q.withCredentials != nil,
 		}
 	)
 	if _q.withOrganization != nil || _q.withInventory != nil {
@@ -535,6 +572,13 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 		if err := _q.loadSavedConfigs(ctx, query, nodes,
 			func(n *Template) { n.Edges.SavedConfigs = []*SavedLaunchConfig{} },
 			func(n *Template, e *SavedLaunchConfig) { n.Edges.SavedConfigs = append(n.Edges.SavedConfigs, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withCredentials; query != nil {
+		if err := _q.loadCredentials(ctx, query, nodes,
+			func(n *Template) { n.Edges.Credentials = []*Credential{} },
+			func(n *Template, e *Credential) { n.Edges.Credentials = append(n.Edges.Credentials, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -664,6 +708,67 @@ func (_q *TemplateQuery) loadSavedConfigs(ctx context.Context, query *SavedLaunc
 			return fmt.Errorf(`unexpected referenced foreign-key "template_saved_configs" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
+	}
+	return nil
+}
+func (_q *TemplateQuery) loadCredentials(ctx context.Context, query *CredentialQuery, nodes []*Template, init func(*Template), assign func(*Template, *Credential)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int]*Template)
+	nids := make(map[int]map[*Template]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(template.CredentialsTable)
+		s.Join(joinT).On(s.C(credential.FieldID), joinT.C(template.CredentialsPrimaryKey[1]))
+		s.Where(sql.InValues(joinT.C(template.CredentialsPrimaryKey[0]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(template.CredentialsPrimaryKey[0]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := int(values[0].(*sql.NullInt64).Int64)
+				inValue := int(values[1].(*sql.NullInt64).Int64)
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Template]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*Credential](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "credentials" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
+		}
 	}
 	return nil
 }

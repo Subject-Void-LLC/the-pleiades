@@ -18,6 +18,10 @@ type Tx struct {
 	Announcement *AnnouncementClient
 	// Contact is the client for interacting with the Contact builders.
 	Contact *ContactClient
+	// Credential is the client for interacting with the Credential builders.
+	Credential *CredentialClient
+	// CredentialType is the client for interacting with the CredentialType builders.
+	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
 	// Fact is the client for interacting with the Fact builders.
@@ -182,6 +186,8 @@ func (tx *Tx) init() {
 	tx.ActivityEntry = NewActivityEntryClient(tx.config)
 	tx.Announcement = NewAnnouncementClient(tx.config)
 	tx.Contact = NewContactClient(tx.config)
+	tx.Credential = NewCredentialClient(tx.config)
+	tx.CredentialType = NewCredentialTypeClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)

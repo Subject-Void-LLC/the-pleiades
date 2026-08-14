@@ -16,6 +16,7 @@ import (
 	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -41,7 +42,13 @@ import (
 // fatal: a wrapped ErrFenced means this call's own claim was superseded
 // mid-device and the caller must stop the whole loop immediately, not
 // merely skip this one device.
-func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
+//
+// injected is this job's credential artifact, already rendered once for the
+// whole fan-out by the caller (see HandleJobRequested and inject.go for why
+// it is rendered there rather than here). It is the same value for every
+// device, and it is passed rather than recomputed so a ten-thousand-device
+// fan-out renders its credentials once.
+func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int64, prepared PreparedDefinition, injected credtype.Artifact, evt event.Event, device pkginventory.InventoryItem) (Outcome, error) {
 	if ok, reason := engine.LifecycleAdmits(device); !ok {
 		if err := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
@@ -118,6 +125,22 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 		payload.SSHPort = sshCapable.SSHPort()
 	}
 
+	// The template's own bound credentials, already rendered for the whole
+	// fan-out, reach the payload first. A machine credential among them
+	// supplies authentication for EVERY device in this dispatch, which is
+	// AWX's semantics: an operator binds one machine credential to a job
+	// template and every host in the inventory is reached with it.
+	//
+	// applyInjection (inject.go) is where that precedence lives, and its
+	// doc comment carries the reasoning for the ordering, including why the
+	// inverse would be worse.
+	applyInjection(&payload, injected)
+
+	// The per-device store is the FALLBACK, consulted only when the
+	// template bound no machine credential. It is what keeps every dispatch
+	// that exists today working unchanged, including the whole Walk tier,
+	// which has no template and no binding.
+	//
 	// The Controller resolves this device's credential now, at fan-out
 	// time, and attaches it directly to the payload (PLAN.md Section 17's
 	// Just-in-Time delivery principle, per Phase 16's own design
@@ -130,7 +153,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// being skipped outright, since a device that only runs
 	// capability-free tasks should not fail merely because credential
 	// storage itself is unhealthy.
-	if w.credentials != nil {
+	if payload.Secrets == nil && w.credentials != nil {
 		cred, err := w.credentials.Lookup(ctx, device.Name())
 		switch {
 		case err == nil:

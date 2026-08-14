@@ -109,12 +109,26 @@ always validates first and refuses to execute if validation reports any error.
 
 ### Threat model, briefly
 
-Pleiades stores exactly one class of durable secret today: device credentials
-(username plus a password or an SSH private key), encrypted at rest. There is no
-Vault, KMS, or other external secrets manager integration; the encrypted local file
-is the only credential store that exists. Read this as a real constraint when
-deciding whether Pleiades fits an environment that mandates a centralized secrets
-manager, not as a gap to work around.
+Pleiades stores two classes of durable secret.
+
+The first is device credentials: a username plus a password or an SSH private key,
+keyed by device name, encrypted at rest in a local file. This is the Walk tier's
+store and it is still what the control plane falls back to when a template binds no
+machine credential.
+
+The second is control-plane credentials: a credential of a declared type, holding
+whatever inputs that type declares, encrypted at rest in the database. These are the
+ones bound to templates, and they are what an AWX migration brings with it.
+
+One external secrets manager integration is implemented, and it is deliberately the
+simplest one: a credential input can name a file, resolved at the moment a job
+dispatches rather than when it was created. That covers a Kubernetes projected
+volume, a Vault Agent sidecar and the External Secrets Operator, which is how
+secrets arrive in a large fraction of deployments. Eight further sources are named
+after their AWX equivalents and return an explicit "declared but not implemented"
+error. There is still no direct Vault, KMS, or cloud secrets-manager client. Read
+that as a real constraint when deciding whether Pleiades fits an environment that
+mandates one, not as a gap to work around.
 
 ### Credential storage
 
@@ -140,6 +154,67 @@ Neither a runbook file nor `inventory.yaml` ever contains a password: the only
 place a device's own connection detail (host, port, and anything credential-shaped
 an inventory source adds) is stored is `Device.properties`, itself encrypted at
 rest with the same AES-256-GCM envelope mechanism in the control plane's database.
+
+### Credential types and the injector engine
+
+A credential type is data: an input schema saying what a credential of that type
+holds, and an injector document saying where those inputs go at run time. An
+administrator defines one over the API and an AWX export decodes into it directly.
+
+Six types ship with the platform and are installed on every controller start, under
+the same namespaces AWX uses: `ssh` (Machine), `vault`, `net` (Network), `aws`,
+`controller` (Red Hat Ansible Automation Platform) and `hcp_terraform`. They cannot
+be edited or deleted, which is what lets an import reuse them rather than recreating
+them as custom copies that silently stop tracking the shipped ones at the next
+upgrade. Installing them is a reconcile keyed on namespace rather than a migration,
+so a later release that adds a type or corrects one reaches a deployment that already
+started.
+
+Sixteen further AWX types are recognised and not implemented. `pleiades import
+awx-credential-types <export.json>` reports which is which for your own export, with
+the specific reason for each, before you commit to a migration window.
+
+Four things about this are security-relevant in production.
+
+**An injector document is executable.** It decides which environment variables the
+customer's playbook runs with, and the playbook runs inside the same container the
+credential was injected into. A type that could set `LD_PRELOAD`, `PYTHONPATH`,
+`ANSIBLE_CONFIG`, `PATH` or a `BASH_FUNC_` variable would be arbitrary code execution
+inside the run it was meant to authenticate, so those names and their relatives are
+refused when the type is saved and again when a dispatch reaches it. The container
+being single use does not help: the code would run before the container is destroyed.
+For the same reason the web UI lists and tests credential types but does not author
+them; that stays on the API, where a caller had to construct the request
+deliberately.
+
+**Binding is a higher privilege than editing.** Changing what a template runs is
+`template:write`. Changing what it runs *as* is `credential:write`, granted
+separately, because whoever binds a credential decides which identity the automation
+acts under. The UI follows the same split: the control that binds credentials to a
+template is gated by the credential scope, not by the template form's own.
+
+**Secrets are never readable back.** Every read path returns a projection with no
+field a plaintext value could occupy: a secret input reads back as `$encrypted$` and
+there is no endpoint, parameter or header that returns the real thing. It is
+decrypted only at dispatch, inside the process that injects it. Submitting the marker
+back on an update leaves the stored value alone, so editing an unrelated field does
+not destroy a secret.
+
+**A prompted input is never stored.** A type may declare an input asked at launch
+rather than saved. The answer travels with that one job and is written nowhere, which
+also means a job launched with one cannot be relaunched: the platform says so rather
+than silently repeating the run without it.
+
+The residual to plan around is the message bus. Injected material rides the same
+JetStream stream every dispatch uses, whose retention is seven days, so a rendered
+secret can sit there for that long. This phase makes that worse in volume and
+identical in kind: where a dispatch previously carried one flattened SSH credential,
+a template binding a cloud credential and two file-generating ones puts several more
+on the same message, whole PEM bodies included. The real fix is reference passing,
+where the payload carries a handle and the runner fetches it over a
+mutually-authenticated short-lived connection, and that needs a runner identity story
+that does not exist yet. Until it does, treat the stream as holding secrets and size
+its retention accordingly.
 
 ### PKI and TLS
 

@@ -4,23 +4,22 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
 // minMaskableSecretLength is the shortest string value markRegisterMask or
-// applySecretMask will accept as a secret. credential.Mask has no minimum
-// length of its own: it substring-scrubs whatever it is given, anywhere it
-// appears. A short or common value (a bool stringified to "true", a
-// one-digit exit code) added to the mask set would scrub that substring out
-// of every later message and printed line for the rest of the run,
-// corrupting unrelated output, which is worse than not masking at all. 8 is
-// a policy choice, not a derived number: it matches
-// credential.maskPlaceholder's own width (a value shorter than what would
-// replace it hides nothing meaningful) and a conventional minimum password
-// length. A genuinely short real secret (a 4-6 digit PIN) cannot be safely
-// substring-masked by this mechanism at all, ever, regardless of this
-// guard; that limitation is inherent to substring masking, not introduced
-// by this check.
-const minMaskableSecretLength = 8
+// applySecretMask will accept as a secret.
+//
+// It is redact.MinLiteralLength rather than a second copy of the number.
+// This constant and that one answer the identical question, "is this value
+// long enough to substring-mask safely", and PLAN.md Section 25 allows the
+// masking ruleset one implementation. Phase 22 moved the reasoning to
+// redact.MinLiteralLength's own doc comment, where the algorithm it
+// protects now lives; the short version is that scrubbing a short or common
+// value corrupts unrelated output for the rest of the run, which is worse
+// than not masking at all.
+const minMaskableSecretLength = redact.MinLiteralLength
 
 // secretMaskValue validates that v is safe to add to a run's secret set,
 // returning the string to mask. field is used only to name the problem in

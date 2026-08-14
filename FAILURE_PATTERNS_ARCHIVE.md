@@ -3090,3 +3090,133 @@ Nothing caught it because the conformance suite exercised create forms, validati
 **Fix.** Not built this session; sized and scoped in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.2 as a design-then-build phase, because the state-machine question (what a job's state means once fan-out and per-device execution can each independently be incomplete, and what happens on a permanently lost result) needs an answer before the subscriber can be written, not after.
 
 **Lesson.** A field's own schema comment can already state the honest scope of what it measures ("fan-out finished," not "execution succeeded") while every place that *renders* the field to a person quietly widens that scope back out, because a green badge reads as success to anyone who has not read the column's doc comment. When a system has two distinguishable notions of "done" (dispatched vs. executed, published vs. delivered, requested vs. confirmed), grep for every renderer of the status field whenever a second notion is introduced, not only the schema that defines it — and before building a reporting mechanism from scratch, grep for whether the data it needs is already being produced and simply has no reader, which is cheaper to find than to rebuild and was true here.
+
+## 118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
+
+**Symptom.** Phase 22's secret-masking ruleset worked correctly on its first pass: every test in `internal/redact` passed, all three masking channels fired, and the negative control proved the rejected wrapping-handler design leaked where this one did not. Then the benchmarks ran.
+
+A masked log line cost 25,207 ns/op against a 968 ns/op unmasked baseline, with 46 allocations where there had been none. With a thousand live secrets registered the number was 424,033 ns/op, roughly 0.4 milliseconds to emit one log line. Nothing was wrong. The control simply cost 26x on the hottest path in every binary, and the cost scaled with the number of secrets the process was protecting, so the busier a controller got the more expensive its logging became.
+
+**Root cause.** Three independent things, none of which looks like a defect while reading the code.
+
+Every masked string ran all five regular expressions unconditionally, including a PEM matcher with `(?s)` and a lazy wildcard, on lines that were almost always ordinary text with no secret shape in them at all. Every masked string called `Literals.Snapshot`, which rebuilt and re-sorted the entire secret set on each call, so a set of a thousand secrets was sorted once per log line. And the substring scrub allocated a claim table the length of the text and built a whole new string before discovering the text contained nothing to mask, which was the overwhelmingly common case.
+
+Each is the obvious implementation of its step. The cost only exists in the composition, and only shows up when the steps are measured on the input distribution they actually see rather than on the input the tests use, which is deliberately full of secrets.
+
+**Fix.** A prefilter on every pattern rule, carried in `rules.json` as data: a set of cheap lowercase substrings, at least one of which any match of that pattern must contain. `Masker.Text` lowercases once and skips any rule whose prefilter fails. A cached sorted snapshot in `Literals`, invalidated on mutation, so the sort happens once per `Add`/`Forget` instead of once per line. And a zero-allocation pre-pass in `maskLiterals` that scans for any occurrence before allocating anything.
+
+Result: 3,410 ns/op with 1 allocation for a masked line, 884 ns/op for the pattern rules alone with zero allocations. A 7x improvement on the realistic case and 17x on the pattern floor.
+
+The prefilter is the dangerous one, because a prefilter that does not actually hold for every match of its pattern silently disables its own rule and nothing fails. That is why each pattern rule also carries `samples` in the same file, and why three tests hold the two against each other: every sample must pass its own prefilter, must match its own pattern, and must actually come out masked through the real `Text` path. The evidence lives in the data file beside the rule rather than in test code, so the two cannot be edited apart, and the Python half gets the same examples.
+
+**Lesson.** A security control's runtime cost is part of its correctness, not a separate concern to optimize later, because the failure mode of an expensive control is not slowness. It is deletion: somebody profiles, finds masking at the top, and turns it off or exempts the hot path, and the exemption is permanent. Benchmark a control against the *absence* of the control on the input distribution it will really see, which for a log-line scrubber is overwhelmingly lines with no secret in them, not the secret-dense inputs its correctness tests are built from. When the answer is a fast path that skips work, the fast path's own predicate becomes a new silent-failure surface, so it needs evidence that lives with it and a test that holds the predicate against the thing it is predicting.
+
+## 119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work
+
+**Status: FOUND, NOT FIXED.** Discovered 2026-08-13 while verifying whether a test-harness container flake could reach production. It cannot; this can, and it is a different and worse thing. Recorded here rather than fixed in place because the fix changes the dispatch plane's failure behavior and the session that found it was building credentials, and folding an unrelated behavior change into that commit is how a change nobody reviewed in its own right ships.
+
+**Symptom (predicted, not yet observed in a real deployment).** A Runner loses its NATS connection for longer than the client's reconnect budget. The process stays up. Its container keeps reporting healthy. It fetches nothing, executes nothing, and reports nothing, indefinitely. Capacity disappears from the mesh with no signal anywhere that says so, and the only visible evidence is a backoff-loop error line repeating in a log nobody is watching for that shape.
+
+**Root cause.** Three things compose into it, and each is individually reasonable.
+
+`nats.Connect(url)` is called with default options at all four production sites (`internal/event/nats.go`, `internal/lock/nats.go`, `cmd/runner/main.go`, `cmd/controller/main.go`). The nats.go defaults are `MaxReconnects: 60` and `ReconnectWait: 2s`, so the client gives up permanently after roughly two minutes of unreachability and closes the connection. That is a sensible library default for a request/response client and the wrong one for a long-lived worker whose entire job is to be attached to the bus.
+
+No `ClosedHandler`, `DisconnectErrHandler` or `ReconnectHandler` is registered anywhere in the module, so nothing observes the transition.
+
+`internal/runner/agent_run.go`'s `fetchLoop` backs off and retries on a fetch error rather than returning, which is correct for a transient error and indistinguishable from correct for a permanent one. `Run` therefore never returns, the process never exits, and no supervisor ever restarts it.
+
+The Controller does not have this problem, and the difference is instructive: `cmd/controller/main.go`'s `readinessChecks` probes `nc.IsConnected()`, so an orchestrator sees it unready and restarts it. The Runner has no readiness surface at all, so the identical failure is invisible on one side of the mesh and self-healing on the other.
+
+**Fix (sized, not applied).** Either register a `nats.ClosedHandler` that cancels the Runner's root context, turning a permanently dead connection into a process exit and letting the supervisor do what it is for; or pass `nats.MaxReconnects(-1)` so the client never gives up. The two are not equivalent and the choice is a real one: exiting surfaces the failure to whatever schedules the Runner, while retrying forever keeps a Runner that will recover on its own but leaves it invisible in the meantime. Giving the Runner a readiness surface of its own is the third option and the most work. Whichever is chosen, `internal/event` and `internal/lock` build their own connections with their own defaults and need the same treatment, or the fix covers one of three connections.
+
+**Lesson.** A retry loop that cannot distinguish a transient failure from a permanent one converts an outage into silence, and silence is worse than the outage: an operator can see a crashed worker and cannot see an idle one. When a component's whole purpose is to stay attached to something, the library default for "give up" is almost never the right one, and the give-up path needs an owner that escalates rather than a backoff that absorbs. The tell here was structural and available without any incident: two processes connect to the same bus with the same defaults, one has a health probe that reads the connection and one has no health surface at all, and nobody had asked what the second one does when the first one's probe would have fired.
+
+## 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
+
+**Symptom.** Phase 22's credential-injection release gate, run against a real ephemeral container for the first time, reported the injected environment as
+
+```
+REST_API_CONFIG = "********"
+REST_API_TOKEN  = "********"
+REST_API_URL    = "********"
+```
+
+Every value the playbook read back was the mask placeholder. The credential type declared exactly one secret input; the other two were an ordinary URL and a generated file path.
+
+**Root cause.** The legacy adapter registers injected values with the process-wide masking set so that a module echoing one back is scrubbed. That much is right, and it is necessary: the Controller renders the credential, the Runner runs it, and they are different processes with different masking sets, so the Controller's own registration does not travel.
+
+What the adapter cannot do is tell which values are secret. By the time an injection arrives it is a `map[string]string`, and a bearer token and a region are the same shape. Faced with that, the first implementation registered all of them, on the reasoning that masking too much is the safe direction.
+
+It is not the safe direction, and the gate is what made that concrete. Registering an ordinary value scrubs that substring out of *every* later line the process writes, for the rest of its life. A Runner that has injected one credential naming `https://api.example.test` will thereafter render `connection to ******** refused` for an unrelated failure against an unrelated host. The output is corrupted permanently and nothing is protected, because the value was never secret.
+
+The reasoning error is worth naming: "mask more" feels conservative because the risk being weighed is disclosure, and only disclosure. The cost of over-masking is not disclosure, so it does not appear on that scale at all, and a control evaluated on one axis will always be pushed to the end of it.
+
+**Fix.** Secrecy is not recoverable downstream, so the side that knows says so. `credtype.Artifact` gained a `secrets` list, filled by the secret-tracking decorator that already computes exactly this set (the credential's own secret input values, plus any rendered value containing one). It crosses the wire as `wire.Injected.Mask`, and both adapters register exactly that and nothing else. Carrying the values adds no exposure the payload did not already have: they are the same bytes `Env`, `ExtraVars` and `Files` already carry.
+
+The property is now held by a fuzz target rather than by a table, in both directions: a rendered value containing a secret must be declared secret, and a rendered value not containing one must not be. Both halves fail in opposite ways, and a table would only have covered the cases somebody thought of.
+
+**Lesson.** When a value crosses a process boundary, every property of it that is not carried explicitly is gone, and "which of these is secret" is exactly the kind of property that looks recoverable and is not. Do not let the receiving side infer it. More generally: when a safety control has an obvious conservative direction, look for what that direction costs on an axis the risk assessment did not include, because a control with a free "safer" setting is usually one whose cost has simply not been measured yet. Here the cost was permanent corruption of the operator's own debugging output, and it took a release gate running the whole thing for real to make it visible; every unit test in the package passed, because none of them asserted that a *non*-secret value survives.
+
+## 121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
+
+**Symptom.** Nothing, for a whole stage. Every unit test passed, the fuzzers were
+clean, both release gates were green, and the injector had been proven end to end
+against a real `ansible-playbook` in a real container. The defect surfaced only when
+the next stage transcribed a REAL AWX managed credential type (`controller`) into the
+catalog and ran it: an operator authenticating with an OAuth token rather than a
+password supplies no `username` and no `password`, and the entire injection failed
+with an undefined-variable error. Not that one variable: the whole credential, so the
+job could not run at all.
+
+**Root cause.** `Credential.RenderVars` built the render namespace from the values the
+credential actually held. The renderer is strict-undefined by design, so a template
+referencing a declared-but-unsupplied optional input hit a name that was not in the
+map, and strict-undefined did exactly what it was built to do.
+
+The design reasoning behind strict-undefined was sound and remains so: an unreferenced
+name silently becoming `""` is how a missing input injects an empty secret. What was
+wrong was the assumption that the check had only one job. It has two, and they are
+separated in time. Catching a name that is not a declared input is a check about the
+TYPE, and `Injectors.Validate` already performs it at the moment the type is saved,
+which is where Architecture Principle 5 wants it. Catching an input a particular
+credential left blank is a check about the CREDENTIAL, and refusing there is wrong,
+because a blank optional is legal by construction.
+
+Every test written for the stage used a credential that supplied every input its
+templates referenced. That is the natural thing to write when inventing a fixture, and
+it is exactly the case that cannot fail. AWX's own data is full of the other case:
+`controller` declares six inputs and requires one.
+
+**Fix.** `RenderVars` now seeds every DECLARED input, using the schema rather than the
+stored values, so an unsupplied optional renders empty and an undeclared name remains
+impossible. That is also AWX's own behaviour, which matters more than the reasoning,
+because what a migrated playbook observes is the resulting environment: AWX renders
+under ordinary Jinja `Undefined`, so a blank optional input's variable is SET, to the
+empty string.
+
+Losing the accidental protection strict-undefined had been providing needed its own
+replacement, because one real case still had to fail: a required input that was
+prompted at launch and never answered. `Credential.checkReady` now demands a value for
+every required input at injection time, with none of the three exemptions
+`CheckValues` allows at save time (a default, an external reference, a launch prompt),
+because by injection all three have already been resolved. The error names the input,
+which the undefined-variable error never did.
+
+Two related AWX behaviours were transcribed at the same time, for the same
+observable-result reason: a boolean input renders in Python's capitalisation
+(`True`/`False`, and `False` when unset), and an `ssh_private_key`-format input gains
+a trailing newline if it lacks one.
+
+**Lesson.** A validation rule that is correct at one moment can be wrong at another,
+and a single implementation placed at the later moment will look correct for as long
+as the fixtures happen to satisfy it. The general failure is a check that answers "is
+this well formed?" being asked where the real question is "is this ready to use?".
+Separate them explicitly, and write the fixture that only the later check can catch.
+
+The second half is about where the defect came from. Every test in the stage was
+written by the same person who wrote the code, against invented data, and invented
+data encodes the author's own assumptions twice. The bug survived a fuzzer and two
+container-backed release gates and was killed by transcribing twenty lines of somebody
+else's real configuration. When a subsystem exists to be compatible with an external
+system, take its fixtures from that system's own source early, not at the end as a
+finishing step.

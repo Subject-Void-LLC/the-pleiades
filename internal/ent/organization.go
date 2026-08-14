@@ -59,13 +59,17 @@ type OrganizationEdges struct {
 	Inventories []*Inventory `json:"inventories,omitempty"`
 	// Templates holds the value of the templates edge.
 	Templates []*Template `json:"templates,omitempty"`
+	// CredentialTypes holds the value of the credential_types edge.
+	CredentialTypes []*CredentialType `json:"credential_types,omitempty"`
+	// Credentials holds the value of the credentials edge.
+	Credentials []*Credential `json:"credentials,omitempty"`
 	// Announcements holds the value of the announcements edge.
 	Announcements []*Announcement `json:"announcements,omitempty"`
 	// Contacts holds the value of the contacts edge.
 	Contacts []*Contact `json:"contacts,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [8]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -104,10 +108,28 @@ func (e OrganizationEdges) TemplatesOrErr() ([]*Template, error) {
 	return nil, &NotLoadedError{edge: "templates"}
 }
 
+// CredentialTypesOrErr returns the CredentialTypes value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) CredentialTypesOrErr() ([]*CredentialType, error) {
+	if e.loadedTypes[4] {
+		return e.CredentialTypes, nil
+	}
+	return nil, &NotLoadedError{edge: "credential_types"}
+}
+
+// CredentialsOrErr returns the Credentials value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) CredentialsOrErr() ([]*Credential, error) {
+	if e.loadedTypes[5] {
+		return e.Credentials, nil
+	}
+	return nil, &NotLoadedError{edge: "credentials"}
+}
+
 // AnnouncementsOrErr returns the Announcements value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[6] {
 		return e.Announcements, nil
 	}
 	return nil, &NotLoadedError{edge: "announcements"}
@@ -116,7 +138,7 @@ func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
 // ContactsOrErr returns the Contacts value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) ContactsOrErr() ([]*Contact, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[7] {
 		return e.Contacts, nil
 	}
 	return nil, &NotLoadedError{edge: "contacts"}
@@ -266,6 +288,16 @@ func (_m *Organization) QueryInventories() *InventoryQuery {
 // QueryTemplates queries the "templates" edge of the Organization entity.
 func (_m *Organization) QueryTemplates() *TemplateQuery {
 	return NewOrganizationClient(_m.config).QueryTemplates(_m)
+}
+
+// QueryCredentialTypes queries the "credential_types" edge of the Organization entity.
+func (_m *Organization) QueryCredentialTypes() *CredentialTypeQuery {
+	return NewOrganizationClient(_m.config).QueryCredentialTypes(_m)
+}
+
+// QueryCredentials queries the "credentials" edge of the Organization entity.
+func (_m *Organization) QueryCredentials() *CredentialQuery {
+	return NewOrganizationClient(_m.config).QueryCredentials(_m)
 }
 
 // QueryAnnouncements queries the "announcements" edge of the Organization entity.

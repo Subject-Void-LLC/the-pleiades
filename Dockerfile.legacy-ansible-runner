@@ -26,6 +26,24 @@ FROM python:3.12-alpine3.20
 RUN apk add --no-cache openssh-client sshpass \
     && pip install --no-cache-dir --root-user-action=ignore ansible-core==2.19.11
 
+# The shared secret-masking ruleset, copied from the one file Go embeds so
+# both languages read the same bytes. PLAN.md Section 25 requires the
+# ruleset be applied "in Go and Python", and the Python side is Phase 25's
+# Ansible callback bridge, which runs inside this image and reads this
+# path.
+#
+# HONEST STATUS: no Python reads this yet. Phase 22 ships the file, the Go
+# embed, and this COPY; Phase 25 writes the plugin. It is copied now rather
+# than later because Section 25 calls this axis irreversible ("anything
+# already leaked is durable"), and because a ruleset that arrives in the
+# image at the same time as its first reader is a ruleset the reader's
+# author is tempted to reimplement locally.
+#
+# internal/redact's TestRulesetHasExactlyOneCopy fails the build if a second
+# copy of this file ever appears in the repository, which is what keeps this
+# a COPY rather than a checked-in duplicate.
+COPY internal/redact/rules.json /opt/pleiades/redact-rules.json
+
 # /run/pleiades is where internal/adapters/legacy's own ContainerSpec.Files
 # copies the generated inventory.json, the resolved playbook, and (when
 # present) an SSH private key, before this image's entrypoint ever runs

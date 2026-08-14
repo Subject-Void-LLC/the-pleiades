@@ -80,6 +80,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -96,6 +97,11 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	credfile "github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
@@ -104,6 +110,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	// The built-in launch kinds. A blank import because their init()
 	// functions are the only thing that populates internal/launch's
 	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
@@ -394,8 +402,26 @@ func main() {
 	// rather than each package building its own from a package-level var.
 	// slog.SetDefault means the packages this phase did not touch still
 	// emit the same JSON to the same place instead of plain text.
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	//
+	// The handler options carry the shared secret-masking ruleset. They are
+	// built by redact rather than written out here, so a handler cannot be
+	// constructed that holds the ruleset and forgot to install it, and
+	// internal/archtest fails the build if any binary passes nil here
+	// instead. The ruleset has to reach the logger through ReplaceAttr
+	// rather than through a wrapping slog.Handler: a wrapper cannot see
+	// attributes added with Logger.With, because those are pre-formatted
+	// into a byte buffer at WithAttrs time, and it sees the message only as
+	// an opaque string. internal/redact's wrapper_control_test.go
+	// demonstrates both failures against a real wrapping handler.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, redact.Shared().HandlerOptions(slog.LevelInfo)))
 	slog.SetDefault(logger)
+
+	// The corollary, and the reason it is two lines instead of one: a
+	// log.Fatalf or a log.Printf from any dependency bypasses slog
+	// entirely and still reaches an operator's terminal. A masking control
+	// that covers the structured path and not the failure path emits
+	// unmasked exactly when things are going wrong.
+	log.SetOutput(redact.Shared().Writer(os.Stderr))
 
 	// One private Prometheus registry, not the process-global default:
 	// two routers in one process (or one process that later grows a
@@ -440,6 +466,26 @@ func main() {
 	}
 	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
 	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
+
+	// Survey answers. This pair was written, tested, and then registered
+	// nowhere: until Phase 22 it was referenced only from its own package
+	// test, which meant SavedLaunchConfig.answers was stored in plaintext
+	// while internal/apispec's own saved-configuration schema told API
+	// callers it was encrypted at rest. A shipped false claim about a
+	// security control is worse than a missing control, because it stops
+	// anybody looking. TestEveryCryptoHookIsComposed now fails the build if
+	// a hook this package exports is left unregistered again.
+	client.SavedLaunchConfig.Use(crypto.SavedLaunchConfigAnswersHook(envelopeSvc))
+	client.SavedLaunchConfig.Intercept(crypto.SavedLaunchConfigAnswersInterceptor(envelopeSvc))
+
+	// Credential inputs, using the BOUND envelope: the ciphertext is
+	// cryptographically tied to its own row, so a database writer cannot
+	// relocate one organization's secrets onto another organization's
+	// credential and have the platform inject them. Device and
+	// SavedLaunchConfig remain on the unbound form; internal/crypto/
+	// envelope_bound.go records why that is acceptable there and not here.
+	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
+	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
 
 	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
 
@@ -538,7 +584,58 @@ func main() {
 	// controller with no credentials configured yet still starts cleanly
 	// and only touches disk the first time a dispatch actually needs one.
 	credentialsDir := getenv("CONTROLLER_CREDENTIALS_DIR", ".")
-	credentials := credential.NewLazyFileStore(credentialsDir)
+	deviceCredentials := credential.NewLazyFileStore(credentialsDir)
+
+	// The Crawl-tier credential surface, which is a different axis from
+	// the per-device file store above rather than a replacement for it.
+	// That store answers "what does this DEVICE authenticate with"; this
+	// one answers "what does this TEMPLATE run as", which is AWX's own
+	// model and the one an imported job template needs. Both survive: the
+	// fan-out consults a template's machine credential first and falls
+	// back to the file store, so every dispatch that worked before this
+	// phase still works unchanged.
+	//
+	// The store gets a render engine because it validates a credential
+	// type's injector templates at the write, so an author learns about a
+	// template naming an input the type does not declare when they save
+	// it rather than when an operator launches a job.
+	credentialStore := credstore.NewEntStore(client, render.New())
+
+	// The credential types this build ships, installed on every startup
+	// rather than by a migration, because a migration cannot be re-run when
+	// a later release adds a type or corrects one. See
+	// credstore.ReconcileManaged for why a failure here warns rather than
+	// stopping the controller.
+	if err := credstore.ReconcileManaged(ctx, credentialStore, managed.Types(), logger); err != nil {
+		logger.WarnContext(ctx, "some managed credential types are not installed", "error", err)
+	}
+
+	// credentialResolver is the OTHER credential port, and the split
+	// between the two is a security boundary rather than a naming choice:
+	// credentialStore above cannot return a plaintext secret because its
+	// projection has no field for one, and this one can. It is handed to
+	// the fan-out worker and to nothing else, and internal/archtest fails
+	// the build if internal/api ever imports the package it comes from.
+	//
+	// The file lookup is the one real external secret source this platform
+	// implements. A deployment that has not set its directory gets a
+	// resolver that works normally and fails only the specific credential
+	// that names an external reference, which is why this is wired
+	// unconditionally rather than behind a configuration check.
+	externalLookups, err := credtype.NewLookups(credfile.FromEnvironment())
+	if err != nil {
+		fatal("failed to build the external secret source table", err)
+	}
+	credentialResolver := resolve.NewEntResolver(client, resolve.WithLookups(externalLookups))
+
+	// injector renders a resolved credential into what a run executes with.
+	// It takes the same render engine the store validates writes with, so a
+	// credential type that saved successfully cannot fail to render for a
+	// reason the author was never shown.
+	injector, err := credtype.NewInjector(render.New())
+	if err != nil {
+		fatal("failed to build the credential injector", err)
+	}
 
 	// jobStore persists Job and JobTask rows over the same already-open
 	// Device client every other repository in this process shares. It
@@ -574,12 +671,20 @@ func main() {
 	// of that feature, not a follow-up; a Worker missing this would fail
 	// every playbook job with a correct refusal and nothing failing at
 	// build time.
-	workerOpts := []dispatch.WorkerOption{dispatch.WithSetStore(sets)}
+	//
+	// WithCredentials is the Phase 22 half: the resolver and the injector
+	// travel together, so a Worker cannot hold one without the other. A
+	// deployment that has created no credential type is unaffected, since
+	// a job binding nothing never enters that path.
+	workerOpts := []dispatch.WorkerOption{
+		dispatch.WithSetStore(sets),
+		dispatch.WithCredentials(credentialResolver, injector),
+	}
 	if playbooks != nil {
 		workerOpts = append(workerOpts,
 			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
 	}
-	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, credentials, workerOpts...)
+	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, deviceCredentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
 	// a failure here is handled the same fatal() way every other startup
@@ -672,8 +777,21 @@ func main() {
 	templateStore := launch.NewEntStore(client, launchCatalog)
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
 		api.WithTemplates(templateStore),
-		api.WithLaunchConfigs(templateStore))
+		api.WithLaunchConfigs(templateStore),
+		// The REDACTING store, deliberately, not the resolver: a relaunch
+		// needs to know whether a bound credential's type prompts at
+		// launch, which is a question about the type rather than about any
+		// value.
+		api.WithCredentialReader(credentialStore))
 	templates := api.NewTemplateHandler(templateStore, logger)
+	// WithBindingTemplates is what lets a binding be refused at the moment
+	// an operator makes it, rather than at the first launch afterwards,
+	// when the template's execution path cannot honour the credential
+	// type's injectors. The run-time backstop in internal/adapters/native
+	// is what guarantees the rule regardless; this is what makes the
+	// refusal actionable.
+	credentials := api.NewCredentialHandler(credentialStore, render.New(),
+		api.WithBindingTemplates(templateStore))
 	streamer := api.NewLogStreamer(js)
 	// The factory is the same one the repository hydrates stored rows
 	// with, so a device created over the API is built by exactly the code
@@ -780,13 +898,31 @@ func main() {
 		apispec.LaunchTemplate.Name:       dispatcher.LaunchFromTemplate,
 		apispec.ListTemplateConfigs.Name:  templates.ListConfigs,
 		apispec.CreateTemplateConfig.Name: templates.CreateConfig,
-		apispec.ListDevices.Name:          devices.List,
-		apispec.CreateDevice.Name:         devices.Create,
-		apispec.GetDevice.Name:            devices.Get,
-		apispec.UpdateDevice.Name:         devices.Update,
-		apispec.DeleteDevice.Name:         devices.Delete,
-		apispec.ListRunbooks.Name:         catalog.List,
-		apispec.GetRunbook.Name:           catalog.Get,
+
+		// The credential surface. Every one of these handlers holds
+		// credentials (the credstore.Store projection) and never the
+		// resolver, so none of them can return a plaintext secret; that is
+		// enforced by internal/archtest rather than by this comment.
+		apispec.ListCredentialTypes.Name:      credentials.ListCredentialTypes,
+		apispec.GetCredentialType.Name:        credentials.GetCredentialType,
+		apispec.CreateCredentialType.Name:     credentials.CreateCredentialType,
+		apispec.UpdateCredentialType.Name:     credentials.UpdateCredentialType,
+		apispec.DeleteCredentialType.Name:     credentials.DeleteCredentialType,
+		apispec.TestCredentialType.Name:       credentials.TestCredentialType,
+		apispec.ListCredentials.Name:          credentials.ListCredentials,
+		apispec.GetCredential.Name:            credentials.GetCredential,
+		apispec.CreateCredential.Name:         credentials.CreateCredential,
+		apispec.UpdateCredential.Name:         credentials.UpdateCredential,
+		apispec.DeleteCredentialEndpoint.Name: credentials.DeleteCredential,
+		apispec.ListTemplateCredentials.Name:  credentials.ListTemplateCredentials,
+		apispec.SetTemplateCredentials.Name:   credentials.SetTemplateCredentials,
+		apispec.ListDevices.Name:              devices.List,
+		apispec.CreateDevice.Name:             devices.Create,
+		apispec.GetDevice.Name:                devices.Get,
+		apispec.UpdateDevice.Name:             devices.Update,
+		apispec.DeleteDevice.Name:             devices.Delete,
+		apispec.ListRunbooks.Name:             catalog.List,
+		apispec.GetRunbook.Name:               catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,
@@ -853,6 +989,16 @@ func main() {
 		Templates:  templateStore,
 		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
+		// The redacted credential store, never the resolver: the UI's
+		// credential views hold a projection with no field a plaintext
+		// value could occupy, and internal/archtest fails the build if
+		// this side of the system ever imports the package that can
+		// decrypt one.
+		Credentials: credentialStore,
+		// The same render engine the store validates injector templates
+		// with, so the Credential Types view's Test action and a real
+		// dispatch cannot disagree about what a document produces.
+		Render: render.New(),
 	}); err != nil {
 		fatal("failed to register UI views", err)
 	}

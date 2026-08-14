@@ -3,6 +3,8 @@ package launch
 import (
 	"context"
 	"errors"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 )
 
 // ErrNotFound is returned when an id names no template or saved
@@ -155,4 +157,9 @@ func (c SavedConfig) Redact(survey Survey) SavedConfig {
 // different facts: one says nobody answered the question, the other says
 // somebody did and you may not see it. A form rendering the empty string
 // would also silently clear the stored answer on the next save.
-const RedactedMarker = "$encrypted$"
+//
+// It is an alias of redact.Marker rather than a second spelling of the same
+// literal. Phase 22 gave credentials a redaction marker too, and two
+// packages each declaring "$encrypted$" is how the two drift: an API client
+// comparing against one would silently stop recognizing the other.
+const RedactedMarker = redact.Marker

@@ -48,6 +48,10 @@ const (
 	EdgeInventories = "inventories"
 	// EdgeTemplates holds the string denoting the templates edge name in mutations.
 	EdgeTemplates = "templates"
+	// EdgeCredentialTypes holds the string denoting the credential_types edge name in mutations.
+	EdgeCredentialTypes = "credential_types"
+	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
+	EdgeCredentials = "credentials"
 	// EdgeAnnouncements holds the string denoting the announcements edge name in mutations.
 	EdgeAnnouncements = "announcements"
 	// EdgeContacts holds the string denoting the contacts edge name in mutations.
@@ -82,6 +86,20 @@ const (
 	TemplatesInverseTable = "templates"
 	// TemplatesColumn is the table column denoting the templates relation/edge.
 	TemplatesColumn = "organization_templates"
+	// CredentialTypesTable is the table that holds the credential_types relation/edge.
+	CredentialTypesTable = "credential_types"
+	// CredentialTypesInverseTable is the table name for the CredentialType entity.
+	// It exists in this package in order to avoid circular dependency with the "credentialtype" package.
+	CredentialTypesInverseTable = "credential_types"
+	// CredentialTypesColumn is the table column denoting the credential_types relation/edge.
+	CredentialTypesColumn = "organization_credential_types"
+	// CredentialsTable is the table that holds the credentials relation/edge.
+	CredentialsTable = "credentials"
+	// CredentialsInverseTable is the table name for the Credential entity.
+	// It exists in this package in order to avoid circular dependency with the "credential" package.
+	CredentialsInverseTable = "credentials"
+	// CredentialsColumn is the table column denoting the credentials relation/edge.
+	CredentialsColumn = "organization_credentials"
 	// AnnouncementsTable is the table that holds the announcements relation/edge.
 	AnnouncementsTable = "announcements"
 	// AnnouncementsInverseTable is the table name for the Announcement entity.
@@ -268,6 +286,34 @@ func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByCredentialTypesCount orders the results by credential_types count.
+func ByCredentialTypesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCredentialTypesStep(), opts...)
+	}
+}
+
+// ByCredentialTypes orders the results by credential_types terms.
+func ByCredentialTypes(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCredentialTypesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByCredentialsCount orders the results by credentials count.
+func ByCredentialsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCredentialsStep(), opts...)
+	}
+}
+
+// ByCredentials orders the results by credentials terms.
+func ByCredentials(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCredentialsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAnnouncementsCount orders the results by announcements count.
 func ByAnnouncementsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -321,6 +367,20 @@ func newTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
+	)
+}
+func newCredentialTypesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CredentialTypesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CredentialTypesTable, CredentialTypesColumn),
+	)
+}
+func newCredentialsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CredentialsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CredentialsTable, CredentialsColumn),
 	)
 }
 func newAnnouncementsStep() *sqlgraph.Step {

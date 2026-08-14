@@ -48,6 +48,24 @@
       "line": "38",
       "rule_id": "G204",
       "reason": "Owned by the template-kind-routing rebuild (FAILURE_PATTERNS.md #112, HANDOFF_ARCHIVE.md's \"Phase 21 shipped, the template rebuild\" entry), which moved this test-only image builder out of cmd/runner's release gate so tests/e2e could share it. BuildAnsibleRunnerImage runs `docker build -f <dockerfile> -t <tag> <root>`, and G204 flags dockerfile and root as caller-controlled variables reaching exec.Command. Neither is: dockerfile is this package's own repoRoot(tb) plus the fixed, repository-committed literal \"Dockerfile.legacy-ansible-runner\", and root is repoRoot(tb) itself, found by walking up from the test binary's own working directory until a go.mod is found, never from any external input. This is a testing.TB-gated helper (tb.Helper(), tb.Skip if docker is absent), unreachable from any production binary or network-facing path; gosec's taint analysis has no way to see that \"variable\" here means \"computed by this process from its own module root,\" not \"supplied by a caller.\""
+    },
+    {
+      "file": "internal/auth/scopes.go",
+      "line": "125",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 22 (Credential Types & The Injector Engine). This is the ScopeCredentialRead constant, auth.Scope(\"credential:read\"). G101 is a heuristic over identifier and literal text, and it fires here on the word \"credential\" appearing in both; there is no secret involved. The value is an authorization scope name, the exact string a JWT's \"scopes\" claim carries, and it is necessarily a compile-time constant for the same reason every other Scope in this file is: the vocabulary is closed, and a typo in a scope literal silently grants a scope nobody holds rather than failing to build. The eleven scopes above it are not flagged only because none of them happens to contain a word gosec's wordlist matches. Reviewed 2026-08-13: the constant holds no credential material and never will, since what it names is a permission to see that a credential EXISTS. There is no endpoint anywhere behind this scope that returns a secret value, which is enforced by internal/archtest's TestAPINeverImportsTheCredentialResolver rather than by review. Re-verify at Phase 39."
+    },
+    {
+      "file": "internal/auth/scopes.go",
+      "line": "139",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 22 (Credential Types & The Injector Engine). This is the ScopeCredentialWrite constant, auth.Scope(\"credential:write\"). Identical in every respect to the ScopeCredentialRead finding above: a G101 heuristic match on the word \"credential\" in an authorization scope name, with no secret material present. Two entries rather than one because this file's waivers key on an exact line and each must be re-reviewed individually if either moves. Re-verify at Phase 39."
+    },
+    {
+      "file": "internal/ui/resources/templates/credentials.go",
+      "line": "44",
+      "rule_id": "G101",
+      "reason": "Owned by Phase 22 (Credential Types & The Injector Engine). This is credentialPrefix, the string \"credential_\", which is a FORM CONTROL NAME PREFIX and not a credential. It namespaces the launch form's prompted credential inputs, so a control is named credential_<id>_<inputid> and cannot collide with a survey answer's answer_ control or with another bound credential's input of the same name; parseCredentialControl reads the same prefix back off the submission. gosec's G101 heuristic matches the identifier's name against a credential-shaped word list and cannot tell a prefix constant from a secret. There is no secret here to leak: the value is a literal that appears in rendered HTML on purpose, and the actual prompted values are read from the submission at request time and passed to LaunchTemplate as credtype.PromptedInputs, which recordConfig is structurally unable to see. Renaming the constant would silence the finding and would also break the deliberate symmetry with surveyPrefix directly above it in actions.go, which is the pairing that makes the two namespaces legible. Re-verify at Phase 39."
     }
   ]
 }

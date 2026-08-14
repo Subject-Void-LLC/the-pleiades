@@ -1,0 +1,26 @@
+{
+  "name": "HCP Terraform",
+  "namespace": "hcp_terraform",
+  "kind": "cloud",
+  "managed": true,
+  "description": "An HCP Terraform API token and the hostname it authenticates against.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "hostname",
+        "label": "Hostname",
+        "type": "string",
+        "default": "app.terraform.io",
+        "help_text": "The hostname of your HCP Terraform instance (for example, app.terraform.io)"
+      },
+      {"id": "token", "label": "API Token", "type": "string", "secret": true, "help_text": "HCP Terraform API Token"}
+    ],
+    "required": ["token"]
+  },
+  "injectors": {
+    "env": {
+      "TF_TOKEN": "{{ token }}",
+      "TF_HOSTNAME": "{{ hostname }}"
+    }
+  }
+}

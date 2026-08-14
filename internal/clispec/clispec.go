@@ -158,6 +158,25 @@ var Root = Command{
 			},
 		},
 		{
+			Name:     "import",
+			Synopsis: "read another platform's export and report what this one would do with it (see 'pleiades import --help')",
+			Subcommands: []Command{
+				{
+					Name:       "awx-credential-types",
+					Positional: "<export.json>",
+					Synopsis:   "check an AWX credential type export against this platform, before a migration",
+					Flags: []Flag{
+						{Name: "out", Type: "string", Default: "", Doc: "directory to write each importable type into as JSON, ready to POST to /credential-types"},
+						{Name: "quiet", Type: "bool", Default: "false", Doc: "report only the types this platform would not import"},
+					},
+					Examples: []string{
+						"pleiades import awx-credential-types credential_types.json",
+						"pleiades import awx-credential-types --out ./types credential_types.json",
+					},
+				},
+			},
+		},
+		{
 			Name:     "forge",
 			Synopsis: "authoring and migration tooling (see 'pleiades forge --help')",
 			Subcommands: []Command{

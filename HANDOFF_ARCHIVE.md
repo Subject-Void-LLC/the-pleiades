@@ -1,5 +1,103 @@
 # Handoff Document Archive
 
+## Previous session: AWX_PARITY_ROADMAP.md Section 3b.1 (launch fields reach execution)
+
+**Branch `feature/Brutalist-UI-Scaffold`. Directive: close the rest of
+`.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.1 ("launch fields never reached execution"), the
+two remaining hops after the prior session captured `Resolved.Fields`/`ExtraVars` onto the job
+record. Everything below is uncommitted, held per standing instruction (a commit message is
+prepared but no commit was made).**
+
+**Section 3b.1 is now CLOSED.** Both remaining hops built and tested against real infrastructure,
+no shortcuts. Full file:line detail lives in `.SPECIFICATION/AWX_PARITY_ROADMAP.md` Section 3b.1's
+own "Status: CLOSED" writeup; the summary:
+
+1. **The wire.** `pkg/wire.DispatchPayload` gained `Fields`/`ExtraVars map[string]any` (additive,
+   `omitempty`, following the `Kind`/`Interruptible` precedent), and
+   `internal/dispatch/worker_devices.go`'s payload build site now reads `job.Fields`/`job.ExtraVars`
+   onto it.
+2. **The legacy adapter.** `internal/adapters/legacy/argv.go` (new) replaces the hardcoded
+   `ansible-playbook -v -i ...` literal with real `--limit`/`--forks`/`--tags`/`--skip-tags`/`-e`
+   construction and per-run `timeout` (via a context deadline around the container run, since
+   `ansible-playbook` has no run-timeout flag of its own). Proven against a **real Docker
+   container**: `cmd/runner/ansible_release_gate_test.go`'s new
+   `TestAnsibleReleaseGate_LaunchFieldsReachRealInvocation` dispatches with `forks: 1` and
+   `job_tags: [deploy]`, asserts the exact argv the real Docker daemon started the real container
+   with (a new `observingOrchestrator` test double wraps the real `DockerOrchestrator`, changing
+   nothing about what executes), and asserts behaviorally that `--tags` really excluded an untagged
+   task from a real two-task play.
+3. **The native adapter.** `engine.Executor` did **not** already have any variable-override or
+   per-task-timeout plumbing (confirmed via `gopls references` on its two production call sites, not
+   assumed) — this was new engine work, not just adapter work. `ExtraVars` now reaches a runbook's
+   `when_cel` conditions through a new `"vars"` CEL root (`engine.WithVariables`); `timeout` is now
+   a genuine **per-task** abort (`engine.WithTaskTimeout`, wrapping each device's own `ctx` inside
+   `runOne`, not the whole `Run` call) — the runbook kind's FieldSpec text says "per task", the
+   opposite of the playbook kind's "per run" reading of the same field name, and both adapters now
+   honor their own kind's stated semantics correctly. **`forks`/`limit` are deliberately NOT wired**
+   for the native adapter: `singleDeviceResolver` always resolves every task to the one device this
+   Runner invocation already got dispatched, and every device-targeting task takes an exclusive
+   per-device lock before running, so there is no concurrency dimension within one `Execute` call for
+   `forks` to bound — wiring it into `maxConcurrency` anyway would have been a real parameter set to
+   a real value with a provably zero effect, forever. This is `LESSONS_LEARNED.md` #106, found and
+   documented, not shipped as a bug.
+
+**`make ci` is green, verified more rigorously than a single pass, because the first attempts
+weren't clean and each failure needed to be run down rather than dismissed.** `go build`, `go vet`,
+`gofmt`, `gosec` (8 pre-existing waived findings, none new), `govulncheck` (0), `coverage-check`
+(146 packages measured, none below floor), `docs-lint`, `docs-gen-check`, and `templ-gen-check` all
+passed cleanly on the first try. `test-race` and `test-integration` (`go test -race ./...` and
+`go test -tags integration -race ./...`, the whole module) each flaked inside `make ci` itself, and
+each flake was run down individually rather than assumed benign, per standing instruction:
+
+- `test-race` failed twice, on `TestCLI_RunExecutesSSHTransport` (`cmd/pleiades`) and
+  `TestAgent_FailedExecutionEventuallyDeadLetters`/`TestAgent_ReleaseGate_
+  PullsFiveDispatchesWithoutDuplicating` (`internal/runner`) across the two attempts — all Docker
+  port-mapping races (`port "X/tcp" not found`), none in a package this session touched. All three
+  passed cleanly in an isolated serial rerun. A full, uninterrupted `go test -race -timeout 20m ./...`
+  run (not stopped at the first failing package the way `make`'s own chained targets are) then
+  completed with exit 0 and zero `FAIL` lines across the entire module.
+- `test-integration` failed three times across three attempts, on three **different** tests each
+  time: `TestGrandIntegration_EachKindReachesItsOwnAdapter` (`tests/e2e`, 913s before failing, "job's
+  log stream never mentioned 'native execution'", with the runner subprocess's own log showing a
+  redelivery/device-lock-contention loop), then a clean pass, then
+  `TestControllerLeaderElection_ReleaseGate` (`cmd/controller`, "SPLIT BRAIN DETECTED"). Different
+  package losing the race each run is `FAILURE_PATTERNS.md` #61's own named signature for resource
+  contention under this sandboxed environment's full parallel `-race` load, not a code defect, and
+  that entry names `TestGrandIntegration` specifically as a repeat offender. The first failure was
+  serious enough (a trivial single-`noop`-task runbook hanging) to verify past what the standing
+  instruction technically requires: `git stash -u` reverted every uncommitted change from this
+  session, the identical isolated test command was run against that clean baseline (pass, 12.91s),
+  the stash was restored (`git stash pop`), and the identical command was run again against this
+  session's own code (pass, 14.19s) — proving the hang was not reachable from this session's diff at
+  all. Both later flakes (a clean full run, then the unrelated leader-election split-brain) were each
+  reconfirmed passing in isolation the same way. No fix was needed or made for any of these; they are
+  documented here because "make ci is green" should mean something more specific than "it printed
+  PASS eventually."
+
+**Next step.** Nothing blocking. Section 3b.2 (a job's "completed" state describing fan-out, not
+execution) is next in the roadmap's own dependency order, and is explicitly a separate,
+design-then-build phase (PLAN.md Sections 16-17 first) — do not start it assuming this session's
+work belongs to the same commit. Tranche B's own remaining scope (B2's expandable row summary, the
+real multi-badge activity strip) is still open and was not touched this session either.
+
+**Files changed this session:** `pkg/wire/{dispatch.go,dispatch_test.go}` (Fields/ExtraVars),
+`internal/dispatch/{worker_devices.go,worker_test.go}` (payload build site + tests),
+`internal/adapters/legacy/{adapter.go,argv.go (new),argv_test.go (new),adapter_test.go}` (argv
+construction, run timeout, tests), `internal/engine/{executor.go,cel.go,executor_variables_test.go
+(new)}` (`ExecutorOption`, `WithVariables`, `WithTaskTimeout`, `"vars"` CEL root), `internal/adapters/
+native/{adapter.go,fields.go (new),fields_test.go (new),adapter_test.go}` (ExtraVars/timeout wiring,
+forks/limit doc comment, tests), `cmd/runner/ansible_release_gate_test.go` (`observingOrchestrator`,
+new real-container test), `.SPECIFICATION/AWX_PARITY_ROADMAP.md` (Section 3b.1 closed),
+`LESSONS_LEARNED`/`LESSONS_LEARNED_ARCHIVE` (#106).
+
+---
+
+Full session-by-session history (every `## Previous session: ...` and `## Files changed in the ... session` entry) lives in [`HANDOFF_ARCHIVE.md`](HANDOFF_ARCHIVE.md), kept out of this file so it stays cheap to read every session. Read the archive only when you need a specific past session's detail.
+
+When Current Status above is superseded, move the outgoing text into `HANDOFF_ARCHIVE.md` as a new `## Previous session: ...` entry at the top of that file (before its current first entry), then overwrite Current Status here. Never delete a past entry.
+
+---
+
 Full session-by-session history for `HANDOFF_DOCUMENT.md`, most recent superseded session first. This file is not required reading; `HANDOFF_DOCUMENT.md`'s Current Status section is what "read the handoff document" means day to day. Open an entry here only when you need a specific past session's detail. See `.AGENTS/AGENTS.md`'s Mandatory Documentation Rules for how to append here.
 
 ---
@@ -4280,3 +4378,323 @@ see "Current blocker / next step"), `internal/credential` (reused as-is via `Mas
 its own "known, pre-registered secret" scope), `internal/event` (the event envelope shape is
 unchanged; only the `message` payload's *content* is masked before publishing), and every
 production file outside the packages named above.
+
+---
+
+## Archived: Stage 22a (Credential Types and the Injector Engine, part one)
+
+**Branch `feature/launch-fields-and-push-gate`. Directive: plan and build Phase 22, Credential Types
+and the Injector Engine, aiming for AWX parity. Everything below is uncommitted, held per standing
+instruction (a commit message is prepared, no commit was made).**
+
+**STAGE 22a IS COMPLETE and every CI gate is green.** The phase was planned in
+three staged commits (22a primitives plus data model plus API, 22b the injector engine plus both
+adapters plus the release gate, 22c managed types plus UI plus docs). What is built is the first
+part of 22a: the two PLAN.md Section 25 Build Once Contracts this phase owes, their wiring, and the
+structural guards that keep them singular. The credential data model, the injector engine and the
+API surface are NOT built yet.
+
+### Built and verified
+
+**Part one, the two Section 25 primitives** (detail below in "Primitives").
+
+**Part two, the credential data layer and encryption at rest:**
+
+8. **`internal/credtype`** (new, 97.7%): `CredentialType`, `InputSchema`, `Injectors`, and their
+   validation. The JSON tags are AWX's own field names, and `corpus_test.go` is the proof rather
+   than the claim: the committed production Ascender fixture decodes STRAIGHT into
+   `credtype.CredentialType` with no translation layer and no intermediate DTO. Validation compiles
+   every injector template at save time and refuses one naming an input the type does not declare,
+   which is what makes the renderer's strict-undefined rule safe at run time. `FuzzInjectorDocument`
+   ran 5.4M executions with two security properties asserted over arbitrary documents: a validated
+   document never names a reserved environment variable, and never carries a file label that escapes
+   its directory.
+
+9. **The reserved environment-variable refusal** is the headline item of this phase's Schema and
+   Injection Hardening audit. PLAN.md Section 29.4 accepts the ephemeral container as the trust
+   boundary, which is what permits secrets in the environment at all, but the customer's playbook
+   runs INSIDE that boundary, so an injector able to set `LD_PRELOAD` is arbitrary code execution
+   inside the very run the credential was meant to authenticate. Fourteen names plus the
+   `BASH_FUNC_` prefix are refused, each with its reason written beside it.
+
+10. **ent schemas for `CredentialType` and `Credential`**, both dialects' migrations generated and
+    committed together (`sqlite/0012`, `postgres/0009`), plus the `Template` to `Credential` M2M
+    that is the AWX binding axis this platform did not have. Typed `field.JSON` over the credtype
+    structs generated cleanly, which resolves one of the plan's open questions.
+
+11. **The AAD binding, and it is the most consequential thing in this half.**
+    `internal/crypto/envelope.go` has always documented a residual: its ciphertext carries nothing
+    tying it to its row, so an envelope copied between rows still decrypts. That was accepted when
+    the only consumer was `Device.properties`. A credential row makes it unacceptable: relocating
+    one organization's inputs onto another organization's credential makes the platform inject the
+    first organization's secrets into the second organization's jobs, and the attacker never reads
+    anything. `EncryptBound`/`DecryptBound` close it, scoped to credential inputs, under a distinct
+    algorithm tag so old unbound ciphertext still decrypts and a bound one presented without its
+    binding fails closed. The AAD is `Credential.secret_binding`, an immutable per-row UUID.
+    `TestRelocatingStoredCiphertextBetweenCredentialsFails` performs the attack with raw SQL against
+    a real database and requires it to fail; `TestTheUnboundFormStillRelocates` is the negative
+    control proving the binding is doing the work.
+
+12. **`SavedLaunchConfigAnswersHook` is finally composed.** It was written, tested, and registered
+    nowhere, so survey answers were plaintext in every deployment while `internal/apispec`'s own
+    schema told API callers they were encrypted at rest.
+    `cmd/controller/composition_test.go`'s `TestEveryCryptoHookIsComposed` now reads both sides as
+    source and fails the build if any exported `ent.Hook`/`ent.Interceptor` is left unregistered. It
+    was verified to fail on exactly the historical bug.
+
+13. **Parity moved, measurably.** `credential_types` went 0/7 to 7/7 represented, overall 37/119 to
+    44/119, and A2's gap list dropped from 11 fields to 4. The remaining four are template binding,
+    which is Stage 22b.
+
+### Primitives
+
+1. **The map was fixed before the code**, per AGENTS.md's Architecture Mismatch protocol. PLAN.md
+   Section 25's "Template renderer" row said "Build by Phase 28"; Phase 22's own checklist, Phase
+   28's own checklist and AWX_PARITY_ROADMAP.md's A2 section all said Phase 22 builds it and 28
+   consumes it. This is the fourth correction of that exact shape on that one table. Corrected, with
+   the reasoning in `LESSONS_LEARNED_ARCHIVE.md` #107.
+
+2. **`internal/render`** (new, 97.2%): the one Jinja-compatible renderer, behind an `Engine`/
+   `Template` port, with a hand-written strict subset of Jinja2's expression grammar. The governing
+   rule is strict-undefined: a referenced name absent from the variables is an error, never the empty
+   string, because an injector rendering to `""` still sets the environment variable and the
+   authentication failure downstream gets attributed to the wrong thing. `Template.Names` is what
+   moves that failure from launch time to save time. Closed seven-filter set, refusal of `{% %}` and
+   `{# #}` rather than passing them through as text, compile-and-cache mirroring
+   `internal/engine/cel.go` including its compile-outside-the-lock convergence. Fuzzed for 45s over
+   4.4M executions with the security property asserted (with no `default` filter in play, removing
+   any supplied name must produce `ErrUndefined` and an empty string). Measured against Python
+   Jinja2 3.1.6 on the same machine: 498x faster to compile, 70x faster to render.
+
+3. **`internal/redact`** (new, 95.7%): the shared masking ruleset as data plus the one engine that
+   applies it. Three channels: by VALUE (`Literals`, the relocated substring scrub), by KEY (an
+   attribute named `password` is secret whatever its value is), by SHAPE (PEM blocks, JWTs, bearer
+   tokens, AWS key ids, URL userinfo). `credential.Mask` was DELETED rather than left as a delegate,
+   and its algorithm relocated verbatim with its hard-won asterisk-edge exception intact; the call
+   sites were found with `gopls references`, which turned up three that a grep-shaped list had
+   missed. `engine.minMaskableSecretLength` and `launch.RedactedMarker` also folded in.
+
+4. **The ordering constraint is now executable, not advisory.** The specification required the
+   ruleset be applied through `slog.HandlerOptions.ReplaceAttr` rather than a wrapping
+   `slog.Handler`. `internal/redact/wrapper_control_test.go` builds the rejected design in good
+   faith and demonstrates that it leaks attributes added with `Logger.With` while catching direct
+   ones, which is what makes the wrapper a trap rather than an obvious mistake. Per
+   `LESSONS_LEARNED.md` #95, the guard was shown to fail before being trusted to pass.
+
+5. **All four composition roots wired**, `slog` options and `log.SetOutput` both. `cmd/runner` was
+   taking `slog.Default()`, the unconfigured process default, in the binary that holds credentials
+   most directly.
+
+6. **Structural guards in `internal/archtest`**: `TestExactlyOneRendererImplementation` (plus a
+   stale-allowlist companion), `TestEverySlogHandlerCarriesTheMaskingRuleset` (AST inspection of
+   every `cmd/` handler construction), `TestEveryCommandUsingTheLogPackageMasksItsOutput`, and
+   standard-library-only dependency guards on both new packages. Both logging guards were verified
+   to fail on the exact regressions they exist to catch.
+
+7. **`rules.json` ships into the legacy runner image** at `/opt/pleiades/redact-rules.json` for
+   Phase 25's Python callback bridge, with `TestRulesetHasExactlyOneCopy` forbidding a second copy.
+
+### Two findings worth reading before continuing
+
+- **`FAILURE_PATTERNS.md` #118**: the masking control's first correct version cost 26x the unmasked
+  baseline per log line, and 424 microseconds per line with a thousand live secrets. Fixed with a
+  data-driven prefilter, a cached sorted snapshot and a zero-allocation pre-pass, down to 3.4
+  microseconds. The prefilter is itself a silent-failure surface, so each pattern rule carries
+  `samples` in the same data file and three tests hold the prefilter and the pattern against each
+  other.
+- **`coverage-floor.json` has its first ever downward adjustment**, `internal/credential` 91.7 to
+  91.6, with the reason written into the file's own `_comment`. Nothing became less tested: a fully
+  covered file left the package, and the file store's error paths gained real tests in the same
+  change (`internal/credential/file_store_errors_test.go`).
+
+### Verification status
+
+`build`, `vet`, `fmt`, `gosec` (8 findings, all pre-existing and individually waived),
+`govulncheck` (clean), `coverage` (150 packages, none below floor), `docs-lint`, `docs-gen-check`,
+and `make arch` all pass. `go test ./...` is clean except
+`cmd/runner`'s `TestAnsibleReleaseGate_RealPlaybookThroughTheFullChain`, which failed once under
+full parallel load with `connection string: port "4222/tcp" not found` and passes in isolation:
+`cmd/runner` is already listed in `flaky-packages.json` with a written reason, and this is
+`FAILURE_PATTERNS.md` #61's shape exactly. Race detector clean across every touched package.
+
+### Next step
+
+**`internal/credstore` and `internal/credstore/resolve` are BUILT.** The split is the security
+control, not a style choice: `credstore.Credential` has no field a plaintext secret could occupy
+(secrets read back as `redact.Marker`), `resolve.Resolver` returns the real values, and
+`internal/archtest`'s `TestAPINeverImportsTheCredentialResolver` fails the build if the API layer
+reaches the latter. Verified by making a handler import it and watching both guards fire.
+`credtype.CheckBinding` is built with both callers, and the store enforces tenancy on binding
+(`ErrCrossOrganization`) because ent cannot express it.
+
+**The API surface is BUILT.** `credential:read` and `credential:write` scopes (binding sits under
+write, not `template:write`: a template author decides WHAT runs, whoever binds a credential decides
+what it runs AS). Thirteen endpoints in `internal/apispec/credential_endpoints.go`, all mounted, all
+handlers holding `credstore.Store` and never the resolver. The generated OpenAPI grew from 58
+operations to 71 with zero pre-existing operations altered, verified by comparing operation sets
+rather than diff text (the raw diff looks like 5,663 changed lines and is entirely alphabetical
+realignment).
+
+Two G101 gosec findings were waived with individually written reasons: the heuristic fires on the
+word "credential" in the two scope constants. No secret is involved and none ever will be.
+
+### The disclosure guarantee, and how it is enforced
+
+Worth stating in one place, because it is the point of the whole two-package split:
+
+- `credstore.Credential` has no field a plaintext secret could occupy. Secrets read back as
+  `redact.Marker`.
+- `resolve.Resolver` returns real values and lives in its own package.
+- `internal/archtest` fails the build if `internal/api` imports it. Verified by making a handler
+  import it and watching both guards fire.
+- `internal/api/credentials_test.go` sweeps every route on the surface and asserts the secret is
+  absent from the RAW RESPONSE BYTES, not from a decoded struct. Decoding into a type with no
+  password field would pass whether or not the password was on the wire. Verified by disabling the
+  redaction and watching every affected route fail.
+
+### Next step
+
+Stage 22b: the injector engine, both adapters, and the release gate. Two things in it are already
+known and should not be rediscovered: `internal/adapters/legacy/argv.go` puts extra vars on argv as
+`-e <json>`, which leaks a secret extra var into the container's own `ps` and `/proc/<pid>/cmdline`
+(the fix is an `-e @file` extra-vars file, unconditionally), and the native path must REFUSE `env`
+and `file` injectors at bind time with a run-time backstop rather than ignoring them, because
+PLAN.md Section 29.4 keeps the stricter rule for the native Go mesh.
+
+The full plan, including the seven decisions already settled with the user, is in the approved plan
+file.
+
+
+## Phase 22 Stage 22b (archived 2026-08-13)
+**Branch `feature/launch-fields-and-push-gate`. Directive: plan and build Phase 22, Credential Types
+and the Injector Engine, aiming for AWX parity. Everything below is uncommitted, held per standing
+instruction. A commit message for 22a was prepared and given; 22b's is not written yet.**
+
+**STAGES 22a AND 22b ARE COMPLETE.** Stage 22a's own status is in `HANDOFF_ARCHIVE.md`. This
+section covers 22b: the injector engine, both adapters, and the release gates. Stage 22c
+(managed-type data, the two UI views, the AWX import CLI, the Book 10 docs) is not started.
+
+### What 22b built
+
+**The injector engine (`internal/credtype`).** Five Targets behind a `pkg/registry` Registry rather
+than a five-armed switch, in two phases: `file` and `vault` run first, then the reserved filename
+namespace is resolved, then `env`, `extra_vars` and `machine`. The ordering is forced rather than
+chosen, because `{{ tower.filename.cert }}` does not exist until the file target has decided where
+the cert file goes.
+
+`secretTracking` wraps every Target, including one added later by somebody who never reads that
+file, and it is the control rather than a convenience: it diffs the artifact instead of asking the
+Target what it did, so it needs no knowledge of any Target's internals and works identically for one
+that does not exist yet.
+
+`Combine` refuses five kinds of collision (env, extra-var leaf, file path, two machine identities,
+two vault credentials sharing an identifier) and names both credentials in every message, because
+the operator seeing it has to choose which one to drop. Nested extra-variable maps deep-merge;
+only a leaf written twice is a real disagreement.
+
+**Machine and vault are real Go code rather than data**, and for one reason: their output is not one
+of the three data targets. A machine credential resolves to the flattened identity the transport
+authenticates with, and a vault credential to a password file plus the `--vault-id` argument naming
+it, which no injector document can produce. Every other input a machine type declares, `become_*`
+included, is an ordinary input its own injector document can reference, which is why there is no
+special case for it.
+
+**External secret sources**: the port, one real implementation (`internal/credtype/lookup/file`), and
+eight declared-not-implemented under AWX's own namespaces so an import maps onto them and reports
+what is missing rather than "no such source". The `file` source refuses anything that is not a
+single plain filename, which is stricter than cleaning a path and checking the result, and
+deliberately so: there is then no traversal to check for.
+
+**Injection happens at fan-out, not at launch**, and `internal/dispatch/inject.go`'s package comment
+carries the four reasons. The consequential one: a job record carries credential ids and nothing
+else, so a database backup or a badly-scoped read of the job history contains no secret at all.
+
+**The precedence rule**: a machine credential bound to the TEMPLATE authenticates every device in the
+fan-out (AWX's semantics), and the per-device file store is the fallback when the template binds
+none. That is what keeps every dispatch that worked before this phase working unchanged, including
+the whole Walk tier.
+
+**The argv leak is fixed.** `buildArgv` now takes a `bool` rather than the extra variables, so no
+value is in scope for it to emit; the variables reach `ansible-playbook` as `-e @file`,
+unconditionally. `ContainerSpec` gained `SecretEnv`, kept apart from `Env` so anything printing a
+spec prints the safe half, merged by the orchestrator immediately before the container starts.
+
+**The native path refuses honestly.** `env` and `file` injectors are refused at bind time
+(`PUT /templates/{id}/credentials`, 409 naming the offending targets) and again at run time in
+`internal/adapters/native`. The rule itself lives in `internal/adapters/routing` with one
+implementation and two callers; putting it in the native adapter would have dragged
+`internal/transport/ssh` into the Controller binary so an HTTP handler could compare a string.
+
+**Prompted credential inputs are never persisted, structurally.** `LaunchTemplate` takes them as
+their own parameter and `recordConfig` takes only `launch.Config`, so the function that writes to
+the database is not handed the value that must not be written. They travel on the `job.requested`
+event, which is the only place they can: the fan-out worker runs on every controller replica, so the
+replica that served the launch and the one that fans it out are routinely different processes.
+
+### Three findings, all from running things for real
+
+1. **FAILURE_PATTERNS #120**, found by the release gate on its first real run: the legacy adapter
+   registered EVERY injected value with the masking set, so the gate reported an environment of
+   nothing but `********`. Secrecy is not recoverable downstream (a token and a region are the same
+   shape by then), so `wire.Injected.Mask` now carries it explicitly. Over-masking is not the safe
+   direction: it corrupts the operator's own debugging output permanently and protects nothing.
+
+2. **`CheckValues` refused a credential whose required input lives in an external source**, which
+   made an externally-sourced credential impossible to create. Found by writing the resolver's own
+   external test. Fixed by giving `CheckValues` the external map, which also let
+   `credstore.checkExternalRefs` be deleted: it was the same rule written twice.
+
+3. **The OpenAPI generator emitted no `requestBody` for any endpoint**, so more than twenty
+   declared `RequestSchema` values were computed and never read: FAILURE_PATTERNS #116's shape in
+   the docs generator. The published document said how to call every endpoint and not what to send
+   to any of them, so a generated client could read a credential and not create one. Fixed, with a
+   test asserting every endpoint declaring both fields publishes a body. **Sixteen unrelated
+   endpoints declare a `RequestSchema` with no `RequestContentType` and are still skipped**; that is
+   pre-existing, unrelated to credentials, and belongs in its own commit rather than bundled here.
+
+### Verification status
+
+Green: `build`, `vet`, `fmt`, `gosec` (10 findings, all waived), `docs-lint`, `make arch`, the
+tolerant coverage ratchet (155 packages, none below floor), and `go test ./...`.
+
+Both release gates pass against real containers AND were each proven to fail on the defect they
+exist to catch, by reintroducing it:
+
+- `cmd/runner/ansible_injection_release_gate_test.go`: two runs, one proving arrival byte for byte
+  against `testdata/awx_reference_env.json`, one proving absence in the container spec's argv, in
+  `/proc/1/cmdline` read from INSIDE the container, in every job event, and in every byte the masked
+  logger wrote. Negative control: restoring the `-e <json>` form fails both the argv assertion and
+  the file-reference assertion.
+- `tests/e2e/credential_injection_test.go`: the whole chain through the real binaries, with the
+  playbook printing a SHA-256 so arrival is proven without printing the value. Negative control:
+  dropping `applyInjection` fails it.
+
+Fuzzers, each run clean: `FuzzInjectDeclaresEverySecretItRenders` (1.0M execs, both directions of the
+secrecy property), `FuzzCombineNeverSilentlyPicksAWinner` (1.1M), `FuzzBuildArgvNeverCarriesAValue`
+(487k). The argv fuzzer immediately found a flaw in its own first assertion, which is worth knowing:
+a launch whose `limit` field is literally `-e` produces `--limit -e`, so scanning argv for `-e`
+reads a VALUE as a flag. The check is at the tail now, where the flag can actually be.
+
+**`make docs-gen-check` fails until the generated files are committed**, which is expected and not a
+defect: the generator's output is verified stable across runs, and `docs/reference/schemas/openapi.json`
+plus `internal/api/wellknown/openapi.json` are modified in the working tree and must be committed
+together with the `apispec` and `tools/gendocs` changes.
+
+### Next step
+
+Stage 22c: the managed-type data (`internal/credtype/managed/*.json`, one file per AWX type under its
+exact name and namespace, plus the five declared-not-implemented), idempotent reconcile at controller
+startup keyed on namespace rather than a migration, both UI views (including revising
+`internal/ui/resources/credentials`' own package doc, which currently promises no enumeration and
+must record in writing that the promise was revised and why), the launch form's prompted-credential
+controls (`credential_<id>_<inputid>`, mirroring the `answer_` prefix), the
+`pleiades import awx-credential-types` CLI, and the Book 10 security section.
+
+Two things are already known and should not be rediscovered. The UI launch form passes `nil` for
+prompted inputs today, with a comment naming the follow-up: a template bound to a prompting
+credential fails at fan-out with a reason naming the input, which is loud rather than silent, but it
+is a real gap. And `internal/adapters/native`'s named follow-up for file injection is
+`sdk.RunbookContext.InjectFiles()` over the existing stdin plus fd-3 child channel, where content
+would live in the per-task subprocess's memory for one task and never touch a filesystem; do not
+invent a tmpfs on the Runner to close it, which would be building a new secret-at-rest surface to
+satisfy a checklist.

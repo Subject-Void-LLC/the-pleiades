@@ -40,7 +40,7 @@ func TestLaunchTemplate_PropagatesTheTraceItWasLaunchedUnder(t *testing.T) {
 	defer span.End()
 	wantTraceID := span.SpanContext().TraceID().String()
 
-	if _, _, err := dispatcher.LaunchTemplate(ctx, "ada@example.com", 12, launch.Config{}); err != nil {
+	if _, _, err := dispatcher.LaunchTemplate(ctx, "ada@example.com", 12, launch.Config{}, nil); err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}
 	if got := bus.count(); got != 1 {
@@ -69,7 +69,7 @@ func TestLaunchTemplate_FabricatesNoTraceWhenThereIsNone(t *testing.T) {
 	dispatcher := api.NewDispatcher(newTestRunbookSource(t, "pb-1"), newTestJobStore(t), bus,
 		api.WithTemplates(stubTemplates{tmpl: launchableTemplate()}))
 
-	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}); err != nil {
+	if _, _, err := dispatcher.LaunchTemplate(context.Background(), "ada@example.com", 12, launch.Config{}, nil); err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}
 	if got := bus.count(); got != 1 {

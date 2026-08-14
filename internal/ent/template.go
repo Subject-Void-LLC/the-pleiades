@@ -60,9 +60,11 @@ type TemplateEdges struct {
 	SurveyQuestions []*SurveyQuestion `json:"survey_questions,omitempty"`
 	// SavedConfigs holds the value of the saved_configs edge.
 	SavedConfigs []*SavedLaunchConfig `json:"saved_configs,omitempty"`
+	// Credentials holds the value of the credentials edge.
+	Credentials []*Credential `json:"credentials,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
 }
 
 // OrganizationOrErr returns the Organization value or an error if the edge
@@ -103,6 +105,15 @@ func (e TemplateEdges) SavedConfigsOrErr() ([]*SavedLaunchConfig, error) {
 		return e.SavedConfigs, nil
 	}
 	return nil, &NotLoadedError{edge: "saved_configs"}
+}
+
+// CredentialsOrErr returns the Credentials value or an error if the edge
+// was not loaded in eager-loading.
+func (e TemplateEdges) CredentialsOrErr() ([]*Credential, error) {
+	if e.loadedTypes[4] {
+		return e.Credentials, nil
+	}
+	return nil, &NotLoadedError{edge: "credentials"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -262,6 +273,11 @@ func (_m *Template) QuerySurveyQuestions() *SurveyQuestionQuery {
 // QuerySavedConfigs queries the "saved_configs" edge of the Template entity.
 func (_m *Template) QuerySavedConfigs() *SavedLaunchConfigQuery {
 	return NewTemplateClient(_m.config).QuerySavedConfigs(_m)
+}
+
+// QueryCredentials queries the "credentials" edge of the Template entity.
+func (_m *Template) QueryCredentials() *CredentialQuery {
+	return NewTemplateClient(_m.config).QueryCredentials(_m)
 }
 
 // Update returns a builder for updating this Template.
