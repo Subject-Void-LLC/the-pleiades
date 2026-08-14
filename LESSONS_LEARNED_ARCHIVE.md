@@ -1659,3 +1659,56 @@ this repository is the explicit, named, written-reason kind (`flaky-packages.jso
 context. When a gate is red for a genuinely external reason, fix the external thing or
 add it to the waiver file with its reason; both are commits, and both are cheaper than
 the red build plus the unobserved gates queued behind it.
+
+## 111. A specification that declares a component and a roadmap that schedules phases can both be complete on their own terms while nothing owns the component
+
+**The incident.** `PLAN.md` Section 18.1 declares three authentication providers:
+Local with hashed passwords in the database, plus TOTP and WebAuthn for break-glass
+accounts; SAML 2.0 with Just-In-Time provisioning; and a direct LDAP/Active Directory
+bind. Phase 8 built the authorization half of Section 18 and federated JWT validation,
+and scoped itself out of the rest honestly and in writing. Nothing after it picked the
+rest up. Grepping the entire 10,144-line roadmap for `TOTP`, `WebAuthn`, `passkey`,
+`bcrypt` and `argon` returned zero hits each. `LDAP` returned zero. `SAML` returned one,
+and that one hit was Part XIV noting that a shipped document tells operators to
+configure a SAML provider which does not exist anywhere in `internal/`.
+
+**Why neither document could reveal it.** `PLAN.md` is a specification: it says what the
+platform is. Its Section 18 is complete, coherent, and correct about what should exist.
+`IMPLEMENTATION.md` is a roadmap: it says which phase builds what. Every one of its
+eighty-odd phases is a well-formed phase with a real gate. Read either one alone and
+nothing is missing, because neither document's structure has a slot for "a thing
+declared over there that nothing here claims." A specification has no schedule column
+and a roadmap has no unclaimed-requirements section, so the gap lives in the space
+between them, where no single reader is standing. This is a different failure from a
+stale cross-reference, which at least has two visibly disagreeing statements to compare;
+here both statements are true.
+
+**How it was actually found.** Not by reading either document, and not by an audit. By
+asking a product question: when can the web UI take a username and a password? That
+question has an owner in neither file, so answering it required going to the code, where
+`internal/ui/web/auth.go`'s login handler turned out to exchange a PASTED JWT for a
+session cookie, with its own doc comment stating that it "adds no new crypto, no
+password store, and no second notion of who a caller is." That comment was accurate, and
+it was a correct scoping decision by the phase that wrote it. It was also the answer:
+there is no password anywhere, and no phase was going to add one. `internal/access`
+carried the same fact in its own words, "there is no password here and no phase owns
+building one," which had been sitting in the tree unread as a statement of fact rather
+than as the alarm it was.
+
+**The cost was already visible in a gate nobody had connected to it.** Phase 20's
+Release Gate is `docker compose up` on a clean machine. A clean machine has no token to
+paste and nothing on it that could mint one, so the mesh comes up and the operator
+cannot get in. That gate had been written, reviewed and carried for many sessions
+without anyone noticing it was unreachable, because checking it means asking what a
+person does next, and reading it means checking that the sentence is well formed.
+
+**The rule.** Declaring a component and scheduling one are different acts, and the
+absence of the second is invisible from either document because both look finished on
+their own terms. Do not audit a specification against a roadmap by checking that each
+looks complete; audit them by naming a thing a user does end to end and asking which
+phase owns every step of it. The step with no owner is the gap, and it will usually turn
+out that some file in the tree already states the gap in plain words as a fact about the
+world rather than as a problem. When a phase honestly scopes itself out of part of a
+specification section, that written-down honesty is not a handoff: the remainder has no
+owner until a phase number is attached to it, and "correctly deferred" and "scheduled"
+look identical in a diff.

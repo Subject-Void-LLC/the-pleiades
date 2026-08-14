@@ -22,6 +22,8 @@ const (
 	FieldEmail = "email"
 	// EdgeTeams holds the string denoting the teams edge name in mutations.
 	EdgeTeams = "teams"
+	// EdgeLocalCredential holds the string denoting the local_credential edge name in mutations.
+	EdgeLocalCredential = "local_credential"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// TeamsTable is the table that holds the teams relation/edge. The primary key declared below.
@@ -29,6 +31,13 @@ const (
 	// TeamsInverseTable is the table name for the Team entity.
 	// It exists in this package in order to avoid circular dependency with the "team" package.
 	TeamsInverseTable = "teams"
+	// LocalCredentialTable is the table that holds the local_credential relation/edge.
+	LocalCredentialTable = "local_credentials"
+	// LocalCredentialInverseTable is the table name for the LocalCredential entity.
+	// It exists in this package in order to avoid circular dependency with the "localcredential" package.
+	LocalCredentialInverseTable = "local_credentials"
+	// LocalCredentialColumn is the table column denoting the local_credential relation/edge.
+	LocalCredentialColumn = "user_local_credential"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -102,10 +111,24 @@ func ByTeams(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTeamsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByLocalCredentialField orders the results by local_credential field.
+func ByLocalCredentialField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newLocalCredentialStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newTeamsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TeamsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, TeamsTable, TeamsPrimaryKey...),
+	)
+}
+func newLocalCredentialStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(LocalCredentialInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, LocalCredentialTable, LocalCredentialColumn),
 	)
 }

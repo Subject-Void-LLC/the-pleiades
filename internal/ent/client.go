@@ -26,6 +26,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -64,6 +65,8 @@ type Client struct {
 	Job *JobClient
 	// JobTask is the client for interacting with the JobTask builders.
 	JobTask *JobTaskClient
+	// LocalCredential is the client for interacting with the LocalCredential builders.
+	LocalCredential *LocalCredentialClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
@@ -104,6 +107,7 @@ func (c *Client) init() {
 	c.Inventory = NewInventoryClient(c.config)
 	c.Job = NewJobClient(c.config)
 	c.JobTask = NewJobTaskClient(c.config)
+	c.LocalCredential = NewLocalCredentialClient(c.config)
 	c.Organization = NewOrganizationClient(c.config)
 	c.Revision = NewRevisionClient(c.config)
 	c.RoleBinding = NewRoleBindingClient(c.config)
@@ -216,6 +220,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Inventory:         NewInventoryClient(cfg),
 		Job:               NewJobClient(cfg),
 		JobTask:           NewJobTaskClient(cfg),
+		LocalCredential:   NewLocalCredentialClient(cfg),
 		Organization:      NewOrganizationClient(cfg),
 		Revision:          NewRevisionClient(cfg),
 		RoleBinding:       NewRoleBindingClient(cfg),
@@ -255,6 +260,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Inventory:         NewInventoryClient(cfg),
 		Job:               NewJobClient(cfg),
 		JobTask:           NewJobTaskClient(cfg),
+		LocalCredential:   NewLocalCredentialClient(cfg),
 		Organization:      NewOrganizationClient(cfg),
 		Revision:          NewRevisionClient(cfg),
 		RoleBinding:       NewRoleBindingClient(cfg),
@@ -294,9 +300,9 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
-		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.Organization,
-		c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session, c.SurveyQuestion,
-		c.Team, c.Template, c.User,
+		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
+		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session,
+		c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -307,9 +313,9 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
-		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.Organization,
-		c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session, c.SurveyQuestion,
-		c.Team, c.Template, c.User,
+		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
+		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session,
+		c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -340,6 +346,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Job.mutate(ctx, m)
 	case *JobTaskMutation:
 		return c.JobTask.mutate(ctx, m)
+	case *LocalCredentialMutation:
+		return c.LocalCredential.mutate(ctx, m)
 	case *OrganizationMutation:
 		return c.Organization.mutate(ctx, m)
 	case *RevisionMutation:
@@ -2242,6 +2250,155 @@ func (c *JobTaskClient) mutate(ctx context.Context, m *JobTaskMutation) (Value, 
 	}
 }
 
+// LocalCredentialClient is a client for the LocalCredential schema.
+type LocalCredentialClient struct {
+	config
+}
+
+// NewLocalCredentialClient returns a client for the LocalCredential from the given config.
+func NewLocalCredentialClient(c config) *LocalCredentialClient {
+	return &LocalCredentialClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `localcredential.Hooks(f(g(h())))`.
+func (c *LocalCredentialClient) Use(hooks ...Hook) {
+	c.hooks.LocalCredential = append(c.hooks.LocalCredential, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `localcredential.Intercept(f(g(h())))`.
+func (c *LocalCredentialClient) Intercept(interceptors ...Interceptor) {
+	c.inters.LocalCredential = append(c.inters.LocalCredential, interceptors...)
+}
+
+// Create returns a builder for creating a LocalCredential entity.
+func (c *LocalCredentialClient) Create() *LocalCredentialCreate {
+	mutation := newLocalCredentialMutation(c.config, OpCreate)
+	return &LocalCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of LocalCredential entities.
+func (c *LocalCredentialClient) CreateBulk(builders ...*LocalCredentialCreate) *LocalCredentialCreateBulk {
+	return &LocalCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *LocalCredentialClient) MapCreateBulk(slice any, setFunc func(*LocalCredentialCreate, int)) *LocalCredentialCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &LocalCredentialCreateBulk{err: fmt.Errorf("calling to LocalCredentialClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*LocalCredentialCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &LocalCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for LocalCredential.
+func (c *LocalCredentialClient) Update() *LocalCredentialUpdate {
+	mutation := newLocalCredentialMutation(c.config, OpUpdate)
+	return &LocalCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *LocalCredentialClient) UpdateOne(_m *LocalCredential) *LocalCredentialUpdateOne {
+	mutation := newLocalCredentialMutation(c.config, OpUpdateOne, withLocalCredential(_m))
+	return &LocalCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *LocalCredentialClient) UpdateOneID(id int) *LocalCredentialUpdateOne {
+	mutation := newLocalCredentialMutation(c.config, OpUpdateOne, withLocalCredentialID(id))
+	return &LocalCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for LocalCredential.
+func (c *LocalCredentialClient) Delete() *LocalCredentialDelete {
+	mutation := newLocalCredentialMutation(c.config, OpDelete)
+	return &LocalCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *LocalCredentialClient) DeleteOne(_m *LocalCredential) *LocalCredentialDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *LocalCredentialClient) DeleteOneID(id int) *LocalCredentialDeleteOne {
+	builder := c.Delete().Where(localcredential.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &LocalCredentialDeleteOne{builder}
+}
+
+// Query returns a query builder for LocalCredential.
+func (c *LocalCredentialClient) Query() *LocalCredentialQuery {
+	return &LocalCredentialQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeLocalCredential},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a LocalCredential entity by its id.
+func (c *LocalCredentialClient) Get(ctx context.Context, id int) (*LocalCredential, error) {
+	return c.Query().Where(localcredential.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *LocalCredentialClient) GetX(ctx context.Context, id int) *LocalCredential {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a LocalCredential.
+func (c *LocalCredentialClient) QueryUser(_m *LocalCredential) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(localcredential.Table, localcredential.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, localcredential.UserTable, localcredential.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *LocalCredentialClient) Hooks() []Hook {
+	return c.hooks.LocalCredential
+}
+
+// Interceptors returns the client interceptors.
+func (c *LocalCredentialClient) Interceptors() []Interceptor {
+	return c.inters.LocalCredential
+}
+
+func (c *LocalCredentialClient) mutate(ctx context.Context, m *LocalCredentialMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&LocalCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&LocalCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&LocalCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&LocalCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown LocalCredential mutation op: %q", m.Op())
+	}
+}
+
 // OrganizationClient is a client for the Organization schema.
 type OrganizationClient struct {
 	config
@@ -3766,6 +3923,22 @@ func (c *UserClient) QueryTeams(_m *User) *TeamQuery {
 	return query
 }
 
+// QueryLocalCredential queries the local_credential edge of a User.
+func (c *UserClient) QueryLocalCredential(_m *User) *LocalCredentialQuery {
+	query := (&LocalCredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(localcredential.Table, localcredential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, user.LocalCredentialTable, user.LocalCredentialColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UserClient) Hooks() []Hook {
 	return c.hooks.User
@@ -3795,13 +3968,14 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
-		Group, Inventory, Job, JobTask, Organization, Revision, RoleBinding,
-		SavedLaunchConfig, Session, SurveyQuestion, Team, Template, User []ent.Hook
+		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
+		RoleBinding, SavedLaunchConfig, Session, SurveyQuestion, Team, Template,
+		User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
-		Group, Inventory, Job, JobTask, Organization, Revision, RoleBinding,
-		SavedLaunchConfig, Session, SurveyQuestion, Team, Template,
+		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
+		RoleBinding, SavedLaunchConfig, Session, SurveyQuestion, Team, Template,
 		User []ent.Interceptor
 	}
 )

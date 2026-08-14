@@ -238,6 +238,29 @@ func HasTeamsWith(preds ...predicate.Team) predicate.User {
 	})
 }
 
+// HasLocalCredential applies the HasEdge predicate on the "local_credential" edge.
+func HasLocalCredential() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, LocalCredentialTable, LocalCredentialColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasLocalCredentialWith applies the HasEdge predicate on the "local_credential" edge with a given conditions (other predicates).
+func HasLocalCredentialWith(preds ...predicate.LocalCredential) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newLocalCredentialStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.User) predicate.User {
 	return predicate.User(sql.AndPredicates(predicates...))

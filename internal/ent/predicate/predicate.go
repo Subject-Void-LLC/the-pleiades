@@ -39,6 +39,9 @@ type Job func(*sql.Selector)
 // JobTask is the predicate function for jobtask builders.
 type JobTask func(*sql.Selector)
 
+// LocalCredential is the predicate function for localcredential builders.
+type LocalCredential func(*sql.Selector)
+
 // Organization is the predicate function for organization builders.
 type Organization func(*sql.Selector)
 

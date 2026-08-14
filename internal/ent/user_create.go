@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
@@ -68,6 +69,25 @@ func (_c *UserCreate) AddTeams(v ...*Team) *UserCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTeamIDs(ids...)
+}
+
+// SetLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID.
+func (_c *UserCreate) SetLocalCredentialID(id int) *UserCreate {
+	_c.mutation.SetLocalCredentialID(id)
+	return _c
+}
+
+// SetNillableLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID if the given value is not nil.
+func (_c *UserCreate) SetNillableLocalCredentialID(id *int) *UserCreate {
+	if id != nil {
+		_c = _c.SetLocalCredentialID(*id)
+	}
+	return _c
+}
+
+// SetLocalCredential sets the "local_credential" edge to the LocalCredential entity.
+func (_c *UserCreate) SetLocalCredential(v *LocalCredential) *UserCreate {
+	return _c.SetLocalCredentialID(v.ID)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -178,6 +198,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.LocalCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.LocalCredentialTable,
+			Columns: []string{user.LocalCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(localcredential.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

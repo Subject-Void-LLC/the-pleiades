@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -64,6 +65,25 @@ func (_u *UserUpdate) AddTeams(v ...*Team) *UserUpdate {
 	return _u.AddTeamIDs(ids...)
 }
 
+// SetLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID.
+func (_u *UserUpdate) SetLocalCredentialID(id int) *UserUpdate {
+	_u.mutation.SetLocalCredentialID(id)
+	return _u
+}
+
+// SetNillableLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID if the given value is not nil.
+func (_u *UserUpdate) SetNillableLocalCredentialID(id *int) *UserUpdate {
+	if id != nil {
+		_u = _u.SetLocalCredentialID(*id)
+	}
+	return _u
+}
+
+// SetLocalCredential sets the "local_credential" edge to the LocalCredential entity.
+func (_u *UserUpdate) SetLocalCredential(v *LocalCredential) *UserUpdate {
+	return _u.SetLocalCredentialID(v.ID)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
@@ -88,6 +108,12 @@ func (_u *UserUpdate) RemoveTeams(v ...*Team) *UserUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearLocalCredential clears the "local_credential" edge to the LocalCredential entity.
+func (_u *UserUpdate) ClearLocalCredential() *UserUpdate {
+	_u.mutation.ClearLocalCredential()
+	return _u
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -199,6 +225,35 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.LocalCredentialCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.LocalCredentialTable,
+			Columns: []string{user.LocalCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(localcredential.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LocalCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.LocalCredentialTable,
+			Columns: []string{user.LocalCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(localcredential.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -254,6 +309,25 @@ func (_u *UserUpdateOne) AddTeams(v ...*Team) *UserUpdateOne {
 	return _u.AddTeamIDs(ids...)
 }
 
+// SetLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID.
+func (_u *UserUpdateOne) SetLocalCredentialID(id int) *UserUpdateOne {
+	_u.mutation.SetLocalCredentialID(id)
+	return _u
+}
+
+// SetNillableLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by ID if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableLocalCredentialID(id *int) *UserUpdateOne {
+	if id != nil {
+		_u = _u.SetLocalCredentialID(*id)
+	}
+	return _u
+}
+
+// SetLocalCredential sets the "local_credential" edge to the LocalCredential entity.
+func (_u *UserUpdateOne) SetLocalCredential(v *LocalCredential) *UserUpdateOne {
+	return _u.SetLocalCredentialID(v.ID)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
@@ -278,6 +352,12 @@ func (_u *UserUpdateOne) RemoveTeams(v ...*Team) *UserUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTeamIDs(ids...)
+}
+
+// ClearLocalCredential clears the "local_credential" edge to the LocalCredential entity.
+func (_u *UserUpdateOne) ClearLocalCredential() *UserUpdateOne {
+	_u.mutation.ClearLocalCredential()
+	return _u
 }
 
 // Where appends a list predicates to the UserUpdate builder.
@@ -412,6 +492,35 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(team.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LocalCredentialCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.LocalCredentialTable,
+			Columns: []string{user.LocalCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(localcredential.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LocalCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.LocalCredentialTable,
+			Columns: []string{user.LocalCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(localcredential.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
