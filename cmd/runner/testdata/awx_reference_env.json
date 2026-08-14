@@ -1,0 +1,5 @@
+{
+  "REST_API_CONFIG": "/run/pleiades/credentials/18",
+  "REST_API_TOKEN": "control-token-not-a-secret",
+  "REST_API_URL": "https://api.example.test"
+}

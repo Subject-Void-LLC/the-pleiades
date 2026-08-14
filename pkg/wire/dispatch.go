@@ -208,4 +208,117 @@ type DispatchPayload struct {
 	// has to know "extra_vars" is the one Fields key that means something
 	// different from the rest.
 	ExtraVars map[string]any `json:"extra_vars,omitempty"`
+
+	// Injected is what this dispatch's bound credentials produce:
+	// environment variables, extra variables, generated files and vault
+	// identities, all already rendered by the Controller at fan-out.
+	//
+	// A pointer with omitempty, unlike the maps above, because "no
+	// credentials were bound" and "credentials were bound and produced
+	// nothing" are different facts a Runner may eventually need to
+	// distinguish, and because this struct's literal wire form is asserted
+	// in dispatch_test.go: a nil pointer vanishes cleanly where an empty
+	// struct would add "injected":{} to every credential-less dispatch.
+	//
+	// It carries the same deployment-ordering warning Kind above carries,
+	// and for the identical mechanical reason: every Runner-side decode is
+	// a plain json.Unmarshal with no DisallowUnknownFields, so an OLD
+	// Runner receiving a NEW payload silently drops this key and runs the
+	// job with nothing injected. The run then fails wherever the playbook
+	// first needed the secret, which is nowhere near the cause. **Runners
+	// must be upgraded before a credential is bound to a template.** There
+	// is no in-band mechanism that makes that safe, which is why it is a
+	// deployment ordering requirement rather than a comment about one.
+	Injected *Injected `json:"injected,omitempty"`
+}
+
+// Injected is the rendered output of a dispatch's bound credentials.
+//
+// It is the wire form of internal/credtype.Artifact, which cannot cross
+// this boundary itself: this package must never import internal/. The two
+// are converted in exactly one place (internal/dispatch), so a field added
+// to one and not the other is a compile failure at that conversion rather
+// than a value silently dropped on the wire.
+//
+// What it deliberately does NOT carry is the machine credential. That
+// already has a home in DispatchPayload.Secrets, which every adapter and
+// every Collection method already reads, and a second home would mean two
+// answers to "what does this run authenticate as."
+type Injected struct {
+	// Env are environment variables to set for the run.
+	//
+	// PLAN.md Section 17.5 forbids secrets in a process environment, and
+	// Section 29.4 resolves the one place that rule cannot hold: an Ansible
+	// module reads the environment by design, and the ephemeral container
+	// the legacy adapter runs a playbook in is the trust boundary that
+	// makes it acceptable. The native Go mesh keeps the stricter rule and
+	// REFUSES this field rather than honouring it; see
+	// internal/adapters/native for the refusal and for why it is a refusal
+	// rather than a silent skip.
+	Env map[string]string `json:"env,omitempty"`
+
+	// ExtraVars are extra variables to merge into the run, including
+	// nested structures.
+	ExtraVars map[string]any `json:"extra_vars,omitempty"`
+
+	// Files are generated credential files, sorted by path.
+	Files []InjectedFile `json:"files,omitempty"`
+
+	// Vault are the Ansible Vault identities the run must be given, each
+	// naming a file in Files.
+	Vault []InjectedVault `json:"vault,omitempty"`
+
+	// Mask are the values above that must be scrubbed from any output this
+	// run produces, longest first.
+	//
+	// It exists because SECRECY IS NOT RECOVERABLE FROM THE OTHER FIELDS.
+	// An adapter holds an environment map and a file body; a token and a
+	// region look identical by the time they arrive. The Controller knows
+	// which values came from inputs marked secret, and this is where it
+	// says so.
+	//
+	// Getting it wrong in the permissive direction is worse than it sounds,
+	// which is why this field exists rather than an adapter simply masking
+	// everything it was handed. Registering every injected value would
+	// scrub an ordinary URL, region or username out of every later line for
+	// the rest of the process, corrupting output without protecting
+	// anything.
+	//
+	// Carrying the values themselves adds no exposure this payload does not
+	// already have: they are the same bytes Env, ExtraVars and Files
+	// already carry, and the payload's JetStream retention is the residual
+	// recorded against the whole dispatch rather than against this field.
+	Mask []string `json:"mask,omitempty"`
+}
+
+// InjectedFile is one generated credential file.
+type InjectedFile struct {
+	// Label is the multi-file label this file was generated under, and
+	// empty for the single-file spelling.
+	Label string `json:"label,omitempty"`
+
+	// Path is where the file is written wherever the job runs.
+	Path string `json:"path"`
+
+	// Content is the rendered file body.
+	Content string `json:"content"`
+
+	// Mode is the permission bits, always 0o600.
+	Mode int64 `json:"mode"`
+}
+
+// InjectedVault is one Ansible Vault identity.
+//
+// It is carried separately from the file holding its password because the
+// file alone is not enough: ansible-playbook has to be told about it with
+// --vault-id <identifier>@<path>, and the identifier is what lets a
+// playbook encrypted under two vault identities be decrypted in one run.
+type InjectedVault struct {
+	// Identifier is the vault label, and empty for Ansible's own default
+	// vault identity.
+	Identifier string `json:"identifier,omitempty"`
+
+	// Path is the password file this identity reads, which is one of the
+	// paths in Injected.Files.
+	Path string `json:"path"`
 }

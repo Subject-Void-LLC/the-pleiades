@@ -332,6 +332,7 @@ var (
 		{Name: "fence", Type: field.TypeInt64, Default: 0},
 		{Name: "fields", Type: field.TypeJSON, Nullable: true},
 		{Name: "extra_vars", Type: field.TypeJSON, Nullable: true},
+		{Name: "credential_ids", Type: field.TypeJSON, Nullable: true},
 	}
 	// JobsTable holds the schema information for the "jobs" table.
 	JobsTable = &schema.Table{

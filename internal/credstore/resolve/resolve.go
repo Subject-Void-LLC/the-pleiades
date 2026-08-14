@@ -36,6 +36,7 @@ package resolve
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
@@ -70,7 +71,22 @@ type Resolver interface {
 // no decryption of its own; it is the seam that decides WHO may see the
 // result, not the mechanism that produces it.
 type entResolver struct {
-	client *ent.Client
+	client  *ent.Client
+	lookups *credtype.Lookups
+}
+
+// Option configures a Resolver.
+type Option func(*entResolver)
+
+// WithLookups wires the external secret sources this deployment has.
+//
+// A Resolver built without it still resolves every credential whose values
+// this platform stores, and fails only the specific credential that names
+// an external reference. That is the right split: a Controller with no
+// external secret source configured is an ordinary deployment, not a
+// misconfigured one.
+func WithLookups(l *credtype.Lookups) Option {
+	return func(r *entResolver) { r.lookups = l }
 }
 
 // NewEntResolver returns a Resolver over an ent client.
@@ -79,11 +95,15 @@ type entResolver struct {
 // precedent: the client is supplied by a composition root, so a nil one is
 // a wiring error that must fail at process start rather than at the first
 // dispatch.
-func NewEntResolver(client *ent.Client) Resolver {
+func NewEntResolver(client *ent.Client, opts ...Option) Resolver {
 	if client == nil {
 		panic("resolve: NewEntResolver requires an ent client")
 	}
-	return &entResolver{client: client}
+	r := &entResolver{client: client}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Resolve returns the named credentials with real values.
@@ -141,10 +161,64 @@ func (r *entResolver) Resolve(ctx context.Context, ids []int) ([]credtype.Creden
 		// injector receives a complete value set and never has to reach
 		// back to the type to find out what a missing input should have
 		// been.
-		out = append(out, resolved.WithDefaults())
+		resolved = resolved.WithDefaults()
+
+		// External references resolve here, at dispatch, which is the
+		// just-in-time point Section 17.4 requires: a job queued behind a
+		// capacity limit holds a pointer rather than a secret, and a
+		// relaunch a week later reads whatever the source holds now rather
+		// than what it held then.
+		if err := r.resolveExternal(ctx, &resolved); err != nil {
+			return nil, err
+		}
+
+		out = append(out, resolved)
 	}
 
 	return out, nil
+}
+
+// resolveExternal replaces every externally-referenced input with its real
+// value.
+//
+// A credential naming no external reference costs nothing here, which is
+// every credential in a deployment that has configured no external source.
+// One that does and has no source wired fails loudly rather than injecting
+// the reference string as though it were the secret: a reference reaching a
+// remote API as a bearer token is an authentication failure attributed to
+// the wrong subsystem, and the reference is now in that API's access log.
+func (r *entResolver) resolveExternal(ctx context.Context, cred *credtype.Credential) error {
+	if len(cred.External) == 0 {
+		return nil
+	}
+	if r.lookups == nil {
+		return fmt.Errorf(
+			"resolve: credential %d reads inputs from an external secret source and this controller has none configured",
+			cred.ID)
+	}
+
+	for _, inputID := range sortedKeys(cred.External) {
+		value, err := r.lookups.Resolve(ctx, inputID, cred.External[inputID])
+		if err != nil {
+			// The credential is named by id rather than by name: this error
+			// reaches a job record, and a credential name is chosen by an
+			// operator and can carry anything they typed.
+			return fmt.Errorf("resolve: credential %d: %w", cred.ID, err)
+		}
+		cred.Inputs[inputID] = value
+	}
+	return nil
+}
+
+// sortedKeys returns a map's keys in sorted order, so a credential with two
+// broken references reports the same one every time.
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // cloneStrings copies a map so a caller cannot mutate what ent holds.

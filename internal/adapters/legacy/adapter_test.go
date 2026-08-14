@@ -170,10 +170,30 @@ func TestAdapter_Execute_LaunchFieldsReachTheRealArgv(t *testing.T) {
 	want := []string{
 		"ansible-playbook", "-vv", "-i", "/run/pleiades/inventory.json",
 		"--limit", "sw1", "--forks", "1", "--tags", "deploy", "--skip-tags", "slow",
-		"/run/pleiades/playbook.yml", "-e", `{"deploy_env":"prod"}`,
+		"/run/pleiades/playbook.yml", "-e", "@/run/pleiades/extravars.json",
 	}
 	if !reflect.DeepEqual(orch.lastSpec.Argv, want) {
 		t.Errorf("real ContainerSpec.Argv = %#v, want %#v", orch.lastSpec.Argv, want)
+	}
+
+	// The extra variables themselves reach the container as a FILE, and
+	// this half of the assertion is what makes the argv half meaningful:
+	// without it, an argv carrying no values would be indistinguishable
+	// from a run that lost them.
+	var extraVars *legacy.ContainerFile
+	for i, f := range orch.lastSpec.Files {
+		if f.ContainerPath == "/run/pleiades/extravars.json" {
+			extraVars = &orch.lastSpec.Files[i]
+		}
+	}
+	if extraVars == nil {
+		t.Fatalf("no extra-vars file reached the container: %#v", orch.lastSpec.Files)
+	}
+	if string(extraVars.Content) != `{"deploy_env":"prod"}` {
+		t.Errorf("the extra-vars file = %q, want the launch's own variables", extraVars.Content)
+	}
+	if extraVars.Mode != 0o600 {
+		t.Errorf("the extra-vars file has mode %#o, want 0600", extraVars.Mode)
 	}
 }
 

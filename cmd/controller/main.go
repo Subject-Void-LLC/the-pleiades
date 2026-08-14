@@ -98,6 +98,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
+	credfile "github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/file"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
@@ -597,6 +600,33 @@ func main() {
 	// it rather than when an operator launches a job.
 	credentialStore := credstore.NewEntStore(client, render.New())
 
+	// credentialResolver is the OTHER credential port, and the split
+	// between the two is a security boundary rather than a naming choice:
+	// credentialStore above cannot return a plaintext secret because its
+	// projection has no field for one, and this one can. It is handed to
+	// the fan-out worker and to nothing else, and internal/archtest fails
+	// the build if internal/api ever imports the package it comes from.
+	//
+	// The file lookup is the one real external secret source this platform
+	// implements. A deployment that has not set its directory gets a
+	// resolver that works normally and fails only the specific credential
+	// that names an external reference, which is why this is wired
+	// unconditionally rather than behind a configuration check.
+	externalLookups, err := credtype.NewLookups(credfile.FromEnvironment())
+	if err != nil {
+		fatal("failed to build the external secret source table", err)
+	}
+	credentialResolver := resolve.NewEntResolver(client, resolve.WithLookups(externalLookups))
+
+	// injector renders a resolved credential into what a run executes with.
+	// It takes the same render engine the store validates writes with, so a
+	// credential type that saved successfully cannot fail to render for a
+	// reason the author was never shown.
+	injector, err := credtype.NewInjector(render.New())
+	if err != nil {
+		fatal("failed to build the credential injector", err)
+	}
+
 	// jobStore persists Job and JobTask rows over the same already-open
 	// Device client every other repository in this process shares. It
 	// backs both api.Dispatcher (which only ever creates a Job and reads
@@ -631,7 +661,15 @@ func main() {
 	// of that feature, not a follow-up; a Worker missing this would fail
 	// every playbook job with a correct refusal and nothing failing at
 	// build time.
-	workerOpts := []dispatch.WorkerOption{dispatch.WithSetStore(sets)}
+	//
+	// WithCredentials is the Phase 22 half: the resolver and the injector
+	// travel together, so a Worker cannot hold one without the other. A
+	// deployment that has created no credential type is unaffected, since
+	// a job binding nothing never enters that path.
+	workerOpts := []dispatch.WorkerOption{
+		dispatch.WithSetStore(sets),
+		dispatch.WithCredentials(credentialResolver, injector),
+	}
 	if playbooks != nil {
 		workerOpts = append(workerOpts,
 			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
@@ -729,9 +767,21 @@ func main() {
 	templateStore := launch.NewEntStore(client, launchCatalog)
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
 		api.WithTemplates(templateStore),
-		api.WithLaunchConfigs(templateStore))
+		api.WithLaunchConfigs(templateStore),
+		// The REDACTING store, deliberately, not the resolver: a relaunch
+		// needs to know whether a bound credential's type prompts at
+		// launch, which is a question about the type rather than about any
+		// value.
+		api.WithCredentialReader(credentialStore))
 	templates := api.NewTemplateHandler(templateStore, logger)
-	credentials := api.NewCredentialHandler(credentialStore, render.New())
+	// WithBindingTemplates is what lets a binding be refused at the moment
+	// an operator makes it, rather than at the first launch afterwards,
+	// when the template's execution path cannot honour the credential
+	// type's injectors. The run-time backstop in internal/adapters/native
+	// is what guarantees the rule regardless; this is what makes the
+	// refusal actionable.
+	credentials := api.NewCredentialHandler(credentialStore, render.New(),
+		api.WithBindingTemplates(templateStore))
 	streamer := api.NewLogStreamer(js)
 	// The factory is the same one the repository hydrates stored rows
 	// with, so a device created over the API is built by exactly the code

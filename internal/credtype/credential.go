@@ -108,14 +108,16 @@ func (c Credential) RenderVars() map[string]any {
 
 // Validate reports whether this credential's values satisfy its own type.
 //
-// prompted names the inputs a launch supplied for the type's ask-at-runtime
-// fields, which are legitimately absent from stored values and must not be
-// reported missing.
+// It is called by the injector on a credential whose externals have already
+// been resolved into Inputs, so External is passed through only to keep the
+// two callers of CheckValues identical: a resolved credential's external
+// ids are already present in Inputs, and an unresolved one has not reached
+// injection yet.
 func (c Credential) Validate() error {
 	if c.Type.Name == "" {
 		return fmt.Errorf("%w: credential %q carries no type", ErrInvalidCredential, c.Name)
 	}
-	return c.Type.Inputs.CheckValues(c.Inputs)
+	return c.Type.Inputs.CheckValues(c.Inputs, c.External)
 }
 
 // WithDefaults returns a copy with the type's declared defaults filled in

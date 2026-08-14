@@ -55,6 +55,8 @@ const (
 	FieldFields = "fields"
 	// FieldExtraVars holds the string denoting the extra_vars field in the database.
 	FieldExtraVars = "extra_vars"
+	// FieldCredentialIds holds the string denoting the credential_ids field in the database.
+	FieldCredentialIds = "credential_ids"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
 	// Table holds the table name of the job in the database.
@@ -91,6 +93,7 @@ var Columns = []string{
 	FieldFence,
 	FieldFields,
 	FieldExtraVars,
+	FieldCredentialIds,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

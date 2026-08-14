@@ -127,15 +127,51 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		files = append(files, ContainerFile{Content: []byte(key), ContainerPath: sshPrivateKeyContainerPath, Mode: 0o600})
 	}
 
-	fields := launch.Fields(payload.Fields)
-	argv, err := buildArgv(fields, payload.ExtraVars, inventoryContainerPath, playbookContainerPath)
+	// The bound credentials' generated files, then their environment, then
+	// their extra variables. Every one of these can refuse, and a refusal
+	// here fails the dispatch before a container starts rather than letting
+	// a run proceed with material this adapter could not honour.
+	injected := payload.Injected
+	// Exactly the values this dispatch says are secret, registered before
+	// anything is built: everything below can appear in an error, and an
+	// error is logged. See registerInjectedSecrets for why it is this list
+	// rather than every injected value.
+	registerInjectedSecrets(injected)
+
+	credentialFiles, err := injectedFiles(injected)
 	if err != nil {
-		return fmt.Errorf("failed to build ansible-playbook argv for %s: %w", payload.DeviceName, err)
+		return fmt.Errorf("failed to prepare injected credential files for %s: %w", payload.DeviceName, err)
+	}
+	files = append(files, credentialFiles...)
+
+	secretEnv, err := injectedEnv(injected)
+	if err != nil {
+		return fmt.Errorf("failed to prepare the injected environment for %s: %w", payload.DeviceName, err)
 	}
 
+	extraVars, err := mergeExtraVars(payload.ExtraVars, injected)
+	if err != nil {
+		return fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
+	}
+
+	// Extra variables reach ansible-playbook as a FILE, always, never on
+	// argv. See buildArgv's own doc comment for the leak that fixes and why
+	// it is unconditional.
+	if len(extraVars) > 0 {
+		encoded, err := encodeExtraVars(extraVars)
+		if err != nil {
+			return fmt.Errorf("failed to encode extra vars for %s: %w", payload.DeviceName, err)
+		}
+		files = append(files, ContainerFile{Content: encoded, ContainerPath: extraVarsContainerPath, Mode: 0o600})
+	}
+
+	fields := launch.Fields(payload.Fields)
+	argv := buildArgv(fields, len(extraVars) > 0, vaultsOf(injected), inventoryContainerPath, playbookContainerPath)
+
 	spec := ContainerSpec{
-		Image: a.image,
-		Argv:  argv,
+		Image:     a.image,
+		Argv:      argv,
+		SecretEnv: secretEnv,
 		Env: map[string]string{
 			"ANSIBLE_FORCE_COLOR": "false",
 			"ANSIBLE_NOCOLOR":     "1",
@@ -174,7 +210,14 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		return fmt.Errorf("failed to run ansible-playbook container: %w", err)
 	}
 
+	// Every value worth masking out of the captured Ansible output: what
+	// the Controller attached as this device's identity, plus exactly what
+	// the injection said was secret. A module's own JSON result can echo
+	// either one straight back.
 	secrets := secretValues(payload.Secrets)
+	if injected != nil {
+		secrets = append(secrets, injected.Mask...)
+	}
 	status, message := "ok", ""
 	sawCompletion := false
 	for _, evt := range ParseStdout(result.Output, time.Now()) {

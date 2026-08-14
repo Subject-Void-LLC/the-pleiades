@@ -7,9 +7,11 @@
 package dispatch
 
 import (
+	"sync"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -52,6 +54,31 @@ type Worker struct {
 	// a missing credential already fails at the Walk tier
 	// (worker_devices.go's admitAndDispatchDevice).
 	credentials credential.Store
+	// credentialResolver and injector are the Phase 22 half of the same
+	// just-in-time principle credentials above serves: the credentials a
+	// TEMPLATE binds, resolved and rendered at fan-out into the environment
+	// variables, extra variables and files a run needs.
+	//
+	// Both optional and both wired together or not at all (WithCredentials
+	// takes them as a pair, so a Worker cannot hold a resolver with nothing
+	// to render it into). A Worker without them dispatches exactly as it
+	// did before this phase, which is what keeps every existing deployment
+	// and the whole Walk tier working unchanged.
+	credentialResolver CredentialResolver
+	injector           *credtype.Injector
+
+	// prompted holds the credential inputs a launch was asked for at run
+	// time, for the one HandleJobRequested call that is about to use them.
+	//
+	// A map on the Worker rather than a field on Job, because these values
+	// must never be persisted (see PromptedInputs' own doc comment), and a
+	// map keyed by job id rather than a parameter because the values arrive
+	// on the event and are consumed several call frames down. Every entry
+	// is deleted the moment it is read, and again when the handler exits,
+	// so nothing lingers past the fan-out that needed it.
+	promptedMu sync.Mutex
+	prompted   map[string]credtype.PromptedInputs
+
 	// fanOutLeaseTTL is this Worker's own fan-out lease window: both the
 	// staleAfter duration passed to JobStore.BeginFanOut and the bound on
 	// HandleJobRequested's own per-invocation context (see that method's
@@ -96,6 +123,27 @@ func NewWorker(store JobStore, repo inventory.Repository, runbooks runbook.Sourc
 		opt(w)
 	}
 	return w
+}
+
+// WithCredentials wires the Phase 22 credential path: the resolver that
+// returns a bound credential's real values, and the injector that renders
+// them into what a run executes with.
+//
+// The two are one option rather than two, deliberately. A Worker holding a
+// resolver and no injector would resolve secrets and then discard them, and
+// a Worker holding an injector and no resolver would render nothing while
+// looking wired. Neither half is useful alone, so neither is settable
+// alone.
+//
+// A Worker built without this option dispatches exactly as it did before
+// this phase: the per-device credential store is consulted as it always
+// was, and nothing else changes. That is what keeps a deployment that has
+// created no credential type working untouched.
+func WithCredentials(resolver CredentialResolver, injector *credtype.Injector) WorkerOption {
+	return func(w *Worker) {
+		w.credentialResolver = resolver
+		w.injector = injector
+	}
 }
 
 // WithDefinitionSource wires the definition source for one further kind,
@@ -161,11 +209,35 @@ func WithFanOutLeaseTTL(ttl time.Duration) WorkerOption {
 const DefaultFanOutLeaseTTL = 10 * time.Minute
 
 // jobRequestedPayload is the small local payload this package's own
-// job.requested publisher (a later stage in this session, not this file)
-// sends: just enough to look the job back up. Everything else about the
-// job (RunbookID, GroupName, Actor) already lives in the Job row itself,
-// so the event does not need to duplicate it.
+// job.requested publisher (internal/api's Dispatcher) sends: just enough to
+// look the job back up. Everything else about the job (RunbookID,
+// GroupName, Actor) already lives in the Job row itself, so the event does
+// not need to duplicate it.
+//
+// It is hand-synchronised with internal/api's identically-shaped type, and
+// the two must stay in step: the publisher is there and the consumer is
+// here, and neither can import the other.
 type jobRequestedPayload struct {
 	// JobID identifies the job to fan out.
 	JobID string `json:"job_id"`
+
+	// Prompted carries the credential inputs a launch was asked for at run
+	// time, and it is the one thing on this event that is not merely an
+	// identifier.
+	//
+	// It is here because it cannot be anywhere else. The values must never
+	// be persisted, so the job row cannot hold them; and the Worker runs on
+	// EVERY controller replica (cmd/controller subscribes this handler
+	// directly rather than behind the leader election), so the replica that
+	// served the launch and the replica that fans it out are routinely
+	// different processes and an in-process handoff would silently lose the
+	// values on all but one of them.
+	//
+	// The asymmetry is worth stating plainly: PROMPTED inputs travel on
+	// this event, STORED inputs resolve at fan-out. A prompted secret
+	// therefore inherits the same JetStream exposure the dispatch payload
+	// already has, which is recorded as a residual rather than papered
+	// over. A second, separate channel for it would traverse the same
+	// broker with the same retention, so it would be theatre.
+	Prompted credtype.PromptedInputs `json:"prompted,omitempty"`
 }

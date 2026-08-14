@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -553,5 +554,77 @@ func TestCreate_RefusesADefinitionTheDeploymentCannotLaunch(t *testing.T) {
 				t.Error("the refused template was persisted anyway")
 			}
 		}
+	}
+}
+
+// TestGetCarriesTheTemplatesBoundCredentials covers the opaque ids this
+// package copies through and reads nothing about.
+//
+// Both halves matter. Get loads them because a launch has to know what the
+// definition runs AS; List deliberately does not, for the same reason it
+// does not load the survey, and a change that started loading them per row
+// would add a query per page for data no column shows.
+func TestGetCarriesTheTemplatesBoundCredentials(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	f := newStoreFixture(t)
+	client := f.client
+
+	created, err := f.store.Create(ctx, f.template("patch the edge routers"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	org := client.Organization.GetX(ctx, f.orgA)
+
+	// A template with no bindings carries none, which is every template in
+	// a deployment that has created no credential.
+	if len(created.CredentialIDs) != 0 {
+		t.Errorf("CredentialIDs = %v, want none for an unbound template", created.CredentialIDs)
+	}
+
+	// Bound through ent directly: this package does not own the binding
+	// API, and what is under test is that Get reads the edge at all.
+	ct := client.CredentialType.Create().
+		SetName("Custom API").SetKind("cloud").SetNamespace("custom_api").
+		SetInputs(credtype.InputSchema{Fields: []credtype.InputField{{ID: "api_token", Label: "Token", Secret: true}}}).
+		SetOrganization(org).
+		SaveX(ctx)
+	second := client.Credential.Create().SetName("second").SetOrganization(org).
+		SetCredentialType(ct).SetInputs(map[string]string{"api_token": "b"}).SaveX(ctx)
+	first := client.Credential.Create().SetName("first").SetOrganization(org).
+		SetCredentialType(ct).SetInputs(map[string]string{"api_token": "a"}).SaveX(ctx)
+
+	// Attached in descending id order, so the ordering assertion below is
+	// about this package's own sort rather than about insertion order.
+	client.Template.UpdateOneID(created.ID).AddCredentialIDs(second.ID, first.ID).SaveX(ctx)
+
+	loaded, err := f.store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(loaded.CredentialIDs) != 2 {
+		t.Fatalf("CredentialIDs = %v, want two", loaded.CredentialIDs)
+	}
+	// Ordered, because the order is meaningful downstream: vault
+	// credentials reach ansible-playbook as ordered --vault-id arguments,
+	// and an unordered join would make two identical templates produce two
+	// different command lines.
+	if loaded.CredentialIDs[0] != second.ID || loaded.CredentialIDs[1] != first.ID {
+		t.Errorf("CredentialIDs = %v, want them ordered by id (%d, %d)",
+			loaded.CredentialIDs, second.ID, first.ID)
+	}
+
+	// A listing carries none, deliberately.
+	listed, err := f.store.List(ctx, launch.Query{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("List() returned %d templates, want one", len(listed))
+	}
+	if len(listed[0].CredentialIDs) != 0 {
+		t.Errorf("a listed template carries CredentialIDs = %v, which costs a query per row for data no column shows",
+			listed[0].CredentialIDs)
 	}
 }

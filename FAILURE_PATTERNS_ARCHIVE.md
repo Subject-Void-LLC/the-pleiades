@@ -3130,3 +3130,29 @@ The Controller does not have this problem, and the difference is instructive: `c
 **Fix (sized, not applied).** Either register a `nats.ClosedHandler` that cancels the Runner's root context, turning a permanently dead connection into a process exit and letting the supervisor do what it is for; or pass `nats.MaxReconnects(-1)` so the client never gives up. The two are not equivalent and the choice is a real one: exiting surfaces the failure to whatever schedules the Runner, while retrying forever keeps a Runner that will recover on its own but leaves it invisible in the meantime. Giving the Runner a readiness surface of its own is the third option and the most work. Whichever is chosen, `internal/event` and `internal/lock` build their own connections with their own defaults and need the same treatment, or the fix covers one of three connections.
 
 **Lesson.** A retry loop that cannot distinguish a transient failure from a permanent one converts an outage into silence, and silence is worse than the outage: an operator can see a crashed worker and cannot see an idle one. When a component's whole purpose is to stay attached to something, the library default for "give up" is almost never the right one, and the give-up path needs an owner that escalates rather than a backoff that absorbs. The tell here was structural and available without any incident: two processes connect to the same bus with the same defaults, one has a health probe that reads the connection and one has no health surface at all, and nobody had asked what the second one does when the first one's probe would have fired.
+
+## 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
+
+**Symptom.** Phase 22's credential-injection release gate, run against a real ephemeral container for the first time, reported the injected environment as
+
+```
+REST_API_CONFIG = "********"
+REST_API_TOKEN  = "********"
+REST_API_URL    = "********"
+```
+
+Every value the playbook read back was the mask placeholder. The credential type declared exactly one secret input; the other two were an ordinary URL and a generated file path.
+
+**Root cause.** The legacy adapter registers injected values with the process-wide masking set so that a module echoing one back is scrubbed. That much is right, and it is necessary: the Controller renders the credential, the Runner runs it, and they are different processes with different masking sets, so the Controller's own registration does not travel.
+
+What the adapter cannot do is tell which values are secret. By the time an injection arrives it is a `map[string]string`, and a bearer token and a region are the same shape. Faced with that, the first implementation registered all of them, on the reasoning that masking too much is the safe direction.
+
+It is not the safe direction, and the gate is what made that concrete. Registering an ordinary value scrubs that substring out of *every* later line the process writes, for the rest of its life. A Runner that has injected one credential naming `https://api.example.test` will thereafter render `connection to ******** refused` for an unrelated failure against an unrelated host. The output is corrupted permanently and nothing is protected, because the value was never secret.
+
+The reasoning error is worth naming: "mask more" feels conservative because the risk being weighed is disclosure, and only disclosure. The cost of over-masking is not disclosure, so it does not appear on that scale at all, and a control evaluated on one axis will always be pushed to the end of it.
+
+**Fix.** Secrecy is not recoverable downstream, so the side that knows says so. `credtype.Artifact` gained a `secrets` list, filled by the secret-tracking decorator that already computes exactly this set (the credential's own secret input values, plus any rendered value containing one). It crosses the wire as `wire.Injected.Mask`, and both adapters register exactly that and nothing else. Carrying the values adds no exposure the payload did not already have: they are the same bytes `Env`, `ExtraVars` and `Files` already carry.
+
+The property is now held by a fuzz target rather than by a table, in both directions: a rendered value containing a secret must be declared secret, and a rendered value not containing one must not be. Both halves fail in opposite ways, and a table would only have covered the cases somebody thought of.
+
+**Lesson.** When a value crosses a process boundary, every property of it that is not carried explicitly is gone, and "which of these is secret" is exactly the kind of property that looks recoverable and is not. Do not let the receiving side infer it. More generally: when a safety control has an obvious conservative direction, look for what that direction costs on an axis the risk assessment did not include, because a control with a free "safer" setting is usually one whose cost has simply not been measured yet. Here the cost was permanent corruption of the operator's own debugging output, and it took a release gate running the whole thing for real to make it visible; every unit test in the package passed, because none of them asserted that a *non*-secret value survives.

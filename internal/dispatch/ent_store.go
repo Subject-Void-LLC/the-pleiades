@@ -77,6 +77,9 @@ func (s *entJobStore) Create(ctx context.Context, j *Job) error {
 	if len(j.ExtraVars) > 0 {
 		create = create.SetExtraVars(j.ExtraVars)
 	}
+	if len(j.CredentialIDs) > 0 {
+		create = create.SetCredentialIds(j.CredentialIDs)
+	}
 	// job_id has a DefaultFunc (newJobID, internal/ent/schema/job.go), but
 	// a caller-supplied JobID is honored when present, mirroring
 	// device.go's own optional-override-of-a-generated-default pattern:
@@ -270,6 +273,9 @@ func toJob(row *ent.Job) *Job {
 	}
 	if len(row.ExtraVars) > 0 {
 		job.ExtraVars = row.ExtraVars
+	}
+	if len(row.CredentialIds) > 0 {
+		job.CredentialIDs = row.CredentialIds
 	}
 	return job
 }

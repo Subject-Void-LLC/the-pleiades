@@ -78,10 +78,14 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 		}
 	}
 
-	if err := ct.Inputs.CheckValues(inputs); err != nil {
-		return Credential{}, err
-	}
-	if err := checkExternalRefs(ct.Inputs, external); err != nil {
+	// One check, both maps. CheckValues validates the stored values and the
+	// external references against the same schema, including the rule that
+	// a required input may be satisfied by an external reference rather
+	// than by a stored value. This package used to run a second, separate
+	// check over external alone; it was the same rule written twice, which
+	// is the duplication PLAN.md Section 25 forbids, and it was deleted
+	// rather than kept in sync.
+	if err := ct.Inputs.CheckValues(inputs, external); err != nil {
 		return Credential{}, err
 	}
 
@@ -124,13 +128,9 @@ func (s *entStore) UpdateCredential(ctx context.Context, id int, name, descripti
 	}
 
 	merged := mergeInputs(row.Inputs, inputs)
-	if err := ct.Inputs.CheckValues(merged); err != nil {
+	if err := ct.Inputs.CheckValues(merged, external); err != nil {
 		return Credential{}, err
 	}
-	if err := checkExternalRefs(ct.Inputs, external); err != nil {
-		return Credential{}, err
-	}
-
 	if _, err := s.client.Credential.UpdateOneID(id).
 		SetName(name).
 		SetDescription(description).
@@ -323,24 +323,6 @@ func mergeInputs(stored, supplied map[string]string) map[string]string {
 		merged[id] = value
 	}
 	return merged
-}
-
-// checkExternalRefs refuses an external lookup naming an input the type
-// does not declare.
-//
-// Without it, a typo in an input id would produce a credential that looks
-// configured, resolves nothing at launch, and injects an empty value, which
-// is the exact failure shape the renderer's strict-undefined rule exists to
-// prevent one layer up.
-func checkExternalRefs(schema credtype.InputSchema, external map[string]string) error {
-	for id := range external {
-		if _, ok := schema.Field(id); !ok {
-			return fmt.Errorf(
-				"%w: the external lookup names %q, which is not an input this credential type declares",
-				credtype.ErrInvalidCredential, id)
-		}
-	}
-	return nil
 }
 
 // cloneStrings copies a map so a caller cannot mutate what the store holds.

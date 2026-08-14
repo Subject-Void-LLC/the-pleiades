@@ -450,7 +450,7 @@ func TestCheckValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := schema.CheckValues(tt.values)
+			err := schema.CheckValues(tt.values, nil)
 			if tt.wantErr && err == nil {
 				t.Fatal("CheckValues() accepted invalid values")
 			}
@@ -478,7 +478,7 @@ func TestCheckValuesNeverQuotesAValue(t *testing.T) {
 		},
 	}
 
-	err := schema.CheckValues(map[string]string{"region": secret})
+	err := schema.CheckValues(map[string]string{"region": secret}, nil)
 	if err == nil {
 		t.Fatal("CheckValues() accepted a value outside its choices")
 	}
@@ -554,5 +554,85 @@ func TestFileLabels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestARequiredInputCanBeSatisfiedThreeWays covers the three separate
+// things that count as an input being supplied, only one of which is a
+// value in the map.
+//
+// The external case was a real defect found by Phase 22b: a credential
+// whose required token lives in Vault could not be created at all, because
+// CheckValues saw the input as missing. The whole point of an external
+// reference is that this platform stores a pointer rather than the secret,
+// and the pointer is resolved at dispatch, so the value being absent from
+// storage is the design rather than an omission.
+func TestARequiredInputCanBeSatisfiedThreeWays(t *testing.T) {
+	t.Parallel()
+
+	schema := credtype.InputSchema{
+		Fields: []credtype.InputField{
+			{ID: "api_token", Label: "Token", Secret: true},
+			{ID: "prompted", Label: "Prompted", Secret: true, AskAtRuntime: true},
+			{ID: "region", Label: "Region", Default: "us-east-1"},
+		},
+		Required: []string{"api_token", "prompted", "region"},
+	}
+
+	tests := []struct {
+		name             string
+		values, external map[string]string
+		wantErr          bool
+	}{
+		{
+			name:   "a stored value",
+			values: map[string]string{"api_token": "a-real-secret"},
+		},
+		{
+			name:     "an external reference, with nothing stored",
+			external: map[string]string{"api_token": "hashivault_kv:secret/data/prod"},
+		},
+		{
+			name:    "neither, which is the case that must still fail",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := schema.CheckValues(tt.values, tt.external)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("CheckValues() accepted a credential with no way to supply a required input")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CheckValues() refused a satisfiable credential: %v", err)
+			}
+		})
+	}
+}
+
+// TestAnExternalReferenceToAnUndeclaredInputIsRefused covers the other half
+// of the same parameter: an external map is checked against the schema
+// exactly as the value map is, so a reference pointing at an input the type
+// does not declare is caught at the write rather than silently resolved
+// into nothing at dispatch.
+func TestAnExternalReferenceToAnUndeclaredInputIsRefused(t *testing.T) {
+	t.Parallel()
+
+	schema := credtype.InputSchema{
+		Fields: []credtype.InputField{{ID: "api_token", Label: "Token", Secret: true}},
+	}
+
+	err := schema.CheckValues(nil, map[string]string{"nonexistent": "file:something"})
+	if err == nil {
+		t.Fatal("CheckValues() accepted an external reference to an undeclared input")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("the error does not name the undeclared input: %v", err)
 	}
 }

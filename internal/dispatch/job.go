@@ -157,6 +157,15 @@ type Job struct {
 	// that precedence order. Same capture-now, consume-later status as
 	// Fields above.
 	ExtraVars map[string]any
+
+	// CredentialIDs are the credentials this job's template was bound to
+	// when it was launched, in binding order. Ids and nothing else; see
+	// internal/ent/schema/job.go's own field for what is deliberately not
+	// recorded beside them.
+	//
+	// This is what the fan-out resolves and injects, and it is the audit
+	// answer to what a run authenticated as.
+	CredentialIDs []int
 }
 
 // JobTask is the domain view of one device's outcome within a Job's

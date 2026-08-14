@@ -269,12 +269,30 @@ func validateChoices(f InputField) error {
 // every required field present and non-empty, no value for an input the
 // type does not declare, and every bounded field inside its own choices.
 //
+// external names the inputs this credential reads from an external secret
+// source. They are legitimately absent from values, because the whole point
+// of an external reference is that this platform stores a pointer rather
+// than the secret, and it is resolved at dispatch. Without this parameter a
+// credential whose required input lives in Vault could not be created at
+// all, which is the defect this parameter was added to fix.
+//
+// It has the same shape as the AskAtRuntime exemption below and exists for
+// the same reason: three separate things can satisfy a required input, and
+// only one of them is a value in this map.
+//
 // No error message here ever includes a value. Every one of them can reach
 // an API response and a log line, and half of these values are secrets.
-func (s InputSchema) CheckValues(values map[string]string) error {
+func (s InputSchema) CheckValues(values, external map[string]string) error {
 	for id := range values {
 		if _, ok := s.Field(id); !ok {
 			return fmt.Errorf("%w: %q is not an input this credential type declares", ErrInvalidCredential, id)
+		}
+	}
+	for id := range external {
+		if _, ok := s.Field(id); !ok {
+			return fmt.Errorf(
+				"%w: %q reads from an external secret source and is not an input this credential type declares",
+				ErrInvalidCredential, id)
 		}
 	}
 
@@ -285,7 +303,7 @@ func (s InputSchema) CheckValues(values map[string]string) error {
 			// would be dead code, so this reports rather than assumes.
 			return fmt.Errorf("%w: required input %q is not declared", ErrInvalidType, id)
 		}
-		if values[id] == "" && f.Default == "" && !f.AskAtRuntime {
+		if values[id] == "" && external[id] == "" && f.Default == "" && !f.AskAtRuntime {
 			return fmt.Errorf("%w: input %q is required and was not supplied", ErrInvalidCredential, id)
 		}
 	}

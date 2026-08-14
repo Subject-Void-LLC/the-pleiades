@@ -111,6 +111,7 @@ story, per `.AGENTS/AGENTS.md`.
 105. **A struct returned by a resolver is a checklist, not a report: before calling a resolve-and-persist path complete, grep for a second reference to every field the resolver's own return type declares, downstream of the call site that received it.**
 106. **A parameter that merely shares a field's name and domain concept (forks ~ concurrency) is not wired to it until the parameter's actual arity at *this* call site is checked — a resolver that can only ever return one item makes any concurrency bound over its result unobservable, no matter what value is passed.**
 107. **A shared-primitive table's "Build by" column ages against the phase bodies it summarizes: before consuming a primitive, open the earliest phase named in its own "Call sites" column, and if that phase precedes the stated builder, correcting the table is the first commit of the work rather than a cleanup afterwards.**
+108. **A package that generated code imports can never import anything that imports the generated code: run `go list -deps` on a candidate import before designing against it, and when the answer forces a contract to be restated in two places, put the agreement test in an external test package, which is the one place both sides are importable at once.**
 
 ---
 

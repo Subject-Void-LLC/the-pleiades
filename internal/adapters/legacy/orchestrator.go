@@ -49,20 +49,57 @@ type ContainerSpec struct {
 	// ansible-playbook invocation, which is this one).
 	Argv []string
 
-	// Env is the container's environment. Never a place for a secret:
-	// PLAN.md Section 17.5 forbids passing secrets through argv or the
-	// process environment, and Section 29.4's resolution for the one
-	// place that rule cannot hold inside Ansible itself (Ansible modules
-	// read the environment) is that the ephemeral container is the trust
-	// boundary and secrets cross via Files below, not Env.
+	// Env is the container's NON-SECRET environment: the three Ansible
+	// behaviour variables this adapter sets, plus whatever an injector
+	// contributed that carries no secret value.
+	//
+	// It is safe to print. Anything this package logs, and any future
+	// diagnostic that dumps a spec, may include it, which is the whole
+	// reason it is a separate field from SecretEnv below rather than one
+	// map with a rule about it.
 	Env map[string]string
 
+	// SecretEnv is the container's environment that carries credential
+	// material. It is merged with Env immediately before the container
+	// starts, by the orchestrator, and never before.
+	//
+	// # Why this exists at all, given Section 17.5
+	//
+	// PLAN.md Section 17.5 forbids passing secrets through argv or the
+	// process environment. Section 29.4 resolves the one place that rule
+	// cannot hold, and the resolution is narrower than "environments are
+	// fine now": an Ansible module reads the environment BY DESIGN. An aws
+	// credential type injects AWS_ACCESS_KEY_ID and there is nowhere else
+	// amazon.aws.ec2_instance looks. Refusing would mean the migration
+	// story does not work, which is the entire point of this adapter.
+	//
+	// So Section 29.4 accepts the ephemeral container as the trust
+	// boundary: a secret may cross into THIS container's environment
+	// because the container is single use, destroyed with the job,
+	// reachable by no other job, and never existed on the Runner host's own
+	// disk or environment. That acceptance is scoped to here.
+	// internal/adapters/native keeps the stricter rule and REFUSES an env
+	// injector rather than honouring it, which is why the two adapters
+	// diverge on this and why that divergence is deliberate rather than an
+	// unfinished feature.
+	//
+	// Two things stay forbidden and are enforced rather than requested: a
+	// secret never reaches Argv (buildArgv takes a bool, not the values),
+	// and the Runner's own environment is never copied into a container.
+	SecretEnv map[string]string
+
 	// Files is copied into the container before its entrypoint runs. This
-	// is how inventory.json (and, when present, an SSH private key) cross
-	// the trust boundary: built as in-memory bytes, never written to the
+	// is how inventory.json, the playbook, an SSH private key, every
+	// generated credential file and the extra-variables file cross the
+	// trust boundary: built as in-memory bytes, never written to the
 	// Runner host's own disk, handed to the container orchestrator's own
 	// local control channel (for DockerOrchestrator, the Docker daemon's
 	// local socket).
+	//
+	// The extra-variables file is here rather than on Argv, and that is a
+	// fix rather than a preference: see buildArgv's own doc comment for the
+	// process-table leak the previous `-e <json>` form produced, and for
+	// why the file form is unconditional.
 	Files []ContainerFile
 
 	// Networks names zero or more pre-existing container networks this

@@ -538,7 +538,7 @@ func TestRelaunch_RefusesWhenTheConfigurationPortIsNotWired(t *testing.T) {
 	full := api.NewDispatcher(newTestRunbookSource(t, "patch-edge"), f.jobs, newCapturingBus(),
 		api.WithTemplates(f.store), api.WithLaunchConfigs(f.store))
 	jobID, _, err := full.LaunchTemplate(context.Background(), "ada@example.com", tmpl.ID,
-		launch.Config{Overrides: launch.Fields{"limit": "edge-07"}})
+		launch.Config{Overrides: launch.Fields{"limit": "edge-07"}}, nil)
 	if err != nil {
 		t.Fatalf("LaunchTemplate: %v", err)
 	}

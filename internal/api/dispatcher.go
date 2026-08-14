@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
@@ -54,6 +56,32 @@ type Dispatcher struct {
 	// configs records what each launch was configured with, and reads one
 	// back when a job is relaunched.
 	configs LaunchConfigStore
+
+	// credentials answers one narrow question: does a template's binding
+	// include a credential whose type prompts at launch, and therefore
+	// cannot be relaunched.
+	//
+	// The port is deliberately the REDACTING one (credstore's read
+	// projection), not the resolver. A dispatcher does not need a value to
+	// answer that question, and internal/archtest fails the build if this
+	// package ever imports the package that could hand it one.
+	credentials CredentialReader
+}
+
+// CredentialReader is the sliver of the credential store a relaunch needs.
+//
+// It answers what a template is bound to and what those credentials' types
+// declare, and nothing else. Every method here returns a redacted
+// projection, which is not a courtesy: credstore.Credential has no field a
+// plaintext secret could occupy, so this interface cannot be widened into
+// one that leaks a value without changing a type in another package.
+type CredentialReader interface {
+	// TemplateCredentials returns the credentials bound to a template.
+	TemplateCredentials(ctx context.Context, templateID int) ([]credstore.Credential, error)
+
+	// GetType returns one credential type, whose input schema says which
+	// inputs are prompted at launch.
+	GetType(ctx context.Context, id int) (credstore.CredentialType, error)
 }
 
 // TemplateReader is the slice of internal/launch's store a launch needs.
@@ -153,6 +181,16 @@ func WithLaunchConfigs(configs LaunchConfigStore) DispatcherOption {
 	return func(d *Dispatcher) { d.configs = configs }
 }
 
+// WithCredentialReader supplies the port a relaunch consults to find out
+// whether a template's credentials can be repeated.
+//
+// Optional, and its absence permits every relaunch rather than refusing
+// them: a controller with no credential store has no bindings, so there is
+// nothing it could be wrong about. See refuseUnrepeatableCredentials.
+func WithCredentialReader(credentials CredentialReader) DispatcherOption {
+	return func(d *Dispatcher) { d.credentials = credentials }
+}
+
 // jobRequestedPayload is the small event body this handler publishes to
 // topology.JobRequestedSubject: just enough for a Worker to look the job
 // back up. Everything else about the job (RunbookID, GroupName, Actor)
@@ -166,6 +204,12 @@ func WithLaunchConfigs(configs LaunchConfigStore) DispatcherOption {
 type jobRequestedPayload struct {
 	// JobID identifies the job to fan out.
 	JobID string `json:"job_id"`
+
+	// Prompted carries the credential inputs this launch was asked for at
+	// run time. See internal/dispatch's own half of this struct for why the
+	// event is the only place these can travel, and for the JetStream
+	// exposure that buys.
+	Prompted credtype.PromptedInputs `json:"prompted,omitempty"`
 }
 
 // launchRequestDTO is the body a launch accepts.
@@ -186,6 +230,20 @@ type launchRequestDTO struct {
 
 	// Answers are this launch's survey answers, keyed by variable.
 	Answers map[string]any `json:"answers"`
+
+	// Credentials are the credential inputs this launch was asked for at
+	// run time, keyed by credential id and then by input id.
+	//
+	// A separate key rather than folded into Answers, because the two are
+	// different things with different rules: a survey answer is a variable
+	// that IS recorded on the launch configuration, and a prompted
+	// credential input is a secret that must never be. Sharing one key would
+	// mean one bundle with two persistence rules and a reader having to know
+	// which half is which.
+	//
+	// Never echoed back. The launch response reports ignored FIELDS and
+	// nothing about credentials at all.
+	Credentials map[int]map[string]string `json:"credentials"`
 }
 
 // ignoredFieldDTO is one value a caller supplied that was not applied.
@@ -259,7 +317,10 @@ func (d *Dispatcher) LaunchFromTemplate(w http.ResponseWriter, r *http.Request) 
 		cfg.Answers = mergeAnswers(saved.Answers, body.Answers)
 	}
 
-	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg)
+	// Prompted credential inputs stay out of cfg deliberately: cfg is what
+	// gets recorded, and these must never be. See LaunchTemplate's own doc
+	// comment for why that is a signature rather than a rule.
+	jobID, ignored, err := d.LaunchTemplate(r.Context(), identity.Subject, templateID, cfg, credtype.PromptedInputs(body.Credentials))
 	if err != nil {
 		d.respondLaunchError(w, r, templateID, err)
 		return
@@ -377,7 +438,29 @@ func (d *Dispatcher) respondLaunchError(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config) (string, []launch.IgnoredField, error) {
+// LaunchTemplate resolves a template, records the launch, persists the job
+// and publishes the one job.requested event that hands fan-out off.
+//
+// # Why prompted is a parameter and not part of cfg
+//
+// prompted carries the credential inputs a type declared ask_at_runtime.
+// They must never be persisted, and this signature is what enforces that
+// rather than a rule somebody has to remember: recordConfig below takes cfg
+// and only cfg, so the value that must never be stored is not in the value
+// the storing function is handed. See credtype.PromptedInputs for the full
+// reasoning, and TestRecordConfigCannotSeeAPromptedCredentialInput for the
+// test that says it out loud.
+//
+// # Why injection is not here
+//
+// Nothing in this function renders a credential. The job records which
+// credentials it is bound to, and internal/dispatch resolves and injects
+// them at fan-out; see that package's inject.go for the four reasons that
+// is the right moment. The one consequence worth stating here is that a
+// launch cannot report a credential failure: an unresolvable credential
+// fails the job during fan-out, visible on the job record, not as a
+// non-202 from this call.
+func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateID int, cfg launch.Config, prompted credtype.PromptedInputs) (string, []launch.IgnoredField, error) {
 	if d.templates == nil {
 		return "", nil, fmt.Errorf("launching by template is not wired on this controller")
 	}
@@ -435,12 +518,16 @@ func (d *Dispatcher) LaunchTemplate(ctx context.Context, actor string, templateI
 		// runbook's variable context.
 		Fields:    resolved.Fields,
 		ExtraVars: resolved.ExtraVars,
+		// Ids only. The values are resolved at fan-out and never touch this
+		// row; see internal/ent/schema/job.go's own credential_ids field for
+		// what is deliberately not recorded beside them.
+		CredentialIDs: resolved.CredentialIDs,
 	}
 	if err := d.jobs.Create(ctx, job); err != nil {
 		return "", ignored, fmt.Errorf("create job %s: %w", jobID, err)
 	}
 
-	if err := d.publishRequested(ctx, actor, jobID); err != nil {
+	if err := d.publishRequested(ctx, actor, jobID, prompted); err != nil {
 		return "", ignored, err
 	}
 
@@ -522,12 +609,69 @@ func (d *Dispatcher) Relaunch(ctx context.Context, actor, jobID string) (string,
 		return "", nil, fmt.Errorf("resolve template %d: %w", job.TemplateID, err)
 	}
 
+	// A credential whose type prompts for an input at launch cannot be
+	// relaunched, and this is the exact mirror of the survey-secret refusal
+	// configFor already applies one function down.
+	//
+	// The reasoning is identical: the value was typed once by one operator
+	// and was never stored, so there is nothing to repeat. It sits HERE
+	// rather than in configFor because configFor's job is narrow, reading
+	// back a stored configuration, and a credential the template binds is
+	// not part of one.
+	if err := d.refuseUnrepeatableCredentials(ctx, tmpl); err != nil {
+		return "", nil, err
+	}
+
 	cfg, err := d.configFor(ctx, job, tmpl)
 	if err != nil {
 		return "", nil, err
 	}
 
-	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg)
+	// A relaunch supplies no prompted credential inputs, and cannot: the
+	// values were never stored. Any credential needing one was already
+	// refused above, so this nil is the whole of the prompted set rather
+	// than a value that was dropped.
+	return d.LaunchTemplate(ctx, actor, job.TemplateID, cfg, nil)
+}
+
+// refuseUnrepeatableCredentials refuses a relaunch of a template bound to a
+// credential whose type prompts for any input at launch.
+//
+// It reads the CURRENT bindings rather than the ids recorded on the job,
+// deliberately, and the two can differ. The template is what the relaunch
+// will actually run with, since LaunchTemplate resolves the template afresh
+// (which is also what lets a relaunch pick up a rotated secret), so
+// checking what the job used would refuse or permit based on the wrong set.
+//
+// A Dispatcher with no credential reader wired permits the relaunch. That is
+// the correct default rather than a gap: a deployment with no credential
+// bindings at all has nothing to refuse, and refusing every relaunch on a
+// controller that has never seen a credential type would break the feature
+// for everybody to guard a case that cannot arise.
+func (d *Dispatcher) refuseUnrepeatableCredentials(ctx context.Context, tmpl launch.Template) error {
+	if d.credentials == nil || len(tmpl.CredentialIDs) == 0 {
+		return nil
+	}
+
+	bound, err := d.credentials.TemplateCredentials(ctx, tmpl.ID)
+	if err != nil {
+		return fmt.Errorf("read the credentials bound to template %d: %w", tmpl.ID, err)
+	}
+
+	for _, cred := range bound {
+		ct, err := d.credentials.GetType(ctx, cred.TypeID)
+		if err != nil {
+			return fmt.Errorf("read credential type %d: %w", cred.TypeID, err)
+		}
+		if prompts := ct.Inputs.AskAtRuntimeFields(); len(prompts) > 0 {
+			// Names the credential and the input, never a value: this
+			// message reaches an HTTP response.
+			return fmt.Errorf(
+				"%w: it runs as %q, whose type asks for %q at launch and never stores it; launch the template with a fresh value",
+				ErrNotRelaunchable, cred.Name, prompts[0])
+		}
+	}
+	return nil
 }
 
 // configFor reads back the configuration a job ran with, refusing the two
@@ -579,8 +723,15 @@ func (d *Dispatcher) configFor(ctx context.Context, job *dispatch.Job, tmpl laun
 // exactly the details that matter: the durable record exists before the
 // event, the publish survives a client disconnecting, and the job id is the
 // idempotency key.
-func (d *Dispatcher) publishRequested(ctx context.Context, actor, jobID string) error {
-	evt, err := event.WrapPayload(uuid.New().String(), "job.requested", jobRequestedPayload{JobID: jobID})
+func (d *Dispatcher) publishRequested(ctx context.Context, actor, jobID string, prompted credtype.PromptedInputs) error {
+	evt, err := event.WrapPayload(uuid.New().String(), "job.requested", jobRequestedPayload{
+		JobID: jobID,
+		// This event is the one place a prompted credential input can
+		// travel, because it must not be persisted and the Worker runs on
+		// a different replica than the one that served this launch. See the
+		// payload type's own field comment for the residual that buys.
+		Prompted: prompted,
+	})
 	if err != nil {
 		return fmt.Errorf("build job.requested event for %s: %w", jobID, err)
 	}

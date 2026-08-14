@@ -55,9 +55,15 @@ func (o *DockerOrchestrator) Run(ctx context.Context, spec ContainerSpec) (Conta
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:      spec.Image,
-		Cmd:        spec.Argv,
-		Env:        spec.Env,
+		Image: spec.Image,
+		Cmd:   spec.Argv,
+		// The two environments merge HERE, at the last possible moment
+		// before the container starts, and nowhere earlier. That is what
+		// keeps spec.Env safe to print anywhere in this package: a
+		// diagnostic that dumps a ContainerSpec sees the non-secret half,
+		// and the combined map exists only inside this function and inside
+		// the container.
+		Env:        mergeEnv(spec.Env, spec.SecretEnv),
 		Files:      files,
 		Networks:   spec.Networks,
 		WaitingFor: wait.ForExit(),

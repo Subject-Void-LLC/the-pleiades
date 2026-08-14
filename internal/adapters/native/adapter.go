@@ -105,6 +105,20 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		return fmt.Errorf("failed to publish started event: %w", err)
 	}
 
+	// The run-time backstop, before anything is resolved or executed:
+	// injected material this path cannot honour fails the dispatch loudly
+	// rather than running it with part of its credentials missing. See
+	// inject.go for why this is a refusal and not a silent skip, and for
+	// why file is refused for a stronger reason than env.
+	if err := refuseUnsupportedInjection(payload.Injected); err != nil {
+		return err
+	}
+
+	variables, err := injectedVariables(payload.ExtraVars, payload.Injected)
+	if err != nil {
+		return fmt.Errorf("failed to merge injected extra variables for %s: %w", payload.DeviceName, err)
+	}
+
 	dag, err := a.runbooks.GetDAG(ctx, payload.RunbookID)
 	if err != nil {
 		return fmt.Errorf("failed to resolve runbook %q: %w", payload.RunbookID, err)
@@ -162,7 +176,12 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		nodeBus,
 		engine.NewInProcessWorkflowContext(),
 		0,
-		engine.WithVariables(payload.ExtraVars),
+		// The launch's own extra variables plus whatever a bound credential
+		// injected, already merged with a collision refused. This is the
+		// one injector target the native path DOES honour, and it is
+		// pre-existing machinery rather than something built for it:
+		// engine.WithVariables is what the Walk-tier CLI already uses.
+		engine.WithVariables(variables),
 		engine.WithTaskTimeout(taskTimeout(launch.Fields(payload.Fields))),
 	)
 
@@ -183,11 +202,16 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	// attached to this payload, since a task's output can echo either one
 	// back (internal/engine/action_ssh.go's transportActionExecutor
 	// already applies this identical pairing for the Walk-tier CLI).
-	secrets := make([]string, 0, len(result.Secrets)+len(payload.Secrets))
+	// Plus every value a bound credential injected, which a task's output
+	// can echo back exactly as readily as one the Controller attached to
+	// Secrets.
+	injectedValues := injectedSecretValues(payload.Injected)
+	secrets := make([]string, 0, len(result.Secrets)+len(payload.Secrets)+len(injectedValues))
 	secrets = append(secrets, result.Secrets...)
 	for _, v := range payload.Secrets {
 		secrets = append(secrets, v)
 	}
+	secrets = append(secrets, injectedValues...)
 
 	status, message := summarize(result, changed, secrets)
 	completed := wire.JobEvent{Status: status, Host: payload.DeviceHost, Task: "task.completed"}

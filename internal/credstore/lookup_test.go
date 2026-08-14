@@ -3,6 +3,7 @@ package credstore_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
@@ -350,4 +351,66 @@ func TestDeletingACredentialRemovesItsBindings(t *testing.T) {
 	if len(bound) != 0 {
 		t.Errorf("the template still binds a deleted credential")
 	}
+}
+
+// TestCredentialsWithExternalReferences covers the external half of the
+// store, which is the pointer-rather-than-secret path.
+//
+// The headline case is the one Phase 22b found broken: a credential whose
+// REQUIRED input lives in an external source has no stored value for it,
+// and refusing that would make an externally-sourced credential impossible
+// to create at all.
+func TestCredentialsWithExternalReferences(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _, orgID, typeID := fixture(t)
+
+	t.Run("a required input satisfied by an external reference is accepted", func(t *testing.T) {
+		created, err := store.CreateCredential(ctx, orgID, typeID, "external api", "",
+			nil, map[string]string{"api_token": "file:prod_api_token"})
+		if err != nil {
+			t.Fatalf("CreateCredential() refused an externally-sourced credential: %v", err)
+		}
+		// The reference reads back UNREDACTED, deliberately: a Vault path
+		// is a pointer to a secret rather than a secret, and hiding it
+		// would make "which credentials point at this mount" unanswerable
+		// during a migration.
+		if created.External["api_token"] != "file:prod_api_token" {
+			t.Errorf("External = %v, want the reference readable", created.External)
+		}
+		// And nothing invented a stored value for it.
+		if _, stored := created.Inputs["api_token"]; stored {
+			t.Errorf("Inputs = %v, want no stored value for an externally-sourced input", created.Inputs)
+		}
+	})
+
+	t.Run("an external reference to an undeclared input is refused", func(t *testing.T) {
+		_, err := store.CreateCredential(ctx, orgID, typeID, "typo api", "",
+			map[string]string{"api_token": "a-real-secret"},
+			map[string]string{"nonexistent": "file:something"})
+		if err == nil {
+			t.Fatal("CreateCredential() accepted an external reference to an undeclared input")
+		}
+		if !strings.Contains(err.Error(), "nonexistent") {
+			t.Errorf("the error does not name the undeclared input: %v", err)
+		}
+	})
+
+	t.Run("an update may move an input from stored to external", func(t *testing.T) {
+		created, err := store.CreateCredential(ctx, orgID, typeID, "moving api", "",
+			map[string]string{"api_token": "a-real-secret"}, nil)
+		if err != nil {
+			t.Fatalf("CreateCredential() error = %v", err)
+		}
+
+		updated, err := store.UpdateCredential(ctx, created.ID, "moving api", "",
+			nil, map[string]string{"api_token": "file:prod_api_token"})
+		if err != nil {
+			t.Fatalf("UpdateCredential() error = %v", err)
+		}
+		if updated.External["api_token"] != "file:prod_api_token" {
+			t.Errorf("External = %v, want the reference recorded", updated.External)
+		}
+	})
 }

@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
@@ -112,6 +113,12 @@ func (s *entStore) Get(ctx context.Context, id int) (Template, error) {
 		WithSurveyQuestions(func(q *ent.SurveyQuestionQuery) {
 			q.Order(ent.Asc(entquestion.FieldDisplayOrder), ent.Asc(entquestion.FieldID))
 		}).
+		// The bound credentials, loaded HERE and deliberately not in List
+		// below, for the reason the survey is not loaded there either: a
+		// list renders a template's name, kind and inventory, and a launch
+		// is what needs to know what it runs as. Loading them per row would
+		// be an extra query per page for data no column shows.
+		WithCredentials().
 		Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
@@ -362,6 +369,24 @@ func hydrate(row *ent.Template) Template {
 	if row.Edges.Inventory != nil {
 		tmpl.InventoryID = row.Edges.Inventory.ID
 		tmpl.InventoryName = row.Edges.Inventory.Name
+	}
+
+	// The bound credentials, as opaque ids. This package knows nothing else
+	// about them and deliberately loads nothing else: see
+	// Template.CredentialIDs for why they stay opaque all the way to
+	// fan-out.
+	//
+	// Ordered by id rather than left in whatever order the join returned,
+	// because the order is meaningful downstream (ordered --vault-id
+	// arguments) and an unordered join would make two identical templates
+	// produce two different command lines.
+	if len(row.Edges.Credentials) > 0 {
+		ids := make([]int, 0, len(row.Edges.Credentials))
+		for _, c := range row.Edges.Credentials {
+			ids = append(ids, c.ID)
+		}
+		sort.Ints(ids)
+		tmpl.CredentialIDs = ids
 	}
 
 	questions := make([]Question, 0, len(row.Edges.SurveyQuestions))

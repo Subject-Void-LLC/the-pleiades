@@ -323,6 +323,17 @@ var LaunchTemplate = Endpoint{
 			"config":    map[string]any{"type": "integer", "description": "A stored launch configuration to launch from, applied beneath overrides. Must belong to this template."},
 			"overrides": map[string]any{"type": "object", "description": "This launch's own values, keyed by launch field name."},
 			"answers":   map[string]any{"type": "object", "description": "This launch's survey answers, keyed by variable."},
+			"credentials": map[string]any{
+				"type": "object",
+				"description": "Credential inputs this launch was asked for at run time, keyed by credential id and then by input id. " +
+					"Only inputs whose credential type declares ask_at_runtime are read; anything else is ignored. " +
+					"These values are never persisted: they are not recorded on the launch configuration, they are not " +
+					"written to the job, and a job launched with them cannot be relaunched. Supply them again instead.",
+				"additionalProperties": map[string]any{
+					"type":                 "object",
+					"additionalProperties": map[string]any{"type": "string"},
+				},
+			},
 		},
 	},
 	Responses: []Response{

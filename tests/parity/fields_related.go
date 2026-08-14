@@ -251,8 +251,8 @@ var JobTemplateSummaryFields = []Field{
 	{Name: "webhook_credential", Status: Metadata, Note: "previews the root-level webhook_credential field, itself a gap owned by D4"},
 
 	{
-		Name: "credentials", Status: Gap, Phase: "A2 Credential Types",
-		Note: "the only place a template's bound credentials appear in this payload, since AWX has no root-level credentials field. The corpus binds three at once (ssh, vault, aws), which is the case our credential model cannot express at all: we have one file-backed store and no typed binding.",
+		Name: "credentials", Status: Represented, Ours: "launch.Template.CredentialIDs (the Template-to-Credential edge)", Phase: "A2 Credential Types",
+		Note: "the only place a template's bound credentials appear in this payload, since AWX has no root-level credentials field. The corpus binds three at once (ssh, vault, aws), which is exactly what the Template-to-Credential binding now expresses: credtype.CheckBinding enforces at most one credential per kind with vault exempted by distinct identifier, and GET/PUT /templates/{id}/credentials read and replace the set.",
 	},
 	{
 		Name: "labels", Status: Gap, Phase: "B3 Labels",
@@ -319,7 +319,7 @@ var JobTemplateRelatedFields = []Field{
 	{Name: "notification_templates_error", Status: Gap, Phase: "C3 Notifications", Note: "as started, on failure. The trigger somebody actually configures first."},
 	{
 		Name: "extra_credentials", Status: Gap, Phase: "A2 Credential Types",
-		Note: "AWX's deprecated pre-3.x alias for the cloud and network credentials on a template, kept for API compatibility. An import must read it as a synonym for credentials rather than as a second relationship, and must not write it.",
+		Note: "AWX's deprecated pre-3.x alias for the cloud and network credentials on a template, kept for API compatibility. An import must read it as a synonym for credentials rather than as a second relationship, and must not write it. Still a gap after the binding landed, and deliberately so: the relationship it aliases is represented, and reproducing a deprecated alias of it would be adding a second answer to one question. It becomes an import concern rather than an API one.",
 	},
 	{
 		Name: "modified_by", Status: Gap, Phase: "unowned",

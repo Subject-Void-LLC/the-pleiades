@@ -83,7 +83,16 @@ func launchAction(store launch.Store, dispatcher *api.Dispatcher) view.RecordAct
 			// resolve-record-persist-publish would have two orderings to
 			// keep in agreement, and the one that drifts is always the one
 			// with fewer readers.
-			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg)
+			// No prompted credential inputs yet: this form offers no
+			// controls for them, so passing anything would be inventing
+			// values nobody typed. The controls are a named follow-up (a
+			// KindPassword field per prompted input, named
+			// credential_<id>_<inputid>, mirroring the answer_ prefix
+			// convention below), and until they exist a template bound to a
+			// credential that prompts fails at fan-out with a reason naming
+			// the input. That is loud rather than silent, which is the
+			// acceptable half of an unfinished feature.
+			jobID, _, err := dispatcher.LaunchTemplate(ctx, identity.Subject, templateID, cfg, nil)
 			switch {
 			case errors.Is(err, launch.ErrNotFound):
 				return "", view.FieldErrors{"": {"That template no longer exists. Reload the list."}}, nil

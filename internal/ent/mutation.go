@@ -8252,44 +8252,46 @@ func (m *InventoryMutation) ResetEdge(name string) error {
 // JobMutation represents an operation that mutates the Job nodes in the graph.
 type JobMutation struct {
 	config
-	op                  Op
-	typ                 string
-	id                  *int
-	created_at          *time.Time
-	updated_at          *time.Time
-	job_id              *string
-	runbook_id          *string
-	group_name          *string
-	inventory_id        *int
-	addinventory_id     *int
-	template_id         *int
-	addtemplate_id      *int
-	template_name       *string
-	launch_config_id    *int
-	addlaunch_config_id *int
-	kind                *string
-	actor               *string
-	organization_id     *int
-	addorganization_id  *int
-	state               *job.State
-	dispatched_count    *int
-	adddispatched_count *int
-	skipped_count       *int
-	addskipped_count    *int
-	failed_count        *int
-	addfailed_count     *int
-	failure_reason      *string
-	fence               *int64
-	addfence            *int64
-	fields              *map[string]interface{}
-	extra_vars          *map[string]interface{}
-	clearedFields       map[string]struct{}
-	tasks               map[int]struct{}
-	removedtasks        map[int]struct{}
-	clearedtasks        bool
-	done                bool
-	oldValue            func(context.Context) (*Job, error)
-	predicates          []predicate.Job
+	op                   Op
+	typ                  string
+	id                   *int
+	created_at           *time.Time
+	updated_at           *time.Time
+	job_id               *string
+	runbook_id           *string
+	group_name           *string
+	inventory_id         *int
+	addinventory_id      *int
+	template_id          *int
+	addtemplate_id       *int
+	template_name        *string
+	launch_config_id     *int
+	addlaunch_config_id  *int
+	kind                 *string
+	actor                *string
+	organization_id      *int
+	addorganization_id   *int
+	state                *job.State
+	dispatched_count     *int
+	adddispatched_count  *int
+	skipped_count        *int
+	addskipped_count     *int
+	failed_count         *int
+	addfailed_count      *int
+	failure_reason       *string
+	fence                *int64
+	addfence             *int64
+	fields               *map[string]interface{}
+	extra_vars           *map[string]interface{}
+	credential_ids       *[]int
+	appendcredential_ids []int
+	clearedFields        map[string]struct{}
+	tasks                map[int]struct{}
+	removedtasks         map[int]struct{}
+	clearedtasks         bool
+	done                 bool
+	oldValue             func(context.Context) (*Job, error)
+	predicates           []predicate.Job
 }
 
 var _ ent.Mutation = (*JobMutation)(nil)
@@ -9391,6 +9393,71 @@ func (m *JobMutation) ResetExtraVars() {
 	delete(m.clearedFields, job.FieldExtraVars)
 }
 
+// SetCredentialIds sets the "credential_ids" field.
+func (m *JobMutation) SetCredentialIds(i []int) {
+	m.credential_ids = &i
+	m.appendcredential_ids = nil
+}
+
+// CredentialIds returns the value of the "credential_ids" field in the mutation.
+func (m *JobMutation) CredentialIds() (r []int, exists bool) {
+	v := m.credential_ids
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCredentialIds returns the old "credential_ids" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldCredentialIds(ctx context.Context) (v []int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCredentialIds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCredentialIds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCredentialIds: %w", err)
+	}
+	return oldValue.CredentialIds, nil
+}
+
+// AppendCredentialIds adds i to the "credential_ids" field.
+func (m *JobMutation) AppendCredentialIds(i []int) {
+	m.appendcredential_ids = append(m.appendcredential_ids, i...)
+}
+
+// AppendedCredentialIds returns the list of values that were appended to the "credential_ids" field in this mutation.
+func (m *JobMutation) AppendedCredentialIds() ([]int, bool) {
+	if len(m.appendcredential_ids) == 0 {
+		return nil, false
+	}
+	return m.appendcredential_ids, true
+}
+
+// ClearCredentialIds clears the value of the "credential_ids" field.
+func (m *JobMutation) ClearCredentialIds() {
+	m.credential_ids = nil
+	m.appendcredential_ids = nil
+	m.clearedFields[job.FieldCredentialIds] = struct{}{}
+}
+
+// CredentialIdsCleared returns if the "credential_ids" field was cleared in this mutation.
+func (m *JobMutation) CredentialIdsCleared() bool {
+	_, ok := m.clearedFields[job.FieldCredentialIds]
+	return ok
+}
+
+// ResetCredentialIds resets all changes to the "credential_ids" field.
+func (m *JobMutation) ResetCredentialIds() {
+	m.credential_ids = nil
+	m.appendcredential_ids = nil
+	delete(m.clearedFields, job.FieldCredentialIds)
+}
+
 // AddTaskIDs adds the "tasks" edge to the JobTask entity by ids.
 func (m *JobMutation) AddTaskIDs(ids ...int) {
 	if m.tasks == nil {
@@ -9479,7 +9546,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 20)
+	fields := make([]string, 0, 21)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -9540,6 +9607,9 @@ func (m *JobMutation) Fields() []string {
 	if m.extra_vars != nil {
 		fields = append(fields, job.FieldExtraVars)
 	}
+	if m.credential_ids != nil {
+		fields = append(fields, job.FieldCredentialIds)
+	}
 	return fields
 }
 
@@ -9588,6 +9658,8 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.GetFields()
 	case job.FieldExtraVars:
 		return m.ExtraVars()
+	case job.FieldCredentialIds:
+		return m.CredentialIds()
 	}
 	return nil, false
 }
@@ -9637,6 +9709,8 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldFields(ctx)
 	case job.FieldExtraVars:
 		return m.OldExtraVars(ctx)
+	case job.FieldCredentialIds:
+		return m.OldCredentialIds(ctx)
 	}
 	return nil, fmt.Errorf("unknown Job field %s", name)
 }
@@ -9785,6 +9859,13 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetExtraVars(v)
+		return nil
+	case job.FieldCredentialIds:
+		v, ok := value.([]int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCredentialIds(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)
@@ -9942,6 +10023,9 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldExtraVars) {
 		fields = append(fields, job.FieldExtraVars)
 	}
+	if m.FieldCleared(job.FieldCredentialIds) {
+		fields = append(fields, job.FieldCredentialIds)
+	}
 	return fields
 }
 
@@ -9982,6 +10066,9 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldExtraVars:
 		m.ClearExtraVars()
+		return nil
+	case job.FieldCredentialIds:
+		m.ClearCredentialIds()
 		return nil
 	}
 	return fmt.Errorf("unknown Job nullable field %s", name)
@@ -10050,6 +10137,9 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldExtraVars:
 		m.ResetExtraVars()
+		return nil
+	case job.FieldCredentialIds:
+		m.ResetCredentialIds()
 		return nil
 	}
 	return fmt.Errorf("unknown Job field %s", name)

@@ -16,7 +16,7 @@ ever carry.
 | Object | Carried | Direct | Converted | Gaps | Unsupported |
 |---|---|---|---|---|---|
 | `job_templates` | 21/45 | 7 | 14 | 22 | 2 |
-| `job_template_summary_fields` | 0/5 | 0 | 0 | 5 | 0 |
+| `job_template_summary_fields` | 1/5 | 1 | 0 | 4 | 0 |
 | `job_template_related` | 0/9 | 0 | 0 | 9 | 0 |
 | `projects` | 0/18 | 0 | 0 | 18 | 0 |
 | `project_updates` | 0/9 | 0 | 0 | 9 | 0 |
@@ -25,7 +25,7 @@ ever carry.
 | `survey_questions` | 9/9 | 5 | 4 | 0 | 0 |
 | `schedules` | 1/8 | 0 | 1 | 7 | 0 |
 | `activity_stream` | 5/6 | 1 | 4 | 1 | 0 |
-| **total** | **44/119** | 20 | 24 | 73 | 2 |
+| **total** | **45/119** | 21 | 24 | 72 | 2 |
 
 Corpus: 16 object(s) across 10 resource types.
 
@@ -41,7 +41,7 @@ are gone from this list.
 | A1 Projects | 1 | `job_templates.project` |
 | A1a local-path projects | 5 | `projects.description`, `projects.local_path`, `projects.name`, `projects.organization`, `projects.status` |
 | A1b git sync | 17 | `job_templates.ask_scm_branch_on_launch`, `job_templates.scm_branch`, `project_updates.job_tags`, `project_updates.job_type`, `project_updates.project`, `project_updates.scm_revision`, `projects.allow_override`, `projects.copy_from_dir`, `projects.scm_branch`, `projects.scm_clean`, `projects.scm_delete_on_update`, `projects.scm_refspec`, `projects.scm_revision`, `projects.scm_track_submodules`, `projects.scm_type`, `projects.scm_url`, `projects.timeout` |
-| A2 Credential Types | 4 | `job_template_related.extra_credentials`, `job_template_summary_fields.credentials`, `job_templates.ask_credential_on_launch`, `projects.credential` |
+| A2 Credential Types | 3 | `job_template_related.extra_credentials`, `job_templates.ask_credential_on_launch`, `projects.credential` |
 | A3 Execution Environments | 5 | `job_templates.ask_execution_environment_on_launch`, `job_templates.custom_virtualenv`, `job_templates.execution_environment`, `project_updates.execution_environment`, `projects.custom_virtualenv` |
 | B1 typed fields and per-field prompts | 1 | `job_templates.ask_inventory_on_launch` |
 | B2 List metadata | 1 | `job_template_summary_fields.recent_jobs` |
@@ -138,17 +138,22 @@ are gone from this list.
 
 ## `job_template_summary_fields`
 
-0 of 5 meaningful fields carried. Corpus: deploy-web-application.json, full-stack-remediation.json.
+1 of 5 meaningful fields carried. Corpus: deploy-web-application.json, full-stack-remediation.json.
 
-### Gaps (5)
+### Gaps (4)
 
 | Field | Owning phase | Notes |
 |---|---|---|
-| `credentials` | A2 Credential Types | the only place a template's bound credentials appear in this payload, since AWX has no root-level credentials field. The corpus binds three at once (ssh, vault, aws), which is the case our credential model cannot express at all: we have one file-backed store and no typed binding. |
 | `recent_jobs` | B2 List metadata | what the Activity and Last Ran columns render. We can compute it from ListForTemplate; nothing projects it yet. |
 | `labels` | B3 Labels | the only place a template's labels appear. Paginated (count plus results) even when nested, so a reader must not assume the preview is complete. |
 | `instance_groups` | D1 Capacity and Instance Groups | the only place a template's runner affinity appears. The corpus carries both a node group and a Kubernetes container group (is_container_group), which are different execution substrates rather than two names for one thing. |
 | `created_by` | unowned | our Template has no creator edge. Authorship is not authority here, so this is provenance rather than access, but an audit surface that records who made every other object should record who made this one. |
+
+### Represented (1)
+
+| Field | Lands in | Notes |
+|---|---|---|
+| `credentials` | `launch.Template.CredentialIDs (the Template-to-Credential edge)` | the only place a template's bound credentials appear in this payload, since AWX has no root-level credentials field. The corpus binds three at once (ssh, vault, aws), which is exactly what the Template-to-Credential binding now expresses: credtype.CheckBinding enforces at most one credential per kind with vault exempted by distinct identifier, and GET/PUT /templates/{id}/credentials read and replace the set. |
 
 ### AWX REST envelope (3)
 
@@ -166,7 +171,7 @@ are gone from this list.
 
 | Field | Owning phase | Notes |
 |---|---|---|
-| `extra_credentials` | A2 Credential Types | AWX's deprecated pre-3.x alias for the cloud and network credentials on a template, kept for API compatibility. An import must read it as a synonym for credentials rather than as a second relationship, and must not write it. |
+| `extra_credentials` | A2 Credential Types | AWX's deprecated pre-3.x alias for the cloud and network credentials on a template, kept for API compatibility. An import must read it as a synonym for credentials rather than as a second relationship, and must not write it. Still a gap after the binding landed, and deliberately so: the relationship it aliases is represented, and reproducing a deprecated alias of it would be adding a second answer to one question. It becomes an import concern rather than an API one. |
 | `schedules` | C2 Schedules | the schedules attached to this template. Invisible to this measurement until the related block was classified, because a schedule points AT a template and so appears in no field of one. |
 | `notification_templates_error` | C3 Notifications | as started, on failure. The trigger somebody actually configures first. |
 | `notification_templates_started` | C3 Notifications | which notification templates fire when a job from this template starts. AWX binds notifications per trigger point, per object. |

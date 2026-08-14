@@ -235,6 +235,29 @@ func (Job) Fields() []ent.Field {
 		// in that precedence order by launch.Template.Resolve. Same
 		// capture-now, consume-later status as fields above.
 		field.JSON("extra_vars", map[string]any{}).Optional().Immutable(),
+
+		// credential_ids are the credentials this job's template was bound
+		// to at the moment it was launched, in binding order.
+		//
+		// It is the audit answer to "what did this run authenticate as",
+		// and it is recorded here rather than joined back to the template
+		// for the reason template_name beside it is: a job's history has to
+		// outlive the definition it came from, and a template's bindings can
+		// be changed by anybody holding credential:write after the job ran.
+		// Joining would report what the template says today, which is not
+		// what the run used.
+		//
+		// Ids and nothing else. No name, no type, and above all no value:
+		// the values are resolved at fan-out and never touch this table
+		// (see internal/dispatch's own fan-out injection for why injection
+		// happens there rather than at launch). An operator wanting to know
+		// what credential 7 was reads credential 7.
+		//
+		// A relaunch deliberately does NOT read this column. It re-reads the
+		// template's current bindings, because a credential rotated or
+		// rebound since the original run is what an operator relaunching
+		// expects to pick up.
+		field.JSON("credential_ids", []int{}).Optional().Immutable(),
 	}
 }
 

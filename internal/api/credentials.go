@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
@@ -38,6 +41,27 @@ type CredentialHandler struct {
 	// the same one the store validates writes with, so a preview cannot
 	// accept a template the write would refuse.
 	engine render.Engine
+
+	// templates resolves the template a binding names, so a bind can be
+	// refused when the template's execution path cannot honour the
+	// credential's injectors. Optional: without it, the bind-time check is
+	// skipped and the adapter's own run-time backstop is what refuses.
+	templates TemplateReader
+}
+
+// CredentialHandlerOption configures optional collaborators.
+type CredentialHandlerOption func(*CredentialHandler)
+
+// WithBindingTemplates supplies the port the bind-time injector check reads.
+//
+// Optional so the several harnesses that build this handler keep compiling,
+// and because its absence degrades to something safe rather than something
+// wrong: internal/adapters/native refuses an unsupported injection at run
+// time regardless. What this option buys is the refusal arriving when the
+// operator is looking at the binding form, rather than on the first job
+// they launch afterwards.
+func WithBindingTemplates(templates TemplateReader) CredentialHandlerOption {
+	return func(h *CredentialHandler) { h.templates = templates }
 }
 
 // NewCredentialHandler returns a handler over a store.
@@ -45,14 +69,18 @@ type CredentialHandler struct {
 // It takes credstore.Store rather than a narrower reader because it both
 // reads and writes. What it deliberately does NOT take is a resolver; see
 // this file's own comment.
-func NewCredentialHandler(store credstore.Store, engine render.Engine) *CredentialHandler {
+func NewCredentialHandler(store credstore.Store, engine render.Engine, opts ...CredentialHandlerOption) *CredentialHandler {
 	if store == nil {
 		panic("api: NewCredentialHandler requires a credential store")
 	}
 	if engine == nil {
 		panic("api: NewCredentialHandler requires a render engine")
 	}
-	return &CredentialHandler{store: store, engine: engine}
+	h := &CredentialHandler{store: store, engine: engine}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 // credentialTypeDTO is one credential type on the wire.
@@ -370,6 +398,11 @@ func (h *CredentialHandler) SetTemplateCredentials(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if err := h.checkInjectable(r.Context(), id, body.Credentials); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
 	if err := h.store.SetTemplateCredentials(r.Context(), id, body.Credentials); err != nil {
 		h.fail(w, r, err)
 		return
@@ -386,6 +419,72 @@ func (h *CredentialHandler) SetTemplateCredentials(w http.ResponseWriter, r *htt
 		out.Credentials = append(out.Credentials, credentialToDTO(c))
 	}
 	Respond(w, r, http.StatusOK, &out)
+}
+
+// checkInjectable refuses a binding whose credential types the template's
+// execution path cannot honour.
+//
+// It is the bind-time half of a two-part refusal. The run-time half lives in
+// internal/adapters/native and fires on any payload that reaches it,
+// whatever route it took. Two checks rather than one because they answer
+// different needs: this one tells the operator while they are still looking
+// at the form and can fix it in a second, and that one guarantees the rule
+// holds for a binding made before this check existed, or by a Controller
+// running an older build.
+//
+// A handler with no template reader wired skips this entirely, and the
+// run-time backstop is what refuses. That degradation is safe, which is
+// what makes the option optional.
+func (h *CredentialHandler) checkInjectable(ctx context.Context, templateID int, credentialIDs []int) error {
+	if h.templates == nil || len(credentialIDs) == 0 {
+		return nil
+	}
+
+	tmpl, err := h.templates.Get(ctx, templateID)
+	if err != nil {
+		// Not this check's job to report a missing template. The store's
+		// own write below produces the right error for that, and reporting
+		// it here too would give one condition two different responses
+		// depending on whether this option happened to be wired.
+		return nil //nolint:nilerr // deliberate: see comment
+	}
+	descriptor, err := tmpl.Descriptor()
+	if err != nil {
+		// A kind this build no longer registers cannot be checked against.
+		// The launch path already refuses such a template with a message
+		// about the kind, which is the useful error.
+		return nil //nolint:nilerr // deliberate: see comment
+	}
+
+	for _, id := range credentialIDs {
+		cred, err := h.store.GetCredential(ctx, id)
+		if err != nil {
+			return err
+		}
+		ct, err := h.store.GetType(ctx, cred.TypeID)
+		if err != nil {
+			return err
+		}
+		// The rule lives in internal/adapters/routing, with one
+		// implementation and two callers: this one, and the run-time
+		// backstop in internal/adapters/native. See that file for why.
+		if err := routing.CheckInjectable(
+			descriptor.Adapter, ct.Name, sortedNames(ct.Injectors.Env), ct.Injectors.FileLabels()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sortedNames returns a map's keys, sorted, so a refusal names the same
+// variable on every call.
+func sortedNames(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestCredentialType serves POST /credential-types/{id}/test.
@@ -485,6 +584,12 @@ func (h *CredentialHandler) fail(w http.ResponseWriter, r *http.Request, err err
 		RespondError(w, r, http.StatusConflict, err.Error())
 	case errors.Is(err, credtype.ErrInvalidType), errors.Is(err, credtype.ErrInvalidCredential):
 		RespondError(w, r, http.StatusBadRequest, err.Error())
+	case errors.Is(err, routing.ErrUnsupportedInjection):
+		// 409 rather than 400: the request is well formed and both records
+		// exist. What conflicts is the pair, exactly like a binding
+		// conflict two branches up, and the message names which injector
+		// targets are the difficulty so the operator can act on it.
+		RespondError(w, r, http.StatusConflict, err.Error())
 	default:
 		RespondError(w, r, http.StatusInternalServerError, "the request could not be completed")
 	}

@@ -1105,6 +1105,16 @@ func ExtraVarsNotNil() predicate.Job {
 	return predicate.Job(sql.FieldNotNull(FieldExtraVars))
 }
 
+// CredentialIdsIsNil applies the IsNil predicate on the "credential_ids" field.
+func CredentialIdsIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldCredentialIds))
+}
+
+// CredentialIdsNotNil applies the NotNil predicate on the "credential_ids" field.
+func CredentialIdsNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldCredentialIds))
+}
+
 // HasTasks applies the HasEdge predicate on the "tasks" edge.
 func HasTasks() predicate.Job {
 	return predicate.Job(func(s *sql.Selector) {

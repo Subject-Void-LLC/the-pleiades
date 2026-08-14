@@ -2042,6 +2042,127 @@
       "post": {
         "description": "Defines a new custom credential type. Every injector template is compiled here, and one referencing an input the type does not declare is refused, so a template that cannot render is never stored.",
         "operationId": "create_credential_type",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "injectors": {
+                    "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                    "properties": {
+                      "env": {
+                        "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                        "type": "object"
+                      },
+                      "extra_vars": {
+                        "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                        "type": "object"
+                      },
+                      "file": {
+                        "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "inputs": {
+                    "description": "What a credential of this type holds.",
+                    "properties": {
+                      "fields": {
+                        "description": "The inputs, in the order a form should show them.",
+                        "items": {
+                          "properties": {
+                            "ask_at_runtime": {
+                              "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                              "type": "boolean"
+                            },
+                            "choices": {
+                              "description": "An optional bounded value set.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                              "type": "string"
+                            },
+                            "format": {
+                              "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                              "type": "string"
+                            },
+                            "help_text": {
+                              "description": "Explanatory text a form shows beneath the control.",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What a form shows above the control.",
+                              "type": "string"
+                            },
+                            "multiline": {
+                              "description": "Whether a form should render a text area.",
+                              "type": "boolean"
+                            },
+                            "secret": {
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "\"string\" or \"boolean\". Absent means string.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "kind": {
+                    "description": "One of the twelve kinds.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within the organization.",
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "description": "The stable identifier. Immutable once set.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "The owning tenant.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "namespace",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -2517,6 +2638,113 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "injectors": {
+                    "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                    "properties": {
+                      "env": {
+                        "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                        "type": "object"
+                      },
+                      "extra_vars": {
+                        "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                        "type": "object"
+                      },
+                      "file": {
+                        "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "inputs": {
+                    "description": "What a credential of this type holds.",
+                    "properties": {
+                      "fields": {
+                        "description": "The inputs, in the order a form should show them.",
+                        "items": {
+                          "properties": {
+                            "ask_at_runtime": {
+                              "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                              "type": "boolean"
+                            },
+                            "choices": {
+                              "description": "An optional bounded value set.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                              "type": "string"
+                            },
+                            "format": {
+                              "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                              "type": "string"
+                            },
+                            "help_text": {
+                              "description": "Explanatory text a form shows beneath the control.",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What a form shows above the control.",
+                              "type": "string"
+                            },
+                            "multiline": {
+                              "description": "Whether a form should render a text area.",
+                              "type": "boolean"
+                            },
+                            "secret": {
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "\"string\" or \"boolean\". Absent means string.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "kind": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -2733,6 +2961,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "inputs": {
+                    "description": "Dummy values keyed by input id. These are not stored.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -2975,6 +3219,47 @@
       "post": {
         "description": "Stores a new credential. Values are supplied in full here and are encrypted before they reach the database; the response returns them redacted, which is the only form any read ever produces.",
         "operationId": "create_credential",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "credential_type": {
+                    "description": "The type this credential is of. Immutable once set.",
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "external": {
+                    "description": "External secret-manager references, keyed by input id.",
+                    "type": "object"
+                  },
+                  "inputs": {
+                    "description": "The values, keyed by input id.",
+                    "type": "object"
+                  },
+                  "name": {
+                    "description": "Unique within the organization.",
+                    "type": "string"
+                  },
+                  "organization": {
+                    "description": "The owning tenant.",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "credential_type",
+                  "organization"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -3302,6 +3587,32 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "",
+                    "type": "string"
+                  },
+                  "external": {
+                    "type": "object"
+                  },
+                  "inputs": {
+                    "type": "object"
+                  },
+                  "name": {
+                    "description": "",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -4115,6 +4426,40 @@
       "post": {
         "description": "Onboards a device the platform did not discover through a sync plugin. Never an upsert: a name already in the inventory is a conflict rather than a silent overwrite, so a caller can always tell a first-time onboard from a re-sync.",
         "operationId": "create_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "description": "The device's unique name.",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "One of the eight lifecycle states. Defaults to \"active\" on create.",
+                    "type": "string"
+                  },
+                  "tags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": {
+                    "description": "A registered device type, e.g. \"linux_server\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "type"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -4426,6 +4771,40 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "description": "The device's unique name.",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "One of the eight lifecycle states. Defaults to \"active\" on create.",
+                    "type": "string"
+                  },
+                  "tags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": {
+                    "description": "A registered device type, e.g. \"linux_server\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "type"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6952,6 +7331,121 @@
       "post": {
         "description": "Saves what to run, where to run it, and how. The organization is derived from the named inventory's own organization and cannot be submitted: a caller who could set it directly could tag their jobs with somebody else's tenant. A template that could not be launched by anybody is refused at the write rather than at the launch.",
         "operationId": "create_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "allow_simultaneous": {
+                    "type": "boolean"
+                  },
+                  "defaults": {
+                    "description": "The values to save this template with, keyed by launch field name.",
+                    "type": "object"
+                  },
+                  "definition": {
+                    "description": "A runbook id or a playbook path, whichever the kind resolves. Read on create, ignored on update.",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "What this template is for.",
+                    "type": "string"
+                  },
+                  "inventory": {
+                    "description": "The device set to run against. Required, and it is what gives a launched job its organization. Read on create, ignored on update: re-pointing a saved definition at another fleet while it keeps its name, its grants and its job history is a copy, not an edit.",
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "description": "A registered kind: runbook, playbook. Read on create, ignored on update.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within the organization the inventory belongs to.",
+                    "type": "string"
+                  },
+                  "prompts": {
+                    "description": "Which of those fields a launch may override. A field this kind does not declare is refused rather than stored.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "required_capabilities": {
+                    "description": "An optional plan-time hint. This API does not compute it: read GET /runbooks/{id} for a runbook's real compiled requirements and submit those.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "survey": {
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                        "type": "boolean"
+                      },
+                      "questions": {
+                        "items": {
+                          "properties": {
+                            "choices": {
+                              "description": "The permitted values for the two choice types.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "Used when an answer is absent and the question is not required.",
+                              "type": "string"
+                            },
+                            "help": {
+                              "description": "The line under the label.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What the form asks.",
+                              "type": "string"
+                            },
+                            "max": {
+                              "description": "See min.",
+                              "type": "integer"
+                            },
+                            "min": {
+                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "type": "integer"
+                            },
+                            "required": {
+                              "description": "Refuses a launch that leaves it blank.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "type": "string"
+                            },
+                            "variable": {
+                              "description": "The extra-variable name the answer is written to.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "definition",
+                  "inventory"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -7459,6 +7953,121 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "allow_simultaneous": {
+                    "type": "boolean"
+                  },
+                  "defaults": {
+                    "description": "The values to save this template with, keyed by launch field name.",
+                    "type": "object"
+                  },
+                  "definition": {
+                    "description": "A runbook id or a playbook path, whichever the kind resolves. Read on create, ignored on update.",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "What this template is for.",
+                    "type": "string"
+                  },
+                  "inventory": {
+                    "description": "The device set to run against. Required, and it is what gives a launched job its organization. Read on create, ignored on update: re-pointing a saved definition at another fleet while it keeps its name, its grants and its job history is a copy, not an edit.",
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "description": "A registered kind: runbook, playbook. Read on create, ignored on update.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Unique within the organization the inventory belongs to.",
+                    "type": "string"
+                  },
+                  "prompts": {
+                    "description": "Which of those fields a launch may override. A field this kind does not declare is refused rather than stored.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "required_capabilities": {
+                    "description": "An optional plan-time hint. This API does not compute it: read GET /runbooks/{id} for a runbook's real compiled requirements and submit those.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "survey": {
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                        "type": "boolean"
+                      },
+                      "questions": {
+                        "items": {
+                          "properties": {
+                            "choices": {
+                              "description": "The permitted values for the two choice types.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "Used when an answer is absent and the question is not required.",
+                              "type": "string"
+                            },
+                            "help": {
+                              "description": "The line under the label.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What the form asks.",
+                              "type": "string"
+                            },
+                            "max": {
+                              "description": "See min.",
+                              "type": "integer"
+                            },
+                            "min": {
+                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "type": "integer"
+                            },
+                            "required": {
+                              "description": "Refuses a launch that leaves it blank.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "type": "string"
+                            },
+                            "variable": {
+                              "description": "The extra-variable name the answer is written to.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "definition",
+                  "inventory"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -7800,6 +8409,33 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "answers": {
+                    "description": "Survey answers, keyed by variable.",
+                    "type": "object"
+                  },
+                  "fields": {
+                    "description": "Launch overrides, keyed by launch field name.",
+                    "type": "object"
+                  },
+                  "name": {
+                    "description": "What a reader picks it by. Required: the anonymous configurations are written by the launch path itself.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "content": {
@@ -7925,6 +8561,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "description": "The copy's name. Omit for \"<name> (copy)\".",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "201": {
             "content": {
@@ -8291,6 +8943,28 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "credentials": {
+                    "description": "The credential ids to bind. Order is preserved, which matters for vault credentials.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "credentials"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -8467,6 +9141,41 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Every field is optional: launching a template that opens nothing is a POST with no body.",
+                "properties": {
+                  "answers": {
+                    "description": "This launch's survey answers, keyed by variable.",
+                    "type": "object"
+                  },
+                  "config": {
+                    "description": "A stored launch configuration to launch from, applied beneath overrides. Must belong to this template.",
+                    "type": "integer"
+                  },
+                  "credentials": {
+                    "additionalProperties": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "description": "Credential inputs this launch was asked for at run time, keyed by credential id and then by input id. Only inputs whose credential type declares ask_at_runtime are read; anything else is ignored. These values are never persisted: they are not recorded on the launch configuration, they are not written to the job, and a job launched with them cannot be relaunched. Supply them again instead.",
+                    "type": "object"
+                  },
+                  "overrides": {
+                    "description": "This launch's own values, keyed by launch field name.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "202": {
             "content": {
