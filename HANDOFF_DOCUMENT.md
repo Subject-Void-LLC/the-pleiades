@@ -161,12 +161,21 @@ caused by this work: `internal/ent` passes alone and passed with every change st
 and both credential release gates
 (`-run 'CredentialInjection|ReleaseGate'`) pass on their own.
 
-Two are not green and both are known:
+Two were not green when 22c was pushed, and both are now resolved:
 
-- `govulncheck` reports 6 stdlib advisories, verified pre-existing in 22b by stashing all changes.
-  They are `go1.26.5` findings fixed in `go1.26.6`, a toolchain bump unrelated to this work.
-- `docs-gen-check` fails until the regenerated files are committed, which is the same state 22b
-  ended in. Generator output was verified stable across two consecutive runs by md5.
+- `govulncheck` reported 6 stdlib advisories, verified pre-existing in 22b by stashing all changes.
+  They were `go1.26.5` findings fixed in `go1.26.6`. The branch was pushed with this gate red on
+  the reasoning that the bump was unrelated to the work, which CI does not accept and cannot: it
+  runs the same `make ci` target against the same pinned scanner, so GitHub Actions failed on
+  exactly this. Fixed by `toolchain go1.26.5` -> `go1.26.6` in `go.mod`, one line, which takes all
+  six to zero (`govulncheck`: "Your code is affected by 0 vulnerabilities"; the 3 remaining
+  module-level advisories are uncalled and non-blocking, down from 4 plus 1 imported-package
+  finding). The two `golang:1.26-alpine` Dockerfiles float within 1.26.x and need no edit.
+  LESSONS_LEARNED.md #110 records the general rule, including the second cost: `make ci` halts at
+  its first failure and `govulncheck` precedes `coverage`, `docs-lint`, `docs-gen-check` and
+  `templ-gen-check`, so the CI log said nothing at all about those four.
+- `docs-gen-check` failed until the regenerated files were committed. They are committed; it now
+  passes, as do the other three that had been masked behind `govulncheck`.
 
 ### What is still true after Phase 22
 

@@ -113,6 +113,7 @@ story, per `.AGENTS/AGENTS.md`.
 107. **A shared-primitive table's "Build by" column ages against the phase bodies it summarizes: before consuming a primitive, open the earliest phase named in its own "Call sites" column, and if that phase precedes the stated builder, correcting the table is the first commit of the work rather than a cleanup afterwards.**
 108. **A package that generated code imports can never import anything that imports the generated code: run `go list -deps` on a candidate import before designing against it, and when the answer forces a contract to be restated in two places, put the agreement test in an external test package, which is the one place both sides are importable at once.**
 109. **A plan's count of what an external system offers ("about twenty of its types are pure data") is a factual claim about somebody else's code, usually written from its documentation and believed from familiarity: fetch that system's own source and count before sizing the deliverable around the number, because transcribing the planned quantity from memory produces artifacts that pass their own tests and differ from the system they exist to be compatible with.**
+110. **"Pre-existing", "unrelated to this work" and "flaky" explain a red gate but never authorize pushing past one — CI re-runs the identical target and has no concept of provenance; and because `make ci` stops at its first failure, deferring an early gate leaves every check behind it unobserved rather than passing, turning one red build into a queue of them.**
 
 ---
 

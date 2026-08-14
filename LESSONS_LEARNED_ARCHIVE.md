@@ -1608,3 +1608,54 @@ before sizing the work around the number. When the count is wrong, the deliverab
 changes, and shipping the planned quantity by transcribing from memory produces
 artifacts that pass their own tests and are wrong against the system they exist to be
 compatible with.
+
+## 110. A gate that is red for a reason unrelated to the diff is still a red gate, and deferring it also blinds every gate behind it
+
+**The incident.** Phase 22c ended with `govulncheck` reporting six standard-library
+advisories. The session's handoff recorded this honestly and in detail: the findings
+were verified pre-existing by stashing every change and re-running, they were
+`go1.26.5` advisories fixed in `go1.26.6`, and they were correctly described as "a
+toolchain bump unrelated to this work." Every word of that is true. The branch was
+pushed anyway, GitHub Actions ran `make ci` on it, `govulncheck` failed exactly as it
+had locally, and the build went red on a commit whose diff had nothing to do with the
+finding.
+
+**Why "pre-existing" was the wrong category.** The verification was real and the
+conclusion drawn from it was not. Establishing that a finding predates the diff answers
+"whose fault is this", which no gate asks. `make ci` asks whether the tree passes now,
+and the CI job runs the identical target from the identical `Makefile` against the
+identical pinned scanner. There is no reading of "unrelated to this work" under which
+that job goes green. The provenance investigation and the push decision were about
+different questions, and the answer to the first was allowed to settle the second.
+
+**`govulncheck` specifically has no stable notion of "pre-existing."** The `Makefile`'s
+own comment above `GOVULNCHECK_VERSION` says the scanner is pinned but the database is
+not: it is fetched from `vuln.go.dev` at run time, by design, "so a newly published
+advisory against a dependency still fails CI the day it lands." That cuts in both
+directions. It is what makes a red `govulncheck` genuinely not the diff's fault — the
+advisory can appear against a tree nobody touched. It is also what makes deferring one
+unsafe, because the finding does not age out; the next CI run inherits it, and so does
+the next contributor, who now cannot tell their own regression from the carried-over
+one. The whole class is cheap to clear: this one was a single character in `go.mod`,
+`toolchain go1.26.5` to `go1.26.6`, which took all six findings to zero.
+
+**The part that cost the most information.** `make ci` is a sequential prerequisite
+list — `build vet fmt test-race test-integration gosec govulncheck coverage docs-lint
+docs-gen-check templ-gen-check` — and stops at the first failure. `govulncheck` sits
+ahead of four other checks. The same handoff recorded a *second* known-red item,
+`docs-gen-check`, which lives behind it. The CI log therefore reported one problem, not
+two, and said nothing whatsoever about `coverage`, `docs-lint`, `docs-gen-check` or
+`templ-gen-check` — they never executed. Deferring an early gate does not leave the
+later ones passing, it leaves them unobserved, and it converts one red build into a
+sequence of them, each revealing the next failure only after the previous is fixed.
+(Here the four behind it turned out to be green, which is luck, not evidence: it was
+unknowable until `govulncheck` was cleared.)
+
+**The rule.** Do not push with a gate red, whatever the diff's relationship to the
+failure. "Pre-existing", "flaky", "unrelated", and "someone else's" are explanations
+for a failure, never authorizations to ship past one — the only sanctioned tolerance in
+this repository is the explicit, named, written-reason kind (`flaky-packages.json`,
+`gosec-waivers.json`), and a finding that fits none of those categories is work, not
+context. When a gate is red for a genuinely external reason, fix the external thing or
+add it to the waiver file with its reason; both are commits, and both are cheaper than
+the red build plus the unobserved gates queued behind it.
