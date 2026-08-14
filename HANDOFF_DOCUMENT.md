@@ -109,6 +109,36 @@ uses, so a type it accepts is a type the Controller accepts. Non-zero exit when 
 import, so it works as a migration gate; `--out` writes each importable type ready to post. Tested
 against the real captured AWX corpus fixture.
 
+### Schema and Injection Hardening, 22c's own boundaries
+
+Audited and recorded here rather than checked off on reasoning. 22c adds three boundaries
+and neither of the two that matter produced a new finding, because both were already
+guarded; what changed is that the guards are now tested.
+
+The import command builds an output path from the export's own namespace, and an export
+is untrusted input. `writeImportable` writes only types classified importable, which
+requires `Validate` to pass, which requires the namespace to match
+`^[a-z][a-z0-9_]*$`, so a traversal sequence is refused as invalid long before anything
+joins it to a path. Proven by a hostile-namespace table and confirmed load bearing by a
+negative control: weakening the verdict check to skip only shipped types puts `a\b.json`,
+`...json` and `.json` on disk.
+
+The launch form's prompted-credential controls carry a credential id in the control name
+and a submission is attacker controlled. The property holds twice: `view.NewValues`
+narrows a submission to the controls the descriptor rendered and reports the rest as
+undeclared, and `bindPromptedCredentials` then iterates the RENDERED fields rather than
+the submission, so a value for a credential the template does not bind has nowhere to be
+read from. Tested with a submission naming another credential's id, an undeclared input,
+a survey answer and a malformed prefix.
+
+The third is `ListAllTypes` and `ListAllCredentials`, which build no SQL: they are ent
+queries with no caller-supplied predicate, and the credential one goes through the same
+`project()` every other read path uses, so the redaction is applied in one function
+rather than per query.
+
+The one finding this stage produced is a correctness defect rather than an injection one,
+and it is recorded as FAILURE_PATTERNS.md #121.
+
 ### Gate results
 
 Green: build, vet, fmt, gosec (11 findings, all individually waived), docs-lint, arch,

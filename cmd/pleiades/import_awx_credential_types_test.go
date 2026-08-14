@@ -205,3 +205,102 @@ func TestImportExitsNonZeroWhenSomethingWillNotImport(t *testing.T) {
 		t.Error("an export carrying an unimplemented type returned nil, so a migration script would not notice")
 	}
 }
+
+// TestImportRefusesAHostileNamespaceBeforeItReachesAPath is this stage's
+// Schema and Injection Hardening check for the one filesystem boundary it
+// introduces.
+//
+// --out builds a path from the export's own namespace, and an export is
+// untrusted input: it arrives from somebody else's AWX, or from a file an
+// operator was handed. A namespace of "../../etc/cron.d/root" would write
+// outside the output directory entirely.
+//
+// The guard is already there and this proves it rather than assuming it.
+// writeImportable writes only types classified importable, and that
+// classification requires Validate to pass, which requires the namespace
+// to match lowercase letters, digits and underscores starting with a
+// letter. A traversal sequence cannot match that, so a hostile namespace
+// is refused as invalid long before anything joins it to a path.
+func TestImportRefusesAHostileNamespaceBeforeItReachesAPath(t *testing.T) {
+	t.Parallel()
+
+	hostile := []string{
+		"../../etc/cron.d/root",
+		"..",
+		"/etc/passwd",
+		"a/b",
+		"a\\b",
+		"CON",
+		"with space",
+		"with.dot",
+		"",
+	}
+
+	for _, namespace := range hostile {
+		t.Run(namespace, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := json.Marshal(map[string]any{
+				"results": []any{map[string]any{
+					"name":      "Hostile",
+					"namespace": namespace,
+					"kind":      "cloud",
+					"inputs":    map[string]any{"fields": []any{map[string]any{"id": "token", "label": "Token", "secret": true}}},
+					"injectors": map[string]any{"env": map[string]any{"TOKEN": "{{ token }}"}},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("building the export: %v", err)
+			}
+
+			path := writeExport(t, string(body))
+			out := t.TempDir()
+
+			// A non-nil error is expected: a refused type makes the command
+			// exit non-zero, which is the migration gate working.
+			_ = runImportAWXCredentialTypes([]string{"--out", out, path})
+
+			entries, err := os.ReadDir(out)
+			if err != nil {
+				t.Fatalf("reading the output directory: %v", err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("--out wrote %d file(s) for a namespace of %q, want none", len(entries), namespace)
+			}
+		})
+	}
+}
+
+// TestImportWritesOnlyInsideTheOutputDirectory is the same property stated
+// as an invariant over every verdict rather than over a hostile list, so a
+// future verdict that starts writing files inherits the check.
+func TestImportWritesOnlyInsideTheOutputDirectory(t *testing.T) {
+	t.Parallel()
+
+	path := writeExport(t, `{"results":[
+		{"name":"Custom","namespace":"custom_thing","kind":"cloud","inputs":{"fields":[{"id":"token","label":"Token","secret":true}]},"injectors":{"env":{"CUSTOM_TOKEN":"{{ token }}"}}}
+	]}`)
+	out := t.TempDir()
+
+	if err := runImportAWXCredentialTypes([]string{"--out", out, path}); err != nil {
+		t.Fatalf("runImportAWXCredentialTypes() error = %v", err)
+	}
+
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		t.Fatalf("reading the output directory: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("nothing was written, so this proves nothing")
+	}
+	for _, e := range entries {
+		full := filepath.Join(out, e.Name())
+		resolved, err := filepath.Abs(full)
+		if err != nil {
+			t.Fatalf("resolving %s: %v", full, err)
+		}
+		if !strings.HasPrefix(resolved, out+string(filepath.Separator)) {
+			t.Errorf("wrote %s, which is outside %s", resolved, out)
+		}
+	}
+}
