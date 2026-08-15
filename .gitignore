@@ -37,3 +37,10 @@ obj/
 /gendocs
 /uidev
 /testgate
+# Scratch databases. cmd/controller defaults DB_PATH to a SQLite file beside
+# the binary, and a DSN handed to it on the command line is resolved relative
+# to the working directory, so running it from a checkout leaves one here. One
+# was committed this way before this rule existed.
+*.db
+*.db-shm
+*.db-wal
