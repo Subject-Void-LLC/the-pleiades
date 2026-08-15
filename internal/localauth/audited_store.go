@@ -118,14 +118,28 @@ func (s *auditedStore) Unlock(ctx context.Context, email string) error {
 // decision internal/access's audited store makes, in the open, for the same
 // reason.
 //
-// ObjectID is zero because a credential's own row id is not a thing any
-// operator refers to: the subject is the identifier that means something,
-// and it is carried in ObjectName.
+// The object is the USER, not the credential row. An operator reading the
+// stream is looking for what happened to an account, and the credential's
+// own row id is not an identifier anything else in the system refers to.
+// That also satisfies activity.Entry.Validate, which requires a positive
+// ObjectID: an entry naming no object is not evidence of a change.
+//
+// The id costs one extra read on a write path that has already spent tens
+// of milliseconds in Argon2id, which is why it is fetched here rather than
+// threaded through every method's return type.
 func (s *auditedStore) record(ctx context.Context, action activity.Action, subject, note string) {
+	account, err := s.store.Account(ctx, subject)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to resolve an account for the activity stream",
+			slog.String("subject", subject), slog.String("note", note), slog.String("error", err.Error()))
+		return
+	}
+
 	entry := activity.Entry{
 		Actor:      s.actors(ctx),
 		Action:     action,
 		ObjectKind: activity.KindUser,
+		ObjectID:   account.UserID,
 		ObjectName: subject + " (" + note + ")",
 	}
 	if err := s.recorder.Record(ctx, entry); err != nil {

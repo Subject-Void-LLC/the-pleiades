@@ -91,6 +91,15 @@ type Account struct {
 	// a token's subject and against User.email.
 	Subject string
 
+	// UserID is the owning User's row id.
+	//
+	// Present because the audit trail needs it: an activity entry names an
+	// object by kind and id, and a credential change is a change to a USER
+	// as far as an operator reading the stream is concerned. It is not a
+	// credential and discloses nothing, unlike every field this type
+	// deliberately omits.
+	UserID int
+
 	// FailedAttempts is the count since the last success. It is here so an
 	// operator can see an account under attack, not so a caller can make a
 	// decision with it; the store owns the lockout decision.

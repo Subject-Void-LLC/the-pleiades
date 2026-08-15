@@ -362,6 +362,10 @@ func (s *entStore) Unlock(ctx context.Context, email string) error {
 func (s *entStore) credentialFor(ctx context.Context, subject string) (*ent.LocalCredential, error) {
 	cred, err := s.client.LocalCredential.Query().
 		Where(localcredential.HasUserWith(user.EmailEQ(subject))).
+		// The owner is eager-loaded because Account carries its id for the
+		// audit trail, and a lazy edge would mean a second query on every
+		// authentication rather than only on the writes that record one.
+		WithUser().
 		Only(ctx)
 	switch {
 	case ent.IsNotFound(err):
@@ -378,11 +382,19 @@ func (s *entStore) credentialFor(ctx context.Context, subject string) (*ent.Loca
 // for cred.PasswordHash, so the hash cannot leave this package by being
 // copied into a struct somebody later marshals.
 func projectAccount(subject string, cred *ent.LocalCredential) *Account {
-	return &Account{
+	account := &Account{
 		Subject:           subject,
 		FailedAttempts:    cred.FailedAttempts,
 		LockedUntil:       cred.LockedUntil,
 		PasswordChangedAt: cred.PasswordChangedAt,
 		MustChange:        cred.MustChange,
 	}
+	// Guarded rather than dereferenced: the edge is loaded on the read path
+	// and not on a row this package just wrote, so an unloaded owner is a
+	// zero id rather than a panic. The audit decorator re-reads through
+	// Account for exactly that reason.
+	if cred.Edges.User != nil {
+		account.UserID = cred.Edges.User.ID
+	}
+	return account
 }

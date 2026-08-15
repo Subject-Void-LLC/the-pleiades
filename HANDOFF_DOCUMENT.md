@@ -224,26 +224,74 @@ packages, none below floor.
 Verified the working tree is self-consistent: regenerating produces no further change, and there
 are no untracked files under that directory. It goes green on commit.
 
-### What Phase 79 still owes
+## Phase 79 is CLOSED except for one item that needs your decision
 
-Nine checklist items remain, and eight of them are the standard closing bullets that close at PHASE
-end rather than stage end: Pattern Entry Gate, Fuzz/Stress (the fuzz half is done, the sustained
-login-flood stress is not), Security Analysis, Adversarial Pattern Justification, Schema/Injection
-Hardening, Documentation Gate, Release Gate, Provide Commit Message.
+**34 of 35 checklist items are ticked.** The Release Gate is closed with a real
+integration-tagged test, and the injection audit, the stress half and the Adversarial Pattern
+Justification are all done and recorded in the phase body with their evidence.
 
-The Release Gate is the substantive one: it wants an integration-tagged test in `tests/e2e` doing
-`docker compose up` plus one `bootstrap-admin` against real Postgres, including the measured
-timing band and the two-controller lockout check. The pieces all exist and are individually tested;
-what is missing is the single test that runs them end to end through the real binaries.
+### The Release Gate
 
-**Also still true:** `docker-compose.yml` exposes plain HTTP and sets no
-`PLEIADES_UI_INSECURE_COOKIES`, so a real browser refuses the `__Host-` session cookie on the
-documented path. Passwords alone do not close Phase 20's clean-machine gate; that is the reciprocal
-half of the dependency and it is Phase 20's to close.
+`tests/e2e/localauth_release_gate_test.go`, four tests against the real controller binary, real
+Postgres and real NATS, all passing:
+
+- `controller bootstrap-admin` on a clean database, then sign in with an email and password, then
+  reach an authenticated page whose authority came from the RoleBindings the command wrote. **No
+  JWT is minted, pasted or configured at any step.**
+- A wrong password and an unknown address render byte-identical pages (modulo the per-render CSRF
+  token) and land inside a measured timing band.
+- A password change revokes the caller's other session, keeps this one, and the old password stops
+  working while the new one starts.
+- A login with no CSRF pair is refused even with correct credentials.
+
+### The regression this caught, which nothing else would have
+
+**`tests/e2e` is `//go:build integration`, so it never ran in `go test ./...`.** 79b's pre-auth CSRF
+layer broke the harness's `signIn`, which posted directly to `/ui/login` with no CSRF pair, and
+that broke all eleven sign-in call sites plus one test that posts directly on purpose. It went
+unnoticed for two stages. The harness now performs the browser two-step (fetch the form, submit the
+pair), and the whole `TestUI_` suite is green again.
+
+**Run the integration suite in subsets.** The full suite in one invocation fails with `port
+"4222/tcp" not found`, the documented FAILURE_PATTERNS #61 container flake; `tests/e2e` is in
+`flaky-packages.json` for exactly this. `-run TestUI_` and `-run TestLocalAuthReleaseGate` each pass
+cleanly on their own.
+
+### The one open item, and why I did not close it
+
+**Security Analysis** asks for `gosec` green with **zero** new waivers. It is green, with **one**
+new waiver: the development-only pre-auth CSRF cookie, which is the third instance of an
+already-accepted class (the other two are the session cookie and the appearance preferences). Its
+entry says in those words that it does not meet the bar.
+
+Two ways to close it, and it is a product decision rather than an implementation one:
+1. Accept the waiver and amend the item's wording to "no new CLASS of waiver", noting Phase 20's TLS
+   termination removes all three together.
+2. Drop the double-submit cookie for an Origin-header-only CSRF check, which eliminates the waiver
+   and weakens login CSRF defense to a single layer.
+
+I recommend (1): the exposure is identical to one `PLEIADES_UI_INSECURE_COOKIES` already accepts for
+the session cookie itself, which is a strictly larger prize.
+
+### Also delivered this session
+
+`make ui-dev` now bootstraps a real account and prints **email and password** beside the token,
+created by the real `controller bootstrap-admin` subcommand rather than by seeding rows. Verified by
+running it: signed in with the printed credentials, changed the password, watched a second session
+get revoked, confirmed the old password stopped working.
+
+That run also caught a **real bug in the audit decorator**: it built activity entries with
+`ObjectID: 0`, which the real store rejects, so every credential change was silently unrecorded in
+production while the unit tests passed. The spy recorder accepted what the real store refuses. Fixed
+by recording the user id, and the spy now calls the real `Entry.Validate`, so that class cannot
+recur.
 
 ### Next
 
-Close Phase 79: the Release Gate test above, then the remaining closing bullets.
+Phase 79 needs only the Security Analysis decision above. After that, Phase 80 (SAML and LDAP) and
+Phase 81 (TOTP and WebAuthn) are the remaining stubs, and Phase 20 can close its own half of the
+clean-machine gate: `docker-compose.yml` still exposes plain HTTP and sets no
+`PLEIADES_UI_INSECURE_COOKIES`, so a real browser refuses the `__Host-` session cookie there.
 
 Nothing is committed. Commit messages for 79a, 79b and 79c have been provided, per the
 standing instruction.

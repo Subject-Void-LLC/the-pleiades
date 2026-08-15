@@ -55,10 +55,52 @@ func (h *harness) signIn(t *testing.T, id *auth.Identity) *http.Client {
 
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
 	client := uiClient(t)
+	return h.submitLogin(t, client, url.Values{"token": {issuer.Token(t, id)}})
+}
 
-	resp, err := client.PostForm(h.baseURL+"/ui/login", url.Values{
-		"token": {issuer.Token(t, id)},
-	})
+// loginForm fetches the sign-in page and returns the pre-auth CSRF token it
+// carried, leaving the matching cookie in the client's jar.
+//
+// The two-step exists because POST /ui/login is behind a double-submit CSRF
+// pair: the cookie is set by rendering the page and the token is a hidden
+// field in it. A test that posted directly would be exercising a request no
+// browser ever makes, and would have started failing the day that layer was
+// added, which is exactly what happened to this harness.
+func (h *harness) loginForm(t *testing.T, client *http.Client) string {
+	t.Helper()
+
+	resp, err := client.Get(h.baseURL + "/ui/login")
+	if err != nil {
+		t.Fatalf("GET /ui/login: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ui/login = %d, want 200\n%s", resp.StatusCode, body)
+	}
+
+	const marker = `name="_csrf" value="`
+	i := strings.Index(string(body), marker)
+	if i < 0 {
+		t.Fatal("the sign-in page carries no CSRF token")
+	}
+	rest := string(body)[i+len(marker):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		t.Fatal("the sign-in page's CSRF token is unterminated")
+	}
+	return rest[:end]
+}
+
+// submitLogin performs the full browser exchange: fetch the form, submit it
+// with the pair, assert the redirect.
+func (h *harness) submitLogin(t *testing.T, client *http.Client, form url.Values) *http.Client {
+	t.Helper()
+
+	form.Set("_csrf", h.loginForm(t, client))
+
+	resp, err := client.PostForm(h.baseURL+"/ui/login", form)
 	if err != nil {
 		t.Fatalf("POST /ui/login: %v", err)
 	}
@@ -69,11 +111,14 @@ func (h *harness) signIn(t *testing.T, id *auth.Identity) *http.Client {
 		t.Fatalf("POST /ui/login = %d, want 303\n%s", resp.StatusCode, body)
 	}
 
-	// The token must not come back out. A login response echoing the
-	// credential it was given would put it in every proxy log between here
-	// and the browser.
+	// The credential must not come back out. A login response echoing what
+	// it was given would put it in every proxy log between here and the
+	// browser.
 	if strings.Contains(string(body), "eyJ") {
 		t.Error("the login response body echoes the submitted token")
+	}
+	if pw := form.Get("password"); pw != "" && strings.Contains(string(body), pw) {
+		t.Error("the login response body echoes the submitted password")
 	}
 	return client
 }
@@ -147,13 +192,23 @@ func TestUI_LoginMintsAHardenedSessionCookie(t *testing.T) {
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
 	client := uiClient(t)
 
+	// The form is fetched first, as a browser does, because the login POST
+	// is behind a double-submit CSRF pair. The POST is still made directly
+	// rather than through submitLogin, so this test reads the raw
+	// Set-Cookie headers rather than the jar: see the comment above.
 	resp, err := client.PostForm(h.baseURL+"/ui/login", url.Values{
 		"token": {issuer.Token(t, adminID())},
+		"_csrf": {h.loginForm(t, client)},
 	})
 	if err != nil {
 		t.Fatalf("POST /ui/login: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusSeeOther {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /ui/login = %d, want 303\n%s", resp.StatusCode, body)
+	}
 
 	cookies := resp.Cookies()
 	if len(cookies) == 0 {

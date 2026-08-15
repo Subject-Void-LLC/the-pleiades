@@ -134,6 +134,14 @@ func (s *memStore) Delete(_ context.Context, token string) error {
 
 func (s *memStore) DeleteExpired(context.Context, time.Time) (int, error) { return 0, nil }
 
+// count reports how many sessions exist, for tests asserting that a
+// refused request minted none.
+func (s *memStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.rows)
+}
+
 // DeleteForSubject is implemented for real rather than stubbed, because the
 // password-change tests assert on what it actually removed. A stub returning
 // (0, nil) would let a change that revoked nothing pass as one that revoked

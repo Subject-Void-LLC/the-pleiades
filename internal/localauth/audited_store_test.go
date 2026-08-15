@@ -25,9 +25,21 @@ type recordingSpy struct {
 	err     error
 }
 
+// Record validates exactly as the real ent-backed store does, through the
+// real Entry.Validate, and this is not decoration.
+//
+// The first version of this spy accepted anything. Every test passed while
+// the decorator built entries with a zero ObjectID that the real store
+// rejects on every call, so the audit trail recorded NOTHING in production
+// and the suite said it recorded everything. That is LESSONS_LEARNED #94's
+// shape for the second time in this phase: a double that accepts what the
+// real thing refuses proves the opposite of what it looks like it proves.
 func (r *recordingSpy) Record(_ context.Context, e activity.Entry) error {
 	if r.err != nil {
 		return r.err
+	}
+	if err := e.Validate(); err != nil {
+		return err
 	}
 	r.entries = append(r.entries, e)
 	return nil
@@ -157,15 +169,67 @@ func TestAuditedStore_ARecordingFailureDoesNotFailTheWrite(t *testing.T) {
 
 // TestAuditedStore_RecordsNothingWhenTheWriteFails is the other direction:
 // an audit line for a change that did not happen is worse than none.
+//
+// All three writes, not just one. Each records on its own success path, so
+// each has its own chance to record on a failure path, and a decorator that
+// got two of the three right would look correct in a test that only checked
+// the first.
 func TestAuditedStore_RecordsNothingWhenTheWriteFails(t *testing.T) {
-	store, spy, _ := newAuditedStore(t)
+	ctx := context.Background()
 
-	// No user row, so SetPassword refuses.
-	if err := store.SetPassword(context.Background(), "ghost@example.test", testPassword, false); err == nil {
-		t.Fatal("SetPassword() for a nonexistent user returned nil")
-	}
-	if len(spy.entries) != 0 {
-		t.Errorf("%d entries recorded for a write that failed", len(spy.entries))
+	t.Run("SetPassword", func(t *testing.T) {
+		store, spy, _ := newAuditedStore(t)
+		if err := store.SetPassword(ctx, "ghost@example.test", testPassword, false); err == nil {
+			t.Fatal("SetPassword() for a nonexistent user returned nil")
+		}
+		if len(spy.entries) != 0 {
+			t.Errorf("%d entries recorded for a write that failed", len(spy.entries))
+		}
+	})
+
+	t.Run("ChangePassword", func(t *testing.T) {
+		store, spy, client := newAuditedStore(t)
+		seedUser(t, client, "target@example.test")
+		if err := store.SetPassword(ctx, "target@example.test", testPassword, false); err != nil {
+			t.Fatalf("SetPassword() error = %v", err)
+		}
+		before := len(spy.entries)
+
+		if err := store.ChangePassword(ctx, "target@example.test", "the-wrong-one", "a-new-password"); err == nil {
+			t.Fatal("ChangePassword() with a wrong current password returned nil")
+		}
+		if len(spy.entries) != before {
+			t.Errorf("%d entries recorded for a refused change", len(spy.entries)-before)
+		}
+	})
+
+	t.Run("Unlock", func(t *testing.T) {
+		store, spy, _ := newAuditedStore(t)
+		if err := store.Unlock(ctx, "ghost@example.test"); err == nil {
+			t.Fatal("Unlock() for a nonexistent account returned nil")
+		}
+		if len(spy.entries) != 0 {
+			t.Errorf("%d entries recorded for an unlock that failed", len(spy.entries))
+		}
+	})
+}
+
+// TestNewAuditedStore_DefaultsItsLogger covers the nil-logger branch.
+//
+// A constructor that panicked on a nil logger would fail at the composition
+// root rather than here, which is a long way from the mistake.
+func TestNewAuditedStore_DefaultsItsLogger(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())
+	client := enttest.Open(t, "sqlite3", dsn)
+	t.Cleanup(func() { _ = client.Close() })
+	seedUser(t, client, "target@example.test")
+
+	store := localauth.NewAuditedStore(
+		localauth.NewEntStore(client, nil), &recordingSpy{},
+		func(context.Context) string { return "operator@example.test" }, nil)
+
+	if err := store.SetPassword(context.Background(), "target@example.test", testPassword, false); err != nil {
+		t.Errorf("SetPassword() with a nil logger error = %v", err)
 	}
 }
 
@@ -213,4 +277,38 @@ func TestAuditedStore_ReadsPassThroughUnchanged(t *testing.T) {
 	if _, err := store.Account(ctx, "nobody@example.test"); !errors.Is(err, localauth.ErrNoSuchAccount) {
 		t.Errorf("Account(unknown) error = %v, want ErrNoSuchAccount", err)
 	}
+}
+
+// TestAuditedStore_RecordsThroughTheRealActivityStore is the test the spy
+// could not be: it writes through the real ent-backed recorder, which is
+// what rejected a zero ObjectID in production while every spy-based test
+// passed.
+func TestAuditedStore_RecordsThroughTheRealActivityStore(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_fk=1", t.Name())
+	client := enttest.Open(t, "sqlite3", dsn)
+	t.Cleanup(func() { _ = client.Close() })
+	ctx := context.Background()
+	seedUser(t, client, "target@example.test")
+
+	stream := activity.NewEntStore(client)
+	store := localauth.NewAuditedStore(
+		localauth.NewEntStore(client, quietLogger()), stream,
+		func(context.Context) string { return "operator@example.test" }, quietLogger())
+
+	if err := store.SetPassword(ctx, "target@example.test", testPassword, false); err != nil {
+		t.Fatalf("SetPassword() error = %v", err)
+	}
+
+	entries, err := stream.List(ctx, activity.Query{Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no activity entry was recorded through the real store")
+	}
+	if entries[0].ObjectID <= 0 {
+		t.Errorf("ObjectID = %d, which the real store rejects", entries[0].ObjectID)
+	}
+	t.Logf("recorded: actor=%q object=%s/%d name=%q",
+		entries[0].Actor, entries[0].ObjectKind, entries[0].ObjectID, entries[0].ObjectName)
 }
