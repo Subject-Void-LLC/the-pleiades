@@ -60,6 +60,37 @@ type Config struct {
 	// who a caller is.
 	Tokens api.TokenValidator
 
+	// Passwords proves a local email and password pair at login.
+	//
+	// Optional. Nil means this deployment offers no local sign-in, which is
+	// the correct configuration for one that federates against an external
+	// issuer, and the login form drops the password fields rather than
+	// rendering a control that can only fail. Both this and Identities must
+	// be set for password login to be offered: a credential that cannot be
+	// turned into an identity is a login that authenticates and then cannot
+	// say what it authorized.
+	Passwords PasswordAuthenticator
+
+	// Identities derives what a proven subject may do, from the RoleBindings
+	// on its Teams.
+	//
+	// Only the password path needs this. A token CARRIES its role and
+	// scopes as claims; an email carries neither, so something has to read
+	// them out of stored state, and this is the port that does.
+	Identities IdentityDeriver
+
+	// LoginLimiter throttles sign-in attempts by source.
+	//
+	// Optional, and a separate INSTANCE of the same api.RateLimiter the
+	// versioned API uses rather than a second implementation. It is
+	// separate because the API's own limiter is mounted inside the
+	// /api/v1 subtree and the UI mounts outside it, and because an API
+	// default measured in tens of requests per second protects nothing on
+	// a login form. It bounds RATE and keys on the SOURCE; the credential
+	// store's own lockout bounds attempts and keys on the ACCOUNT. Neither
+	// substitutes for the other.
+	LoginLimiter *api.RateLimiter
+
 	// HATEOAS decides which affordances an identity may exercise. It is
 	// the same generator, built from the same admission chain, that
 	// computes the JSON API's _links array -- which is what makes a
@@ -100,7 +131,18 @@ func (h *Handler) Routes() http.Handler {
 	// Unauthenticated: the login page and the assets needed to render it.
 	r.Handle("/static/*", http.StripPrefix(path.Join(h.cfg.Prefix, "static"), static.Handler("")))
 	r.Get("/login", h.showLogin)
-	r.Post("/login", h.doLogin)
+	// The sign-in POST carries its own two guards, because neither of the
+	// ones the authenticated group installs can reach it. h.csrf derives the
+	// expected token from the session's server-held key and there is no
+	// session yet; the API's rate limiter is mounted inside the versioned
+	// API prefix and this subtree is outside it. Ordering is deliberate:
+	// the limiter runs FIRST, so a flood is shed before it can spend a CSRF
+	// check, a database read or an Argon2id derivation.
+	r.Group(func(r chi.Router) {
+		r.Use(h.loginRateLimit)
+		r.Use(h.preAuthCSRF)
+		r.Post("/login", h.doLogin)
+	})
 
 	// Everything else requires a session.
 	r.Group(func(r chi.Router) {

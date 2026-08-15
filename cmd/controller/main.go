@@ -109,6 +109,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
@@ -1029,16 +1030,41 @@ func main() {
 	// "not signed in" rather than as a configuration error.
 	cookieCodec := session.CookieCodec{Insecure: insecureCookies}
 
+	// Local password sign-in (PLAN.md Section 18.1, Phase 79).
+	//
+	// The store proves a password; the builder turns the subject it proved
+	// into an auth.Identity by reading the RoleBindings on that subject's
+	// Teams. They are separate on purpose: proving who somebody is and
+	// deciding what they may do are different jobs, and a token login does
+	// only the first because a JWT carries the second in its claims.
+	//
+	// This is the first production caller of auth.NewScopeResolver and
+	// auth.NewEntRoleBindingRepository. Both have existed, tested, since
+	// Phase 8, and the resolver's own doc calls it "inert until a real
+	// caller exists". It exists now.
+	passwords := localauth.NewEntStore(client, logger)
+	identities := auth.NewIdentityBuilder(
+		auth.NewEntTeamLookup(client),
+		auth.NewScopeResolver(auth.NewEntRoleBindingRepository(client)),
+	)
+
 	ui := uiweb.New(uiweb.Config{
-		Prefix:    "/ui",
-		Version:   serviceVersion,
-		Banner:    banner,
-		Sessions:  sessions,
-		Cookie:    cookieCodec,
-		Tokens:    evaluator,
-		HATEOAS:   hateoas,
-		Admission: admission,
-		Logger:    logger,
+		Prefix:   "/ui",
+		Version:  serviceVersion,
+		Banner:   banner,
+		Sessions: sessions,
+		Cookie:   cookieCodec,
+		Tokens:   evaluator,
+		// Adapted to the handler's narrow port rather than handed the whole
+		// store: internal/ui/web renders pages, and the one verb it needs is
+		// "does this pair prove a subject". internal/archtest keeps the
+		// plaintext-accepting surface that small.
+		Passwords:    passwordAuthenticator{store: passwords},
+		Identities:   identities,
+		LoginLimiter: api.NewRateLimiter(uiweb.DefaultLoginRateLimiterConfig),
+		HATEOAS:      hateoas,
+		Admission:    admission,
+		Logger:       logger,
 	})
 
 	// One replica sweeps expired sessions, behind the same election every

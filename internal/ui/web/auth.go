@@ -89,6 +89,16 @@ func (h *Handler) writePreference(w http.ResponseWriter, name, value string) {
 // for a static analyser to prove the default correct, so the deliberate
 // opt-out is isolated here rather than sharing a computed field with the
 // production path.
+//
+// Attempting to share one writer with the pre-auth CSRF cookie was tried
+// and reverted, and the reason is worth recording because it looks like an
+// obvious cleanup. The two cookies need different SameSite values, so a
+// shared writer takes SameSite as a PARAMETER, and a parameter is exactly
+// as unprovable to gosec as a computed Secure field is. Consolidating
+// therefore does not remove a waiver, it adds one: the production path
+// starts getting flagged too, which is the one place a waiver must never
+// sit. Duplicated literals are the cost of a scanner that can prove the
+// default correct, and that trade is the right way round.
 func (h *Handler) writeInsecurePreference(w http.ResponseWriter, name, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -177,11 +187,6 @@ func (h *Handler) safeReturn(r *http.Request) string {
 	return h.cfg.Prefix
 }
 
-// showLogin renders the sign-in page.
-func (h *Handler) showLogin(w http.ResponseWriter, r *http.Request) {
-	h.renderLogin(w, r, false, http.StatusOK)
-}
-
 func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, failed bool, status int) {
 	page := view.PageModel{
 		// The banner renders before authentication too: somebody signing
@@ -193,6 +198,17 @@ func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, failed boo
 		A11y:    h.a11yOf(r),
 		Version: h.cfg.Version,
 		Prefix:  h.cfg.Prefix,
+		// A FRESH pre-auth CSRF pair on every render, including on a failed
+		// attempt. Reusing the previous one after a refusal would leave a
+		// token valid across an unbounded number of retries, and a re-render
+		// is exactly the moment a new one is free to issue. The cookie is
+		// set here rather than in the middleware because this is the only
+		// place that emits the form the token has to travel with.
+		CSRFToken: h.issuePreAuthCookie(w),
+		// PasswordLogin drives which fields the form offers. A deployment
+		// with no local credential store gets the token field alone rather
+		// than a password box that can only ever fail.
+		PasswordLogin: h.cfg.Passwords != nil && h.cfg.Identities != nil,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -200,48 +216,6 @@ func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, failed boo
 	if err := render.Login(page, failed).Render(r.Context(), w); err != nil {
 		h.serverError(w, r, "render login", err)
 	}
-}
-
-// doLogin exchanges a token for a session cookie.
-//
-// It deliberately mints no credential of its own. The submitted token is
-// validated through the same auth.Evaluator the Bearer path uses, so
-// logging in proves an identity exactly the way an API call does, and this
-// endpoint adds no new crypto, no password store, and no second notion of
-// who a caller is. What it does add is the one thing a browser needed: a
-// credential an EventSource can actually send.
-func (h *Handler) doLogin(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		h.renderLogin(w, r, true, http.StatusBadRequest)
-		return
-	}
-
-	token := strings.TrimSpace(r.PostFormValue("token"))
-	if token == "" {
-		h.renderLogin(w, r, true, http.StatusUnauthorized)
-		return
-	}
-
-	identity, err := h.cfg.Tokens.ValidateToken(r.Context(), token)
-	if err != nil || identity == nil {
-		// One message for every failure. Distinguishing "malformed" from
-		// "expired" from "wrong signature" tells an attacker which of
-		// those they achieved.
-		h.renderLogin(w, r, true, http.StatusUnauthorized)
-		return
-	}
-
-	// Minted only after validation succeeds, so there is no pre-auth
-	// session to fixate.
-	sessionToken, err := h.cfg.Sessions.Create(r.Context(), identity,
-		session.DefaultIdleTimeout, session.DefaultAbsoluteTimeout)
-	if err != nil {
-		h.serverError(w, r, "create session", err)
-		return
-	}
-
-	h.cfg.Cookie.Write(w, sessionToken)
-	http.Redirect(w, r, h.cfg.Prefix, http.StatusSeeOther)
 }
 
 // doLogout revokes the session and clears the cookie.

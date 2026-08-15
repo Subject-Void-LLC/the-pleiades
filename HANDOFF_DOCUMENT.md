@@ -127,15 +127,65 @@ widening, not waived, because the phase forbids new waivers). `go test ./...` ha
 none below floor; `internal/localauth` recorded at 86.0%. Measured: `BenchmarkVerify` 28.7 ms and
 19,927,335 B/op, wrong password identical at 29.0 ms, `BenchmarkDecode` 2.0 us.
 
-### Next
+## Phase 79b is BUILT: the UI takes an email and a password
 
-**79b, the login path**: the Role-to-Scope mapping in `internal/auth` (admin gets the enumerated set,
-never the unexported wildcard), the `ScopeResolver` wiring through `TeamLookup` and an empty
-`ScopeTarget`, the `chain.go` comment correction, `doLogin`'s one credential-specific line, pre-auth
-CSRF, and the login rate limiter. Then **79c, the operator surface**: `bootstrap-admin`,
-`reset-password`, `unlock`, the password-change route, revoke-every-session-for-a-subject (which
-needs a new store operation and an index on the session subject column), and the comment and doc
-corrections the phase owes, including the `PLEIADES_BOOTSTRAP_ADMIN` sentence that names a mechanism
-which does not exist.
+**The front end can now log in with a password.** `POST /ui/login` accepts either an email and
+password pair or a pasted token, and treats them as one decision with two proofs.
 
-Nothing is committed. The 79a commit message has been provided, per the standing instruction.
+### What shipped
+
+- **`internal/auth/rolescopes.go`** and **`identity_builder.go`**. This is the one piece of
+  genuinely new logic the phase named up front: `ScopeResolver.Resolve` returns a Role and NO
+  scopes, so a Role-to-Scope table had to be decided. Admin gets the ENUMERATED set, never the
+  unexported wildcard, because the scope list is persisted on the session row and a wildcard there
+  is a blank cheque that outlives any later narrowing of what admin means. Operator does not get
+  `access:write`: an operator who can grant themselves admin is an admin with extra steps.
+- **`doLogin`** rewritten into `internal/ui/web/login.go`. The token path is KEPT, not replaced. A
+  deployment federating against an external issuer holds no local credentials, and removing its only
+  way in alongside adding a new one would strand exactly the deployments that have not migrated.
+- **Pre-auth CSRF** and a **login rate limiter**, neither of which the route had before.
+- **`cmd/controller`** wires it. First production caller of `auth.NewScopeResolver` and
+  `auth.NewEntRoleBindingRepository`, both tested since Phase 8 and described in their own doc as
+  "inert until a real caller exists".
+
+### Three findings, each of which changed code rather than only notes
+
+- **The `memStore` test double silently dropped `Identity.Scopes`.** Every test in
+  `internal/ui/web` would have passed while a session reaching the database with no authority at all
+  looked identical to one reaching it correctly. LESSONS_LEARNED #94's exact shape. Found by writing
+  the first test that asserted a derived scope survived into the session row. Fixed in the double.
+- **Consolidating the three insecure-cookie writers had to be reverted.** It was attempted
+  specifically to avoid a third `gosec` waiver. The three cookies need different `SameSite` values,
+  so a shared writer takes `SameSite` as a parameter, and a parameter is exactly as unprovable to a
+  static analyser as a computed `Secure` field: it did not remove a waiver, it added one on the
+  PRODUCTION path. Reverted, with the reasoning recorded in the code so nobody retries it.
+- **This phase's zero-new-waivers item was missed, and is recorded as a miss.** 79b added one waiver,
+  for the development-only pre-auth CSRF cookie. Its entry says in those words that it does not meet
+  the bar. It is the third instance of an already-accepted class, not a new one, and Phase 20's TLS
+  termination removes all three together.
+
+Four existing waivers also went stale from line shifts. Per the file's own rule that is
+re-review rather than renumbering, so the guarded code (`safeReturn`, `writeInsecurePreference`) was
+re-read and confirmed byte-identical before the lines moved.
+
+### Gates
+
+`build`, `vet`, `fmt`, `govulncheck` (0), `arch`, `docs-lint`, `docs-gen-check` clean. `go test ./...`
+zero failures. `-race -count=1` clean on every touched package. `gosec`: 12 findings, all
+individually waived. Coverage: 159 packages, none below floor.
+
+### Next: 79c, the operator surface
+
+`bootstrap-admin`, `reset-password` and `unlock` on `cmd/controller` (which has no subcommand
+structure today, so an argument guard at the top of `main()` is the smallest honest change); the
+self-service password-change route; revoke-every-session-for-a-subject, which needs a new store
+operation and an index on the session subject column; and the comment and documentation corrections
+the phase owes, including `internal/access`'s `PLEIADES_BOOTSTRAP_ADMIN` sentence, which names a
+recovery mechanism that exists nowhere in the codebase.
+
+**One thing 79c must not forget:** nothing creates the first admin yet. A clean machine still has no
+way in, because the password path works and no account has a password. That is exactly what
+`bootstrap-admin` is for, and it is what closes the Phase 20 dependency.
+
+Nothing is committed. Commit messages for 79a and 79b have been provided, per the standing
+instruction.

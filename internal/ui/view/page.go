@@ -87,9 +87,24 @@ type PageModel struct {
 	// mount point stays a composition-root decision.
 	Prefix string
 
-	// CSRFToken is this session's derived token. Empty for an
-	// unauthenticated page, which has no session to protect.
+	// CSRFToken is this session's derived token.
+	//
+	// The sign-in page carries one too, and it is a different and weaker
+	// kind: there is no session to bind it to yet, so it is a double-submit
+	// pair against a per-process key rather than a per-session one. Both
+	// travel in the same field so a template does not have to know which it
+	// holds. See internal/ui/web's preAuthCSRF for why the pre-auth version
+	// cannot be as strong and why that is unavoidable.
 	CSRFToken string
+
+	// PasswordLogin reports whether this deployment offers local password
+	// sign-in, so the login form can show the fields it can actually honor.
+	//
+	// A deployment federating against an external issuer holds no local
+	// credentials, and rendering a password box there would be an
+	// affordance that can only ever fail. Meaningful on the sign-in page
+	// alone.
+	PasswordLogin bool
 
 	// Subject is who the session says is signed in. It is shown beside the
 	// sign-out control rather than on its own: an operator with access to

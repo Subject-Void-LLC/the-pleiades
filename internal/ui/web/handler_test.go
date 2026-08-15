@@ -91,9 +91,21 @@ func (s *memStore) Create(_ context.Context, id *auth.Identity, _, absolute time
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Scopes are persisted, like the real ent store does. Dropping them
+	// here made this double quietly lossy: every test in the package would
+	// have passed while a session that reached the database with no
+	// authority at all looked identical to one that reached it with the
+	// right authority. That is LESSONS_LEARNED #94's shape, a fixture whose
+	// presence disguises the gap by making the tests look thorough.
+	scopes := make([]string, 0, len(id.Scopes))
+	for _, scope := range id.Scopes {
+		scopes = append(scopes, string(scope))
+	}
+
 	s.rows[token] = session.Session{
 		Subject:           id.Subject,
 		Role:              id.Role,
+		Scopes:            scopes,
 		CSRFKey:           key,
 		IdleExpiresAt:     time.Now().Add(absolute),
 		AbsoluteExpiresAt: time.Now().Add(absolute),

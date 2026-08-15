@@ -1896,7 +1896,13 @@ func affordanceAlert() templ.Component {
 	})
 }
 
-// Login exchanges a token for a session cookie.
+// Login exchanges a credential for a session cookie.
+//
+// Two forms rather than one with both credential kinds in it. A single form
+// would submit whichever fields happened to be filled, which makes "which
+// credential am I using" a property of what the browser autofilled rather
+// than of what the operator chose, and it would put a required attribute on
+// fields that must not be required.
 func Login(m view.PageModel, failed bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1935,25 +1941,89 @@ func Login(m view.PageModel, failed bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if failed {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 143, "<div class=\"error-summary\" role=\"alert\" tabindex=\"-1\"><p>That token was not accepted.</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 143, "    <div class=\"error-summary\" role=\"alert\" tabindex=\"-1\"><p>Those credentials were not accepted.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, " <form class=\"block\" method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var98 templ.SafeURL
-			templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(m.Prefix + "/login"))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/views.templ`, Line: 477, Col: 79}
+			if m.PasswordLogin {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "<form class=\"block\" method=\"post\" action=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var98 templ.SafeURL
+				templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(m.Prefix + "/login"))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/views.templ`, Line: 488, Col: 80}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "\"><input type=\"hidden\" name=\"_csrf\" value=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var99 string
+				templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.CSRFToken)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/views.templ`, Line: 489, Col: 57}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var99)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "\"><div class=\"field\"><label for=\"email\">Email</label> <input type=\"email\" id=\"email\" name=\"email\" autocomplete=\"username\" required></div><div class=\"field\"><label for=\"password\">Password</label> <input type=\"password\" id=\"password\" name=\"password\" autocomplete=\"current-password\" required></div><div class=\"form-actions\"><button class=\"btn\" type=\"submit\">Sign in</button></div></form>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, " <form class=\"block\" method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "\"><div class=\"field\"><label for=\"token\">API token</label><p class=\"field-hint\" id=\"token-hint\">Paste a token this control plane will accept. It is exchanged for a session cookie, and is not stored.</p><input type=\"password\" id=\"token\" name=\"token\" autocomplete=\"off\" aria-describedby=\"token-hint\" required></div><div class=\"form-actions\"><button class=\"btn\" type=\"submit\">Sign in</button></div></form>")
+			var templ_7745c5c3_Var100 templ.SafeURL
+			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(m.Prefix + "/login"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/views.templ`, Line: 503, Col: 79}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "\"><input type=\"hidden\" name=\"_csrf\" value=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var101 string
+			templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.CSRFToken)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/views.templ`, Line: 504, Col: 56}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var101)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "\"><div class=\"field\"><label for=\"token\">API token</label><p class=\"field-hint\" id=\"token-hint\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if m.PasswordLogin {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "The break-glass route, for an operator holding a token from an external issuer. It is exchanged for a session cookie, and is not stored.")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 152, "Paste a token this control plane will accept. It is exchanged for a session cookie, and is not stored.")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 153, "</p><input type=\"password\" id=\"token\" name=\"token\" autocomplete=\"off\" aria-describedby=\"token-hint\" required></div><div class=\"form-actions\"><button class=\"btn\" type=\"submit\">Sign in</button></div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

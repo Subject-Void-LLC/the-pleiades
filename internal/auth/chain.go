@@ -181,9 +181,18 @@ func NewScopeRule(resolver *ScopeResolver, lookup TeamLookup) AdmissionRule {
 // attempted, and that gap is FAILURE_PATTERNS #98 rather than an oversight.
 // Satisfying the role axis needs a rule mapping an operation onto a minimum
 // role, and AdmissionRequest carries a RequiredScope but no required role.
-// Choosing that mapping belongs to the phase that puts this rule into a
-// running chain, which no phase has yet done: inventing it here would settle
-// a policy question in the one place nobody would look for it.
+//
+// Half of that mapping now exists and half still does not, and the split is
+// worth stating precisely. Phase 79 needed the ROLE-TO-SCOPE direction to
+// build an Identity for a local login, and wrote it down in rolescopes.go:
+// given a role, these are the scopes it carries. What is still missing is
+// the other direction, an OPERATION-TO-MINIMUM-ROLE table, which is what
+// this rule would need to compare a resolved Role against a request. That
+// remains unwritten because this rule is still not in a running chain: the
+// composition root carries only the token-scope rule, since this one needs
+// a ScopeTarget an HTTP route has none to give it. Inventing the missing
+// half here would still settle a policy question in the one place nobody
+// would look for it.
 //
 // A clean Deny returns a nil error, preserving the distinction hateoas.go
 // relies on: an error means the chain could not reach a verdict, a Deny with
