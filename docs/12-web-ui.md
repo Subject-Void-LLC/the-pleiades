@@ -25,15 +25,31 @@ authenticate the log stream, and it is why the UI needs no CORS configuration at
 
 ## Signing in
 
-`/ui/login` takes a token this control plane already accepts and exchanges it for a
-session cookie. The token is validated by the same evaluator the `Authorization:
-Bearer` path uses, so signing in proves an identity exactly the way an API call does.
+`/ui/login` accepts either an email and password, or a token this control plane
+already accepts, and exchanges whichever you use for a session cookie.
 
-The UI therefore adds no new credential storage, no password hashing and no second
-notion of who a caller is. Interactive sign-in through an identity provider is a real
-authentication surface of its own — redirect endpoints, state, PKCE, discovery,
-refresh — and belongs in its own phase with its own security review. Token paste is
-the bootstrap and break-glass path until then.
+The two prove the same thing by different routes. A **password** is verified against
+the local credential store, and what that account may then do is derived from the
+RoleBindings on its teams. A **token** is validated by the same evaluator the
+`Authorization: Bearer` path uses, and carries its own role and scopes as claims.
+Nothing after the credential check knows which was used.
+
+Create the first account with the controller's own subcommand, on the host:
+
+```bash
+controller bootstrap-admin --email you@example.com
+```
+
+It prompts for the password with echo disabled, creates the user, and grants it
+system-scope admin. There is no password reset by email: `controller reset-password`
+and `controller unlock` are the recovery paths, and they run over the shell access you
+already have rather than depending on outbound mail working.
+
+The token field stays as the break-glass route, and it is the only route on a
+deployment that federates against an external issuer and holds no local credentials
+at all. Full interactive sign-in through an identity provider (redirect endpoints,
+state, PKCE, discovery, refresh) is a real authentication surface of its own and
+belongs in its own phase with its own security review.
 
 The session is a row in the shared database, not process-local state. A cookie minted
 by one controller authenticates against another, so this forces no session affinity

@@ -116,6 +116,23 @@ type Store interface {
 	// behind the leader election every other cluster-singleton in this
 	// platform already uses.
 	DeleteExpired(ctx context.Context, now time.Time) (int, error)
+
+	// DeleteForSubject removes every session belonging to one subject and
+	// reports how many, optionally sparing one token.
+	//
+	// It exists because Delete takes a token, and a caller only ever holds
+	// the token for its OWN session. That is fine for logout and useless
+	// for every other reason a session should stop working: a password
+	// change, an administrative reset, a disabled account. Without this, a
+	// password change leaves an attacker's stolen cookie working for up to
+	// the absolute deadline, which is not changing the password in any
+	// sense the person meant.
+	//
+	// The spared token is what makes a self-service change usable: the
+	// person doing it stays signed in and every other session ends. Pass
+	// an empty string to revoke all of them, which is what an
+	// administrative reset does.
+	DeleteForSubject(ctx context.Context, subject, keepToken string) (int, error)
 }
 
 // NewToken mints a session identifier: 256 bits of cryptographic

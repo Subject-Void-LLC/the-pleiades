@@ -559,6 +559,11 @@ var (
 				Unique:  false,
 				Columns: []*schema.Column{SessionsColumns[9]},
 			},
+			{
+				Name:    "session_subject",
+				Unique:  false,
+				Columns: []*schema.Column{SessionsColumns[4]},
+			},
 		},
 	}
 	// SurveyQuestionsColumns holds the columns for the "survey_questions" table.

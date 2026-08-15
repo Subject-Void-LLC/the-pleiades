@@ -134,6 +134,26 @@ func (s *memStore) Delete(_ context.Context, token string) error {
 
 func (s *memStore) DeleteExpired(context.Context, time.Time) (int, error) { return 0, nil }
 
+// DeleteForSubject is implemented for real rather than stubbed, because the
+// password-change tests assert on what it actually removed. A stub returning
+// (0, nil) would let a change that revoked nothing pass as one that revoked
+// everything, which is the same class of lossy double that hid the dropped
+// Scopes field above.
+func (s *memStore) DeleteForSubject(_ context.Context, subject, keepToken string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deleted := 0
+	for token, row := range s.rows {
+		if row.Subject != subject || token == keepToken {
+			continue
+		}
+		delete(s.rows, token)
+		deleted++
+	}
+	return deleted, nil
+}
+
 // allowAll and denyAll are the two admission answers, so a test can name
 // which one it is exercising instead of arranging an identity to produce it.
 type allowAll struct{}

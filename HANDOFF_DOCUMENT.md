@@ -174,18 +174,76 @@ re-read and confirmed byte-identical before the lines moved.
 zero failures. `-race -count=1` clean on every touched package. `gosec`: 12 findings, all
 individually waived. Coverage: 159 packages, none below floor.
 
-### Next: 79c, the operator surface
+## Phase 79c is BUILT: a clean machine can now be bootstrapped and signed into
 
-`bootstrap-admin`, `reset-password` and `unlock` on `cmd/controller` (which has no subcommand
-structure today, so an argument guard at the top of `main()` is the smallest honest change); the
-self-service password-change route; revoke-every-session-for-a-subject, which needs a new store
-operation and an index on the session subject column; and the comment and documentation corrections
-the phase owes, including `internal/access`'s `PLEIADES_BOOTSTRAP_ADMIN` sentence, which names a
-recovery mechanism that exists nowhere in the codebase.
+`controller bootstrap-admin --email you@example.com` creates the first administrator on the
+host (User, Team, system-scope admin RoleBinding, password) and that account signs in at
+`/ui/login`. That closes the gap the whole phase exists for and the Phase 20 dependency.
 
-**One thing 79c must not forget:** nothing creates the first admin yet. A clean machine still has no
-way in, because the password path works and no account has a password. That is exactly what
-`bootstrap-admin` is for, and it is what closes the Phase 20 dependency.
+### What shipped
 
-Nothing is committed. Commit messages for 79a and 79b have been provided, per the standing
-instruction.
+- **Three subcommands** on `cmd/controller`, behind a three-line argument guard at the top of
+  `main()` rather than a restructure: `bootstrap-admin`, `reset-password`, `unlock`. Idempotent
+  where it can be, refusing where it must be (an existing password is not overwritten without
+  `--force`). `--password-stdin` is the automation route; a password is never a flag value.
+- **`internal/prompt`**, the no-echo reader lifted out of `cmd/pleiades` rather than copied, now
+  consumed by both binaries.
+- **`session.Store.DeleteForSubject`** plus an index on the session subject column, both dialects.
+- **`POST /ui/account/password`**, a fixed route with NO record id, so the session is the subject
+  and it cannot be aimed at another account. Revokes every other session, keeps this one.
+- **`internal/localauth`'s audit decorator.** Credential writes are recorded; sign-in attempts
+  deliberately are not, because an unauthenticated caller who can append unbounded rows to a
+  durable table has a denial of service rather than an alarm.
+- Docs: Book 10 gains an operator-accounts section, the web UI and control-plane books are
+  corrected, and a changelog fragment lands.
+
+### Four findings, all of which changed code
+
+- **`bootstrap-admin` reported success while creating an account that could sign in and reach
+  NOTHING.** It set `TeamIDs` on an `access.User` and called `UpdateUser`, which accepts that field
+  and silently ignores it: membership is written from the Team side. Found by the first test that
+  asserted the bootstrapped account resolved to an admin IDENTITY rather than that the command
+  exited zero.
+- **`DeleteUser` left a live session and a password behind.** The credential now cascades by
+  foreign key; sessions are deleted explicitly, because a session row carries its subject as a
+  plain string with no key back to `User`.
+- **`access.Binding` requires an explicit `Effect`** and its zero value is not Allow. The
+  alternative was a permission granted by forgetting to type one.
+- **`PLEIADES_BOOTSTRAP_ADMIN` never existed.** `ErrLastSystemBinding`'s comment justified its
+  refusal by naming it as the recovery path; repo-wide grep found one hit, that sentence. Corrected
+  to name the subcommand, with the reason it was NOT implemented under that name recorded beside it.
+
+### Gates
+
+`build`, `vet`, `fmt`, `gosec`, `govulncheck`, `arch`, `docs-lint`, `docs-gen-check` all PASS.
+`go test ./...` zero failures. `-race -count=1` clean on every touched package. Coverage: 159
+packages, none below floor.
+
+**One gate is red and it is an artifact of nothing being committed:** `templ-gen-check` runs
+`git diff --exit-code -- internal/ui/render`, so an uncommitted template change always fails it.
+Verified the working tree is self-consistent: regenerating produces no further change, and there
+are no untracked files under that directory. It goes green on commit.
+
+### What Phase 79 still owes
+
+Nine checklist items remain, and eight of them are the standard closing bullets that close at PHASE
+end rather than stage end: Pattern Entry Gate, Fuzz/Stress (the fuzz half is done, the sustained
+login-flood stress is not), Security Analysis, Adversarial Pattern Justification, Schema/Injection
+Hardening, Documentation Gate, Release Gate, Provide Commit Message.
+
+The Release Gate is the substantive one: it wants an integration-tagged test in `tests/e2e` doing
+`docker compose up` plus one `bootstrap-admin` against real Postgres, including the measured
+timing band and the two-controller lockout check. The pieces all exist and are individually tested;
+what is missing is the single test that runs them end to end through the real binaries.
+
+**Also still true:** `docker-compose.yml` exposes plain HTTP and sets no
+`PLEIADES_UI_INSECURE_COOKIES`, so a real browser refuses the `__Host-` session cookie on the
+documented path. Passwords alone do not close Phase 20's clean-machine gate; that is the reciprocal
+half of the dependency and it is Phase 20's to close.
+
+### Next
+
+Close Phase 79: the Release Gate test above, then the remaining closing bullets.
+
+Nothing is committed. Commit messages for 79a, 79b and 79c have been provided, per the
+standing instruction.

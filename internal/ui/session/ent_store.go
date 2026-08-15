@@ -135,6 +135,37 @@ func (s *entStore) Delete(ctx context.Context, token string) error {
 	return nil
 }
 
+// DeleteForSubject revokes every session for one subject, optionally
+// sparing one token.
+//
+// The spare is expressed as a NOT on the token hash rather than by reading
+// the rows and deleting all but one: it is a single statement, so a session
+// created concurrently by the same subject is either included or not by the
+// database's own ordering rather than by a window between a read and a
+// write. That matters here more than it usually would, because the caller
+// is often reacting to a suspected compromise, and a race that leaves one
+// session alive is the one outcome the operation exists to prevent.
+func (s *entStore) DeleteForSubject(ctx context.Context, subject, keepToken string) (int, error) {
+	if subject == "" {
+		// Refused rather than treated as "match every row with an empty
+		// subject". The schema requires subject to be non-empty, so an
+		// empty argument is always a caller bug, and the failure mode of
+		// guessing is deleting nothing while reporting success.
+		return 0, fmt.Errorf("refusing to delete sessions for an empty subject")
+	}
+
+	query := s.client.Session.Delete().Where(entsession.SubjectEQ(subject))
+	if keepToken != "" {
+		query = query.Where(entsession.TokenHashNEQ(HashToken(keepToken)))
+	}
+
+	n, err := query.Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete sessions for subject: %w", err)
+	}
+	return n, nil
+}
+
 func (s *entStore) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 	// Only the absolute deadline is swept. An idle-expired session is
 	// already unusable (Resolve refuses it) and may still be within its

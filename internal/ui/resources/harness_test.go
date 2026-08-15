@@ -314,6 +314,13 @@ func (s *fakeSessionStore) Delete(_ context.Context, token string) error {
 
 func (s *fakeSessionStore) DeleteExpired(context.Context, time.Time) (int, error) { return 0, nil }
 
+// DeleteForSubject is a stub here, unlike internal/ui/web's double: nothing
+// in the resources suite exercises session revocation, so a real
+// implementation would be untested code standing in for untested code.
+func (s *fakeSessionStore) DeleteForSubject(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
 // fakeSetStore is an in-memory inventory.SetStore holding one inventory,
 // which is enough for a list with a row, a detail page and an edit form.
 type fakeSetStore struct {

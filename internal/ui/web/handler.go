@@ -71,6 +71,16 @@ type Config struct {
 	// say what it authorized.
 	Passwords PasswordAuthenticator
 
+	// PasswordChanges replaces a signed-in caller's own password.
+	//
+	// Optional and separate from Passwords, even though one store
+	// implements both. They are used at different points by different
+	// routes with different authorization, and a handler that only needs
+	// to verify should not hold the ability to write. Nil means the
+	// account page's password control is absent rather than present and
+	// broken.
+	PasswordChanges PasswordChanger
+
 	// Identities derives what a proven subject may do, from the RoleBindings
 	// on its Teams.
 	//
@@ -153,6 +163,14 @@ func (h *Handler) Routes() http.Handler {
 		r.Post("/theme", h.setTheme)
 		r.Post("/skin", h.setSkin)
 		r.Post("/a11y", h.setA11y)
+
+		// The caller's own account. No {id} anywhere in either route,
+		// which is the authorization rather than a check inside the
+		// handler: the session is the subject, so neither can be aimed at
+		// somebody else. See account.go for why this is not an action on
+		// the users resource.
+		r.Get("/account", h.showAccount)
+		r.Post("/account/password", h.changePassword)
 
 		r.Get("/", h.index)
 		r.Get("/{resource}", h.list)

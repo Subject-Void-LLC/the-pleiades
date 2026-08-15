@@ -104,9 +104,18 @@ type Team struct {
 // teams it belongs to.
 //
 // The email is the join key against a token's subject, which is what
-// internal/auth's entTeamLookup already does. There is no password here and
-// no phase owns building one, so a User is a statement that a subject is
-// known to this deployment rather than a credential this deployment issues.
+// internal/auth's entTeamLookup already does, and it is now also the login
+// name a local password authenticates.
+//
+// There is still no password HERE, and that stayed true when Phase 79 added
+// one. The credential is its own entity (internal/ent/schema/
+// local_credential.go) precisely so this type does not gain a field: a User
+// is projected onto this struct, then onto the API's user DTO, then onto the
+// users list view, and a hash column on the entity would put a hash field on
+// all four with nothing but discipline keeping it out of a response. So a
+// User remains a statement that a subject is known to this deployment,
+// alongside a separate, optional record that the deployment can also prove
+// who they are.
 type User struct {
 	ID    int
 	Email string

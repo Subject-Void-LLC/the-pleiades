@@ -106,6 +106,16 @@ type PageModel struct {
 	// alone.
 	PasswordLogin bool
 
+	// Notice is a short message about what just happened, shown above the
+	// page's own content.
+	//
+	// Deliberately a fixed string chosen by the handler rather than an
+	// error passed through from below. An error from a store is written
+	// for an operator reading logs and may name why a credential was
+	// refused; a page is read by whoever is at the browser, who is not
+	// necessarily the account's owner.
+	Notice string
+
 	// Subject is who the session says is signed in. It is shown beside the
 	// sign-out control rather than on its own: an operator with access to
 	// several identities needs to know which one is about to run a job,

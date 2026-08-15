@@ -15,8 +15,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
+	uiweb "github.com/Subject-Void-LLC/the-pleiades/internal/ui/web"
 )
 
 // passwordAuthenticator adapts localauth.Store to uiweb.PasswordAuthenticator.
@@ -44,4 +47,23 @@ func (a passwordAuthenticator) Authenticate(ctx context.Context, email, password
 		return "", err
 	}
 	return account.Subject, nil
+}
+
+// ChangePassword adapts the store's self-service change to
+// uiweb.PasswordChanger.
+//
+// The one translation it performs is the point of its existence: a NEW
+// password refused for what it is becomes uiweb.ErrWeakPassword, while a
+// wrong CURRENT password stays opaque. The UI answers those two
+// differently, because one is worth explaining to the person at the browser
+// and the other must say nothing beyond that it failed. internal/ui/web
+// cannot import internal/localauth to tell them apart (internal/archtest
+// forbids it), so the translation happens here, at the composition root,
+// which is the only place that legitimately sees both vocabularies.
+func (a passwordAuthenticator) ChangePassword(ctx context.Context, subject, oldPassword, newPassword string) error {
+	err := a.store.ChangePassword(ctx, subject, oldPassword, newPassword)
+	if errors.Is(err, localauth.ErrWeakPassword) {
+		return fmt.Errorf("%w: %w", uiweb.ErrWeakPassword, err)
+	}
+	return err
 }

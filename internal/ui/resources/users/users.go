@@ -1,11 +1,17 @@
 // Package users is the Users view: the identities a token's subject
 // resolves against.
 //
-// A user here is deliberately almost nothing. There is no password and no
-// phase owns building one, so this records that a subject is known to this
-// deployment rather than issuing a credential. The email is the join key,
-// which is the whole reason the record exists: internal/auth's team lookup
-// matches a token's subject against it to find the teams whose grants apply.
+// A user here is deliberately almost nothing: this view records that a
+// subject is known to this deployment rather than issuing a credential. The
+// email is the join key, which is the whole reason the record exists:
+// internal/auth's team lookup matches a token's subject against it to find
+// the teams whose grants apply, and a local sign-in matches the same column.
+//
+// A local password is deliberately NOT shown or edited here, even though
+// Phase 79 added one. It lives on its own entity so that nothing projected
+// from a User can carry a hash, and it is administered from the controller's
+// own subcommands and from the signed-in caller's account page, neither of
+// which needs the access:write scope this view is gated on.
 //
 // It is reachable only because internal/ui/resources/registrars.go names it
 // (FAILURE_PATTERNS.md #52).

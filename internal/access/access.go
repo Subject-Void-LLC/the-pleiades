@@ -60,10 +60,23 @@ var ErrInvalidBinding = errors.New("access: role binding is not resolvable")
 // That is the shape of a lockout: system scope is the only level that grants
 // across every organization, so removing the last one can leave nobody able
 // to administer anything, including the bindings themselves. The refusal is
-// recoverable by design, since PLEIADES_BOOTSTRAP_ADMIN still resolves ahead
-// of any stored state, but a control plane that lets an operator delete
-// their own last key with one click and no warning is one that eventually
-// will.
+// recoverable by design, since `controller bootstrap-admin` runs on the host
+// and re-creates a system-scope grant without needing to authenticate, but a
+// control plane that lets an operator delete their own last key with one
+// click and no warning is one that eventually will.
+//
+// **Correction (2026-08-14, Phase 79c):** this comment previously named an
+// environment variable, PLEIADES_BOOTSTRAP_ADMIN, that "still resolves ahead
+// of any stored state". No such variable existed anywhere in this
+// repository: a grep for the name returned exactly one hit, this sentence.
+// The map was lagging in the harder direction, claiming a capability rather
+// than missing one, and this refusal is only defensible if the recovery path
+// it names is real. The subcommand above is that path, and it is a better
+// one than the variable would have been: something resolving ahead of stored
+// state is a permanent, unrevocable, unauditable admin bypass available to
+// anything that can read the controller's environment, it cannot be locked
+// out or rate-limited per account because it is not an account, and it would
+// never appear in the activity stream. See FAILURE_PATTERNS.md.
 var ErrLastSystemBinding = errors.New("access: refusing to delete the last system-scope grant")
 
 // Query is a list request. It is shared by all four collections because they
