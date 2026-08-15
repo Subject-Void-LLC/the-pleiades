@@ -107,6 +107,62 @@ always validates first and refuses to execute if validation reports any error.
 
 ## Security and credentials
 
+### Operator accounts and sign-in
+
+Create the first administrator on the host, before anybody can sign in:
+
+```bash
+controller bootstrap-admin --email you@example.com
+```
+
+It prompts for a password with echo disabled, creates the user, puts it in a team,
+and grants that team system-scope admin. Re-running it is safe: the identity is left
+alone and an existing password is refused rather than replaced, unless you pass
+`--force`. For automation, `--password-stdin` reads the password as one line on
+standard input:
+
+```bash
+echo "$PASSWORD" | controller bootstrap-admin --email you@example.com --password-stdin
+```
+
+A password is never accepted as a flag value on any path, because a flag is visible
+in shell history and in the process argument list to every other user on the machine
+for as long as it runs.
+
+The other two commands are the recovery paths:
+
+| Command | What it does |
+|---|---|
+| `controller reset-password --email <address>` | Replaces the password and revokes every session that account holds. Marks the password as needing to be changed at next sign-in. |
+| `controller unlock --email <address>` | Clears a lockout without touching the password. |
+
+**There is no password reset by email, deliberately.** Adding one would make the
+first sign-in on a fresh machine depend on outbound mail working, which is the wrong
+thing to put between an operator and their own control plane. Both commands run over
+the shell access you already have.
+
+**How a password is stored.** Argon2id, 19 MiB of memory, two passes, one lane, with
+a 16-byte random salt per password, encoded as a PHC string so the parameters travel
+with the hash and a later cost increase needs no migration. A password verified at
+older parameters is transparently re-hashed at the current ones on the next
+successful sign-in. It is a one-way hash and not encryption: nothing in the system
+can recover a password, including you.
+
+**Lockout.** Ten consecutive failures lock an account for fifteen minutes. The
+counter is a row in the shared database rather than per-process state, so it is not
+reset by a restart and cannot be multiplied by running more replicas. The expiry does
+not reset the counter, so the next burst re-locks immediately. Nothing exempts an
+account from lockout, including the first administrator, which is why `unlock` exists
+and runs off the network.
+
+**What a sign-in failure tells an attacker: nothing.** A wrong password, an unknown
+address, an account with no local password and a locked account all produce the same
+response, and all cost the same amount of time. The real reason is written to the
+controller's log, where an operator can read it and a caller cannot.
+
+**Signing in with a token still works** and is the only route for a deployment that
+federates against an external issuer and holds no local passwords at all.
+
 ### Threat model, briefly
 
 Pleiades stores two classes of durable secret.

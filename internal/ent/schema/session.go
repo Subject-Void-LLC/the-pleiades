@@ -122,5 +122,12 @@ func (Session) Indexes() []ent.Index {
 		// index, the periodic cleanup would table-scan the busiest table
 		// in the schema.
 		index.Fields("absolute_expires_at"),
+		// Revoking every session for one subject scans on this. It is the
+		// same argument as the sweeper's index above and it arrives with
+		// the first caller that needs it: a password change, an
+		// administrative reset and a deleted account all have a subject
+		// and no token, and without the index each of them would table
+		// scan the busiest table in the schema.
+		index.Fields("subject"),
 	}
 }

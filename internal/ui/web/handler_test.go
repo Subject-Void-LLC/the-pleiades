@@ -91,9 +91,21 @@ func (s *memStore) Create(_ context.Context, id *auth.Identity, _, absolute time
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Scopes are persisted, like the real ent store does. Dropping them
+	// here made this double quietly lossy: every test in the package would
+	// have passed while a session that reached the database with no
+	// authority at all looked identical to one that reached it with the
+	// right authority. That is LESSONS_LEARNED #94's shape, a fixture whose
+	// presence disguises the gap by making the tests look thorough.
+	scopes := make([]string, 0, len(id.Scopes))
+	for _, scope := range id.Scopes {
+		scopes = append(scopes, string(scope))
+	}
+
 	s.rows[token] = session.Session{
 		Subject:           id.Subject,
 		Role:              id.Role,
+		Scopes:            scopes,
 		CSRFKey:           key,
 		IdleExpiresAt:     time.Now().Add(absolute),
 		AbsoluteExpiresAt: time.Now().Add(absolute),
@@ -121,6 +133,34 @@ func (s *memStore) Delete(_ context.Context, token string) error {
 }
 
 func (s *memStore) DeleteExpired(context.Context, time.Time) (int, error) { return 0, nil }
+
+// count reports how many sessions exist, for tests asserting that a
+// refused request minted none.
+func (s *memStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.rows)
+}
+
+// DeleteForSubject is implemented for real rather than stubbed, because the
+// password-change tests assert on what it actually removed. A stub returning
+// (0, nil) would let a change that revoked nothing pass as one that revoked
+// everything, which is the same class of lossy double that hid the dropped
+// Scopes field above.
+func (s *memStore) DeleteForSubject(_ context.Context, subject, keepToken string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deleted := 0
+	for token, row := range s.rows {
+		if row.Subject != subject || token == keepToken {
+			continue
+		}
+		delete(s.rows, token)
+		deleted++
+	}
+	return deleted, nil
+}
 
 // allowAll and denyAll are the two admission answers, so a test can name
 // which one it is exercising instead of arranging an identity to produce it.

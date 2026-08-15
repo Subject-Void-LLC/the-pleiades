@@ -109,6 +109,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
@@ -385,6 +386,19 @@ func readinessChecks(nc *nats.Conn, client *ent.Client) []api.ReadinessCheck {
 // instead of exiting immediately, out of scope for "Envelope
 // Encryption."
 func main() {
+	// The administrative subcommands, guarded rather than dispatched.
+	//
+	// Three lines instead of restructuring this function into a dispatch
+	// table, deliberately: the comment above records a known residual risk
+	// about every fatal path below skipping deferred cleanup, and reworking
+	// those paths is unowned work an authentication phase should not drag
+	// in. With no arguments this binary is the server, byte-identically to
+	// before. With one it is an admin tool that opens a database and
+	// nothing else. See admin.go.
+	if args := os.Args[1:]; isAdminCommand(args) {
+		os.Exit(runAdmin(args))
+	}
+
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 	dbDSN, err := resolveDatabaseDSN()
 	if err != nil {
@@ -464,28 +478,7 @@ func main() {
 	if err != nil {
 		fatal("failed to init envelope encryption", err)
 	}
-	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
-	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
-
-	// Survey answers. This pair was written, tested, and then registered
-	// nowhere: until Phase 22 it was referenced only from its own package
-	// test, which meant SavedLaunchConfig.answers was stored in plaintext
-	// while internal/apispec's own saved-configuration schema told API
-	// callers it was encrypted at rest. A shipped false claim about a
-	// security control is worse than a missing control, because it stops
-	// anybody looking. TestEveryCryptoHookIsComposed now fails the build if
-	// a hook this package exports is left unregistered again.
-	client.SavedLaunchConfig.Use(crypto.SavedLaunchConfigAnswersHook(envelopeSvc))
-	client.SavedLaunchConfig.Intercept(crypto.SavedLaunchConfigAnswersInterceptor(envelopeSvc))
-
-	// Credential inputs, using the BOUND envelope: the ciphertext is
-	// cryptographically tied to its own row, so a database writer cannot
-	// relocate one organization's secrets onto another organization's
-	// credential and have the platform inject them. Device and
-	// SavedLaunchConfig remain on the unbound form; internal/crypto/
-	// envelope_bound.go records why that is acceptable there and not here.
-	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
-	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
+	installCryptoHooks(client, envelopeSvc)
 
 	rotateKeys := getenv("ROTATE_ENCRYPTION_KEYS", "") == "true"
 
@@ -1029,16 +1022,43 @@ func main() {
 	// "not signed in" rather than as a configuration error.
 	cookieCodec := session.CookieCodec{Insecure: insecureCookies}
 
+	// Local password sign-in (PLAN.md Section 18.1, Phase 79).
+	//
+	// The store proves a password; the builder turns the subject it proved
+	// into an auth.Identity by reading the RoleBindings on that subject's
+	// Teams. They are separate on purpose: proving who somebody is and
+	// deciding what they may do are different jobs, and a token login does
+	// only the first because a JWT carries the second in its claims.
+	//
+	// This is the first production caller of auth.NewScopeResolver and
+	// auth.NewEntRoleBindingRepository. Both have existed, tested, since
+	// Phase 8, and the resolver's own doc calls it "inert until a real
+	// caller exists". It exists now.
+	passwords := localauth.NewAuditedStore(
+		localauth.NewEntStore(client, logger), activityStream, actorFromRequest, logger)
+	identities := auth.NewIdentityBuilder(
+		auth.NewEntTeamLookup(client),
+		auth.NewScopeResolver(auth.NewEntRoleBindingRepository(client)),
+	)
+
 	ui := uiweb.New(uiweb.Config{
-		Prefix:    "/ui",
-		Version:   serviceVersion,
-		Banner:    banner,
-		Sessions:  sessions,
-		Cookie:    cookieCodec,
-		Tokens:    evaluator,
-		HATEOAS:   hateoas,
-		Admission: admission,
-		Logger:    logger,
+		Prefix:   "/ui",
+		Version:  serviceVersion,
+		Banner:   banner,
+		Sessions: sessions,
+		Cookie:   cookieCodec,
+		Tokens:   evaluator,
+		// Adapted to the handler's narrow port rather than handed the whole
+		// store: internal/ui/web renders pages, and the one verb it needs is
+		// "does this pair prove a subject". internal/archtest keeps the
+		// plaintext-accepting surface that small.
+		Passwords:       passwordAuthenticator{store: passwords},
+		PasswordChanges: passwordAuthenticator{store: passwords},
+		Identities:      identities,
+		LoginLimiter:    api.NewRateLimiter(uiweb.DefaultLoginRateLimiterConfig),
+		HATEOAS:         hateoas,
+		Admission:       admission,
+		Logger:          logger,
 	})
 
 	// One replica sweeps expired sessions, behind the same election every
@@ -1169,4 +1189,38 @@ func main() {
 	if err := tracerProvider.Shutdown(telemetryCtx); err != nil {
 		slog.Error("telemetry shutdown failed", slog.String("error", err.Error()))
 	}
+}
+
+// installCryptoHooks registers every envelope-encryption hook on client.
+//
+// Extracted so the server and the administrative subcommands install the
+// IDENTICAL set. They touch different entities today (an admin command
+// reaches users, teams, bindings, local credentials and sessions, none of
+// which are encrypted), and that is exactly why this must not be two lists:
+// the next entity to gain a hook would be encrypted on one path and stored
+// in plaintext on the other, which is the shape of defect
+// TestEveryCryptoHookIsComposed already exists to prevent.
+func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService) {
+	client.Device.Use(crypto.DeviceEnvelopePropertiesHook(envelopeSvc))
+	client.Device.Intercept(crypto.DeviceEnvelopePropertiesInterceptor(envelopeSvc))
+
+	// Survey answers. This pair was written, tested, and then registered
+	// nowhere: until Phase 22 it was referenced only from its own package
+	// test, which meant SavedLaunchConfig.answers was stored in plaintext
+	// while internal/apispec's own saved-configuration schema told API
+	// callers it was encrypted at rest. A shipped false claim about a
+	// security control is worse than a missing control, because it stops
+	// anybody looking. TestEveryCryptoHookIsComposed now fails the build if
+	// a hook this package exports is left unregistered again.
+	client.SavedLaunchConfig.Use(crypto.SavedLaunchConfigAnswersHook(envelopeSvc))
+	client.SavedLaunchConfig.Intercept(crypto.SavedLaunchConfigAnswersInterceptor(envelopeSvc))
+
+	// Credential inputs, using the BOUND envelope: the ciphertext is
+	// cryptographically tied to its own row, so a database writer cannot
+	// relocate one organization's secrets onto another organization's
+	// credential and have the platform inject them. Device and
+	// SavedLaunchConfig remain on the unbound form; internal/crypto/
+	// envelope_bound.go records why that is acceptable there and not here.
+	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
+	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
 }

@@ -379,6 +379,32 @@ var (
 			},
 		},
 	}
+	// LocalCredentialsColumns holds the columns for the "local_credentials" table.
+	LocalCredentialsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "password_hash", Type: field.TypeString},
+		{Name: "failed_attempts", Type: field.TypeInt, Default: 0},
+		{Name: "locked_until", Type: field.TypeTime, Nullable: true},
+		{Name: "password_changed_at", Type: field.TypeTime},
+		{Name: "must_change", Type: field.TypeBool, Default: false},
+		{Name: "user_local_credential", Type: field.TypeInt, Unique: true},
+	}
+	// LocalCredentialsTable holds the schema information for the "local_credentials" table.
+	LocalCredentialsTable = &schema.Table{
+		Name:       "local_credentials",
+		Columns:    LocalCredentialsColumns,
+		PrimaryKey: []*schema.Column{LocalCredentialsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "local_credentials_users_local_credential",
+				Columns:    []*schema.Column{LocalCredentialsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// OrganizationsColumns holds the columns for the "organizations" table.
 	OrganizationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -532,6 +558,11 @@ var (
 				Name:    "session_absolute_expires_at",
 				Unique:  false,
 				Columns: []*schema.Column{SessionsColumns[9]},
+			},
+			{
+				Name:    "session_subject",
+				Unique:  false,
+				Columns: []*schema.Column{SessionsColumns[4]},
 			},
 		},
 	}
@@ -828,6 +859,7 @@ var (
 		InventoriesTable,
 		JobsTable,
 		JobTasksTable,
+		LocalCredentialsTable,
 		OrganizationsTable,
 		RevisionsTable,
 		RoleBindingsTable,
@@ -858,6 +890,7 @@ func init() {
 	FactsTable.ForeignKeys[0].RefTable = DevicesTable
 	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
+	LocalCredentialsTable.ForeignKeys[0].RefTable = UsersTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
 	SavedLaunchConfigsTable.ForeignKeys[0].RefTable = TemplatesTable

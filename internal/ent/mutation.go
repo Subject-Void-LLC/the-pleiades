@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
@@ -55,6 +56,7 @@ const (
 	TypeInventory         = "Inventory"
 	TypeJob               = "Job"
 	TypeJobTask           = "JobTask"
+	TypeLocalCredential   = "LocalCredential"
 	TypeOrganization      = "Organization"
 	TypeRevision          = "Revision"
 	TypeRoleBinding       = "RoleBinding"
@@ -10914,6 +10916,781 @@ func (m *JobTaskMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown JobTask edge %s", name)
 }
 
+// LocalCredentialMutation represents an operation that mutates the LocalCredential nodes in the graph.
+type LocalCredentialMutation struct {
+	config
+	op                  Op
+	typ                 string
+	id                  *int
+	created_at          *time.Time
+	updated_at          *time.Time
+	password_hash       *string
+	failed_attempts     *int
+	addfailed_attempts  *int
+	locked_until        *time.Time
+	password_changed_at *time.Time
+	must_change         *bool
+	clearedFields       map[string]struct{}
+	user                *int
+	cleareduser         bool
+	done                bool
+	oldValue            func(context.Context) (*LocalCredential, error)
+	predicates          []predicate.LocalCredential
+}
+
+var _ ent.Mutation = (*LocalCredentialMutation)(nil)
+
+// localcredentialOption allows management of the mutation configuration using functional options.
+type localcredentialOption func(*LocalCredentialMutation)
+
+// newLocalCredentialMutation creates new mutation for the LocalCredential entity.
+func newLocalCredentialMutation(c config, op Op, opts ...localcredentialOption) *LocalCredentialMutation {
+	m := &LocalCredentialMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeLocalCredential,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withLocalCredentialID sets the ID field of the mutation.
+func withLocalCredentialID(id int) localcredentialOption {
+	return func(m *LocalCredentialMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *LocalCredential
+		)
+		m.oldValue = func(ctx context.Context) (*LocalCredential, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().LocalCredential.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withLocalCredential sets the old LocalCredential of the mutation.
+func withLocalCredential(node *LocalCredential) localcredentialOption {
+	return func(m *LocalCredentialMutation) {
+		m.oldValue = func(context.Context) (*LocalCredential, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m LocalCredentialMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m LocalCredentialMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *LocalCredentialMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *LocalCredentialMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().LocalCredential.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *LocalCredentialMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *LocalCredentialMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *LocalCredentialMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *LocalCredentialMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *LocalCredentialMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *LocalCredentialMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetPasswordHash sets the "password_hash" field.
+func (m *LocalCredentialMutation) SetPasswordHash(s string) {
+	m.password_hash = &s
+}
+
+// PasswordHash returns the value of the "password_hash" field in the mutation.
+func (m *LocalCredentialMutation) PasswordHash() (r string, exists bool) {
+	v := m.password_hash
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPasswordHash returns the old "password_hash" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldPasswordHash(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPasswordHash is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPasswordHash requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPasswordHash: %w", err)
+	}
+	return oldValue.PasswordHash, nil
+}
+
+// ResetPasswordHash resets all changes to the "password_hash" field.
+func (m *LocalCredentialMutation) ResetPasswordHash() {
+	m.password_hash = nil
+}
+
+// SetFailedAttempts sets the "failed_attempts" field.
+func (m *LocalCredentialMutation) SetFailedAttempts(i int) {
+	m.failed_attempts = &i
+	m.addfailed_attempts = nil
+}
+
+// FailedAttempts returns the value of the "failed_attempts" field in the mutation.
+func (m *LocalCredentialMutation) FailedAttempts() (r int, exists bool) {
+	v := m.failed_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFailedAttempts returns the old "failed_attempts" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldFailedAttempts(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFailedAttempts is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFailedAttempts requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFailedAttempts: %w", err)
+	}
+	return oldValue.FailedAttempts, nil
+}
+
+// AddFailedAttempts adds i to the "failed_attempts" field.
+func (m *LocalCredentialMutation) AddFailedAttempts(i int) {
+	if m.addfailed_attempts != nil {
+		*m.addfailed_attempts += i
+	} else {
+		m.addfailed_attempts = &i
+	}
+}
+
+// AddedFailedAttempts returns the value that was added to the "failed_attempts" field in this mutation.
+func (m *LocalCredentialMutation) AddedFailedAttempts() (r int, exists bool) {
+	v := m.addfailed_attempts
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetFailedAttempts resets all changes to the "failed_attempts" field.
+func (m *LocalCredentialMutation) ResetFailedAttempts() {
+	m.failed_attempts = nil
+	m.addfailed_attempts = nil
+}
+
+// SetLockedUntil sets the "locked_until" field.
+func (m *LocalCredentialMutation) SetLockedUntil(t time.Time) {
+	m.locked_until = &t
+}
+
+// LockedUntil returns the value of the "locked_until" field in the mutation.
+func (m *LocalCredentialMutation) LockedUntil() (r time.Time, exists bool) {
+	v := m.locked_until
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLockedUntil returns the old "locked_until" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldLockedUntil(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLockedUntil is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLockedUntil requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLockedUntil: %w", err)
+	}
+	return oldValue.LockedUntil, nil
+}
+
+// ClearLockedUntil clears the value of the "locked_until" field.
+func (m *LocalCredentialMutation) ClearLockedUntil() {
+	m.locked_until = nil
+	m.clearedFields[localcredential.FieldLockedUntil] = struct{}{}
+}
+
+// LockedUntilCleared returns if the "locked_until" field was cleared in this mutation.
+func (m *LocalCredentialMutation) LockedUntilCleared() bool {
+	_, ok := m.clearedFields[localcredential.FieldLockedUntil]
+	return ok
+}
+
+// ResetLockedUntil resets all changes to the "locked_until" field.
+func (m *LocalCredentialMutation) ResetLockedUntil() {
+	m.locked_until = nil
+	delete(m.clearedFields, localcredential.FieldLockedUntil)
+}
+
+// SetPasswordChangedAt sets the "password_changed_at" field.
+func (m *LocalCredentialMutation) SetPasswordChangedAt(t time.Time) {
+	m.password_changed_at = &t
+}
+
+// PasswordChangedAt returns the value of the "password_changed_at" field in the mutation.
+func (m *LocalCredentialMutation) PasswordChangedAt() (r time.Time, exists bool) {
+	v := m.password_changed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPasswordChangedAt returns the old "password_changed_at" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldPasswordChangedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPasswordChangedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPasswordChangedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPasswordChangedAt: %w", err)
+	}
+	return oldValue.PasswordChangedAt, nil
+}
+
+// ResetPasswordChangedAt resets all changes to the "password_changed_at" field.
+func (m *LocalCredentialMutation) ResetPasswordChangedAt() {
+	m.password_changed_at = nil
+}
+
+// SetMustChange sets the "must_change" field.
+func (m *LocalCredentialMutation) SetMustChange(b bool) {
+	m.must_change = &b
+}
+
+// MustChange returns the value of the "must_change" field in the mutation.
+func (m *LocalCredentialMutation) MustChange() (r bool, exists bool) {
+	v := m.must_change
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMustChange returns the old "must_change" field's value of the LocalCredential entity.
+// If the LocalCredential object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *LocalCredentialMutation) OldMustChange(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMustChange is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMustChange requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMustChange: %w", err)
+	}
+	return oldValue.MustChange, nil
+}
+
+// ResetMustChange resets all changes to the "must_change" field.
+func (m *LocalCredentialMutation) ResetMustChange() {
+	m.must_change = nil
+}
+
+// SetUserID sets the "user" edge to the User entity by id.
+func (m *LocalCredentialMutation) SetUserID(id int) {
+	m.user = &id
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *LocalCredentialMutation) ClearUser() {
+	m.cleareduser = true
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *LocalCredentialMutation) UserCleared() bool {
+	return m.cleareduser
+}
+
+// UserID returns the "user" edge ID in the mutation.
+func (m *LocalCredentialMutation) UserID() (id int, exists bool) {
+	if m.user != nil {
+		return *m.user, true
+	}
+	return
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *LocalCredentialMutation) UserIDs() (ids []int) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *LocalCredentialMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// Where appends a list predicates to the LocalCredentialMutation builder.
+func (m *LocalCredentialMutation) Where(ps ...predicate.LocalCredential) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the LocalCredentialMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *LocalCredentialMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.LocalCredential, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *LocalCredentialMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *LocalCredentialMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (LocalCredential).
+func (m *LocalCredentialMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *LocalCredentialMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.created_at != nil {
+		fields = append(fields, localcredential.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, localcredential.FieldUpdatedAt)
+	}
+	if m.password_hash != nil {
+		fields = append(fields, localcredential.FieldPasswordHash)
+	}
+	if m.failed_attempts != nil {
+		fields = append(fields, localcredential.FieldFailedAttempts)
+	}
+	if m.locked_until != nil {
+		fields = append(fields, localcredential.FieldLockedUntil)
+	}
+	if m.password_changed_at != nil {
+		fields = append(fields, localcredential.FieldPasswordChangedAt)
+	}
+	if m.must_change != nil {
+		fields = append(fields, localcredential.FieldMustChange)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *LocalCredentialMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case localcredential.FieldCreatedAt:
+		return m.CreatedAt()
+	case localcredential.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case localcredential.FieldPasswordHash:
+		return m.PasswordHash()
+	case localcredential.FieldFailedAttempts:
+		return m.FailedAttempts()
+	case localcredential.FieldLockedUntil:
+		return m.LockedUntil()
+	case localcredential.FieldPasswordChangedAt:
+		return m.PasswordChangedAt()
+	case localcredential.FieldMustChange:
+		return m.MustChange()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *LocalCredentialMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case localcredential.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case localcredential.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case localcredential.FieldPasswordHash:
+		return m.OldPasswordHash(ctx)
+	case localcredential.FieldFailedAttempts:
+		return m.OldFailedAttempts(ctx)
+	case localcredential.FieldLockedUntil:
+		return m.OldLockedUntil(ctx)
+	case localcredential.FieldPasswordChangedAt:
+		return m.OldPasswordChangedAt(ctx)
+	case localcredential.FieldMustChange:
+		return m.OldMustChange(ctx)
+	}
+	return nil, fmt.Errorf("unknown LocalCredential field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *LocalCredentialMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case localcredential.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case localcredential.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case localcredential.FieldPasswordHash:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPasswordHash(v)
+		return nil
+	case localcredential.FieldFailedAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFailedAttempts(v)
+		return nil
+	case localcredential.FieldLockedUntil:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLockedUntil(v)
+		return nil
+	case localcredential.FieldPasswordChangedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPasswordChangedAt(v)
+		return nil
+	case localcredential.FieldMustChange:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMustChange(v)
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *LocalCredentialMutation) AddedFields() []string {
+	var fields []string
+	if m.addfailed_attempts != nil {
+		fields = append(fields, localcredential.FieldFailedAttempts)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *LocalCredentialMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case localcredential.FieldFailedAttempts:
+		return m.AddedFailedAttempts()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *LocalCredentialMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case localcredential.FieldFailedAttempts:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFailedAttempts(v)
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *LocalCredentialMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(localcredential.FieldLockedUntil) {
+		fields = append(fields, localcredential.FieldLockedUntil)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *LocalCredentialMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *LocalCredentialMutation) ClearField(name string) error {
+	switch name {
+	case localcredential.FieldLockedUntil:
+		m.ClearLockedUntil()
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *LocalCredentialMutation) ResetField(name string) error {
+	switch name {
+	case localcredential.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case localcredential.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case localcredential.FieldPasswordHash:
+		m.ResetPasswordHash()
+		return nil
+	case localcredential.FieldFailedAttempts:
+		m.ResetFailedAttempts()
+		return nil
+	case localcredential.FieldLockedUntil:
+		m.ResetLockedUntil()
+		return nil
+	case localcredential.FieldPasswordChangedAt:
+		m.ResetPasswordChangedAt()
+		return nil
+	case localcredential.FieldMustChange:
+		m.ResetMustChange()
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *LocalCredentialMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.user != nil {
+		edges = append(edges, localcredential.EdgeUser)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *LocalCredentialMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case localcredential.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *LocalCredentialMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *LocalCredentialMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *LocalCredentialMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.cleareduser {
+		edges = append(edges, localcredential.EdgeUser)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *LocalCredentialMutation) EdgeCleared(name string) bool {
+	switch name {
+	case localcredential.EdgeUser:
+		return m.cleareduser
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *LocalCredentialMutation) ClearEdge(name string) error {
+	switch name {
+	case localcredential.EdgeUser:
+		m.ClearUser()
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *LocalCredentialMutation) ResetEdge(name string) error {
+	switch name {
+	case localcredential.EdgeUser:
+		m.ResetUser()
+		return nil
+	}
+	return fmt.Errorf("unknown LocalCredential edge %s", name)
+}
+
 // OrganizationMutation represents an operation that mutates the Organization nodes in the graph.
 type OrganizationMutation struct {
 	config
@@ -19271,19 +20048,21 @@ func (m *TemplateMutation) ResetEdge(name string) error {
 // UserMutation represents an operation that mutates the User nodes in the graph.
 type UserMutation struct {
 	config
-	op            Op
-	typ           string
-	id            *int
-	created_at    *time.Time
-	updated_at    *time.Time
-	email         *string
-	clearedFields map[string]struct{}
-	teams         map[int]struct{}
-	removedteams  map[int]struct{}
-	clearedteams  bool
-	done          bool
-	oldValue      func(context.Context) (*User, error)
-	predicates    []predicate.User
+	op                      Op
+	typ                     string
+	id                      *int
+	created_at              *time.Time
+	updated_at              *time.Time
+	email                   *string
+	clearedFields           map[string]struct{}
+	teams                   map[int]struct{}
+	removedteams            map[int]struct{}
+	clearedteams            bool
+	local_credential        *int
+	clearedlocal_credential bool
+	done                    bool
+	oldValue                func(context.Context) (*User, error)
+	predicates              []predicate.User
 }
 
 var _ ent.Mutation = (*UserMutation)(nil)
@@ -19546,6 +20325,45 @@ func (m *UserMutation) ResetTeams() {
 	m.removedteams = nil
 }
 
+// SetLocalCredentialID sets the "local_credential" edge to the LocalCredential entity by id.
+func (m *UserMutation) SetLocalCredentialID(id int) {
+	m.local_credential = &id
+}
+
+// ClearLocalCredential clears the "local_credential" edge to the LocalCredential entity.
+func (m *UserMutation) ClearLocalCredential() {
+	m.clearedlocal_credential = true
+}
+
+// LocalCredentialCleared reports if the "local_credential" edge to the LocalCredential entity was cleared.
+func (m *UserMutation) LocalCredentialCleared() bool {
+	return m.clearedlocal_credential
+}
+
+// LocalCredentialID returns the "local_credential" edge ID in the mutation.
+func (m *UserMutation) LocalCredentialID() (id int, exists bool) {
+	if m.local_credential != nil {
+		return *m.local_credential, true
+	}
+	return
+}
+
+// LocalCredentialIDs returns the "local_credential" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// LocalCredentialID instead. It exists only for internal usage by the builders.
+func (m *UserMutation) LocalCredentialIDs() (ids []int) {
+	if id := m.local_credential; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetLocalCredential resets all changes to the "local_credential" edge.
+func (m *UserMutation) ResetLocalCredential() {
+	m.local_credential = nil
+	m.clearedlocal_credential = false
+}
+
 // Where appends a list predicates to the UserMutation builder.
 func (m *UserMutation) Where(ps ...predicate.User) {
 	m.predicates = append(m.predicates, ps...)
@@ -19713,9 +20531,12 @@ func (m *UserMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UserMutation) AddedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.teams != nil {
 		edges = append(edges, user.EdgeTeams)
+	}
+	if m.local_credential != nil {
+		edges = append(edges, user.EdgeLocalCredential)
 	}
 	return edges
 }
@@ -19730,13 +20551,17 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeLocalCredential:
+		if id := m.local_credential; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UserMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.removedteams != nil {
 		edges = append(edges, user.EdgeTeams)
 	}
@@ -19759,9 +20584,12 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UserMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.clearedteams {
 		edges = append(edges, user.EdgeTeams)
+	}
+	if m.clearedlocal_credential {
+		edges = append(edges, user.EdgeLocalCredential)
 	}
 	return edges
 }
@@ -19772,6 +20600,8 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 	switch name {
 	case user.EdgeTeams:
 		return m.clearedteams
+	case user.EdgeLocalCredential:
+		return m.clearedlocal_credential
 	}
 	return false
 }
@@ -19780,6 +20610,9 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 // if that edge is not defined in the schema.
 func (m *UserMutation) ClearEdge(name string) error {
 	switch name {
+	case user.EdgeLocalCredential:
+		m.ClearLocalCredential()
+		return nil
 	}
 	return fmt.Errorf("unknown User unique edge %s", name)
 }
@@ -19790,6 +20623,9 @@ func (m *UserMutation) ResetEdge(name string) error {
 	switch name {
 	case user.EdgeTeams:
 		m.ResetTeams()
+		return nil
+	case user.EdgeLocalCredential:
+		m.ResetLocalCredential()
 		return nil
 	}
 	return fmt.Errorf("unknown User edge %s", name)

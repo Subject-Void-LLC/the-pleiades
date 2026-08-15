@@ -34,6 +34,8 @@ type Tx struct {
 	Job *JobClient
 	// JobTask is the client for interacting with the JobTask builders.
 	JobTask *JobTaskClient
+	// LocalCredential is the client for interacting with the LocalCredential builders.
+	LocalCredential *LocalCredentialClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
@@ -194,6 +196,7 @@ func (tx *Tx) init() {
 	tx.Inventory = NewInventoryClient(tx.config)
 	tx.Job = NewJobClient(tx.config)
 	tx.JobTask = NewJobTaskClient(tx.config)
+	tx.LocalCredential = NewLocalCredentialClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)

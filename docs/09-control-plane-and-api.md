@@ -173,11 +173,14 @@ compiled into the binary. There is no separate front-end build, no Node toolchai
 nginx image and no reverse-proxy seam between the two: browse to the controller's own
 address and add `/ui`.
 
-Sign in at `/ui/login` by pasting a token this control plane already accepts. It is
-validated by the same evaluator the `Authorization: Bearer` path uses and exchanged
-for a server-side session cookie, so the UI adds no second notion of who a caller is
-and no password store. Interactive sign-in through an identity provider is deferred
-to its own phase; token paste is the bootstrap and break-glass path.
+Sign in at `/ui/login` with an email and password, or by pasting a token this control
+plane already accepts. Either is exchanged for a server-side session cookie, and both
+resolve to the same one notion of who a caller is: a password is verified locally and
+its authority derived from the RoleBindings on its teams, while a token is validated
+by the same evaluator the `Authorization: Bearer` path uses and carries its authority
+as claims. Create the first account with `controller bootstrap-admin --email
+you@example.com` on the host. Token paste remains the break-glass route, and the only
+route for a deployment holding no local credentials.
 
 That cookie is also what makes the SSE job log viewer work. An `EventSource` cannot
 be given request headers -- its constructor takes a URL and a `withCredentials` flag,

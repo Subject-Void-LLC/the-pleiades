@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -113,16 +114,11 @@ func run() error {
 		return fmt.Errorf("building the controller: %w", err)
 	}
 
-	cmd := exec.Command(binary)
-	cmd.Dir = root
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	// The kernel kills the controller if this process dies for any reason,
-	// including SIGKILL, a closed terminal, or an editor stopping the task.
-	// Without it an orphaned controller keeps the port and keeps logging at
-	// a broker that has been removed, which is exactly what happened while
-	// this tool was being written.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
-	cmd.Env = append(os.Environ(),
+	// The environment both the bootstrap command and the server read. Built
+	// once and shared, because a bootstrap that opened a different database
+	// from the server would create an account nobody can sign in to, and
+	// the two variable lists drifting apart is exactly how that happens.
+	controllerEnv := append(os.Environ(),
 		"LISTEN_ADDR="+addr,
 		fmt.Sprintf("NATS_URL=nats://127.0.0.1:%d", natsPort),
 		"DB_PATH="+filepath.Join(workdir, "uidev.db"),
@@ -138,6 +134,33 @@ func run() error {
 		"PLEIADES_BANNER_LEVEL="+getenvOr("PLEIADES_BANNER_LEVEL", "development"),
 		"PLEIADES_BANNER_TEXT="+getenvOr("PLEIADES_BANNER_TEXT", "development -- throwaway database"),
 	)
+
+	// Create the development administrator BEFORE the server starts.
+	//
+	// Through the real `controller bootstrap-admin` subcommand rather than
+	// by writing rows, for the same reason seed() below goes through the
+	// real HTTP API: a development tool that wired its own account creation
+	// could produce an account the shipped command cannot, and the first
+	// thing anybody looking at the UI does is sign in. If the subcommand is
+	// broken, this should be broken too.
+	//
+	// Before the server rather than after, because it opens the same SQLite
+	// file and there is no reason for two processes to hold it at once.
+	// OpenDatabase runs the migrations, so the file need not exist yet.
+	if err := bootstrapAdmin(binary, root, controllerEnv); err != nil {
+		return fmt.Errorf("creating the development administrator: %w", err)
+	}
+
+	cmd := exec.Command(binary)
+	cmd.Dir = root
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	// The kernel kills the controller if this process dies for any reason,
+	// including SIGKILL, a closed terminal, or an editor stopping the task.
+	// Without it an orphaned controller keeps the port and keeps logging at
+	// a broker that has been removed, which is exactly what happened while
+	// this tool was being written.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	cmd.Env = controllerEnv
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the controller: %w", err)
@@ -302,6 +325,46 @@ func checkPortFree(addr string) error {
 	return ln.Close()
 }
 
+// The development administrator's credentials.
+//
+// Fixed rather than generated, for the same reason the signing secret above
+// is fixed: the point of this tool is reloading a page, and a password that
+// changed on every restart would be retyped on every restart. They are
+// published in the source and printed on the terminal, which is the honest
+// posture for a throwaway database that also accepts a token anybody can
+// mint from the secret three lines up.
+//
+// Long enough to satisfy the real policy the real store enforces. A
+// development password that bypassed the length floor would mean this tool
+// exercised a path production does not have.
+const (
+	devEmail    = "dev@pleiades.test"
+	devPassword = "development-password"
+)
+
+// bootstrapAdmin runs the shipped `controller bootstrap-admin` subcommand
+// against the same database the server will open.
+//
+// --password-stdin rather than a prompt, because this tool has no terminal
+// to prompt on, and never a flag value, because that is the one thing the
+// subcommand refuses on every path: a flag is visible in the process
+// argument list to every other user on the machine.
+func bootstrapAdmin(binary, root string, env []string) error {
+	cmd := exec.Command(binary, "bootstrap-admin", "--email", devEmail, "--password-stdin")
+	cmd.Dir = root
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(devPassword + "\n")
+
+	// Output captured rather than inherited: on success this prints two
+	// lines telling the operator to sign in, which the banner below says
+	// better, and on failure the captured text is what the error carries.
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func banner(token, addr string) string {
 	host := "http://localhost" + addr
 	return fmt.Sprintf(`
@@ -310,19 +373,30 @@ func banner(token, addr string) string {
 ================================================================
 
   Sign in at  %[1]s/ui/login
-  and paste this token:
+
+  Email     %[3]s
+  Password  %[4]s
+
+  That account was created by the real `+"`controller bootstrap-admin`"+`
+  subcommand, so this is the same path an operator uses on a
+  clean machine. It holds system-scope admin.
+
+  ----------------------------------------------------------
+
+  Or paste this token, which is the break-glass route:
 
 %[2]s
 
-  This is a development token signed with a fixed, published
-  secret. It is an admin identity, valid for 12 hours, and it is
-  worthless anywhere but this throwaway database.
+  Both are development credentials. The token is signed with a
+  fixed, published secret and is valid for 12 hours; the password
+  is published in tools/uidev/main.go. Both are worthless
+  anywhere but this throwaway database.
 
   Ctrl-C stops the controller and deletes its scratch directory.
 
 ================================================================
 
-`, host, token)
+`, host, token, devEmail, devPassword)
 }
 
 func getenvOr(key, fallback string) string {

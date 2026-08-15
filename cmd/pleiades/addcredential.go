@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
-	"golang.org/x/term"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/prompt"
 )
 
 // runAddCredential stores one device's SSH credential, encrypted at rest,
@@ -89,22 +89,13 @@ func runAddCredential(args []string) error {
 	return nil
 }
 
-// promptSecret prints prompt to stderr (stdout is reserved for this
-// command's own machine-readable-ish confirmation output) and reads one
-// line from stdin with terminal echo disabled, so the secret never
-// appears on screen or in any terminal scrollback buffer. It requires
-// stdin to be a real terminal; callers that need to supply a secret
-// non-interactively (tests, scripts) should use --password or --key
-// instead, which bypass this prompt entirely.
-func promptSecret(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	secret, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", fmt.Errorf("failed to read secret from terminal (use --password or --key for non-interactive use): %w", err)
-	}
-	if len(secret) == 0 {
-		return "", fmt.Errorf("empty secret is not allowed")
-	}
-	return string(secret), nil
+// promptSecret reads one secret with terminal echo disabled.
+//
+// A thin wrapper over internal/prompt rather than its own implementation:
+// cmd/controller's administrative subcommands need identical behavior, and
+// two copies of "keep this off the screen and out of the argument list" is
+// two places for it to drift. The wrapper stays so this file's call sites
+// read the same as before.
+func promptSecret(promptText string) (string, error) {
+	return prompt.Secret(promptText)
 }

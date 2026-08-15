@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	entbinding "github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
+	entsession "github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	entteam "github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	entuser "github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
@@ -473,8 +474,41 @@ func (s *entStore) UpdateUser(ctx context.Context, user User) error {
 // DeleteUser removes an identity. Its team memberships go with it; the teams
 // themselves and their grants do not, because a team is a statement about a
 // function rather than about the people currently performing it.
+//
+// Two things that outlive the row are deleted with it, and both were latent
+// before local passwords existed.
+//
+// The LOCAL CREDENTIAL goes automatically: internal/ent/schema/user.go
+// declares the edge with an ON DELETE CASCADE, so the database removes it.
+// A verifiable password for an identity that no longer exists is a
+// credential nobody is accountable for.
+//
+// The SESSIONS have to be deleted explicitly, because a session row carries
+// its subject as a plain string with no foreign key back to User: it is the
+// record of what was proven rather than a reference to a live identity, and
+// that is deliberate (see internal/ent/schema/session.go). The consequence
+// is that nothing in the database links the two, so a deleted user's cookie
+// keeps authenticating until its absolute deadline, up to eight hours. That
+// was already wrong when a session could only be minted from a token, and
+// it became sharper the moment an account could hold a password.
+//
+// Deleted BEFORE the user row, so a failure leaves the account present with
+// its sessions gone rather than absent with its sessions live. The first is
+// an inconsistency an operator can see and retry; the second is a deleted
+// user who is still signed in.
 func (s *entStore) DeleteUser(ctx context.Context, id int) error {
-	err := s.client.User.DeleteOneID(id).Exec(ctx)
+	user, err := s.GetUser(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.client.Session.Delete().
+		Where(entsession.SubjectEQ(user.Email)).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("access: failed to revoke sessions for user %d: %w", id, err)
+	}
+
+	err = s.client.User.DeleteOneID(id).Exec(ctx)
 	return mapWriteError(err, "user", id, "")
 }
 

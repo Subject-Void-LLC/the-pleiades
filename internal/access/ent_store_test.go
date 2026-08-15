@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -968,5 +971,59 @@ func TestListBindings_NarrowsToOneTargetOnlyWhenTheLevelIsUnambiguous(t *testing
 	}
 	if len(ambiguous) != 2 {
 		t.Errorf("a scope id with two levels returned %d grants, want all 2", len(ambiguous))
+	}
+}
+
+// TestDeleteUser_RevokesSessionsAndRemovesTheLocalCredential covers the two
+// things that used to outlive a deleted identity.
+//
+// The credential goes by database cascade; the sessions have to be deleted
+// explicitly, because a session row carries its subject as a plain string
+// with no foreign key back to User. That is deliberate (the session is the
+// record of what was proven, not a live reference), and its consequence was
+// that a deleted user's cookie kept working until its absolute deadline, up
+// to eight hours. This is the test that would have caught it.
+func TestDeleteUser_RevokesSessionsAndRemovesTheLocalCredential(t *testing.T) {
+	store, client := newTestStore(t)
+	ctx := context.Background()
+
+	user, err := store.CreateUser(ctx, access.User{Email: "departing@example.test"})
+	if err != nil {
+		t.Fatalf("creating the user: %v", err)
+	}
+	// A local password, and a live session, both belonging to that user.
+	if err := localauth.NewEntStore(client, nil).
+		SetPassword(ctx, "departing@example.test", "a-real-test-password", false); err != nil {
+		t.Fatalf("setting the password: %v", err)
+	}
+	sessions := session.NewEntStore(client)
+	token, err := sessions.Create(ctx,
+		&auth.Identity{Subject: "departing@example.test", Role: auth.RoleOperator},
+		time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("creating the session: %v", err)
+	}
+	// Plus a bystander, who must be untouched.
+	if _, err := store.CreateUser(ctx, access.User{Email: "stays@example.test"}); err != nil {
+		t.Fatalf("creating the bystander: %v", err)
+	}
+	bystander, err := sessions.Create(ctx,
+		&auth.Identity{Subject: "stays@example.test", Role: auth.RoleViewer}, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("creating the bystander session: %v", err)
+	}
+
+	if err := store.DeleteUser(ctx, user.ID); err != nil {
+		t.Fatalf("DeleteUser() error = %v", err)
+	}
+
+	if _, err := sessions.Resolve(ctx, token); err == nil {
+		t.Error("a deleted user's session still authenticates")
+	}
+	if n, err := client.LocalCredential.Query().Count(ctx); err != nil || n != 0 {
+		t.Errorf("local credential count = %d (err %v) after deleting its owner, want 0", n, err)
+	}
+	if _, err := sessions.Resolve(ctx, bystander); err != nil {
+		t.Errorf("an unrelated user's session was revoked: %v", err)
 	}
 }

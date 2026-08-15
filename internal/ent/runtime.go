@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -337,6 +338,39 @@ func init() {
 	jobtaskDescDeviceName := jobtaskFields[1].Descriptor()
 	// jobtask.DeviceNameValidator is a validator for the "device_name" field. It is called by the builders before save.
 	jobtask.DeviceNameValidator = jobtaskDescDeviceName.Validators[0].(func(string) error)
+	localcredentialMixin := schema.LocalCredential{}.Mixin()
+	localcredentialMixinFields0 := localcredentialMixin[0].Fields()
+	_ = localcredentialMixinFields0
+	localcredentialFields := schema.LocalCredential{}.Fields()
+	_ = localcredentialFields
+	// localcredentialDescCreatedAt is the schema descriptor for created_at field.
+	localcredentialDescCreatedAt := localcredentialMixinFields0[0].Descriptor()
+	// localcredential.DefaultCreatedAt holds the default value on creation for the created_at field.
+	localcredential.DefaultCreatedAt = localcredentialDescCreatedAt.Default.(func() time.Time)
+	// localcredentialDescUpdatedAt is the schema descriptor for updated_at field.
+	localcredentialDescUpdatedAt := localcredentialMixinFields0[1].Descriptor()
+	// localcredential.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	localcredential.DefaultUpdatedAt = localcredentialDescUpdatedAt.Default.(func() time.Time)
+	// localcredential.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	localcredential.UpdateDefaultUpdatedAt = localcredentialDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// localcredentialDescPasswordHash is the schema descriptor for password_hash field.
+	localcredentialDescPasswordHash := localcredentialFields[0].Descriptor()
+	// localcredential.PasswordHashValidator is a validator for the "password_hash" field. It is called by the builders before save.
+	localcredential.PasswordHashValidator = localcredentialDescPasswordHash.Validators[0].(func(string) error)
+	// localcredentialDescFailedAttempts is the schema descriptor for failed_attempts field.
+	localcredentialDescFailedAttempts := localcredentialFields[1].Descriptor()
+	// localcredential.DefaultFailedAttempts holds the default value on creation for the failed_attempts field.
+	localcredential.DefaultFailedAttempts = localcredentialDescFailedAttempts.Default.(int)
+	// localcredential.FailedAttemptsValidator is a validator for the "failed_attempts" field. It is called by the builders before save.
+	localcredential.FailedAttemptsValidator = localcredentialDescFailedAttempts.Validators[0].(func(int) error)
+	// localcredentialDescPasswordChangedAt is the schema descriptor for password_changed_at field.
+	localcredentialDescPasswordChangedAt := localcredentialFields[3].Descriptor()
+	// localcredential.DefaultPasswordChangedAt holds the default value on creation for the password_changed_at field.
+	localcredential.DefaultPasswordChangedAt = localcredentialDescPasswordChangedAt.Default.(func() time.Time)
+	// localcredentialDescMustChange is the schema descriptor for must_change field.
+	localcredentialDescMustChange := localcredentialFields[4].Descriptor()
+	// localcredential.DefaultMustChange holds the default value on creation for the must_change field.
+	localcredential.DefaultMustChange = localcredentialDescMustChange.Default.(bool)
 	organizationMixin := schema.Organization{}.Mixin()
 	organizationMixinFields0 := organizationMixin[0].Fields()
 	_ = organizationMixinFields0

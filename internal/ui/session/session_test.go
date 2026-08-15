@@ -487,3 +487,110 @@ func TestSweepExpired_RunsOnlyAsLeader(t *testing.T) {
 		}
 	})
 }
+
+// TestDeleteForSubject_RevokesEverySessionForOneSubject is the operation a
+// password change, an administrative reset and a deleted account all need.
+//
+// Delete takes a token, and a caller only ever holds the token for its own
+// session, so without this there is no way to end the sessions somebody
+// else is holding. That is the difference between changing a password and
+// only appearing to.
+func TestDeleteForSubject_RevokesEverySessionForOneSubject(t *testing.T) {
+	store, _ := newStore(t)
+	ctx := t.Context()
+
+	target := &auth.Identity{Subject: "target@example.test", Role: auth.RoleOperator}
+	bystander := &auth.Identity{Subject: "bystander@example.test", Role: auth.RoleViewer}
+
+	first, err := store.Create(ctx, target, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	second, err := store.Create(ctx, target, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	other, err := store.Create(ctx, bystander, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	deleted, err := store.DeleteForSubject(ctx, "target@example.test", "")
+	if err != nil {
+		t.Fatalf("DeleteForSubject() error = %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("deleted = %d, want 2", deleted)
+	}
+
+	for name, token := range map[string]string{"first": first, "second": second} {
+		if _, err := store.Resolve(ctx, token); err == nil {
+			t.Errorf("the %s session for the target subject survived", name)
+		}
+	}
+	if _, err := store.Resolve(ctx, other); err != nil {
+		t.Errorf("another subject's session was revoked: %v", err)
+	}
+}
+
+// TestDeleteForSubject_SparesTheNamedToken is what makes a self-service
+// password change usable.
+//
+// Signing somebody out of the page they just used, as a reward for
+// improving their own security, teaches them not to do it again.
+func TestDeleteForSubject_SparesTheNamedToken(t *testing.T) {
+	store, _ := newStore(t)
+	ctx := t.Context()
+	id := &auth.Identity{Subject: "operator@example.test", Role: auth.RoleOperator}
+
+	keep, err := store.Create(ctx, id, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	drop, err := store.Create(ctx, id, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	deleted, err := store.DeleteForSubject(ctx, "operator@example.test", keep)
+	if err != nil {
+		t.Fatalf("DeleteForSubject() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if _, err := store.Resolve(ctx, keep); err != nil {
+		t.Errorf("the spared session was revoked: %v", err)
+	}
+	if _, err := store.Resolve(ctx, drop); err == nil {
+		t.Error("the other session survived")
+	}
+}
+
+// TestDeleteForSubject_RefusesAnEmptySubject covers the guard.
+//
+// The schema requires a non-empty subject, so an empty argument is always a
+// caller bug. Matching every row with an empty subject would delete nothing
+// while reporting success, which is the worst of both answers.
+func TestDeleteForSubject_RefusesAnEmptySubject(t *testing.T) {
+	store, _ := newStore(t)
+
+	if _, err := store.DeleteForSubject(t.Context(), "", ""); err == nil {
+		t.Error("DeleteForSubject(\"\") = nil error")
+	}
+}
+
+// TestDeleteForSubject_IsZeroForAnUnknownSubject proves it is not an error
+// to revoke nothing: an account with no live sessions is the normal case
+// for a reset, not a failure.
+func TestDeleteForSubject_IsZeroForAnUnknownSubject(t *testing.T) {
+	store, _ := newStore(t)
+
+	deleted, err := store.DeleteForSubject(t.Context(), "nobody@example.test", "")
+	if err != nil {
+		t.Errorf("DeleteForSubject() error = %v, want nil", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+}

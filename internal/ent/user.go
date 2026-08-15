@@ -9,6 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
 )
 
@@ -33,9 +34,11 @@ type User struct {
 type UserEdges struct {
 	// Teams holds the value of the teams edge.
 	Teams []*Team `json:"teams,omitempty"`
+	// LocalCredential holds the value of the local_credential edge.
+	LocalCredential *LocalCredential `json:"local_credential,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
 }
 
 // TeamsOrErr returns the Teams value or an error if the edge
@@ -45,6 +48,17 @@ func (e UserEdges) TeamsOrErr() ([]*Team, error) {
 		return e.Teams, nil
 	}
 	return nil, &NotLoadedError{edge: "teams"}
+}
+
+// LocalCredentialOrErr returns the LocalCredential value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e UserEdges) LocalCredentialOrErr() (*LocalCredential, error) {
+	if e.LocalCredential != nil {
+		return e.LocalCredential, nil
+	} else if e.loadedTypes[1] {
+		return nil, &NotFoundError{label: localcredential.Label}
+	}
+	return nil, &NotLoadedError{edge: "local_credential"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -113,6 +127,11 @@ func (_m *User) Value(name string) (ent.Value, error) {
 // QueryTeams queries the "teams" edge of the User entity.
 func (_m *User) QueryTeams() *TeamQuery {
 	return NewUserClient(_m.config).QueryTeams(_m)
+}
+
+// QueryLocalCredential queries the "local_credential" edge of the User entity.
+func (_m *User) QueryLocalCredential() *LocalCredentialQuery {
+	return NewUserClient(_m.config).QueryLocalCredential(_m)
 }
 
 // Update returns a builder for updating this User.
