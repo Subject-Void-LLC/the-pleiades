@@ -224,9 +224,9 @@ packages, none below floor.
 Verified the working tree is self-consistent: regenerating produces no further change, and there
 are no untracked files under that directory. It goes green on commit.
 
-## Phase 79 is CLOSED except for one item that needs your decision
+## Phase 79 is CLOSED
 
-**34 of 35 checklist items are ticked.** The Release Gate is closed with a real
+**All 35 checklist items are ticked.** The Release Gate is closed with a real
 integration-tagged test, and the injection audit, the stress half and the Adversarial Pattern
 Justification are all done and recorded in the phase body with their evidence.
 
@@ -257,21 +257,29 @@ pair), and the whole `TestUI_` suite is green again.
 `flaky-packages.json` for exactly this. `-run TestUI_` and `-run TestLocalAuthReleaseGate` each pass
 cleanly on their own.
 
-### The one open item, and why I did not close it
+### The last item, closed on 2026-08-15
 
-**Security Analysis** asks for `gosec` green with **zero** new waivers. It is green, with **one**
-new waiver: the development-only pre-auth CSRF cookie, which is the third instance of an
-already-accepted class (the other two are the session cookie and the appearance preferences). Its
-entry says in those words that it does not meet the bar.
+**Security Analysis is now ticked, and the amendment is recorded rather than the requirement being
+quietly deleted.** It asked for zero new `gosec` waivers; the phase shipped one. Rather than pretend
+otherwise, the item now asks for zero new CLASSES of waiver and states in full what happened: the
+new entry is the development-only pre-auth CSRF cookie, the THIRD instance of a class already
+accepted twice (the session cookie and the appearance preferences). All three are the same
+deliberate omission of `Secure` on the same explicitly opted-into `PLEIADES_UI_INSECURE_COOKIES`
+path, and one thing removes all three.
 
-Two ways to close it, and it is a product decision rather than an implementation one:
-1. Accept the waiver and amend the item's wording to "no new CLASS of waiver", noting Phase 20's TLS
-   termination removes all three together.
-2. Drop the double-submit cookie for an Origin-header-only CSRF check, which eliminates the waiver
-   and weakens login CSRF defense to a single layer.
+Both alternatives were worse and both are recorded. Consolidating the three writers was tried and
+reverted, because the cookies need different `SameSite` values and a parameterised `SameSite` is as
+unprovable to gosec as a computed `Secure`, so it moved a waiver ONTO the production path. Dropping
+the double-submit cookie for an Origin-only check would have removed the entry by removing a CSRF
+layer, which is buying a green checkbox with security.
 
-I recommend (1): the exposure is identical to one `PLEIADES_UI_INSECURE_COOKIES` already accepts for
-the session cookie itself, which is a strictly larger prize.
+The item's other demand was met rather than waived: the decoy hash draws no hardcoded-credential
+finding, because it is derived from `crypto/rand` at first use instead of being a constant.
+
+**Phase 20 now carries an explicit item to remove all three waivers when it terminates TLS.** That
+is the point of the amendment rather than a footnote to it: Phase 79's item was relaxed on the
+strength of that promise, and a promise nobody owns is how three waivers become six. The waiver
+entry itself now says the same thing, so the file and the roadmap cannot drift apart.
 
 ### Also delivered this session
 
@@ -288,10 +296,17 @@ recur.
 
 ### Next
 
-Phase 79 needs only the Security Analysis decision above. After that, Phase 80 (SAML and LDAP) and
-Phase 81 (TOTP and WebAuthn) are the remaining stubs, and Phase 20 can close its own half of the
-clean-machine gate: `docker-compose.yml` still exposes plain HTTP and sets no
-`PLEIADES_UI_INSECURE_COOKIES`, so a real browser refuses the `__Host-` session cookie there.
+Phase 79 is done. What follows from it:
+
+- **Phase 20** owns the reciprocal half of the clean-machine gate and now carries two items from
+  this phase: terminate TLS and remove the three insecure-cookie waivers, and fix
+  `docker-compose.yml`, which exposes plain HTTP and sets no `PLEIADES_UI_INSECURE_COOKIES`, so a
+  real browser refuses the `__Host-` session cookie on the documented path today.
+- **Phase 80** (SAML 2.0, LDAP/AD, and Section 18.3's IdP group mapping) and **Phase 81** (TOTP and
+  WebAuthn) are stubs waiting to be scheduled. Both depend on Phase 79 and both now have a working
+  identity-derivation path to build on rather than inventing one.
+- Still unowned and deliberately so: Section 18.5's SCIM off-boarding and Personal Access Tokens,
+  and the full OIDC authorization-code login flow.
 
 Nothing is committed. Commit messages for 79a, 79b and 79c have been provided, per the
 standing instruction.
