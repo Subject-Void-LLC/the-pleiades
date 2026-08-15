@@ -1,42 +1,385 @@
-version: '3.8'
+# The Pleiades Crawl-tier stack as one command: PostgreSQL, NATS with
+# JetStream, the controller (API gateway, scheduler lease holder, job
+# dispatcher) and one runner (the stateless worker that pulls jobs off the
+# durable consumer group).
+#
+# Bring it up with `docker compose up -d --wait`, which returns only once
+# every service carrying a healthcheck reports healthy (the runner carries
+# none, and its own comment says why). Create the first administrator with:
+#
+#   docker compose run --rm controller bootstrap-admin --email you@example.com
+#
+# then browse to http://localhost:8080/ui. That command works because of
+# the entrypoint: key on the controller service; without it the same line
+# fails with "exec: bootstrap-admin: executable file not found in PATH",
+# and the entrypoint comment explains why.
+#
+# That form needs a terminal, because it prompts for the password with echo
+# disabled and a password is never accepted as a flag value. In a script, a
+# CI job, or any non-interactive shell it fails with "failed to read a
+# secret from the terminal: inappropriate ioctl for device". Use the
+# documented automation form there, where -T disables Compose's own TTY
+# allocation and the password arrives on standard input:
+#
+#   echo "$PASSWORD" | docker compose run --rm -T controller \
+#     bootstrap-admin --email you@example.com --password-stdin
+#
+# Everything worth keeping lives in the two named volumes declared at the
+# bottom of this file, so `docker compose down` keeps the control plane and
+# `docker compose down -v` is the command that destroys it. That split is
+# the whole point of naming them; the volumes block records what the
+# unnamed version cost.
+#
+# There is no `version:` key. Compose v2 ignores it and prints
+# "the attribute `version` is obsolete" on every single command, so the
+# line bought nothing and cost a warning per invocation.
 
 services:
   postgres:
-    image: postgres:15-alpine
+    # 15.19, not 15. A bare major is not a pin: it selected whatever 15.x
+    # the registry had built most recently, so this stack and every test
+    # that starts Postgres would have moved to 15.20 together the day
+    # upstream published it, with no commit to point at.
+    #
+    # internal/testsupport/images.go holds the same string and
+    # TestComposeImagesMatchPins asserts the two agree, so this line and
+    # the version the tests run change together or not at all.
+    image: postgres:15.19-alpine
     environment:
       POSTGRES_DB: pleiades
       POSTGRES_USER: pleiades
+      # A throwaway local-development password, not a secret, and anyone
+      # who can read this file can read it. A real deployment supplies its
+      # own from its own secret store, and the controller's DB_DSN below
+      # has to match whatever that is.
       POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
+    volumes:
+      # The named volume, not the anonymous one this image's own VOLUME
+      # directive creates when the mount is left unstated. The volumes
+      # block at the bottom of this file records what that cost.
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pleiades"]
+      # -h 127.0.0.1 forces the probe over TCP, and it is not decoration.
+      # A bare `pg_isready -U pleiades` talks to the unix socket, and on an
+      # empty volume the image's entrypoint runs initdb against a temporary
+      # server it starts with `-c listen_addresses=''` (that literal line
+      # is in /usr/local/bin/docker-entrypoint.sh inside the image). Empty
+      # listen_addresses means socket only, so a socket probe can answer
+      # "accepting connections" while nothing is listening on 5432 yet,
+      # which would let the controller start against a database that is
+      # still initializing. The TCP form cannot see that temporary server
+      # at all. This got more important once start_interval below began
+      # probing four times a second during exactly that window.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U pleiades -d pleiades"]
+      # interval, timeout and retries are the failure budget: once the
+      # service has been healthy at least once, it takes five consecutive
+      # failures five seconds apart to mark it unhealthy.
       interval: 5s
       timeout: 5s
       retries: 5
+      # start_period and start_interval are the startup budget, and they
+      # are the entire reason a warm `up -d --wait` finishes in about four
+      # seconds instead of about fourteen.
+      #
+      # A Docker healthcheck does not probe when the container starts. The
+      # first probe fires one full `interval` later. With interval: 5s and
+      # neither key below set, this service and nats each sat idle about 5s
+      # and then passed on the first attempt in under 75ms, so most of the
+      # wait was spent not asking a question both could already answer
+      # (nats logs "Server is ready" about 0.2s in). start_interval polls
+      # every 250ms until the first success or until start_period runs out,
+      # which is the "poll fast while booting, back off once running"
+      # behavior a single interval cannot express. Nothing about WHAT is
+      # checked changed; the same probe just gets asked sooner.
+      #
+      # Measured on this file, by stripping exactly these two keys from a
+      # copy of it and running both:
+      #
+      #   without: 14.431s, 14.947s, 13.966s
+      #   with:     4.210s,  3.980s,  4.815s
+      #
+      # and ten consecutive warm starts of the real file ran 3.99s to
+      # 4.83s. The gap is wider than the 9.978s that first exposed the
+      # problem because there are three chained healthchecks now, not two:
+      # the controller waits for postgres and nats, and its own first probe
+      # used to cost another whole interval on top of theirs.
+      #
+      # start_period: 30s is an allowance, not a delay: it ends at the
+      # first successful probe. It is sized for first-boot initdb on an
+      # empty volume, which is far slower than the warm start every
+      # measurement above describes.
+      start_period: 30s
+      start_interval: 250ms
+    # Docker restarts a container when its process EXITS. It does not act
+    # on a failing healthcheck: that is Swarm and Kubernetes behavior, not
+    # plain-Docker behavior, so nothing in this file turns "unhealthy" into
+    # a restart. Checked rather than assumed: a nats container left
+    # unhealthy for 70 seconds under this exact policy reported
+    # health=unhealthy, status=running and RestartCount=0, and its start
+    # time never moved.
+    #
+    # unless-stopped rather than always, so a stack an operator
+    # deliberately stopped stays stopped across a daemon restart while a
+    # crash or a host reboot brings it back. All four services carry the
+    # same policy; the controller's copy of this key records why a bounded
+    # on-failure:N was tried there and lost.
+    restart: unless-stopped
+    security_opt:
+      # Blocks a process here from gaining privileges through a setuid
+      # binary. Cheap, and it breaks nothing in any of these four images.
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # The five capabilities the postgres entrypoint genuinely needs,
+      # established by dropping them and watching it fail. With cap_drop
+      # ALL alone this container exits 1 on a fresh volume printing:
+      #
+      #   chmod: /var/lib/postgresql/data: Operation not permitted
+      #   chmod: /var/run/postgresql: Operation not permitted
+      #   error: failed switching to 'postgres': operation not permitted
+      #
+      # The image starts as root so it can take ownership of the data
+      # directory (CHOWN, DAC_OVERRIDE, FOWNER) and then hands the server
+      # itself to the unprivileged postgres user (SETGID, SETUID). The
+      # roughly thirty other capabilities a root process would normally
+      # hold, NET_ADMIN, SYS_ADMIN, SYS_PTRACE and the rest, stay dropped.
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      # A read-only root filesystem, with the two paths postgres genuinely
+      # writes to named here and the data itself on the named volume above.
+      # /var/run/postgresql holds the unix socket, /tmp holds the
+      # entrypoint's scratch files. Verified through a full first-boot
+      # initdb on an empty volume and then a real insert, not just a
+      # start: the container reaches "database system is ready to accept
+      # connections" and `insert into t values (1)` commits.
+      - /tmp
+      - /var/run/postgresql
 
   nats:
-    image: nats:2.14.4
-    command: "-js"
+    # The -alpine variant, not the smaller default image, and the extra
+    # 16MB (25MB to 41MB) buys exactly one thing: the programs the
+    # healthcheck below is able to run.
+    #
+    # A Docker healthcheck runs INSIDE the container it checks, so it can
+    # only execute what that image already contains. The default
+    # nats:2.14.4 image is built on scratch and holds two files:
+    # /nats-server and /nats-server.conf. No shell, no busybox, no wget,
+    # no curl. The wget healthcheck that used to sit here could therefore
+    # never run at all. Every attempt died with "wget: executable file
+    # not found in $PATH", Docker recorded the service as unhealthy
+    # forever, and because both services below wait on this one with
+    # condition: service_healthy, the whole stack deadlocked on first
+    # start. Do not put a wget, curl or shell healthcheck on a scratch
+    # image, and do not "simplify" this line back to nats:2.14.4: that
+    # single change reintroduces the deadlock.
+    #
+    # The one probe the scratch image CAN execute was tried first and
+    # rejected: `/nats-server --signal reopen=1` just signals PID 1. It
+    # returns success whenever PID 1 exists, and PID 1 always exists
+    # while a container runs, so it can never report a problem. Pointed
+    # at a container running Postgres and no NATS whatsoever, it still
+    # exits 0. A check that always passes is worse than no check,
+    # because it looks like a working one.
+    #
+    # Two other routes lost. Handing the dependents a "wait for NATS"
+    # helper container instead would keep this image at scratch, but it
+    # leaves the nats service itself reporting no health at all, so
+    # `docker compose ps` stops telling an operator the one thing they
+    # came to ask. Dropping the gate to condition: service_started is
+    # worse still: cmd/controller and cmd/runner both call
+    # nats.Connect and log.Fatal on failure, so they would crash loop
+    # until NATS happened to be listening.
+    #
+    # internal/testsupport/images.go pins this same string and
+    # TestComposeImagesMatchPins asserts the two agree, so the version
+    # here and the version every container-backed test starts change
+    # together or not at all.
+    image: nats:2.14.4-alpine
+    # Three flags now, and every one of them has to be stated explicitly.
+    #
+    # A command: here REPLACES the image's whole default command, which
+    # is ["--config", "nats-server.conf"]. That shipped config file was
+    # the only thing setting monitor_port: 8222. So the previous
+    # `command: "-js"` ran a server with JetStream and no monitoring port
+    # at all, and every probe of :8222 got a refused connection. Passing
+    # -m 8222 opens the port as a flag, so it no longer depends on a
+    # config file this command is throwing away.
+    #
+    # Passing the config file back alongside -js would also reopen the
+    # port, and was rejected. That same file starts a cluster listener on
+    # 6222 protected by the route password the image publishes in its own
+    # documentation. Nothing in this stack clusters, so that is a
+    # listener with a known password and no purpose.
+    #
+    # -sd /data moves the JetStream store off the default, which the
+    # server itself warns about in its first few lines of log output:
+    # "Temporary storage directory used, data could be lost on system
+    # reboot", store directory /tmp/nats/jetstream. That directory holds
+    # every stream, every durable consumer position, and the
+    # KV_Pleiades_Locks bucket carrying the scheduler and fan-out reaper
+    # leases, so losing it loses in-flight work along with every job the
+    # runners had not acknowledged yet. /data is the named volume below.
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "4222:4222"
+    volumes:
+      - nats-data:/data
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/varz"]
+      # Three checks, because the obvious one on its own cannot see either
+      # failure that would actually break this stack.
+      #
+      # What /healthz is worth: it is the endpoint NATS designates for
+      # health probes, it answers with a status document rather than the
+      # statistics dump /varz returns as a side effect of existing (which
+      # is why /healthz replaced /varz here), and it proves the monitoring
+      # port -m opens is really open.
+      #
+      # What it is not worth is more than the previous version of this
+      # comment admitted. On 2.14.4 it returns {"status":"ok"} with a 200
+      # whether JetStream is on or off, and it returns the same thing on a
+      # server whose client port refuses every connection this stack makes.
+      # Both documented escape hatches were tried against a real server
+      # started without -js: ?js-enabled-only=true and ?js-server-only=true
+      # each returned 200 as well. So /healthz alone gates on a signal that
+      # covers neither the port nor the subsystem this stack needs, and
+      # both services below gate on this one with condition:
+      # service_healthy.
+      #
+      # The other two checks close that gap by talking to 4222, the port
+      # the controller and the runner actually dial:
+      #
+      #   * The INFO line the server sends on connect must advertise
+      #     "jetstream":true. The same server started without -js sends an
+      #     INFO with no jetstream field at all, so this is a positive
+      #     assertion about the subsystem rather than a grep for an error
+      #     string that might never be printed.
+      #   * The server must answer PING with PONG. This is the check that
+      #     survives an authorization change: pointed at a server started
+      #     with --user and --pass, the probe gets an INFO carrying
+      #     "auth_required":true and no PONG ever arrives, so the service
+      #     reports unhealthy instead of reporting ok while every client is
+      #     refused.
+      #
+      # The honest limit that remains: this probe connects anonymously,
+      # exactly as the controller and the runner do today. If this stack is
+      # ever given NATS credentials, this probe needs the same ones or it
+      # will report a working broker as unhealthy.
+      #
+      # busybox wget and busybox nc both come from the alpine base, which
+      # is the whole reason the -alpine tag above is not optional.
+      #
+      # Each check prints why it failed before exiting, because the quiet
+      # version of this command left `docker inspect` showing five failures
+      # with an empty Output field, which tells an operator nothing about
+      # which of the three went wrong.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:8222/healthz ||
+          { echo "monitoring port 8222 did not answer /healthz"; exit 1; };
+          printf 'PING\r\n' | nc -w 2 127.0.0.1 4222 | grep -q '"jetstream":true' ||
+          { echo "client port 4222 is not advertising jetstream"; exit 1; };
+          printf 'PING\r\n' | nc -w 2 127.0.0.1 4222 | grep -q '^PONG' ||
+          { echo "client port 4222 did not answer PING with PONG"; exit 1; }
       interval: 5s
       timeout: 5s
       retries: 5
+      # Same reasoning as the postgres healthcheck above, and this is the
+      # service where it pays off most: nats logs "Server is ready" about
+      # 0.2s after start, then used to spend the remaining 4.8s of the
+      # first interval with nobody asking it a question.
+      start_period: 30s
+      start_interval: 250ms
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      # Nothing added back. The server binds two ports above 1024, writes
+      # to its store directory, and does nothing else privileged, so it
+      # needs no capability at all.
+      - ALL
+    read_only: true
+    # No tmpfs here, deliberately. With -sd pointing at the named volume
+    # above, the store directory is the only thing this server writes, and
+    # a read-only root filesystem with that one volume mounted reaches
+    # "Server is ready" with JetStream enabled. Anything that needed /tmp
+    # would be a JetStream store on temporary storage, which is exactly the
+    # arrangement -sd exists to end.
 
   controller:
+    # An explicit image name, because without one compose derives the name
+    # from the enclosing DIRECTORY and always tags :latest. This checkout
+    # sits in auto-roboto/, so it built and ran
+    # auto-roboto-controller:latest, while a fresh clone of the same
+    # repository lands in the-pleiades/ and builds a differently named
+    # image from a byte-identical file. Two machines could not talk about
+    # the same artifact.
+    #
+    # pleiades/<component>:<tag> matches the only other locally built image
+    # this repository already names (internal/testsupport's
+    # pleiades/legacy-ansible-runner:release-gate). The :dev tag is
+    # deliberately not a version number: nothing here publishes an image
+    # anywhere, there is no registry path and no release tag to derive one
+    # from, so writing a version would invent a promise. Whoever owns the
+    # registry replaces both halves of this string.
+    image: pleiades/controller:dev
     build:
       context: .
       dockerfile: Dockerfile.controller
+      # Without these, the image's OCI provenance labels stamp "unknown",
+      # because a Dockerfile ARG default is what applies when nothing
+      # passes a value, and `docker compose build` passes none by default.
+      # The labels then exist and say nothing, which is worse than absent:
+      # a reader checking org.opencontainers.image.revision gets an answer
+      # rather than a missing key, and the answer is useless.
+      #
+      # Compose resolves ${VAR:-default} from the environment, so a plain
+      # `docker compose build` still works with no setup and records that
+      # the revision was not supplied. A release build passes the real
+      # values:
+      #
+      #   VCS_REF=$(git rev-parse HEAD) VERSION=$(git describe --tags --dirty) \
+      #     docker compose build
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
+    # The image sets CMD ["/app/controller"] and no ENTRYPOINT, which makes
+    # every administrative command awkward in exactly the way an operator
+    # meets first: `docker compose run --rm controller bootstrap-admin
+    # --email you@example.com` REPLACES the command rather than adding to
+    # it, so Docker tries to exec a program named bootstrap-admin and dies
+    # with "executable file not found in PATH". Naming the binary as the
+    # entrypoint makes those words arguments to it instead, which is the
+    # form the binary's own usage text prints.
+    #
+    # Two behaviors make this safe, and both were checked rather than
+    # assumed. Compose clears the image's CMD when a service sets
+    # entrypoint, so a plain `up` still starts the server with no arguments
+    # instead of passing it its own path as a subcommand. And a healthcheck
+    # written in CMD form execs its argument list directly without going
+    # through the entrypoint, so the probe below is unaffected: the stack
+    # comes up healthy with this key in place.
+    #
+    # One consequence worth stating: with an entrypoint set, spelling the
+    # binary out again (`run --rm controller /app/controller
+    # bootstrap-admin`) now fails instead, because that path becomes the
+    # first argument. There is one right form, not two.
+    entrypoint: ["/app/controller"]
     ports:
       - "8080:8080"
     environment:
       # Read for the first time as of Phase 18. Before that this line was
       # dead: the controller only ever opened a SQLite file, so this
       # compose stack ran on an ephemeral file inside the container while
-      # the healthchecked postgres service below sat unused.
+      # the healthchecked postgres service above sat unused.
       - DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
       - NATS_URL=nats://nats:4222
       # Both of these are required at startup and the controller exits if
@@ -48,6 +391,143 @@ services:
       - MASTER_ENCRYPTION_KEY=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
       - JWT_SECRET=local-development-only-not-a-real-secret
       - RUNBOOK_DIR=/app/runbooks
+    volumes:
+      # One directory on the host, mounted into this container and into the
+      # runner at the same path, read-only.
+      #
+      # Both binaries resolve a dispatched runbook id through
+      # internal/runbook.DirSource: the controller resolves it at launch to
+      # compile the job's capability requirements, and the runner resolves
+      # it AGAIN on its own side to get the DAG it executes. If the two see
+      # different directories, a job launches here and then fails there.
+      # Before this mount, each container had a private, empty
+      # /app/runbooks that its own Dockerfile created, which is the
+      # directory those Dockerfiles describe as shared between them.
+      #
+      # The path names the example runbooks because they are the only
+      # runbooks this repository ships. A real deployment repoints this one
+      # line at its own directory and keeps :ro, since neither binary ever
+      # writes here.
+      - ./examples/upgrade_ios/pleiades/runbooks:/app/runbooks:ro
+    healthcheck:
+      # This service used to carry no healthcheck and a long comment
+      # arguing it needed none. The argument was wrong, and it was measured
+      # wrong four times out of four: give this service a bad DB_DSN and
+      # the controller exits during startup, yet
+      # `docker compose up -d --wait` printed "controller-1 Healthy" and
+      # exited 0, after which `docker compose ps` hid the row entirely (it
+      # showed only under `ps -a`). The operator saw two green
+      # dependencies, a green exit code and a dead API. The old comment
+      # claimed the controller "exits loudly instead of sitting half
+      # connected". It does exit, but nothing here was listening for that,
+      # so compose reported the silence as health.
+      #
+      # The reason there was no probe was real and has not changed. This
+      # image is gcr.io/distroless/base-debian12:nonroot, whose /bin,
+      # /sbin, /usr/bin and /usr/sbin are empty directories: no wget, no
+      # curl, and no shell to run either from. What changed is noticing
+      # that the image is not empty. It contains /app/controller, and
+      # cmd/controller now takes a `healthcheck` subcommand, dispatched by
+      # the same argument guard at the top of main() that already handles
+      # bootstrap-admin, reset-password and unlock. It requests /readyz on
+      # the local listener and exits nonzero when the answer is not 200.
+      #
+      # /readyz is the right endpoint and not merely the reachable one:
+      # internal/api's readiness handler queries the database and checks
+      # the live NATS connection, so this probe goes red when a dependency
+      # disappears out from under a running process, which is exactly the
+      # "sitting half connected" state the old comment assumed could not
+      # happen.
+      #
+      # Downgrading the base image to buy a wget was rejected before and
+      # stays rejected: this container holds the master encryption key and
+      # the JWT signing secret, so a shell here is worth far more to an
+      # attacker than a shell in the broker.
+      #
+      # An orchestrator that probes from OUTSIDE the container has no such
+      # limit. A Kubernetes readiness probe or a load balancer health check
+      # should point straight at /readyz on the published port and needs
+      # nothing added to the image.
+      test: ["CMD", "/app/controller", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      # Same start_period and start_interval reasoning as postgres. The
+      # allowance also has to cover this binary's schema migration, which
+      # runs before the listener opens and is the slowest part of a cold
+      # first boot.
+      start_period: 30s
+      start_interval: 250ms
+    # The same policy as every other service here, and it is the second
+    # answer rather than the first. This file carried on-failure:3 for a
+    # while, on the theory that a bounded budget suits a service whose
+    # startup is fail-closed (a missing MASTER_ENCRYPTION_KEY, a bad
+    # DB_DSN or an unreadable RUNBOOK_DIR each call fatal() before the
+    # listener opens), so a typo should stop looping instead of retrying
+    # forever. Two measurements retired that theory.
+    #
+    # The first: with a deliberately wrong password in DB_DSN, on-failure:3
+    # spent its entire budget in 3.2 seconds (four attempts, 17:20:49.378
+    # to 17:20:52.556, since Docker's restart backoff starts at 100ms and
+    # only doubles). Three seconds of cover is less than the time any real
+    # dependency takes to come back, so the bound was not buying resilience
+    # from a transient fault; it was only deciding how soon to give up.
+    # After it gave up, the container sat at "Exited (1)" and plain
+    # `docker compose ps` hid the row again, which is the exact
+    # invisibility this phase set out to remove. Under unless-stopped the
+    # same broken controller was still listed 45 seconds later as
+    # "Restarting (1)", nine restarts in, with the same nine log lines to
+    # read, and `up -d --wait` had already failed with "container
+    # auto-roboto-controller-1 is unhealthy" (5.1s and 8.1s in two runs).
+    # Loud and visible beats tidy and gone.
+    #
+    # The second measurement corrected an assumption this comment used to
+    # state as fact: that a database or broker vanishing under a running
+    # process is fatal to this binary. It is not. Restarting the postgres
+    # container under a running controller left it healthy with
+    # RestartCount 0, and restarting nats under both the controller and the
+    # runner did the same: the pool and the NATS client each reconnect, and
+    # the controller merely logged a failed best-effort lease release
+    # before reacquiring both leases. log.Fatal on a missing dependency
+    # applies at STARTUP only, which depends_on already sequences. So the
+    # restart policy here is not covering dependency blips at all. What it
+    # covers is a crash or an OOM kill, plus a host or daemon restart
+    # (that last one is Docker's documented behavior for this policy, and
+    # is the one claim here that was not measured), and it keeps a
+    # permanently misconfigured container on the `ps` list where somebody
+    # will see it.
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      # The image already runs as UID 65532 through its :nonroot tag, but
+      # a `docker compose run --user 0:0` or an edited copy of this file
+      # can put a process back at root. Dropping every capability is what
+      # makes that override boring: root inside this container can still
+      # read the files it owns, but it cannot bind a privileged port, load
+      # a kernel module, take ownership of a file it does not already own,
+      # or trace another process. Measured with `--cap-drop ALL --user
+      # 0:0`: /proc/self/status reports CapEff, CapPrm and CapBnd all
+      # 0000000000000000, against 00000000a80425fb without the drop. That
+      # reading had to be taken in the nats alpine image rather than this
+      # one, because a distroless image has no program that can print a
+      # file; the flag and the kernel behavior it drives are the same in
+      # both. Note what this does NOT do: adding a user: key
+      # here would not stop that override either, since a command line
+      # beats a file, so removing the privileges is the defense rather than
+      # restating the UID. There is deliberately no user: key for the
+      # separate reason that the image sets the UID, and a second copy of
+      # it here would be a second thing to keep in sync.
+      - ALL
+    read_only: true
+    tmpfs:
+      # With a read-only root filesystem, anything that has to be writable
+      # must be named here. /tmp is the only one: DB_DSN points at
+      # postgres, so nothing opens the SQLite file that the Dockerfile
+      # makes /app writable for, and the runbook mount above is :ro. This
+      # was settled by running the whole stack read-only, bootstrapping an
+      # administrator and signing in, not by reading the code.
+      - /tmp
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,12 +535,71 @@ services:
         condition: service_healthy
 
   runner:
+    # Same reasoning as the controller's image key above.
+    image: pleiades/runner:dev
     build:
       context: .
       dockerfile: Dockerfile.runner
+      # Same reasoning as the controller's args block above: a Dockerfile
+      # ARG default applies whenever nothing passes a value, so without
+      # this the runner's provenance labels stamp "unknown" on the primary
+      # build path.
+      args:
+        VCS_REF: ${VCS_REF:-unknown}
+        VERSION: ${VERSION:-unknown}
     environment:
       - NATS_URL=nats://nats:4222
       - RUNBOOK_DIR=/app/runbooks
+    volumes:
+      # The same host directory the controller mounts, at the same path.
+      # This is the mount that makes "one shared runbook directory" true
+      # instead of a claim, and this is the half that needs it most: the
+      # runner compiles the DAG it executes out of these files.
+      - ./examples/upgrade_ios/pleiades/runbooks:/app/runbooks:ro
+    # There is deliberately no healthcheck here, and unlike the comment the
+    # controller used to carry, this is not an excuse for a gap that could
+    # be closed from this file.
+    #
+    # The controller became probeable because it has a local listener and a
+    # binary that can speak to it. This one has neither: cmd/runner opens
+    # no port, has no subcommand dispatch at all, and its real liveness
+    # question is not "is a socket open" but "is this agent still pulling
+    # from its durable consumer", which nothing inside the image can
+    # answer.
+    #
+    # So state the gap plainly rather than dressing it up: `docker compose
+    # ps` can tell you this process exists and nothing more. A runner that
+    # is up but has stopped consuming looks identical to a working one, and
+    # `up -d --wait` accepts it, because compose treats a service with no
+    # healthcheck as satisfied once it is running. The symptom to watch for
+    # is on the controller side: a job that stays queued with no runner
+    # claiming it.
+    #
+    # Closing it properly needs code this file cannot add: a `healthcheck`
+    # subcommand on cmd/runner, mirroring the controller's, that checks the
+    # NATS connection and the consumer's own state. Nothing in this file
+    # waits on this service, so the missing signal blocks no startup today.
+    #
+    # The restart policy matters a little more here than elsewhere for
+    # exactly that reason: with no health signal, a restart is the only
+    # automatic recovery this service has. It survived a nats restart
+    # without needing one (RestartCount stayed 0, the client reconnected),
+    # so this covers a crash or an OOM kill rather than a broker blip.
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      # The runner writes nothing to its own filesystem in this
+      # configuration: RUNNER_WAL_DIR is unset, so the result WAL is never
+      # constructed, and the runbook mount is :ro. A deployment that does
+      # set RUNNER_WAL_DIR must mount a writable volume at that path,
+      # because this line will not cover it: a tmpfs lives in RAM and
+      # disappears on restart, which defeats the entire purpose of a
+      # write-ahead log.
+      - /tmp
     depends_on:
       nats:
         condition: service_healthy
@@ -69,3 +608,35 @@ services:
   # same-origin, on its own port -- so the nginx image, the separate build
   # and the reverse-proxy seam between them are all gone rather than
   # reconfigured. Browse to the controller's address and add /ui.
+
+# Named volumes, which this file went without for its entire life until
+# now. The cost of that was total.
+#
+# Postgres declares VOLUME /var/lib/postgresql/data inside its own image,
+# so leaving the mount unstated never meant "no volume". It meant a fresh
+# ANONYMOUS volume per container. `docker compose down` without -v does not
+# delete anonymous volumes, it orphans them, and the next `up` created a
+# new empty one. Reproduced: bootstrap an administrator, `down`, `up`, and
+# the volume id has changed while `select count(*) from users` returns 0.
+# Users, sessions, devices, templates, jobs, credentials and role bindings
+# went with it every time, silently, with an exit code of 0.
+#
+# NATS had the same hole and announced it in its own logs on every start:
+# "Temporary storage directory used, data could be lost on system reboot".
+# The -sd flag on the nats service above says what lives in that
+# directory.
+#
+# Naming them fixes both and keeps the one behavior tests depend on:
+# `docker compose down` now preserves the control plane, and
+# `docker compose down -v` still destroys it, because that is what -v
+# means. Both halves were measured on this file. An administrator
+# bootstrapped once survived six consecutive down/up cycles, the two
+# volumes kept their original creation timestamps, `select
+# system_identifier from pg_control_system()` returned the same value
+# before and after, and both JetStream streams (PLEIADES and
+# KV_Pleiades_Locks) were still on disk. Then `down -v` removed both
+# volumes and the next `up` came back with zero users, which is exactly
+# what the tests that pass -v are relying on.
+volumes:
+  postgres-data:
+  nats-data:

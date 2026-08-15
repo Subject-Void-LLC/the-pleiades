@@ -3220,3 +3220,290 @@ container-backed release gates and was killed by transcribing twenty lines of so
 else's real configuration. When a subsystem exists to be compatible with an external
 system, take its fixtures from that system's own source early, not at the end as a
 finishing step.
+
+## 122. A build that compiles green produces a binary that cannot open its own default database, because the driver became a stub rather than a compile error
+
+**Symptom.** None at build time, which is the whole problem. Phase 20's roadmap asks
+for container images on "a distroless or scratch base". Both of those require a
+statically linked binary, so the natural first move is `CGO_ENABLED=0`. That build
+succeeds. `go build ./cmd/controller` prints nothing, exits zero, and produces a
+working ELF binary that `file` reports as statically linked. Every test in the
+repository still passes, because the container-backed tests run against Postgres.
+
+The binary then fails the moment anybody runs it the way the documentation says to:
+
+```
+ERROR failed to open the controller database
+  error="ent: migrating database \"ctl.db\": migrate: creating schema_migrations
+  table: Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work.
+  This is a stub"
+```
+
+`sqlite://controller.db` is the controller's DEFAULT `DB_DSN`. So the failure is not
+reserved for an unusual configuration; it is what an operator gets for running the
+image with no database configured at all, which is exactly what somebody trying the
+product does first.
+
+**Root cause.** `github.com/mattn/go-sqlite3` is a cgo package. When it is built with
+cgo disabled, it does not fail to compile. It compiles a build-tagged alternative
+whose functions return an error at run time saying the real driver is absent. That is
+a deliberate and defensible choice by that library, since a hard compile failure would
+break any program that merely links it without using it, which is most programs that
+pull in a database abstraction. But its consequence here is that the compiler, the
+type checker, the vet pass and the entire test suite are all blind to a change that
+removes a database engine from the product.
+
+The deeper cause is that the roadmap item named an implementation ("distroless or
+scratch") rather than the property it wanted (a small, non-root, minimal-surface
+image). Scratch and `distroless/static` demand a static binary. `distroless/base`
+delivers every property that was actually wanted and does not.
+
+**Fix.** Keep `CGO_ENABLED=1` and use `gcr.io/distroless/base-debian12:nonroot`, which
+is glibc-based, distroless, non-root by tag, ships CA certificates, and costs roughly
+20 MB more than `distroless/static`. The builder moves from Alpine to
+`golang:1.26-bookworm`, because the old Alpine builder is musl and cannot produce a
+binary that loads against glibc. The roadmap item was amended in place to record the
+refusal and its evidence, rather than being quietly satisfied with a base that breaks
+SQLite.
+
+**Lesson.** A dependency that degrades to a run-time stub instead of a compile error
+converts a build-configuration change into a run-time defect, and no amount of `go
+build`, `go vet` or `go test` will see it if the tests all configure their way around
+the default. Before changing any build flag that affects linkage, find the packages
+whose behavior is selected by that flag, and run the resulting binary through its
+DEFAULT configuration path, not through the configuration the test suite happens to
+use. The test suite is the worst place to look for this class, because a suite that
+provisions real infrastructure has already configured away the default it should be
+defending.
+
+The generalization beyond cgo: whenever a build knob changes which implementation gets
+linked, the knob has moved a decision out of the type system, and something outside
+the type system has to check it.
+
+## 123. A test built its "nothing is listening here" address by releasing a port, and so picked the one address on the machine that would answer
+
+**Symptom.** `go test ./internal/catalog/net/ssh/ -run TestPing_DialFailureIsReported`
+failed on every run on a WSL2 development machine (6 of 6, and 39 of 40 in an earlier
+sweep):
+
+```
+ping_errors_test.go:135: Ping() error = "net.ssh.ping: handshake with 127.0.0.1:44825:
+  ssh: handshake failed: read tcp ...: read: connection reset by peer",
+  want it to name the dial failure
+```
+
+The package is not listed in `flaky-packages.json`, so both `make ci` and
+`make push-gate` failed on it, and the failure had nothing to do with the work in
+flight: `git status --porcelain` on the package was empty, so it was byte-identical to
+HEAD.
+
+**Root cause.** The test needed an address whose TCP connect fails. It manufactured one
+by opening a listener on `127.0.0.1:0`, reading back the port the kernel assigned, and
+closing the listener immediately. That encodes an assumption: a port with no listener
+refuses connections. The assumption is about the host's TCP stack, not about the code
+under test, and under WSL2 it is false for precisely that port.
+
+Probing this host with the same `net.Dialer` settings `ping.go` uses shows the shape of
+it:
+
+```
+just-released by this process     127.0.0.1:44981   CONNECTED
+never bound, high                 127.0.0.1:33333   FAIL  connect: connection refused
+never bound, ephemeral range      127.0.0.1:45001   FAIL  connect: connection refused
+never bound, low                  127.0.0.1:1       FAIL  connect: connection refused
+just-released, after a 2s wait    127.0.0.1:44981   CONNECTED
+```
+
+The measured behavior is the table above: only the port this process itself bound and
+released accepts a connection, and it still accepts one seconds later. The likely
+explanation is that loopback is bridged between the Linux and Windows sides under WSL2,
+so binding a port on the Linux side claims it on the Windows side too and releasing it
+on the Linux side does not immediately release it over there. Either way the connect
+succeeds against a socket with nothing behind it, and the connection dies as a reset as
+soon as bytes are exchanged, which is during the SSH handshake. So the error came from
+`Ping`'s handshake branch, and the assertion, which was watching the dial branch,
+correctly reported that it never saw what it was waiting for.
+
+This is worse than a coin flip. Every other loopback port on the machine refuses exactly
+as the test expected. The port-selection strategy steered the test onto the single
+address that would not. It is also invisible to whoever writes it, because "I just closed
+it, so nothing can be listening" is a sound statement about the local kernel, and the
+test was not talking to only the local kernel.
+
+Two nearby tests make a related assumption and are unharmed by it, which is worth
+recording so that nobody "fixes" them: `internal/transport/ssh`'s
+`TestRealDial_TCPDialFailure` (dials `127.0.0.1:1`) and `cmd/pleiades`'s
+`TestRunInventorySync_FailsOnUnreachableEndpoint` (closes an `httptest` server) both only
+assert that some error came back. A reset instead of a refusal still fails them
+correctly. The defect bites only where a test asserts *which* failure happened.
+
+**Fix.** Stop deriving the address from host behavior. Pick addresses that cannot be
+connected to by definition. The test is now table-driven over two of them:
+
+- `127.0.0.1:0`. Port 0 is the sockets API's "assign me any free port" value for bind, so
+  no listener anywhere can hold it and a connect to it never succeeds. It fails with no
+  route and no resolver, and nothing leaves the host, which is what makes it hold up
+  inside a network-less container.
+- `192.0.2.1:22`, TEST-NET-1 from RFC 5737, reserved for documentation and not routed,
+  under a one second context budget. This one is a real network-layer dial failure: an
+  immediate "network is unreachable" where there is no route, an i/o timeout inside the
+  budget where the packets are dropped. It is there so that the port 0 case is not the
+  only evidence, since that case is settled entirely inside the host.
+
+The assertions also gained the half that was missing. The old test only checked that the
+message named "dial". It now also checks that the message does not name "handshake".
+Every branch after the dial returns an error too, so a substring check for the expected
+branch alone can pass on a run where the connection was actually established and failed
+later. A negative control confirmed both halves are load bearing: re-running the old
+just-released-port strategy through the new assertions fails on both, while the two new
+addresses pass in the same test binary.
+
+**Lesson.** A test that needs a condition to hold ("this address refuses connections",
+"this file is absent", "this port is free") must obtain it from something that makes the
+condition true, not from a sequence of steps that usually leaves it true. Releasing a
+resource in order to prove it is unavailable is the recognizable shape of this mistake,
+and it is a race even on hosts where it works, since another process can claim a released
+port between the close and the dial. The question to ask of any such setup is what would
+have to be true for it to be wrong, and whether anything in the test would notice. Here
+nothing would, and the test instead reported a defect in the code it was testing.
+
+The second half is about asserting on error paths. When several branches of a function
+all return an error, a check that merely matches a substring of the expected message
+cannot tell you which branch ran. Pin it from both sides: assert the marker of the branch
+you want and the absence of the branches you do not. Without that, this failure reads as
+"Ping stopped labeling its dial errors" when the truth was "a dial that could not
+possibly succeed did", and those two hypotheses send the next reader to opposite ends of
+the code.
+
+---
+
+## 124. A `//go:build ignore` file held a second copy of a pinned image, and no guard in the repository could see it
+
+**Symptom.** None, for as long as it lasted, and that is the whole entry. Phase 20's
+container hardening moved `docker-compose.yml` from `nats:2.14.4` to
+`nats:2.14.4-alpine` and gave the broker three flags instead of one. Every test passed.
+`make ci` passed. `tools/uidev/main.go`, which `make ui-dev` runs, kept starting
+`nats:2.14.4` with `-js` alone, under a doc comment reading "runs the same NATS image
+and flags docker-compose.yml uses, so the broker the UI is developed against is the one
+it is deployed against". That sentence was true when it was written and false the
+moment compose changed. Nothing reported it, because nothing could.
+
+**Root cause.** Two layers, and only the second one matters.
+
+The surface cause is an unavoidable second copy: the tool needed an image reference, so
+it held a string literal.
+
+The real cause is that the file carries `//go:build ignore`. That tag is right for what
+the file is, a developer convenience invoked as `go run tools/uidev/main.go` that shells
+out to docker and a compiler. What it also does, silently, is remove the file from
+`go build ./...`, `go vet ./...` and every test in the module. A guard cannot check a
+string it never compiles. So the one file in the repository with the weakest connection
+to CI was also the file holding an unguarded copy of a value the repository had already
+built a whole package to centralize, and the package doc of that package
+(`internal/testsupport`) already said the pin should live there rather than at the call
+site.
+
+The same tag was also hiding two matching problems in the same commit's blast radius:
+`docs/02-get-started.md` told a reader to `docker run ... nats:2.14.4 -js`, and the
+changelog fragment told users the compose stack and the getting-started command "now pin
+an exact NATS version", implying they agreed. Four distinct NATS strings existed in the
+tree at once.
+
+**Fix.** Structural, not a corrected literal. `//go:build ignore` excludes a file from
+the default build but does NOT remove it from the module, so it can import
+`internal/testsupport` like anything else, and now does:
+
+```go
+args := append([]string{"run", "-d", "--rm",
+    "--name", name,
+    "-p", fmt.Sprintf("%d:4222", natsPort),
+    testsupport.NATSImage}, testsupport.NATSCommand()...)
+```
+
+`NATSCommand()` is new, and exists because the image agreeing while the flags differ is
+the same defect wearing different clothes. It returns a fresh slice per call rather than
+being an exported variable, since an exported slice is writable and a pin nobody can
+rely on is not a pin. `TestComposeCommandMatchesPin` ties it to the compose file the way
+`TestComposeImagesMatchPins` already tied the image.
+
+The documentation copy got the same treatment rather than a corrected sentence:
+`TestGettingStartedRunsThePinnedBroker` reads `docs/02-get-started.md`, finds the
+`docker run` line a reader copies, and asserts the image and every flag after it match
+the constants. Prose cannot import a constant either; that does not make it exempt.
+
+Verified by running the real thing, not by reading the diff:
+`PLEIADES_UI_ADDR=:8099 go run tools/uidev/main.go`, then
+`docker inspect -f '{{.Config.Image}} {{json .Args}}'` on the container it started,
+which answered `nats:2.14.4-alpine ["-js","-sd","/data","-m","8222"]`.
+
+**Lesson.** A build tag that hides a file from the compiler hides it from every guard
+built on the compiler. Before writing a literal in such a file, ask what would catch it
+going stale; if the answer is "a person reading the doc comment", import the value
+instead. The tag is a statement about how the file is invoked, never a licence to hold a
+private copy of shared state.
+
+---
+
+## 125. A guard rejected only the literal tag `latest`, so `postgres:15-alpine` passed it for months under a doc claiming every image was pinned exactly
+
+**Symptom.** None yet, and the entry exists because of when it would have arrived.
+`internal/testsupport`'s package doc said "every image is pinned to an exact version,
+never `latest`". `TestPinsAreNotFloatingTags` claimed to enforce that. `PostgresImage`
+was `postgres:15-alpine`, which names a major only:
+
+```console
+$ docker run --rm --entrypoint postgres postgres:15-alpine --version
+postgres (PostgreSQL) 15.19
+```
+
+The day upstream publishes 15.20, the advisory-lock tests, the ent conformance suite,
+the migration generator, the end-to-end harness and the compose stack all move to it at
+once, with no commit to bisect and nobody having decided anything. Two sibling guards
+(`.dockerignore`'s exclusion test, the compose image test) had the same shape of hole in
+the same commit, so this is a pattern rather than one bad line.
+
+**Root cause.** The check tested the example instead of the rule. It read:
+
+```go
+if tag := ref[idx+1:]; tag == "latest" || tag == "" {
+```
+
+`latest` was the tag that caused the original incident, so `latest` became the test.
+Everything else that floats, `postgres:15`, `nats:2`, `golang:1`, `15-alpine`, sailed
+through, and the package doc beside it read as evidence that they could not. A guard
+narrower than its own documentation is worse than no guard, because the documentation is
+what people act on.
+
+The same failure in the two siblings:
+
+- `TestDockerignoreExcludesNonBuildInputs` compared allowances by exact prefix
+  (`allowed == path || strings.HasPrefix(allowed, path+"/")`). `!.SPECIFICATION` failed
+  it; `!.S*` re-admitted the identical tree and passed. The glob is the version somebody
+  would actually write.
+- `TestComposeImagesMatchPins` iterated its own two-entry table and never iterated the
+  services it had just parsed, so a service ADDED to `docker-compose.yml` was unchecked
+  in either direction. Adding a dependency is the normal way a new image arrives.
+
+**Fix.** Each guard was rewritten to encode the rule, and each was then watched fail on
+the regression it now claims to catch before being trusted to pass:
+
+- The pin rule is now "the tag contains a release number with at least a major AND a
+  minor component", checked by `rejectPin`, with `TestExactVersionRule` driving it over
+  a table of good and bad references (including `postgres:15-alpine`, `nats:2`,
+  `golang:1`, and a private-registry host whose port colon must not be mistaken for a
+  tag separator). `PostgresImage` became `postgres:15.19-alpine`.
+- The `.dockerignore` check matches patterns per path segment with `path.Match` instead
+  of comparing prefixes, so a glob that re-admits a forbidden tree fails it.
+- The compose check walks every service in the parsed file. A service that pulls an
+  image must be pinned in `internal/testsupport`; a service that builds is exempt and
+  says why; a service with neither is an error.
+
+The rule's ceiling is written into the code rather than left implied: matching a version
+number anywhere in the tag would accept a hypothetical `postgres:alpine3.22`. Anchoring
+it to the front of the tag was tried and rejected, because it rejects
+`version-10.3_p1-r0`, a genuinely immutable tag this repository depends on.
+
+**Lesson.** When a guard exists because of one incident, it will be written against that
+incident's literal and will silently be narrower than the rule everyone believes it
+enforces. Write the rule down as a predicate, give the predicate its own table test with
+the near-misses in it, and watch the guard fail once before believing it passes.

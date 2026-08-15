@@ -140,6 +140,16 @@ const serviceName = "pleiades-controller"
 // packaging and is where a real version stamp belongs.
 const serviceVersion = "v0.1.0-alpha"
 
+// defaultListenAddr is the address the HTTP server binds when LISTEN_ADDR
+// is unset.
+//
+// A named constant rather than a literal at the one call site, because
+// there are two call sites now: main() binds it, and the healthcheck
+// subcommand dials it (healthcheck.go). A probe that guessed a different
+// port than the server bound would report an unreachable controller as
+// unhealthy while it served traffic perfectly.
+const defaultListenAddr = ":8080"
+
 // schedulerLeaseKey is the well-known key every controller replica
 // contends for to become the one holder of the scheduler lease. It lives
 // here, at the one real call site that cares about it, rather than
@@ -395,8 +405,21 @@ func main() {
 	// in. With no arguments this binary is the server, byte-identically to
 	// before. With one it is an admin tool that opens a database and
 	// nothing else. See admin.go.
-	if args := os.Args[1:]; isAdminCommand(args) {
+	//
+	// The guard order is load bearing, so it lives in routeFor rather than
+	// in these statements: a reversed order here would be invisible to every
+	// test, because a test cannot call main(). routeFor makes the decision a
+	// value, and TestRouteFor fails if the two checks are swapped. See
+	// healthcheck.go for the order's reason and for why the probe lives in
+	// this binary at all.
+	switch args := os.Args[1:]; routeFor(args) {
+	case routeHealthcheck:
+		os.Exit(runHealthcheck(args))
+	case routeAdmin:
 		os.Exit(runAdmin(args))
+	case routeServer:
+		// Fall through to the server below, which is the only route that
+		// does not exit.
 	}
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
@@ -404,7 +427,7 @@ func main() {
 	if err != nil {
 		fatal("failed to resolve database configuration", err)
 	}
-	listenAddr := getenv("LISTEN_ADDR", ":8080")
+	listenAddr := getenv("LISTEN_ADDR", defaultListenAddr)
 	jwtIssuer := getenv("JWT_ISSUER", "pleiades-controller")
 	jwtAudience := getenv("JWT_AUDIENCE", "pleiades-api")
 	keyProvider, err := loadKeyProvider()

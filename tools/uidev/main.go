@@ -12,6 +12,20 @@
 // (go run tools/uidev/main.go), never imported, and nothing in the
 // shipped binaries can reach it.
 //
+// That build tag has a cost worth naming, because it bit this file once.
+// `go build ./...`, `go vet ./...` and every test in the repository skip
+// a build-ignored file, so no guard anywhere can see a string typed here.
+// This file held its own copy of the NATS image and flags, the deployment
+// moved to a different variant and gained a flag, and the copy here went
+// stale under a doc comment still promising the two matched. Nothing was
+// able to fail. The fix was structural rather than a corrected string:
+// the tag excludes the file from the default build but does NOT remove it
+// from the module, so it can and now does import internal/testsupport and
+// read the one pin every other caller reads. Do not reintroduce a literal
+// image reference or flag list below. If this tool needs another piece of
+// the deployment's configuration, export it from internal/testsupport,
+// where a test can compare it against docker-compose.yml.
+//
 // It runs the REAL cmd/controller binary as a subprocess rather than
 // reassembling a controller-shaped thing here. That is RULE 0 applied to a
 // development tool: a harness that wires its own router would let the UI
@@ -36,6 +50,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	// The single source for the container image and server flags the
+	// deployment runs. Importing an internal/ package from tools/ is legal
+	// (the internal rule is scoped to the module, and this file is in it)
+	// and is what internal/testsupport's own package doc asks for: "the
+	// pin lives here rather than at the call site."
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 )
 
 func main() {
@@ -213,6 +234,14 @@ func mintToken(secret string) (string, error) {
 // startNATS runs the same NATS image and flags docker-compose.yml uses,
 // so the broker the UI is developed against is the one it is deployed
 // against. It returns a cleanup function.
+//
+// Both values come from internal/testsupport, which docker-compose.yml is
+// tested against, so that sentence is now enforced instead of promised.
+// It used to be a promise, and it stopped being true without anything
+// noticing: this function ran nats:2.14.4 with -js while the deployment
+// moved to nats:2.14.4-alpine with -js -m 8222. Those are different
+// images, not different names for one image, and the difference is the
+// whole reason compose changed. See internal/testsupport.NATSImage.
 func startNATS(natsPort int) (func(), error) {
 	// Named per process, not fixed. A shared name meant a second instance
 	// removed the first one's broker out from under it, and the first
@@ -221,10 +250,18 @@ func startNATS(natsPort int) (func(), error) {
 	// and a scratch instance, are a normal thing to want.
 	name := fmt.Sprintf("pleiades-uidev-nats-%d", os.Getpid())
 
-	start := exec.Command("docker", "run", "-d", "--rm",
+	// The image and the server flags are appended, in that order, because
+	// `docker run` takes the image reference first and everything after it
+	// as the container's command. -m 8222 opens the monitoring port inside
+	// the container only; this tool publishes 4222 alone and probes it
+	// over TCP, so the extra flag costs nothing here and keeps the broker
+	// configured exactly as deployed.
+	args := append([]string{"run", "-d", "--rm",
 		"--name", name,
 		"-p", fmt.Sprintf("%d:4222", natsPort),
-		"nats:2.14.4", "-js")
+		testsupport.NATSImage}, testsupport.NATSCommand()...)
+
+	start := exec.Command("docker", args...)
 	if out, err := start.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("starting nats (is docker running?): %w: %s", err, out)
 	}

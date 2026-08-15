@@ -140,6 +140,13 @@ Administrative commands, run on the host rather than over HTTP:
   unlock          --email <address>   clear a lockout without changing the
                                       password
 
+One operational command, which touches no database at all:
+
+  healthcheck                         ask this controller's own /readyz on
+                                      LISTEN_ADDR and exit 0 only if it
+                                      reports ready (see healthcheck.go for
+                                      why the binary probes itself)
+
 With no command, the controller starts the server.
 
 Each command reads the same database and encryption-key configuration the

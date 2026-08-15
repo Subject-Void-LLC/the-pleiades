@@ -192,7 +192,7 @@ for the first). Running the thing is what finds what prose alone does not.
 ### Start the mesh
 
 ```bash
-docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4 -js
+docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4-alpine -js -sd /data -m 8222
 
 export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export JWT_SECRET="a-real-secret-at-least-32-bytes-long"
@@ -201,6 +201,25 @@ export DB_DSN="sqlite://./controller.db"
 
 ./controller
 ```
+
+That is deliberately the same broker `docker-compose.yml` runs, down to the flags, and a test
+(`internal/testsupport`'s `TestGettingStartedRunsThePinnedBroker`) fails if this line and that
+file stop agreeing. Running a different broker from the one you deploy is how a quickstart
+quietly stops representing the thing it documents.
+
+Each piece, since none of it is decoration:
+
+- `nats:2.14.4-alpine` carries the identical nats-server binary as plain `nats:2.14.4`, so
+  JetStream behaves the same either way. It is the only published build of that version that
+  also contains a program able to probe the server from inside the container, which is what
+  the compose stack's healthcheck needs.
+- Passing any command at all replaces the image's default one, which was a config file. Every
+  setting that file used to make has to be made again as a flag, which is what the other two
+  are.
+- `-sd /data` puts the JetStream store somewhere that survives a restart. Without it the
+  server uses a temporary directory and says so in its own log.
+- `-m 8222` opens the monitoring port. Nothing below needs it, but a broker you cannot ask
+  about is a bad habit to start with.
 
 `DB_DSN` names the database. A `postgres://` URL points the controller at a real
 PostgreSQL server, which is what a multi-user deployment runs:

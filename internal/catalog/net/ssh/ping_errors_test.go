@@ -2,7 +2,6 @@ package ssh_test
 
 import (
 	"context"
-	"net"
 	"strings"
 	"testing"
 	"time"
@@ -106,33 +105,91 @@ func TestPing_MissingKnownHostsFailsClosed(t *testing.T) {
 	}
 }
 
-// TestPing_DialFailureIsReported covers the dial branch against a port
-// that is genuinely closed: a listener is opened to claim a free port and
-// closed immediately, so nothing can be listening on it when Ping tries.
+// TestPing_DialFailureIsReported covers the dial branch: when the TCP
+// connection cannot be made, Ping must report that as a dial failure and
+// must not fall through into the SSH handshake.
+//
+// Both targets below are unconnectable because of what the address is,
+// not because of how the host's TCP stack happens to behave. That
+// distinction is the whole point of this test's shape. It used to open a
+// listener on 127.0.0.1:0, close it, and dial the port it had just
+// released, on the assumption that a port with nothing listening refuses
+// connections. That assumption is false under WSL2, and false in the
+// worst possible way. Measured on such a host: loopback ports this
+// process never bound refuse normally, while the port it just released
+// accepts the connection, still accepts it seconds later, and only fails
+// as a reset once the SSH handshake starts. The likely reason is that
+// loopback is bridged with the Windows side there, so releasing the port
+// on the Linux side does not release it on the other, but the reason
+// matters less than the measurement: the old strategy was aiming the
+// test at the one loopback address on the machine that would answer it.
+// See FAILURE_PATTERNS.md #123.
 func TestPing_DialFailureIsReported(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("opening a listener to claim a port: %v", err)
-	}
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener address is %T, want *net.TCPAddr", listener.Addr())
-	}
-	port := addr.Port
-	if err := listener.Close(); err != nil {
-		t.Fatalf("closing the listener: %v", err)
+	cases := []struct {
+		name string
+		host string
+		port int
+		// budget bounds how long the dial may sit there when the target
+		// is silently dropped instead of actively rejected. Zero means
+		// none is needed, because that case fails without waiting on the
+		// network at all.
+		budget time.Duration
+	}{
+		{
+			// Port 0 is the sockets API's "assign me any free port"
+			// value for bind, so no listener anywhere can ever hold it
+			// and a connect to it never succeeds. It needs no route and
+			// no resolver, and nothing leaves the host, which is what
+			// makes it hold up inside a network-less container.
+			name: "port no listener can ever hold",
+			host: "127.0.0.1",
+			port: 0,
+		},
+		{
+			// TEST-NET-1 (RFC 5737) is reserved for documentation and is
+			// not routed, so this is a real network-layer dial failure:
+			// an immediate "network is unreachable" where there is no
+			// route to it, an i/o timeout inside the budget where the
+			// packets are dropped. It is here so the case above is not
+			// the only evidence, since that one is settled entirely
+			// inside the host.
+			name:   "unroutable address",
+			host:   "192.0.2.1",
+			port:   22,
+			budget: 1 * time.Second,
+		},
 	}
 
-	device := &sshStub{host: "127.0.0.1", port: port}
-	rc := &stubContext{secrets: map[string]string{"username": "u", "password": "p"}}
-	params := map[string]any{"insecure_skip_host_key_verify": true}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.budget > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.budget)
+				defer cancel()
+			}
 
-	_, err = ssh.Ping(context.Background(), rc, device, params)
-	if err == nil {
-		t.Fatal("Ping() = nil error, want a dial failure against a closed port")
-	}
-	if !strings.Contains(err.Error(), "dial") {
-		t.Errorf("Ping() error = %q, want it to name the dial failure", err)
+			device := &sshStub{host: tc.host, port: tc.port}
+			rc := &stubContext{secrets: map[string]string{"username": "u", "password": "p"}}
+			// Without this, host key verification fails first and the
+			// dial this test is about is never reached.
+			params := map[string]any{"insecure_skip_host_key_verify": true}
+
+			_, err := ssh.Ping(ctx, rc, device, params)
+			if err == nil {
+				t.Fatal("Ping() = nil error, want a dial failure")
+			}
+			if !strings.Contains(err.Error(), "dial") {
+				t.Errorf("Ping() error = %q, want it to name the dial failure", err)
+			}
+			// Every branch after the dial also returns an error, so
+			// "names dial" on its own would still pass if the connection
+			// had actually been established and died later. This is the
+			// assertion that pins the failure to the dial branch.
+			if strings.Contains(err.Error(), "handshake") {
+				t.Errorf("Ping() error = %q, want the failure reported at the dial, not at the handshake", err)
+			}
+		})
 	}
 }
 

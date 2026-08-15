@@ -1712,3 +1712,187 @@ world rather than as a problem. When a phase honestly scopes itself out of part 
 specification section, that written-down honesty is not a handoff: the remainder has no
 owner until a phase number is attached to it, and "correctly deferred" and "scheduled"
 look identical in a diff.
+
+## 112. A debt with a deadline needs the deadline checked against whether the named owner can actually pay it
+
+**The incident.** `gosec-waivers.json`'s header carried this sentence, and had carried
+it since the file was created:
+
+> Every entry's backstop is AGENTS.md's own rule: gosec must be validated (zero
+> remaining waivers) prior to Phase 20 production packaging.
+
+It reads like exactly the right kind of rule. A waiver is a debt, the file requires a
+written reason per entry rather than a blanket suppression, and the header gives every
+one of those debts the same due date. Nothing about it looks wrong, and for many
+phases nobody looked again.
+
+Phase 20 arrived and the sentence turned out to be unpayable. There are twelve
+waivers. Three are the insecure-cookie class that Phase 20 genuinely owns. Seven name
+Phase 39 as their re-verifier in their own written reasons, and Phase 39 is not
+downstream work waiting to happen: it is CLOSED, with all eleven of its items ticked.
+Two more are test-only entries that guard no shipping artifact; each does name an
+owner in its own first words, and both of those owners are finished too.
+
+So the header demanded that Phase 20 close nine waivers it had no business closing.
+The number nobody had computed was the only number that mattered: how many of the
+entries the named phase could actually retire.
+
+**This entry got it wrong twice before getting it right, and that is left visible on
+purpose, because the second mistake is better evidence for the rule than the first.**
+As first written, this paragraph said EIGHT name Phase 39, which makes three plus
+eight plus two equal thirteen against twelve actual entries, and it said Phase 39 was
+"in Part VIII, downstream of Phase 20," which is true of its position on the page and
+false about its state. Both errors are the identical failure the entry exists to
+record: reading a summary instead of counting the entries. The first correction to the
+waiver header carried both of them forward and additionally prescribed naming Phase 39
+as the owner of the rest, which would have re-parked the debt on a closed phase. None
+of it was caught by review; it was caught by an adversarial pass that recomputed every
+number from the source. Document order is not execution order, and a phase number is
+not evidence that a phase is open.
+
+**Why it went unnoticed.** Each individual waiver was written carefully. Each one names
+its owner and its re-verification point, and several have been re-reviewed and updated
+across phases exactly as the file's own rules require. The file worked as designed at
+the level of an entry. The failure lives one level up, in a summary sentence that was
+written once and never re-derived from the entries beneath it, while the entries
+underneath it accumulated owners the summary never learned about.
+
+The shape is familiar and is worth naming: a rollup that is authored rather than
+computed. A blast radius that a runbook author types by hand goes stale; this project
+already decided that one and computes it instead. A waiver deadline is the same thing
+in prose, and prose has no `make ci` target.
+
+**What it cost, and what it would have cost.** It cost very little this time, because
+Phase 20 re-derived its starting position before writing code and added the entries up.
+The cost if it had not: either the phase quietly fails its own Security Analysis item
+and somebody waives the waiver rule, or the phase does nine findings' worth of unrelated
+hardening to satisfy a sentence, or, most likely and worst, somebody notices the rule
+cannot be followed and stops treating the file's rules as binding at all. A rule that
+demonstrably cannot be met does not degrade to a weaker rule. It degrades to no rule,
+and it takes the credibility of the surrounding rules with it.
+
+**The fix, as it finally landed.** Two things turned out to be true that the first
+attempt missed. The zero-waiver bar was never AGENTS.md's rule at all: AGENTS.md says
+only "gosec and govulncheck must be validated prior to production packaging (Phase
+20)," and the parenthetical "(zero remaining waivers)" was written into Phase 0's
+pre-existing-findings policy, copied into the waiver file's header, and attributed in
+both places to a document that does not contain it. So the bar was not relaxed by the
+phase it gated; a misquotation was struck, in both copies. And the seven orphaned
+entries needed a real owner rather than a rescoped sentence, which is why **Phase 82**
+was appended to own them and to decide the two test-only ones.
+
+Phase 20's bar is now zero remaining waivers of the cookie class, which it can pay.
+Nothing sets a project-wide zero-waiver deadline any more, because no phase owned one.
+Every correction is written as a correction, with the original struck rather than
+deleted, so the next reader can see that a rule was replaced by a truer one and not
+loosened to make a checkbox go green.
+
+One thing the whole episode exposed and nobody had ever counted: this file is the
+smaller of two suppression channels. Inline `#nosec` comments account for 55 further
+suppressions, so the twelve entries everyone was arguing about are roughly 18% of the
+project's suppressed findings. A deadline attached to the visible channel would have
+looked satisfiable while the invisible one grew.
+
+**The rule.** When you write a deadline onto a class of debt, name the owner who pays
+it and then check that the owner can. Do it by counting the individual entries against
+that owner, not by reading the summary sentence, because the summary is what goes
+stale. Re-derive the rollup whenever the phase it names comes due; a debt whose due
+date nobody can meet is discharged by everybody ignoring it, which is the outcome the
+deadline existed to prevent.
+
+---
+
+## 113. A file excluded from the build is excluded from every guard, so it must import shared values rather than copy them
+
+**The incident.** `tools/uidev/main.go` is what `make ui-dev` runs. It carries
+`//go:build ignore`, correctly: it is a developer convenience that shells out to docker
+and to a compiler, and holding it to the security posture of shipped server code would
+mean waiving half a dozen findings that are only findings because it is a tool.
+
+It also held a literal `"nats:2.14.4"` and a literal `"-js"`, under a doc comment
+promising it ran "the same NATS image and flags docker-compose.yml uses". When Phase 20
+moved the deployment to `nats:2.14.4-alpine` with three flags, the tool kept starting a
+different image with one flag, and the promise became a false statement about the
+repository's own behavior. `make ci` was green throughout. It had to be: the build tag
+removes the file from `go build ./...`, `go vet ./...` and every test, so no guard could
+read the string, let alone compare it.
+
+The repository had already solved this problem once, for the same value, in the same
+week. `internal/testsupport` exists because the NATS image had been named at seventeen
+call sites and drifted into three versions at once, and its package doc says the pin
+"lives here rather than at the call site". The one file the compiler could not see was
+the one that kept a private copy anyway.
+
+**The rule.** A build tag that hides a file from the compiler hides it from every guard
+built on the compiler, and `//go:build ignore` is the strongest form of that: no build,
+no vet, no test, no lint. Before writing any shared value into such a file, name the
+mechanism that would catch it going stale. "Someone will notice the doc comment is
+wrong" is not a mechanism; the doc comment is what goes stale first, and it goes stale
+while reading as reassurance.
+
+The tag does not remove the file from the module. It can import `internal/` packages
+exactly like anything else, so the fix is an import, not a corrected literal:
+
+```go
+args := append([]string{"run", "-d", "--rm", "--name", name,
+    "-p", fmt.Sprintf("%d:4222", natsPort),
+    testsupport.NATSImage}, testsupport.NATSCommand()...)
+```
+
+The general form: a build tag is a statement about how a file is invoked. It is never a
+licence to hold a private copy of shared state. If a value is worth centralizing for the
+files CI compiles, it is worth centralizing more for the file CI cannot see.
+
+The same reasoning extends past Go. Documentation and deployment descriptors cannot
+import a constant either, and are exempted for the same bad reason. Both copies of the
+NATS image outside Go, `docker-compose.yml` and `docs/02-get-started.md`, are now read
+by tests that compare them against the constants. A file the compiler cannot read is not
+a file a test cannot read.
+
+---
+
+## 114. A guard written after an incident is written against that incident's literal, not against the rule
+
+**The incident.** `internal/testsupport` was created because the NATS image had drifted
+into three versions across the test suite while `docker-compose.yml` ran a fourth,
+`nats:latest`. Its package doc states the rule it encodes: "every image is pinned to an
+exact version, never `latest`". `TestPinsAreNotFloatingTags` was written to enforce it,
+and enforced this:
+
+```go
+if tag := ref[idx+1:]; tag == "latest" || tag == "" {
+```
+
+`latest` caused the incident, so `latest` became the test. `PostgresImage` was
+`postgres:15-alpine` the entire time, which resolves to whatever 15.x the registry built
+most recently and would have moved the whole suite to 15.20 on release day. The guard
+would equally have passed `nats:2` and `golang:1`. Three sibling guards written the same
+week had the identically shaped hole: a `.dockerignore` check that compared allowances
+by exact prefix and so caught `!.SPECIFICATION` while missing `!.S*`, and a compose
+check that walked its own two-entry table and never walked the file it had just parsed,
+so a newly added service was unchecked in either direction.
+
+**The rule.** A guard written in the aftermath of an incident is written against the
+example, and the example is always narrower than the rule. Worse, the surrounding
+documentation is written against the rule, so the pair reads as complete: a reviewer
+sees a stated rule and a test that appears to enforce it, and stops. That gap is
+invisible from the inside precisely because both halves are individually reasonable.
+
+Three habits close it, and none of them is expensive:
+
+1. **Write the rule as a predicate with a name**, separate from the loop over the real
+   values. `rejectPin(ref) string` can be tested; an `if` inside a range cannot.
+2. **Give the predicate a table containing the near-misses**, not just the incident.
+   The rows that matter are the ones a reasonable person would write next:
+   `postgres:15-alpine`, `!.S*`, a service added to compose. Include the shapes that
+   must still be accepted too, or the next tightening breaks a legitimate pin.
+3. **Watch it fail before trusting it to pass.** Reintroduce the regression, run the
+   test, see the message, restore. A guard nobody has watched fail is an assertion about
+   a guard, not a guard. It also proves the failure message says what to do, which is the
+   only part of a test anybody reads under pressure.
+
+Write the rule's known ceiling into the code as well. The version rule accepts a number
+anywhere in the tag, so a hypothetical `postgres:alpine3.22` would pass; anchoring it to
+the front of the tag was tried and rejected because it rejects `version-10.3_p1-r0`, a
+real immutable tag this repository uses. Recording that keeps the next reader from
+believing the guard is total.

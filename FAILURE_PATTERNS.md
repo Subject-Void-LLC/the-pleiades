@@ -122,6 +122,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FOUND, NOT FIXED)
 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
 121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
+122. A build that compiles green produces a binary that cannot open its own default database, because the driver became a stub rather than a compile error
+123. A test built its "nothing is listening here" address by releasing a port, and so picked the one address on the machine that would answer
+124. A `//go:build ignore` file held a second copy of a pinned image, and no guard in the repository could see it
+125. A guard rejected only the literal tag `latest`, so `postgres:15-alpine` passed it for months under a doc claiming every image was pinned exactly
 
 ---
 
