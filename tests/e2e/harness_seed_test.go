@@ -210,7 +210,7 @@ func (h *harness) do(tb testing.TB, method, path, bearer string) (int, []byte) {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.httpClient().Do(req)
 	if err != nil {
 		tb.Fatalf("issuing %s %s: %v", method, path, err)
 	}
@@ -262,8 +262,9 @@ func (h *harness) waitForHTTPStatus(tb testing.TB, path string, want int, what s
 	var lastStatus int
 	var lastErr error
 
+	client := h.httpClient()
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(h.baseURL + path)
+		resp, err := client.Get(h.baseURL + path)
 		if err != nil {
 			lastErr = err
 			time.Sleep(50 * time.Millisecond)

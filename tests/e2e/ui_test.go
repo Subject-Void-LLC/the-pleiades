@@ -29,23 +29,27 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
 )
 
-// uiClient is a browser-shaped HTTP client: it keeps cookies, and it does
-// not follow redirects, so a test can assert on the redirect itself rather
-// than on wherever it landed.
-func uiClient(t *testing.T) *http.Client {
+// uiClient is a browser-shaped HTTP client: it keeps cookies, it trusts the
+// harness's certificate, and it does not follow redirects, so a test can
+// assert on the redirect itself rather than on wherever it landed.
+//
+// A method on the harness rather than a bare function, because it now needs
+// the trust pool the controller was started with. The transport comes from
+// h.httpClient for exactly that reason: one place decides what this suite
+// trusts, so no client here can end up dialling with verification off.
+func (h *harness) uiClient(t *testing.T) *http.Client {
 	t.Helper()
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("cookiejar.New() = %v, want nil", err)
 	}
-	return &http.Client{
-		Jar:     jar,
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	client := h.httpClient()
+	client.Jar = jar
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
+	return client
 }
 
 // signIn exchanges a token for a session cookie through the real login
@@ -54,7 +58,7 @@ func (h *harness) signIn(t *testing.T, id *auth.Identity) *http.Client {
 	t.Helper()
 
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
-	client := uiClient(t)
+	client := h.uiClient(t)
 	return h.submitLogin(t, client, url.Values{"token": {issuer.Token(t, id)}})
 }
 
@@ -190,7 +194,7 @@ func TestUI_LoginMintsAHardenedSessionCookie(t *testing.T) {
 	// jar contents would have been a test of net/http's jar that passed
 	// whatever the server actually set.
 	issuer := authtest.NewWithSecret(t, harnessJWTSecret, harnessJWTIssuer, harnessJWTAudience)
-	client := uiClient(t)
+	client := h.uiClient(t)
 
 	// The form is fetched first, as a browser does, because the login POST
 	// is behind a double-submit CSRF pair. The POST is still made directly
@@ -217,10 +221,18 @@ func TestUI_LoginMintsAHardenedSessionCookie(t *testing.T) {
 
 	var found bool
 	for _, c := range cookies {
-		if c.Name != session.InsecureCookieName {
+		if c.Name != session.SecureCookieName {
 			continue
 		}
 		found = true
+		// The assertion this suite could not make until the controller
+		// terminated TLS. It used to look for the unprefixed name and could
+		// say nothing about Secure, because the harness ran the controller
+		// with the insecure-cookie opt-out; both halves of that are gone,
+		// so the shipped attributes are what is under test now.
+		if !c.Secure {
+			t.Error("the session cookie is not Secure, so a browser would send the credential in the clear")
+		}
 		if !c.HttpOnly {
 			t.Error("the session cookie is not HttpOnly, so script can read the credential")
 		}
@@ -230,12 +242,15 @@ func TestUI_LoginMintsAHardenedSessionCookie(t *testing.T) {
 		if c.Path != "/" {
 			t.Errorf("the session cookie has Path=%q, want /", c.Path)
 		}
+		if c.Domain != "" {
+			t.Errorf("the session cookie has Domain=%q; __Host- forbids one, and a browser refuses the cookie outright", c.Domain)
+		}
 		if c.MaxAge != 0 || !c.Expires.IsZero() {
 			t.Error("the session cookie carries its own expiry; the server owns session lifetime")
 		}
 	}
 	if !found {
-		t.Errorf("no session cookie named %q was set", session.InsecureCookieName)
+		t.Errorf("no session cookie named %q was set", session.SecureCookieName)
 	}
 }
 
@@ -244,7 +259,7 @@ func TestUI_LoginMintsAHardenedSessionCookie(t *testing.T) {
 // tells HTMX to navigate instead of swapping a login page into a table.
 func TestUI_UnauthenticatedIsRedirectedToLogin(t *testing.T) {
 	h := startHarness(t)
-	client := uiClient(t)
+	client := h.uiClient(t)
 
 	status, _, _ := uiGet(t, client, h.baseURL+"/ui/devices")
 	if status != http.StatusSeeOther {

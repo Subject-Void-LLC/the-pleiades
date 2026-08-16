@@ -55,16 +55,18 @@ func (h *Handler) a11yOf(r *http.Request) bool {
 
 // writePreference stores one appearance choice.
 //
-// These carry preferences, not credentials, which is why they are readable
-// by script and survive logout: a user who signs out and back in should not
-// have to re-choose how the application looks. They are deliberately not on
-// the session row -- the login page has no session and still has to render
-// correctly.
+// These carry preferences, not credentials, which is why they survive
+// logout: a user who signs out and back in should not have to re-choose how
+// the application looks. They are deliberately not on the session row --
+// the login page has no session and still has to render correctly.
+//
+// There is one writer now. Until Phase 20 there was a second,
+// writeInsecurePreference, which dropped the Secure attribute for a
+// developer on plain HTTP; the controller no longer serves plain HTTP
+// unattended, so the branch that chose between them is gone along with the
+// gosec waiver it carried. See internal/ui/session's CookieCodec.Write for
+// the full history, including the consolidation that was tried and reverted.
 func (h *Handler) writePreference(w http.ResponseWriter, name, value string) {
-	if h.cfg.Cookie.Insecure {
-		h.writeInsecurePreference(w, name, value)
-		return
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:  name,
 		Value: value,
@@ -79,33 +81,6 @@ func (h *Handler) writePreference(w http.ResponseWriter, name, value string) {
 		// still render in the appearance the user chose. A preference is
 		// not a capability, so the Strict posture the session cookie
 		// needs would cost something here and protect nothing.
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   preferenceMaxAge,
-	})
-}
-
-// writeInsecurePreference is the development-only path, split out for the
-// same reason CookieCodec's is: the Secure attribute has to be a literal
-// for a static analyser to prove the default correct, so the deliberate
-// opt-out is isolated here rather than sharing a computed field with the
-// production path.
-//
-// Attempting to share one writer with the pre-auth CSRF cookie was tried
-// and reverted, and the reason is worth recording because it looks like an
-// obvious cleanup. The two cookies need different SameSite values, so a
-// shared writer takes SameSite as a PARAMETER, and a parameter is exactly
-// as unprovable to gosec as a computed Secure field is. Consolidating
-// therefore does not remove a waiver, it adds one: the production path
-// starts getting flagged too, which is the one place a waiver must never
-// sit. Duplicated literals are the cost of a scanner that can prove the
-// default correct, and that trade is the right way round.
-func (h *Handler) writeInsecurePreference(w http.ResponseWriter, name, value string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   preferenceMaxAge,
 	})

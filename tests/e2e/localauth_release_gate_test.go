@@ -76,7 +76,7 @@ func TestLocalAuthReleaseGate_BootstrapThenPasswordSignIn(t *testing.T) {
 	}
 
 	// 2. That account signs in with an email and a password.
-	client := h.submitLogin(t, uiClient(t), url.Values{
+	client := h.submitLogin(t, h.uiClient(t), url.Values{
 		"email":    {bootstrapEmail},
 		"password": {bootstrapPassword},
 	})
@@ -122,7 +122,7 @@ func TestLocalAuthReleaseGate_EveryFailureIsIndistinguishable(t *testing.T) {
 	}
 
 	attempt := func(email, password string) (int, string, time.Duration) {
-		client := uiClient(t)
+		client := h.uiClient(t)
 		form := url.Values{"email": {email}, "password": {password}}
 		form.Set("_csrf", h.loginForm(t, client))
 
@@ -170,8 +170,8 @@ func TestLocalAuthReleaseGate_PasswordChangeRevokesOtherSessions(t *testing.T) {
 	}
 
 	credentials := url.Values{"email": {bootstrapEmail}, "password": {bootstrapPassword}}
-	first := h.submitLogin(t, uiClient(t), cloneValues(credentials))
-	second := h.submitLogin(t, uiClient(t), cloneValues(credentials))
+	first := h.submitLogin(t, h.uiClient(t), cloneValues(credentials))
+	second := h.submitLogin(t, h.uiClient(t), cloneValues(credentials))
 
 	// Both work before the change, or the test proves nothing afterwards.
 	h.getUI(t, first, "/ui/dashboard", http.StatusOK)
@@ -202,7 +202,7 @@ func TestLocalAuthReleaseGate_PasswordChangeRevokesOtherSessions(t *testing.T) {
 
 	// And the credential really changed: the old password no longer works,
 	// the new one does.
-	oldAttempt := uiClient(t)
+	oldAttempt := h.uiClient(t)
 	oldForm := url.Values{"email": {bootstrapEmail}, "password": {bootstrapPassword}}
 	oldForm.Set("_csrf", h.loginForm(t, oldAttempt))
 	oldResp, err := oldAttempt.PostForm(h.baseURL+"/ui/login", oldForm)
@@ -214,7 +214,7 @@ func TestLocalAuthReleaseGate_PasswordChangeRevokesOtherSessions(t *testing.T) {
 		t.Errorf("the old password returned %d, want 401", oldResp.StatusCode)
 	}
 
-	h.submitLogin(t, uiClient(t), url.Values{
+	h.submitLogin(t, h.uiClient(t), url.Values{
 		"email":    {bootstrapEmail},
 		"password": {replacement},
 	})
@@ -231,7 +231,7 @@ func TestLocalAuthReleaseGate_LoginRefusesWithoutTheCSRFPair(t *testing.T) {
 	}
 
 	// Correct credentials, submitted without ever fetching the form.
-	client := uiClient(t)
+	client := h.uiClient(t)
 	resp, err := client.PostForm(h.baseURL+"/ui/login", url.Values{
 		"email":    {bootstrapEmail},
 		"password": {bootstrapPassword},

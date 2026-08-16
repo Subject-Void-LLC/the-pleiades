@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,6 +105,16 @@ const (
 var (
 	controllerBinPath string
 	runnerBinPath     string
+
+	// harnessCert is the serving certificate every controller this package
+	// starts presents, and the trust pool every client in it dials with.
+	//
+	// One per test binary rather than one per harness, and that is load
+	// bearing rather than a saving: TestUI_SessionCookieWorksAcrossControllers
+	// starts a SECOND controller and reuses the first one's client against
+	// it, which can only verify if both processes present the same
+	// certificate.
+	harnessCert testsupport.ServingCert
 )
 
 // TestMain builds the two real binaries this package drives, once, and
@@ -152,6 +163,17 @@ func TestMain(m *testing.M) {
 		}
 		*target.dest = path
 	}
+
+	// The certificate the controllers below serve with. Generated here, in
+	// the same throwaway directory the binaries live in, because the
+	// controller now refuses to serve plain HTTP unless an ingress in front
+	// of it terminates TLS, and there is no ingress here.
+	cert, err := testsupport.NewServingCert(filepath.Join(tmpDir, "tls"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "generating the harness serving certificate: %v\n", err)
+		os.Exit(1)
+	}
+	harnessCert = cert
 
 	os.Exit(m.Run())
 }
@@ -382,9 +404,12 @@ func (h *harness) startController(tb testing.TB) {
 	tb.Helper()
 
 	port := freeTCPPort(tb)
-	h.baseURL = "http://127.0.0.1:" + strconv.Itoa(port)
+	// https, because the controller terminates TLS itself here exactly as
+	// it does in docker-compose.yml. Every client in this package goes
+	// through h.httpClient, which trusts harnessCert and nothing else.
+	h.baseURL = "https://127.0.0.1:" + strconv.Itoa(port)
 
-	h.controller = h.startProcess(tb, "controller", controllerBinPath, append([]string{
+	h.controller = startProcess(tb, "controller", controllerBinPath, append([]string{
 		"DB_DSN=" + h.dsn,
 		"NATS_URL=" + h.natsURL,
 		"LISTEN_ADDR=127.0.0.1:" + strconv.Itoa(port),
@@ -403,13 +428,18 @@ func (h *harness) startController(tb testing.TB) {
 		// is set, so a local collector configuration must not be able to
 		// change what this test exercises.
 		"OTEL_TRACES_EXPORTER=none",
-		// The harness speaks plain HTTP to a loopback port. A __Host-
-		// prefixed cookie is browser-enforced to require Secure, Secure
-		// requires HTTPS, so the UI's session cookie would be unusable
-		// here -- which would make every web UI assertion a test of TLS
-		// rather than of the UI. This is the documented opt-out, and the
-		// controller logs a warning whenever it is set.
-		"PLEIADES_UI_INSECURE_COOKIES=1",
+		// Real TLS, from the same generator `make dev-cert` and
+		// `make ui-dev` use. This replaces PLEIADES_UI_INSECURE_COOKIES=1,
+		// whose comment here used to say a __Host- cookie would be unusable
+		// against a loopback port and that asserting on the UI would
+		// therefore become a test of TLS. Both halves were wrong. Browsers
+		// and Go's cookie jar both make an explicit exception for loopback,
+		// so the cookie was always usable; and the UI assertions are
+		// stronger for running over the transport a deployment actually
+		// serves, which is what lets this suite assert Secure and the
+		// __Host- prefix on the real cookie rather than around them.
+		"TLS_CERT_FILE=" + harnessCert.CertFile,
+		"TLS_KEY_FILE=" + harnessCert.KeyFile,
 	}, h.playbookEnv(false)...))
 
 	// /healthz proves the socket is bound. /readyz is the stronger claim
@@ -420,12 +450,29 @@ func (h *harness) startController(tb testing.TB) {
 	h.waitForHTTPStatus(tb, "/readyz", 200, "the controller to reach postgres and nats")
 }
 
+// httpClient returns a client that trusts this harness's controller and
+// nothing else.
+//
+// Every request in this package goes through one of these. A bare
+// http.DefaultClient stopped working the moment the controller began
+// terminating TLS, and the replacement is deliberately not
+// InsecureSkipVerify: a suite that skipped verification would keep passing
+// on the day the controller served a certificate it was never configured
+// with, which is exactly the class of failure an end-to-end test exists to
+// catch.
+func (h *harness) httpClient() *http.Client {
+	return &http.Client{
+		Timeout:   30 * time.Second * raceTimeScale,
+		Transport: &http.Transport{TLSClientConfig: harnessCert.TLSClientConfig()},
+	}
+}
+
 // startRunner launches the real runner binary and waits until it has
 // joined the dispatch consumer group.
 func (h *harness) startRunner(tb testing.TB) {
 	tb.Helper()
 
-	h.runner = h.startProcess(tb, "runner", runnerBinPath, append([]string{
+	h.runner = startProcess(tb, "runner", runnerBinPath, append([]string{
 		"NATS_URL=" + h.natsURL,
 		"RUNBOOK_DIR=" + h.runbookDir,
 		"RUNNER_WAL_DIR=" + tb.TempDir(),
@@ -473,7 +520,12 @@ func (h *harness) playbookEnv(runner bool) []string {
 
 // startProcess launches one binary with the given environment and drains
 // its output into a ring the test can print on failure.
-func (h *harness) startProcess(tb testing.TB, name, bin string, env []string) *managedProc {
+//
+// A plain function rather than a method: it never read anything off the
+// harness, and a gate that needs one process without the rest of the mesh
+// (runner_heartbeat_release_gate_test.go starts a runner and no
+// controller) should not have to invent a harness to reach it.
+func startProcess(tb testing.TB, name, bin string, env []string) *managedProc {
 	tb.Helper()
 
 	cmd := exec.Command(bin)

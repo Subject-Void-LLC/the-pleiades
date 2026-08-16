@@ -282,8 +282,9 @@ func (h *harness) waitForHTTPStatusNot(tb testing.TB, path string, unwanted int,
 	deadline := time.Now().Add(60 * time.Second * raceTimeScale)
 	last := unwanted
 
+	client := h.httpClient()
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(h.baseURL + path)
+		resp, err := client.Get(h.baseURL + path)
 		if err != nil {
 			// A refused or torn connection is itself "not the wanted
 			// status", and is a legitimate way for a severed dependency

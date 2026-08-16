@@ -29,7 +29,7 @@ func BuildAnsibleRunnerImage(tb testing.TB) string {
 		tb.Skip("docker not found on PATH")
 	}
 
-	root := repoRoot(tb)
+	root := RepoRoot(tb)
 	dockerfile := filepath.Join(root, "Dockerfile.legacy-ansible-runner")
 	if _, err := os.Stat(dockerfile); err != nil {
 		tb.Fatalf("Dockerfile.legacy-ansible-runner not found at %s: %v", dockerfile, err)
@@ -40,25 +40,4 @@ func BuildAnsibleRunnerImage(tb testing.TB) string {
 		tb.Fatalf("docker build failed: %v\n%s", err, out)
 	}
 	return AnsibleRunnerImageTag
-}
-
-// repoRoot walks up from the test's working directory to the module root,
-// rather than hardcoding a "../.." that is only correct for callers at one
-// particular depth.
-func repoRoot(tb testing.TB) string {
-	tb.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		tb.Fatalf("resolving the working directory: %v", err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			tb.Fatal("no go.mod found above the test's working directory")
-		}
-		dir = parent
-	}
 }

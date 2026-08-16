@@ -1,0 +1,51 @@
+{{- include "the-pleiades.validate" . -}}
+{{- /*
+The addresses of the two in-chart backends, in one file because they are the
+same object twice.
+
+Both are HEADLESS (clusterIP: None). A StatefulSet needs one to give its pods
+stable DNS names, and with a single replica the service name itself resolves
+straight to that pod's address, so the DSN and the broker URL the helpers build
+work without a second, non-headless Service to maintain. Neither is published
+outside the cluster by any type available here; reaching them from a laptop is
+a `kubectl port-forward`, deliberately.
+*/}}
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "the-pleiades.postgres.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "postgres") | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: {{ .Values.postgresql.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "postgres") | nindent 4 }}
+{{- end }}
+{{- if .Values.nats.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "the-pleiades.nats.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: client
+      port: {{ .Values.nats.service.clientPort }}
+      targetPort: client
+      protocol: TCP
+    - name: monitor
+      port: {{ .Values.nats.service.monitorPort }}
+      targetPort: monitor
+      protocol: TCP
+  selector:
+    {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "nats") | nindent 4 }}
+{{- end }}

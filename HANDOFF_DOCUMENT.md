@@ -4,309 +4,220 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/launch-fields-and-push-gate`. Directive: map the missing local-authentication
-work into the roadmap. Documentation only, no implementation code, and that was the whole scope.
-Phase 22 (22a, 22b, 22c) is committed and its handoff moved to `HANDOFF_ARCHIVE.md`.**
+**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
+Stages 20a, 20b and 20c are BUILT. Phase 20 is NOT closed: 10 of 19 items are ticked and the nine
+that remain are named below. Nothing is committed. Phase 20a's handoff moved to `HANDOFF_ARCHIVE.md`.**
 
-### What was found
+### What is done and proven
 
-`PLAN.md` Section 18.1 declares three authentication providers: Local (hashed passwords, plus TOTP
-and WebAuthn for break-glass accounts), SAML 2.0, and LDAP/Active Directory. Phase 8 built the
-AuthZ half of Section 18 plus federated JWT validation and correctly scoped itself out of the rest.
-**No phase anywhere scheduled any of the three.** Verified by grep over the whole roadmap before
-touching anything: `TOTP`, `WebAuthn`, `passkey`, `bcrypt` and `argon` each returned zero hits, as
-did `LDAP` and `SCIM`; `SAML` returned exactly one, and that hit was Part XIV recording that a
-shipped document tells operators to configure a SAML provider that exists nowhere in `internal/`.
+- **Images.** Both distroless (`gcr.io/distroless/base-debian12:nonroot`), digest-pinned, non-root at
+  a NUMERIC uid, stripped, with OCI provenance from build args. Build context 410 MB to 13 MB.
+- **Compose.** Named volumes, real healthchecks on every service, warm start about 4 s.
+- **TLS terminates in the controller**, and the insecure cookie path is DELETED rather than disabled.
+  `make gosec` is 9 findings against 12, with **zero `G124`**, which is the promise Phase 79's
+  Security Analysis was amended on.
+- **Certificates self-provision** when the admin configures none, and the provisioning is LOCK-FREE.
+- **Helm chart** is real: two Deployments, two StatefulSets, four liveness and four readiness probes,
+  zero `:latest`, non-root throughout, per-kind name budgets.
+- **`FAILURE_PATTERNS` #119 is CLOSED**, proven by severing a real broker under a real runner.
 
-The consequence was user-visible. `internal/ui/web/auth.go`'s `doLogin` exchanges a PASTED JWT for
-a session cookie, so a fresh operator on a clean machine had no way in, which collides with Phase
-20's own Release Gate (`docker compose up` on a clean machine). `internal/access/types.go` already
-stated the fact in plain words, "there is no password here and no phase owns building one," where
-it had been sitting as a description rather than as an alarm.
+### The nine open items, honestly
 
-### What was written
+`/readyz` bounding is **not implemented** and is the one open item that is code rather than writing.
+The endpoint is unauthenticated, unrate-limited, runs a real query per request, and nothing sets
+`MaxOpenConns`, so a caller can flip a healthy controller out of rotation today. Single-flight
+collapse is the fix and the write-probe alternative was tested and rejected; the item records why.
 
-- **Phase 79, Local Authentication**, in Part IX (Subsystems With No Prior Owner). Full body.
-- **Phase 80, Federated Identity Providers** (SAML 2.0, LDAP/AD, plus Section 18.3's IdP group
-  mapping) and **Phase 81, Second-Factor Authentication** (TOTP, WebAuthn/FIDO2). Stubs by design:
-  they reserve the number and record ownership so the roadmap stops being silent, nothing more.
-- A `**Correction (2026-08-14): eight phases, not five.**` paragraph in the Part IX preamble,
-  following the correction chain each previous addition to that Part already established.
-- A reciprocal dependency bullet on **Phase 20**, in the `Note the dependency plainly:` form.
-- A dated correction note in **`PLAN.md` Section 18.1**, in Section 18.2's own Form A style.
-- **`LESSONS_LEARNED` #111**, archive first then the index line.
+The other eight are the gate items: Pattern Entry Gate, Fuzz/Stress, Security Analysis, Adversarial
+Pattern Justification, Schema/Injection Hardening, Documentation Gate, Release Gate, and Provide
+Commit Message. Much of the underlying work exists (the release-gate tests are written and pass, the
+docs are updated, `namesFrom` is fuzzed); what is missing is the written justification each gate
+requires, which is the deliverable and not a formality.
 
-### The numbering, because the directive's premise was stale
+### The lesson this phase kept teaching
 
-The directive said 1 through 77 were taken and 78 onward was free. **Phase 78 (The External Secret
-Store) had been added to Part IX earlier the same day**, so 0 through 78 were all taken with no
-gaps. The directive's own governing rule settled it without a judgment call: never renumber, take
-the next free numbers, express ordering as a dependency sentence rather than as position. Hence 79,
-80, 81. Nothing existing was renumbered; the pre-edit and post-edit phase-number lists differ by
-exactly three additions.
+Three separate designs for certificate provisioning were built and two were torn out, and each time
+the adversarial pass found the same shape: **a mechanism that made one participant's bad state
+everyone else's problem.** First a fail-closed refusal, then a claim lock whose dead holder froze
+every sibling, then an ownership rule so broad that unparseable bytes bricked a directory forever.
+The design that survived removes the shared decision entirely: one atomic file, load-generate-load,
+losers re-read. When a fix keeps growing new faces, the primitive is wrong.
 
-### Dependency edges now written down
+### Governance corrected, and it took three attempts
 
-- Phase 20 depends on Phase 79, stated in both phases. Packaging a product whose only login is a
-  credential the operator cannot obtain is not packaging it.
-- Phase 79 depends on Phase 20 for TLS termination, stated in Phase 79's Release Gate with the
-  interim insecure-cookie path named, so it reads as sequencing rather than a deadlock.
-  `docker-compose.yml` exposes plain HTTP and sets no insecure-cookie flag today, so a real browser
-  refuses the `__Host-` prefixed session cookie on the documented path. Passwords alone do not close
-  Phase 20's gate.
-- Phase 79 is the first production caller of Phase 8's `auth.ScopeResolver`, which has zero today
-  and whose own doc calls it "inert until a real caller exists." Phase 79 also owes a correction to
-  `internal/auth/chain.go`, which says the operation-to-role mapping "belongs to the phase that puts
-  this rule into a running chain, which no phase has yet done."
-- Phase 79 deliberately does NOT depend on Phase 28 (Notification Engine): bootstrap and reset are a
-  `cmd/controller` admin subcommand run on the host, so email delivery stays off the critical path
-  between an operator and their own control plane.
-- Phase 80 and Phase 81 both depend on Phase 79. Phase 49's step-up rule consumes Phase 81.
+`gosec-waivers.json`'s header demanded "zero remaining waivers" before Phase 20 and attributed that
+to AGENTS.md. **AGENTS.md never said it.** The bar came from Phase 0's policy and was copied with a
+false attribution; both are struck. My first two corrections of it were themselves wrong, in exactly
+the way `LESSONS_LEARNED` #112 records, and were caught by adversarial passes that recomputed every
+number rather than by review. **Phase 82** now owns the seven waivers that pointed at closed Phase 39.
 
-### Two live defects found while mapping, both recorded in the phase that owns them
+### New phases recorded this session
 
-- **`PLEIADES_BOOTSTRAP_ADMIN` does not exist.** `internal/access/access.go`'s `ErrLastSystemBinding`
-  comment asserts its refusal "is recoverable by design, since `PLEIADES_BOOTSTRAP_ADMIN` still
-  resolves ahead of any stored state." Grep over the whole repository returns exactly one hit: that
-  comment. This is the map lagging in the harder direction, claiming a capability rather than missing
-  one, and the refusal it justifies is only defensible if the named recovery path is real. Phase 79
-  points it at `bootstrap-admin` and records the defect. Do NOT implement the env var under that
-  name; the reasoning is in the phase body.
-- **`HANDOFF_DOCUMENT.md`'s own title line was corrupted**, reading `The RRULE Scheduler# Handoff
-  Document` from a botched edit in some earlier session. Repaired in this rewrite.
-
-### Deliberately left unscheduled
-
-Named in the `PLAN.md` correction note so the gap stays visible rather than looking closed: Section
-18.5's SCIM off-boarding and Personal Access Tokens, and the full OIDC authorization-code login flow
-that Phase 8's own scope boundary set aside in favor of JWKS-endpoint verification. None has an
-owning phase and none was given one here.
-
-## Phase 79a is BUILT (same session, after the mapping)
-
-Phase 79 was split into three stages for the reason Phase 22 was split: one Release Gate over a
-credential store, an identity derivation, a login handler, a UI route and three subcommands cannot
-close until all five close together. **79a, the credential, is done and every gate is green.**
-
-### What shipped
-
-- **`internal/ent/schema/local_credential.go`** plus a `local_credential` edge on `User`. A separate
-  ENTITY, not a column, because `ent.User` projects into `access.User`, the API user DTO and the
-  users list view; a hash column would put a hash field on all four and leave only discipline
-  keeping it out of a response. Cascade on delete. Regenerated for BOTH dialects
-  (`sqlite/0014`, `postgres/0011`), parity test green.
-- **`internal/localauth`**: Argon2id (`m=19456,t=2,p=1`) via `golang.org/x/crypto/argon2`, which was
-  already a direct dependency; a PHC codec that fails closed on every branch; rehash-on-login; a
-  decoy derivation so an unknown address costs the same as a known one; a bounded concurrency gate;
-  the `Store` port; the `Account` projection with no field a hash could occupy; and the ent adapter
-  whose lockout counter is an atomic `AddFailedAttempts` on a row, not a variable in a process.
-- **`internal/archtest/localauth_test.go`**: `internal/localauth` may never depend on
-  `internal/crypto`, plus a consumer allowlist and a stale-entry check.
-
-### The two findings
-
-- **The memory bomb is real, and now demonstrated rather than argued.** Negative control per
-  LESSONS_LEARNED #95: with the parser's memory upper bound removed, one crafted row
-  (`m=4294967295`) took the test package from **0.011 s to 1234 s** before failing. A regression
-  test seeds that exact row through the real store and fails if the call does not return in 30 s.
-  The archtest was negative-controlled the same way and does fail when pointed at a real dependency.
-- **`coverage-floor.json` is measuring the wrong thing for `internal/ent`.** Its floor moved 15.9 to
-  15.4 here, with a written reason. Every `internal/ent/<entity>` SUBpackage is in `excluded` as
-  generated code, but the top-level package holding the generated CRUD is tracked at a floor, so
-  adding any entity dilutes it. This is the **second** silent downward move for that reason (16.0 to
-  15.9 in `5dbc35b`, unremarked). The honest fix is to move `internal/ent` into `excluded`; that is a
-  policy call for whoever owns the file, not something an auth phase should do on its way past.
-
-### Gates
-
-`build`, `vet`, `fmt`, `govulncheck` (0 vulnerabilities), `docs-lint`, `docs-gen-check` all clean.
-`gosec` reports 11 findings, **all pre-existing and individually waived, zero new** (it found two
-real `int -> uint32` conversions in the parser, which were FIXED by bounding as `int` before the
-widening, not waived, because the phase forbids new waivers). `go test ./...` has zero failures.
-`-race` passes on `internal/localauth` and `internal/archtest` uncached. Coverage: 159 packages,
-none below floor; `internal/localauth` recorded at 86.0%. Measured: `BenchmarkVerify` 28.7 ms and
-19,927,335 B/op, wrong password identical at 29.0 ms, `BenchmarkDecode` 2.0 us.
-
-## Phase 79b is BUILT: the UI takes an email and a password
-
-**The front end can now log in with a password.** `POST /ui/login` accepts either an email and
-password pair or a pasted token, and treats them as one decision with two proofs.
-
-### What shipped
-
-- **`internal/auth/rolescopes.go`** and **`identity_builder.go`**. This is the one piece of
-  genuinely new logic the phase named up front: `ScopeResolver.Resolve` returns a Role and NO
-  scopes, so a Role-to-Scope table had to be decided. Admin gets the ENUMERATED set, never the
-  unexported wildcard, because the scope list is persisted on the session row and a wildcard there
-  is a blank cheque that outlives any later narrowing of what admin means. Operator does not get
-  `access:write`: an operator who can grant themselves admin is an admin with extra steps.
-- **`doLogin`** rewritten into `internal/ui/web/login.go`. The token path is KEPT, not replaced. A
-  deployment federating against an external issuer holds no local credentials, and removing its only
-  way in alongside adding a new one would strand exactly the deployments that have not migrated.
-- **Pre-auth CSRF** and a **login rate limiter**, neither of which the route had before.
-- **`cmd/controller`** wires it. First production caller of `auth.NewScopeResolver` and
-  `auth.NewEntRoleBindingRepository`, both tested since Phase 8 and described in their own doc as
-  "inert until a real caller exists".
-
-### Three findings, each of which changed code rather than only notes
-
-- **The `memStore` test double silently dropped `Identity.Scopes`.** Every test in
-  `internal/ui/web` would have passed while a session reaching the database with no authority at all
-  looked identical to one reaching it correctly. LESSONS_LEARNED #94's exact shape. Found by writing
-  the first test that asserted a derived scope survived into the session row. Fixed in the double.
-- **Consolidating the three insecure-cookie writers had to be reverted.** It was attempted
-  specifically to avoid a third `gosec` waiver. The three cookies need different `SameSite` values,
-  so a shared writer takes `SameSite` as a parameter, and a parameter is exactly as unprovable to a
-  static analyser as a computed `Secure` field: it did not remove a waiver, it added one on the
-  PRODUCTION path. Reverted, with the reasoning recorded in the code so nobody retries it.
-- **This phase's zero-new-waivers item was missed, and is recorded as a miss.** 79b added one waiver,
-  for the development-only pre-auth CSRF cookie. Its entry says in those words that it does not meet
-  the bar. It is the third instance of an already-accepted class, not a new one, and Phase 20's TLS
-  termination removes all three together.
-
-Four existing waivers also went stale from line shifts. Per the file's own rule that is
-re-review rather than renumbering, so the guarded code (`safeReturn`, `writeInsecurePreference`) was
-re-read and confirmed byte-identical before the lines moved.
-
-### Gates
-
-`build`, `vet`, `fmt`, `govulncheck` (0), `arch`, `docs-lint`, `docs-gen-check` clean. `go test ./...`
-zero failures. `-race -count=1` clean on every touched package. `gosec`: 12 findings, all
-individually waived. Coverage: 159 packages, none below floor.
-
-## Phase 79c is BUILT: a clean machine can now be bootstrapped and signed into
-
-`controller bootstrap-admin --email you@example.com` creates the first administrator on the
-host (User, Team, system-scope admin RoleBinding, password) and that account signs in at
-`/ui/login`. That closes the gap the whole phase exists for and the Phase 20 dependency.
-
-### What shipped
-
-- **Three subcommands** on `cmd/controller`, behind a three-line argument guard at the top of
-  `main()` rather than a restructure: `bootstrap-admin`, `reset-password`, `unlock`. Idempotent
-  where it can be, refusing where it must be (an existing password is not overwritten without
-  `--force`). `--password-stdin` is the automation route; a password is never a flag value.
-- **`internal/prompt`**, the no-echo reader lifted out of `cmd/pleiades` rather than copied, now
-  consumed by both binaries.
-- **`session.Store.DeleteForSubject`** plus an index on the session subject column, both dialects.
-- **`POST /ui/account/password`**, a fixed route with NO record id, so the session is the subject
-  and it cannot be aimed at another account. Revokes every other session, keeps this one.
-- **`internal/localauth`'s audit decorator.** Credential writes are recorded; sign-in attempts
-  deliberately are not, because an unauthenticated caller who can append unbounded rows to a
-  durable table has a denial of service rather than an alarm.
-- Docs: Book 10 gains an operator-accounts section, the web UI and control-plane books are
-  corrected, and a changelog fragment lands.
-
-### Four findings, all of which changed code
-
-- **`bootstrap-admin` reported success while creating an account that could sign in and reach
-  NOTHING.** It set `TeamIDs` on an `access.User` and called `UpdateUser`, which accepts that field
-  and silently ignores it: membership is written from the Team side. Found by the first test that
-  asserted the bootstrapped account resolved to an admin IDENTITY rather than that the command
-  exited zero.
-- **`DeleteUser` left a live session and a password behind.** The credential now cascades by
-  foreign key; sessions are deleted explicitly, because a session row carries its subject as a
-  plain string with no key back to `User`.
-- **`access.Binding` requires an explicit `Effect`** and its zero value is not Allow. The
-  alternative was a permission granted by forgetting to type one.
-- **`PLEIADES_BOOTSTRAP_ADMIN` never existed.** `ErrLastSystemBinding`'s comment justified its
-  refusal by naming it as the recovery path; repo-wide grep found one hit, that sentence. Corrected
-  to name the subcommand, with the reason it was NOT implemented under that name recorded beside it.
-
-### Gates
-
-`build`, `vet`, `fmt`, `gosec`, `govulncheck`, `arch`, `docs-lint`, `docs-gen-check` all PASS.
-`go test ./...` zero failures. `-race -count=1` clean on every touched package. Coverage: 159
-packages, none below floor.
-
-**One gate is red and it is an artifact of nothing being committed:** `templ-gen-check` runs
-`git diff --exit-code -- internal/ui/render`, so an uncommitted template change always fails it.
-Verified the working tree is self-consistent: regenerating produces no further change, and there
-are no untracked files under that directory. It goes green on commit.
-
-## Phase 79 is CLOSED
-
-**All 35 checklist items are ticked.** The Release Gate is closed with a real
-integration-tagged test, and the injection audit, the stress half and the Adversarial Pattern
-Justification are all done and recorded in the phase body with their evidence.
-
-### The Release Gate
-
-`tests/e2e/localauth_release_gate_test.go`, four tests against the real controller binary, real
-Postgres and real NATS, all passing:
-
-- `controller bootstrap-admin` on a clean database, then sign in with an email and password, then
-  reach an authenticated page whose authority came from the RoleBindings the command wrote. **No
-  JWT is minted, pasted or configured at any step.**
-- A wrong password and an unknown address render byte-identical pages (modulo the per-render CSRF
-  token) and land inside a measured timing band.
-- A password change revokes the caller's other session, keeps this one, and the old password stops
-  working while the new one starts.
-- A login with no CSRF pair is refused even with correct credentials.
-
-### The regression this caught, which nothing else would have
-
-**`tests/e2e` is `//go:build integration`, so it never ran in `go test ./...`.** 79b's pre-auth CSRF
-layer broke the harness's `signIn`, which posted directly to `/ui/login` with no CSRF pair, and
-that broke all eleven sign-in call sites plus one test that posts directly on purpose. It went
-unnoticed for two stages. The harness now performs the browser two-step (fetch the form, submit the
-pair), and the whole `TestUI_` suite is green again.
-
-**Run the integration suite in subsets.** The full suite in one invocation fails with `port
-"4222/tcp" not found`, the documented FAILURE_PATTERNS #61 container flake; `tests/e2e` is in
-`flaky-packages.json` for exactly this. `-run TestUI_` and `-run TestLocalAuthReleaseGate` each pass
-cleanly on their own.
-
-### The last item, closed on 2026-08-15
-
-**Security Analysis is now ticked, and the amendment is recorded rather than the requirement being
-quietly deleted.** It asked for zero new `gosec` waivers; the phase shipped one. Rather than pretend
-otherwise, the item now asks for zero new CLASSES of waiver and states in full what happened: the
-new entry is the development-only pre-auth CSRF cookie, the THIRD instance of a class already
-accepted twice (the session cookie and the appearance preferences). All three are the same
-deliberate omission of `Secure` on the same explicitly opted-into `PLEIADES_UI_INSECURE_COOKIES`
-path, and one thing removes all three.
-
-Both alternatives were worse and both are recorded. Consolidating the three writers was tried and
-reverted, because the cookies need different `SameSite` values and a parameterised `SameSite` is as
-unprovable to gosec as a computed `Secure`, so it moved a waiver ONTO the production path. Dropping
-the double-submit cookie for an Origin-only check would have removed the entry by removing a CSRF
-layer, which is buying a green checkbox with security.
-
-The item's other demand was met rather than waived: the decoy hash draws no hardcoded-credential
-finding, because it is derived from `crypto/rand` at first use instead of being a constant.
-
-**Phase 20 now carries an explicit item to remove all three waivers when it terminates TLS.** That
-is the point of the amendment rather than a footnote to it: Phase 79's item was relaxed on the
-strength of that promise, and a promise nobody owns is how three waivers become six. The waiver
-entry itself now says the same thing, so the file and the roadmap cannot drift apart.
-
-### Also delivered this session
-
-`make ui-dev` now bootstraps a real account and prints **email and password** beside the token,
-created by the real `controller bootstrap-admin` subcommand rather than by seeding rows. Verified by
-running it: signed in with the printed credentials, changed the password, watched a second session
-get revoked, confirmed the old password stopped working.
-
-That run also caught a **real bug in the audit decorator**: it built activity entries with
-`ObjectID: 0`, which the real store rejects, so every credential change was silently unrecorded in
-production while the unit tests passed. The spy recorder accepted what the real store refuses. Fixed
-by recording the user id, and the spy now calls the real `Entry.Validate`, so that class cannot
-recur.
+- **Phase 82**, retiring the inherited `gosec` waivers.
+- **Phase 83**, the setup command, including the data-loss discipline: guards that scale with blast
+  radius, detection rather than warnings, typed confirmation, and a recovery matrix printed at the
+  moment a key is created.
+- **Phase 84**, upgrade, rollback and restore, which found that concurrent `migrate.Apply` is a race
+  (`schema_migrations` has `version TEXT PRIMARY KEY` and no lock) and that rollback across a schema
+  change does not work today.
 
 ### Next
 
-Phase 79 is done. What follows from it:
+Implement `/readyz` single-flight, then write the eight gate justifications, then close.
 
-- **Phase 20** owns the reciprocal half of the clean-machine gate and now carries two items from
-  this phase: terminate TLS and remove the three insecure-cookie waivers, and fix
-  `docker-compose.yml`, which exposes plain HTTP and sets no `PLEIADES_UI_INSECURE_COOKIES`, so a
-  real browser refuses the `__Host-` session cookie on the documented path today.
-- **Phase 80** (SAML 2.0, LDAP/AD, and Section 18.3's IdP group mapping) and **Phase 81** (TOTP and
-  WebAuthn) are stubs waiting to be scheduled. Both depend on Phase 79 and both now have a working
-  identity-derivation path to build on rather than inventing one.
-- Still unowned and deliberately so: Section 18.5's SCIM off-boarding and Personal Access Tokens,
-  and the full OIDC authorization-code login flow.
+### Commit message, provided per the standing instruction (not committed)
 
-Nothing is committed. Commit messages for 79a, 79b and 79c have been provided, per the
-standing instruction.
+```
+feat(packaging): a product that installs, over TLS, on a clean machine (Phase 20a-c)
+
+Phase 20 opened by correcting its own map. Four of its items described a
+repository that no longer existed: both binaries compiled, both Dockerfiles
+already built package paths, and Phase 19 had deleted the UI service. The
+NATS healthcheck was broken twice over, and both halves were verified
+against the real image before either was touched.
+
+Images are distroless, digest-pinned, stripped and non-root at a NUMERIC
+uid. Numeric matters: USER nonroot:nonroot makes every runAsNonRoot pod
+fail with CreateContainerConfigError, and Compose cannot express
+runAsNonRoot, so no check here could see it. cgo stays on, because
+CGO_ENABLED=0 compiles clean and then dies in the first migration on the
+controller's own default DSN. The shipped Alpine image was already broken
+that way.
+
+The controller terminates TLS and self-provisions a certificate when the
+admin has configured none, so nothing serves plain HTTP unasked and nothing
+refuses to boot for want of a certificate. Provisioning is lock-free: one
+atomic bundle, load-generate-load, losers re-read. Two earlier designs were
+built and torn out because each made one participant's bad state everyone
+else's problem.
+
+The insecure cookie path is deleted rather than disabled. gosec goes from
+12 findings to 9 with zero G124, which is what Phase 79's Security Analysis
+was amended on the strength of. The premise those waivers rested on was
+false: browsers accept Secure cookies on localhost, and the real defect was
+that every non-loopback origin failed as a misleading wrong-password
+message while the password was never checked.
+
+docker-compose.yml gains named volumes, and that is the sharpest fix here:
+it declared none, so every docker compose down destroyed the control plane
+database, the JetStream store and the scheduler leases.
+
+The Helm chart replaces nginx scaffolding: two Deployments, two
+StatefulSets, four liveness and four readiness probes on separate paths,
+per-kind name budgets, non-root throughout. It refuses to render without an
+explicit master encryption key, because a generated one would differ on the
+next helm upgrade and everything stored would become permanently
+undecryptable with no error.
+
+The runner gets a liveness surface driven by its consumer answering, not by
+a ticker, closing FAILURE_PATTERNS 119 with a test that severs a real
+broker under a real runner.
+
+Also corrects a governance rule that was never real: gosec-waivers.json
+demanded zero remaining waivers before this phase and attributed that to
+AGENTS.md, which never said it. Struck at its origin in the Phase 0 policy
+and in the header that copied it.
+
+FAILURE_PATTERNS 119, 122-126. LESSONS_LEARNED 112-114.
+```
+
+### Resuming after a context compaction
+
+Everything needed is on disk; nothing is held only in conversation.
+
+1. **`make ci` is RED**, and this is the result of the re-run the previous version of this
+   sentence asked for, so trust it over any earlier claim. Exactly one test fails:
+   `TestPackagingReleaseGate_KubernetesInstall` in `tests/e2e`. Everything else, including the
+   whole non-integration half and `tests/e2e`'s other cases, passes.
+
+   The failure is at that test's last-but-one assertion,
+   `assertALongReleaseNameStillProducesFourWorkingWorkloads`. Every assertion before it passed
+   against a real cluster: the chart installed, `/readyz` reported its database and broker,
+   `bootstrap-admin` ran through `kubectl exec`, and the runner Deployment reached Available with
+   its in-pod `runner healthcheck` reporting an 8-second-old heartbeat. Then the second install,
+   at a 53-character release name in its own namespace, sat at `Available: 0/1` for its full
+   8-minute budget, after which every `kubectl` and `helm` call returned
+   `connection refused` against the kind API server. The control plane went away mid-test.
+
+   That last detail is what makes the result ambiguous rather than a verdict on the chart. Two
+   candidates, and the log cannot separate them:
+
+   - The cluster was deleted out from under the running test. The gate names its cluster
+     `pleiades-release-gate`, and a cleanup ran `kind delete cluster --name pleiades-release-gate`
+     while this run was still in its integration stage.
+   - The single-node cluster fell over carrying two full releases at once. The long-name case
+     installs a second postgres, nats, controller and runner beside the first, which is still
+     installed at that point. There are no OOM kills in the kernel log, so if this is the cause it
+     is not a host memory ceiling.
+
+   The `connection refused` is evidence for the first: a node under load produces timeouts and
+   `NotReady`, not a refused TCP connect on the API port. Settle it by running the test alone,
+   which is safe: it writes its kubeconfig into its own `t.TempDir()` and passes `KUBECONFIG`
+   explicitly to every command, so it cannot touch `~/.kube/config` or the `desktop` cluster.
+
+   ```
+   go test -tags integration -race -count=1 -timeout 45m ./tests/e2e/ \
+     -run TestPackagingReleaseGate_KubernetesInstall -v
+   ```
+
+   **Resolved.** It passed alone: 259 seconds, all six assertions, and the install that had
+   consumed its full 8-minute budget finished in 67 seconds. The gate is sound and the `make ci`
+   failure was environmental. `FAILURE_PATTERNS` #141 and `LESSONS_LEARNED` #129 record it.
+
+### The break-glass
+
+`make break-glass` (`tools/breakglass`, `//go:build devtools`) returns the machine to the state
+every test assumes it starts from: no throwaway kind cluster, no compose project holding a
+database from a previous run, no containers left by a test binary killed before its cleanup ran.
+
+Reach for it the moment a gate fails in a way that does not match the code you changed. That is
+the failure shape above, and it is not rare: leftover infrastructure never announces itself, it
+surfaces as a test failing at whichever assertion touched the stale state.
+
+- `make break-glass BREAK_GLASS_FLAGS=-n` says what would go and removes nothing.
+- `BREAK_GLASS_FLAGS=-images` also drops the built images, so the next run builds from nothing.
+- `BREAK_GLASS_FLAGS=-force` cleans through the live-run guard, breaking that run.
+
+Two properties it is worth knowing are deliberate. It is **not** `docker system prune`: prune is
+defined by what is unused, which is a fact about the daemon rather than about this repository, so
+it would take the long-lived `desktop` cluster with the same confidence it takes ours. Every
+removal is positively attributed to this repository first and everything else is listed and left.
+And it **refuses while a run is live**, asking whether a testcontainers reaper is running and
+whether a `go test` process has its working directory inside this repository, because cleaning up
+underneath a run is how the tool came to exist. Verified against a genuinely live `make ci`: it
+refused, exited 1, and the gate's cluster survived.
+
+The gate's own delete-first is unchanged, so **two concurrent runs still destroy each other**.
+The fix is a per-run cluster name with prefix-matched reclamation, or a liveness check before the
+delete. Neither is written and nobody owns it; `FAILURE_PATTERNS` #141 states both options.
+
+### The coverage regression the flakes were hiding
+
+`make push-gate` reached the ratchet for the first time and failed it: `internal/runner` at
+85.4% against a floor of 86.8. The regression is in this phase's own committed heartbeat work,
+and it had been invisible for three runs because `make ci` stops at its first failure and every
+one of those runs died earlier, at `test-integration`, on container flakes. That is
+`LESSONS_LEARNED` #110 exactly, and it is the reason a red gate must be cleared rather than
+explained: everything behind it is unobserved, not passing.
+
+Three functions were at 0%: `WithHeartbeat`, the option that wires the whole feature into the
+Agent; `detachedValueContext`'s accessors, which are what let a non-interruptible execution
+outlive `Agent.Run`'s shutdown; and `StaleHeartbeatError.Error()`, the message an operator reads
+off a failed probe. `internal/runner/heartbeat_wiring_test.go` covers all three and takes the
+package to 87.4%. The floor was not moved, and `coverage-check` reports 160 packages with none
+below their recorded floor.
+
+Both new tests are negative-controlled by mutating the source and watching them fail. The first
+version of the `WithHeartbeat` test could not fail at all: `liveness` is a concrete `*Heartbeat`,
+so asserting it is nil after `WithHeartbeat(nil)` passes whether or not the guard exists. The
+guard's real contract is about option ORDER, and `LESSONS_LEARNED` #130 records the shape.
+
+**Three separate tests written this session could not fail on first writing**, and source
+mutation caught every one where reading caught none. Treat that as the expected rate, not as a
+run of bad luck.
+2. The one open item that is CODE is `/readyz` single-flight bounding. Phase 20's own item states
+   the design, the measured numbers, and why the write-probe alternative was rejected.
+3. The eight remaining gate items need their written justifications. The evidence for most of them
+   already exists in the tree; what is missing is the prose each gate asks for.
+4. Verify before trusting any claim in this document. Three separate corrections this session were
+   wrong on first writing and were caught by recomputing from source rather than by review.

@@ -3127,7 +3127,35 @@ No `ClosedHandler`, `DisconnectErrHandler` or `ReconnectHandler` is registered a
 
 The Controller does not have this problem, and the difference is instructive: `cmd/controller/main.go`'s `readinessChecks` probes `nc.IsConnected()`, so an orchestrator sees it unready and restarts it. The Runner has no readiness surface at all, so the identical failure is invisible on one side of the mesh and self-healing on the other.
 
-**Fix (sized, not applied).** Either register a `nats.ClosedHandler` that cancels the Runner's root context, turning a permanently dead connection into a process exit and letting the supervisor do what it is for; or pass `nats.MaxReconnects(-1)` so the client never gives up. The two are not equivalent and the choice is a real one: exiting surfaces the failure to whatever schedules the Runner, while retrying forever keeps a Runner that will recover on its own but leaves it invisible in the meantime. Giving the Runner a readiness surface of its own is the third option and the most work. Whichever is chosen, `internal/event` and `internal/lock` build their own connections with their own defaults and need the same treatment, or the fix covers one of three connections.
+**FIXED 2026-08-16, Phase 20.** The third option named below, giving the Runner a readiness
+surface of its own, is what shipped, because the two cheaper ones both answer the wrong
+question. Exiting on a closed connection and retrying forever are each a policy about ONE
+failure (the client gave up), and the entry's own diagnosis is broader than that: the Runner
+had no way to say whether it was working, so any failure that left the process alive was
+invisible. A surface answers all of them.
+
+What was built: `internal/runner/heartbeat.go` writes a beat only while the durable consumer
+genuinely answers, and `cmd/runner`'s new `healthcheck` subcommand turns that file's freshness
+into an exit code. It is a file rather than a port because `cmd/runner` binds nothing and
+should not start; it is the binary probing itself because the runtime image is distroless and
+that binary is the only executable in it. The heartbeat is driven by the consumer answering
+rather than by a ticker, which is the whole point: a ticker-driven beat keeps beating after
+the connection dies and would have been a probe that cannot fail, which is the same defect
+wearing a different hat.
+
+Proven, not argued: `tests/e2e/runner_heartbeat_release_gate_test.go` severs a real broker
+under a real running Runner and asserts the beat goes stale and `runner healthcheck` exits
+non-zero, and `TestRunStopsBeatingWhenTheConsumerStopsAnswering` plus
+`TestRunResumesWhenTheConsumerAnswersAgain` pin both directions in unit tests. The chart and
+`docker-compose.yml` both wire the probe, so the failure now restarts the workload instead of
+being invisible.
+
+**Still open, and deliberately so:** the connection defaults themselves are unchanged.
+`internal/event` and `internal/lock` build their own connections with the same `MaxReconnects:
+60`, and the final paragraph below still applies to them. What changed is that the Runner's
+silence is over; the library default that produces it is a separate fix with two more callers.
+
+~~**Fix (sized, not applied).** Either register a `nats.ClosedHandler` that cancels the Runner's root context, turning a permanently dead connection into a process exit and letting the supervisor do what it is for; or pass `nats.MaxReconnects(-1)` so the client never gives up. The two are not equivalent and the choice is a real one: exiting surfaces the failure to whatever schedules the Runner, while retrying forever keeps a Runner that will recover on its own but leaves it invisible in the meantime. Giving the Runner a readiness surface of its own is the third option and the most work. Whichever is chosen, `internal/event` and `internal/lock` build their own connections with their own defaults and need the same treatment, or the fix covers one of three connections.~~
 
 **Lesson.** A retry loop that cannot distinguish a transient failure from a permanent one converts an outage into silence, and silence is worse than the outage: an operator can see a crashed worker and cannot see an idle one. When a component's whole purpose is to stay attached to something, the library default for "give up" is almost never the right one, and the give-up path needs an owner that escalates rather than a backoff that absorbs. The tell here was structural and available without any incident: two processes connect to the same bus with the same defaults, one has a health probe that reads the connection and one has no health surface at all, and nobody had asked what the second one does when the first one's probe would have fired.
 
@@ -3220,3 +3248,981 @@ container-backed release gates and was killed by transcribing twenty lines of so
 else's real configuration. When a subsystem exists to be compatible with an external
 system, take its fixtures from that system's own source early, not at the end as a
 finishing step.
+
+## 122. A build that compiles green produces a binary that cannot open its own default database, because the driver became a stub rather than a compile error
+
+**Symptom.** None at build time, which is the whole problem. Phase 20's roadmap asks
+for container images on "a distroless or scratch base". Both of those require a
+statically linked binary, so the natural first move is `CGO_ENABLED=0`. That build
+succeeds. `go build ./cmd/controller` prints nothing, exits zero, and produces a
+working ELF binary that `file` reports as statically linked. Every test in the
+repository still passes, because the container-backed tests run against Postgres.
+
+The binary then fails the moment anybody runs it the way the documentation says to:
+
+```
+ERROR failed to open the controller database
+  error="ent: migrating database \"ctl.db\": migrate: creating schema_migrations
+  table: Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work.
+  This is a stub"
+```
+
+`sqlite://controller.db` is the controller's DEFAULT `DB_DSN`. So the failure is not
+reserved for an unusual configuration; it is what an operator gets for running the
+image with no database configured at all, which is exactly what somebody trying the
+product does first.
+
+**Root cause.** `github.com/mattn/go-sqlite3` is a cgo package. When it is built with
+cgo disabled, it does not fail to compile. It compiles a build-tagged alternative
+whose functions return an error at run time saying the real driver is absent. That is
+a deliberate and defensible choice by that library, since a hard compile failure would
+break any program that merely links it without using it, which is most programs that
+pull in a database abstraction. But its consequence here is that the compiler, the
+type checker, the vet pass and the entire test suite are all blind to a change that
+removes a database engine from the product.
+
+The deeper cause is that the roadmap item named an implementation ("distroless or
+scratch") rather than the property it wanted (a small, non-root, minimal-surface
+image). Scratch and `distroless/static` demand a static binary. `distroless/base`
+delivers every property that was actually wanted and does not.
+
+**Fix.** Keep `CGO_ENABLED=1` and use `gcr.io/distroless/base-debian12:nonroot`, which
+is glibc-based, distroless, non-root by tag, ships CA certificates, and costs roughly
+20 MB more than `distroless/static`. The builder moves from Alpine to
+`golang:1.26-bookworm`, because the old Alpine builder is musl and cannot produce a
+binary that loads against glibc. The roadmap item was amended in place to record the
+refusal and its evidence, rather than being quietly satisfied with a base that breaks
+SQLite.
+
+**Lesson.** A dependency that degrades to a run-time stub instead of a compile error
+converts a build-configuration change into a run-time defect, and no amount of `go
+build`, `go vet` or `go test` will see it if the tests all configure their way around
+the default. Before changing any build flag that affects linkage, find the packages
+whose behavior is selected by that flag, and run the resulting binary through its
+DEFAULT configuration path, not through the configuration the test suite happens to
+use. The test suite is the worst place to look for this class, because a suite that
+provisions real infrastructure has already configured away the default it should be
+defending.
+
+The generalization beyond cgo: whenever a build knob changes which implementation gets
+linked, the knob has moved a decision out of the type system, and something outside
+the type system has to check it.
+
+## 123. A test built its "nothing is listening here" address by releasing a port, and so picked the one address on the machine that would answer
+
+**Symptom.** `go test ./internal/catalog/net/ssh/ -run TestPing_DialFailureIsReported`
+failed on every run on a WSL2 development machine (6 of 6, and 39 of 40 in an earlier
+sweep):
+
+```
+ping_errors_test.go:135: Ping() error = "net.ssh.ping: handshake with 127.0.0.1:44825:
+  ssh: handshake failed: read tcp ...: read: connection reset by peer",
+  want it to name the dial failure
+```
+
+The package is not listed in `flaky-packages.json`, so both `make ci` and
+`make push-gate` failed on it, and the failure had nothing to do with the work in
+flight: `git status --porcelain` on the package was empty, so it was byte-identical to
+HEAD.
+
+**Root cause.** The test needed an address whose TCP connect fails. It manufactured one
+by opening a listener on `127.0.0.1:0`, reading back the port the kernel assigned, and
+closing the listener immediately. That encodes an assumption: a port with no listener
+refuses connections. The assumption is about the host's TCP stack, not about the code
+under test, and under WSL2 it is false for precisely that port.
+
+Probing this host with the same `net.Dialer` settings `ping.go` uses shows the shape of
+it:
+
+```
+just-released by this process     127.0.0.1:44981   CONNECTED
+never bound, high                 127.0.0.1:33333   FAIL  connect: connection refused
+never bound, ephemeral range      127.0.0.1:45001   FAIL  connect: connection refused
+never bound, low                  127.0.0.1:1       FAIL  connect: connection refused
+just-released, after a 2s wait    127.0.0.1:44981   CONNECTED
+```
+
+The measured behavior is the table above: only the port this process itself bound and
+released accepts a connection, and it still accepts one seconds later. The likely
+explanation is that loopback is bridged between the Linux and Windows sides under WSL2,
+so binding a port on the Linux side claims it on the Windows side too and releasing it
+on the Linux side does not immediately release it over there. Either way the connect
+succeeds against a socket with nothing behind it, and the connection dies as a reset as
+soon as bytes are exchanged, which is during the SSH handshake. So the error came from
+`Ping`'s handshake branch, and the assertion, which was watching the dial branch,
+correctly reported that it never saw what it was waiting for.
+
+This is worse than a coin flip. Every other loopback port on the machine refuses exactly
+as the test expected. The port-selection strategy steered the test onto the single
+address that would not. It is also invisible to whoever writes it, because "I just closed
+it, so nothing can be listening" is a sound statement about the local kernel, and the
+test was not talking to only the local kernel.
+
+Two nearby tests make a related assumption and are unharmed by it, which is worth
+recording so that nobody "fixes" them: `internal/transport/ssh`'s
+`TestRealDial_TCPDialFailure` (dials `127.0.0.1:1`) and `cmd/pleiades`'s
+`TestRunInventorySync_FailsOnUnreachableEndpoint` (closes an `httptest` server) both only
+assert that some error came back. A reset instead of a refusal still fails them
+correctly. The defect bites only where a test asserts *which* failure happened.
+
+**Fix.** Stop deriving the address from host behavior. Pick addresses that cannot be
+connected to by definition. The test is now table-driven over two of them:
+
+- `127.0.0.1:0`. Port 0 is the sockets API's "assign me any free port" value for bind, so
+  no listener anywhere can hold it and a connect to it never succeeds. It fails with no
+  route and no resolver, and nothing leaves the host, which is what makes it hold up
+  inside a network-less container.
+- `192.0.2.1:22`, TEST-NET-1 from RFC 5737, reserved for documentation and not routed,
+  under a one second context budget. This one is a real network-layer dial failure: an
+  immediate "network is unreachable" where there is no route, an i/o timeout inside the
+  budget where the packets are dropped. It is there so that the port 0 case is not the
+  only evidence, since that case is settled entirely inside the host.
+
+The assertions also gained the half that was missing. The old test only checked that the
+message named "dial". It now also checks that the message does not name "handshake".
+Every branch after the dial returns an error too, so a substring check for the expected
+branch alone can pass on a run where the connection was actually established and failed
+later. A negative control confirmed both halves are load bearing: re-running the old
+just-released-port strategy through the new assertions fails on both, while the two new
+addresses pass in the same test binary.
+
+**Lesson.** A test that needs a condition to hold ("this address refuses connections",
+"this file is absent", "this port is free") must obtain it from something that makes the
+condition true, not from a sequence of steps that usually leaves it true. Releasing a
+resource in order to prove it is unavailable is the recognizable shape of this mistake,
+and it is a race even on hosts where it works, since another process can claim a released
+port between the close and the dial. The question to ask of any such setup is what would
+have to be true for it to be wrong, and whether anything in the test would notice. Here
+nothing would, and the test instead reported a defect in the code it was testing.
+
+The second half is about asserting on error paths. When several branches of a function
+all return an error, a check that merely matches a substring of the expected message
+cannot tell you which branch ran. Pin it from both sides: assert the marker of the branch
+you want and the absence of the branches you do not. Without that, this failure reads as
+"Ping stopped labeling its dial errors" when the truth was "a dial that could not
+possibly succeed did", and those two hypotheses send the next reader to opposite ends of
+the code.
+
+---
+
+## 124. A `//go:build ignore` file held a second copy of a pinned image, and no guard in the repository could see it
+
+**Symptom.** None, for as long as it lasted, and that is the whole entry. Phase 20's
+container hardening moved `docker-compose.yml` from `nats:2.14.4` to
+`nats:2.14.4-alpine` and gave the broker three flags instead of one. Every test passed.
+`make ci` passed. `tools/uidev/main.go`, which `make ui-dev` runs, kept starting
+`nats:2.14.4` with `-js` alone, under a doc comment reading "runs the same NATS image
+and flags docker-compose.yml uses, so the broker the UI is developed against is the one
+it is deployed against". That sentence was true when it was written and false the
+moment compose changed. Nothing reported it, because nothing could.
+
+**Root cause.** Two layers, and only the second one matters.
+
+The surface cause is an unavoidable second copy: the tool needed an image reference, so
+it held a string literal.
+
+The real cause is that the file carries `//go:build ignore`. That tag is right for what
+the file is, a developer convenience invoked as `go run tools/uidev/main.go` that shells
+out to docker and a compiler. What it also does, silently, is remove the file from
+`go build ./...`, `go vet ./...` and every test in the module. A guard cannot check a
+string it never compiles. So the one file in the repository with the weakest connection
+to CI was also the file holding an unguarded copy of a value the repository had already
+built a whole package to centralize, and the package doc of that package
+(`internal/testsupport`) already said the pin should live there rather than at the call
+site.
+
+The same tag was also hiding two matching problems in the same commit's blast radius:
+`docs/02-get-started.md` told a reader to `docker run ... nats:2.14.4 -js`, and the
+changelog fragment told users the compose stack and the getting-started command "now pin
+an exact NATS version", implying they agreed. Four distinct NATS strings existed in the
+tree at once.
+
+**Fix.** Structural, not a corrected literal. `//go:build ignore` excludes a file from
+the default build but does NOT remove it from the module, so it can import
+`internal/testsupport` like anything else, and now does:
+
+```go
+args := append([]string{"run", "-d", "--rm",
+    "--name", name,
+    "-p", fmt.Sprintf("%d:4222", natsPort),
+    testsupport.NATSImage}, testsupport.NATSCommand()...)
+```
+
+`NATSCommand()` is new, and exists because the image agreeing while the flags differ is
+the same defect wearing different clothes. It returns a fresh slice per call rather than
+being an exported variable, since an exported slice is writable and a pin nobody can
+rely on is not a pin. `TestComposeCommandMatchesPin` ties it to the compose file the way
+`TestComposeImagesMatchPins` already tied the image.
+
+The documentation copy got the same treatment rather than a corrected sentence:
+`TestGettingStartedRunsThePinnedBroker` reads `docs/02-get-started.md`, finds the
+`docker run` line a reader copies, and asserts the image and every flag after it match
+the constants. Prose cannot import a constant either; that does not make it exempt.
+
+Verified by running the real thing, not by reading the diff:
+`PLEIADES_UI_ADDR=:8099 go run tools/uidev/main.go`, then
+`docker inspect -f '{{.Config.Image}} {{json .Args}}'` on the container it started,
+which answered `nats:2.14.4-alpine ["-js","-sd","/data","-m","8222"]`.
+
+**Lesson.** A build tag that hides a file from the compiler hides it from every guard
+built on the compiler. Before writing a literal in such a file, ask what would catch it
+going stale; if the answer is "a person reading the doc comment", import the value
+instead. The tag is a statement about how the file is invoked, never a licence to hold a
+private copy of shared state.
+
+---
+
+## 125. A guard rejected only the literal tag `latest`, so `postgres:15-alpine` passed it for months under a doc claiming every image was pinned exactly
+
+**Symptom.** None yet, and the entry exists because of when it would have arrived.
+`internal/testsupport`'s package doc said "every image is pinned to an exact version,
+never `latest`". `TestPinsAreNotFloatingTags` claimed to enforce that. `PostgresImage`
+was `postgres:15-alpine`, which names a major only:
+
+```console
+$ docker run --rm --entrypoint postgres postgres:15-alpine --version
+postgres (PostgreSQL) 15.19
+```
+
+The day upstream publishes 15.20, the advisory-lock tests, the ent conformance suite,
+the migration generator, the end-to-end harness and the compose stack all move to it at
+once, with no commit to bisect and nobody having decided anything. Two sibling guards
+(`.dockerignore`'s exclusion test, the compose image test) had the same shape of hole in
+the same commit, so this is a pattern rather than one bad line.
+
+**Root cause.** The check tested the example instead of the rule. It read:
+
+```go
+if tag := ref[idx+1:]; tag == "latest" || tag == "" {
+```
+
+`latest` was the tag that caused the original incident, so `latest` became the test.
+Everything else that floats, `postgres:15`, `nats:2`, `golang:1`, `15-alpine`, sailed
+through, and the package doc beside it read as evidence that they could not. A guard
+narrower than its own documentation is worse than no guard, because the documentation is
+what people act on.
+
+The same failure in the two siblings:
+
+- `TestDockerignoreExcludesNonBuildInputs` compared allowances by exact prefix
+  (`allowed == path || strings.HasPrefix(allowed, path+"/")`). `!.SPECIFICATION` failed
+  it; `!.S*` re-admitted the identical tree and passed. The glob is the version somebody
+  would actually write.
+- `TestComposeImagesMatchPins` iterated its own two-entry table and never iterated the
+  services it had just parsed, so a service ADDED to `docker-compose.yml` was unchecked
+  in either direction. Adding a dependency is the normal way a new image arrives.
+
+**Fix.** Each guard was rewritten to encode the rule, and each was then watched fail on
+the regression it now claims to catch before being trusted to pass:
+
+- The pin rule is now "the tag contains a release number with at least a major AND a
+  minor component", checked by `rejectPin`, with `TestExactVersionRule` driving it over
+  a table of good and bad references (including `postgres:15-alpine`, `nats:2`,
+  `golang:1`, and a private-registry host whose port colon must not be mistaken for a
+  tag separator). `PostgresImage` became `postgres:15.19-alpine`.
+- The `.dockerignore` check matches patterns per path segment with `path.Match` instead
+  of comparing prefixes, so a glob that re-admits a forbidden tree fails it.
+- The compose check walks every service in the parsed file. A service that pulls an
+  image must be pinned in `internal/testsupport`; a service that builds is exempt and
+  says why; a service with neither is an error.
+
+The rule's ceiling is written into the code rather than left implied: matching a version
+number anywhere in the tag would accept a hypothetical `postgres:alpine3.22`. Anchoring
+it to the front of the tag was tried and rejected, because it rejects
+`version-10.3_p1-r0`, a genuinely immutable tag this repository depends on.
+
+**Lesson.** When a guard exists because of one incident, it will be written against that
+incident's literal and will silently be narrower than the rule everyone believes it
+enforces. Write the rule down as a predicate, give the predicate its own table test with
+the near-misses in it, and watch the guard fail once before believing it passes.
+
+## 126. A private key mounted into a container was readable by nobody, and the message named the wrong problem
+
+**Symptom.** `docker compose up -d --wait` reached a healthy stack. After `chmod 600` on
+the certificate pair that `make dev-cert` writes into the gitignored `.dev-certs/`, the
+controller logged this on every start and never served a request:
+
+```
+{"level":"INFO","msg":"controller listening","addr":":8080","scheme":"https"}
+{"level":"ERROR","msg":"server failed","error":"open /etc/pleiades/tls/cert.pem: permission denied"}
+```
+
+`docker compose ps` showed `Restarting (1)`, and the file it named was present, was the
+right file, and was readable by the user who was reading the logs.
+
+**Root cause.** A bind mount carries the host file's numeric owner into the container
+with no remapping. The controller image runs as UID 65532 (`gcr.io/distroless/base`'s
+`:nonroot`), the host files are owned by whoever ran `make dev-cert`, so mode 0600 means
+"readable by a UID that does not exist in this container". The directory matters as
+much as the files: 0750 on `.dev-certs/` denies traversal, and the error is then still a
+permission denial on a file whose own mode looks fine, which is the harder version to
+read.
+
+**Fix.** `tools/devcert` relaxes the pair to 0644 and the directory to 0755 after
+generating them, with the reasoning in full at the one place it happens: these are
+throwaway development certificates, generated fresh, valid for a week, in a gitignored
+directory, and a real deployment mounts its key through its platform's secret mechanism,
+which sets ownership correctly and needs none of this. `internal/testsupport` still
+writes 0600, and `TestServingCertFilesAreOwnerOnly` pins that, so the relaxation stays a
+deliberate act by one caller rather than a default.
+
+**Lesson.** File modes on a bind mount are evaluated against the container's UID, not the
+host's, so the correct mode for a secret on the host is the wrong mode for a secret a
+container has to read. When a container must read a mounted file, decide the ownership
+question at the same moment as the mount, and check the directory's execute bit as well
+as the file's read bit. The alternative that keeps 0600 is not a chmod at all: it is
+handing the file to the platform's secret mechanism, which is what production does.
+
+
+---
+
+## 127. A certificate meant to be reused was replaced on every restart, because one of its subject alternative names was the container ID
+
+**Symptom.** The controller provisions a self-signed certificate when no real one is
+configured, stores it on its data volume, and is supposed to present the same one on
+every later start so a browser warning is a once-per-machine annoyance rather than a
+once-per-restart one. It was not. `docker compose up`, then `down` without `-v`, then
+`up` again, and the SHA-256 fingerprint on the wire had changed, with the startup log
+reporting `"provisioning":"generated"` both times. The volume was intact and the old
+`cert.pem` was still on it a moment before being overwritten, so every signal said the
+storage was working and only the fingerprint said it was not.
+
+**Root cause.** The reuse check refused a stored certificate that did not carry every
+subject alternative name the caller asked for, which is the right rule for a name an
+operator configured: adding a hostname has to take effect. The controller also adds the
+machine's own hostname, and inside a container the hostname is the container ID.
+`docker compose down` destroys the container, so `up` creates one with a new ID. Every
+restart therefore found a stored certificate that was missing the "requested" name, and
+regenerated. The check was working exactly as written; the input to it was a value that
+changes by itself.
+
+**Fix.** Split the two kinds of name in `internal/tlscert.Options`. `ExtraNames` are
+required and a stored certificate missing one is replaced, which is what makes
+`PLEIADES_TLS_AUTOCERT_HOSTS` take effect on the next restart. `OptionalNames` are put
+ON a generated certificate and are never required of a stored one; `cmd/controller` puts
+the hostname there. `TestEnsureReusesWhenOnlyAnOptionalNameChanged` feeds it two
+different container IDs around one configured name and fails if the certificate changes,
+with a control in the same test proving a changed CONFIGURED name still replaces it.
+
+**Lesson.** A cache key must not contain a value that changes on its own. The rule
+"replace what does not match what was asked for" is only safe when everything asked for
+was asked for by a person; the moment a discovered fact about the environment joins the
+list, the cache invalidates itself on a schedule nobody chose. Separate what a caller
+requires from what a process noticed, and let only the first one throw work away. Also:
+this was found by running the documented `down`/`up` cycle and diffing a fingerprint,
+not by any test in the suite, because every unit test ran in one process with one
+hostname. When a feature's whole promise is "the same thing next time", the test has to
+change the thing that differs next time.
+
+---
+
+## 128. Every controller in a scaled deployment refused to boot at once, because the code that provisions a certificate counted its own writes instead of ending on a read
+
+**Symptom.** One controller starting against an empty certificate directory worked every
+time. Four starting at the same instant against the same directory, which is a Deployment
+with replicas on a ReadWriteMany volume or `docker compose up --scale`, produced four
+processes that exited before serving anything, each with
+
+```
+generated a serving certificate into /data/tls 3 times and could not read a usable pair
+back: no usable certificate and key in place: tls: private key does not match public key
+```
+
+A second shape appeared in the same runs and looked unrelated: a controller logged
+`controller listening scheme=https` and then died on `tls: private key does not match
+public key` a moment later. Both were the same race, seen from two points in it.
+
+**Root cause.** Three of them, stacked, and the third is the one that mattered.
+
+The certificate and the key are two files. Each is published by a rename, so each is
+atomic on its own, but two renames cannot be one step: a reader arriving between them sees
+one writer's key beside another writer's certificate. That much was known and commented.
+
+The recovery from it was a loop that ran "load, then generate" a fixed three times and
+then returned a fatal error, WITHOUT loading again. Under contention every pass loaded a
+pair that some other racer had half-replaced, so every pass generated, and the loop ended
+on a generate whose result nobody read. The retry budget was not too small. Ending on a
+write instead of a read is what turned a transient interleaving into a permanent refusal,
+and no backoff or jitter existed to let the writers separate.
+
+The listening-then-dying shape had the same root and one extra step. `Ensure` verified a
+pair and returned two PATHS; the listener then handed those paths to
+`ListenAndServeTLS`, which opened the files again. Everything between the check and the
+second open was a window in which another controller could publish, so the process
+verified one pair and served a different, mismatched one.
+
+**Fix.** The loop now does load, CLAIM, load, generate, and the claim is the part that was
+missing. Exactly one process may write at a time, decided by an `os.Mkdir` of a
+`.generating` directory: mkdir either creates the entry or reports that it exists, in one
+step, and unlike `O_EXCL` its exclusivity is unambiguous on the NFS-backed shared volumes
+this failure needs to be fixed on. A process that loses the claim has learned that
+somebody else is publishing a good pair right now, so it waits an exponentially backed off,
+jittered moment and LOADS again rather than writing a second one. The claim is re-checked
+by loading once more after it is won, so a racer that queued behind the winner reuses the
+winner's certificate instead of replacing it. The pass after the last one is a load, so
+the function's final act is always a read.
+
+The listener no longer re-reads anything: `Ensure` returns the parsed `tls.Certificate`,
+`cmd/controller` puts it in `TLSConfig.Certificates`, and `ServeTLS(listener, "", "")`
+serves exactly the bytes that were verified. The listening line moved after a synchronous
+`net.Listen`, so it reports something that already happened.
+
+`TestEnsureUnderConcurrentStartups` runs eight goroutines off one start barrier and fails
+if any refuses, if any ends up on a different certificate, or if more than one generated.
+`TestEnsureAcrossRealProcesses` re-executes the test binary eight times against one
+directory, because the coordination is a filesystem primitive and separate processes share
+no memory at all, so a pass there can only come from the exclusive create.
+
+**Lesson.** A retry loop's LAST action decides what its failure mode is. A loop that ends
+on the operation it is retrying reports failure for a resource that, by then, usually
+exists; a loop that ends on a read reports what is actually there. When the retries are
+recovering from other writers, losing a race is not an error condition at all, it is the
+strongest possible evidence that the thing being waited for is about to exist, and the
+correct response to it is to look again rather than to try harder. Two more general points
+fell out of the same bug: any check-then-use across two files needs the check to RETURN the
+material, not a path to re-open it; and "log that we are listening" belongs after the
+listener binds, or every failure prints a success line first.
+
+## 129. A build context was measured from BuildKit's own progress line, which reports a cache delta rather than a size, so the measurement said 82 kB about 11.5 MB
+
+**Symptom.** Phase 20's Release Gate has to assert that `.dockerignore` keeps the image
+build context to a small fraction of the repository. The obvious measurement is the line
+BuildKit already prints:
+
+```
+#7 transferring context: 82.00kB 0.1s done
+```
+
+Against a working tree of 384 MiB that reads as an excellent result. It is not a result at
+all. The real context for the same build is 11.5 MiB across 1311 files, which the same
+command reports on a machine that has never built this image before.
+
+**Root cause.** BuildKit keeps a local cache of the build context on the daemon side and
+synchronizes it against the client on each build. "transferring context" reports what
+crossed the wire, so it is the DELTA since the previous build of the same context, not the
+size of the context. A gate built on it would have reported a smaller and smaller number
+the more often it ran, and would have passed unchanged if somebody deleted every line of
+`.dockerignore`, because the second build after that deletion would transfer almost
+nothing again.
+
+**Fix.** Measure the context by building it. `FROM scratch` with a single `COPY . /` and
+nothing else produces an image whose filesystem IS the filtered context, so
+`docker export` of a container created from it yields the byte-for-byte answer, and the
+same tar listing answers the second half of the question (which top-level directories got
+in) with no extra work. `.dockerenv`, which docker creates inside every container it makes,
+is the one entry that has to be subtracted. Measured this way the gate reports 11.5 MiB
+across 1311 files against 384.4 MiB of working tree, or 2.99 percent, and it reports the
+same thing on the tenth consecutive run.
+
+The rejected alternative is worth naming because it looks principled: reimplementing
+`.dockerignore`'s matching rules in Go and walking the tree. That measures whether the test
+agrees with itself. `internal/testsupport/dockerignore_test.go` already reads the file and
+checks its rules, which is the other half of this claim and is deliberately not the same
+half.
+
+**Lesson.** A progress indicator is instrumentation for a human watching a build, not an
+API. Before asserting on a number a tool prints in passing, run the tool twice and check
+that the number is the same both times; anything that shrinks on the second run is
+reporting work done, not size measured.
+
+## 130. A Kubernetes cluster created moments after a container image build lost etcd during CNI install, and the failure surfaced inside the test that installs the chart
+
+**Symptom.** `kind create cluster` failed once in eight provisionings on the machine this
+was written on, and the one failure was the run that came immediately after a
+`docker compose build` in the same test binary. It always fails at the same step:
+
+```
+ • Installing CNI 🔌  ...
+ ✗ Installing CNI 🔌
+ERROR: failed to create cluster: failed to apply overlay network: ...
+Command Output: clusterrolebinding.rbac.authorization.k8s.io/kindnet created
+serviceaccount/kindnet created
+daemonset.apps/kindnet created
+Error from server: error when creating "STDIN": etcdserver: request timed out
+```
+
+Run on its own, the identical command succeeded every time. This is FAILURE_PATTERNS #61's
+shape (the package that loses the race changes between runs) applied to a control plane
+rather than to a container's port mapping.
+
+**Root cause.** etcd is disk-latency sensitive and its default election and heartbeat
+timings assume it is not competing for the same device as anything else. A cold image build
+writes hundreds of megabytes of layers through the same daemon and the same filesystem, so
+an fsync inside etcd that normally takes single-digit milliseconds does not return before
+the API server's own request deadline. Nothing about the cluster, the chart or the images
+is involved: the failure is complete before anything this repository ships has been
+touched.
+
+**Fix.** The gate provisions the cluster up to three times, deleting any partial cluster
+between attempts and sleeping ten seconds, and if all three fail it SKIPS with a message
+saying that nothing under test had been exercised yet. Every step after the cluster exists
+(the image import, `helm install`, the readiness wait, the readiness document, the
+bootstrap through `kubectl exec`) is run exactly once and fails hard, because a failure
+there is about the artifact.
+
+An image-pull failure is separated out and never retried: it is an absent prerequisite,
+and retrying it only spends three times as long finding that out.
+
+**Lesson.** Retrying is legitimate exactly where the thing being retried is not the thing
+under test, and the boundary is a position in the test rather than a category of error. Ask
+which step first touches an artifact this repository produces; everything before it is
+setup that may be retried and then skipped, everything after it is evidence that must fail.
+
+## 131. Four workloads collapsed into one object name at every legal release-name length between 49 and 53
+
+**Symptom.** `helm install` of a release whose name was 49 to 53 characters long (Helm's own
+limit is 53, so every one of these is legal) produced a release where the controller
+Deployment, the runner Deployment, the PostgreSQL StatefulSet and the NATS StatefulSet all
+carried the SAME `metadata.name`, along with their Services. Nothing failed. The API server
+applied each object in turn, and the second Deployment replaced the first.
+
+**Root cause.** `templates/_helpers.tpl` built a workload name by APPENDING the component and
+then truncating the result:
+
+```
+{{- printf "%s-controller" (include "the-pleiades.fullname" .) | trunc 63 | trimSuffix "-" }}
+```
+
+The fullname prefix is itself truncated to 63. With a 49-character release name it comes to
+62 characters (`<release>-the-pleiades`), so appending `-controller` and cutting at 63 keeps
+the prefix plus a single `-`, which `trimSuffix` then removes. All four helpers returned the
+prefix and nothing else. At 48 characters the bug was present but less visible: the names
+stayed distinct and ended in `-c`, `-r`, `-p` and `-n`.
+
+**Fix.** Truncate FIRST, append SECOND. One shared helper cuts the prefix to 52 characters
+(63 minus the longest suffix, `-controller`) and then appends the component, so the component
+word can never be the part that is lost. `tools/helm-lint` renders the chart at release-name
+lengths 1, 20, 48, 49, 52 and 53, twice at each length to cover both branches of the fullname
+helper, and asserts that no two objects share a kind and name, that each workload name still
+ends with its component, and that every name fits the limit its kind is held to. Restoring
+the old helpers makes that check produce 29 findings.
+
+**Lesson.** A name built by appending then truncating puts the meaningful half at the end of
+the string, which is exactly the half a length limit removes. Cut the part nobody reads.
+
+## 132. A PodDisruptionBudget that silently did not exist, because the template chose its field by truthiness
+
+**Symptom.** An operator who set `controller.podDisruptionBudget.enabled=true` and cleared
+`maxUnavailable` (which the chart's own refusal message told them to do, in order to use
+`minAvailable`) rendered NO PodDisruptionBudget at all in some combinations, and one carrying
+no budget field in others. `kubectl get pdb` was empty in a release whose values said
+disruption protection was on.
+
+**Root cause.** `{{- if .Values.controller.podDisruptionBudget.minAvailable }}` asks whether a
+value is TRUTHY. The chart's own default for that key is `""`, and `0` is falsy too, so
+"unset" and "deliberately zero" were indistinguishable, and the else branch emitted an empty
+`maxUnavailable` when the operator had cleared it. The validation had the same shape:
+`and .minAvailable .maxUnavailable` never fired for `minAvailable: 0`.
+
+**Fix.** A `the-pleiades.isSet` helper that answers "did the operator state this value",
+treating nil and `""` as unset and everything else, including `0` and `"0"`, as set. The
+template emits whichever field is set, `_validations.tpl` refuses both-set and neither-set
+with the reason, and `tools/helm-lint` asserts the COUNT of budgets a profile must produce,
+because an absent object passes every rule that iterates over rendered objects.
+
+**Lesson.** Truthiness is the wrong question for any setting where 0 is a legal answer. Ask
+whether the value was stated, and check the absence of an object as its own assertion.
+
+## 133. A reinstall with a different database password installed cleanly and crash-looped forever
+
+**Symptom.** `helm uninstall` followed by `helm install` under the same release name with a
+different `postgresql.auth.password` reported every object created and every hook succeeded.
+PostgreSQL came up healthy. The controller then failed authentication, exited, was restarted,
+and repeated that indefinitely. Nothing in helm's output, the chart, or the database's own
+logs contained the word "password".
+
+**Root cause.** A StatefulSet's `volumeClaimTemplate` claims are deliberately NOT deleted by
+Kubernetes when the StatefulSet goes away, so the database volume survives `helm uninstall`
+(which is the right behavior: destroying a database on uninstall would be worse). PostgreSQL
+applies `POSTGRES_USER`, `POSTGRES_DB` and `POSTGRES_PASSWORD` only when it initializes an
+EMPTY data directory, and ignores all three on a volume that already holds a database. The
+new password was therefore believed by the controller and ignored by the database.
+
+**Fix.** The StatefulSet stamps a sha256 fingerprint of the three credentials onto its
+`volumeClaimTemplate` metadata. Kubernetes copies a volumeClaimTemplate's annotations onto
+the claim it creates (verified against a real cluster before the fix was written), and the
+claim outlives the release, so `_validations.tpl` looks the claim up with `lookup` and
+refuses to render when the stamp and the values disagree. The refusal names the claim, says
+which choice keeps the data and which destroys it, and prints the exact `kubectl delete pvc`
+command. It refuses only a PROVEN mismatch: an unstamped claim, or a release whose password
+comes from `secrets.existingSecret` and is therefore never seen by the chart, produce no
+refusal, because the chart has no evidence.
+
+Two boundaries came with it. `lookup` needs an API server, so the check does nothing under
+`helm template` and everything under a real install, upgrade or `--dry-run=server`, which is
+why the proof lives in `tests/e2e/packaging_kind_test.go` rather than in `tools/helm-lint`.
+And `volumeClaimTemplates` is immutable on a live StatefulSet, so toggling
+`secrets.existingSecret` on a running release (the one case that changes the stamp without
+changing the credentials) has to go through uninstall and install, which keeps the volume.
+
+**Lesson.** When a resource deliberately outlives the release that created it, the release
+needs a way to recognize it on the way back in. Stamp an identifier on the surviving object,
+compare it before rendering, and refuse only on a proven mismatch rather than on a suspicion.
+
+## 134. A lock over a cheap, idempotent write turned one slow or dead controller into every other controller refusing to start
+
+**Symptom.** Four separate reports, all filed against the same code and all looking
+unrelated. A controller SIGKILLed while provisioning a certificate made every other
+controller in that directory refuse to start for two minutes. A directory that became
+unwritable while a controller was provisioning made the refusal outlive the fault. A
+controller that was merely SLOW made the others exhaust a fixed eight-attempt budget and
+exit. And during a renewal a slow writer split the fleet across two certificates, with each
+straggler passing its own healthcheck so nothing restarted it.
+
+**Root cause.** One cause wearing four hats: the writers were serialized by an exclusive
+claim (an `os.Mkdir` of `.generating`), so every failure mode of a claim holder became a
+failure mode of every other process. The claim existed for one reason: a certificate and its
+key were two files, `rename(2)` replaces one directory entry, and there is no call that
+replaces two, so a reader arriving between two renames could see one writer's key beside
+another's certificate. Tuning the claim could only move which of the four faces appeared;
+raising the retry budget produces a fifth.
+
+**Fix.** Delete the lock and remove the reason for it. The certificate and its key are now
+published as ONE file (`serving.pem`), so publishing is exactly one rename, which is atomic
+everywhere. `Ensure` is three steps and no loop: load what is published; if it cannot be
+served, mint a replacement and publish it; then load again and serve whatever is there now.
+N controllers may all generate and all publish, the last rename stands, and every one of them
+reads that winner. Nobody waits, so nobody can be blocked by a process that is slow or gone,
+and a loser's wasted keypair costs a few milliseconds of CPU.
+
+**Lesson.** Before serializing writers, ask what the write costs and whether any two results
+are interchangeable. Generating a self-signed certificate is milliseconds and any valid pair
+is as good as any other, so the correct number of writers is "however many turn up". A lock
+is worth its failure modes only when the work is expensive or the results differ.
+
+## 135. A provenance record kept as one read-modify-write file lost a concurrent writer's entry, and the process serving that certificate failed its own healthcheck
+
+**Symptom.** Sixteen controllers started against one certificate directory. Every one of them
+provisioned and served a valid pair, and roughly one run in three had a controller whose OWN
+healthcheck rejected the certificate it was presenting: "x509: certificate signed by unknown
+authority" against a listener that was working perfectly. An orchestrator would have killed
+it.
+
+**Root cause.** The healthcheck verifies the local listener against the certificates this
+deployment has provisioned, which were recorded in a single `provisioned.pem` that each
+writer read, prepended itself to, and wrote back. That is a read-modify-write: a writer whose
+read happened before another writer's write erased that other writer's entry. The certificate
+was real, published and served; the record of it was gone.
+
+**Fix.** One file per certificate, named after the certificate's own SHA-256 fingerprint, in
+a `provisioned/` directory. No writer's file is ever any other writer's file, so nothing can
+be lost, on any filesystem, with no coordination. Pruning keeps the newest sixteen and never
+touches a record younger than an hour, because a count-only rule would have deleted eleven of
+those sixteen entries while eleven processes were still serving those exact certificates,
+which is the same failure arriving through the cleanup path.
+
+**Lesson.** "Two processes cannot lose one another's work" is a property that has to hold for
+every file a design writes, not just the important one. A read-modify-write on a shared file
+is a lost update waiting for contention, and the cheapest fix is usually to stop sharing the
+file: name it after its content and the collision cannot happen.
+
+## 136. An ownership check keyed on the certificate destroyed the private key beside it whenever the certificate was absent
+
+**Symptom.** A directory holding an operator's `key.pem` and no `cert.pem`, which is what a
+half-finished secret mount looks like, had the key silently overwritten by a generated one on
+the next start. The key existed in exactly one place.
+
+**Root cause.** `ownsStoredCertificate` asked its question only of `cert.pem` and returned
+"this package may write here" whenever that file was missing or unreadable, on the reasoning
+that there was nothing to destroy. The key was never part of the question, so its presence
+proved nothing and its absence was never checked.
+
+**Fix.** Ask the question of every piece of material present, and prove each one the only way
+it can be proven. A serving bundle carries its own provenance block. A `cert.pem` is proven
+by the provenance records beside it. A private key carries nothing that names its author, so
+it is proven by belonging to a certificate that is itself recorded; a key that belongs to no
+recorded certificate is an operator's and is never written over, and the only line in the
+package that deletes key material demands that same proof first.
+
+**Lesson.** An "is there anything to destroy?" check must enumerate what could be destroyed,
+not one representative of it. If a piece of material cannot prove its own authorship, the
+absence of proof is a refusal, never a permission.
+
+## 137. Every kind got one name budget, so the fix for a name collision created two StatefulSets that install cleanly and produce no pods
+
+**Symptom.** A Helm release installed under a 40-character (or longer) release name reported
+`STATUS: deployed`. Every object was created. Both StatefulSets sat at `0/1` ready forever,
+the controller and every runner went into `CrashLoopBackOff` behind them because there was no
+database and no broker, and nothing in the install output, in `helm status`, or in
+`kubectl get statefulset` named a cause. The only evidence anywhere was a `FailedCreate`
+event on each StatefulSet.
+
+Observed by really installing the chart into a real cluster:
+
+```
+metadata.labels: Invalid value:
+"oaaaa...aaaa-postgres-fc79dd66c": must be no more than 63 bytes
+```
+
+**Root cause.** This is the second defect in one line of arithmetic, and the first one is
+worth restating because the second was its fix.
+
+The first defect was a name collision. The naming helpers appended the component word and
+then truncated the RESULT to 63, so a release name of 49 to 53 characters, all legal to Helm,
+cut the suffix away entirely and rendered the controller, the runner, the PostgreSQL
+StatefulSet and the NATS StatefulSet under one identical name. The fix inverted the order:
+cut the release-scoped prefix to a budget first, then append the component, so a long release
+name loses characters from a part nobody reads.
+
+That budget was one number, 52, applied to all four workloads, derived as 63 minus the
+longest component word. 63 is the DNS label limit, and it is the right ceiling for a Service,
+whose name the API server rejects outright past it. It is the wrong ceiling for a
+StatefulSet, and wrong in the direction that hides.
+
+A StatefulSet's own name is only held to the 253-character subdomain limit, so the object is
+accepted. What is not accepted is its pods. The StatefulSet controller labels each pod with
+`controller-revision-hash`, whose value is the ControllerRevision name,
+`<statefulset name>-<hash>`. A label value may not exceed 63 bytes. The hash is a `uint32`
+printed in decimal and then re-encoded character for character, so it is 1 to 10 characters
+long and its length changes with the pod template. So the real ceiling is 63 minus one dash
+minus 10, which is 52 for the object name, which is 11 characters below the budget every kind
+was sharing.
+
+Two other limits sit inside that one and are the ones people reach for first: a pod is named
+`<statefulset name>-<ordinal>`, and that string is both the pod's `spec.hostname`, which the
+API server validates as a DNS label, and its `statefulset.kubernetes.io/pod-name` label. Both
+permit a 61-character name at one digit of ordinal. Naming those two as the reason and
+stopping there would have produced a budget 9 characters too generous and a defect that
+appeared only for the longest release names.
+
+The reason it survived is the shape worth remembering. The rule written to prevent a
+recurrence read every object's name and held it to 63 if its kind was one of Service,
+StatefulSet or Deployment. That is a rule about the names the chart WRITES. Every failure
+here was in a name Kubernetes DERIVES from those, and no length of release name could make
+the written names fail. The tests passed at every probe length, the chart rendered, `helm
+lint` was clean, and a server-side `kubectl apply --dry-run=server` of the whole render was
+clean too, because a dry run creates no pods.
+
+**Fix.** The budget is per kind, and each ceiling is derived from what Kubernetes appends
+rather than from the DNS label limit directly: 63 for the two Deployments and the Services
+that share their names, and 63 minus 11 for the two StatefulSets. `helm-lint` now asserts the
+derived names as well as the written ones, at eight release-name lengths: the
+`controller-revision-hash` label, the pod name at the highest ordinal the replica count
+produces, that pod name as a DNS label under the governing Service, the fully qualified
+record in the longest namespace a cluster permits, and, for Deployments, that two workloads
+stay distinguishable after Kubernetes truncates a generated pod name's base at 58 characters.
+Both directions were proven against a real cluster: the pre-fix chart installed at a
+53-character release name produces two StatefulSets with zero pods, and the fixed chart at
+the same release name reaches every pod Running and Ready.
+
+**Lesson.** A name limit belongs to a KIND, not to a cluster, and the limit that binds is
+usually not on the name you wrote. Kubernetes derives other names from an object's name
+(pods, ReplicaSets, ControllerRevisions, label values, DNS records), and each derivation has
+its own ceiling; the tightest of them is what the object name is really held to. When a check
+validates a name, ask what is built from that name and validate that too, because the
+derived-name failures are the quiet ones: the object is created, the install reports success,
+and the workload simply never starts. A dry run cannot see any of it, since a dry run creates
+no pods.
+
+## 138. A rule that never replaced material it could not prove it wrote made a directory no controller could ever start in again
+
+**Symptom.** A controller reported, on every start, that its own certificate directory
+"holds certificate material this controller did not write and cannot serve", and told the
+operator to set `TLS_CERT_FILE` or move the material aside. Every other controller sharing
+the directory said exactly the same thing. Nothing recovered without a human deleting a file
+the message had just warned them not to touch. Four states produced it and this package
+itself produces three of them:
+
+1. `serving.pem` of zero length, or holding bytes that are not PEM, or cut off part way
+   through the certificate. That is what a process killed mid-write, or a volume that ran out
+   of space, leaves behind. The directory's own provenance records proved this package had
+   written the file, and it was still refused.
+2. A directory holding only `cert.pem`. A certificate with no key beside it can be served by
+   nobody and is a secret to nobody.
+3. Any read failure that was not "no such file": a permission error, a directory where the
+   file should be, a named pipe. Every file this package writes is 0600, so two controllers
+   running as two users produced this against each other, and the message blamed a secret
+   nobody had put there.
+4. A legacy `provisioned.pem` that existed and could not be read. That one did not stop the
+   start: it made `AnchorsForDir` return an error instead of the anchors it had already
+   gathered, so a controller that provisioned perfectly and served perfectly failed the
+   container healthcheck it ships with, forever, over a file nothing else in the process
+   reads. An orchestrator answers that by killing a healthy process.
+
+**Root cause.** One rule, "never replace material I cannot prove I wrote", applied to
+everything in the directory. It is the right rule for exactly one thing, a private key,
+because a private key exists in exactly one place. Applied to bytes that do not parse it
+protected nothing, because nothing can serve them and nobody can lose them. Applied to a
+certificate it protected something public that could not be served without the key that was
+not there. Applied to a file that could not be READ it stated a conclusion ("did not write")
+where the honest answer was "unknown", and named a setting that would not have fixed it.
+The rule also conflated two different promises: refusing to overwrite a file, which costs
+nothing, and refusing to start, which costs a deployment its availability.
+
+**Fix.** The question is asked about a private key and nothing else. Publishing is blocked by
+a parseable private key this package cannot account for, or by a file that exists and cannot
+be read; every refusal names the file, quotes what the operating system said, gives the uid
+this process runs as, and states both ways out. Bytes that do not parse and a certificate
+with no key beside it never block a start, and are still never overwritten, because
+`certFileIsOurs` keeps the stricter rule at the write itself. The unreadable legacy record is
+now advisory to the anchor builder: `readProvisioned` returns the certificates it did gather
+alongside its error, ownership stops on the error and the anchors carry on without it.
+
+**Lesson.** A protection has to name what it is protecting. "Material" was four different
+things wearing one word, and the one of them worth a refusal was the private key. Before
+writing a rule that can refuse forever, list the states it will refuse in, and check how many
+of them the code itself can produce: three of these four were ours.
+
+## 139. The trust anchors could not admit what a running replica was still presenting
+
+**Symptom.** A controller that had been up for over an hour failed its own container
+healthcheck, on every probe, while serving a certificate that worked. The trigger was one
+sibling publishing one new certificate. An orchestrator answers a failing healthcheck by
+restarting the process, so a perfectly healthy replica was killed.
+
+**Root cause.** Two holes in the same set. The provenance records are the healthcheck's trust
+anchors, and a record could disappear while the process presenting that certificate was still
+running. `pruneProvisioned` kept the sixteen most recent records and deleted the rest once
+they were an hour old, so the seventeenth certificate a directory ever saw evicted the first,
+and an uptime longer than the grace window was all it took. Separately, a replica that REUSED
+what it found wrote no record at all: its anchor was another writer's file, so a directory
+whose records had been lost (an operator tidying up, a restore that missed a subdirectory)
+left that replica trusting nothing of its own.
+
+**Fix.** A record is removed only once the certificate in it has expired past a clock-skew
+grace, because that is the only moment at which no process can legitimately still be
+presenting it. Neither number in the old rule could be tuned to be right: any count is wrong
+for a fleet one replica larger, and any age is wrong for an uptime one hour longer. And
+`settle` now records what it is about to serve, so every replica puts its own answer into the
+set, in a file named after its own fingerprint that no other writer will ever open.
+
+**Lesson.** When a set decides whether a live process is healthy, membership has to be
+governed by a fact about that process, not by housekeeping convenience. "The sixteen most
+recent" and "younger than an hour" are facts about the directory. "Its certificate has not
+expired" is a fact about what a replica can still be doing.
+
+## 140. A log field named for a certificate carried the path of the private key
+
+**Symptom.** The startup WARN line reported `cert_file` as the path of `serving.pem` on every
+reuse, and the documentation described that field as a certificate path. An operator
+following it into a `curl --cacert`, a ConfigMap or a copy to a colleague would have handed
+this server's private key to something that only ever wanted the certificate.
+
+**Root cause.** `ServingCert.CertFile` was set to the file the material was READ from. On the
+publish path that was `cert.pem` and the field was right; on the reuse path the material is
+read from the serving bundle, which is one file holding the certificate AND the key, so both
+fields named it. Nothing was wrong with the value, and the name was a promise the value could
+not keep.
+
+**Fix.** `CertFile` is settled by reading `cert.pem` back and confirming it holds the
+certificate being served, and `ServingCert.AnchorFile` reports whether a key-free copy exists
+at all, so a caller with nothing safe to print prints nothing. The controller renamed its
+fields to what they carry: `serving_file` for the material, `trust_anchor_file` for the copy
+with no key in it.
+
+**Lesson.** A field name is an instruction to whoever reads the log. If the name says
+"certificate" then every value it can ever hold has to be a certificate and nothing else, or
+the field has to be able to be absent.
+
+## 141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
+
+**Symptom.** `make ci` failed at `TestPackagingReleaseGate_KubernetesInstall`, in
+`assertALongReleaseNameStillProducesFourWorkingWorkloads`. Every assertion before it had
+passed against a real cluster: the chart installed, `/readyz` reported its database and
+broker, `bootstrap-admin` ran through `kubectl exec`, and the runner Deployment reached
+Available with its in-pod `runner healthcheck` reporting an 8-second-old heartbeat. Then the
+second install, at a 53-character release name, sat at `Available: 0/1` for its full
+8-minute budget, after which every `kubectl` and `helm` call returned `connection refused`
+against the API server. Run alone afterwards, the identical test passed in 259 seconds and
+that same install completed in 67.
+
+**Root cause.** The cluster's name is a constant, `kindClusterName = "pleiades-release-gate"`
+in `tests/e2e/packaging_kind_test.go`, and `createKindCluster` opens by deleting any cluster
+of that name. That delete-first is deliberate and correct for what it was written against: a
+test binary killed before its `t.Cleanup` runs leaves the cluster behind, and `kind create`
+refuses a name that already exists. What it cannot do is tell an ABANDONED cluster from a
+LIVE one. The name is a shared global with no ownership marker, so any second actor holding
+it, a concurrent `make ci`, a `make push-gate` overlapping a manual run, or a person tidying
+up, destroys the first one's cluster mid-install.
+
+The expensive part is not the lost run, it is where the failure surfaces. A test whose
+infrastructure is removed reports the assertion that was executing, never the removal. This
+one pointed at the long-release-name boundary, which is exactly where this chart has had two
+real defects before (#137 is one of them), so the failure was credible in every particular
+and was about none of them.
+
+**Fix.** Partial, and the halves are worth separating.
+
+What is fixed: `tools/breakglass` and `make break-glass`, the recovery path for leftover
+infrastructure, refuses to run while a test run is live rather than cleaning underneath it.
+It asks two independent questions, because neither covers the other's window: whether a
+testcontainers reaper is running, and whether a `go test` process has its working directory
+inside this repository. Its own removals are positively attributed to this repository first,
+so a developer's long-lived cluster is listed and left rather than pruned. Verified against a
+genuinely live `make ci`: it refused, exited 1, and the gate's cluster survived.
+
+The gate itself was fixed in the same session, and its two halves separate the same way.
+
+The NAME now carries an owner. `kindClusterPrefix` is the shared prefix and each run's cluster is
+`<prefix>-<pid>`, so no two runs can name the same cluster and `kind create` cannot collide with a
+live sibling. The unconditional delete-first is gone because there is nothing left for it to do.
+
+The RECLAMATION now asks about the owner rather than about the name. `reclaimAbandonedClusters`
+deletes a prefixed cluster only when the process id in its name no longer names a running process,
+which is the one fact separating a cluster nobody will ever use again from one somebody is using
+right now. A cluster whose owner is alive is left alone and logged even though it is almost
+certainly in the way. PID reuse can make a dead cluster look alive; that is the safe direction,
+since the failure is a leak a later run or `make break-glass` clears, where the opposite error is
+the incident above. `tools/breakglass` applies the identical rule against the same prefix.
+
+That rule's test caught a real bug on its first run: a pid of 0 was read as "dead, therefore
+reclaimable", when `os.Getpid` never returns 0 and such a name proves nothing whatever.
+Unattributable is now its own answer, distinct from abandoned, so an anomaly is left alone instead
+of deleted. The live case is asserted against the test process's own id, so it cannot pass by
+picking a number that happens to be free.
+
+**Lesson.** Infrastructure identified by a constant has no owner, so every cleanup of it is a
+race with every user of it, and the loser's failure is reported against whatever assertion
+happened to be running. See LESSONS_LEARNED.md #129.
+
+## 142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
+
+**Symptom.** None, until somebody looked. The chart rendered, `helm lint` passed, `kubectl apply
+--dry-run` accepted the output, and every existing helm-lint profile was green. The defect was found
+by the Schema/Injection Hardening audit asking what happens to a hostile value rather than a
+plausible one.
+
+**Root cause.** `templates/controller-deployment.yaml` interpolated
+`.Values.externalDatabase.existingSecret` and `.existingSecretKey` into the `secretKeyRef` that
+supplies `DB_DSN`, unquoted, and `values.schema.json` declares both as plain `string` with no
+pattern. A YAML plain scalar may continue onto following lines, so a value whose continuation is
+indented to exactly the depth of the key it was rendered under stops being a value and becomes
+structure. Demonstrated, not theorised:
+
+    externalDatabase:
+      existingSecret: "innocent-name\n                  optional: true"
+
+rendered as
+
+    secretKeyRef:
+      name: innocent-name
+      optional: true
+      key: DB_DSN
+
+The consequence is worse than the injection itself. `optional: true` means a Secret that is missing
+no longer blocks the pod: `DB_DSN` is simply absent, and `cmd/controller` falls back to its
+documented default of `sqlite://controller.db`. The operator gets a controller that passes every
+probe and reports itself healthy while running on an empty container-local database instead of their
+PostgreSQL, and loses whatever it writes at the next restart. A silent switch to the wrong database
+is the failure this repository's whole fail-closed configuration convention exists to prevent, and
+it arrived through a template rather than through code.
+
+The same class was present on every string-valued interpolation in the chart: `imagePullPolicy`,
+`claimName`, `storage`, `type`, `accessMode` and the runner's volume `name`. Only the two secret
+fields had both an unconstrained schema type and a security-relevant destination, but all of them
+could break a render.
+
+**Fix.** Every string-valued interpolation is piped through `quote`. The numeric ones deliberately
+are not: quoting a port, a replica count or a probe interval turns an integer into a string and
+Kubernetes rejects it, so a blanket rule would have been its own outage.
+
+The regression guard is `checkValueInjection` in `tools/helm-lint`, and it is dynamic rather than
+static on purpose. A static rule would have to assert that every interpolation is quoted, which is
+false and must stay false for the numeric ones, and deciding which is which needs a schema that does
+not describe every value. So the guard renders the chart with the real payload and fails only if the
+payload becomes a mapping key. Either safe outcome passes: refusing to render, or rendering the
+payload inertly as a quoted scalar. Verified by removing the quote and watching it fail with the
+exact finding, then restoring it.
+
+**Lesson.** A template is an injection surface with no type system in front of it. Ask what a value
+does when it contains a newline, not only when it contains the wrong word.

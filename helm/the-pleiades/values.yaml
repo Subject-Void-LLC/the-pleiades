@@ -1,161 +1,588 @@
 # Default values for the-pleiades.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+#
+# A note on spelling before anything else. Every key here is camelCase rather
+# than the lowercase-with-underscores this repository uses for its own YAML
+# (runbooks, inventories, playbooks). That is deliberate, not drift: most of
+# these keys are copied straight into a Kubernetes object, where the field
+# names are fixed by the Kubernetes API (readOnlyRootFilesystem,
+# nodeSelector, storageClassName), so a chart written with underscores would
+# have to switch spelling halfway down every block. One spelling, matching the
+# API these values become, is the lesser evil.
+#
+# THREE VALUES HAVE NO DEFAULT AND THE CHART REFUSES TO RENDER WITHOUT THEM:
+#
+#   secrets.masterEncryptionKey    base64 of exactly 32 random bytes
+#   secrets.jwtSecret              at least 32 bytes
+#   postgresql.auth.password       any password, when the in-chart database is on
+#
+# Generate all three at once and keep them somewhere you can find again:
+#
+#   helm install pleiades ./helm/the-pleiades \
+#     --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
+#     --set secrets.jwtSecret="$(openssl rand -hex 32)" \
+#     --set postgresql.auth.password="$(openssl rand -hex 16)"
+#
+# The chart will not invent them for you, and that is the single most
+# important decision in this file. Helm can generate a random value, and a
+# chart that did would regenerate a DIFFERENT one on the next `helm upgrade`,
+# because `helm template` has no cluster to read the old value back from. A
+# rotated JWT secret signs everybody out. A rotated MASTER_ENCRYPTION_KEY
+# makes every stored credential and every encrypted device property
+# permanently undecryptable, with no error at upgrade time and no way back.
+# Asking for three flags once is cheaper than that.
 
-# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-replicaCount: 1
-
-# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
-image:
-  repository: nginx
-  # This sets the pull policy for images.
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
-
-# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
-imagePullSecrets: []
-# This is to override the chart name.
+# -- Overrides for the generated object names. nameOverride replaces the chart
+# name inside them; fullnameOverride replaces the whole prefix.
 nameOverride: ""
 fullnameOverride: ""
 
-# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+# -- The cluster's DNS domain, used only to put the controller Service's fully
+# qualified name on a self-provisioned certificate. Change it if your cluster
+# was installed with a different one.
+clusterDomain: cluster.local
+
+# -- Pull secrets for a private registry, applied to every pod this chart
+# creates.
+imagePullSecrets: []
+# - name: my-registry-credentials
+
 serviceAccount:
-  # Specifies whether a service account should be created.
+  # -- Create a ServiceAccount for this release. One account is shared by all
+  # four workloads; none of them talks to the Kubernetes API, so it holds no
+  # RBAC and exists mainly so annotations (an IRSA role, a Workload Identity
+  # binding) have somewhere to live.
   create: true
-  # Automatically mount a ServiceAccount's API credentials?
-  automount: true
-  # Annotations to add to the service account.
+  # -- Mount the API token into every pod. Off by default because nothing here
+  # calls the Kubernetes API, and a token nobody needs is a credential sitting
+  # in a container that runs other people's automation.
+  automount: false
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template.
+  # -- Use an existing account instead of creating one.
   name: ""
 
-# This is for setting Kubernetes Annotations to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
-podAnnotations: {}
-# This is for setting Kubernetes Labels to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
-podLabels: {}
+secrets:
+  # -- Read every credential from a Secret you manage yourself instead of one
+  # this chart creates. The Secret must carry these keys:
+  # MASTER_ENCRYPTION_KEY, JWT_SECRET, DB_DSN, and POSTGRES_PASSWORD when the
+  # in-chart database is enabled. This is the route for the External Secrets
+  # Operator, a Vault sidecar, or anything else that owns your secrets.
+  existingSecret: ""
+  # -- base64 of exactly 32 random bytes: `openssl rand -base64 32`. Every
+  # credential and every encrypted device property in the database is
+  # encrypted under this key. Losing it loses them.
+  masterEncryptionKey: ""
+  # -- At least 32 bytes: `openssl rand -hex 32`. Signs API tokens and browser
+  # sessions. Changing it signs everybody out, which is recoverable, unlike
+  # changing the key above.
+  jwtSecret: ""
 
-podSecurityContext: {}
-  # fsGroup: 2000
+controller:
+  # -- How many controllers to run. One is the default because the default
+  # volume is ReadWriteOnce: this chart creates ONE claim for the controller
+  # (a Deployment has no volumeClaimTemplates), so more than one replica needs
+  # persistence.accessMode=ReadWriteMany or persistence.enabled=false. See
+  # tls.mode as well if the controller is provisioning its own certificate.
+  replicaCount: 1
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+  image:
+    # -- The image name, and the thing most likely to need changing before an
+    # install works.
+    #
+    # NOTHING IS PUBLISHED. There is no registry hosting a Pleiades image, so
+    # this default is not a registry path: it is exactly the name
+    # `docker compose build` produces in this repository, which is also the
+    # name `kind load docker-image` side-loads. That makes the air-gapped
+    # install work with no flags and makes an ordinary install fail visibly
+    # (ImagePullBackOff in `kubectl get pods`) rather than appearing to work.
+    #
+    # Point this at your own registry once you push there. See
+    # docs/10-running-in-production.md for the build, load and install
+    # sequence.
+    repository: pleiades/controller
+    # -- The tag, stated explicitly and never left empty.
+    #
+    # An empty tag is how the stock chart worked: it fell back to
+    # .Chart.AppVersion, which is how a chart meant to run Pleiades ran
+    # nginx:1.16.0 instead. The chart refuses an empty tag and refuses
+    # `latest`.
+    #
+    # A TAG, NEVER A DIGEST. A digest-pinned reference does not resolve
+    # against a side-loaded image even when the local daemon reports that
+    # exact digest, so digest pinning breaks every air-gapped and kind-based
+    # install. tools/helm-lint fails the build on a digest for that reason.
+    tag: dev
+    pullPolicy: IfNotPresent
 
-# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
-service:
-  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
-  type: ClusterIP
-  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 80
+  tls:
+    # -- How callers reach the controller. One of three, and the chart sets
+    # the environment the controller reads for each.
+    #
+    #   self-provisioned  The controller generates a self-signed certificate
+    #                     into its own data volume, reuses it across restarts,
+    #                     and serves HTTPS. Nothing to configure. It ENCRYPTS
+    #                     and does not AUTHENTICATE: browsers warn, and an
+    #                     operator who clicks through cannot tell this
+    #                     controller from anything else on that address.
+    #
+    #   secret            The controller serves the certificate and key from
+    #                     tls.secretName (a kubernetes.io/tls Secret, so
+    #                     cert-manager can own it). This is the production
+    #                     answer when TLS terminates in the pod.
+    #
+    #   upstream          The controller serves plain HTTP because an Ingress
+    #                     or a mesh in front of it already terminated TLS.
+    #                     Only say this when it is true: the browser session
+    #                     cookie is Secure and __Host- prefixed
+    #                     unconditionally, so a browser reaching a plain-HTTP
+    #                     origin silently drops it and sign-in fails with a
+    #                     message about credentials.
+    #
+    # WHAT self-provisioned DOES WITH MORE THAN ONE REPLICA, which is the
+    # decision worth reading before changing anything here.
+    #
+    # Several of them sharing ONE directory is supported. The provisioning
+    # code is lock-free: every replica reads what is published, mints a
+    # replacement only if it cannot serve what it found, publishes with one
+    # atomic rename, and then reads again. None of them waits on another, none
+    # of them can be blocked by another that is slow or dead, and the
+    # directory converges on one certificate that all of them adopt on their
+    # next restart. Sharing one directory across replicas needs
+    # persistence.accessMode=ReadWriteMany, which needs storage that can serve
+    # a volume to more than one node at a time.
+    #
+    # The one thing it does not promise is that all of them present the same
+    # certificate at the same instant. After a contended cold start, a replica
+    # whose read landed before another's rename keeps serving the one it read
+    # until it restarts. That costs nothing here: these certificates encrypt
+    # and do not authenticate, so a client can only trust one by being handed
+    # that exact certificate, and it is pinning per-pod material either way.
+    #
+    # WHAT IS REFUSED is more than one replica with persistence.enabled=false.
+    # Each replica's /data is then its own emptyDir, so each mints its own
+    # certificate and a new one on every restart, and there is nothing to
+    # converge on. For a scale-out where every replica serves an IDENTICAL
+    # certificate, use `secret` or `upstream`.
+    mode: self-provisioned
+    # -- The kubernetes.io/tls Secret to serve, required when mode is
+    # `secret`. cert-manager writes exactly this shape.
+    secretName: ""
+    # -- Extra subject alternative names for a self-provisioned certificate.
+    # The chart already adds the controller Service's own DNS names and every
+    # ingress.hosts entry; add anything else you reach this controller by (a
+    # load balancer name, a colleague's shortcut). A name that is not on the
+    # certificate is a browser rejection that looks identical to the
+    # untrusted-issuer warning, so it is worth getting right the first time.
+    autocertHosts: []
 
-# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+  service:
+    type: ClusterIP
+    # -- The port the Service publishes and the container listens on.
+    #
+    # 8080 while speaking HTTPS, deliberately, matching docker-compose.yml.
+    # Moving to 8443 would put the scheme in the number and invalidate every
+    # bookmark and every line of documentation naming this port, to buy a
+    # hint. Sending plain HTTP at it answers 400 with "Client sent an HTTP
+    # request to an HTTPS server", which is a clearer signal than a port
+    # number.
+    port: 8080
+    annotations: {}
+
+  persistence:
+    # -- Give the controller a durable volume at /data.
+    #
+    # It holds two things worth keeping: the self-provisioned certificate (so
+    # a restart does not hand everybody a new one to trust) and the
+    # file-backed per-device credential store the controller falls back to
+    # when a template binds no machine credential. With this off, both live in
+    # an emptyDir and disappear with the pod.
+    #
+    # The volume is ReadWriteOnce and the Deployment therefore uses the
+    # Recreate strategy whenever this is enabled: a rolling update would ask a
+    # second pod to mount a ReadWriteOnce volume the outgoing pod still holds,
+    # which most CSI drivers refuse, and the upgrade would hang with the new
+    # pod Pending. Recreate means a short outage on every upgrade instead of a
+    # stuck one.
+    enabled: true
+    # -- Use a PersistentVolumeClaim you created yourself.
+    existingClaim: ""
+    # -- Empty means the cluster's default StorageClass.
+    storageClassName: ""
+    size: 1Gi
+    accessMode: ReadWriteOnce
+
+  autoscaling:
+    # -- Autoscale the controller on CPU and optionally memory.
+    #
+    # An autoscaler exists to create a second replica, so everything written
+    # at replicaCount and tls.mode about more than one replica applies here
+    # the moment this is on, whatever minReplicas says. In particular the
+    # volume has to be shareable: persistence.accessMode=ReadWriteMany, or
+    # persistence.enabled=false with TLS coming from a Secret or an ingress.
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    # -- Leave null to scale on CPU alone. Memory is a poor scaling signal for
+    # a process with a connection pool and a cache: it rises and does not fall,
+    # so a memory target tends to scale up and never back down.
+    targetMemoryUtilizationPercentage: null
+
+  podDisruptionBudget:
+    # -- Off by default, because the default is one replica and a budget over a
+    # single replica is either theater or a deadlock. minAvailable: 1 with one
+    # pod means no voluntary eviction can ever happen, so `kubectl drain`
+    # hangs forever and a cluster upgrade stalls on this namespace.
+    # maxUnavailable: 1 with one pod permits every eviction, which is what
+    # happens without a budget at all. Turn this on together with
+    # replicaCount > 1 or autoscaling.
+    enabled: false
+    # -- Set one of the two, never both. Kubernetes rejects an object carrying
+    # both, and this chart refuses to render one.
+    minAvailable: ""
+    maxUnavailable: 1
+
+  # -- Requests are set and CPU limits are not, deliberately.
+  #
+  # A CPU limit is enforced by CFS quota: a process that reaches it is
+  # throttled for the rest of the period, which shows up as latency on a
+  # request that was doing nothing wrong. Memory has no equivalent graceful
+  # degradation, so memory gets a limit (the kernel would otherwise take the
+  # whole node) and CPU gets a request, which is what the scheduler actually
+  # packs on.
+  #
+  # These numbers are a starting point sized to boot on a laptop-scale cluster,
+  # not a measurement. No Pleiades deployment has been run at a scale worth
+  # sizing against yet; docs/10-running-in-production.md's Sizing section says
+  # the same thing at more length rather than pretending otherwise.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  probes:
+    # -- /healthz and /readyz are different endpoints on purpose and the chart
+    # will not let them be pointed at the same path.
+    #
+    # /healthz answers "this process is alive" and nothing else. /readyz
+    # queries the database and checks the live NATS connection. Pointing
+    # liveness at /readyz (which is what the stock chart's shared path amounts
+    # to) turns a database blip into a pod kill, and then into a restart loop
+    # across every replica at once, exactly when the database is already
+    # struggling. Both endpoints sit outside the authentication chain because
+    # internal/api/router.go treats them as a contract with the orchestrator.
+    liveness:
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 0
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 3
+    # -- The startup probe is what makes the liveness settings above safe. The
+    # controller runs its schema migration before it opens a listener, so on a
+    # first install nothing answers for a while, and a liveness probe with no
+    # startup probe in front of it would kill the pod mid-migration and do it
+    # again on the next try. failureThreshold x periodSeconds is the migration
+    # budget: 30 x 5s = 150 seconds here.
+    startup:
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 30
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  # -- Extra environment variables, appended after everything the chart sets.
+  # The full list of what the controller reads is in
+  # docs/10-running-in-production.md.
+  extraEnv: []
+  # - name: RATE_LIMIT_RPS
+  #   value: "100"
+
+runner:
+  # -- Two runners by default. They pull from one durable NATS consumer group,
+  # so replicas share work rather than duplicating it, and two is the smallest
+  # number that proves that is true in your cluster.
+  replicaCount: 2
+
+  image:
+    # -- Same story as the controller image above: not a registry path,
+    # nothing is published, this is the name the repository's own build
+    # produces.
+    repository: pleiades/runner
+    tag: dev
+    pullPolicy: IfNotPresent
+
+  # -- THE CHART REFUSES TO RENDER IF YOU SET THIS. It is here so the refusal
+  # is findable, with its reason, at the place an operator would look for the
+  # feature.
+  #
+  # The legacy Ansible path runs a playbook by starting a SIBLING CONTAINER
+  # through a Docker daemon. A pod has no Docker daemon. The two ways to give
+  # it one are mounting the node's /var/run/docker.sock (which hands the
+  # container control of every container on that node, including the ones that
+  # are not yours) or running a privileged Docker-in-Docker sidecar (which is
+  # a root container with the host's kernel). Neither is acceptable in a chart
+  # people install into shared clusters, so this chart supports the native
+  # execution path only. Run unconverted playbooks on a Docker host with
+  # docker-compose.yml until the runner grows a daemonless container backend.
+  playbookDir: ""
+  # -- The other half of the same refusal. PLAYBOOK_DIR and
+  # ANSIBLE_RUNNER_IMAGE are meaningless apart: one names what to run, the
+  # other names what runs it.
+  ansibleImage: ""
+
+  # -- Concurrent jobs per runner. 0 leaves the binary's own default alone.
+  poolSize: 0
+
+  # -- The liveness heartbeat both runner probes read, and the two staleness
+  # limits they judge it by.
+  #
+  # The runner touches a file every `intervalSeconds`, but ONLY after a real
+  # round trip to the server about the durable consumer it pulls from. A
+  # runner whose broker connection is gone therefore stops touching it while
+  # staying up, which is the failure this exists to expose. What it cannot
+  # see is a runner whose workers are all wedged: the beat proves the agent
+  # CAN pull, never that it IS making progress.
+  #
+  # THE RULE THESE THREE HAVE TO KEEP: readiness > interval, and liveness >
+  # readiness. A limit at or below the interval reports every runner
+  # unhealthy on the first slow round trip, and the chart refuses that rather
+  # than rendering it.
+  heartbeat:
+    intervalSeconds: 10
+    # -- Six missed beats before a pod is RESTARTED. Deliberately the more
+    # forgiving of the two: crossing it abandons whatever that runner was
+    # executing, so the bar is a broker that has been unreachable for a
+    # minute rather than one that hiccupped.
+    livenessStaleAfterSeconds: 60
+    # -- Three missed beats before a pod is marked NOT READY, which costs
+    # nothing but a paused rollout. See the readinessProbe comment in
+    # templates/runner-deployment.yaml for what a readiness probe does for a
+    # workload behind no Service, since the answer is not "nothing".
+    readinessStaleAfterSeconds: 30
+
+  probes:
+    # -- How often the kubelet runs `runner healthcheck`, and how many
+    # failures in a row it takes to act.
+    #
+    # Read these together with heartbeat above: total detection time is the
+    # staleness limit PLUS periodSeconds x failureThreshold. At the defaults
+    # a permanently severed broker restarts a runner between 60 and 105
+    # seconds after it happens.
+    #
+    # There is deliberately no startup probe. The controller needs one
+    # because it runs a schema migration before it opens a listener; a runner
+    # does nothing of the kind, and initialDelaySeconds plus the heartbeat's
+    # own "absent means not started yet" answer already covers its cold start
+    # without a third probe to keep in step.
+    liveness:
+      initialDelaySeconds: 20
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 2
+
+  podDisruptionBudget:
+    # -- On by default, unlike the controller's, because the default replica
+    # count here is 2: a budget that keeps one runner up during a node drain
+    # has something real to protect.
+    enabled: true
+    minAvailable: ""
+    maxUnavailable: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  # -- Extra environment variables. RUNNER_WAL_DIR is refused here: the result
+  # write-ahead log needs a durable volume per replica, which a Deployment
+  # cannot express, and pointing it anywhere else means the runner fails
+  # closed at startup or silently writes the log to a filesystem that
+  # disappears.
+  extraEnv: []
+
+runbooks:
+  # -- Where both the controller and every runner read runbooks from, mounted
+  # read-only at /app/runbooks in both.
+  #
+  # Set one of these or neither. With neither, both workloads see the empty
+  # directory baked into their images, which means nothing can be launched:
+  # the controller lists no runbooks and every dispatch would fail on the
+  # runner side. That is a working install with nothing to run, which is fine
+  # for a first look and useless for anything else.
+  #
+  # THE ONE RULE: the controller and the runner must see the SAME directory.
+  # Both resolve a dispatched runbook id independently, the controller to
+  # compile the job's capability requirements and the runner to build the DAG
+  # it executes, so two different directories means a job that launches here
+  # and fails there. This chart mounts one source into both for that reason.
+  configMapName: ""
+  # -- A ReadWriteMany claim, for a runbook set too large for a ConfigMap's
+  # 1 MiB limit. ReadWriteOnce will not do: the controller and the runners are
+  # different pods, usually on different nodes.
+  existingClaim: ""
+
+postgresql:
+  # -- Deploy PostgreSQL as part of this release.
+  #
+  # ON by default so a trial install is one command, and it is a single
+  # instance with no replication, no failover, no backup and no connection
+  # pooler. That is the right shape for an evaluation and the wrong shape for
+  # production. Turn it off and point externalDatabase at a managed database
+  # you already know how to back up.
+  enabled: true
+  image:
+    # -- Pinned to the same exact version docker-compose.yml and the container
+    # backed tests use. A bare major (postgres:15) is not a pin: it silently
+    # becomes 15.20 the day upstream publishes it, with no commit to point at.
+    repository: postgres
+    tag: 15.19-alpine
+    pullPolicy: IfNotPresent
+  auth:
+    username: pleiades
+    database: pleiades
+    # -- Required when postgresql.enabled is true and secrets.existingSecret is
+    # empty. There is no default, because a chart that shipped one would ship
+    # the same database password to everybody who ever installs it.
+    #
+    # KEEP IT. These three values (username, database, password) are applied by
+    # PostgreSQL only when it initializes an EMPTY data directory, and the data
+    # volume outlives `helm uninstall` (see persistence below). Installing again
+    # with a different password would therefore leave the database holding the
+    # old one and the controller trying the new one, which is a crash loop with
+    # nothing naming the cause. The chart refuses that rather than rendering it:
+    # the StatefulSet stamps a hash of these three onto its claim, and the next
+    # install compares.
+    password: ""
+  service:
+    port: 5432
+  persistence:
+    # -- Give PostgreSQL a durable volume.
+    #
+    # THE CLAIM OUTLIVES THE RELEASE. It is created by the StatefulSet's
+    # volumeClaimTemplate, and Kubernetes deliberately does not delete those
+    # when the StatefulSet goes away, so `helm uninstall` leaves the database
+    # behind. That is the safer default: destroying a database on uninstall
+    # would be worse than leaving a volume to clean up. Deleting the data is a
+    # deliberate `kubectl delete pvc data-<release>-postgres-0` afterwards, and
+    # it destroys every user, device, template, job, credential and role binding
+    # in it, with no backup taken by this chart.
+    enabled: true
+    existingClaim: ""
+    storageClassName: ""
+    size: 8Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+externalDatabase:
+  # -- The DSN the controller connects with when postgresql.enabled is false,
+  # for example
+  # postgres://user:password@db.example.com:5432/pleiades?sslmode=verify-full
+  # It lands in the Secret this chart creates, so it is not visible in the
+  # Deployment's environment block or in `helm get values`.
+  dsn: ""
+  # -- Or name a Secret you already manage that carries the DSN, which keeps
+  # it out of Helm's release storage entirely.
+  existingSecret: ""
+  existingSecretKey: DB_DSN
+
+nats:
+  # -- Deploy NATS with JetStream as part of this release.
+  #
+  # ON by default, single instance, no clustering, and NO AUTHORIZATION: any
+  # pod that can reach the Service can publish and subscribe. That matters
+  # more here than it looks, because a dispatch payload carries the
+  # credentials the job runs with, and the stream retains messages. Restrict
+  # it with a NetworkPolicy, or point externalNats at a broker with real
+  # accounts, before this handles anything you care about.
+  enabled: true
+  image:
+    # -- The -alpine variant at the same exact version docker-compose.yml and
+    # the container-backed tests pin.
+    repository: nats
+    tag: 2.14.4-alpine
+    pullPolicy: IfNotPresent
+  service:
+    clientPort: 4222
+    monitorPort: 8222
+  persistence:
+    # -- JetStream's store holds every stream, every durable consumer
+    # position, and the KV bucket carrying the scheduler and fan-out leases.
+    # Losing it loses in-flight work along with every job the runners had not
+    # acknowledged.
+    enabled: true
+    existingClaim: ""
+    storageClassName: ""
+    size: 8Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+externalNats:
+  # -- The broker URL when nats.enabled is false, for example
+  # nats://nats.example.com:4222. JetStream must be enabled on it.
+  url: ""
+
 ingress:
+  # -- Publish the controller through an Ingress.
+  #
+  # Read this before enabling it with the default TLS mode. When the
+  # controller serves its own certificate (modes self-provisioned and secret),
+  # the ingress controller has to speak HTTPS to the backend, and most
+  # controllers assume HTTP unless told otherwise. On ingress-nginx that is
+  # the backend-protocol annotation below. If you would rather terminate TLS
+  # at the ingress alone, set controller.tls.mode=upstream, and then the
+  # backend is plain HTTP and the annotation is wrong.
   enabled: false
   className: ""
   annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
+  # nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+  # -- Every entry needs BOTH a path and a pathType. pathType is required by
+  # networking.k8s.io/v1, so an entry without one is a manifest the API server
+  # refuses; values.schema.json requires the key and the template defaults it
+  # to Prefix, so neither half of that mistake can reach a cluster.
   hosts:
-    - host: chart-example.local
+    - host: pleiades.example.com
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
-    # - secretName: chart-example-tls
-    #   hosts:
-    #     - chart-example.local
-
-# -- Expose the service via gateway-api HTTPRoute
-# Requires Gateway API resources and suitable controller installed within the cluster
-# (see: https://gateway-api.sigs.k8s.io/guides/)
-httpRoute:
-  # HTTPRoute enabled.
-  enabled: false
-  # HTTPRoute annotations.
-  annotations: {}
-  # Which Gateways this Route is attached to.
-  parentRefs:
-  - name: gateway
-    sectionName: http
-    # namespace: default
-  # Hostnames matching HTTP header.
-  hostnames:
-  - chart-example.local
-  # List of rules and filters applied.
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /headers
-  #   filters:
-  #   - type: RequestHeaderModifier
-  #     requestHeaderModifier:
-  #       set:
-  #       - name: My-Overwrite-Header
-  #         value: this-is-the-only-value
-  #       remove:
-  #       - User-Agent
-  # - matches:
-  #   - path:
-  #       type: PathPrefix
-  #       value: /echo
-  #     headers:
-  #     - name: version
-  #       value: v2
-
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
-
-# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-livenessProbe:
-  httpGet:
-    path: /
-    port: http
-readinessProbe:
-  httpGet:
-    path: /
-    port: http
-
-# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
-
-# Additional volumes on the output Deployment definition.
-volumes: []
-  # - name: foo
-  #   secret:
-  #     secretName: mysecret
-  #     optional: false
-
-# Additional volumeMounts on the output Deployment definition.
-volumeMounts: []
-  # - name: foo
-  #   mountPath: "/etc/foo"
-  #   readOnly: true
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
+  # - secretName: pleiades-ingress-tls
+  #   hosts:
+  #     - pleiades.example.com

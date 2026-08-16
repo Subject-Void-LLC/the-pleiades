@@ -149,7 +149,7 @@ func newHarness(t *testing.T, id *auth.Identity) *harness {
 		t.Fatalf("session Create() = %v, want nil", err)
 	}
 
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 	h := web.New(web.Config{
 		Prefix:    "/ui",
 		Version:   "conformance",

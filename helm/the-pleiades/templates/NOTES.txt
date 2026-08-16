@@ -1,35 +1,95 @@
-1. Get the application URL by running these commands:
-{{- if .Values.httpRoute.enabled }}
-{{- if .Values.httpRoute.hostnames }}
-    export APP_HOSTNAME={{ .Values.httpRoute.hostnames | first }}
-{{- else }}
-    export APP_HOSTNAME=$(kubectl get --namespace {{(first .Values.httpRoute.parentRefs).namespace | default .Release.Namespace }} gateway/{{ (first .Values.httpRoute.parentRefs).name }} -o jsonpath="{.spec.listeners[0].hostname}")
-  {{- end }}
-{{- if and .Values.httpRoute.rules (first .Values.httpRoute.rules).matches (first (first .Values.httpRoute.rules).matches).path.value }}
-    echo "Visit http://$APP_HOSTNAME{{ (first (first .Values.httpRoute.rules).matches).path.value }} to use your application"
+{{ .Release.Name }} is installed. Nobody can sign in yet: that is the next step.
 
-    NOTE: Your HTTPRoute depends on the listener configuration of your gateway and your HTTPRoute rules.
-    The rules can be set for path, method, header and query parameters.
-    You can check the gateway configuration with 'kubectl get --namespace {{(first .Values.httpRoute.parentRefs).namespace | default .Release.Namespace }} gateway/{{ (first .Values.httpRoute.parentRefs).name }} -o yaml'
-{{- end }}
-{{- else if .Values.ingress.enabled }}
+1. Wait for the controller to be ready.
+
+   kubectl rollout status -n {{ .Release.Namespace }} deploy/{{ include "the-pleiades.controller.fullname" . }}
+
+   If it does not move, check for ImagePullBackOff first:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+   No Pleiades image is published to any registry. This release asks for
+   {{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }} and {{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }},
+   which are the names this repository's own build produces. Build and
+   side-load them, or push them to your registry and reinstall with
+   controller.image.repository and runner.image.repository pointed there.
+
+2. Create the first administrator. Until this runs, there is no account.
+
+   kubectl exec -it -n {{ .Release.Namespace }} deploy/{{ include "the-pleiades.controller.fullname" . }} -- \
+     /app/controller bootstrap-admin --email you@example.com
+
+   It prompts for a password with echo disabled, so it needs the -it. A
+   password is never accepted as a flag value on any path, because a flag is
+   visible in the process list to everyone else on the machine. In a script,
+   pipe it instead:
+
+   echo "$PASSWORD" | kubectl exec -i -n {{ .Release.Namespace }} deploy/{{ include "the-pleiades.controller.fullname" . }} -- \
+     /app/controller bootstrap-admin --email you@example.com --password-stdin
+
+3. Reach the UI.
+{{- if .Values.ingress.enabled }}
 {{- range $host := .Values.ingress.hosts }}
-  {{- range .paths }}
-  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
-  {{- end }}
+{{- range .paths }}
+
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}ui
 {{- end }}
-{{- else if contains "NodePort" .Values.service.type }}
-  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "the-pleiades.fullname" . }})
-  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
-  echo http://$NODE_IP:$NODE_PORT
-{{- else if contains "LoadBalancer" .Values.service.type }}
-     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
-           You can watch its status by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "the-pleiades.fullname" . }}'
-  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "the-pleiades.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
-  echo http://$SERVICE_IP:{{ .Values.service.port }}
-{{- else if contains "ClusterIP" .Values.service.type }}
-  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "the-pleiades.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
-  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
 {{- end }}
+{{- else }}
+
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "the-pleiades.controller.fullname" . }} 8080:{{ .Values.controller.service.port }}
+
+   then browse to {{ if eq .Values.controller.tls.mode "upstream" }}http{{ else }}https{{ end }}://localhost:8080/ui
+{{- end }}
+{{- if eq .Values.controller.tls.mode "self-provisioned" }}
+
+   Your browser will warn once. The controller generated its own certificate
+   because none was configured: it encrypts the connection and does not
+   authenticate the server, so nothing your clients already trust vouches for
+   it. The certificate is reused across restarts, so the warning is a
+   once-per-machine annoyance rather than a once-per-restart one.
+{{- if or (gt (int .Values.controller.replicaCount) 1) .Values.controller.autoscaling.enabled }}
+
+   NOTE, because this release runs more than one controller: they share one
+   directory and converge on one certificate, but not instantly. If several
+   replicas cold-start at the same moment and none of them finds a
+   certificate, more than one may mint its own, and each keeps serving the one
+   it read for the life of that process. They settle on a single certificate
+   at their next restart, and nothing rewrites a certificate that can still be
+   served, so it stays settled. Until then a browser may warn a second time
+   after landing on a different pod. Nothing is unsafe about that: a
+   self-signed certificate is only trusted by being handed to a client
+   directly, so there was never a shared trust decision to break. If you need
+   every replica to serve an identical certificate from the first second, that
+   is what controller.tls.mode=secret is for.
+{{- end }}
+
+   In production, replace it. Either put a real certificate in a
+   kubernetes.io/tls Secret:
+
+     --set controller.tls.mode=secret --set controller.tls.secretName=<secret>
+
+   or terminate TLS at your ingress and say so:
+
+     --set controller.tls.mode=upstream
+{{- end }}
+{{- if not (or .Values.runbooks.configMapName .Values.runbooks.existingClaim) }}
+
+WARNING: no runbook source is configured, so this release has nothing to run.
+Both the controller and the runners are mounting the empty directory baked into
+their images. Point runbooks.configMapName at a ConfigMap of runbook YAML, or
+runbooks.existingClaim at a ReadWriteMany volume holding them, and reinstall.
+Both workloads must see the same source: they resolve a dispatched runbook
+independently, so two different directories means a job that launches on one
+side and fails on the other.
+{{- end }}
+{{- if or .Values.postgresql.enabled .Values.nats.enabled }}
+
+NOTE: this release runs its own {{ if and .Values.postgresql.enabled .Values.nats.enabled }}PostgreSQL and NATS{{ else if .Values.postgresql.enabled }}PostgreSQL{{ else }}NATS{{ end }}, single instance, with no
+replication and no backup{{ if .Values.nats.enabled }}, and the broker accepts any client that can reach
+it, with no authorization at all{{ end }}. That is a trial shape. For anything real, set
+{{ if .Values.postgresql.enabled }}postgresql.enabled=false and point externalDatabase at a managed database{{ if .Values.nats.enabled }}, and
+{{ end }}{{ end }}{{ if .Values.nats.enabled }}nats.enabled=false and point externalNats at a broker with real accounts{{ end }}.
+{{- end }}
+
+Full deployment guide: docs/10-running-in-production.md in this repository.

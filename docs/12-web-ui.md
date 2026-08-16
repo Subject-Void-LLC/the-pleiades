@@ -5,7 +5,8 @@ same-origin, from assets compiled into the binary — there is no separate front
 build, no Node toolchain, no second container and no reverse proxy between the two.
 
 Browse to the controller's address and add `/ui`. In a default local run that is
-<http://localhost:8080/ui>.
+<https://localhost:8080/ui>. It is `https` and there is no `http` alternative: see
+[Serving over TLS](#serving-over-tls) below.
 
 ## Why it is built this way
 
@@ -68,13 +69,129 @@ The `__Host-` prefix is browser-enforced rather than conventional: it *requires*
 `Secure` and `Path=/` and forbids a `Domain`, which structurally prevents a subdomain
 from setting the cookie.
 
-### Running without TLS
+### Serving over TLS
 
-`__Host-` requires HTTPS, so a developer on `http://localhost` cannot sign in at all.
-`PLEIADES_UI_INSECURE_COOKIES=1` drops the prefix and the `Secure` attribute. The
-controller logs a warning at startup whenever it is set.
+The controller never serves plain HTTP unless an operator states that something in
+front of it already terminated TLS. Three arrangements:
 
-Never set it in a deployment anyone else can reach.
+| Setting | Effect |
+|---|---|
+| `TLS_CERT_FILE` and `TLS_KEY_FILE` (both) | The controller terminates TLS itself and serves that certificate. This is what a real deployment sets, and it always wins. |
+| `PLEIADES_TLS_TERMINATED_UPSTREAM=1` (and neither file) | The controller serves plain HTTP, because an ingress in front of it already terminated TLS. It logs a warning at startup saying so. |
+| Nothing set | The controller generates a self-signed certificate, stores it, reuses it on later starts, and serves HTTPS. It logs a warning at startup on every start. |
+
+Anything else, including exactly one of the two files, or both arrangements at once,
+is a startup error. Nothing reads `X-Forwarded-Proto` or any other forwarded header:
+a header a client can set is a claim a client can forge, so which arrangement is in
+use is something an operator states once, not something the process infers per
+request.
+
+#### The self-signed certificate
+
+It exists so that `docker compose up -d --wait` works from a clean checkout with no
+preparatory command, and so that a first run is not a startup error naming a variable
+nobody has heard of yet.
+
+Be clear about what it is worth. It **encrypts**: passwords and session cookies cross
+the network sealed, and the `Secure`, `__Host-` prefixed cookie works. It does not
+**authenticate**: nothing a client already trusts vouches for it, so a browser warns,
+and a client that clicks through cannot tell this controller from something else
+answering on the same address. It is a convenience, not a substitute for a real
+certificate.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `PLEIADES_TLS_AUTOCERT_DIR` | `tls`, relative to the working directory | Where the certificate is stored. In the container image the working directory is `/data`, so this lands on the data volume. |
+| `PLEIADES_TLS_AUTOCERT_HOSTS` | (empty) | Extra subject alternative names, comma separated. `localhost`, `127.0.0.1`, `::1` and the host's own name are always included. |
+
+The details that matter in practice:
+
+- **It is reused, not regenerated.** The stored certificate is replaced only when it
+  is missing, unreadable, expired, within 30 days of expiring, or missing a name
+  `PLEIADES_TLS_AUTOCERT_HOSTS` now asks for. A browser warning is a once-per-machine
+  annoyance rather than a once-per-restart one, and a client that pinned it keeps
+  working. The host's own name is put on the certificate but never forces a
+  replacement, because inside a container that name is the container ID and changes
+  every time the container is recreated.
+- **Renewal happens at startup only.** The certificate is valid for a year and is
+  renewed by a restart inside the last 30 days of that year. A controller left running
+  past its expiry serves an expired certificate until it is restarted.
+- **Add your real hostname.** An operator reaching the controller at
+  `https://pleiades.example.com` needs that name in the certificate, or the browser
+  rejects it for a name mismatch, which looks exactly like the problem serving TLS was
+  turned on to fix. Set `PLEIADES_TLS_AUTOCERT_HOSTS=pleiades.example.com` and restart.
+- **The key is a secret.** It is written mode `0600` inside a `0700` directory, the
+  same handling `master.key` gets.
+- **Only one file holds the key.** `serving.pem` is the certificate and its private
+  key together, which is what the controller serves; they are one file so that
+  replacing them is a single atomic rename, which is what lets several controllers
+  share the directory with no lock between them. `cert.pem` is the same certificate
+  with no key in it, which is the file to hand a client. `provisioned/` holds one
+  small record per certificate this deployment has provisioned here, which the
+  container healthcheck trusts. Copy `cert.pem`, never `serving.pem`.
+- **A record is kept until its certificate expires.** A controller serves what it
+  loaded at start-up for as long as it runs, so a record is only removed once no
+  process could still be presenting that certificate. Deleting `provisioned/` by hand
+  costs the healthcheck its history: a replica still serving an older certificate
+  would then report itself unhealthy until it restarted.
+- **The directory recovers by itself.** A `serving.pem` that is empty, damaged or
+  truncated, and a `cert.pem` with no key beside it, are neither a secret nor
+  servable, so the controller provisions a replacement and starts. What it refuses is
+  a private key it cannot account for, and a file it cannot read at all; both
+  refusals name the file and what to do about it.
+- **More than one controller on one directory is supported and does not queue.**
+  Each one loads what is published, and provisions only if there is nothing usable
+  there. Several starting at the same instant may each write, the last write stands,
+  and every controller adopts it on its next start. None of them ever waits for
+  another or refuses to start because another is slow or was killed. What this does
+  not promise is that two controllers present the identical certificate in the
+  seconds after a shared cold start; a self-signed certificate authenticates nothing
+  either way, and both are trusted by the healthcheck.
+- **It says so, every start.** A `WARN` line names `serving_file` (the file the
+  material was read from, which holds the private key), `trust_anchor_file` (the
+  key-free copy to hand a client, present only when there really is one), the expiry,
+  the names it covers, that it is self-signed, and the settings that replace it. The
+  two paths are separate fields because they are different things: a field named for
+  a certificate must never carry the path of a file with a key in it.
+- **The headline follows what is being served.** If the directory holds material this
+  controller did not write, it is served exactly as it is and never renewed, and the
+  line says that instead of claiming the controller provisioned it.
+
+To hand it to a command-line client, copy it out and pass it as the trust anchor:
+
+```bash
+docker compose cp controller:/data/tls/cert.pem ./controller-cert.pem
+curl --cacert ./controller-cert.pem https://localhost:8080/readyz
+```
+
+`make dev-cert` writes a throwaway certificate into the gitignored `.dev-certs/`. No
+command requires it any more; what it is for is exercising the `TLS_CERT_FILE` path
+locally, which is the arrangement a real deployment uses. `make ui-dev` exercises that
+same path with a certificate it generates into its own scratch directory, so the
+development server presents a configured certificate rather than a provisioned one.
+
+Responses also carry `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+It is sent on every response rather than only over TLS, because this process cannot
+see what an ingress in front of it did and browsers are required to ignore the header
+when it arrives unencrypted. `includeSubDomains` means every other service under the
+same parent name has to speak HTTPS too; remove it if that is not true for you.
+
+#### A correction, because this page said the opposite
+
+This section used to say that `__Host-` requires HTTPS, that a developer on
+`http://localhost` therefore "cannot sign in at all", and that
+`PLEIADES_UI_INSECURE_COOKIES=1` existed to rescue them. The first half was wrong.
+Every current browser makes an explicit exception for loopback origins and accepts a
+`Secure`, `__Host-` prefixed cookie over `http://localhost`, and Go's own cookie jar
+carries the same exception.
+
+What was true is narrower and was the real defect. The exception keys on the host
+*string*, so it never applied to a hostname in `/etc/hosts` pointing at `127.0.0.1`,
+to a container name, or to any LAN address. On those, the browser silently refused the
+cookie, the CSRF double-submit check then failed, and the sign-in page reported
+*"Those credentials were not accepted"* for a correct password. The fix was to serve
+TLS rather than to weaken the cookie, so the opt-out and all three of its gosec
+waivers are gone.
 
 ## What each view does
 

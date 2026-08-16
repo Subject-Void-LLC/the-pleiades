@@ -99,13 +99,25 @@ func envInt(key string, fallback int) int {
 }
 
 func main() {
-	// The re-exec check is the literal first statement in main(), before
-	// any flag parsing, NATS connection, or telemetry setup: a spawned
-	// collection-runner child (internal/adapters/native's own per-task
-	// subprocess boundary, PLAN.md Section 17.5) must pay for none of
-	// that, and must never itself try to become a second Runner Agent.
-	if len(os.Args) > 1 && os.Args[1] == native.InternalCollectionRunnerArg {
+	// Argument routing is the literal first statement in main(), before
+	// any flag parsing, NATS connection, or telemetry setup. Both
+	// non-default routes need that. A spawned collection-runner child
+	// (internal/adapters/native's own per-task subprocess boundary,
+	// PLAN.md Section 17.5) must pay for none of it and must never itself
+	// try to become a second Runner Agent; and the container probe
+	// (healthcheck.go) runs every few seconds for the life of the
+	// container, so it must stay fast and hold nothing.
+	//
+	// routeFor rather than two inline conditions, so the ORDER of the
+	// guards is a value TestRouteFor can assert on. See its own doc
+	// comment for why that distinction is not academic.
+	switch routeFor(os.Args[1:]) {
+	case routeCollectionChild:
 		os.Exit(native.RunCollectionChild(context.Background()))
+	case routeHealthcheck:
+		os.Exit(runHealthcheck(os.Args[1:]))
+	case routeAgent:
+		// Fall through into the body below, which is the Agent.
 	}
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
@@ -197,6 +209,44 @@ func main() {
 			log.Fatalf("failed to init result wal: %v", err)
 		}
 		agentOpts = append(agentOpts, runner.WithResultWAL(wal, bus))
+	}
+
+	// The liveness heartbeat (internal/runner/heartbeat.go), which is
+	// what `runner healthcheck` reads and therefore what an orchestrator
+	// probe really asks. ON by default, unlike the WAL above, because a
+	// probe an operator has to opt into is a probe most deployments will
+	// not have, and the failure it covers (FAILURE_PATTERNS.md #119: this
+	// process stays alive and stops doing any work when its NATS
+	// connection closes for good) is silent by construction.
+	//
+	// It is handed `consumer`, the exact durable consumer the Agent pulls
+	// from, and nothing else. That is the whole design: a beat is written
+	// only after a real round trip to the server about that consumer, so
+	// severing the connection stops the beats. See heartbeat.go's package
+	// comment for what that proves and what it misses.
+	//
+	// Fail-closed at startup, the same shape every other Runner
+	// dependency above already is: an unwritable heartbeat path is an
+	// operator error to fix now, not a surprise the first tick discovers
+	// after this process has started claiming work.
+	if hbPath := heartbeatPath(); hbPath != "" {
+		interval, err := heartbeatInterval()
+		if err != nil {
+			log.Fatalf("failed to read the heartbeat interval: %v", err)
+		}
+		heartbeat, err := runner.NewHeartbeat(hbPath, interval, consumer, logger)
+		if err != nil {
+			log.Fatalf("failed to init the liveness heartbeat: %v", err)
+		}
+		agentOpts = append(agentOpts, runner.WithHeartbeat(heartbeat))
+		logger.Info("liveness heartbeat enabled",
+			slog.String("path", hbPath.String()), slog.Duration("interval", interval))
+	} else {
+		// Warn, not Info: this is a deployment choosing to have no
+		// liveness signal at all, and the line has to be findable when
+		// somebody later asks why the probe reports a caller error.
+		logger.Warn("liveness heartbeat disabled",
+			slog.String("reason", heartbeatFileEnv+" is set and empty, so nothing is written and `runner healthcheck` has nothing to read"))
 	}
 
 	// runbooks resolves a dispatched RunbookID to its compiled *engine.DAG,

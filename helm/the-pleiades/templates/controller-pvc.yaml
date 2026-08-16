@@ -1,0 +1,37 @@
+{{- include "the-pleiades.validate" . -}}
+{{- if and .Values.controller.persistence.enabled (not .Values.controller.persistence.existingClaim) }}
+{{- /*
+The controller's writable directory, at /data.
+
+Two things live here and both are worth keeping across a restart: the
+certificate the controller provisions for itself when nothing else is
+configured (so a restart does not hand every operator a new one to trust), and
+the file-backed per-device credential store the control plane falls back to
+when a launch template binds no machine credential.
+
+NOTE WHAT UNINSTALL DOES. This claim is created by Helm, so `helm uninstall`
+deletes it and both of the above go with it. The database and broker volumes
+behave differently: they come from a StatefulSet's volumeClaimTemplates, which
+Kubernetes does not delete with the StatefulSet, so those survive an uninstall
+and are reused by a reinstall of the same release name. That asymmetry is real
+and it is the reason this comment exists rather than a resource-policy
+annotation: annotating this claim "keep" would make the next `helm install`
+fail outright on a claim it does not own, which trades a surprise for a
+different, louder surprise.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-data" (include "the-pleiades.controller.fullname" .) }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.controller.persistence.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.controller.persistence.size | quote }}
+  {{- with .Values.controller.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

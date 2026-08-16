@@ -1,0 +1,182 @@
+{{- include "the-pleiades.validate" . -}}
+{{- if .Values.nats.enabled }}
+{{- /*
+NATS with JetStream, deployed as part of this release.
+
+SAY WHAT THIS IS NOT. One server, no clustering, no accounts and NO
+AUTHORIZATION: any pod that can reach the Service can publish and subscribe.
+That is a larger statement here than it looks, because a dispatch payload
+carries the credentials the job runs with and the stream retains messages for
+its retention window. Restrict it with a NetworkPolicy, or set
+nats.enabled=false and point externalNats at a broker with real accounts,
+before this handles anything you would mind an attacker reading.
+
+THE COMMAND REPLACES THE IMAGE'S DEFAULT, which is ["--config",
+"nats-server.conf"], and that config file was the only thing enabling the
+monitoring port. So every flag below has to be stated:
+
+  -js        JetStream, which every stream, consumer and lock in Pleiades
+             needs. Without it the controller and the runners come up and then
+             fail on their first stream operation.
+  -sd /data  the store directory, on the volume below. Without it the server
+             warns "Temporary storage directory used, data could be lost on
+             system reboot" and puts every stream, every durable consumer
+             position and the lease KV bucket under /tmp.
+  -m 8222    the monitoring port the liveness probe asks. Passing the shipped
+             config file back instead would also open it, and would start a
+             cluster listener on 6222 protected by the route password that
+             image publishes in its own documentation. Nothing here clusters,
+             so that is a listener with a known password and no purpose.
+
+WHY UID 1000. The image has no unprivileged user of its own (there is no
+"nats" account inside it and its USER is unset, so it would run as root), so
+the pod names a uid instead. Any uid works: the server binds two ports above
+1024 and writes only to its store directory. Checked against the real image
+rather than assumed, with a read-only root filesystem and this exact command:
+the server reaches "Server is ready" with JetStream enabled.
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "the-pleiades.nats.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 4 }}
+spec:
+  serviceName: {{ include "the-pleiades.nats.fullname" . }}
+  {{- /* One, and not a value, for the same reason PostgreSQL's is not: a second
+       replica of this StatefulSet is a second standalone server with its own
+       empty store, not a cluster member, because nothing here writes a routes
+       block. Two brokers with the same name and no routes between them is a
+       split control plane. */}}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "nats") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "the-pleiades.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nats
+          image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
+          imagePullPolicy: {{ .Values.nats.image.pullPolicy | quote }}
+          args:
+            - "-js"
+            - "-sd"
+            - "/data"
+            - "-m"
+            - {{ .Values.nats.service.monitorPort | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: client
+              containerPort: {{ .Values.nats.service.clientPort }}
+              protocol: TCP
+            - name: monitor
+              containerPort: {{ .Values.nats.service.monitorPort }}
+              protocol: TCP
+          livenessProbe:
+            {{- /* "The process is alive and its monitoring port answers."
+                 /healthz is the endpoint NATS designates for probes and it
+                 answers with a status document rather than the statistics dump
+                 /varz returns as a side effect of existing. */}}
+            httpGet:
+              path: /healthz
+              port: monitor
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            {{- /* A DIFFERENT question, asked on a DIFFERENT port, and the
+                 difference is the whole point. On 2.14.4 /healthz returns
+                 {"status":"ok"} whether or not the client port is usable, and
+                 both documented escape hatches (?js-enabled-only=true and
+                 ?js-server-only=true) return 200 on a server started without
+                 JetStream as well, so the monitoring endpoint cannot gate
+                 readiness on the thing clients need. 4222 is the port the
+                 controller and every runner actually dial, so that is what
+                 readiness opens the endpoint list on.
+
+                 The honest limit: a TCP connect proves the listener is
+                 accepting, not that a client would be authorized. This chart
+                 configures no authorization at all, so today there is nothing
+                 between the two; a deployment that adds NATS credentials needs
+                 a richer probe than a Kubernetes tcpSocket can express. */}}
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      {{- if not .Values.nats.persistence.enabled }}
+      volumes:
+        {{- /* Everything JetStream holds, in RAM, gone with the pod: every
+             stream, every durable consumer position, and the KV bucket
+             carrying the scheduler and fan-out reaper leases. In-flight work
+             and every unacknowledged job go with it. */}}
+        - name: data
+          emptyDir: {}
+      {{- else if .Values.nats.persistence.existingClaim }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.nats.persistence.existingClaim | quote }}
+      {{- end }}
+      {{- with .Values.nats.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nats.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nats.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if and .Values.nats.persistence.enabled (not .Values.nats.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 10 }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.nats.persistence.size | quote }}
+        {{- with .Values.nats.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+  {{- end }}
+{{- end }}

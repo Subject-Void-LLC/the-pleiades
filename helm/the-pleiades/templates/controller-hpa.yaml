@@ -1,0 +1,54 @@
+{{- include "the-pleiades.validate" . -}}
+{{- if .Values.controller.autoscaling.enabled }}
+{{- /*
+Horizontal autoscaling for the control plane.
+
+Only the controller has one, and the runner deliberately does not. The
+controller is request driven, so CPU tracks the thing an operator wants to keep
+up with. A runner's load arrives as messages on a durable NATS consumer group,
+and the number that says whether more runners are needed is the consumer's
+pending count, not the CPU of the runners that already have work. A CPU-based
+autoscaler over the runners would scale down a fleet that is blocked waiting on
+slow devices, which is exactly backwards. Scaling on the queue needs an
+external metrics adapter, which this chart does not assume you have.
+
+An autoscaler is a second replica by definition, so templates/_validations.tpl
+applies every multi-replica check to it whatever minReplicas says: the one
+controller claim has to be shareable, and a self-provisioning controller has to
+have a directory to share.
+*/}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "the-pleiades.controller.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "the-pleiades.controller.fullname" . }}
+  minReplicas: {{ .Values.controller.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.controller.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.controller.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          {{- /* Utilization is a percentage of the REQUEST, not of the limit.
+               The controller's resources block sets a CPU request and
+               deliberately no CPU limit, so this target is meaningful and the
+               pods are not silently throttled on the way to reaching it. */}}
+          averageUtilization: {{ .Values.controller.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.controller.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.controller.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}

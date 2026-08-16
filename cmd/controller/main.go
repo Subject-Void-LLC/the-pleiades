@@ -77,11 +77,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -139,6 +141,16 @@ const serviceName = "pleiades-controller"
 // is a constant rather than a linker flag for now: Phase 20 owns release
 // packaging and is where a real version stamp belongs.
 const serviceVersion = "v0.1.0-alpha"
+
+// defaultListenAddr is the address the HTTP server binds when LISTEN_ADDR
+// is unset.
+//
+// A named constant rather than a literal at the one call site, because
+// there are two call sites now: main() binds it, and the healthcheck
+// subcommand dials it (healthcheck.go). A probe that guessed a different
+// port than the server bound would report an unreachable controller as
+// unhealthy while it served traffic perfectly.
+const defaultListenAddr = ":8080"
 
 // schedulerLeaseKey is the well-known key every controller replica
 // contends for to become the one holder of the scheduler lease. It lives
@@ -332,6 +344,42 @@ func loadRateLimiter() (*api.RateLimiter, error) {
 	}), nil
 }
 
+// The connection pool bounds, which this binary carried none of.
+//
+// Before these, ent.Config's three pool fields were all left zero and
+// internal/ent applies each only when it is positive, so the controller ran
+// on database/sql's defaults: unlimited connections, two idle, and
+// connections reused forever. Unlimited is the word in the standard
+// library's own documentation and it is meant literally.
+//
+// That was the second half of the /readyz defect. The first half was that
+// an unauthenticated, unthrottled endpoint ran a real query per request;
+// internal/api's readinessGate bounds how OFTEN a check runs, and these
+// bound how much of the database a burst can occupy while it does. Either
+// alone leaves the hole open from one end.
+//
+// maxOpenConns is 16 rather than a larger round number because the ceiling
+// that matters is not this process. Postgres allows 100 connections by
+// default and every replica draws from that one pool, so a chart installed
+// at its default two replicas takes 32 and leaves room for the migrations,
+// psql sessions and whatever else an operator runs; a value like 100 here
+// would let two replicas exhaust the server between them and turn a
+// controller restart into an outage for everything else on it. On SQLite,
+// which is the default backend, the number is close to irrelevant to
+// throughput because writes serialize on one lock regardless, and a bound
+// simply stops a burst from opening thousands of file handles.
+//
+// connMaxLifetime is the one that is not about capacity at all. A pool that
+// reuses a connection forever will hold a TCP connection to a database that
+// has been failed over, restarted or repointed by DNS, and keep handing it
+// to queries that then fail one at a time. Thirty minutes bounds how long a
+// replica can be talking to yesterday's primary.
+const (
+	maxOpenConns    = 16
+	maxIdleConns    = 8
+	connMaxLifetime = 30 * time.Minute
+)
+
 // readinessChecks are the dependencies /readyz reports on, the two this
 // process cannot serve a single API request without.
 //
@@ -395,8 +443,21 @@ func main() {
 	// in. With no arguments this binary is the server, byte-identically to
 	// before. With one it is an admin tool that opens a database and
 	// nothing else. See admin.go.
-	if args := os.Args[1:]; isAdminCommand(args) {
+	//
+	// The guard order is load bearing, so it lives in routeFor rather than
+	// in these statements: a reversed order here would be invisible to every
+	// test, because a test cannot call main(). routeFor makes the decision a
+	// value, and TestRouteFor fails if the two checks are swapped. See
+	// healthcheck.go for the order's reason and for why the probe lives in
+	// this binary at all.
+	switch args := os.Args[1:]; routeFor(args) {
+	case routeHealthcheck:
+		os.Exit(runHealthcheck(args))
+	case routeAdmin:
 		os.Exit(runAdmin(args))
+	case routeServer:
+		// Fall through to the server below, which is the only route that
+		// does not exit.
 	}
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
@@ -404,7 +465,17 @@ func main() {
 	if err != nil {
 		fatal("failed to resolve database configuration", err)
 	}
-	listenAddr := getenv("LISTEN_ADDR", ":8080")
+	listenAddr := getenv("LISTEN_ADDR", defaultListenAddr)
+	// Resolved here, beside the other configuration, rather than at the
+	// listener below: a deployment whose TLS variables contradict each
+	// other must fail before it opens a database, joins an election or
+	// subscribes a consumer, not after. Only the DECISION is made here;
+	// writing a self-provisioned certificate happens below, once the
+	// logger exists to announce it (tls.go).
+	tlsCfg, err := resolveTLS()
+	if err != nil {
+		fatal("failed to resolve TLS configuration", err)
+	}
 	jwtIssuer := getenv("JWT_ISSUER", "pleiades-controller")
 	jwtAudience := getenv("JWT_AUDIENCE", "pleiades-api")
 	keyProvider, err := loadKeyProvider()
@@ -437,6 +508,20 @@ func main() {
 	// unmasked exactly when things are going wrong.
 	log.SetOutput(redact.Shared().Writer(os.Stderr))
 
+	// The certificate this process serves, loaded or provisioned here:
+	// immediately after the logger is installed and before anything opens a
+	// database or joins an election. The whole point of the log line it
+	// emits is that an operator sees it, and a controller that cannot obtain
+	// a certificate must fail before it touches shared state.
+	//
+	// The material travels to the listener below rather than the listener
+	// re-reading the two paths. See prepareServingCertificate for the crash
+	// that closes.
+	servingPair, err := prepareServingCertificate(tlsCfg, logger)
+	if err != nil {
+		fatal("failed to prepare the serving certificate", err)
+	}
+
 	// One private Prometheus registry, not the process-global default:
 	// two routers in one process (or one process that later grows a
 	// second listener) must not fight over one registry, and a test that
@@ -464,7 +549,12 @@ func main() {
 		fatal("failed to init telemetry", err)
 	}
 
-	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dbDSN})
+	client, err := ent.OpenDatabase(ctx, ent.Config{
+		DSN:             dbDSN,
+		MaxOpenConns:    maxOpenConns,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxLifetime: connMaxLifetime,
+	})
 	if err != nil {
 		fatal("failed to open the controller database", err)
 	}
@@ -996,13 +1086,15 @@ func main() {
 		fatal("failed to register UI views", err)
 	}
 
-	// __Host- cookies require Secure, Secure requires HTTPS, and a
-	// developer on http://localhost has neither. The opt-out is named,
-	// and it announces itself at startup rather than being discovered in
-	// a header dump later.
-	insecureCookies := os.Getenv("PLEIADES_UI_INSECURE_COOKIES") == "1"
-	if insecureCookies {
-		logger.Warn("PLEIADES_UI_INSECURE_COOKIES is set: the session cookie drops the __Host- prefix and the Secure attribute; never set this in a deployment anyone else can reach")
+	// The one arrangement in which this process speaks plain HTTP
+	// announces itself at startup, rather than being discovered later in a
+	// header dump. It replaces the PLEIADES_UI_INSECURE_COOKIES warning
+	// that used to sit here, and it is a warning for the same reason that
+	// one was: the promise the cookie makes is only as good as the hop it
+	// is made over, and nothing in this process can check what an ingress
+	// in front of it actually did.
+	if tlsCfg.Mode == tlsModeUpstream {
+		logger.Warn("PLEIADES_TLS_TERMINATED_UPSTREAM is set: this process serves plain HTTP and trusts an ingress to terminate TLS in front of it; the session cookie is still Secure, so a browser refuses it if that ingress is not really there")
 	}
 
 	// The environment / classification banner. It is deployment
@@ -1020,7 +1112,7 @@ func main() {
 	// credential source. Two codecs could disagree about the cookie's name,
 	// and a session written under one name and read under another fails as
 	// "not signed in" rather than as a configuration error.
-	cookieCodec := session.CookieCodec{Insecure: insecureCookies}
+	cookieCodec := session.CookieCodec{}
 
 	// Local password sign-in (PLAN.md Section 18.1, Phase 79).
 	//
@@ -1102,6 +1194,25 @@ func main() {
 		fatal("failed to build router", err)
 	}
 
+	// The serving configuration is built complete, before the server value
+	// exists, rather than being reached into afterwards. ServeTLS clones
+	// this config as it starts, so a field written after the goroutine below
+	// launches is a data race with an unhelpfully intermittent symptom.
+	serverTLS := &tls.Config{
+		// The same floor pkg/catalystcenter's outbound client sets, so
+		// this platform makes one statement about acceptable TLS versions
+		// rather than one per direction. TLS 1.0 and 1.1 are the versions
+		// this excludes; every browser and every client library that can
+		// reach this UI has spoken 1.2 for years.
+		MinVersion: tls.VersionTLS12,
+	}
+	if servingPair != nil {
+		// Exactly the material prepareServingCertificate verified, so the
+		// listener cannot end up presenting something else that appeared on
+		// disk in between.
+		serverTLS.Certificates = []tls.Certificate{*servingPair}
+	}
+
 	srv := &http.Server{
 		Addr:    listenAddr,
 		Handler: r,
@@ -1111,11 +1222,42 @@ func main() {
 		// connection pool with connections that never finish sending
 		// their headers.
 		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         serverTLS,
 	}
 
+	scheme := "http"
+	if tlsCfg.ServesTLS() {
+		scheme = "https"
+	}
+
+	// Bound here, synchronously, and NOT inside the goroutine below. The
+	// listening line used to be printed before ListenAndServeTLS was called,
+	// so every failure to bind (a port already taken, a permission denial on
+	// a low port) printed "controller listening" and then killed the
+	// process. An operator reading that log had been told the opposite of
+	// what happened. Binding first makes the line a report of something that
+	// already succeeded.
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		fatal("failed to bind the controller listener", err)
+	}
+	// listener.Addr(), not listenAddr, so a configured port of 0 is logged
+	// as the port that was actually chosen.
+	slog.Info("controller listening", slog.String("addr", listener.Addr().String()), slog.String("scheme", scheme))
+
 	go func() {
-		slog.Info("controller listening", slog.String("addr", listenAddr))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		// Both TLS modes take this branch and serve the same way. What
+		// differs is only where the pair came from: an operator's own
+		// certificate, or the one this process provisioned above. Both are
+		// already in srv.TLSConfig.Certificates, which is why the two path
+		// arguments are empty.
+		if tlsCfg.ServesTLS() {
+			if err := srv.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
+				fatal("server failed", err)
+			}
+			return
+		}
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fatal("server failed", err)
 		}
 	}()

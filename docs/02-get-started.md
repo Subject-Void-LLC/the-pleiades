@@ -192,7 +192,7 @@ for the first). Running the thing is what finds what prose alone does not.
 ### Start the mesh
 
 ```bash
-docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4 -js
+docker run -d --name pleiades-nats -p 4222:4222 nats:2.14.4-alpine -js -sd /data -m 8222
 
 export MASTER_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export JWT_SECRET="a-real-secret-at-least-32-bytes-long"
@@ -201,6 +201,42 @@ export DB_DSN="sqlite://./controller.db"
 
 ./controller
 ```
+
+That is deliberately the same broker `docker-compose.yml` runs, down to the flags, and a test
+(`internal/testsupport`'s `TestGettingStartedRunsThePinnedBroker`) fails if this line and that
+file stop agreeing. Running a different broker from the one you deploy is how a quickstart
+quietly stops representing the thing it documents.
+
+Each piece, since none of it is decoration:
+
+- `nats:2.14.4-alpine` carries the identical nats-server binary as plain `nats:2.14.4`, so
+  JetStream behaves the same either way. It is the only published build of that version that
+  also contains a program able to probe the server from inside the container, which is what
+  the compose stack's healthcheck needs.
+- Passing any command at all replaces the image's default one, which was a config file. Every
+  setting that file used to make has to be made again as a flag, which is what the other two
+  are.
+- `-sd /data` puts the JetStream store somewhere that survives a restart. Without it the
+  server uses a temporary directory and says so in its own log.
+- `-m 8222` opens the monitoring port. Nothing below needs it, but a broker you cannot ask
+  about is a bad habit to start with.
+
+Nothing here configures TLS, and the controller still speaks `https`. With no
+certificate configured it writes a self-signed one into `./tls/` (gitignored) on the
+first start and reuses it on every later one. It never serves plain HTTP unless
+`PLEIADES_TLS_TERMINATED_UPSTREAM=1` says an ingress in front of it has already
+terminated TLS.
+
+The reason is the session cookie, which is `Secure` and `__Host-` prefixed: a browser
+refuses such a cookie on an unencrypted origin, and says nothing about having done so,
+which surfaces as a rejected sign-in for a correct password. Loopback is the single
+exception browsers make, so a `localhost` trial like this one would in fact have
+worked over plain HTTP, and any other address would not.
+
+That certificate encrypts the connection and does not authenticate the server, which
+is why every `curl` below passes `--cacert ./tls/cert.pem` and why a browser warns
+once. A real deployment sets `TLS_CERT_FILE` and `TLS_KEY_FILE` instead, and those
+always win; see [Running in production](10-running-in-production.md#pki-and-tls).
 
 `DB_DSN` names the database. A `postgres://` URL points the controller at a real
 PostgreSQL server, which is what a multi-user deployment runs:
@@ -215,12 +251,12 @@ which needs no server and suits a single-process trial like this one. The older
 `DB_PATH` is a startup error rather than a silent preference for one of them.
 
 ```console
-{"level":"INFO","msg":"controller listening","addr":":8080"}
+{"level":"INFO","msg":"controller listening","addr":":8080","scheme":"https"}
 {"level":"INFO","msg":"Acquired Scheduler Lease","key":"pleiades-scheduler-leader"}
 ```
 
 ```console
-$ curl -s http://localhost:8080/readyz
+$ curl -s --cacert ./tls/cert.pem https://localhost:8080/readyz
 {"status":"ready","checks":{"database":"ok","nats":"ok"}}
 ```
 
@@ -233,7 +269,7 @@ A launch names a **template**: the saved definition of what to run, where to run
 and how. Create one first, naming the inventory it targets:
 
 ```console
-$ curl -s -X POST "http://localhost:8080/api/v1/templates" \
+$ curl -s --cacert ./tls/cert.pem -X POST "https://localhost:8080/api/v1/templates" \
     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
     -d '{"name":"sample","kind":"runbook","definition":"sample","inventory":1}'
 {"id":1,"name":"sample","kind":"runbook","kind_label":"Runbook","definition":"sample","inventory":1,"organization":1,"prompts":[],"allow_simultaneous":false}
@@ -242,7 +278,7 @@ $ curl -s -X POST "http://localhost:8080/api/v1/templates" \
 Then launch it:
 
 ```console
-$ curl -s -X POST "http://localhost:8080/api/v1/templates/1/launch" \
+$ curl -s --cacert ./tls/cert.pem -X POST "https://localhost:8080/api/v1/templates/1/launch" \
     -H "Authorization: Bearer $TOKEN"
 {"_links":[{"rel":"execute","href":"/api/v1/templates/1/launch","method":"POST"}],"status":"accepted","job_id":"2cd07f0c-460d-40e4-a8d9-498314c7a5aa","ignored_fields":[]}
 ```
@@ -252,7 +288,7 @@ declares which of its fields a launch may override; supplying one it does not is
 reported by name rather than silently applied or silently dropped.
 
 ```console
-$ curl -s "http://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa" \
+$ curl -s --cacert ./tls/cert.pem "https://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa" \
     -H "Authorization: Bearer $TOKEN"
 {
   "_links": [{"rel": "self", "href": "/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa", "method": "GET"}],
@@ -276,7 +312,7 @@ Inventory (`POST /api/v1/inventories`) for a template to target.
 ### Watch the log stream
 
 ```console
-$ curl -s -N "http://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa/logs" \
+$ curl -s -N --cacert ./tls/cert.pem "https://localhost:8080/api/v1/jobs/2cd07f0c-460d-40e4-a8d9-498314c7a5aa/logs" \
     -H "Authorization: Bearer $TOKEN"
 event: init
 data: connected to job 2cd07f0c-460d-40e4-a8d9-498314c7a5aa
@@ -289,7 +325,7 @@ reason `dispatched` was 0 above.
 ### The HATEOAS `Allow` header is real too
 
 ```console
-$ curl -s -X OPTIONS "http://localhost:8080/api/v1/templates/1/launch" -H "Authorization: Bearer $TOKEN" -i
+$ curl -s --cacert ./tls/cert.pem -X OPTIONS "https://localhost:8080/api/v1/templates/1/launch" -H "Authorization: Bearer $TOKEN" -i
 HTTP/1.1 204 No Content
 Allow: OPTIONS, POST
 ```

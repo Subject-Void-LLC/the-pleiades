@@ -55,6 +55,17 @@ type Agent struct {
 	// lifetime.
 	wal ResultWAL
 	bus event.Bus
+
+	// liveness is the optional liveness heartbeat this Agent runs
+	// alongside its pull loop (heartbeat.go). Nil unless WithHeartbeat is
+	// passed to NewAgent.
+	//
+	// Named liveness rather than heartbeat because this type already has
+	// a heartbeat METHOD, and the two are different things: that one
+	// renews a per-device lock lease inside one execution
+	// (agent_exec.go), this one reports that the whole Agent is still
+	// attached to its consumer.
+	liveness *Heartbeat
 }
 
 // defaultPoolSize is how many handleMessage workers Run starts when no
@@ -103,6 +114,25 @@ func WithHeartbeatInterval(d time.Duration) AgentOption {
 	return func(a *Agent) {
 		if d > 0 {
 			a.heartbeatEvery = d
+		}
+	}
+}
+
+// WithHeartbeat runs hb for as long as Agent.Run runs, so the liveness
+// heartbeat (heartbeat.go) starts and stops with the pull loop it
+// reports on rather than with some unrelated goroutine in a composition
+// root.
+//
+// That coupling is the reason this is an Agent option at all: a
+// heartbeat that outlived Run could keep writing a healthy-looking file
+// for a Runner that has already stopped pulling, which is a smaller copy
+// of the exact failure it exists to catch. A nil hb is ignored, so an
+// Agent built without this option behaves as though the option did not
+// exist.
+func WithHeartbeat(hb *Heartbeat) AgentOption {
+	return func(a *Agent) {
+		if hb != nil {
+			a.liveness = hb
 		}
 	}
 }

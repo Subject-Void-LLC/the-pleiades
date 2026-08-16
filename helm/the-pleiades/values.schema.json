@@ -1,0 +1,737 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "the-pleiades chart values",
+  "description": "Every value this chart accepts. additionalProperties is false at every level on purpose: without it, a typo'd key (contoller.replicaCount, image.tags) is silently accepted by Helm, merged into the values as a key nothing reads, and the install comes up with the default the operator thought they had changed. With it, `helm lint` and `helm install` both refuse the typo and name it. The cost is that a new value has to be added here as well as in values.yaml, which is the intended trade.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "controller",
+    "runner",
+    "runbooks",
+    "secrets",
+    "serviceAccount",
+    "postgresql",
+    "externalDatabase",
+    "nats",
+    "externalNats",
+    "ingress"
+  ],
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "tag",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Always stated, never empty, never `latest`, never a digest. The chart refuses all three at render time with the reason attached; the schema catches only the empty case, because JSON Schema patterns here are Go regexps with no negative lookahead."
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "minAvailable": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "maxUnavailable": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "size"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingClaim": {
+          "type": "string"
+        },
+        "storageClassName": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "controllerPersistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "size",
+        "accessMode"
+      ],
+      "description": "The controller's volume, which is the persistence block above plus an access mode. It is spelled out again rather than composed with allOf, because additionalProperties in a referenced schema only sees that schema's own properties: an allOf would reject accessMode as an unknown key.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingClaim": {
+          "type": "string"
+        },
+        "storageClassName": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessMode": {
+          "type": "string",
+          "enum": [
+            "ReadWriteOnce",
+            "ReadWriteMany",
+            "ReadWriteOncePod"
+          ]
+        }
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "properties": {
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
+    },
+    "envList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "probeTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "properties": {
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "clusterDomain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "create",
+        "automount"
+      ],
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "automount": {
+          "type": "boolean"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        },
+        "masterEncryptionKey": {
+          "type": "string"
+        },
+        "jwtSecret": {
+          "type": "string"
+        }
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replicaCount",
+        "image",
+        "tls",
+        "service",
+        "persistence",
+        "autoscaling",
+        "podDisruptionBudget",
+        "probes"
+      ],
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "self-provisioned",
+                "secret",
+                "upstream"
+              ]
+            },
+            "secretName": {
+              "type": "string"
+            },
+            "autocertHosts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "port"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535,
+              "description": "1024 is a real floor, not a formality: the container drops every capability including NET_BIND_SERVICE, so it cannot bind a privileged port and would exit at startup."
+            },
+            "annotations": {
+              "type": "object"
+            }
+          }
+        },
+        "persistence": {
+          "$ref": "#/definitions/controllerPersistence"
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "targetMemoryUtilizationPercentage": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "podDisruptionBudget": {
+          "$ref": "#/definitions/podDisruptionBudget"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "liveness": {
+              "$ref": "#/definitions/probeTiming"
+            },
+            "readiness": {
+              "$ref": "#/definitions/probeTiming"
+            },
+            "startup": {
+              "$ref": "#/definitions/probeTiming"
+            }
+          }
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "topologySpreadConstraints": {
+          "type": "array"
+        },
+        "priorityClassName": {
+          "type": "string"
+        },
+        "extraEnv": {
+          "$ref": "#/definitions/envList"
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replicaCount",
+        "image",
+        "podDisruptionBudget",
+        "heartbeat",
+        "probes"
+      ],
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "playbookDir": {
+          "type": "string",
+          "description": "Refused at render time with its reason. The legacy Ansible adapter starts a sibling container through a Docker daemon, which a pod does not have."
+        },
+        "ansibleImage": {
+          "type": "string"
+        },
+        "poolSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heartbeat": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The liveness heartbeat both runner probes read. templates/_validations.tpl refuses a staleness limit at or below the interval, which would report every runner unhealthy on the first slow round trip.",
+          "properties": {
+            "intervalSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "livenessStaleAfterSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "readinessStaleAfterSeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "liveness": {
+              "$ref": "#/definitions/probeTiming"
+            },
+            "readiness": {
+              "$ref": "#/definitions/probeTiming"
+            }
+          }
+        },
+        "podDisruptionBudget": {
+          "$ref": "#/definitions/podDisruptionBudget"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "podAnnotations": {
+          "type": "object"
+        },
+        "podLabels": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        },
+        "topologySpreadConstraints": {
+          "type": "array"
+        },
+        "priorityClassName": {
+          "type": "string"
+        },
+        "extraEnv": {
+          "$ref": "#/definitions/envList"
+        }
+      }
+    },
+    "runbooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "configMapName": {
+          "type": "string"
+        },
+        "existingClaim": {
+          "type": "string"
+        }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image",
+        "auth",
+        "service",
+        "persistence"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "username",
+            "database"
+          ],
+          "properties": {
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "database": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string"
+            }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "port"
+          ],
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
+        },
+        "persistence": {
+          "$ref": "#/definitions/persistence"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
+    },
+    "externalDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dsn": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "existingSecretKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "nats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "image",
+        "service",
+        "persistence"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "clientPort",
+            "monitorPort"
+          ],
+          "properties": {
+            "clientPort": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "monitorPort": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            }
+          }
+        },
+        "persistence": {
+          "$ref": "#/definitions/persistence"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "nodeSelector": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "affinity": {
+          "type": "object"
+        }
+      }
+    },
+    "externalNats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "paths"
+            ],
+            "properties": {
+              "host": {
+                "type": "string",
+                "minLength": 1
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "pathType is required here because networking.k8s.io/v1 requires it on every path. A schema that asked only for `path` let an operator write a rule the API server rejects at apply time, which is the worst moment to find out; templates/ingress.yaml also defaults it to Prefix so a render that skipped schema validation still produces a valid object.",
+                  "required": [
+                    "path",
+                    "pathType"
+                  ],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pathType": {
+                      "type": "string",
+                      "enum": [
+                        "Exact",
+                        "Prefix",
+                        "ImplementationSpecific"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "secretName",
+              "hosts"
+            ],
+            "properties": {
+              "secretName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "hosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

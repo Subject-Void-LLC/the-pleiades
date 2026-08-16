@@ -27,6 +27,21 @@ obj/
 # even though the credentials file itself holds only ciphertext.
 .pleiades/
 
+# The throwaway serving certificate `make dev-cert` writes. It holds a real
+# private key, so it is ignored even though the key is worthless outside a
+# development machine: a committed key teaches the habit of committing keys,
+# and the file is one command to regenerate. Anchored to the module root,
+# like /vendor/ above, because that is the one place the make target names.
+/.dev-certs/
+
+# The certificate the controller provisions for ITSELF when no real one is
+# configured. Its directory defaults to a relative "tls", resolved against
+# the working directory, which is /data inside the container and this
+# checkout when somebody runs ./controller from here. Same reasoning as
+# above and the same reasoning as the scratch databases below: a real
+# private key that a run leaves behind must not be committable.
+/tls/
+
 # Manually built binaries from local `go build -o <name> ./cmd/<name>`
 # verification runs (each cmd/ subdirectory's own name). Not *.exe-style
 # extensions, so the Standard Go ignores above miss them.

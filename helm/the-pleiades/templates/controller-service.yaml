@@ -1,0 +1,28 @@
+{{- include "the-pleiades.validate" . -}}
+{{- /*
+The one address anything talks to the control plane on: the browser UI, the
+API, /metrics, and both orchestrator probes.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "the-pleiades.controller.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
+  {{- with .Values.controller.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.controller.service.type | quote }}
+  ports:
+    - name: api
+      port: {{ .Values.controller.service.port }}
+      {{- /* By NAME, not by number. The container port and the service port
+           happen to be equal today because both come from one value, and
+           targeting the name keeps that a coincidence rather than a
+           dependency. */}}
+      targetPort: api
+      protocol: TCP
+  selector:
+    {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "controller") | nindent 4 }}

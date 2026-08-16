@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/telemetry"
@@ -102,10 +103,39 @@ type RouterConfig struct {
 	// so the Controller passes real checks.
 	Readiness []ReadinessCheck
 
+	// ReadinessMinInterval is the shortest gap between two real rounds of
+	// those checks, and therefore how stale a /readyz answer may be. Zero
+	// takes defaultReadinessMinInterval, which is chosen against the probe
+	// period this repository's own compose file and chart use.
+	//
+	// It exists as a field rather than only a constant because it is a
+	// real trade an operator can be on the wrong side of: a deployment
+	// probing far more often than every 5 seconds wants it shorter, and
+	// one paying for every database round trip may want it longer. Setting
+	// it to zero-with-intent is not expressible and deliberately so, since
+	// an unbounded /readyz is the defect readinessGate exists to close.
+	ReadinessMinInterval time.Duration
+
 	// RateLimiter throttles the versioned API subtree per caller. Nil
 	// disables throttling. The operational endpoints are never throttled:
 	// rate limiting a liveness probe is how a busy replica gets restarted
 	// for being busy.
+	//
+	// /readyz was reconsidered against that rule when its cost turned out
+	// to be unbounded, and the rule won, on a stronger argument than the
+	// one above. A limiter does not make an expensive endpoint cheap, it
+	// makes it refusable, and refusing a readiness probe is the precise
+	// outcome an availability attack is trying to produce: the caller
+	// exhausts the bucket, the orchestrator's own probe is rejected, and
+	// the replica is pulled from rotation by its own defense. Throttling
+	// here would hand the attacker the win it was reaching for.
+	//
+	// The cost is bounded instead of the rate, by readinessGate, and it is
+	// bounded far below what any limiter would have allowed: measured
+	// through the real handler, 4.6 million requests cost 15 real
+	// dependency checks, because the ceiling is one check per minimum
+	// interval no matter who is asking or how often. See
+	// readiness_bench_test.go for the harness and both numbers.
 	RateLimiter *RateLimiter
 
 	// Auth guards the versioned API subtree and is what places an
@@ -212,7 +242,8 @@ func NewRouter(cfg RouterConfig) (*chi.Mux, error) {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", healthzHandler)
-	r.Get("/readyz", readyzHandler(cfg.Logger, cfg.Readiness))
+	r.Get("/readyz", readyzHandler(newReadinessGate(
+		cfg.Logger, cfg.Readiness, readinessProbeTimeout, readinessMinInterval(cfg.ReadinessMinInterval))))
 	r.Handle("/metrics", promhttp.HandlerFor(cfg.Registry, promhttp.HandlerOpts{Registry: cfg.Registry}))
 	registerWellKnown(r)
 

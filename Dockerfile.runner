@@ -1,19 +1,232 @@
-FROM golang:1.26-alpine AS builder
-WORKDIR /app
+# Container image for the Pleiades runner: the stateless worker that
+# pulls jobs off a durable NATS consumer group and executes them
+# (cmd/runner).
+#
+# Two stages. The builder compiles with cgo against glibc; the runtime is
+# a distroless glibc image with no shell and no package manager. This is
+# deliberately Dockerfile.controller with a different binary and no
+# published port, so a change to one belongs in the other too. The one
+# place the two now differ on purpose is the writable directory: the
+# controller has one and this image has none, and the runtime stage below
+# says why.
+
+# Debian bookworm, not alpine, and the choice is forced rather than
+# stylistic. cmd/runner links github.com/mattn/go-sqlite3, which is a cgo
+# driver, so the binary is dynamically linked against the C library it was
+# built with. Alpine is musl and the runtime image below is glibc, so a
+# musl-linked binary cannot start there at all. Turning cgo off to dodge
+# that is the trap explained at the build step.
+#
+# Pinned by digest as well as by tag. A tag is a moving pointer that can
+# name a different image tomorrow; only the digest names one exact image,
+# so two people building on different days get the same compiler. This is
+# the stronger form of the rule docker-compose.yml already follows by
+# pinning exact versions.
+FROM golang:1.26-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS builder
+
+WORKDIR /src
+
+# The module definition on its own, ahead of the source, so that the
+# dependency download lands in a layer that editing a .go file does not
+# invalidate.
 COPY go.mod go.sum ./
 RUN go mod download
+
 COPY . .
+
+# The final image's directory tree is assembled here, in the one stage
+# that still has a shell. The runtime image below has none: no RUN, no
+# mkdir, no chown can ever run there, so anything the running container
+# needs has to exist before the COPY that carries it across.
+#
+# The runner resolves RUNBOOK_DIR the same way the controller does and
+# exits if the directory is missing, so the image needs the same path to
+# exist. It is read-only in both images: internal/runbook.NewDirSource
+# stats, lists and reads, and creates nothing.
+#
+# What an image cannot do is share it. The old version of this comment
+# said "production shares one runbook directory between them", as though
+# creating the same path in two images made it one directory. It does not:
+# each image carries its own empty /app/runbooks, and two containers built
+# from them get two separate copies. Sharing takes a mount, the same
+# source at this same path in both services, and docker-compose.yml now
+# makes that mount (read-only, since neither binary writes here). Without
+# it this container could execute only the runbooks baked into its image,
+# which is none of them, while the controller happily launched jobs
+# against runbooks it could see and this side could not.
+RUN mkdir -p /staging/app/runbooks
+
 # Built as a PACKAGE path, not a single file. A single-file build
 # silently stops compiling the moment the composition root is split
 # across more than one file, while `make ci` (go build ./...) stays
 # green, so the image breaks and nothing else does.
-RUN go build -o runner ./cmd/runner
+#
+# CGO_ENABLED=1 is set explicitly because the wrong value here fails in
+# the worst possible way. With cgo off the build still succeeds, and
+# go-sqlite3 links a stub that only fails when a query runs, so the
+# failure surfaces at some later moment rather than at build time. The
+# controller image proves the point loudly, dying inside its first schema
+# migration, and the two images are built the same way on purpose. That is
+# exactly what the previous alpine builder shipped: the official
+# golang:*-alpine images set CGO_ENABLED=0 for you, because they carry no
+# C compiler.
+#
+# -trimpath strips build-machine filesystem paths out of the binary, so
+# the same source produces the same output regardless of where it was
+# built. -s -w drop the symbol table and the DWARF debug info, which are
+# a large share of the binary's size and are of no use in a production
+# container. Neither flag changes behavior.
+#
+# What this build cannot do is stamp the commit. `go build` reads
+# vcs.revision out of .git, and .dockerignore keeps .git out of the build
+# context on purpose: it is a 60 MB non-input, and the deny-by-default
+# shape that excludes it is the same control that keeps .SPECIFICATION
+# out. So the commit travels in as a build argument and lands in an OCI
+# label instead. See the label block in the runtime stage.
+#
+# One consequence worth knowing: cgo means this stage cannot cross
+# compile. It builds for the architecture it runs on.
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /staging/app/runner ./cmd/runner
 
-FROM alpine:3.24.1
+# gcr.io/distroless/base-debian12 holds glibc, CA certificates and
+# tzdata, and essentially nothing else. There is no shell, no package
+# manager and no busybox, so a process that escapes into this container
+# finds no interactive foothold and nothing to pivot through.
+#
+# distroless/static and scratch were both rejected for one reason: they
+# ship no libc, and the cgo SQLite driver linked above needs one. The
+# :nonroot tag is the same image with its user already set to UID 65532,
+# so the image cannot be run as root by accident.
+#
+# Digest-pinned for the same reason the builder is.
+FROM gcr.io/distroless/base-debian12:nonroot@sha256:b12529fbbd0bb15eea8905f69d83148679e0b4d7d434c8808100792029b1caae
+
+# Provenance, which this image carried none of before: no labels and, for
+# the reason given at the build step, no Go VCS stamp either, so nothing
+# in a built image said which commit produced it.
+#
+# Defaults are present so a bare `docker build` still succeeds and says
+# plainly that it does not know, rather than failing or, worse, claiming a
+# revision it never had. A build that wants real provenance passes them:
+#
+#   docker build -f Dockerfile.runner \
+#     --build-arg VCS_REF="$(git rev-parse HEAD)" \
+#     --build-arg VERSION="$(git describe --tags --always --dirty)" \
+#     -t pleiades-runner:dev .
+#
+# Read them back with:
+#
+#   docker inspect -f '{{json .Config.Labels}}' pleiades-runner:dev
+ARG VCS_REF=unknown
+ARG VERSION=unknown
+ARG SOURCE=https://github.com/Subject-Void-LLC/the-pleiades
+
+# GPL-3.0-only is the SPDX identifier for the LICENSE file at the root of
+# this repository. Nothing in this project grants the "or any later
+# version" option, so the label must not claim it; if that ever changes,
+# this string changes with it.
+LABEL org.opencontainers.image.title="Pleiades Runner" \
+      org.opencontainers.image.description="Pleiades execution plane: stateless worker pulling dispatches off a durable NATS consumer group." \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${VERSION}"
+
+# Root-owned and world readable and executable, which is the correction to
+# what this image used to do. It used to copy the tree with
+# --chown=nonroot:nonroot, so /app and /app/runner were mode 0755 owned by
+# 65532, the same uid the process runs as. A compromised process could not
+# overwrite the running binary (the kernel refuses a write to a running
+# executable's text), but it did not need to: it could unlink the file and
+# write its own in place, and the next start would run that. That survives
+# `docker compose restart`, `docker restart`, a restart policy and a host
+# reboot, because it is the same container's writable layer, so one
+# process compromise became a permanent one. Root-owned 0755 removes the
+# class outright: 65532 may read and execute, and may not unlink.
+#
+# This matters here as much as in the controller and arguably more: the
+# native adapter re-executes THIS binary once per task to run a collection
+# method in its own subprocess (internal/adapters/native's IPC boundary),
+# so the file is read back off disk repeatedly during normal operation,
+# and a replaced one would be picked up without any restart at all.
+COPY --from=builder /staging/app /app
+
+# No writable directory at all, and that is the one deliberate difference
+# from Dockerfile.controller.
+#
+# The controller has /data because two of its defaults are relative paths
+# (a SQLite database and a credential directory) that have to land
+# somewhere writable. This process has neither. It opens no database, and
+# the only thing on its execution path that writes to its own filesystem
+# at all is the result WAL, which is opt-in through RUNNER_WAL_DIR and
+# stays off unless an operator sets it and mounts something for it to
+# write to. An empty writable directory that nothing uses is just a place
+# for a compromised process to stage files, so there is not one.
+#
+# A deployment that turns the WAL on has to give RUNNER_WAL_DIR an
+# ABSOLUTE path onto a mount owned by 65532. A relative one resolves
+# against the working directory below, which this uid cannot write to, and
+# runner.NewFileWAL fails closed at startup rather than losing results
+# quietly later.
 WORKDIR /app
-COPY --from=builder /app/runner .
-# The runner resolves RUNBOOK_DIR the same way the controller does, and
-# production shares one runbook directory between them, so the image needs
-# the same path to exist.
-RUN mkdir -p /app/runbooks
-CMD ["./runner"]
+# Numeric, never the name "nonroot". Kubernetes refuses to start a
+# container whose USER is a name when the pod sets
+# securityContext.runAsNonRoot: true, because the kubelet has no
+# /etc/passwd to resolve the name against: CreateContainerConfigError,
+# "image has non-numeric user (nonroot), cannot verify user is non-root".
+# Compose cannot see this, which is why it shipped. Same reasoning and same
+# identity as Dockerfile.controller; 65532 is what the distroless nonroot
+# tag already uses.
+USER 65532:65532
+
+# No EXPOSE. The runner binds no port at all: it dials out to NATS and
+# pulls work from a durable consumer group, so nothing ever connects to
+# it. An EXPOSE here would document a listener that does not exist.
+
+# A trap worth recording before someone falls into it, because it will
+# look like a runtime bug rather than a permissions one.
+#
+# This container runs as UID 65532, and a host Docker socket is normally
+# mode 0660 root:docker. The legacy Ansible path starts a sibling
+# container over that socket (internal/adapters/legacy's
+# DockerOrchestrator), so the day anybody mounts /var/run/docker.sock in
+# to enable it, this process gets "permission denied" on connect rather
+# than any message about a missing socket. Nothing mounts it today, so
+# this is not a regression, it is the next person's afternoon. The fix is
+# to give the container the socket's group
+# (--group-add "$(stat -c '%g' /var/run/docker.sock)"), never to run this
+# image as root.
+
+# There is deliberately no HEALTHCHECK instruction, which matches
+# Dockerfile.controller. That is now a choice about WHO OWNS THE PROBE
+# rather than a statement that none exists, and the old version of this
+# comment (which said this binary has no HTTP surface so there is nothing
+# in-container to ask) has stopped being true.
+#
+# This binary can answer for itself as of Phase 20: `/app/runner
+# healthcheck` reads the liveness heartbeat the agent writes while its
+# durable NATS consumer is genuinely reachable, and exits non-zero when
+# that file has gone stale (internal/runner/heartbeat.go says what a beat
+# proves and what it misses). No HTTP surface was added to get there; the
+# process still binds no port, which is why there is still no EXPOSE
+# above.
+#
+# The probe stays out of the image because the orchestrator owns the
+# timings. docker-compose.yml declares a healthcheck against this command
+# and helm/the-pleiades wires it to the runner Deployment's liveness and
+# readiness probes, each with intervals suited to its own scheduler. A
+# HEALTHCHECK baked in here would be a third set of timings that neither
+# of them can see, and it would apply on a `docker run` where no
+# supervisor is watching the answer.
+#
+# THE WRITABLE PATH THIS NEEDS. The heartbeat defaults to
+# /tmp/pleiades-runner/heartbeat, and this image still creates no writable
+# directory (the runtime stage below says why). That is deliberate: /tmp
+# is writable in every arrangement that matters (compose mounts a tmpfs,
+# the chart mounts an emptyDir, a plain `docker run` without --read-only
+# has an ordinary writable layer), and a deployment that has none can turn
+# the heartbeat off by setting RUNNER_HEARTBEAT_FILE to an empty value.
+# The binary fails closed at startup rather than discovering an unwritable
+# path on its first beat.
+
+CMD ["/app/runner"]

@@ -1,0 +1,56 @@
+{{- include "the-pleiades.validate" . -}}
+{{- /*
+Voluntary-disruption budgets for the two Pleiades workloads, in one file
+because they are the same object twice with different names.
+
+WHAT A BUDGET DOES AND DOES NOT COVER. It constrains VOLUNTARY disruption
+only: a `kubectl drain`, a cluster autoscaler removing a node, a node pool
+upgrade. It has no effect on a crash, an OOM kill, a node that dies, or a
+rolling update's own surge settings. So it is the right tool for "do not take
+my whole control plane down to patch a node" and the wrong tool for
+availability in general.
+
+WHY THE CONTROLLER'S IS OFF BY DEFAULT. The default is one replica, and a
+budget over a single pod is either theater or a deadlock: minAvailable 1 means
+no eviction can ever succeed, so a drain hangs forever and a cluster upgrade
+stalls on this namespace; maxUnavailable 1 permits every eviction, which is
+what happens with no budget at all. Turn it on with replicaCount > 1 or
+autoscaling. The runner's is on because the default there is two replicas,
+where keeping one alive through a drain is a real guarantee.
+
+WHETHER A BUDGET RENDERS IS DECIDED BY `enabled` AND NOTHING ELSE. It used to
+be decided by whether minAvailable happened to be truthy, with maxUnavailable
+as the else branch, which meant a budget could silently vanish: an operator who
+cleared maxUnavailable without setting minAvailable rendered no PodDisruptionBudget
+at all and had no protection while believing they had configured some. The
+combination is now checked in _validations.tpl, which refuses an enabled budget
+that states neither field, so this file is reached only when exactly one of the
+two is set and it can emit that one without a fallback.
+*/}}
+{{- if .Values.controller.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "the-pleiades.controller.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
+spec:
+  {{- include "the-pleiades.pdbBudget" .Values.controller.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "controller") | nindent 6 }}
+{{- end }}
+{{- if .Values.runner.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "the-pleiades.runner.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "runner") | nindent 4 }}
+spec:
+  {{- include "the-pleiades.pdbBudget" .Values.runner.podDisruptionBudget | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "runner") | nindent 6 }}
+{{- end }}

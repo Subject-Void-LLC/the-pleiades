@@ -1,10 +1,35 @@
-{{- if .Values.ingress.enabled -}}
+{{- include "the-pleiades.validate" . -}}
+{{- if .Values.ingress.enabled }}
+{{- /*
+Publishes the controller, and only the controller. Nothing else in this chart
+has an HTTP surface: the runner binds no port and the two backends are
+deliberately cluster-internal.
+
+THE ONE THING THAT SURPRISES PEOPLE HERE. In two of the three TLS modes the
+controller serves HTTPS on its own listener, so the ingress controller has to
+speak HTTPS to the backend as well. Most controllers assume plain HTTP unless
+told otherwise, and the symptom of getting it wrong is a 502 with a protocol
+error in the ingress controller's log rather than anything Pleiades prints. On
+ingress-nginx the annotation is:
+
+  nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+The alternative is to let the ingress be the only place TLS terminates, with
+controller.tls.mode=upstream, and then the backend really is plain HTTP and
+that annotation would be the wrong one. Either arrangement works; the chart
+cannot tell which you chose, which is why this is a comment and not a
+generated annotation.
+
+The ingress.hosts entries are also added automatically to a self-provisioned
+certificate's subject alternative names, so that arrangement at least fails at
+the ingress rather than at the browser.
+*/}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "the-pleiades.fullname" . }}
+  name: {{ include "the-pleiades.controller.fullname" . }}
   labels:
-    {{- include "the-pleiades.labels" . | nindent 4 }}
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -29,15 +54,24 @@ spec:
       http:
         paths:
           {{- range .paths }}
-          - path: {{ .path }}
-            {{- with .pathType }}
-            pathType: {{ . }}
-            {{- end }}
+          - path: {{ .path | quote }}
+            {{- /* pathType is REQUIRED by networking.k8s.io/v1 and it is
+                 emitted unconditionally for that reason. It used to sit
+                 behind `with`, so an entry that stated only a path rendered
+                 an Ingress the API server rejects, which is a manifest that
+                 passes `helm lint` and `helm template` and fails at the one
+                 moment an operator is watching an install. values.schema.json
+                 now requires the key as well, so this default is only reached
+                 by a render that skipped schema validation; both layers exist
+                 because either alone leaves a way to produce the invalid
+                 object. Prefix is the default because it is what the chart's
+                 own documented "/" entry means. */}}
+            pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ include "the-pleiades.fullname" $ }}
+                name: {{ include "the-pleiades.controller.fullname" $ }}
                 port:
-                  number: {{ $.Values.service.port }}
+                  name: api
           {{- end }}
     {{- end }}
 {{- end }}

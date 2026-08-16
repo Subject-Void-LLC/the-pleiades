@@ -60,7 +60,7 @@ func TestLoginFlood_ShedsRatherThanGrowing(t *testing.T) {
 	registerTestView()
 	passwords := &countingPasswords{}
 	store := newMemStore()
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 
 	const (
 		burst    = 5

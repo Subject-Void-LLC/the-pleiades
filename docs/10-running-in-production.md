@@ -11,6 +11,288 @@ handled, and what is genuinely built versus still design work. As with every pag
 in this reference, a claim here is either backed by real, tested code or is
 explicitly marked otherwise; nothing below is aspirational.
 
+## Installing
+
+There are two supported ways to run the control plane: `docker-compose.yml` on a
+single Docker host, and the Helm chart in `helm/the-pleiades` on Kubernetes. This
+section is about the second one. Everything below has been rendered and checked;
+where something has not been run against a real cluster, it says so.
+
+### Nothing is published, so you build the images first
+
+There is no registry hosting a Pleiades image and no tagged release of this
+repository. That is the single most important fact about installing it, because
+every other instruction follows from it.
+
+Build both images from the commit you intend to run:
+
+```bash
+VCS_REF=$(git rev-parse HEAD)
+docker build -f Dockerfile.controller --build-arg VCS_REF="$VCS_REF" -t pleiades/controller:dev .
+docker build -f Dockerfile.runner     --build-arg VCS_REF="$VCS_REF" -t pleiades/runner:dev .
+```
+
+`pleiades/controller:dev` and `pleiades/runner:dev` are the names the chart asks
+for by default, and they are exactly what `docker compose build` produces, so a
+locally built or side-loaded image is found with no extra flags. Push them to
+your own registry and point `controller.image.repository` and
+`runner.image.repository` there for anything beyond a first look.
+
+If the images are missing, `helm install` still reports success. The failure
+appears as `ImagePullBackOff` in `kubectl get pods` and, in more detail, in
+`kubectl get events`. Check the pods, not the install command.
+
+### Installing the chart
+
+Three values have no default and the chart refuses to render without them:
+
+```bash
+helm install pleiades ./helm/the-pleiades \
+  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
+  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
+  --set postgresql.auth.password="$(openssl rand -hex 16)"
+```
+
+The chart will not generate them for you, and that is deliberate. Helm can
+produce a random value, but it would produce a *different* one on the next
+`helm upgrade`, because `helm template` has no cluster to read the previous value
+back from. A rotated `JWT_SECRET` signs everybody out, which is annoying and
+recoverable. A rotated `MASTER_ENCRYPTION_KEY` makes every stored credential and
+every encrypted device property permanently undecryptable, with no error at
+upgrade time. Keep all three somewhere you can find again, or hand the chart a
+Secret you manage yourself with `secrets.existingSecret`.
+
+Then create the first administrator, which is the real next step and the one the
+install notes print:
+
+```bash
+kubectl exec -it deploy/pleiades-the-pleiades-controller -- \
+  /app/controller bootstrap-admin --email you@example.com
+```
+
+What a default install gives you: one controller, two runners, and a
+single-instance PostgreSQL and NATS deployed as part of the release. That is a
+trial shape. For anything real, set `postgresql.enabled=false` and
+`nats.enabled=false` and point `externalDatabase.dsn` and `externalNats.url` at
+services somebody already knows how to back up and restrict. The in-chart broker
+in particular runs with no authorization at all, and a dispatch payload carries
+the credentials a job runs with.
+
+The chart has no subchart dependencies, on purpose. PostgreSQL and NATS are
+templated into it rather than pulled from a chart repository, so there is no
+`helm dependency build` step and the whole chart is one directory. That is what
+makes the air-gapped install below work.
+
+### What the chart refuses to install
+
+Some configurations are refused at render time, with the reason in the error,
+rather than installing cleanly and behaving wrongly later:
+
+| Configuration | Why it is refused |
+|---|---|
+| `runner.playbookDir` or `runner.ansibleImage` | The legacy Ansible path runs a playbook by starting a **sibling container through a Docker daemon**. A pod has no Docker daemon. The two ways to give it one are mounting the node's container runtime socket (which hands the pod control of every container on that node) or a privileged Docker-in-Docker sidecar (the same authority in a different shape). Run unconverted playbooks on a Docker host with `docker-compose.yml` instead. |
+| `controller.tls.mode=self-provisioned` with more than one replica **and `controller.persistence.enabled=false`** | Several self-provisioning controllers sharing one directory are fine: provisioning is lock-free, none of them waits on another, and the directory converges on one certificate. With persistence off there is no shared directory at all: each replica's `/data` is its own `emptyDir`, so each mints its own certificate and a new one on every restart, and there is nothing to converge on. Share a directory with `persistence.accessMode=ReadWriteMany`, or scale out with `mode=secret` or `mode=upstream`. |
+| More than one controller replica over a `ReadWriteOnce` or `ReadWriteOncePod` volume | The chart creates one claim, not one per replica, because a Deployment has no `volumeClaimTemplates`. A second replica scheduled on another node would sit `Pending` forever. `ReadWriteMany` is the only access mode that serves more than one replica; the alternatives are turning persistence off or staying at one replica. |
+| An image tagged `latest`, untagged, or pinned by digest | `latest` names a different image tomorrow. A digest does not resolve against a side-loaded image, which breaks exactly the air-gapped install below. |
+| A missing encryption key, JWT secret, or database password | See above. |
+| A mistyped values key | `values.schema.json` sets `additionalProperties: false`, so `controller.replicaCounts=3` is an error instead of a silently ignored setting that leaves the default in place. |
+| An enabled `podDisruptionBudget` that sets both `minAvailable` and `maxUnavailable`, or neither | A PodDisruptionBudget carries one or the other, and the API server rejects an object with both. Setting neither used to render no budget at all, so an operator who believed disruption protection was on had none and nothing said so. Note that `0` counts as an answer on either field: `minAvailable: 0` permits every voluntary eviction and `maxUnavailable: 0` permits none. |
+| An `ingress.hosts[].paths[]` entry with no `pathType` | `networking.k8s.io/v1` requires `pathType` on every path, so an entry without one produces an object the API server refuses. The schema requires the key and the template also defaults it to `Prefix`. |
+| Installing over a retained database volume with different credentials | See [Reinstalling over a database that is still there](#reinstalling-over-a-database-that-is-still-there) below. This is the one refusal that reads the cluster, so it fires on a real `helm install` or `helm upgrade` and not during `helm template`. |
+
+`make helm-lint` is the gate that keeps these true. It renders the chart in five
+arrangements, checks that every rendered container has a numeric non-root uid, a
+read-only root filesystem, no capabilities, the default seccomp profile, no
+`hostPath` volume and no `latest` tag or digest, and then checks that each
+refusal above really fires with its reason intact. It needs Helm 4 and no
+cluster.
+
+It also renders the chart at **release-name lengths 1, 20, 30, 31, 40, 44, 48,
+49, 50, 52 and 53** (twice at each length, since a name containing
+`the-pleiades` takes a different branch of the naming helper, and the two
+branches cross these boundaries at different points) and requires every object
+name to stay
+distinct, to keep its component word, and to be legal **for its own kind**.
+Neither half is hypothetical, and they were two different bugs.
+
+A release name of 49 to 53 characters, every one of them legal to Helm, used to
+truncate the controller, the runner, the PostgreSQL StatefulSet and the NATS
+StatefulSet to **one identical name**, so the objects overwrote each other on
+apply. Names are now built by cutting the release-scoped prefix first and
+appending the component second, so a long release name loses characters from a
+part nobody reads.
+
+The fix for that held every kind to 63 characters, which is right for a Service
+and 11 characters too generous for a StatefulSet. Kubernetes labels each
+StatefulSet pod with `controller-revision-hash`, whose value is
+`<statefulset name>-<hash>` and which may not exceed 63 bytes, so a longer
+StatefulSet name is **created successfully and then produces no pods at all**:
+`helm install` reports success, the object sits at `0/1` forever, and the only
+evidence is a `FailedCreate` event. Verified against a real cluster in both
+directions. The two StatefulSets therefore get a lower budget than the two
+Deployments, and the linter now asserts the names Kubernetes *derives* from
+each object name as well as the names the chart writes.
+
+**One container is exempt from the probe rule, by name and with a written
+reason: the runner.** It has no liveness or readiness probe because there is
+nothing inside the pod to ask. `cmd/runner` binds no port, has no HTTP surface
+and no `healthcheck` subcommand, and its image is distroless, so it carries no
+shell and no `curl`. The one executable in the image is the runner binary
+itself, and it treats any first argument it does not recognise as an ordinary
+start, so an `exec` probe running it would launch a **second runner agent into
+the consumer group every few seconds**. There is no probe a chart can express
+that would help here.
+
+Its real liveness question is whether it is still pulling from its durable NATS
+consumer, which is a fact about a connection held inside the process. The
+practical consequence for an operator: **Kubernetes cannot tell a wedged runner
+from a working one.** A runner that is up but has stopped consuming looks
+healthy. Watch for it on the controller side instead, as a job that stays queued
+with no runner claiming it, or on the broker as a climbing pending count.
+
+Closing that gap needs a `healthcheck` subcommand on the binary, in the shape
+`cmd/controller/healthcheck.go` already has, not a chart change. The waiver
+carries that condition rather than only the reason: `make helm-lint` re-reads
+`cmd/runner` on every run and fails, with the chart edit spelled out, the day a
+healthcheck subcommand appears there. Every other container is required to carry
+both probes, on different endpoints, and a new one arriving without them fails
+the build.
+
+### Verifying what you are about to install
+
+Be clear about what verification is available today, because it is less than a
+mature project offers:
+
+**There is no signed release.** No git tags exist, so there is nothing to sign,
+no published checksums, no cosign signature, no SBOM, and no provenance
+attestation. Anyone telling you they downloaded a Pleiades release verified it
+against nothing.
+
+What you can do instead:
+
+1. **Build from a commit you chose.** The images carry OCI labels, so a built
+   image records where it came from: `docker inspect -f '{{json .Config.Labels}}'
+   pleiades/controller:dev` prints `org.opencontainers.image.revision`. A build
+   that passed no `--build-arg VCS_REF` stamps `unknown`, which is honest and
+   useless, so pass it.
+2. **Record the image ID you built** (`docker image inspect -f '{{.Id}}'
+   pleiades/controller:dev`) and compare it with what actually landed on the
+   node (`crictl images --digests`, or `kubectl describe pod` for the resolved
+   image). This is what catches a stale side-load, which is the realistic
+   failure here rather than a supply-chain attack.
+3. **Render before you install.** `helm template` needs no cluster:
+
+   ```bash
+   helm template pleiades ./helm/the-pleiades --set ... | kubectl apply --dry-run=client -f -
+   ```
+
+   That parses every object and catches a values mistake before anything runs.
+   With a cluster you can reach, `--dry-run=server` is strictly better: the API
+   server itself validates the manifests, so a required field the client-side
+   parse cannot know about (an Ingress path with no `pathType`, a
+   PodDisruptionBudget carrying two budget fields) is reported by the thing that
+   would have rejected it.
+
+### Reinstalling over a database that is still there
+
+`helm uninstall` does **not** delete the PostgreSQL data volume, and that is
+deliberate: the claim is created by a StatefulSet `volumeClaimTemplate`, which
+Kubernetes leaves behind on purpose, and a chart that destroyed a database on
+uninstall would be the more dangerous chart. So a reinstall under the same
+release name lands on a volume that already holds an initialized database.
+
+PostgreSQL applies `POSTGRES_USER`, `POSTGRES_DB` and `POSTGRES_PASSWORD` **only
+when it initializes an empty data directory**. Against a volume that already
+holds a database it ignores all three. A reinstall with a different password
+therefore used to install cleanly, report every object created, bring the
+database up healthy, and leave the controller failing authentication and
+crash-looping forever with nothing anywhere naming the cause.
+
+The chart now refuses that. The StatefulSet stamps a hash of the three
+credentials onto its `volumeClaimTemplate`, Kubernetes copies it onto the claim,
+and the claim outlives the release, so the next install compares and stops. The
+refusal names the claim and both real choices:
+
+- **Keep the data.** Install with the `postgresql.auth` values that volume was
+  created with. Nothing is destroyed.
+- **Start over.** `kubectl delete pvc <claim> --namespace <namespace>`, then
+  install. **This destroys the database**: every user, device, template, job,
+  credential and role binding in it. There is no undo and this chart takes no
+  backups.
+
+Two boundaries worth stating. The check needs a cluster to read, so it is silent
+under `helm template` and `--dry-run=client` and fires on a real `helm install`,
+`helm upgrade` or `--dry-run=server`. And it refuses only a **proven** mismatch:
+a claim this chart did not create carries no stamp, and `secrets.existingSecret`
+means the chart never sees the password, so in both cases it has no evidence and
+does not guess. `tests/e2e/packaging_kind_test.go` proves the whole sequence
+against a real cluster: install, uninstall, reinstall with a changed password
+(refused, with the claim named), then reinstall with the original one
+(accepted).
+
+### Air-gapped install
+
+The chart is built to install with no route to the internet. The sequence:
+
+```bash
+# On a connected machine.
+docker build -f Dockerfile.controller -t pleiades/controller:dev .
+docker build -f Dockerfile.runner     -t pleiades/runner:dev .
+docker save pleiades/controller:dev pleiades/runner:dev -o pleiades-images.tar
+helm package ./helm/the-pleiades          # produces the-pleiades-0.1.0.tgz
+
+# Move pleiades-images.tar and the-pleiades-0.1.0.tgz across.
+
+# On each node that will run a Pleiades pod (containerd):
+ctr -n k8s.io images import pleiades-images.tar
+# or, for a kind cluster:
+kind load image-archive pleiades-images.tar
+
+helm install pleiades ./the-pleiades-0.1.0.tgz \
+  --set secrets.masterEncryptionKey="$(openssl rand -base64 32)" \
+  --set secrets.jwtSecret="$(openssl rand -hex 32)" \
+  --set postgresql.auth.password="$(openssl rand -hex 16)"
+```
+
+Three things make that work, and each of them is a decision that can be undone
+by accident:
+
+- **The images are referenced by tag, never by digest.** A digest-pinned
+  reference does not resolve against a side-loaded image, even when the local
+  daemon reports that exact digest. Digest pinning is normally the stronger
+  practice, and here it breaks every air-gapped, side-loaded and kind-based
+  install. The chart refuses a digest for that reason.
+- **`imagePullPolicy` is `IfNotPresent`.** Setting it to `Always` forces a pull
+  that cannot succeed, no matter what is already on the node.
+- **The chart has no dependencies**, so nothing needs a chart repository.
+
+You also need the two backend images (`postgres:15.19-alpine` and
+`nats:2.14.4-alpine`) in the same archive if you are using the in-chart
+database and broker, since they are pulled the same way everything else is.
+
+**Verified against a real cluster, with a stated boundary.**
+`tests/e2e/packaging_kind_test.go` performs this whole sequence on every
+integration run: it creates a single-node kind cluster at a pinned Kubernetes
+version, side-loads both locally built images into the node's containerd store,
+installs this chart with `imagePullPolicy=Never` so a missing side-load fails
+loudly instead of being quietly pulled, and then proves the controller
+Deployment reaches `Available`, that `/readyz` answers
+`{"status":"ready","checks":{"database":"ok","nats":"ok"}}` over the certificate
+the controller provisioned for itself, and that `bootstrap-admin` works through
+`kubectl exec`.
+
+What that does NOT cover, so nobody reads more into it than it carries: one
+node, so nothing about scheduling across nodes, `ReadWriteMany` volumes or a
+real StorageClass is exercised; the two backend images are pulled from the
+registry rather than side-loaded, because a multi-architecture image cannot be
+side-loaded into a kind node, so a genuinely air-gapped install of PostgreSQL
+and NATS is still the carefully constructed sequence above rather than a
+transcript; and no Ingress, no cert-manager and no external database are
+installed. The chart also renders in five arrangements under `make helm-lint`,
+passes `helm lint --strict`, and every object it produces is accepted by
+`kubectl apply --dry-run=server`, which is the API server's own validation
+rather than a client-side parse.
+
 ## Failure semantics and safety
 
 ### A command is never retried once sent
@@ -274,10 +556,72 @@ its retention accordingly.
 
 ### PKI and TLS
 
-An mTLS mesh between the Controller and Runners is designed (`internal/pki`
-declares the interface: sign a CSR, issue a 72-hour certificate) but not
-implemented; there is no certificate issuance, rotation, or mTLS enforcement today.
-Treat this as `design`, not `beta`.
+Two different things, at different stages, and it is worth not confusing them.
+
+**Serving TLS is real and unavoidable.** The Controller terminates TLS from
+`TLS_CERT_FILE` and `TLS_KEY_FILE` (TLS 1.2 floor), or serves plain HTTP only when
+`PLEIADES_TLS_TERMINATED_UPSTREAM=1` states that an ingress in front of it already
+terminated TLS. With neither configured it generates a self-signed certificate,
+stores it, and serves that. Setting one of the two files without the other, or both
+arrangements at once, is a startup error. This is deliberate rather than strict for
+its own sake, because the browser session cookie carries `Secure` and the `__Host-`
+prefix unconditionally, and a browser refuses such a cookie on a plain-HTTP origin
+without explaining why. Nothing reads `X-Forwarded-Proto` or any other forwarded
+header; which arrangement is in use is a setting an operator states, not something
+the process infers per request. See
+[The web UI](12-web-ui.md#serving-over-tls) for the full table, and note that
+certificate rotation still means restarting the process.
+
+**In production, set `TLS_CERT_FILE` and `TLS_KEY_FILE`, or terminate upstream.** The
+self-signed certificate is a convenience for a local stack that has to work as one
+command. It encrypts the connection and it does not authenticate the server: nothing
+your clients already trust vouches for it, so a browser warns and an operator who
+clicks through cannot distinguish the Controller from anything else answering on that
+address. Treating a warning as routine is itself the risk, because it is the same
+warning an interception would produce. A configured certificate always wins over the
+generated one, so the production fix is to set the two variables and restart. If you
+do run on the generated certificate anyway, note where it lives
+(`PLEIADES_TLS_AUTOCERT_DIR`, default `tls` relative to the working directory, which
+is `/data` in the container image), that the key is written `0600` inside a `0700`
+directory, and that renewal happens only at startup: a process left running past the
+certificate's one-year validity serves an expired certificate until it is restarted.
+
+**In Kubernetes, the chart states which arrangement you chose.** The Controller
+cannot infer it, for the reason above: a header a client can set is a claim a client
+can forge. So `controller.tls.mode` is a value, and each setting produces one of the
+three arrangements:
+
+| `controller.tls.mode` | What the pod does | When to use it |
+|---|---|---|
+| `self-provisioned` (default) | Generates a self-signed certificate into its data volume, reuses it on every later start, serves HTTPS. | A first install. Browsers warn, and clicking through is exactly as weak as it sounds. |
+| `secret` | Serves `tls.crt` and `tls.key` from a `kubernetes.io/tls` Secret, which is the shape cert-manager writes. | Production, when TLS terminates in the pod. |
+| `upstream` | Serves plain HTTP, because an ingress or a mesh in front of it already terminated TLS. | Production, when TLS terminates at the edge. Only true if it really does: a browser silently drops the session cookie on a plain-HTTP origin, and sign-in then fails with a message about credentials. |
+
+Two details are easy to get wrong and hard to diagnose. The chart sets the liveness
+and readiness probe **scheme** from the same value, because a kubelet probing
+`http://` at an HTTPS listener never gets a valid answer and the pod would fail its
+probes forever. And when the Controller serves its own certificate, the ingress
+controller has to speak HTTPS to the backend
+(`nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"` on ingress-nginx); getting
+that wrong shows up as a 502 with a protocol error in the ingress controller's log
+and nothing at all in the Controller's.
+
+**Self-provisioning does not survive a second replica, and the chart refuses to
+render one.** Two Controllers generating their own certificates either share one
+volume, which is a read-modify-write race over the same key pair, or hold separate
+certificates, so a client is handed a different untrusted certificate depending on
+which pod answered. Scaling out means `mode: secret` or `mode: upstream`, where every
+replica presents the same certificate or none at all. Autoscaling is refused for the
+same reason, since its whole purpose is a second replica.
+
+**An mTLS mesh between the Controller and Runners is not.** It is designed
+(`internal/pki` declares the interface: sign a CSR, issue a 72-hour certificate) but
+not implemented; there is no certificate issuance, rotation, or mTLS enforcement
+today. Treat that half as `design`, not `beta`. Nothing in the Helm chart changes
+that: the chart configures how a *client* reaches the Controller, and the
+Controller-to-Runner path still carries no certificates at all. Traffic between the
+Controller, the Runners, the database and the broker is unencrypted inside the
+cluster unless you put a service mesh there yourself.
 
 ## Data handling disclosure
 
@@ -373,11 +717,42 @@ but there is no tenant isolation concept above that.
 
 ## Sizing
 
-Not written. The distributed execution plane now reaches real devices, but the
-reference Helm chart is still unmodified `helm create` output
-(`image.repository: nginx`), so no deployment has been run at a scale worth sizing
-against. One number is known and worth planning around in the meantime: a task that
-calls a Collection method pays roughly 10 ms of process-isolation overhead, on top of
-whatever the device work itself costs, because each such task runs in its own child
-process (see [Start here](01-start-here.md)). Tasks using `ssh_exec` do not pay it.
-Beyond that, writing a sizing guide would be a guess dressed up as guidance.
+**Still not written, and the reason has changed.** It used to be that there was no
+deployable artifact to size at all, since the reference chart was unmodified
+`helm create` output that deployed nginx. That is fixed: `helm/the-pleiades` is a
+real chart. What is still missing is a measurement. No Pleiades deployment has been
+run under sustained load, so any table of "N devices needs M runners" here would be
+arithmetic invented to fill a section.
+
+What the chart does ship is a starting point, and it is worth reading as exactly
+that:
+
+| Workload | CPU request | Memory request | Memory limit | Default replicas |
+|---|---|---|---|---|
+| controller | 100m | 256Mi | 1Gi | 1 |
+| runner | 100m | 256Mi | 1Gi | 2 |
+| PostgreSQL (in-chart) | 250m | 256Mi | 1Gi | 1 |
+| NATS (in-chart) | 100m | 128Mi | 512Mi | 1 |
+
+Those numbers are sized to start on a laptop-scale cluster, not measured under load.
+Two things about the shape of them are deliberate and do carry over:
+
+- **Requests are set and CPU limits are not.** A CPU limit is enforced by CFS quota,
+  so a process that reaches it is throttled for the remainder of the period, which
+  arrives as latency on a request that did nothing wrong. Memory has no equivalent
+  graceful degradation, so memory carries a limit and CPU does not. If your cluster
+  applies a `LimitRange` that adds CPU limits anyway, that is worth knowing before
+  you conclude Pleiades is slow.
+- **The runner scales with the number of concurrent device conversations, not with
+  request rate.** Runners pull from one durable NATS consumer group, so adding
+  replicas adds parallelism and never duplicates work. There is deliberately no
+  autoscaler on them: their load arrives as queue depth, and a CPU-driven autoscaler
+  would scale *down* a fleet that is blocked waiting on slow devices, which is
+  exactly backwards. Scale them by hand, or on a queue-depth metric if you already
+  run an external metrics adapter.
+
+One measured number is worth planning around in the meantime: a task that calls a
+Collection method pays roughly 10 ms of process-isolation overhead on top of whatever
+the device work itself costs, because each such task runs in its own child process
+(see [Start here](01-start-here.md)). Tasks using `ssh_exec` do not pay it. Beyond
+that, writing a sizing guide would still be a guess dressed up as guidance.

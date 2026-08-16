@@ -1,0 +1,55 @@
+# Build context for Dockerfile.controller, Dockerfile.runner and
+# Dockerfile.legacy-ansible-runner. All three build from this directory,
+# so all three see exactly this filter.
+#
+# This file denies everything and then allows back only what a build
+# genuinely needs. The inverse shape (list what to exclude) was rejected
+# deliberately: it fails open, so the next directory added to the
+# repository root joins the build context silently and nobody finds out
+# until an image is unexpectedly large or contains something it should
+# not. Denying by default means a new directory is excluded until someone
+# decides otherwise, which is the direction an error should point.
+#
+# What this was worth, measured before it existed: the context was 410 MB.
+# It carried .git, a complete second checkout under .claude/worktrees/,
+# roughly 190 MB of stale binaries left in the repository root, and
+# .SPECIFICATION/. That last one is why this is a security control and not
+# housekeeping. The specification directories are gitignored and never
+# ship, and tools/docs-lint runs in `make ci` for the single purpose of
+# enforcing that at every surface a user can see. The image build was a
+# surface nothing guarded. Multi-stage builds mean those files did not
+# reach the final image, so this was never a shipped leak, but it is the
+# same control failing at an unguarded boundary, and it becomes a real
+# leak the first time a builder stage is cached or pushed.
+#
+# internal/testsupport's dockerignore_test.go asserts the deny-by-default
+# shape, the specific paths that must stay out, and that every allowance
+# below is one a Dockerfile actually needs, so a well-meaning "just allow
+# one more thing" cannot quietly undo it. That last check is the newest,
+# and it is here because this file already had one allowance nothing
+# needed: `!tools/`, justified as "the build stage may run repo-local
+# tooling". No stage runs any. Neither binary's module graph reaches a
+# package under tools/, and no Dockerfile copies from it. An unnecessary
+# allowance in a deny-by-default control is the exact shape of the failure
+# this file argues against, so it was removed rather than reworded.
+
+# Deny everything.
+*
+
+# Allow the module definition. Both Go Dockerfiles copy these first, on
+# their own, so that `go mod download` caches in a layer that a source
+# edit does not invalidate.
+!go.mod
+!go.sum
+
+# Allow the source the two Go binaries compile from. cmd/ holds the
+# composition roots, and the other two are everything they import.
+#
+# internal/ is also what puts internal/redact/rules.json in the context,
+# which Dockerfile.legacy-ansible-runner copies on its own. Narrowing this
+# line to Go sources would break that image while every Go build kept
+# working, so dockerignore_test.go names that file as a required input
+# rather than leaving it to be rediscovered.
+!cmd/
+!internal/
+!pkg/
