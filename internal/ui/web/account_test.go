@@ -58,7 +58,7 @@ func newAccountProbe(t *testing.T, changer PasswordChanger) *accountProbe {
 
 	const subject = "operator@example.test"
 	store := newMemStore()
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 
 	token, err := store.Create(t.Context(),
 		&auth.Identity{Subject: subject, Role: auth.RoleOperator, Scopes: auth.ScopesForRole(auth.RoleOperator)},
@@ -295,7 +295,7 @@ func TestChangePassword_RequiresTheCSRFToken(t *testing.T) {
 func TestAccountPage_AbsentWithoutALocalCredentialStore(t *testing.T) {
 	registerTestView()
 	store := newMemStore()
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 	token, err := store.Create(context.Background(),
 		&auth.Identity{Subject: "operator@example.test", Role: auth.RoleOperator}, time.Hour, time.Hour)
 	if err != nil {

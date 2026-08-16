@@ -212,7 +212,7 @@ func newProbe(t *testing.T, admission api.Admitter, hateoas auth.HATEOASGenerato
 		t.Fatalf("creating a session: %v", err)
 	}
 
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 	h := New(Config{
 		Prefix:    "/ui",
 		Sessions:  store,

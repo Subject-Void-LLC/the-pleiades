@@ -197,12 +197,36 @@ USER 65532:65532
 # (--group-add "$(stat -c '%g' /var/run/docker.sock)"), never to run this
 # image as root.
 
-# There is deliberately no HEALTHCHECK instruction. The controller image
-# explains its own reasoning at more length now that it has a probe to
-# run; this binary has no HTTP surface of any kind, so there is nothing
-# in-container to ask. Its liveness is visible where the work is: an
-# unhealthy runner stops acknowledging messages and its durable consumer's
-# pending count climbs, which is a broker-side signal rather than a
-# container-side one.
+# There is deliberately no HEALTHCHECK instruction, which matches
+# Dockerfile.controller. That is now a choice about WHO OWNS THE PROBE
+# rather than a statement that none exists, and the old version of this
+# comment (which said this binary has no HTTP surface so there is nothing
+# in-container to ask) has stopped being true.
+#
+# This binary can answer for itself as of Phase 20: `/app/runner
+# healthcheck` reads the liveness heartbeat the agent writes while its
+# durable NATS consumer is genuinely reachable, and exits non-zero when
+# that file has gone stale (internal/runner/heartbeat.go says what a beat
+# proves and what it misses). No HTTP surface was added to get there; the
+# process still binds no port, which is why there is still no EXPOSE
+# above.
+#
+# The probe stays out of the image because the orchestrator owns the
+# timings. docker-compose.yml declares a healthcheck against this command
+# and helm/the-pleiades wires it to the runner Deployment's liveness and
+# readiness probes, each with intervals suited to its own scheduler. A
+# HEALTHCHECK baked in here would be a third set of timings that neither
+# of them can see, and it would apply on a `docker run` where no
+# supervisor is watching the answer.
+#
+# THE WRITABLE PATH THIS NEEDS. The heartbeat defaults to
+# /tmp/pleiades-runner/heartbeat, and this image still creates no writable
+# directory (the runtime stage below says why). That is deliberate: /tmp
+# is writable in every arrangement that matters (compose mounts a tmpfs,
+# the chart mounts an emptyDir, a plain `docker run` without --read-only
+# has an ordinary writable layer), and a deployment that has none can turn
+# the heartbeat off by setting RUNNER_HEARTBEAT_FILE to an empty value.
+# The binary fails closed at startup rather than discovering an unwritable
+# path on its first beat.
 
 CMD ["/app/runner"]

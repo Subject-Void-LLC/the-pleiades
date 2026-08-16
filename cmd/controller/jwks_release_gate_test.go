@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/tlscert"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
@@ -70,11 +73,11 @@ func signRS256Token(t *testing.T, key *rsa.PrivateKey, kid, issuer, audience str
 	return signed
 }
 
-func waitForHealthz(t *testing.T, baseURL string) {
+func waitForHealthz(t *testing.T, client *http.Client, baseURL string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(baseURL + "/healthz")
+		resp, err := client.Get(baseURL + "/healthz")
 		if err == nil {
 			resp.Body.Close()
 			return
@@ -84,7 +87,56 @@ func waitForHealthz(t *testing.T, baseURL string) {
 	t.Fatal("controller did not become healthy within 15s")
 }
 
-func postDispatch(t *testing.T, baseURL, bearerToken string) int {
+// trustControllerCertificate waits for the certificate the controller
+// provisions for itself and returns a client that verifies against exactly
+// that one.
+//
+// WHY THIS EXISTS RATHER THAN A PLAIN http.Client. This gate used to tell
+// the controller that something upstream had terminated TLS, which made it
+// serve plain HTTP for the convenience of the test. That is a real
+// arrangement the product supports, but it is not the one an operator gets
+// by default, and RULE 0 asks for the path the user runs. The default is
+// this: no TLS configuration at all, so the binary generates a certificate,
+// persists it, and serves HTTPS. Pointing the client at that file costs a
+// few lines and puts the auth assertions below on the transport the
+// controller really serves.
+//
+// InsecureSkipVerify is deliberately NOT used. The pool holds one
+// certificate read from the directory the process was told to write it to,
+// so a controller serving anything else fails the handshake instead of
+// quietly passing.
+func trustControllerCertificate(t *testing.T, dir string) *http.Client {
+	t.Helper()
+
+	certPath := filepath.Join(dir, tlscert.CertFileName)
+	var pem []byte
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var err error
+		pem, err = os.ReadFile(certPath) // #nosec G304 -- a path inside this test's own t.TempDir()
+		if err == nil && len(pem) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the controller never wrote a serving certificate to %s: %v", certPath, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		t.Fatalf("the certificate at %s is not usable PEM", certPath)
+	}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
+		}},
+	}
+}
+
+func postDispatch(t *testing.T, client *http.Client, baseURL, bearerToken string) int {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/v1/jobs/dispatch", strings.NewReader("{}"))
 	if err != nil {
@@ -93,7 +145,7 @@ func postDispatch(t *testing.T, baseURL, bearerToken string) int {
 	if bearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("issuing request: %v", err)
 	}
@@ -141,6 +193,7 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 
 	port := freeTCPPort(t)
 	dbPath := filepath.Join(t.TempDir(), "controller-jwks.db")
+	certDir := filepath.Join(t.TempDir(), "tls")
 	masterEncryptionKey := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 
 	cmd := exec.Command(binPath)
@@ -161,6 +214,16 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		// dispatches an actual runbook, only proves the JWKS auth path,
 		// so an empty directory is all main() needs to start.
 		"RUNBOOK_DIR="+t.TempDir(),
+		// The default TLS arrangement, which is the one an operator gets
+		// with nothing configured: the controller provisions a certificate
+		// for itself and serves HTTPS. Only the DIRECTORY is stated, and
+		// only because the default is relative to the working directory,
+		// which for this subprocess is the package directory: without it
+		// the run would leave a tls/ directory inside the repository. An
+		// earlier version of this gate set
+		// PLEIADES_TLS_TERMINATED_UPSTREAM=1 instead, which was cheaper and
+		// tested a transport no default install serves.
+		"PLEIADES_TLS_AUTOCERT_DIR="+certDir,
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start controller: %v", err)
@@ -170,19 +233,22 @@ func TestController_JWKS_RealServer_AcceptsValidRejectsForged(t *testing.T) {
 		_ = cmd.Wait()
 	})
 
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	waitForHealthz(t, baseURL)
+	// https, because the controller under test terminates TLS itself here,
+	// exactly as it does for an operator who configured nothing.
+	baseURL := fmt.Sprintf("https://127.0.0.1:%d", port)
+	client := trustControllerCertificate(t, certDir)
+	waitForHealthz(t, client, baseURL)
 
 	validToken := signRS256Token(t, published, "e2e-kid", "pleiades-controller", "pleiades-api")
 	forgedToken := signRS256Token(t, attacker, "e2e-kid", "pleiades-controller", "pleiades-api")
 
-	if status := postDispatch(t, baseURL, ""); status != http.StatusUnauthorized {
+	if status := postDispatch(t, client, baseURL, ""); status != http.StatusUnauthorized {
 		t.Errorf("no Authorization header: got status %d, want %d", status, http.StatusUnauthorized)
 	}
-	if status := postDispatch(t, baseURL, forgedToken); status != http.StatusUnauthorized {
+	if status := postDispatch(t, client, baseURL, forgedToken); status != http.StatusUnauthorized {
 		t.Errorf("token signed by a key absent from the real JWKS document: got status %d, want %d", status, http.StatusUnauthorized)
 	}
-	if status := postDispatch(t, baseURL, validToken); status == http.StatusUnauthorized {
+	if status := postDispatch(t, client, baseURL, validToken); status == http.StatusUnauthorized {
 		t.Errorf("token signed by the real, published key: got %d, expected authentication to succeed (not 401)", status)
 	}
 }

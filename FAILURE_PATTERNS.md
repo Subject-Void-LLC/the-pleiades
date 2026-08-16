@@ -119,13 +119,28 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
 117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
 118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
-119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FOUND, NOT FIXED)
+119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FIXED 2026-08-16, Phase 20: a heartbeat driven by the consumer answering, plus a `runner healthcheck` subcommand; the NATS reconnect defaults in `internal/event` and `internal/lock` are still open)
 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
 121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
 122. A build that compiles green produces a binary that cannot open its own default database, because the driver became a stub rather than a compile error
 123. A test built its "nothing is listening here" address by releasing a port, and so picked the one address on the machine that would answer
 124. A `//go:build ignore` file held a second copy of a pinned image, and no guard in the repository could see it
 125. A guard rejected only the literal tag `latest`, so `postgres:15-alpine` passed it for months under a doc claiming every image was pinned exactly
+126. A private key bind-mounted into a container was readable by nobody, because 0600 on the host is 0600 for a UID that does not exist in the container
+127. A certificate meant to be reused was replaced on every restart, because one of its subject alternative names was the container ID
+128. Every controller in a scaled deployment refused to boot at once, because the code that provisions a certificate counted its own writes instead of ending on a read
+129. A build context was measured from BuildKit's own progress line, which reports a cache delta rather than a size, so the measurement said 82 kB about 11.5 MB
+130. A Kubernetes cluster created moments after a container image build lost etcd during CNI install, and the failure surfaced inside the test that installs the chart
+131. Four workloads collapsed into one object name at every legal release-name length between 49 and 53
+132. A PodDisruptionBudget that silently did not exist, because the template chose its field by truthiness
+133. A reinstall with a different database password installed cleanly and crash-looped forever
+134. A lock over a cheap, idempotent write turned one slow or dead controller into every other controller refusing to start
+135. A provenance record kept as one read-modify-write file lost a concurrent writer's entry, and the process serving that certificate failed its own healthcheck
+136. An ownership check keyed on the certificate destroyed the private key beside it whenever the certificate was absent
+137. Every kind got one name budget, so the fix for a name collision created two StatefulSets that install cleanly and produce no pods
+138. A rule that never replaced material it could not prove it wrote made a directory no controller could ever start in again
+139. The trust anchors could not admit what a running replica was still presenting, so one sibling's renewal killed a healthy process
+140. A log field named for a certificate carried the path of the private key
 
 ---
 

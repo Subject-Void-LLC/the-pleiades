@@ -207,6 +207,35 @@ func (h *Handler) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "+
 				"connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		// Strict-Transport-Security, sent unconditionally, and the
+		// "unconditionally" is the decision worth explaining.
+		//
+		// This handler cannot tell whether the browser's connection was
+		// encrypted. r.TLS answers for THIS hop only, so it is nil in the
+		// arrangement that needs the header most: an ingress terminating
+		// TLS and forwarding plain HTTP over a private network. Gating on
+		// it would drop the header from exactly that deployment, and the
+		// alternative way to learn the truth is X-Forwarded-Proto, which
+		// this codebase refuses to trust anywhere (see resolveTLS in
+		// cmd/controller for the same refusal at the transport layer).
+		//
+		// Sending it always is safe rather than merely convenient: the
+		// standard requires a browser to IGNORE this header when it
+		// arrives over a non-secure transport, so the only deployment that
+		// could be harmed is one that set PLEIADES_TLS_TERMINATED_UPSTREAM
+		// while no ingress terminates anything, which is a false statement
+		// an operator made about their own network.
+		//
+		// includeSubDomains is included, matching the __Host- prefix's own
+		// posture: both exist because a sibling host under the same
+		// registrable domain is a real attack path against a session
+		// cookie. The cost is real and belongs to whoever deploys this: any
+		// other service under the same parent name has to speak HTTPS too,
+		// for a year. preload is deliberately absent, because that
+		// directive asserts a submission to a browser vendor's list that
+		// only the domain's owner can make, and it is close to
+		// irreversible.
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")

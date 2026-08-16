@@ -41,6 +41,24 @@ const acquiredLeaseMessage = "Acquired Scheduler Lease"
 var binPath string
 
 func TestMain(m *testing.M) {
+	// A certificate racer child (servingcert_race_test.go) re-executes this
+	// test binary to be one starting controller. It never runs the built
+	// binary, and linking one costs seconds: with sixteen children per round
+	// that alone turned a half-minute test into a six-minute one. Skipping
+	// the build for those children changes nothing about what any test
+	// exercises, because the tests that DO use binPath are never the ones a
+	// child runs.
+	//
+	// The name is written out rather than shared with the constant in
+	// servingcert_race_test.go because that file is in package main and this
+	// one is in package main_test, so neither can see the other's
+	// identifiers. If the two ever drift apart the only consequence is that
+	// the racer test gets slow again, which is why a literal is acceptable
+	// here and would not be for anything that decides a result.
+	if os.Getenv("RUN_CONTROLLER_CERT_RACER") != "" {
+		os.Exit(m.Run())
+	}
+
 	tmpDir, err := os.MkdirTemp("", "controller-bin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -130,6 +148,21 @@ func startController(t *testing.T, natsURL, jwtSecret, masterEncryptionKey strin
 		// entirely about election/failover timing, never a runbook
 		// dispatch, so an empty directory is all main() needs to start.
 		"RUNBOOK_DIR="+t.TempDir(),
+		// The default TLS arrangement, which is what an operator who
+		// configured nothing gets: main() provisions a serving certificate
+		// and listens on HTTPS. This gate never makes an HTTP request (see
+		// this function's own doc comment), so the transport is not what is
+		// under test either way, and running the default path means these
+		// replicas start exactly as a real one does.
+		//
+		// Only the DIRECTORY is stated. The default is relative to the
+		// working directory, which for this subprocess is the package
+		// directory, so leaving it unset would write a tls/ directory into
+		// the repository on every run. An earlier version set
+		// PLEIADES_TLS_TERMINATED_UPSTREAM=1 to sidestep that, which also
+		// moved four controller replicas off the startup path they ship
+		// with.
+		"PLEIADES_TLS_AUTOCERT_DIR="+filepath.Join(t.TempDir(), "tls"),
 	)
 
 	stdout, err := cmd.StdoutPipe()

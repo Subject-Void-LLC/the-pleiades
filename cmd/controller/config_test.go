@@ -1,7 +1,10 @@
-// This file tests the controller's own configuration resolution from
-// inside package main, since resolveDatabaseDSN is unexported and the
-// decision it makes (which backend this process talks to) is not
-// observable from outside without standing up two real servers.
+// This file tests the controller's own database configuration resolution
+// from inside package main, since resolveDatabaseDSN is unexported and the
+// decision it makes (which backend this process talks to) is not observable
+// from outside without standing up real servers.
+//
+// The transport decision moved out with the code it covers: resolveTLS now
+// lives in tls.go and its tests in tls_test.go.
 package main
 
 import (

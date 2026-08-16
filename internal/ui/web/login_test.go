@@ -34,7 +34,7 @@ func newLoginProbe(t *testing.T) *loginProbe {
 
 	issuer := authtest.New(t, "ui-login-test", "ui-login-audience")
 	store := newMemStore()
-	cookie := session.CookieCodec{Insecure: true}
+	cookie := session.CookieCodec{}
 
 	h := New(Config{
 		Prefix:    "/ui",

@@ -1,30 +1,33 @@
-//go:build ignore
+//go:build devtools
 
 // Command uidev boots the real controller against throwaway dependencies
 // and prints a ready-to-use sign-in token, so the web UI can be looked at
 // without standing up a cluster.
 //
-// It carries //go:build ignore for the same reason
-// internal/ent/migrate/gen does: it is a developer convenience that shells
-// out to docker and to a compiler, and holding it to the security posture
-// of shipped server code would mean waiving half a dozen findings that are
-// only findings because this is a tool. It is invoked by path
-// (go run tools/uidev/main.go), never imported, and nothing in the
-// shipped binaries can reach it.
+// It carries a build tag for the same reason internal/ent/migrate/gen does:
+// it is a developer convenience that shells out to docker and to a compiler,
+// and holding it to the security posture of shipped server code would mean
+// waiving half a dozen findings that are only findings because this is a
+// tool. It is invoked by path (go run tools/uidev/main.go), never imported,
+// and nothing in the shipped binaries can reach it.
 //
-// That build tag has a cost worth naming, because it bit this file once.
-// `go build ./...`, `go vet ./...` and every test in the repository skip
-// a build-ignored file, so no guard anywhere can see a string typed here.
-// This file held its own copy of the NATS image and flags, the deployment
-// moved to a different variant and gained a flag, and the copy here went
-// stale under a doc comment still promising the two matched. Nothing was
-// able to fail. The fix was structural rather than a corrected string:
-// the tag excludes the file from the default build but does NOT remove it
-// from the module, so it can and now does import internal/testsupport and
-// read the one pin every other caller reads. Do not reintroduce a literal
-// image reference or flag list below. If this tool needs another piece of
-// the deployment's configuration, export it from internal/testsupport,
-// where a test can compare it against docker-compose.yml.
+// The tag is `devtools`, not `ignore`, and the change of word was a fix. A
+// build-ignored file is compiled by nothing: `go build ./...`, `go vet ./...`
+// and every test in the repository skip it, so no guard anywhere could see a
+// string typed here. This file held its own copy of the NATS image and flags,
+// the deployment moved to a different variant and gained a flag, and the copy
+// here went stale under a doc comment still promising the two matched.
+// Nothing was able to fail. Two things fixed that, and both are load bearing:
+// the file now imports internal/testsupport and reads the one pin every other
+// caller reads, and `make ci` compiles and vets this file under
+// `-tags devtools`, so a break here fails a build instead of waiting for
+// somebody to run `make ui-dev`. `go run` on an explicitly named file ignores
+// build constraints, so the Makefile target is unchanged either way.
+//
+// Do not reintroduce a literal image reference or flag list below. If this
+// tool needs another piece of the deployment's configuration, export it from
+// internal/testsupport, where a test can compare it against
+// docker-compose.yml.
 //
 // It runs the REAL cmd/controller binary as a subprocess rather than
 // reassembling a controller-shaped thing here. That is RULE 0 applied to a
@@ -135,6 +138,19 @@ func run() error {
 		return fmt.Errorf("building the controller: %w", err)
 	}
 
+	// A serving certificate, from the same generator tests/e2e and
+	// `make dev-cert` use. It goes in the scratch directory, so it is
+	// deleted with everything else when this tool exits, and it is
+	// regenerated on every run rather than being cached anywhere.
+	//
+	// This is no longer optional: the controller refuses to serve plain
+	// HTTP unless something in front of it terminates TLS, and nothing is
+	// in front of this one.
+	cert, err := testsupport.NewServingCert(filepath.Join(workdir, "tls"))
+	if err != nil {
+		return fmt.Errorf("generating a development certificate: %w", err)
+	}
+
 	// The environment both the bootstrap command and the server read. Built
 	// once and shared, because a bootstrap that opened a different database
 	// from the server would create an account nobody can sign in to, and
@@ -147,9 +163,17 @@ func run() error {
 		// 32 zero bytes, base64. A development key, and the tool says so.
 		"MASTER_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"RUNBOOK_DIR="+runbookDir,
-		// Without this the browser refuses the __Host- cookie over plain
-		// HTTP and no sign-in can ever succeed on localhost.
-		"PLEIADES_UI_INSECURE_COOKIES=1",
+		// Real TLS, terminated by the controller itself. This replaces
+		// PLEIADES_UI_INSECURE_COOKIES=1, which used to sit here with a
+		// comment claiming a browser refuses a __Host- cookie over
+		// http://localhost. That claim was wrong: every current browser
+		// makes an explicit exception for loopback, and so does Go's own
+		// cookie jar. What was true is that the exception keys on the host
+		// STRING, so it never applied to a hostname in /etc/hosts pointing
+		// at 127.0.0.1, and the resulting failure was a refused sign-in
+		// that reported bad credentials for a correct password.
+		"TLS_CERT_FILE="+cert.CertFile,
+		"TLS_KEY_FILE="+cert.KeyFile,
 		// So the banner is visible while it is being reviewed. Override
 		// either variable to see another level.
 		"PLEIADES_BANNER_LEVEL="+getenvOr("PLEIADES_BANNER_LEVEL", "development"),
@@ -191,11 +215,11 @@ func run() error {
 	// the UI lists is what the platform's own create path produced. It
 	// also means a failure here is a genuine defect in that path rather
 	// than a fixture drifting away from it.
-	if err := seed(addr, token); err != nil {
+	if err := seed(addr, token, cert); err != nil {
 		fmt.Fprintln(os.Stderr, "uidev: seeding failed (the UI still works, it is just empty):", err)
 	}
 
-	fmt.Print(banner(token, addr))
+	fmt.Print(banner(token, addr, cert))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -292,12 +316,21 @@ type seedDevice struct {
 
 // seed waits for the controller to answer, then creates a handful of
 // devices through the versioned API.
-func seed(addr, token string) error {
-	base := "http://localhost" + addr
+func seed(addr, token string, cert testsupport.ServingCert) error {
+	base := "https://localhost" + addr
+
+	// One client for the wait and the writes, trusting the certificate this
+	// run generated and nothing else. Not InsecureSkipVerify: a development
+	// tool that skipped verification would be the obvious place to copy the
+	// pattern from into something that matters.
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: cert.TLSClientConfig()},
+	}
 
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(base + "/healthz")
+		resp, err := client.Get(base + "/healthz")
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -316,7 +349,6 @@ func seed(addr, token string) error {
 		{Name: "jump-host", Type: "linux_server", Tags: []string{"bastion"}, State: "onboarding"},
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	created := 0
 	for _, d := range devices {
 		body, err := json.Marshal(d)
@@ -402,8 +434,8 @@ func bootstrapAdmin(binary, root string, env []string) error {
 	return nil
 }
 
-func banner(token, addr string) string {
-	host := "http://localhost" + addr
+func banner(token, addr string, cert testsupport.ServingCert) string {
+	host := "https://localhost" + addr
 	return fmt.Sprintf(`
 ================================================================
   Pleiades UI  ->  %[1]s/ui
@@ -429,11 +461,26 @@ func banner(token, addr string) string {
   is published in tools/uidev/main.go. Both are worthless
   anywhere but this throwaway database.
 
+  ----------------------------------------------------------
+
+  This is HTTPS, on a certificate generated for this run alone.
+  Nothing signed it, so the browser warns once and you accept it
+  once. A command-line client needs:
+
+      --cacert %[5]s
+
+  Plain HTTP is not offered, because the controller refuses to
+  serve it unattended. Loopback is the one origin where a browser
+  would have accepted the Secure, __Host- session cookie over
+  http anyway; every other origin refuses it silently, and this
+  tool serving the exception would only teach a habit that breaks
+  the moment the address is not localhost.
+
   Ctrl-C stops the controller and deletes its scratch directory.
 
 ================================================================
 
-`, host, token, devEmail, devPassword)
+`, host, token, devEmail, devPassword, cert.CertFile)
 }
 
 func getenvOr(key, fallback string) string {

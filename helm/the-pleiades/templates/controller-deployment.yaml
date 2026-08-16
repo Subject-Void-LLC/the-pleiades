@@ -1,0 +1,303 @@
+{{- include "the-pleiades.validate" . -}}
+{{- /*
+The control plane: the API gateway, the scheduler lease holder and the job
+dispatcher, in one process.
+
+It is a Deployment rather than a StatefulSet because nothing about it is
+ordinal: replicas are interchangeable, leader election is held in NATS
+(internal/election) rather than by pod index, and the only durable thing on the
+pod is a data volume. What that costs is per-replica claims: a Deployment has
+no volumeClaimTemplates, so every replica shares the one claim this chart
+creates, and scaling past one replica therefore needs storage that can serve
+that claim to more than one node. templates/_validations.tpl carries the full
+reasoning, including what several self-provisioning controllers over one
+directory do and do not guarantee.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "the-pleiades.controller.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
+spec:
+  {{- if not .Values.controller.autoscaling.enabled }}
+  {{- /* Omitted entirely when an HPA owns the field, or every `helm upgrade`
+       would reset the replica count the autoscaler just chose. */}}
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- end }}
+  {{- /* The strategy is decided by the VOLUME, not by the replica count, so it
+       sits outside the block above. It used to sit inside it, which meant a
+       release with an autoscaler got no strategy at all and fell back to
+       RollingUpdate over a ReadWriteOnce claim, which is exactly the
+       arrangement the Recreate branch exists to avoid. */}}
+  strategy:
+    {{- if and .Values.controller.persistence.enabled (ne .Values.controller.persistence.accessMode "ReadWriteMany") }}
+    {{- /* Recreate, not RollingUpdate, and it is forced rather than cautious. A
+         rolling update starts the new pod before the old one goes away, and
+         both would need the same claim at once. ReadWriteMany is the only
+         access mode that permits that, so every other one lands here: most CSI
+         drivers refuse the second attach, and the upgrade does not fail, it
+         HANGS, with the new pod Pending on a volume it cannot get while the old
+         one keeps serving. Recreate takes a short outage instead. Testing for
+         ReadWriteOnce by name used to leave ReadWriteOncePod, which is
+         stricter still, on the rolling path. */}}
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- /* Rolls the pods when anything in the Secret changes. Without it, an
+             operator who rotates the JWT secret gets a Secret with new content
+             and pods still holding the old value in their environment, because
+             an environment variable is read once at process start. */}}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.controller.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 8 }}
+        {{- with .Values.controller.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "the-pleiades.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.controller.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- /* 65532 is numeric on purpose, in the pod spec and in the image
+             alike. Kubernetes cannot verify a non-numeric user: a pod with
+             runAsNonRoot: true against an image whose USER is a name fails
+             with CreateContainerConfigError and "cannot verify user is
+             non-root", because the kubelet has no /etc/passwd to resolve the
+             name against. This shipped broken once already and Compose could
+             not see it, since Compose has no runAsNonRoot concept at all. */}}
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        {{- /* fsGroup is what makes a freshly provisioned volume writable by
+             this uid: the kubelet chowns the volume to this group and sets the
+             setgid bit. Without it, a new PersistentVolume arrives owned by
+             root and the controller cannot write its certificate, which SQLite
+             and the file credential store both report as a missing path rather
+             than a permission problem. OnRootMismatch keeps that chown from
+             walking the whole volume on every start once it is already
+             correct. */}}
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            {{- /* The image already puts the binary and its runbook directory
+                 out of this uid's reach (root-owned 0755), so the only writable
+                 paths are the volumes mounted below. A compromised process
+                 cannot replace the executable it is running from. */}}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            {{- /* One port, named "api" rather than "http" or "https", and the
+                 name is deliberately constant across all three TLS modes. A
+                 port name is an identifier other objects reference (this
+                 chart's Service and Ingress, and anything an operator wrote
+                 themselves), so a name that changed when a values toggle
+                 changed would silently break those references on a mode
+                 switch. The scheme lives on the probes, where it is a fact
+                 about this pod rather than a name others depend on. */}}
+            - name: api
+              containerPort: {{ .Values.controller.service.port }}
+              protocol: TCP
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.controller.service.port }}"
+            {{- /* Stated rather than inherited, and stated identically in the
+                 runner Deployment, which is the point. Both binaries resolve
+                 a dispatched runbook id independently, so the two have to be
+                 looking at the same path or a job launches here and fails
+                 there. The controller's image sets this variable and the
+                 runner's image relies on a relative default plus its working
+                 directory, so leaving it implicit would mean the agreement
+                 held by coincidence across two Dockerfiles. */}}
+            - name: RUNBOOK_DIR
+              value: /app/runbooks
+            - name: NATS_URL
+              value: {{ include "the-pleiades.natsURL" . | quote }}
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  {{- if and .Values.externalDatabase.existingSecret (not .Values.secrets.existingSecret) }}
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  key: {{ .Values.externalDatabase.existingSecretKey }}
+                  {{- else }}
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: DB_DSN
+                  {{- end }}
+            - name: MASTER_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: MASTER_ENCRYPTION_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: JWT_SECRET
+            {{- if eq .Values.controller.tls.mode "upstream" }}
+            {{- /* The only configuration in which this process serves plain
+                 HTTP, and it is a statement by the operator rather than
+                 something the process infers. Nothing reads X-Forwarded-Proto:
+                 a header a client can set is a claim a client can forge. */}}
+            - name: PLEIADES_TLS_TERMINATED_UPSTREAM
+              value: "1"
+            {{- else if eq .Values.controller.tls.mode "secret" }}
+            - name: TLS_CERT_FILE
+              value: /etc/pleiades/tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /etc/pleiades/tls/tls.key
+            {{- else }}
+            {{- /* Absolute, rather than leaning on the image's WORKDIR and the
+                 binary's relative default, so the path in the manifest and the
+                 path in the volumeMount below are the same string. */}}
+            - name: PLEIADES_TLS_AUTOCERT_DIR
+              value: /data/tls
+            - name: PLEIADES_TLS_AUTOCERT_HOSTS
+              value: {{ include "the-pleiades.controller.autocertHosts" . | quote }}
+            {{- end }}
+            {{- with .Values.controller.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- $scheme := ternary "HTTP" "HTTPS" (eq .Values.controller.tls.mode "upstream") }}
+          {{- /* The scheme has to follow the mode. A kubelet probing http:// at
+               an HTTPS listener gets a protocol error, not a redirect, so
+               every self-provisioned controller would report permanently
+               unhealthy and never pass its startup probe. The kubelet does not
+               verify the certificate on a probe, which is what makes a
+               self-signed one workable here. */}}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: api
+              scheme: {{ $scheme }}
+            periodSeconds: {{ .Values.controller.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.controller.probes.startup.failureThreshold }}
+          livenessProbe:
+            {{- /* "Is this process alive". Never /readyz: readiness checks the
+                 database and the broker, so a liveness probe pointed there
+                 turns a database blip into a pod kill, and then into a restart
+                 loop across every replica at once, exactly when the database
+                 is already struggling. */}}
+            httpGet:
+              path: /healthz
+              port: api
+              scheme: {{ $scheme }}
+            initialDelaySeconds: {{ .Values.controller.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controller.probes.liveness.failureThreshold }}
+          readinessProbe:
+            {{- /* "Should this pod receive traffic". /readyz queries the
+                 database and checks the live NATS connection, so a controller
+                 that lost a dependency leaves the Service's endpoint list
+                 instead of answering requests it cannot serve. */}}
+            httpGet:
+              path: /readyz
+              port: api
+              scheme: {{ $scheme }}
+            initialDelaySeconds: {{ .Values.controller.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controller.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            {{- /* The root filesystem is read-only, so anything the process may
+                 write has to be a volume. /tmp is here because a Go process
+                 can reach os.TempDir down a path nobody has exercised yet, the
+                 same habit docker-compose.yml keeps. It is deliberately NOT
+                 where the certificate lives: an emptyDir is gone with the pod,
+                 which would mean a new certificate to trust on every
+                 restart. */}}
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.controller.tls.mode "secret" }}
+            - name: tls
+              mountPath: /etc/pleiades/tls
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.runbooks.configMapName .Values.runbooks.existingClaim }}
+            - name: runbooks
+              mountPath: /app/runbooks
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.controller.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.controller.persistence.existingClaim | default (printf "%s-data" (include "the-pleiades.controller.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.controller.tls.mode "secret" }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.controller.tls.secretName }}
+            {{- /* 0400 for the key material: the process reads it once at
+                   startup and nothing else in the container should be able
+                   to. */}}
+            defaultMode: 0400
+        {{- end }}
+        {{- if or .Values.runbooks.configMapName .Values.runbooks.existingClaim }}
+        - name: runbooks
+          {{- if .Values.runbooks.configMapName }}
+          configMap:
+            name: {{ .Values.runbooks.configMapName }}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.runbooks.existingClaim }}
+            readOnly: true
+          {{- end }}
+        {{- end }}
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth/authtest"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
 )
 
 // These cover the credential-source seam directly.
@@ -218,7 +219,10 @@ func TestAuthMiddleware_IsStillTheBearerOnlyWrapper(t *testing.T) {
 	// A cookie must not authenticate here: this wrapper carries exactly one
 	// source, and a request with no Authorization header is anonymous to it.
 	cookied := httptest.NewRequest(http.MethodGet, "/", nil)
-	cookied.AddCookie(&http.Cookie{Name: "pleiades_session", Value: "irrelevant"})
+	// The real session cookie name, so this stays a statement about the
+	// wrapper rather than about a string. It was an unprefixed literal
+	// until Phase 20 deleted the insecure cookie mode that produced one.
+	cookied.AddCookie(&http.Cookie{Name: session.SecureCookieName, Value: "irrelevant"})
 
 	if w := serve(mw, cookied); w.Code != http.StatusUnauthorized {
 		t.Errorf("a cookie reached the Bearer-only wrapper: %d, want 401", w.Code)

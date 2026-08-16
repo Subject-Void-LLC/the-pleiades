@@ -336,21 +336,36 @@ func TestCookieCodec_SecureAttributes(t *testing.T) {
 	}
 }
 
-func TestCookieCodec_InsecureModeIsAStatedChoice(t *testing.T) {
-	codec := session.CookieCodec{Insecure: true}
-	rec := httptest.NewRecorder()
-	codec.Write(rec, "the-token")
+// TestCookieCodec_HasNoWeakerMode replaces a test that asserted the
+// opposite.
+//
+// Until Phase 20 this codec carried an Insecure flag, and the test here
+// asserted that setting it really did drop the __Host- prefix and the
+// Secure attribute. The flag is gone, along with the arrangement that
+// justified it, so what is worth pinning now is that Clear cannot forget
+// what Write states: a logout that expired a cookie with different
+// attributes would leave the original one in the browser on some clients.
+func TestCookieCodec_HasNoWeakerMode(t *testing.T) {
+	codec := session.CookieCodec{}
 
-	c := rec.Result().Cookies()[0]
-	if c.Name != session.InsecureCookieName {
-		t.Errorf("name = %q, want the unprefixed name", c.Name)
+	written := httptest.NewRecorder()
+	codec.Write(written, "the-token")
+	cleared := httptest.NewRecorder()
+	codec.Clear(cleared)
+
+	set := written.Result().Cookies()[0]
+	unset := cleared.Result().Cookies()[0]
+
+	if set.Name != unset.Name {
+		t.Errorf("Write set %q and Clear expired %q; a logout that names a different cookie deletes nothing", set.Name, unset.Name)
 	}
-	if c.Secure {
-		t.Error("insecure mode still set Secure, which __Host- would have required")
-	}
-	// Everything that does not depend on HTTPS is retained.
-	if !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
-		t.Error("insecure mode dropped a protection that does not require TLS")
+	for _, c := range []*http.Cookie{set, unset} {
+		if !c.Secure {
+			t.Errorf("%s is not Secure, which the __Host- prefix requires the browser to refuse", c.Name)
+		}
+		if !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
+			t.Errorf("%s dropped one of the attributes that does not depend on TLS: %+v", c.Name, c)
+		}
 	}
 }
 

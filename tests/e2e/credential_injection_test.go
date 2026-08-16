@@ -309,7 +309,7 @@ func (h *harness) doJSON(tb testing.TB, method, path, bearer string, body any) (
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.httpClient().Do(req)
 	if err != nil {
 		tb.Fatalf("issuing %s %s: %v", method, path, err)
 	}

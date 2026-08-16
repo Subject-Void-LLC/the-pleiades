@@ -4,15 +4,33 @@
 # durable consumer group).
 #
 # Bring it up with `docker compose up -d --wait`, which returns only once
-# every service carrying a healthcheck reports healthy (the runner carries
-# none, and its own comment says why). Create the first administrator with:
+# every service reports healthy. All four carry a healthcheck now: the
+# runner gained one in Phase 20, so `--wait` waits for a runner that has
+# genuinely reached the broker rather than for one that merely started.
+# Create the first administrator with:
 #
 #   docker compose run --rm controller bootstrap-admin --email you@example.com
 #
-# then browse to http://localhost:8080/ui. That command works because of
+# then browse to https://localhost:8080/ui. That command works because of
 # the entrypoint: key on the controller service; without it the same line
 # fails with "exec: bootstrap-admin: executable file not found in PATH",
 # and the entrypoint comment explains why.
+#
+# https, and nothing has to come first. The controller refuses to serve
+# plain HTTP unless something in front of it terminates TLS, and with no
+# certificate configured it writes a self-signed one into its own data
+# volume and reuses it on every later start. So a browser warns once, per
+# machine, rather than on every restart, and a command-line client needs
+# the certificate:
+#
+#   docker compose cp controller:/data/tls/cert.pem ./controller-cert.pem
+#   curl --cacert ./controller-cert.pem https://localhost:8080/readyz
+#
+# That certificate ENCRYPTS the connection and does not AUTHENTICATE the
+# server: nothing a client already trusts vouches for it. It is a
+# convenience for a stack that is meant to be one command, not a substitute
+# for a real certificate. The controller service's environment block names
+# the two settings that replace it.
 #
 # That form needs a terminal, because it prompts for the password with echo
 # disabled and a password is never accepted as a flag value. In a script, a
@@ -391,7 +409,70 @@ services:
       - MASTER_ENCRYPTION_KEY=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=
       - JWT_SECRET=local-development-only-not-a-real-secret
       - RUNBOOK_DIR=/app/runbooks
+      # There is deliberately no TLS_CERT_FILE and no TLS_KEY_FILE here,
+      # and that absence is the whole configuration. It is a real decision
+      # with a real cost, so both are written down.
+      #
+      # WHY TLS AT ALL: the session cookie is Secure and __Host- prefixed
+      # unconditionally now. A browser refuses such a cookie on a
+      # plain-HTTP origin and says nothing about why, so the sign-in page
+      # reported "Those credentials were not accepted" for a correct
+      # password. Loopback is the one exception browsers make, which is why
+      # this stack appeared to work on http://localhost:8080 while failing
+      # for anybody reaching it by hostname or LAN address. The controller
+      # therefore never serves plain HTTP unless an operator states that an
+      # ingress terminates TLS in front of it.
+      #
+      # WHY NOTHING IS SET: with neither arrangement configured, the
+      # controller generates a self-signed certificate into
+      # PLEIADES_TLS_AUTOCERT_DIR (relative to its WORKDIR of /data, so
+      # /data/tls on the named volume below) and REUSES it on every later
+      # start. That is what makes `docker compose up -d --wait` work from a
+      # clean checkout with no preparatory command, and it is why the
+      # browser warning is a once-per-machine annoyance instead of a
+      # once-per-restart one. The controller logs a warning on every start
+      # naming the certificate, its expiry, and the two settings that
+      # replace it.
+      #
+      # WHAT IT COSTS: a self-signed certificate encrypts the connection
+      # and does not authenticate the server. A browser warns, and an
+      # operator who clicks through cannot tell this controller from
+      # something else answering on the same address. That is acceptable
+      # for a local stack and is not acceptable in production, where
+      # TLS_CERT_FILE and TLS_KEY_FILE name a certificate from an authority
+      # the clients already trust.
+      #
+      # WHY NOT PLEIADES_TLS_TERMINATED_UPSTREAM=1: it would be one line
+      # and would leave the stack serving plain HTTP on 8080 with no
+      # ingress anywhere in it. The flag would then be a false statement
+      # about the deployment, in the one file most people copy from, which
+      # teaches exactly the habit the flag exists to make explicit.
+      #
+      # WHY NOT A PROXY CONTAINER: adding nginx or caddy to terminate TLS
+      # would be honest, and it would add a fifth image to pin, a config
+      # file to keep, and a second place a request can be refused. It would
+      # still need a certificate from somewhere. That is a lot of moving
+      # parts to avoid a warning click.
+      #
+      # The service name, added as a subject alternative name so anything
+      # inside this network can reach the controller at
+      # https://controller:8080 without a name mismatch. localhost,
+      # 127.0.0.1 and ::1 are always included and do not need listing. This
+      # line is also the working example of the variable: an operator
+      # reaching this controller by a real hostname adds it here.
+      - PLEIADES_TLS_AUTOCERT_HOSTS=controller
     volumes:
+      # The controller's writable directory, and the reason `docker compose
+      # down` followed by `up` does not hand everybody a new certificate to
+      # click through. /data is the image's WORKDIR and the one directory
+      # the process may write to under read_only: true below; the
+      # self-signed certificate lands in /data/tls and survives here.
+      #
+      # An empty named volume is initialized from the image's own /data,
+      # which Dockerfile.controller creates owned by 65532, so the process
+      # can write here with no chown step. A bind mount would NOT inherit
+      # that and would need chowning on the host first.
+      - controller-data:/data
       # One directory on the host, mounted into this container and into the
       # runner at the same path, read-only.
       #
@@ -448,6 +529,15 @@ services:
       # limit. A Kubernetes readiness probe or a load balancer health check
       # should point straight at /readyz on the published port and needs
       # nothing added to the image.
+      #
+      # The probe follows the scheme rather than assuming one: it runs the
+      # same resolver the server does, so it asks over https here, finds
+      # the self-provisioned certificate at the same path the server wrote
+      # it to, and verifies the listener against that exact file. It cannot
+      # report this container ready because something else answered on the
+      # port. During a cold start, before the certificate exists, it
+      # reports not-ready rather than misconfigured, which is what keeps
+      # start_period below doing its job.
       test: ["CMD", "/app/controller", "healthcheck"]
       interval: 5s
       timeout: 5s
@@ -522,11 +612,19 @@ services:
     read_only: true
     tmpfs:
       # With a read-only root filesystem, anything that has to be writable
-      # must be named here. /tmp is the only one: DB_DSN points at
-      # postgres, so nothing opens the SQLite file that the Dockerfile
-      # makes /app writable for, and the runbook mount above is :ro. This
-      # was settled by running the whole stack read-only, bootstrapping an
-      # administrator and signing in, not by reading the code.
+      # must be named here or mounted as a volume. /tmp is the only tmpfs
+      # one: DB_DSN points at postgres, so nothing opens the SQLite file
+      # that the Dockerfile makes /app writable for, and the runbook mount
+      # above is :ro. This was settled by running the whole stack
+      # read-only, bootstrapping an administrator and signing in, not by
+      # reading the code.
+      #
+      # The certificate the controller provisions for itself deliberately
+      # does NOT live here. A tmpfs is RAM and disappears with the
+      # container, so it would mean a brand new certificate, and a brand
+      # new browser warning, on every restart. It lives on the
+      # controller-data volume above, which is exactly the difference
+      # between the two mounts.
       - /tmp
     depends_on:
       postgres:
@@ -556,35 +654,64 @@ services:
       # instead of a claim, and this is the half that needs it most: the
       # runner compiles the DAG it executes out of these files.
       - ./examples/upgrade_ios/pleiades/runbooks:/app/runbooks:ro
-    # There is deliberately no healthcheck here, and unlike the comment the
-    # controller used to carry, this is not an excuse for a gap that could
-    # be closed from this file.
+    # This service used to carry no healthcheck, and the comment here used
+    # to explain at length why one was impossible. That is no longer true
+    # and the explanation has been replaced rather than left to rot.
     #
-    # The controller became probeable because it has a local listener and a
-    # binary that can speak to it. This one has neither: cmd/runner opens
-    # no port, has no subcommand dispatch at all, and its real liveness
-    # question is not "is a socket open" but "is this agent still pulling
-    # from its durable consumer", which nothing inside the image can
-    # answer.
+    # WHAT CHANGED. cmd/runner now has a subcommand dispatch and a
+    # `healthcheck` in it. The runner agent touches a heartbeat file every
+    # ten seconds, but ONLY after a real round trip to the server about
+    # the durable consumer it pulls from, and this command reads that
+    # file's age. So the question being answered is the one that actually
+    # matters here, "is this agent still attached to its durable
+    # consumer", rather than "is a socket open". A stale answer means the
+    # process is up and doing nothing, which is exactly the failure
+    # FAILURE_PATTERNS.md #119 recorded and which `docker compose ps`
+    # could never see before.
     #
-    # So state the gap plainly rather than dressing it up: `docker compose
-    # ps` can tell you this process exists and nothing more. A runner that
-    # is up but has stopped consuming looks identical to a working one, and
-    # `up -d --wait` accepts it, because compose treats a service with no
-    # healthcheck as satisfied once it is running. The symptom to watch for
-    # is on the controller side: a job that stays queued with no runner
-    # claiming it.
+    # CMD form, not CMD-SHELL: the image is distroless and has no shell to
+    # run a string through, the same constraint the controller's probe
+    # works under. This service sets no entrypoint, so the argument list
+    # is exec'd directly.
     #
-    # Closing it properly needs code this file cannot add: a `healthcheck`
-    # subcommand on cmd/runner, mirroring the controller's, that checks the
-    # NATS connection and the consumer's own state. Nothing in this file
-    # waits on this service, so the missing signal blocks no startup today.
+    # THE TIMINGS, and how they relate to the heartbeat. The binary's
+    # default staleness limit is 60 seconds, six missed beats. On top of
+    # that, three consecutive failures 15 seconds apart are needed before
+    # compose marks this unhealthy, so a broker that vanishes shows up
+    # here after roughly a minute and a half and a thirty-second blip
+    # shows up not at all.
     #
-    # The restart policy matters a little more here than elsewhere for
-    # exactly that reason: with no health signal, a restart is the only
-    # automatic recovery this service has. It survived a nats restart
-    # without needing one (RestartCount stayed 0, the client reconnected),
-    # so this covers a crash or an OOM kill rather than a broker blip.
+    # start_interval is NOT optional here, for exactly the reason the
+    # postgres healthcheck above spells out. Docker does not probe when a
+    # container starts; the first probe fires one full `interval` later,
+    # which at 15s would add fifteen seconds to every `up -d --wait` and
+    # blow the ten-second warm-start budget the compose Release Gate
+    # measures. During start_period it polls every 250ms instead, so a
+    # runner that reaches the broker in under a second reports healthy in
+    # under a second. start_period also covers the window before the FIRST
+    # beat: the agent writes nothing until it has reached the broker once,
+    # which is correct and would otherwise count as a failure on every
+    # cold start.
+    #
+    # WHAT COMPOSE DOES WITH THE ANSWER: reports it. Nothing in this file
+    # gates on this service, and compose does not restart an unhealthy
+    # container on its own, so the value here is that `docker compose ps`
+    # and `up -d --wait` now tell the truth about this process. The Helm
+    # chart wires the same command to a real liveness probe, which does
+    # restart the pod.
+    healthcheck:
+      test: ["CMD", "/app/runner", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 250ms
+    # The restart policy still covers what a healthcheck does not: compose
+    # never acts on an unhealthy container, so this remains the only
+    # automatic recovery this service has, for a crash or an OOM kill. It
+    # survived a nats restart without needing one (RestartCount stayed 0,
+    # the client reconnected), which is a broker blip rather than the
+    # permanent loss the probe above reports.
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -608,6 +735,13 @@ services:
   # same-origin, on its own port -- so the nginx image, the separate build
   # and the reverse-proxy seam between them are all gone rather than
   # reconfigured. Browse to the controller's address and add /ui.
+  #
+  # Port 8080 still, deliberately, even though it speaks https now. Moving
+  # to 8443 would put the scheme in the number, and would also invalidate
+  # every bookmark and every line of documentation naming this port, to buy
+  # a hint. Typing http:// against it answers 400 with "Client sent an HTTP
+  # request to an HTTPS server", which is a clearer signal than a port
+  # number ever was.
 
 # Named volumes, which this file went without for its entire life until
 # now. The cost of that was total.
@@ -637,6 +771,14 @@ services:
 # KV_Pleiades_Locks) were still on disk. Then `down -v` removed both
 # volumes and the next `up` came back with zero users, which is exactly
 # what the tests that pass -v are relying on.
+# controller-data joined them in Phase 20. It carries the self-signed
+# certificate the controller writes when no real one is configured, and it
+# is the reason `docker compose down` followed by `up` presents the SAME
+# certificate rather than a new one an operator has to trust again. Without
+# it, /data is part of the container's writable layer, which read_only: true
+# makes unwritable, so the controller could not provision a certificate at
+# all.
 volumes:
   postgres-data:
   nats-data:
+  controller-data:

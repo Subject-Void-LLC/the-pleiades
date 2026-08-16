@@ -1,24 +1,65 @@
+# The Pleiades Crawl tier as one Kubernetes release: the controller (API
+# gateway, scheduler lease holder, job dispatcher), the runner (the stateless
+# worker that pulls jobs off a durable NATS consumer group), and optionally the
+# PostgreSQL and NATS the two of them need.
 apiVersion: v2
 name: the-pleiades
-description: A Helm chart for Kubernetes
-
-# A chart can be either an 'application' or a 'library' chart.
-#
-# Application charts are a collection of templates that can be packaged into versioned archives
-# to be deployed.
-#
-# Library charts provide useful utilities or functions for the chart developer. They're included as
-# a dependency of application charts to inject those utilities and functions into the rendering
-# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+description: "The Pleiades control plane and execution plane: a controller, runners, and optional in-chart PostgreSQL and NATS."
 type: application
 
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates, including the app version.
-# Versions are expected to follow Semantic Versioning (https://semver.org/)
+# The chart's own version, bumped whenever anything in this directory changes.
+# It is not the application's version and never tracks it.
 version: 0.1.0
 
-# This is the version number of the application being deployed. This version number should be
-# incremented each time you make changes to the application. Versions are not expected to
-# follow Semantic Versioning. They should reflect the version the application is using.
-# It is recommended to use it with quotes.
-appVersion: "1.16.0"
+# The version of Pleiades this chart deploys, and it says "dev" because that is
+# the truth. This repository has zero git tags, so `git describe --tags` fails
+# outright and there is no release number to put here. A number invented for
+# this field would be a promise no artifact anywhere keeps.
+#
+# Nothing derives an image tag from this value, deliberately. The stock chart
+# left image.tag empty and fell back to .Chart.AppVersion, which is exactly how
+# a chart meant to deploy Pleiades ended up deploying nginx:1.16.0. Both image
+# tags are stated explicitly in values.yaml instead. See values.yaml's own
+# comment on the image blocks.
+appVersion: "0.0.0-dev"
+
+# The floor is set by the API versions this chart uses, not by a guess:
+# policy/v1 PodDisruptionBudget (stable in 1.21), autoscaling/v2
+# HorizontalPodAutoscaler (stable in 1.23), and seccompProfile in a pod
+# security context (stable in 1.19). 1.25 is the first release where all three
+# are stable and PodSecurityPolicy is gone, so it is the first version where
+# the security context this chart sets is the whole story.
+kubeVersion: ">=1.25.0-0"
+
+home: https://github.com/Subject-Void-LLC/the-pleiades
+sources:
+  - https://github.com/Subject-Void-LLC/the-pleiades
+
+keywords:
+  - automation
+  - ansible
+  - network-automation
+  - controller
+
+maintainers:
+  - name: Subject Void LLC
+    url: https://github.com/Subject-Void-LLC/the-pleiades
+
+# There are deliberately no dependencies. PostgreSQL and NATS are templated
+# into this chart (templates/postgres-statefulset.yaml,
+# templates/nats-statefulset.yaml) rather than pulled in as subcharts from
+# Bitnami or the NATS repository.
+#
+# The reason is the air-gapped install this chart has to support. A dependency
+# is fetched from a chart repository at package time and pinned in Chart.lock,
+# so an operator with no route to the internet needs the parent chart, every
+# subchart archive, and a `helm dependency build` that can reach a repository
+# it cannot reach. With no dependencies the chart is one directory and one
+# `helm package` output, and `helm install ./the-pleiades-0.1.0.tgz` works with
+# no network at all.
+#
+# What that costs is honest to state: the in-chart PostgreSQL and NATS are
+# single instance, with no replication, no clustering and no backup, and they
+# exist so a trial install is one command. A real deployment sets
+# postgresql.enabled=false and nats.enabled=false and points at a managed
+# service. See values.yaml.

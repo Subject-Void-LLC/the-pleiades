@@ -1,5 +1,476 @@
 # Handoff Document Archive
 
+## Previous session: Phase 20a, the images and the compose stack
+
+**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
+Phase 20a, 20b and 20c are BUILT and `make ci` passes in full. Nothing is committed, per the
+standing instruction. 20b's handoff moved to `HANDOFF_ARCHIVE.md`.**
+
+### 20f: the ownership rule, narrowed to the one thing it was ever protecting
+
+An adversarial pass over the lock-free design left the design alone and took the rule layered
+on top of it apart. "Never replace material I cannot prove I wrote" was one rule covering four
+different things, and only one of them, a private key, was worth it. The other three produced a
+directory no controller could ever start in again, from states this package itself creates
+(`FAILURE_PATTERNS.md` #138, `LESSONS_LEARNED.md` #127).
+
+What blocks a publish now: a parseable PRIVATE KEY this package cannot account for, or a file
+that exists and cannot be READ at all. Nothing else. A `serving.pem` of zero length, one that
+is not PEM, one cut off part way through the certificate, and a directory holding only
+`cert.pem` all start, provision and serve. Every refusal names the file, quotes what the
+operating system said, gives the uid this process runs as (the state that produces a read
+failure in the field is two controllers running as two users over one 0600 file), and states
+both ways out. Refusing to OVERWRITE keeps the stricter rule, at the write itself, so the bytes
+an operator left behind are still exactly where they left them.
+
+Three more from the same pass. The trust anchors could not admit what a running replica was
+still presenting (`FAILURE_PATTERNS.md` #139, `LESSONS_LEARNED.md` #128): records are now
+evicted on the certificate's own expiry rather than on a count of sixteen and an age of an
+hour, and `settle` records what it is about to serve, so a replica that reuses is in the set on
+its own account. An unreadable legacy `provisioned.pem` is advisory to the anchor builder
+instead of fatal, which is what used to make a controller that provisions and serves perfectly
+fail its own healthcheck forever. And the startup WARN printed `cert_file` as the path of
+`serving.pem`, which is the file with the private key in it (`FAILURE_PATTERNS.md` #140): the
+fields are `serving_file` and `trust_anchor_file` now, the second one present only when a
+key-free copy really exists, and the headline stops claiming an operator's own material as
+something this controller provisioned for itself. A first start reports "no certificate is
+stored in /data/tls yet" rather than a raw `stat` error.
+
+Proven the same way as the rest: `internal/tlscert/recovery_test.go` and
+`cmd/controller/servingcert_recovery_test.go` put a directory into each state that used to
+block, run the shipped entry point, and complete a real TLS handshake and the shipped
+healthcheck against a real listener. Every one of those tests was negative-controlled by
+reverting its own fix and watching it fail. `cmd/controller/servingcert_race_test.go` gained
+`TestARunningControllerSurvivesASiblingsRenewal`, a child that stays up and probes again after
+its parent renews the directory underneath it.
+
+### The certificate claim lock is gone, and nothing replaced it
+
+An adversarial pass over 20c's shared-directory support proved four defects against
+`internal/tlscert`, and they were one defect wearing four hats: a claim holder that was
+SIGKILLed, one that could not release because the directory turned read-only, one that was
+merely slow, and a renewal where the slow one split the fleet. Every one was "one bad holder
+blocks everyone", and every tuning produced a fifth face (`FAILURE_PATTERNS.md` #134,
+`LESSONS_LEARNED.md` #124).
+
+The lock existed because a certificate and its key were two files and `rename(2)` replaces
+one. So they became ONE file, `serving.pem`, and `Ensure` is now three steps with no loop:
+load what is published; if it cannot be served, mint a replacement and publish it with one
+rename; load again and serve whatever is there now. There is no claim, no staleness rule, no
+retry budget and no backoff, so no controller can be made to fail by another being slow or
+dead. `claim.go` and its tests are deleted.
+
+What is in the directory now: `serving.pem` (certificate + key + a provenance block, the only
+file with a key in it), `cert.pem` (the same certificate with no key, which is what an
+operator copies out and what every document already names), and `provisioned/` (one small
+record per certificate, which the healthcheck trusts). `key.pem` is written only by
+`Generate`, which is the two-file layout `make dev-cert` and `internal/testsupport` want;
+`Ensure` migrates a pair from the earlier build into a bundle, keeps the same certificate, and
+retires the old key file only once it can prove this package wrote it.
+
+Three more fixes came with it. The ownership check used to be keyed on `cert.pem` alone, so an
+operator's private key with no certificate beside it was silently destroyed
+(`FAILURE_PATTERNS.md` #136); it now asks every file present and refuses anything it cannot
+prove. The provenance record was one read-modify-write file and lost concurrent writers'
+entries, which made a controller fail its own healthcheck about one sixteen-way start in three
+(`FAILURE_PATTERNS.md` #135, `LESSONS_LEARNED.md` #125); it is now one file per fingerprint.
+And `make dev-cert` wrote a private key at 0644 because `-container-readable` defaulted to
+true: the default is false, the relaxed mode says so on stdout, and
+`make dev-cert DEV_CERT_FLAGS=-container-readable` is how a container bind mount asks for it.
+
+`tools/devcert` and `tools/uidev` moved from `//go:build ignore` to `//go:build devtools`, and
+`make ci` gained a `devtools` target that builds and vets both. Nothing about how they are
+invoked changed, because `go run` on a named file ignores build constraints. gosec still runs
+with no tags, so neither is scanned: still nine findings, zero G124.
+
+Proven by running it. `internal/tlscert` covers 2, 4, 8 and 16 racers in-process and across
+real processes; `cmd/controller/servingcert_race_test.go` starts 2, 4 and 16 REAL controller
+processes against one directory, three rounds each, plus a sibling SIGKILLed mid-write and a
+renewal storm, and every child serves a real TLS listener and passes the shipped healthcheck
+against itself. The cases that need an unprivileged user were additionally run as one, under
+`setpriv --reuid=65534`: exactly one of them removes a directory's WRITE bit
+(`TestEnsureServesAStoredCertificateWhenItCannotWriteOne`) and one removes a file's READ bits
+(`TestEnsureNamesTheFileItCannotRead`, added in 20f). Root ignores both, so both skip when run
+as root and run in CI.
+
+### What 20c did: TLS provisions itself, so compose is one command again
+
+20b made the controller refuse to start with no TLS configuration. That was aimed at the wrong
+mistake. An operator who has set nothing is not asking for plain HTTP, they have not reached the
+question, and the refusal made `docker compose up` need `make dev-cert` first, which is the whole
+thing that file exists to avoid. The property 20b was protecting is kept exactly: **the controller
+still never serves plain HTTP unless somebody says an ingress terminated TLS in front of it.**
+
+`resolveTLS` now has five outcomes, in `cmd/controller/tls.go` (moved out of `main.go` with the
+provisioning code, tests in `tls_test.go`):
+
+1. `TLS_CERT_FILE` + `TLS_KEY_FILE` -> serve them. An operator configured this and it always wins.
+2. `PLEIADES_TLS_TERMINATED_UPSTREAM=1` -> plain HTTP, warning at startup.
+3. Both arrangements at once -> startup error.
+4. Exactly one of the pair -> startup error.
+5. Nothing set -> generate a self-signed certificate, persist it, reuse it, serve HTTPS.
+
+### The new package, and the archtest rule that keeps it
+
+`internal/tlscert` holds the generator, moved out of `internal/testsupport` because that package
+imports `testing` and a production import would link the testing package into the shipped binary.
+`internal/testsupport` now *calls* it and keeps only its `testing.TB` wrapper; `tools/devcert` calls
+it too. There is one implementation, not two.
+
+`internal/archtest/testonly_test.go` gained `TestTestsupportNeverImportedByProductionCode` beside the
+existing authtest rule, sharing one helper. It was negative-controlled: a blank import of
+`internal/testsupport` into `cmd/controller` made it fail with its own message, and
+`go list -deps ./cmd/controller` then really did list `testing`. Both were removed and re-checked.
+
+### Case 5's semantics, all load bearing
+
+- **Reused, not regenerated.** Replaced only when missing, unreadable, mismatched, not yet valid,
+  inside a 30-day renewal window, or missing a **required** name. One year of validity, under
+  Apple's 398-day cap.
+- **Atomic writes.** `os.CreateTemp` (0600 by construction, so no G306) then `Sync` then `Rename`,
+  per `FAILURE_PATTERNS` #46. The key lands before the certificate, and `Ensure` loads the PAIR, so
+  the one mismatch two writers can produce is detected and healed rather than served.
+- **0600 files inside a 0700 directory**, the `master.key` precedent. Confirmed on the real volume.
+- **`PLEIADES_TLS_AUTOCERT_DIR`** defaults to a relative `tls`, which lands in `/data` because
+  `Dockerfile.controller` sets `WORKDIR /data`. **`PLEIADES_TLS_AUTOCERT_HOSTS`** adds SANs.
+- **A WARN line every start** naming provisioning (generated/reused), both paths, the expiry, the
+  names, that it is self-signed and therefore encrypts without authenticating, and the two settings
+  that replace it. `TestProvisionServingCertificate_SaysWhatItIsAndHowToReplaceIt` pins every one of
+  those strings.
+- **The banner was considered and rejected.** `PLEIADES_BANNER_LEVEL`/`TEXT` is a single-valued slot
+  holding published classification and environment markings. Driving it from a certificate would
+  either overwrite an operator's real marking (replacing `SECRET//NOFORN` with a TLS notice is a
+  security failure, not a warning) or invent one where they deliberately chose none, and `Banner`
+  cannot express "plus". The startup log carries it instead.
+
+### Compose got its one command back
+
+`.dev-certs` mount and both TLS variables are gone; `controller-data:/data` is a new named volume,
+which is what makes `read_only: true` survivable and what makes the certificate outlive
+`docker compose down`. `PLEIADES_TLS_AUTOCERT_HOSTS=controller` is set as the working example.
+`make dev-cert`/`tools/devcert` were **kept, not deleted**: no command needs them now, and they are
+how the `TLS_CERT_FILE` path (what a real deployment uses) gets exercised locally. Both say so.
+
+The healthcheck follows the same resolver and now handles case 5, including the cold-start window
+before the certificate exists: that is exit **1** (not ready), not exit 2 (caller error), or every
+correctly configured stack would print a configuration complaint on every boot.
+
+### One real defect found while verifying, now recorded
+
+The certificate was regenerated on every `down`/`up`, because the controller adds its own hostname as
+a SAN and a container's hostname is its ID, which changes when the container is recreated. Found by
+diffing fingerprints across the documented cycle, not by any test: every unit test ran in one process
+with one hostname. Fixed by splitting `tlscert.Options` into `ExtraNames` (required, so configuring a
+name takes effect) and `OptionalNames` (put on the certificate, never a reason to replace one).
+`FAILURE_PATTERNS` #127, `LESSONS_LEARNED` #117 and #118.
+
+### Verified by running it, not by reading it
+
+`make ci` green (exit 0). `make gosec`: **9 findings, zero G124**, unchanged, and the inline `#nosec`
+count is still 56, because the new package needs none. Clean `docker compose up -d --wait` with **no**
+preparatory command reaches healthy in 9.3s and a real sign-in over the provisioned certificate
+reaches the dashboard as `admin@example.com`. `down` then `up` presents a **byte-identical**
+fingerprint and logs `"provisioning":"reused"`. `http://` gets 400 "Client sent an HTTP request to an
+HTTPS server". Case 1 proven by fingerprint match against a certificate made with `make dev-cert`;
+case 2 proven serving plain HTTP with `Secure`, `__Host-` cookies. `TestUI_` and
+`TestLocalAuthReleaseGate` pass as separate `-tags integration -race -count=1` invocations.
+`make ui-dev` serves the sign-in page over HTTPS.
+
+### Phase 20's Release Gate: a real install, end to end
+
+`tests/e2e/packaging_*_test.go` (integration tagged, four files: compose, images, kind, shared
+support). It runs the operator's literal command lines through the real `docker`, `kind`, `kubectl`
+and `helm` binaries, never a Go client that performs the same steps, because the claim under test is
+that the documented commands work.
+
+- **Compose half.** From `down -v` with the two images deleted and no preparatory command:
+  `docker compose up -d --wait` builds and reaches four healthy services. Cold and warm are measured
+  separately (cold has no threshold and is dominated by the Go compile; warm is judged on the fastest
+  of two samples against a 10s target and on every sample against a 40s ceiling). Then
+  `bootstrap-admin` through `docker compose run --rm -T`, `http://` proven refused, and a real
+  sign-in over TLS to `/ui/dashboard` against a pool holding **only** the certificate fetched out of
+  band with `docker compose cp`, so `InsecureSkipVerify` appears nowhere in it.
+- **Image half.** Both images run as `65532:65532` and hold no shell, asserted against the exported
+  filesystem of the built image rather than against the Dockerfile. The build context is measured by
+  building `FROM scratch` + `COPY . /` and exporting it: **11.5 MiB across 1311 files against
+  384.4 MiB of tree, 2.99%**, with `.git`, `.SPECIFICATION`, `.AGENTS` and `.claude` all absent.
+- **Kubernetes half.** A real `helm install` into kind from locally built images, no registry:
+  `docker save | docker exec -i <node> ctr --namespace=k8s.io images import -`, then
+  `pullPolicy=Never` so a missing side-load fails instead of being silently pulled. The kind version,
+  the node image (tag AND digest), the cluster name and the kubeconfig are all pinned, so the run
+  never edits `~/.kube/config`. Proven: the controller Deployment reaches Available, the in-pod
+  `/app/controller healthcheck` succeeds (verified TLS against the file on disk),
+  `/readyz` returns `{"status":"ready","checks":{"database":"ok","nats":"ok"}}`, the served
+  certificate carries all four Service DNS names, and `bootstrap-admin` works through `kubectl exec`.
+
+Skip and fail are assigned by POSITION, not by error class (`LESSONS_LEARNED` #120): everything
+before the first step that touches an artifact this repository produces may be retried and then
+skipped, everything after it gets one attempt and fails hard.
+
+### The adversarial pass on the chart, and what it found
+
+Four defects were proven by really rendering and really installing, and all four are fixed with a
+check that fails on the old behavior:
+
+- **A legal release name collapsed four workloads into one name.** `_helpers.tpl` appended the
+  component and truncated the result, so 49 to 53 characters of release name (Helm's own limit is
+  53) cut the component away entirely and the controller, runner, PostgreSQL and NATS objects all
+  claimed one name. Names are now built by cutting the prefix first
+  (`the-pleiades.componentName`, budget 52 = 63 minus `-controller`), a `fail` guard refuses a
+  component the budget cannot hold, and `tools/helm-lint` renders at lengths 1, 20, 48, 49, 52 and
+  53, twice each. Restoring the old helpers produces 29 findings.
+  `FAILURE_PATTERNS` #131, `LESSONS_LEARNED` #121.
+- **The ingress could render an invalid manifest.** `pathType` sat behind `with` and the schema
+  required only `path`, so the documented default produced an object the API server rejects
+  (confirmed: `pathType must be specified`). The schema now requires the key AND the template
+  defaults it to `Prefix`.
+- **The PodDisruptionBudget could silently disappear.** The template chose its field by truthiness,
+  which is false for the chart's own `""` default and for `0`. A `the-pleiades.isSet` helper asks
+  whether a value was stated, `_validations.tpl` refuses both-set and neither-set, and helm-lint
+  asserts the COUNT of budgets a profile must produce, because an absent object passes every rule
+  that iterates over rendered ones. `FAILURE_PATTERNS` #132, `LESSONS_LEARNED` #122.
+- **A reinstall with a different database password crash-looped forever, silently.** `helm
+  uninstall` correctly leaves the claim, and PostgreSQL only applies credentials to an empty
+  directory. The StatefulSet now stamps a sha256 of username, database and password onto its
+  `volumeClaimTemplate`; Kubernetes copies it onto the claim (verified on a real cluster before the
+  fix was written), and `_validations.tpl` reads it back with `lookup` and refuses on a proven
+  mismatch, naming the claim and saying which choice destroys data.
+  `FAILURE_PATTERNS` #133, `LESSONS_LEARNED` #123.
+
+The whole lifecycle was run against a real cluster: install with password A, uninstall (claim
+retained), install with B (refused), install with A (accepted), upgrade to C (refused), delete the
+claim, install with B (accepted, new stamp). `tests/e2e/packaging_kind_test.go` now does the same
+thing as part of the gate, because `lookup` needs an API server and `helm template` cannot reach
+this check at all.
+
+Three smaller ones from the same pass:
+
+- `ensurePleiadesImages` rebuilt only when an image with the right NAME was absent, so a gate run
+  could validate the shipped artifacts against an image built from older source. Staleness is now
+  the trigger: the image's creation time against the newest mtime under the paths `.dockerignore`
+  actually allows into the context.
+- `assertComposeRefusesPlainHTTP` failed only on an exact 200, so a 302 or a 404 served over plain
+  HTTP passed a check named "refuses plain HTTP". It now accepts only a transport error or
+  net/http's own `400 Client sent an HTTP request to an HTTPS server` (confirmed against a real TLS
+  listener), and does not follow redirects.
+- The two release gates that had been moved onto `PLEIADES_TLS_TERMINATED_UPSTREAM=1` are moved
+  BACK to the default self-provisioned path, with `PLEIADES_TLS_AUTOCERT_DIR` pointed at a temp
+  directory (which is the only thing the flag was really buying: the default is relative and would
+  write `tls/` into the repository). `jwks_release_gate_test.go` now makes its requests over HTTPS
+  against a pool holding the certificate the binary provisioned for itself, so the auth assertions
+  run on the transport an operator gets.
+
+### Next
+
+- **Carried over from 20a**: `/readyz` is unauthenticated, unrate-limited and runs a real query per
+  request with no `MaxOpenConns` bound; single-flight collapse is the fix and is a Phase 20 item. A
+  registry path and a release tag are still unowned.
+- **The runner has no health signal at all**, in compose and in the chart alike. `cmd/runner` opens
+  no port and has no subcommand dispatch, so "running" is the strongest claim either deployment
+  descriptor can make about it, and the Release Gate says exactly that rather than dressing it up.
+- **`kind load docker-image` was NOT reproducibly broken** under the pinned kind 0.20.0 with the
+  pinned v1.27.3 node image; it succeeded on every attempt. The gate still uses the
+  `docker save | ctr import` path, because that one depends on nothing but containerd being present
+  in the node image, while kind's loader has to detect the host snapshotter first.
+- **Not done here, deliberately**: no certificate reloading without a restart, so renewal of the
+  self-provisioned certificate happens at startup only and a process left running past its one-year
+  validity serves an expired certificate until restarted (documented in `docs/12-web-ui.md` and
+  `docs/10-running-in-production.md`). No client certificate / mTLS story.
+
+## Previous session: Phase 20b, the controller terminates TLS and the insecure cookie path is deleted
+
+**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
+Phase 20a and 20b are BUILT and `make ci` passes in full. Nothing is committed, per the standing
+instruction. 20a's handoff moved to `HANDOFF_ARCHIVE.md`.**
+
+### What 20b did: TLS in, insecure cookies out, in one change
+
+The controller terminates TLS, and the development-only insecure cookie path is gone. Those had to
+land together: deleting the insecure path without TLS leaves every non-loopback origin refusing the
+session cookie and rendering "Those credentials were not accepted" for a correct password, which is
+the real defect this stage fixes rather than a strictness upgrade.
+
+- **`resolveTLS` in `cmd/controller/main.go`**, shaped after `resolveDatabaseDSN` and unit tested the
+  same way. Three outcomes: both `TLS_CERT_FILE` and `TLS_KEY_FILE` serves HTTPS; neither plus
+  `PLEIADES_TLS_TERMINATED_UPSTREAM=1` serves plain HTTP and logs a warning; anything else, including
+  one of the pair and including both arrangements at once, is `fatal`. `MinVersion` is TLS 1.2,
+  matching `pkg/catalystcenter`. **No forwarded header is read anywhere**, and the comment says why:
+  `internal/api/ratelimit.go` and `loginCallerKey` both refuse `X-Forwarded-For`, and one of them
+  assigned its fix to "the deployment work that owns the ingress". That work is this phase, and its
+  answer is an explicit setting, not header trust. `loginCallerKey`'s comment now records that
+  outcome instead of pointing at a phase that has arrived.
+- **The whole `session.CookieCodec.Insecure` axis is deleted**: the field, `writeInsecure`,
+  `InsecureCookieName`, `writeInsecurePreference`, `writeInsecurePreAuthCookie`, the three branches,
+  the `PLEIADES_UI_INSECURE_COOKIES` read and its startup warning. The pre-auth CSRF cookie is now
+  `__Host-` prefixed unconditionally. `gosec` went from 12 findings to **9, with zero G124**.
+- **The reasoning survives the code.** `CookieCodec.Write` carries why the split-literal shape
+  existed (gosec proves a literal, not a computed `Secure`) and names the Phase 79b consolidation
+  that was tried and reverted, so nobody re-derives it.
+- **`Strict-Transport-Security: max-age=31536000; includeSubDomains`** on every UI response,
+  unconditionally. `r.TLS` answers for one hop and is nil in exactly the deployment that needs the
+  header most, and the alternative signal is `X-Forwarded-Proto`, which this codebase does not trust.
+  Browsers are required to ignore HSTS received over plain HTTP, so always-on is safe. No `preload`:
+  that directive asserts a submission only the domain owner can make.
+- **One certificate generator, three consumers.** `internal/testsupport.NewServingCert` (ECDSA P-256,
+  seven days, `127.0.0.1` and `::1` as IP SANs and `localhost` as a DNS SAN) is used by
+  `tools/uidev`, `tests/e2e`, and `make dev-cert` through `tools/devcert`. Its own test serves real
+  TLS from the files and dials by both names, with an empty-pool control so it cannot pass vacuously.
+- **`tests/e2e` runs over real TLS now**, with one `h.httpClient()` owning the trust pool. The suite
+  asserts `SecureCookieName`, `c.Secure` and the absent `Domain`, which it could not do before.
+  `TestUI_SessionCookieWorksAcrossControllers` is why the certificate is generated once per test
+  binary rather than per harness: two controllers, one client.
+
+### The compose decision, and what it cost
+
+`docker-compose.yml` terminates TLS in the controller from `make dev-cert`'s gitignored
+`.dev-certs/`, mounted read-only. The rejected alternative is written into the file: setting
+`PLEIADES_TLS_TERMINATED_UPSTREAM=1` there would be four fewer lines and would put a false statement
+about the deployment in the file most people copy from. A proxy container was also rejected (a fifth
+image to pin, and it still needs this same certificate). Port stays 8080; `http://` against it
+answers 400 "Client sent an HTTP request to an HTTPS server".
+
+The healthcheck had to follow. `cmd/controller/healthcheck.go` now reads the SAME `resolveTLS`, asks
+over `https` when the pair is set, and verifies the listener against `TLS_CERT_FILE` itself with an
+SNI name taken from that certificate's first DNS SAN. Not `InsecureSkipVerify`: this way a different
+process that grabbed the port cannot answer for the controller. Reading that file adds ONE inline
+`#nosec G304`, the same shape `internal/crypto/key_resolve.go` already carries. Net for the phase:
+three waivers and one whole class removed, one inline suppression added, and `gosec-waivers.json`'s
+header now says so with re-measured numbers.
+
+### Verified by running it, not by reading it
+
+`make ci` green. `make gosec`: 9 findings, zero G124. `TestUI_` and `TestLocalAuthReleaseGate` each
+pass as separate `-tags integration -race -count=1` invocations. Fail-closed proven by starting the
+binary with no TLS configuration (exit 1, the message names both ways out). Upstream mode proven
+serving plain HTTP while still setting `Secure`, `__Host-` cookies. Real TLS proven with `curl
+--cacert` (HTTP/2 303, `__Host-pleiades_session ... Secure`, HSTS present, dashboard 200). The whole
+compose stack came up healthy and a **real Chromium** completed a sign-in over TLS at
+`https://pleiades.test:8080`, a non-loopback origin, which is the exact origin the old build failed
+on. `make ui-dev` bootstraps, seeds 6/6 devices over HTTPS and prints an `https://` banner.
+
+### One real defect found while verifying, now recorded
+
+`chmod 600` on the mounted certificate pair makes the controller exit with
+`open /etc/pleiades/tls/cert.pem: permission denied` and restart-loop, because a bind mount carries
+the host's numeric owner and the image runs as UID 65532. `tools/devcert` relaxes the pair to 0644
+and the directory to 0755 with the reasoning at the point it happens; `internal/testsupport` still
+writes 0600 and a test pins that. `FAILURE_PATTERNS` #126, `LESSONS_LEARNED` #115 and #116.
+
+### Next
+
+- **20c: the Helm chart**, still unmodified `helm create` output. It now has a TLS decision to carry
+  too: a chart that renders a Deployment without either `TLS_CERT_FILE`/`TLS_KEY_FILE` or
+  `PLEIADES_TLS_TERMINATED_UPSTREAM` produces a pod that will not start, so the values file has to
+  make the choice explicit and the templates should refuse to render an undecided one. An Ingress
+  that terminates TLS is the normal answer there, which is the upstream mode.
+- **Carried over from 20a**: `/readyz` is unauthenticated, unrate-limited and runs a real query per
+  request with no `MaxOpenConns` bound; single-flight collapse is the fix and is a Phase 20 item. A
+  registry path and a release tag are still unowned.
+- **Not done here, deliberately**: no certificate reloading without a restart, and no client
+  certificate / mTLS story. Both are real deployment features and neither is in this phase.
+
+## Previous session: Phase 20a, production packaging (images, compose, healthcheck)
+
+**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
+Phase 20a is BUILT and `make ci` passes in full. Nothing is committed, per the standing instruction.
+Phase 79's handoff moved to `HANDOFF_ARCHIVE.md`.**
+
+### The phase opened by correcting its own map, and had to
+
+Four Phase 20 items described a repository that no longer exists, so the Architecture Mismatch
+protocol applied before any code. `cmd/controller` and `cmd/runner` both exist and compile, so
+"entrypoints that do not exist" was false; both Dockerfiles already built package paths; Phase 19
+had deleted the separate UI service, so there was no third image to write; and the compose NATS
+healthcheck had been edited since the item was written. All four are struck and restated in place.
+
+### Two findings that changed the plan
+
+- **`CGO_ENABLED=0` compiles clean and breaks SQLite at run time.** The roadmap asked for a
+  "distroless or scratch base", which requires a static binary, and `mattn/go-sqlite3` is a cgo
+  driver that degrades to a stub rather than a compile error. The committed Alpine image was
+  ALREADY broken this way: `golang:1.26-alpine` sets `CGO_ENABLED=0` and ships no C compiler, so the
+  shipped controller died in its first migration on its own default DSN. `FAILURE_PATTERNS` #122.
+  Resolved with `gcr.io/distroless/base-debian12:nonroot` and a bookworm builder, cgo kept on.
+- **The Ansible legacy path needs a Docker daemon**, because `internal/adapters/legacy` starts a
+  sibling container rather than shelling out. A pod has none, and the two ways to give it one are a
+  node escape or a privileged sidecar. This is now the Pattern Entry Gate's Sidecar rejection with a
+  real instance behind it, and the chart must refuse to render a runner with a playbook dir set.
+
+### What shipped in 20a
+
+Both images hardened (distroless, non-root, `-trimpath -ldflags="-s -w"`, digest-pinned, OCI
+provenance labels fed by build args). A `.dockerignore` that denies by default, with a test asserting
+the shape, the forbidden paths, and that every allowance is one a Dockerfile needs; the build context
+went from 410 MB to 13 MB. `docker-compose.yml` gained named volumes, a real controller healthcheck,
+`start_period`/`start_interval` tuning, explicit image names, and a NATS probe that actually detects
+a JetStream-less broker. A `healthcheck` subcommand on `cmd/controller`, because the distroless image
+contains exactly one executable and a healthcheck that cannot run is the same as none.
+
+Measured: warm start 9.978 s to ~4.1 s, cold build 144 s to 127 s, context 410 MB to 13 MB.
+
+### Three defects the adversarial passes found, all reproduced
+
+- **Every `docker compose down` destroyed the control plane.** No `volumes:` key existed at all.
+  Reproduced: bootstrap a user, `down` without `-v`, `up`, and the volume id had changed with zero
+  users. JetStream had the same gap, taking the scheduler lease bucket.
+- **`docker compose up -d --wait` exited 0 printing "Healthy" for a dead controller**, then `ps` hid
+  the row. This refuted the justification the file itself carried for shipping no healthcheck.
+- **`USER nonroot:nonroot` makes every `runAsNonRoot: true` pod fail** with
+  `CreateContainerConfigError`. Compose cannot express `runAsNonRoot`, so 20a's own gate was
+  structurally blind to it; found by really installing into kind. Fixed to `USER 65532:65532`.
+
+### A claim this project had on record was false, and the truth is worse
+
+`HANDOFF_DOCUMENT.md` and Phase 79's Release Gate both said a real browser refuses the `__Host-`
+session cookie on the documented compose path. **False for `http://localhost`**, which browsers treat
+as a potentially-trustworthy origin; a real Chromium completed the whole documented flow. What is
+true is narrower in reach and worse in kind: on any non-loopback origin, and Chromium keys that on
+the host STRING so a hostname resolving to 127.0.0.1 still counts as remote, the cookie is refused,
+CSRF then fails, and the page says "Those credentials were not accepted" although the password was
+never checked. Every real deployment hits this, as a misleading wrong-password error. Corrected in
+both places. TLS is still required; the recorded reason was wrong and understated it.
+
+### Governance: a deadline nobody could pay, and my own corrections of it were wrong twice
+
+`gosec-waivers.json`'s header demanded "zero remaining waivers" before Phase 20 and attributed that
+to AGENTS.md. **AGENTS.md never said it**: its only rule is "gosec and govulncheck must be validated
+prior to production packaging (Phase 20)". The invented bar came from Phase 0's pre-existing-findings
+policy and was copied into the header; both are struck now. Of twelve waivers only three are Phase
+20's, seven pointed at **Phase 39, which is closed**, and two are test-only. **Phase 82** was
+appended to Part IX to own the seven and decide the two. `LESSONS_LEARNED` #112.
+
+Read this part as a warning: the first correction repeated the failure #112 records (said eight, not
+seven; 3+8+2 is 13 against 12), and the second still left stale text in two Phase 20 items and in
+#112 itself. All three rounds were caught by adversarial passes that recomputed every number from
+source, never by review. Also uncounted until now: inline `#nosec` suppresses **55** further
+findings, so this file's twelve are about 18% of the project's suppressions.
+
+### Also fixed
+
+A pre-existing red test blocking every gate, `internal/catalog/net/ssh`'s
+`TestPing_DialFailureIsReported`, which assumed a just-closed port refuses connections; on WSL2 the
+connect succeeds and fails later in the handshake. Not caused by this work (the package was
+byte-identical to HEAD) but `LESSONS_LEARNED` #110 forbids pushing past a red gate regardless of
+fault. `FAILURE_PATTERNS` #123. Pin drift this phase introduced was also closed: `make ui-dev` was
+running a different NATS image and flags than compose under a comment claiming they matched.
+
+### Next
+
+- **20b: TLS.** The deletion surface is bounded and surveyed (3 files, 2 setters, 1 reader). The
+  deletion and TLS must land TOGETHER: removing the insecure path without TLS breaks every
+  non-loopback origin. No X.509 serving-cert generation exists to reuse, so a helper goes in
+  `internal/testsupport` beside `BuildAnsibleRunnerImage` so uidev and the harness cannot drift.
+  Editing `auth.go` will shift the three `G710` lines, which are now Phase 82's entries.
+- **20c: the Helm chart**, still unmodified `helm create` output. Verified constraints in hand: pin
+  by TAG not digest (digests do not resolve against side-loaded images), do not default
+  `image.repository` to an unpublished registry path, liveness and readiness must not share a path,
+  and a kind-based gate needs both kind and the node image pinned.
+- **Open decisions**: `/readyz` is unauthenticated, unrate-limited and runs a real query per request
+  with no `MaxOpenConns` bound, so a caller can flip a healthy controller out of rotation today. The
+  write probe was tested and REJECTED (it does not detect the failure it was proposed for, and ent
+  opens `BEGIN READ WRITE` which defeats its headline claim). Single-flight collapse is the fix and
+  is now a Phase 20 item. A registry path and release tag are still unowned.
+
 ## Previous session: Phase 79 complete (79a, 79b, 79c), local authentication
 
 **Branch `feature/launch-fields-and-push-gate`. Directive: map the missing local-authentication

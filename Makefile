@@ -1,4 +1,4 @@
-.PHONY: build vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check templ-gen templ-gen-check tools hooks ui-dev ui-stop ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -71,6 +71,21 @@ hooks:
 
 build:
 	go build ./...
+
+# devtools compiles the repo-local developer commands (tools/devcert,
+# tools/uidev), which the default build cannot see.
+#
+# They carry `//go:build devtools` so they stay out of `go build ./...`,
+# out of the shipped binaries and out of gosec's judgement of shipped
+# server code. The tag used to be `ignore`, and the difference is not
+# cosmetic: nothing at all compiled them, so a break in `make dev-cert` or
+# `make ui-dev` stayed invisible until a human ran it and hit a compile
+# error in a file no gate had ever looked at. Building AND vetting them
+# here costs a second and closes that. How they are invoked does not
+# change: `go run` on an explicitly named file ignores build constraints.
+devtools:
+	go build -tags devtools ./tools/...
+	go vet -tags devtools ./tools/...
 
 # Two passes, because go vet respects build tags: without the second one
 # the integration-tagged files (the largest tests in this repository)
@@ -200,6 +215,21 @@ docs-gen-check:
 	git diff --exit-code -- docs/reference internal/api/wellknown
 	test -z "$$(git ls-files --others --exclude-standard -- docs/reference internal/api/wellknown)"
 
+# helm-lint (tools/helm-lint) renders helm/the-pleiades in every arrangement
+# it supports, asserts the rendered containers are hardened (two distinct
+# probes, a numeric non-root uid, a read-only root filesystem, no capabilities,
+# no hostPath, no :latest and no digest), and asserts the configurations the
+# chart is supposed to REFUSE really are refused, message and all. Same shape
+# as docs-lint above: a small Go tool over one artifact, no waiver file except
+# the single written probe exemption in its own source.
+#
+# It needs the `helm` binary and deliberately fails rather than skipping when
+# it is missing, for the reason its own doc comment gives: a check that quietly
+# does nothing where its tool is absent reports a pass that proved nothing.
+# Nothing here needs a Kubernetes cluster; `helm template` renders offline.
+helm-lint:
+	go run ./tools/helm-lint
+
 # ci is what a pull request must pass. -race, not plain test, is
 # deliberately included here (not just in a separate target) because the
 # Phase 0 item lists `go test -race ./...` as one thing CI must run, and
@@ -213,7 +243,7 @@ docs-gen-check:
 # target itself becoming any less strict. Never make ci itself tolerant of
 # anything; it is the one target whose pass/fail this repository's actual
 # merge gate depends on.
-ci: build vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check templ-gen-check
+ci: build devtools vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
 
 # push-gate-race and push-gate-integration run through tools/testgate
@@ -258,7 +288,7 @@ push-gate-coverage:
 # comment above), so nothing here weakens what actually gates a merge; it
 # only reduces how much known-flaky local noise a developer has to fight
 # through, and re-run, before a push reaches that real gate.
-push-gate: build vet fmt push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check templ-gen-check
+push-gate: build devtools vet fmt push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
 
 # templ-gen regenerates the view layer's templates. templ emits a
@@ -273,14 +303,52 @@ templ-gen-check: templ-gen
 	git diff --exit-code -- internal/ui/render
 	test -z "$$(git ls-files --others --exclude-standard -- internal/ui/render)"
 
+# dev-cert writes a throwaway serving certificate into .dev-certs/, which
+# is gitignored.
+#
+# Nothing requires it any more. The controller provisions its own
+# self-signed certificate when an operator has configured none, so
+# `docker compose up` needs no preparatory command and `make ui-dev`
+# generates its own. This target was kept rather than deleted because it
+# covers the OTHER arrangement, the one a real deployment uses: a
+# certificate handed to the controller through TLS_CERT_FILE and
+# TLS_KEY_FILE. That path deserves a way to be exercised locally, and this
+# is it:
+#
+#   make dev-cert
+#   TLS_CERT_FILE=$$PWD/.dev-certs/cert.pem \
+#     TLS_KEY_FILE=$$PWD/.dev-certs/key.pem ./controller
+#
+# Invoked by file path because tools/devcert carries //go:build devtools,
+# the same convention ui-dev below uses; `go run` on a named file ignores
+# build constraints, while `make ci` compiles and vets both tools through
+# the devtools target above. It calls internal/tlscert's one generator, the
+# same code the controller, `make ui-dev` and tests/e2e all use, rather
+# than a fourth lookalike.
+#
+# The pair lands at mode 0600. It used to land at 0644, because devcert's
+# -container-readable flag defaulted to true and this target never said
+# otherwise, so `make dev-cert` left a world-readable PRIVATE KEY on disk
+# with nobody having asked for one. The flag still exists, because the
+# case it covers is real (a container running as another UID cannot read a
+# 0600 key through a bind mount), but it is now something you ask for:
+#
+#   make dev-cert DEV_CERT_FLAGS=-container-readable
+DEV_CERT_DIR ?= .dev-certs
+DEV_CERT_FLAGS ?=
+
+dev-cert:
+	go run tools/devcert/main.go -dir $(DEV_CERT_DIR) $(DEV_CERT_FLAGS)
+
 # ui-dev boots the real controller against a throwaway database and prints
 # a sign-in token, so the web UI can be looked at without a cluster. It runs
 # the shipped binary rather than a harness: a development server that wired
 # its own router could show a UI the real composition root does not serve.
 #
-# Invoked by file path because tools/uidev carries //go:build ignore, the
-# same convention internal/ent/migrate/gen uses for a repo-local developer
-# tool that shells out to docker and a compiler.
+# Invoked by file path because tools/uidev carries //go:build devtools,
+# which keeps it out of the default build and out of gosec's judgement of
+# shipped server code while still letting the devtools target above compile
+# and vet it.
 #
 # Ctrl-C stops it. The controller is started with Pdeathsig, so it cannot
 # outlive this process even if the terminal is closed or the task is killed;

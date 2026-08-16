@@ -16,8 +16,7 @@ import (
 // the attributes correctly forever is the difference between a guarantee
 // and a convention.
 const (
-	SecureCookieName   = "__Host-pleiades_session"
-	InsecureCookieName = "pleiades_session"
+	SecureCookieName = "__Host-pleiades_session"
 
 	// CSRFHeader is the header HTMX requests carry the CSRF token in, and
 	// CSRFField is the hidden form input non-JavaScript submissions use.
@@ -28,24 +27,28 @@ const (
 
 // CookieCodec reads and writes the session cookie.
 //
-// Insecure exists because __Host- requires Secure, Secure requires HTTPS,
-// and a developer running the controller on http://localhost would
-// otherwise be unable to log in at all. It is a stated choice rather than
-// a default the code falls into when a field is left zero -- the same
-// posture api.RouterConfig.AllowUnauthenticated already takes -- and the
-// composition root logs a warning whenever it is on.
-type CookieCodec struct {
-	// Insecure drops the __Host- prefix and the Secure attribute. Never
-	// set it in a deployment reachable by anyone but the developer who
-	// set it.
-	Insecure bool
-}
+// It holds no configuration, and that emptiness is the point rather than an
+// oversight: it used to carry an Insecure flag that dropped the __Host-
+// prefix and the Secure attribute for a developer running the controller
+// over plain HTTP. Phase 20 deleted that flag by making the controller
+// refuse to serve plain HTTP unattended (cmd/controller's resolveTLS), so
+// there is no longer any configuration under which this codec should write
+// a cookie a browser can send in the clear.
+//
+// The type survives its own field on purpose. Two things construct it, the
+// UI subtree and the JSON API's cookie credential source, and a package
+// function instead of a value would make it possible for those two to reach
+// different code some day; one value passed to both is what guarantees a
+// session written under one name is read under the same one.
+type CookieCodec struct{}
 
 // Name returns the cookie name this codec reads and writes.
+//
+// A constant now. It used to branch on the deleted Insecure flag, which is
+// why this is a method on a value with no fields rather than a bare
+// constant: every caller already holds the codec, and collapsing the method
+// away would churn the same call sites again if a second name ever returns.
 func (c CookieCodec) Name() string {
-	if c.Insecure {
-		return InsecureCookieName
-	}
 	return SecureCookieName
 }
 
@@ -56,21 +59,29 @@ func (c CookieCodec) Name() string {
 // deadlines: a Max-Age would be a second, client-held copy of an expiry
 // the database already tracks, and the two would disagree the moment a
 // session was revoked early.
-// The secure and insecure paths are written as two separate literals
-// rather than one struct with a computed Secure field, and that is a
-// deliberate concession to static analysis rather than duplication for its
-// own sake. gosec's G124 checks the literal attributes at the call site;
-// `Secure: !c.Insecure` is unprovable to it, so a single shared literal
-// would put a waiver on the *default*, secure path -- which is precisely
-// where a waiver must never sit. Split this way, the normal path is
-// provably correct to the scanner and the one flagged call is the
-// deliberate development-only opt-out, where a waiver states something
-// true and specific.
+//
+// # Why this file used to hold two nearly identical cookie literals
+//
+// Worth recording, because the shape that replaced them looks like it was
+// always this simple. Write and Clear each had a second, insecure twin,
+// and the duplication was a deliberate concession to static analysis:
+// gosec's G124 reads the literal attributes at the call site, so
+// `Secure: !c.Insecure` was unprovable to it and one shared literal would
+// have put a waiver on the DEFAULT, secure path, which is precisely where
+// a waiver must never sit. Split, the normal path was provably correct and
+// the one flagged call was the deliberate opt-out.
+//
+// The mistake not to repeat, since it looks like an obvious cleanup and
+// was tried and reverted in Phase 79b: consolidating this writer with the
+// appearance-preference and pre-auth CSRF writers in internal/ui/web. Those
+// three cookies need different SameSite values, so a shared writer takes
+// SameSite as a PARAMETER, and a parameter is exactly as unprovable to
+// gosec as a computed Secure field. Consolidating therefore did not remove
+// a waiver, it added one on the production path. Both problems are gone now
+// for the same reason: with no insecure mode left, every one of these
+// writers states Secure as a literal true, so there is nothing to prove and
+// nothing to waive.
 func (c CookieCodec) Write(w http.ResponseWriter, token string) {
-	if c.Insecure {
-		c.writeInsecure(w, token, 0, time.Time{})
-		return
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:  SecureCookieName,
 		Value: token,
@@ -91,10 +102,6 @@ func (c CookieCodec) Write(w http.ResponseWriter, token string) {
 
 // Clear expires the session cookie on w, for logout.
 func (c CookieCodec) Clear(w http.ResponseWriter) {
-	if c.Insecure {
-		c.writeInsecure(w, "", -1, time.Unix(0, 0))
-		return
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SecureCookieName,
 		Value:    "",
@@ -106,24 +113,6 @@ func (c CookieCodec) Clear(w http.ResponseWriter) {
 		// have historically disagreed about which one deletes a cookie.
 		Expires: time.Unix(0, 0),
 		MaxAge:  -1,
-	})
-}
-
-// writeInsecure is the development-only path: no __Host- prefix and no
-// Secure attribute, because both require HTTPS and a developer running the
-// controller on http://localhost has none. Everything that does not depend
-// on TLS -- HttpOnly, SameSite=Strict, Path=/ -- is retained, so this is a
-// narrow concession rather than an unprotected cookie.
-func (c CookieCodec) writeInsecure(w http.ResponseWriter, value string, maxAge int, expires time.Time) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     InsecureCookieName,
-		Value:    value,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteStrictMode,
-		Expires:  expires,
-		MaxAge:   maxAge,
 	})
 }
 

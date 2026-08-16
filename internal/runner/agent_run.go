@@ -30,6 +30,25 @@ func (a *Agent) Run(ctx context.Context) error {
 		go a.worker(ctx, jobs, &wg)
 	}
 
+	// The liveness heartbeat (heartbeat.go), when one was configured. It
+	// runs in its OWN goroutine rather than inside fetchLoop below, and
+	// that separation is deliberate: fetchLoop blocks on `jobs <- msg`
+	// whenever every worker is busy, which is the normal state of a
+	// Runner executing long device conversations. A heartbeat driven from
+	// that loop would go stale exactly then, so a liveness probe would
+	// restart the busiest Runners in the fleet.
+	//
+	// It joins the same WaitGroup so Run does not return before it has
+	// stopped, keeping "the heartbeat is running" and "this Agent is
+	// running" the same fact.
+	if a.liveness != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.liveness.Run(ctx)
+		}()
+	}
+
 	runErr := a.fetchLoop(ctx, jobs)
 
 	close(jobs)

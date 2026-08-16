@@ -54,13 +54,13 @@ type IdentityDeriver interface {
 
 // preAuthCookieName holds the pre-session CSRF secret.
 //
-// No __Host- prefix, unlike the session cookie, and the difference is not
-// an oversight: __Host- requires Secure, which would make the login form
-// unusable over plain HTTP, and the login page is the one page that must
-// work on a clean machine before anybody has terminated TLS in front of it.
-// The cookie carries no authority of its own, so the weaker prefix costs
-// less here than an unusable sign-in page would.
-const preAuthCookieName = "pleiades_login"
+// The __Host- prefix, the same as the session cookie: the browser then
+// enforces Secure, Path=/ and no Domain, so no other host under this
+// registrable domain can set the value that the double-submit check
+// compares against. That prefix was previously dropped whenever the
+// deployment had opted out of Secure, which Phase 20 removed by making the
+// controller refuse to serve plain HTTP unattended.
+const preAuthCookieName = "__Host-pleiades_login"
 
 // preAuthTTL bounds how long a rendered login form stays submittable.
 //
@@ -234,10 +234,17 @@ func (h *Handler) loginRateLimit(next http.Handler) http.Handler {
 // The consequence is worth stating rather than leaving to be discovered:
 // behind an ingress that does not preserve the source address, every
 // browser shares one bucket, which makes this limiter useless there and
-// mildly harmful. Phase 19 already recorded that boundary as open and
-// assigned its fix to the deployment work that owns the ingress. Until
-// then, the per-account lockout is the mechanism that still works behind a
-// proxy, which is part of why it is not optional.
+// mildly harmful. Phase 19 recorded that boundary as open and assigned it
+// to the deployment work that owns the ingress. That work has now happened
+// (Phase 20, TLS termination), and it did not change this line, which is
+// the outcome worth recording rather than a task still outstanding: the
+// answer to "which proxy is in front of this process" turned out to be an
+// explicit deployment setting, not a header this code should start
+// believing. An operator who wants per-source limiting behind a proxy has
+// to make the proxy preserve the real source address at the connection
+// level; there is no header this process can trust to do it for them. The
+// per-account lockout is the mechanism that still works either way, which
+// is part of why it is not optional.
 //
 // There is deliberately no email in this key. Keying a limiter on the
 // submitted address would make it trivially evadable (vary the address) and
@@ -293,7 +300,7 @@ func (h *Handler) preAuthCSRF(next http.Handler) http.Handler {
 		// Layer two, double submit: the cookie was set when this server
 		// rendered the form, and a cross-origin attacker cannot read it to
 		// copy its value into their own form.
-		cookie, err := r.Cookie(h.preAuthCookieName())
+		cookie, err := r.Cookie(preAuthCookieName)
 		if err != nil {
 			h.renderLogin(w, r, true, http.StatusForbidden)
 			return
@@ -310,18 +317,6 @@ func (h *Handler) preAuthCSRF(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// preAuthCookieName is the insecure-mode-aware cookie name.
-//
-// It follows the session cookie's own convention: the hardened name in
-// normal operation, a plain one when the deployment has explicitly opted
-// out of Secure for local development over HTTP.
-func (h *Handler) preAuthCookieName() string {
-	if h.cfg.Cookie.Insecure {
-		return preAuthCookieName
-	}
-	return "__Host-" + preAuthCookieName
 }
 
 // issuePreAuthCookie mints a fresh CSRF secret and returns the form-field
@@ -357,49 +352,22 @@ func (h *Handler) clearPreAuthCookie(w http.ResponseWriter) {
 // travelling with a cross-site navigation, and it is the first of the two
 // double-submit halves.
 //
-// The secure and insecure branches are separate literals for the reason
-// writeInsecurePreference's own doc now records at length: a shared writer
-// would have to take SameSite as a parameter, and a parameter is exactly as
-// unprovable to gosec as a computed Secure field, so consolidating would
-// put a waiver on the production path rather than removing one from the
-// development path.
+// One writer, one literal. There used to be a second one that dropped
+// Secure so the login form worked over plain HTTP, and it carried a gosec
+// waiver saying so. What it cost was worth more than it looked: over plain
+// HTTP a network attacker can read this cookie and forge the matching form
+// field, so the double-submit layer was worth materially less and login
+// CSRF rested on SameSite=Strict and Sec-Fetch-Site alone. Phase 20 removed
+// the mode rather than the layer, by making the controller refuse to serve
+// plain HTTP unattended.
 func (h *Handler) writePreAuthCookie(w http.ResponseWriter, value string, maxAge int) {
-	if h.cfg.Cookie.Insecure {
-		h.writeInsecurePreAuthCookie(w, value, maxAge)
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "__Host-" + preAuthCookieName,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
-	})
-}
-
-// writeInsecurePreAuthCookie is the development-only path.
-//
-// Worth reading twice rather than skimming as "the same as the other one".
-// This cookie is not a credential (it authorizes nothing and proves nothing
-// about who a caller is), but it IS a security control, and over plain HTTP
-// a network attacker can read it and forge the matching form field. So in
-// insecure mode the double-submit layer is worth materially less and login
-// CSRF rests on SameSite=Strict and Sec-Fetch-Site alone.
-//
-// That is the same reduction PLEIADES_UI_INSECURE_COOKIES already accepts
-// for the session cookie itself, which is a strictly larger prize than
-// this, so it adds no new class of exposure to a mode that already has it.
-// Phase 20 owns TLS termination and is what removes both.
-func (h *Handler) writeInsecurePreAuthCookie(w http.ResponseWriter, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     preAuthCookieName,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

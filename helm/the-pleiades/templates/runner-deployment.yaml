@@ -1,0 +1,261 @@
+{{- include "the-pleiades.validate" . -}}
+{{- /*
+The execution plane: stateless workers that pull dispatches off one durable
+NATS consumer group and run them.
+
+Two things about this workload are different from the controller and both are
+deliberate.
+
+IT HAS NO SERVICE. The runner binds no port at all: it dials out to the broker
+and pulls work, so nothing ever connects to it. Dockerfile.runner carries no
+EXPOSE for the same reason. A Service here would publish an endpoint list for a
+listener that does not exist.
+
+ITS PROBES EXEC THE BINARY, because there is nothing else in the pod to ask.
+This container used to ship with no probes at all and a long comment here
+saying why that was impossible. Both are gone, and what replaced them is worth
+reading before changing any number below.
+
+THE FAILURE THEY EXIST FOR. FAILURE_PATTERNS.md #119: a runner whose NATS
+connection closes for good stays alive, stays healthy-looking, and silently
+stops doing any work. nats.Connect is called with the library defaults, which
+give up permanently after about two minutes of unreachability; nothing
+registers a ClosedHandler; and the fetch loop backs off and retries forever,
+which is right for a transient error and indistinguishable from right for a
+permanent one. Kubernetes made that permanent rather than merely likely,
+because a pod nobody probes is never restarted.
+
+WHAT `runner healthcheck` ACTUALLY READS. Not a port, and not a log line. The
+agent touches a heartbeat file on a bounded interval, but ONLY after a real
+round trip to the server about the durable consumer it pulls from
+(internal/runner/heartbeat.go). The probe reads that file's age. So one passing
+probe proves the connection is usable, the server is answering, JetStream is up
+and this exact durable consumer still exists. Sever the connection and the file
+stops advancing while the process stays up, which is #119 made visible.
+
+WHAT IT MISSES, stated here as well as in the code, because a chart reader
+should not have to go looking. A runner whose workers are ALL wedged inside
+tasks keeps answering Info and keeps beating: the heartbeat proves the agent
+can pull, never that it is making progress. Tying it to progress was refused
+deliberately, since "every worker busy" is the normal state of a runner doing
+long device conversations and a probe built that way would kill the busiest
+runners in the fleet.
+
+WHY IT ALSO GETS A READINESS PROBE, for a workload behind no Service. The
+question was asked properly rather than answered by symmetry, and the answer is
+that readiness is not idle here even with no traffic to gate:
+
+  * THE ROLLOUT. maxUnavailable 0 with maxSurge 1 (above) means a rolling
+    update waits for the new pod to report Ready before retiring an old one.
+    With no readiness probe, Ready means "the container started", so a bad
+    image or a broker the new pods cannot reach would replace a working fleet
+    with a broken one and report success. With it, the rollout stalls with the
+    old runners still consuming, which is the outcome an operator wants.
+  * THE DISRUPTION BUDGET. The runner's PodDisruptionBudget is on by default
+    and counts READY pods, so a drain cannot evict the last runner that is
+    actually attached to the broker.
+
+It is deliberately STRICTER than liveness (three missed beats against six).
+That split is the point: readiness costs a paused rollout, liveness costs a
+running job, so the cheaper answer fires first and the expensive one waits for
+real evidence. templates/_validations.tpl refuses any combination that inverts
+that or puts either limit inside one heartbeat interval.
+
+WHAT IS STILL DELIBERATELY ABSENT: a startup probe. The controller needs one
+because it runs a schema migration before opening a listener. A runner does
+nothing of the kind; initialDelaySeconds plus "no heartbeat file yet means not
+started" already covers its cold start, and a third probe would be a third set
+of timings to keep in step for no gain.
+*/}}
+{{- $hb := .Values.runner.heartbeat }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "the-pleiades.runner.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "runner") | nindent 4 }}
+spec:
+  replicas: {{ .Values.runner.replicaCount }}
+  strategy:
+    {{- /* Runners are interchangeable and hold no volume, so a rolling update is
+         free here in a way it is not for the controller. maxUnavailable 0
+         keeps the consumer group staffed throughout. */}}
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "runner") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.runner.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "the-pleiades.labels" (dict "root" . "component" "runner") | nindent 8 }}
+        {{- with .Values.runner.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "the-pleiades.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.runner.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- /* A runner holds a job's credentials in memory and shells out to real
+           transports with them, so it is the pod in this chart worth hardening
+           hardest. 65532 numeric, for the same kubelet reason the controller's
+           comment gives. */}}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }}"
+          imagePullPolicy: {{ .Values.runner.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            {{- /* This matters more here than anywhere else in the chart: the
+                 native adapter re-executes this binary once per task to run a
+                 collection method in its own subprocess, so the file is read
+                 back off disk during normal operation. A writable copy of it
+                 would be picked up with no restart at all. */}}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NATS_URL
+              value: {{ include "the-pleiades.natsURL" . | quote }}
+            {{- /* The same path the controller sets, for the reason written
+                 in controller-deployment.yaml: the two resolve a dispatched
+                 runbook independently, and this image's own default is a
+                 relative path that only lands here because of its working
+                 directory. */}}
+            - name: RUNBOOK_DIR
+              value: /app/runbooks
+            {{- if gt (int .Values.runner.poolSize) 0 }}
+            - name: RUNNER_POOL_SIZE
+              value: {{ .Values.runner.poolSize | quote }}
+            {{- end }}
+            {{- /* Absolute, and stated here rather than left to the binary's
+                 own default, for the reason RUNBOOK_DIR above is: the path in
+                 this manifest, the path in the volumeMount below, and the path
+                 the probes read are then one string a reader can follow.
+                 An exec probe runs inside this container with this
+                 container's environment, so both probes resolve the heartbeat
+                 from this line and neither needs a --path flag that could
+                 drift from it. */}}
+            - name: RUNNER_HEARTBEAT_FILE
+              value: /tmp/pleiades-runner/heartbeat
+            - name: RUNNER_HEARTBEAT_INTERVAL
+              value: {{ printf "%ds" (int $hb.intervalSeconds) | quote }}
+            {{- with .Values.runner.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- /* "Restart this pod." The expensive answer, so it waits for
+                 the longer of the two staleness limits AND for
+                 failureThreshold consecutive failures on top of it. At the
+                 defaults that is a broker unreachable for 60 seconds plus
+                 three more probes 15 seconds apart. */}}
+            exec:
+              command:
+                - /app/runner
+                - healthcheck
+                - --max-age={{ printf "%ds" (int $hb.livenessStaleAfterSeconds) }}
+            initialDelaySeconds: {{ .Values.runner.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.runner.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.runner.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.runner.probes.liveness.failureThreshold }}
+          readinessProbe:
+            {{- /* "Count this pod as working." Same command, shorter limit, and
+                 the header comment on this file explains what it buys for a
+                 workload behind no Service: a rolling update that stalls
+                 instead of replacing a working fleet with runners that cannot
+                 reach the broker, and a disruption budget that counts pods
+                 which are genuinely attached. */}}
+            exec:
+              command:
+                - /app/runner
+                - healthcheck
+                - --max-age={{ printf "%ds" (int $hb.readinessStaleAfterSeconds) }}
+            initialDelaySeconds: {{ .Values.runner.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.runner.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.runner.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.runner.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.runner.resources | nindent 12 }}
+          volumeMounts:
+            {{- /* The only writable path, and it now carries something the
+                 pod genuinely needs rather than being pure insurance: the
+                 liveness heartbeat both probes read lives at
+                 /tmp/pleiades-runner/heartbeat, which is why RUNNER_HEARTBEAT_FILE
+                 above and this mount have to move together. The original
+                 reason still holds too, the same one the controller has: a Go
+                 process may reach os.TempDir down a path nobody has exercised
+                 yet, and a read-only root would turn that into a runtime
+                 failure.
+
+                 An emptyDir is the right shape for a heartbeat and would be
+                 the wrong shape for the result write-ahead log. It survives a
+                 container restart within the pod and dies with the pod, which
+                 is exactly a heartbeat's useful lifetime; the runner clears
+                 any file a previous container left, so a restarted pod cannot
+                 report healthy on its predecessor's beat. */}}
+            - name: tmp
+              mountPath: /tmp
+            {{- if or .Values.runbooks.configMapName .Values.runbooks.existingClaim }}
+            - name: runbooks
+              mountPath: /app/runbooks
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if or .Values.runbooks.configMapName .Values.runbooks.existingClaim }}
+        {{- /* The same source the controller mounts, at the same path. Both
+             binaries resolve a dispatched runbook id independently, so two
+             different directories means a job that launches on one side and
+             fails on the other. */}}
+        - name: runbooks
+          {{- if .Values.runbooks.configMapName }}
+          configMap:
+            name: {{ .Values.runbooks.configMapName }}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.runbooks.existingClaim }}
+            readOnly: true
+          {{- end }}
+        {{- end }}
+      {{- with .Values.runner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

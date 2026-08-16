@@ -1896,3 +1896,447 @@ anywhere in the tag, so a hypothetical `postgres:alpine3.22` would pass; anchori
 the front of the tag was tried and rejected because it rejects `version-10.3_p1-r0`, a
 real immutable tag this repository uses. Recording that keeps the next reader from
 believing the guard is total.
+
+## 115. An escape hatch has more consumers than setters, and deleting it is one change with the replacement in it
+
+Phase 20b deleted `PLEIADES_UI_INSECURE_COOKIES`, the flag that dropped `Secure` and the
+`__Host-` prefix from three cookies for a developer on plain HTTP. The flag was read in
+exactly one place, `cmd/controller/main.go`, which made the deletion look like a
+five-line change. It was not, and the gap between those two numbers is the lesson.
+
+Reading the flag is not the same as depending on the behavior it selects. Removing it
+meant: two setters (`tools/uidev`, `tests/e2e`'s harness), two release gates in
+`cmd/controller` that had never set it and started failing at startup because the
+replacement is fail-closed, five call sites in `tests/e2e` that used
+`http.DefaultClient` against a base URL whose scheme had changed, a compose file, two
+user-facing documents, three gosec waivers, one test that asserted the insecure behavior
+was correct, and nine test files that constructed the codec with the deleted field. The
+way to find that set is not to follow the flag's one reader. It is to make the old
+behavior impossible and let the compiler and the gates enumerate the consequences, then
+to grep the flag's NAME (which appears in comments, YAML and prose that no compiler
+reads) as a second pass.
+
+The other half is that the deletion and its replacement have to be one change. The tree
+must never pass through a state where the insecure path is gone and TLS is absent: that
+state is not merely inconvenient, it renders a correct password as "Those credentials
+were not accepted", because the browser silently refuses the cookie and the CSRF check
+then fails against a cookie that never arrived. A refusal that reports the wrong cause is
+worse than the missing feature.
+
+And when the escape hatch is removed, its reasoning is not removed with it. The three
+deleted writers existed as separate literals because gosec cannot prove a computed
+`Secure` field, and a consolidation attempt had already been reverted once for exactly
+that reason. That history now lives in a comment on the surviving writer, naming the
+mistake not to repeat, because the shape that replaced it looks like it was always this
+simple.
+
+## 116. A test harness that publishes a base URL but not a client has hidden the transport at every call site
+
+The end-to-end harness in `tests/e2e` exposed `h.baseURL` and nothing else, so each test
+built its own request with `http.Get` or `http.DefaultClient.Do`. That reads as
+lightweight, and it is, right up until the transport changes: turning the controller's
+listener into a TLS listener was a one-line change to the harness and a five-file change
+to its callers, none of which were about what those tests are for.
+
+The fix is to publish the CLIENT, not the address: one `h.httpClient()` that owns the
+transport, and a `h.uiClient(t)` that adds a cookie jar to it. Then the trust decision is
+made in one place and no test can accidentally dial with verification off, which matters
+more than the edit count. The tempting shortcut when a suite starts failing handshakes is
+`InsecureSkipVerify: true` at each call site; a harness with one client makes that a
+single visible line instead of five invisible ones, and a suite that skipped verification
+would keep passing on the day the server presented a certificate it was never configured
+with.
+
+The same argument applies to any harness-provided value the tests derive requests from: a
+port, a DSN, a base URL. Handing out the raw value distributes a decision; handing out the
+thing built from it keeps the decision.
+
+
+---
+
+## 117. A fail-closed default protects against the mistake a person is making, never against the step they have not reached yet, so read the state it actually refuses before deciding it is the safe choice
+
+Phase 20b made the controller refuse to start when neither `TLS_CERT_FILE`/`TLS_KEY_FILE`
+nor `PLEIADES_TLS_TERMINATED_UPSTREAM=1` was set. The reasoning was good and is still in
+the code: the session cookie is `Secure` and `__Host-` prefixed, a browser silently
+refuses such a cookie on a plain-HTTP origin, and the resulting symptom is "Those
+credentials were not accepted" for a correct password. Serving plain HTTP unattended is a
+real trap, and the refusal closed it.
+
+It also broke the thing `docker-compose.yml` exists to be. The stack could no longer come
+up with one command; it needed `make dev-cert` first, and a fresh reader's first
+experience of the product became a startup error naming a variable they had never heard
+of. That cost was paid by everyone, on every first run, forever.
+
+The distinction that was missed: an operator who has set NOTHING is not asking for plain
+HTTP. They have not reached the question. The refusal was aimed at a decision nobody had
+made. The mistake worth failing closed on is the one where somebody states an intention
+that is unsafe, or states half of one: both files or neither, never one; a cert pair and
+an upstream claim together, never both. Those are still errors and should stay errors,
+because each is a written intention that cannot be honored.
+
+The replacement keeps the property the refusal was protecting, which is the test for
+whether a default is safe: the controller still never serves plain HTTP unless somebody
+says an ingress terminated TLS. It just answers "nothing configured" by provisioning a
+self-signed certificate instead of by stopping. The traffic is still encrypted, the cookie
+still works, and the thing that was lost by auto-generating (authentication of the server)
+is announced at WARN on every single start, naming the settings that restore it.
+
+Two failure modes this pattern has, and how to avoid each. The first is a convenience that
+quietly degrades a security property and then goes quiet: it must keep saying so, every
+start, at a level somebody receives, and it must name the way out. The second is a
+convenience that becomes the deployment: the documentation has to say plainly that it is
+not a substitute, in the production guide and not only in a comment.
+
+So the rule is not "prefer fail-closed" or "prefer convenient". It is: name the exact
+state your default refuses, decide whether that state is a stated intention or an absence
+of one, and only refuse the stated ones. Then check what the refusal costs the person who
+has not made a mistake at all, because that cost is real, is paid every time, and is
+usually invisible from inside the change that introduces it.
+
+---
+
+## 118. Production-quality logic that lands in a test-support package is invisible debt until a shipped binary needs it, and the fix is a new ordinary package plus an architecture test, never an exception
+
+`internal/testsupport` held `NewServingCert`, which generates a self-signed serving
+certificate. That was a reasonable place for it while the only callers were the
+end-to-end harness, the development server and a make target. It stopped being reasonable
+the moment the controller needed to provision a certificate for itself, and the reason is
+not aesthetic: `internal/testsupport` imports `testing`, so a production import links the
+testing package into the shipped binary. That registers test flags on the default flag set
+and grows the image, in exchange for nothing.
+
+Nothing in the build would have complained. `go build` succeeds, `go vet` succeeds, every
+test passes, and the cost only shows up in `go list -deps` on a binary nobody runs that
+command against. It is the exact shape of a defect that arrives once and stays: the next
+person copies the import because it was already there.
+
+The fix has two halves and both are required. First, move the logic to an ordinary package
+(`internal/tlscert`) and have the test-support package CALL it, keeping only its
+`testing.TB` convenience wrapper. A delegating wrapper is fine; a second implementation is
+not, because a harness whose certificate is built differently from the one the server
+presents proves TLS works for a certificate nobody runs. Second, add the rule to
+`internal/archtest` so it cannot happen again, alongside the identical rule that already
+guarded `internal/auth/authtest`. A Go build tag cannot express this, because a `_test.go`
+file cannot be imported across package boundaries at all, which is the whole reason these
+packages are not `_test.go` files; a dependency-graph check is the only enforcement left.
+
+Negative-control the new rule before trusting it. A blank import of `internal/testsupport`
+into `cmd/controller` made the test fail with the message it was written to produce, and
+`go list -deps ./cmd/controller` then really did list `testing`, which is the fact the rule
+is about. Both were removed afterwards and both were re-checked. An architecture test that
+has never been seen to fail is a comment.
+
+The generalisation: "which package does this live in" is a question about who is allowed to
+depend on it, not about who happens to call it today. When the answer changes because a
+shipped binary now wants it, moving the code is the cheap half; the test that pins the new
+boundary is what makes the move stick.
+
+---
+
+## 119. A retry loop's LAST action decides its failure mode, so a loop that recovers from other writers has to end on a read
+
+**The incident.** `internal/tlscert.Ensure` provisions the controller's serving
+certificate. It looped "load what is there; if it cannot be served, generate a
+replacement" exactly three times and then returned a fatal error. One controller starting
+against an empty directory worked every time. Four starting at the same instant against
+one shared volume, which is what a Deployment with replicas or `docker compose up
+--scale` does, produced four controllers that all refused to start: every pass read a pair
+that another racer had half-replaced, so every pass generated, and the loop's last act was
+a write whose result nobody read.
+
+The retry budget was not the problem. Raising three to thirty would have made the window
+smaller and left the shape intact. The shape was the problem: the loop ended on the
+operation it was retrying, so it reported "I could not make this work" about a resource
+that, by then, existed and was perfectly good.
+
+**The rule that came out of it.** When a loop retries because OTHER writers are
+interfering, losing a round is not an error condition. It is the strongest evidence
+available that the thing being waited for is about to exist. The correct response to
+losing is to look again, and the correct last statement of the loop is a read, so that the
+answer describes what is actually there rather than what this process failed to do.
+
+Three things follow from it, all of which this same bug demonstrated:
+
+  - Serialize the write with a primitive exactly one racer can win, so that "somebody else
+    is writing" becomes a distinguishable outcome rather than a corrupted read. An
+    exclusive create is that primitive; on shared network storage `os.Mkdir` is the one
+    with no history of ambiguity.
+  - Back off with JITTER. Processes started together by one orchestrator wake together,
+    and an unjittered schedule keeps them in lockstep for every round, which is precisely
+    the symmetry backing off exists to break.
+  - Never let the verified thing and the used thing be two separate reads. The same bug
+    had a second face: `Ensure` verified a pair and returned two PATHS, the listener
+    re-read those paths, and another racer replaced them in between, so a controller
+    logged that it was listening and then died on "private key does not match public key".
+    Return the material, not a path to fetch it again.
+
+**Where else this applies.** Anything that provisions a shared resource at start-up and
+retries: a schema migration, a leader lease, a first-run bootstrap record, a directory of
+generated keys. The question to ask of each is "if I lose every round, what do I return?",
+and the only acceptable answer is "whatever the winner produced".
+
+## 120. A gate that installs a product has to type the operator's command line, and its skip/fail boundary is a position in the test rather than a class of error
+
+**The incident.** Phase 20's Release Gate proves a real install of this repository's
+shipped artifacts twice: `docker compose up -d --wait` on a Docker host, and `helm install`
+into a real Kubernetes cluster from images built on the same machine with no registry
+anywhere in the path. Two design questions came up while building it, and both had an
+attractive wrong answer.
+
+**The first: what is the test allowed to call?** A Go client for the Docker API would have
+been tidier, faster and easier to assert on. It would also have proved that the Docker API
+works. The claim under test is not that: it is that the command lines printed in
+`docker-compose.yml`'s header, in the chart's `NOTES.txt` and in
+`docs/10-running-in-production.md` do what they say. So every step of the gate shells out
+to the real `docker`, `kind`, `kubectl` and `helm` binaries, with the same arguments in the
+same order those documents print. When the documented form changes, the gate breaks, which
+is the entire value.
+
+Two consequences that look like inconvenience and are not. The bootstrap goes through
+`docker compose run --rm -T controller bootstrap-admin --password-stdin` rather than
+inserting a row, because a seeded row proves the schema works and says nothing about the
+command. And the certificate that the sign-in trusts is fetched with
+`docker compose cp controller:/data/tls/cert.pem`, out of band through the Docker socket,
+so the trust anchor did not come from the connection being tested; a client with
+`InsecureSkipVerify` would have passed against anything at all answering on that port.
+
+**The second: when may a gate skip?** A gate that fails on a machine without kind teaches
+its developers to ignore red gates, and a gate that skips whenever anything goes wrong
+proves nothing. The boundary that resolved it is not a category of error, it is a POSITION:
+which step first touches an artifact this repository produces.
+
+  - Before that step, everything is provisioning. A missing tool skips. A kind cluster that
+    cannot be created skips, after three attempts, because etcd loses elections when it
+    shares a disk with a container image build (FAILURE_PATTERNS #130) and because at that
+    point in the test the chart has not been rendered, the images have not been imported
+    and no Pleiades process has started. Nothing under test can be implicated in that
+    failure, so reporting one would be a false accusation.
+  - From that step onward, nothing is retried and nothing skips. `helm install`, the
+    readiness wait, the readiness document, the sign-in and the bootstrap each get one
+    attempt, because a failure in any of them is a statement about the artifact.
+
+The same rule decides what a warning is worth. The cold `docker compose up` is measured and
+logged with no threshold, because the number is dominated by a Go compile and says nothing
+about the packaging; the warm start is measured more than once, judged on the FASTEST
+sample against the real target and on EVERY sample against a much looser ceiling, so one
+contended sample cannot fail the build while a uniformly slow stack still does.
+
+**Where else this applies.** Any test that stands up infrastructure it does not own:
+container-backed conformance suites, cluster installs, anything that provisions a database
+before exercising a migration. Write down which line is the first one that touches your own
+code, and put the retries, the skips and the tolerance strictly above it.
+
+## 121. A name that has to fit a length limit is built by truncating the prefix and appending the meaning, never the reverse
+
+**The incident.** The Helm chart named four workloads by appending `-controller`, `-runner`,
+`-postgres` or `-nats` to a release-scoped prefix and then cutting the result to 63
+characters. For any release name between 49 and 53 characters, every one of them legal to
+Helm, the cut landed inside the appended half and removed it entirely, so all four workloads
+rendered under one name and the objects overwrote each other on install (FAILURE_PATTERNS
+#131).
+
+**The rule.** In `name = prefix + meaning`, the meaning is the part a reader needs and the
+prefix is the part they scroll past, so a length limit has to be spent on the prefix. Cut the
+prefix to `limit - len(longest meaning)` first, then append. One budget shared by every
+component keeps the names of one release aligned, which is worth more than the handful of
+extra characters a per-component budget would save.
+
+**The test that goes with it.** A rule about the EDGE of a limit cannot be proven at the
+default. The check renders at the last length that worked, the first that did not, and the
+maximum the tool itself permits, and it asserts three separate things: that no two objects
+share a kind and name, that each name still ends with its component (a name truncated to
+`-c` is distinct and still useless), and that each name fits the limit ITS OWN kind is held
+to rather than the strictest limit in the API. That last clause matters: holding a
+PersistentVolumeClaim to the 63 characters a Service is held to would fail a legal
+configuration, and a linter that fails legal configurations teaches people to work around
+the linter.
+
+## 122. Truthiness is the wrong question for any setting where zero is a legal answer, and an absent object needs an assertion of its own
+
+**The incident.** A PodDisruptionBudget template chose between `minAvailable` and
+`maxUnavailable` with `{{- if .Values...minAvailable }}`. The chart's own default for that
+key is `""` and `0` is falsy too, so "not set" and "deliberately zero" were the same value to
+the template, and one ordinary combination rendered no budget at all: `kubectl get pdb` was
+empty for a release whose values said disruption protection was on (FAILURE_PATTERNS #132).
+
+**The rule.** Ask whether a value was STATED, not whether it is truthy. In Helm that is a
+helper treating nil and `""` as unset and everything else, including `0`, as set; in Go it is
+a pointer or an `ok` return. Then refuse the combinations that cannot be rendered into a
+working object, both-set and neither-set, with the reason attached, rather than picking one
+silently.
+
+**The half that is easy to miss.** Every check that iterates over rendered objects passes
+when the object is missing, so the defect that hid longest, an object that silently did not
+render, is invisible to all of them. The count of objects a configuration must produce is its
+own assertion. The same shape applies to any linter, any release gate and any "we validate
+the output" claim: validating what was produced says nothing about what was not.
+
+## 123. When a resource deliberately outlives the release that created it, stamp it so the next release can recognize it
+
+**The incident.** `helm uninstall` correctly leaves the PostgreSQL claim behind, and
+PostgreSQL only applies its credentials to an EMPTY data directory, so reinstalling under the
+same release name with a different password produced a healthy database, a controller that
+could never authenticate to it, and a permanent crash loop with nothing naming the cause
+(FAILURE_PATTERNS #133).
+
+**The rule.** Any object that survives an uninstall is state the next install will inherit
+without knowing anything about it. Put an identifier ON the surviving object at creation (a
+hash of the credentials that initialized it, never the credentials themselves), read it back
+before rendering, and refuse on a proven mismatch. Say which choice keeps the data and which
+destroys it, name the object, and print the command.
+
+**The three limits that have to be stated with it.** A cluster read (`lookup`) returns
+nothing without a cluster, so the check is silent under `helm template` and its only honest
+proof is a real uninstall-and-reinstall against a real cluster. A stamp the chart cannot
+compute (credentials from an operator-managed Secret) or a claim it did not create means no
+evidence, and no evidence means render rather than guess. And the surface the stamp lives on
+has its own rules: `volumeClaimTemplates` is immutable on a live StatefulSet, so a change to
+the stamp that is not also a credential change has to go through uninstall and install.
+
+## 124. A lock is the wrong primitive for work that is cheap, idempotent and self-verifying: make the result atomic instead and let everyone race
+
+**The incident.** Provisioning a self-signed certificate for a directory several controllers
+share was serialized behind an exclusive claim. Four separate defects were filed against it,
+and they were one defect wearing four hats: a holder that was killed, a holder that could not
+release, a holder that was merely slow, and a renewal where the slow holder split the fleet.
+Every one of them was "one bad holder blocks everyone", and every proposed tuning (a longer
+budget, a shorter staleness window) produced a fifth face (FAILURE_PATTERNS #134).
+
+**The rule.** Before serializing writers, ask three questions about the work being guarded.
+Is it cheap? Is it idempotent? Are any two results interchangeable? Certificate generation is
+milliseconds, produces a complete result or none, and any valid pair is as good as any other,
+so the honest answer is that a second writer costs a few milliseconds of wasted CPU and
+nothing else. The lock was buying protection against a cost nobody was paying, and charging
+for it in startup refusals.
+
+**What replaces it.** Make the published RESULT atomic rather than the act of producing it,
+and end on a read. Two files could not be replaced in one step, which is the only reason a
+lock looked necessary, so the certificate and its key became one file and publishing became
+one `rename(2)`. The loop is then: load; if what is there cannot be served, mint and publish;
+load again and serve whatever is there now. Racers converge because the last rename stands
+and every reader adopts it; nobody waits, so nobody can be blocked.
+
+**What it costs, stated rather than hidden.** Two processes can briefly serve different
+certificates, because one may re-read before another's rename. That is acceptable HERE for
+reasons that must be checked before this pattern is copied: the certificates authenticate
+nothing a client has not been handed directly, every one of them is recorded so a health
+probe accepts any of them, and the state converges on the next restart. If any of those had
+been false, the answer would have been a different atomic unit, not a lock.
+
+## 125. Provenance has to travel inside the atomic unit it describes, or a second writer can separate them
+
+**The incident.** With the lock gone, the record of "which certificates this deployment
+provisioned" was still a single file that every writer read, prepended itself to, and wrote
+back. Under sixteen-way contention a writer's entry could be erased by another writer's
+copy, and the process serving the certificate behind the erased entry failed its own
+healthcheck against a listener that was working perfectly (FAILURE_PATTERNS #135).
+
+**The rule.** Two questions look alike and are not. "May I replace this?" is asked about the
+material that is published right now, so the answer belongs INSIDE the published file: the
+serving bundle carries a provenance block naming the fingerprint of the certificate in the
+same file, which cannot be separated from it by anything, because the file is replaced whole
+by one rename. "What has this deployment ever published?" is a set that grows, so it cannot
+live in one file, and it must never be maintained by read-modify-write; one file per member,
+named after the member, is the version of that set no writer can damage.
+
+**The test that proves it.** Not a unit test of the writer. Sixteen writers released at the
+same instant against one directory, asserting that every one of their certificates is still
+trusted afterwards, asked the way the healthcheck asks it. The single-file version passed
+every test written about its contents and failed this one about a third of the time.
+
+## 126. A written waiver has to carry the condition it depends on, or it outlives the reason it was granted
+
+**The rule.** When a check is waived because of a fact about the world, record the fact as
+something the tooling re-evaluates, not only as a sentence a human would have to re-read.
+A waiver with no expiry condition is a comment, and comments do not notice when the world
+moves.
+
+**Where this came from.** The chart renders the runner container with no liveness probe, no
+readiness probe and no startup probe, and `tools/helm-lint` allowed it through a written,
+per-container waiver, in the same shape `gosec-waivers.json` requires of every accepted
+finding: no blanket exemption, no exemption by kind, and no exemption without a sentence
+saying why. The sentence was true and remains true. `cmd/runner` binds no port, has no HTTP
+surface, and its image is distroless, so there is nothing inside the pod for a probe to ask;
+the binary is the only executable in the image, and it treats an unrecognised first argument
+as an ordinary start, so an exec probe of it would launch a second agent into the consumer
+group every few seconds. The waiver was the right call.
+
+What made it fragile is that the sentence names a fact about ANOTHER package. The waiver
+holds only while `cmd/runner` has no healthcheck subcommand. The day somebody adds one,
+which is exactly what closes the FOUND-NOT-FIXED failure this waiver stands in for
+(`FAILURE_PATTERNS.md` #119: a runner whose NATS connection closes for good stays alive,
+stays healthy-looking, and silently stops doing any work), the chart keeps shipping a
+container with no probes, every test in the repository stays green, and nothing anywhere
+connects the new subcommand to the chart edit it enables. The person who lands that code is
+not the person who wrote the waiver, and nobody re-reads a waiver they did not write.
+
+**What it looks like applied.** The waiver entry now carries the package it depends on, the
+literal whose arrival ends it, and the remedy written out in advance. The linter re-reads
+that package on every run and fails, naming the chart edit, the moment the condition stops
+holding. The check is text matching over Go source, which is deliberate and is stated where
+it lives: the question is not what a symbol means but whether a subcommand by that name has
+appeared, and being wrong in the only direction it can be wrong costs a build failure that
+names an edit somebody was about to make anyway.
+
+**The general shape.** Every waiver, suppression and known-issue note is a claim of the form
+"this is acceptable BECAUSE X". X is the part that expires. If X is checkable, check it. If
+X is not checkable, that is worth knowing before granting the waiver, because it means the
+waiver has no way to end.
+
+## 127. A protection must name what it protects, and refusing to overwrite is not the same promise as refusing to start
+
+**The rule.** Write the protection against the specific thing whose loss cannot be undone,
+not against the category it belongs to. And keep the two refusals apart: declining to
+overwrite a file costs nothing and can be generous, while declining to START costs a
+deployment its availability and has to be earned.
+
+**The incident.** `internal/tlscert` had one rule for a whole directory: never replace
+material it could not prove it wrote. "Material" turned out to be four different things.
+A private key, which is worth every bit of that protection, because it exists in exactly one
+place. A certificate, which is public by construction and cannot be served without the key
+that is not beside it. Bytes that do not parse, which nothing can serve and nobody can lose.
+And a file that could not be READ, whose contents are unknown, which the rule reported as
+somebody else's secret.
+
+The result was a directory no controller could ever start in again, reachable from states the
+package itself produces: a `serving.pem` truncated by a process killed mid-write, a file at
+0600 met by a controller running as a different user. The message told the operator their own
+material was in the way and named a setting that would not have helped.
+
+The fix separated the two questions. "May I publish here?" is asked about a private key and
+nothing else. "May I overwrite this particular file?" keeps the stricter answer, because a
+stale convenience copy harms nobody. Bytes that do not parse now block nothing and are still
+never rewritten, which is both halves at once.
+
+**The general shape.** When a rule can refuse forever, enumerate the states it refuses in and
+count how many of them your own code can produce. If the answer is not zero, the rule is not
+protecting a user from a mistake, it is protecting a file from its author.
+
+## 128. A set that decides whether a live process is healthy must be governed by a fact about that process
+
+**The rule.** When membership of a set determines whether a running process is judged healthy,
+every eviction rule has to be a statement about what that process can still be doing, not
+about the size or age of the set. Housekeeping convenience is not a fact about a replica.
+
+**The incident.** The provenance records in `internal/tlscert` are the container
+healthcheck's trust anchors. They were bounded by "keep the sixteen newest" and "never delete
+one under an hour old". Both are facts about the directory. A controller serves the material
+it loaded at start-up for as long as its process lives, so a replica up for longer than the
+grace window, in a directory that had seen more than sixteen certificates, lost its anchor
+the moment a sibling wrote one more, and then failed every probe for the rest of its life
+while serving perfectly. An orchestrator answers that by killing it.
+
+Neither number could be tuned into correctness: any count is wrong for a fleet one replica
+larger, and any age is wrong for an uptime one hour longer. The rule that works is the
+certificate's own expiry, because an expired certificate fails every handshake whether or not
+a record for it exists, so after that moment nobody can legitimately be presenting it.
+
+The same incident had a second half worth stating on its own: a replica that REUSED what it
+found wrote nothing, so its membership of the set depended on another writer's file staying
+where it was. Every process that is going to be judged against a set should put its own
+answer into that set, in a place no other writer can touch.
+
+**The general shape.** Ask what event makes a member genuinely unusable by everybody, and
+evict on that. If no such event exists, the set does not shrink, and the honest thing is to
+say what bounds its growth instead of inventing a cap that will kill somebody.

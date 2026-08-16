@@ -1,0 +1,220 @@
+{{- include "the-pleiades.validate" . -}}
+{{- if .Values.postgresql.enabled }}
+{{- /*
+PostgreSQL, deployed as part of this release so a trial install is one command.
+
+SAY WHAT THIS IS NOT. One instance, no replication, no failover, no backup, no
+connection pooler, and no TLS on the wire. It is the same shape
+docker-compose.yml runs, moved into a cluster. A real deployment sets
+postgresql.enabled=false and points externalDatabase at a database somebody
+already knows how to restore.
+
+WHY IT IS NOT A SUBCHART. A dependency is fetched from a chart repository at
+package time, which is exactly what an air-gapped install cannot do. See
+Chart.yaml's own note.
+
+WHY IT RUNS AS UID 70. That is the postgres user inside the official alpine
+image, and naming it numerically in the pod spec is what lets runAsNonRoot be
+verified: the kubelet has no /etc/passwd to resolve a name against. Running as
+that uid from the start also means the image's entrypoint never needs to chown
+the data directory and never needs to switch users, so the container needs no
+capabilities at all and works with a read-only root filesystem. That was
+checked against the real image rather than reasoned about: this exact
+combination (uid 70, all capabilities dropped, read-only root, tmpfs at /tmp
+and /var/run/postgresql, PGDATA in a subdirectory) runs initdb on an empty
+volume and reaches "database system is ready to accept connections".
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "the-pleiades.postgres.fullname" . }}
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "postgres") | nindent 4 }}
+spec:
+  serviceName: {{ include "the-pleiades.postgres.fullname" . }}
+  {{- /* One, and it is not a value. Adding a replica to this StatefulSet would
+       start a second, entirely independent PostgreSQL with its own empty
+       volume, not a hot standby, because nothing here configures streaming
+       replication. A knob that produced a split brain is worse than no
+       knob. */}}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "the-pleiades.selectorLabels" (dict "root" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "the-pleiades.labels" (dict "root" . "component" "postgres") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "the-pleiades.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 70
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresql.service.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "the-pleiades.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            {{- /* A SUBDIRECTORY of the mount, not the mount itself. A
+                 PersistentVolume often arrives with a lost+found directory on
+                 it, and initdb refuses to initialize a directory that is not
+                 empty. Pointing PGDATA one level down means initdb creates and
+                 owns its own directory. */}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          livenessProbe:
+            {{- /* "The server process is alive and listening." Deliberately a
+                 different question from readiness below, and deliberately a
+                 different mechanism: a liveness probe that ran the same
+                 pg_isready query would restart the database for being slow,
+                 which is the worst available response to a database under
+                 load. */}}
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            {{- /* -h 127.0.0.1 forces the probe over TCP, and it is not
+                 decoration. A bare pg_isready talks to the unix socket, and on
+                 an empty volume the entrypoint runs initdb against a temporary
+                 server started with listen_addresses='' (socket only), so a
+                 socket probe can answer "accepting connections" while nothing
+                 is listening on 5432 yet. The controller would then start
+                 against a database that is still initializing. */}}
+            exec:
+              command:
+                - pg_isready
+                - -h
+                - 127.0.0.1
+                - -U
+                - {{ .Values.postgresql.auth.username | quote }}
+                - -d
+                - {{ .Values.postgresql.auth.database | quote }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            {{- /* The two paths this image writes to outside its data
+                 directory, named here because the root filesystem is
+                 read-only: the unix socket, and the entrypoint's scratch
+                 files. */}}
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.postgresql.persistence.enabled }}
+        {{- /* An emptyDir here means the database is destroyed with the pod:
+             users, sessions, devices, templates, jobs, credentials and role
+             bindings, all of it, on any restart. It exists for a throwaway
+             demo and nothing else. */}}
+        - name: data
+          emptyDir: {}
+        {{- else if .Values.postgresql.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.postgresql.persistence.existingClaim }}
+        {{- end }}
+      {{- with .Values.postgresql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if and .Values.postgresql.persistence.enabled (not .Values.postgresql.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    {{- /* A claim created by the StatefulSet controller rather than by Helm, and
+         the difference shows up at uninstall: Kubernetes does not delete a
+         volumeClaimTemplate's claims when the StatefulSet goes away, so the
+         database survives `helm uninstall` and a reinstall under the same
+         release name reuses it. Deleting the data is a deliberate
+         `kubectl delete pvc` afterwards. */}}
+    - metadata:
+        name: data
+        labels:
+          {{- include "the-pleiades.labels" (dict "root" . "component" "postgres") | nindent 10 }}
+        {{- $fingerprint := include "the-pleiades.postgres.credentialFingerprint" . }}
+        {{- if $fingerprint }}
+        {{- /* The stamp that makes a reinstall against retained data
+             detectable. Kubernetes copies a volumeClaimTemplate's annotations
+             onto the claim it creates, and the claim outlives the release, so
+             this survives `helm uninstall` along with the database it
+             describes. _validations.tpl reads it back on the next install and
+             refuses to render a release whose credentials cannot open that
+             volume, which is otherwise a permanent crash loop with nothing to
+             read.
+
+             It stamps a HASH, never the password itself: see the helper.
+
+             ONE CONSEQUENCE WORTH KNOWING. volumeClaimTemplates is immutable
+             on a live StatefulSet, so any change to this annotation is a
+             change Kubernetes refuses. Changing the credentials is refused
+             earlier and more clearly by the validation. The remaining case is
+             switching secrets.existingSecret on or off on a running release,
+             which changes whether this stamp exists at all: do that with
+             `helm uninstall` followed by `helm install`, which keeps the
+             volume and its data. */}}
+        annotations:
+          {{ include "the-pleiades.postgres.fingerprintAnnotation" . }}: {{ $fingerprint | quote }}
+        {{- end }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size }}
+        {{- with .Values.postgresql.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+  {{- end }}
+{{- end }}
