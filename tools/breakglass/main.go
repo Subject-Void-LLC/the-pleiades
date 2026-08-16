@@ -80,12 +80,18 @@ const (
 	// the test below checks rather than trusts.
 	kindClusterPrefix = "pleiades-release-gate"
 
-	// composeProject is docker compose's project name for docker-compose.yml.
-	// Compose derives it from the directory name when the file sets no
-	// `name:`, and the directory is auto-roboto. Passing it explicitly means
-	// this tool cleans up the project the repository actually creates even
-	// when it is run from somewhere else.
-	composeProject = "auto-roboto"
+	// composeProject is docker compose's project name for
+	// docker-compose.yml, which that file now states explicitly in its own
+	// `name:` key rather than leaving compose to derive it.
+	//
+	// This constant used to be "auto-roboto", the name compose derived from
+	// the directory this repository happened to be cloned into, and it was
+	// wrong the moment anything checked out anywhere else: GitHub Actions
+	// uses the-pleiades/ and the test below failed there while passing on the
+	// machine the constant was written on. The fix was to stop deriving the
+	// name at all, not to teach this tool to derive it the same way, which
+	// would only have moved the disagreement.
+	composeProject = "pleiades"
 
 	// uidevPrefix is the container name prefix `make ui-dev` uses for the
 	// broker it starts. ui-stop clears these too; this tool repeats it so a

@@ -52,6 +52,33 @@
 # "the attribute `version` is obsolete" on every single command, so the
 # line bought nothing and cost a warning per invocation.
 
+# An explicit project name, for exactly the reason the controller's
+# `image:` key below is explicit, and added after the derived version
+# broke CI.
+#
+# Without this, compose derives the project name from the enclosing
+# DIRECTORY, and that directory is not a property of this repository. A
+# checkout in auto-roboto/ produced project "auto-roboto" with volumes
+# named auto-roboto_postgres-data; GitHub Actions checks the same commit
+# out into the-pleiades/ and produced project "the-pleiades". Two
+# machines running a byte-identical file disagreed about what the stack is
+# called, which is the same defect the image comment below describes, one
+# level up: there it was the artifact's name, here it is the whole
+# project's.
+#
+# It broke something concrete rather than remaining theoretical.
+# tools/breakglass tears this project down by name, and its own drift test
+# compares that name against the directory, so it failed on CI while
+# passing locally. The honest fix is not to teach the tool to derive the
+# name the same way compose does, which would leave two derivations to
+# agree, but to stop deriving it at all.
+#
+# Anything created under the old derived names is orphaned by this change,
+# which matters only on a machine that had the stack up before it: the
+# volumes are development state, and `docker compose -p auto-roboto down
+# -v` removes them.
+name: pleiades
+
 services:
   postgres:
     # 15.19, not 15. A bare major is not a pin: it selected whatever 15.x

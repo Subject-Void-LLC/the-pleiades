@@ -217,12 +217,33 @@ func TestTheNamesMatchTheCodeThatCreatesThem(t *testing.T) {
 		}
 	}
 
-	// The compose project name is derived by compose from the directory, so
-	// the check is that the directory really is what the constant says.
-	if base := filepath.Base(root); base != composeProject {
-		t.Errorf("the repository directory is %q but composeProject is %q; compose derives the "+
-			"project name from the directory when docker-compose.yml sets no name:, so this tool "+
-			"would take down a project that does not exist", base, composeProject)
+	// The compose project name is asserted against docker-compose.yml's own
+	// `name:` key, which is two independent sources agreeing.
+	//
+	// It used to be asserted against the DIRECTORY, because compose derives
+	// the project name from the directory when the file names none. That made
+	// this test a statement about where somebody cloned the repository: it
+	// passed in auto-roboto/ and failed on CI in the-pleiades/, on the same
+	// commit. A guard whose answer depends on the checkout path is not a
+	// guard. docker-compose.yml now states the name, and this reads it.
+	compose, err := os.ReadFile(filepath.Join(root, "docker-compose.yml"))
+	if err != nil {
+		t.Fatalf("reading docker-compose.yml: %v", err)
+	}
+	declared := ""
+	for _, line := range strings.Split(string(compose), "\n") {
+		if rest, ok := strings.CutPrefix(line, "name:"); ok {
+			declared = strings.TrimSpace(rest)
+			break
+		}
+	}
+	switch {
+	case declared == "":
+		t.Error("docker-compose.yml declares no top-level name:, so compose derives the project name " +
+			"from whatever directory the repository was cloned into and this tool cannot know it")
+	case declared != composeProject:
+		t.Errorf("docker-compose.yml declares project %q but composeProject is %q, so this tool would "+
+			"take down a project that does not exist", declared, composeProject)
 	}
 }
 
