@@ -141,6 +141,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 138. A rule that never replaced material it could not prove it wrote made a directory no controller could ever start in again
 139. The trust anchors could not admit what a running replica was still presenting, so one sibling's renewal killed a healthy process
 140. A log field named for a certificate carried the path of the private key
+141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
+142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
 
 ---
 

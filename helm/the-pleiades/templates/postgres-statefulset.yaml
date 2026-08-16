@@ -63,7 +63,7 @@ spec:
       containers:
         - name: postgres
           image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
-          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -157,7 +157,7 @@ spec:
         {{- else if .Values.postgresql.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:
-            claimName: {{ .Values.postgresql.persistence.existingClaim }}
+            claimName: {{ .Values.postgresql.persistence.existingClaim | quote }}
         {{- end }}
       {{- with .Values.postgresql.nodeSelector }}
       nodeSelector:
@@ -212,7 +212,7 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: {{ .Values.postgresql.persistence.size }}
+            storage: {{ .Values.postgresql.persistence.size | quote }}
         {{- with .Values.postgresql.persistence.storageClassName }}
         storageClassName: {{ . }}
         {{- end }}

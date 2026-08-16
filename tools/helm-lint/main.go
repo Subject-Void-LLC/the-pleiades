@@ -43,6 +43,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -144,6 +145,8 @@ func run() error {
 			})
 		}
 	}
+
+	findings = append(findings, checkValueInjection(chart)...)
 
 	if len(findings) > 0 {
 		fmt.Fprintf(os.Stderr, "helm-lint: %d finding(s) in %s:\n\n", len(findings), chartDir)
@@ -279,4 +282,94 @@ func indent(text string) string {
 		lines[i] = "      " + line
 	}
 	return strings.Join(lines, "\n")
+}
+
+// injectionPayloads are values crafted to break out of the scalar position
+// they are rendered into and add a sibling key to the surrounding mapping.
+//
+// Each is a real value an operator could set, from a values file, a CI
+// variable, or a GitOps repository somebody else can open a pull request
+// against. The indentation matters: a YAML plain scalar may continue onto
+// following lines, so a value whose continuation lines are indented to
+// exactly the depth of the key it was rendered under stops being a value
+// and becomes structure.
+var injectionPayloads = []struct {
+	name        string
+	values      []string
+	injectedKey string
+}{
+	{
+		// The one that was real. externalDatabase.existingSecret is an
+		// unconstrained string and was rendered unquoted into the
+		// secretKeyRef that supplies DB_DSN, so this payload added
+		// `optional: true` to it. The consequence is worse than it looks:
+		// with optional set, a Secret that is missing no longer blocks the
+		// pod, DB_DSN is simply absent, and cmd/controller falls back to its
+		// documented default of sqlite://controller.db. The operator gets a
+		// controller that reports healthy while running on an empty
+		// container-local database instead of their PostgreSQL, and loses
+		// whatever it writes on the next restart.
+		name: "a Secret name that adds optional: true to its own secretKeyRef",
+		values: []string{
+			"--set", "postgresql.enabled=false",
+			"--set", "externalDatabase.dsn=postgres://u:p@h:5432/d",
+			"--set-string", "externalDatabase.existingSecret=innocent-name\n                  optional: true",
+			"--set", "externalDatabase.existingSecretKey=DB_DSN",
+		},
+		injectedKey: "optional",
+	},
+	{
+		name: "a Secret key that adds a sibling mapping entry",
+		values: []string{
+			"--set", "postgresql.enabled=false",
+			"--set", "externalDatabase.dsn=postgres://u:p@h:5432/d",
+			"--set", "externalDatabase.existingSecret=db-secret",
+			"--set-string", "externalDatabase.existingSecretKey=DB_DSN\n                  optional: true",
+		},
+		injectedKey: "optional",
+	},
+}
+
+// checkValueInjection renders the chart with values crafted to inject YAML
+// structure and requires that none of them succeed in doing so.
+//
+// WHY THIS IS DYNAMIC RATHER THAN A RULE ABOUT THE TEMPLATES. A static rule
+// would have to say "every .Values interpolation in a scalar position is
+// quoted", and that is not true and must not be: quoting a port or a replica
+// count turns an integer into a string and Kubernetes rejects it. Deciding
+// which interpolations are strings needs the schema, and the schema does not
+// describe every value. Rendering the payload and looking at what came out
+// asks the question directly and cannot be fooled by a value whose type
+// nothing declares.
+//
+// Either outcome is a pass: a refusal to render is fine, and so is rendering
+// the payload inertly as a quoted scalar. What fails is the payload appearing
+// as a mapping key of its own.
+func checkValueInjection(chart string) []finding {
+	var findings []finding
+
+	for _, p := range injectionPayloads {
+		args := append([]string{"template", "helm-lint", chart}, baseValues...)
+		args = append(args, p.values...)
+
+		out, err := runHelm(args)
+		if err != nil {
+			// Refusing to render is a safe answer: nothing is installed.
+			continue
+		}
+
+		// The payload must not have become structure. A key of its own, at
+		// the start of a line, is exactly the thing a quoted scalar cannot
+		// produce.
+		pattern := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(p.injectedKey) + `:\s`)
+		if pattern.MatchString(out) {
+			findings = append(findings, finding{
+				profile: "value injection", object: p.name,
+				message: fmt.Sprintf("a crafted value became a %q mapping key in the rendered manifest, so an operator-supplied "+
+					"string can add fields to objects the chart author never wrote. Quote the interpolation.", p.injectedKey),
+			})
+		}
+	}
+
+	return findings
 }

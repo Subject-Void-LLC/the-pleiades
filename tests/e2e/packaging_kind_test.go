@@ -49,10 +49,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -79,8 +82,21 @@ const (
 	// kubelet in the node image still accepts.
 	kindPinnedNodeImage = "kindest/node:v1.27.3@sha256:3966ac761ae0136263ffdb6cfd4db23ef8a83cba8a463690e98317add2c9ba72"
 
-	// kindClusterName is this gate's own cluster and nothing else's.
-	kindClusterName = "pleiades-release-gate"
+	// kindClusterPrefix names every cluster this gate has ever created,
+	// and kindClusterName below appends the process id to it.
+	//
+	// A CONSTANT NAME WAS THE BUG. This gate used to call its cluster
+	// exactly kindClusterPrefix and open by deleting any cluster of that
+	// name, which is correct for reclaiming what a killed predecessor left
+	// and cannot tell that from a live sibling. A name shared by every run
+	// with no owner recorded in it is a race with every other run: a second
+	// `make ci`, a `make push-gate` overlapping a manual invocation, or a
+	// person tidying up all destroy the first one's cluster mid-install.
+	// The failure that produces is not merely a lost run, it is a lost run
+	// reported at whichever assertion happened to be executing, which reads
+	// as a defect in whatever that assertion was about. See
+	// FAILURE_PATTERNS.md #141 and LESSONS_LEARNED.md #129.
+	kindClusterPrefix = "pleiades-release-gate"
 
 	// helmReleaseName plus fullnameOverride below make every object name in
 	// the release predictable, so this test names objects rather than
@@ -456,10 +472,13 @@ const kindCreateAttempts = 3
 func createKindCluster(t *testing.T, root, kubeconfig string) {
 	t.Helper()
 
-	// Delete first. A previous run that was killed rather than allowed to
-	// clean up leaves the cluster behind, and `kind create` on an existing
-	// name fails outright.
-	deleteKindCluster(t, root)
+	// Reclaim what previous runs abandoned, never what a live one is
+	// using. This used to be an unconditional delete of a fixed name; see
+	// kindClusterPrefix for why that was a race with every concurrent run.
+	// This run's own name contains this process's id, so `kind create`
+	// cannot collide with a live sibling and there is nothing to delete
+	// first.
+	reclaimAbandonedClusters(t, root)
 
 	t.Cleanup(func() {
 		if out, err := runPackagingTool(t, root, nil, "",
@@ -507,14 +526,82 @@ func createKindCluster(t *testing.T, root, kubeconfig string) {
 		kindCreateAttempts, last)
 }
 
-// deleteKindCluster removes the gate's own cluster, ignoring the common
-// case where there is nothing to remove.
+// deleteKindCluster removes THIS RUN's cluster, which is the only cluster
+// this function can name: kindClusterName carries this process's id. It
+// ignores the common case where there is nothing to remove.
 func deleteKindCluster(t *testing.T, root string) {
 	t.Helper()
 	if out, err := runPackagingTool(t, root, nil, "",
 		"kind", "delete", "cluster", "--name", kindClusterName); err != nil {
 		t.Logf("no cluster to remove, which is the normal case: %v\n%s", err, out)
 	}
+}
+
+// kindClusterName is this run's own cluster: the shared prefix plus this
+// process's id, so no two runs can ever name the same cluster.
+//
+// The process id is not decoration, it is the ownership marker the constant
+// name lacked. It lets a later run answer the one question that matters
+// about a leftover cluster, which is not how old it is or how many there
+// are but whether anybody is still using it. See reclaimAbandonedClusters.
+var kindClusterName = fmt.Sprintf("%s-%d", kindClusterPrefix, os.Getpid())
+
+// reclaimAbandonedClusters removes clusters this gate left behind, and only
+// those it can PROVE nobody is using.
+//
+// The proof is the owning process. A cluster named with the id of a process
+// that no longer exists cannot be in use by anything, because the only
+// thing that ever used it was that process. A cluster whose owner is still
+// alive is left alone and reported, even though it is almost certainly
+// somebody else's concurrent run and therefore in the way: refusing to
+// clean is recoverable, and deleting a live run's cluster is the incident
+// this whole design exists to prevent.
+//
+// PID reuse is the one way this can be wrong, and it is wrong in the safe
+// direction: a recycled id makes a dead cluster look alive, so the cluster
+// leaks rather than a live one being destroyed. `make break-glass` clears
+// leaks, using this same rule.
+func reclaimAbandonedClusters(t *testing.T, root string) {
+	t.Helper()
+
+	out, err := runPackagingTool(t, root, nil, "", "kind", "get", "clusters")
+	if err != nil {
+		// "No kind clusters found" is the empty case, not a failure.
+		return
+	}
+
+	for _, name := range strings.Fields(out) {
+		if !strings.HasPrefix(name, kindClusterPrefix+"-") || name == kindClusterName {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimPrefix(name, kindClusterPrefix+"-"))
+		if err != nil {
+			t.Logf("leaving cluster %q alone: its name carries no process id this gate can check", name)
+			continue
+		}
+		if processIsAlive(pid) {
+			t.Logf("leaving cluster %q alone: process %d is still running, so another run is using it", name, pid)
+			continue
+		}
+		t.Logf("reclaiming cluster %q: its owning process %d is gone", name, pid)
+		if out, err := runPackagingTool(t, root, nil, "", "kind", "delete", "cluster", "--name", name); err != nil {
+			t.Logf("could not reclaim %q: %v\n%s", name, err, out)
+		}
+	}
+}
+
+// processIsAlive reports whether a process id still names a running
+// process. Signal 0 performs the permission and existence checks and
+// delivers nothing.
+func processIsAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // kindNodeName is the container kind runs the single control plane node

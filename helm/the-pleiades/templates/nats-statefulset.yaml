@@ -74,7 +74,7 @@ spec:
       containers:
         - name: nats
           image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
-          imagePullPolicy: {{ .Values.nats.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.nats.image.pullPolicy | quote }}
           args:
             - "-js"
             - "-sd"
@@ -149,7 +149,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ .Values.nats.persistence.existingClaim }}
+            claimName: {{ .Values.nats.persistence.existingClaim | quote }}
       {{- end }}
       {{- with .Values.nats.nodeSelector }}
       nodeSelector:
@@ -174,7 +174,7 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: {{ .Values.nats.persistence.size }}
+            storage: {{ .Values.nats.persistence.size | quote }}
         {{- with .Values.nats.persistence.storageClassName }}
         storageClassName: {{ . }}
         {{- end }}

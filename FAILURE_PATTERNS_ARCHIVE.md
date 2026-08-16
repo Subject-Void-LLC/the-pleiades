@@ -4113,3 +4113,116 @@ with no key in it.
 **Lesson.** A field name is an instruction to whoever reads the log. If the name says
 "certificate" then every value it can ever hold has to be a certificate and nothing else, or
 the field has to be able to be absent.
+
+## 141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
+
+**Symptom.** `make ci` failed at `TestPackagingReleaseGate_KubernetesInstall`, in
+`assertALongReleaseNameStillProducesFourWorkingWorkloads`. Every assertion before it had
+passed against a real cluster: the chart installed, `/readyz` reported its database and
+broker, `bootstrap-admin` ran through `kubectl exec`, and the runner Deployment reached
+Available with its in-pod `runner healthcheck` reporting an 8-second-old heartbeat. Then the
+second install, at a 53-character release name, sat at `Available: 0/1` for its full
+8-minute budget, after which every `kubectl` and `helm` call returned `connection refused`
+against the API server. Run alone afterwards, the identical test passed in 259 seconds and
+that same install completed in 67.
+
+**Root cause.** The cluster's name is a constant, `kindClusterName = "pleiades-release-gate"`
+in `tests/e2e/packaging_kind_test.go`, and `createKindCluster` opens by deleting any cluster
+of that name. That delete-first is deliberate and correct for what it was written against: a
+test binary killed before its `t.Cleanup` runs leaves the cluster behind, and `kind create`
+refuses a name that already exists. What it cannot do is tell an ABANDONED cluster from a
+LIVE one. The name is a shared global with no ownership marker, so any second actor holding
+it, a concurrent `make ci`, a `make push-gate` overlapping a manual run, or a person tidying
+up, destroys the first one's cluster mid-install.
+
+The expensive part is not the lost run, it is where the failure surfaces. A test whose
+infrastructure is removed reports the assertion that was executing, never the removal. This
+one pointed at the long-release-name boundary, which is exactly where this chart has had two
+real defects before (#137 is one of them), so the failure was credible in every particular
+and was about none of them.
+
+**Fix.** Partial, and the halves are worth separating.
+
+What is fixed: `tools/breakglass` and `make break-glass`, the recovery path for leftover
+infrastructure, refuses to run while a test run is live rather than cleaning underneath it.
+It asks two independent questions, because neither covers the other's window: whether a
+testcontainers reaper is running, and whether a `go test` process has its working directory
+inside this repository. Its own removals are positively attributed to this repository first,
+so a developer's long-lived cluster is listed and left rather than pruned. Verified against a
+genuinely live `make ci`: it refused, exited 1, and the gate's cluster survived.
+
+The gate itself was fixed in the same session, and its two halves separate the same way.
+
+The NAME now carries an owner. `kindClusterPrefix` is the shared prefix and each run's cluster is
+`<prefix>-<pid>`, so no two runs can name the same cluster and `kind create` cannot collide with a
+live sibling. The unconditional delete-first is gone because there is nothing left for it to do.
+
+The RECLAMATION now asks about the owner rather than about the name. `reclaimAbandonedClusters`
+deletes a prefixed cluster only when the process id in its name no longer names a running process,
+which is the one fact separating a cluster nobody will ever use again from one somebody is using
+right now. A cluster whose owner is alive is left alone and logged even though it is almost
+certainly in the way. PID reuse can make a dead cluster look alive; that is the safe direction,
+since the failure is a leak a later run or `make break-glass` clears, where the opposite error is
+the incident above. `tools/breakglass` applies the identical rule against the same prefix.
+
+That rule's test caught a real bug on its first run: a pid of 0 was read as "dead, therefore
+reclaimable", when `os.Getpid` never returns 0 and such a name proves nothing whatever.
+Unattributable is now its own answer, distinct from abandoned, so an anomaly is left alone instead
+of deleted. The live case is asserted against the test process's own id, so it cannot pass by
+picking a number that happens to be free.
+
+**Lesson.** Infrastructure identified by a constant has no owner, so every cleanup of it is a
+race with every user of it, and the loser's failure is reported against whatever assertion
+happened to be running. See LESSONS_LEARNED.md #129.
+
+## 142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
+
+**Symptom.** None, until somebody looked. The chart rendered, `helm lint` passed, `kubectl apply
+--dry-run` accepted the output, and every existing helm-lint profile was green. The defect was found
+by the Schema/Injection Hardening audit asking what happens to a hostile value rather than a
+plausible one.
+
+**Root cause.** `templates/controller-deployment.yaml` interpolated
+`.Values.externalDatabase.existingSecret` and `.existingSecretKey` into the `secretKeyRef` that
+supplies `DB_DSN`, unquoted, and `values.schema.json` declares both as plain `string` with no
+pattern. A YAML plain scalar may continue onto following lines, so a value whose continuation is
+indented to exactly the depth of the key it was rendered under stops being a value and becomes
+structure. Demonstrated, not theorised:
+
+    externalDatabase:
+      existingSecret: "innocent-name\n                  optional: true"
+
+rendered as
+
+    secretKeyRef:
+      name: innocent-name
+      optional: true
+      key: DB_DSN
+
+The consequence is worse than the injection itself. `optional: true` means a Secret that is missing
+no longer blocks the pod: `DB_DSN` is simply absent, and `cmd/controller` falls back to its
+documented default of `sqlite://controller.db`. The operator gets a controller that passes every
+probe and reports itself healthy while running on an empty container-local database instead of their
+PostgreSQL, and loses whatever it writes at the next restart. A silent switch to the wrong database
+is the failure this repository's whole fail-closed configuration convention exists to prevent, and
+it arrived through a template rather than through code.
+
+The same class was present on every string-valued interpolation in the chart: `imagePullPolicy`,
+`claimName`, `storage`, `type`, `accessMode` and the runner's volume `name`. Only the two secret
+fields had both an unconstrained schema type and a security-relevant destination, but all of them
+could break a render.
+
+**Fix.** Every string-valued interpolation is piped through `quote`. The numeric ones deliberately
+are not: quoting a port, a replica count or a probe interval turns an integer into a string and
+Kubernetes rejects it, so a blanket rule would have been its own outage.
+
+The regression guard is `checkValueInjection` in `tools/helm-lint`, and it is dynamic rather than
+static on purpose. A static rule would have to assert that every interpolation is quoted, which is
+false and must stay false for the numeric ones, and deciding which is which needs a schema that does
+not describe every value. So the guard renders the chart with the real payload and fails only if the
+payload becomes a mapping key. Either safe outcome passes: refusing to render, or rendering the
+payload inertly as a quoted scalar. Verified by removing the quote and watching it fail with the
+exact finding, then restoring it.
+
+**Lesson.** A template is an injection surface with no type system in front of it. Ask what a value
+does when it contains a newline, not only when it contains the wrong word.

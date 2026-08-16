@@ -132,6 +132,8 @@ story, per `.AGENTS/AGENTS.md`.
 126. **A written waiver has to carry the condition it depends on, checked by the tooling on every run, or it outlives the reason it was granted: "acceptable BECAUSE X" expires when X does, and nobody re-reads a waiver they did not write.**
 127. **A protection must name the specific thing whose loss cannot be undone, not the category it belongs to; and refusing to overwrite a file is a cheap promise while refusing to start is an expensive one, so they must never be made by the same rule.**
 128. **A set that decides whether a live process is healthy must be governed by a fact about that process, never by the size or age of the set, and every process judged against such a set must put its own answer into it.**
+129. **A run whose infrastructure is removed reports the assertion that was executing, never the removal, so a cleanup with no liveness check does not just break a run, it fabricates a defect in whatever that run was testing: key the guard on a live process, and give shared infrastructure an owner rather than a constant name.**
+130. **A guard whose only effect is declining to assign the zero value is invisible at the field it guards, so the obvious test passes against both versions: its real contract is about order, so apply the real value first and the skipped one second, and assert the real one survived.**
 
 ---
 

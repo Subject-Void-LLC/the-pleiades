@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
@@ -266,6 +267,15 @@ func TestRouter_ReadyzReflectsDependencies(t *testing.T) {
 	natsUp := true
 	var logBuf bytes.Buffer
 	router, _ := newTestRouter(t, &logBuf, func(cfg *api.RouterConfig) {
+		// This test flips a dependency and asks again immediately, which
+		// is an assertion of ZERO staleness. /readyz no longer offers that
+		// to anybody: its answers are bounded by a minimum interval so an
+		// unauthenticated caller cannot drive unbounded database work
+		// (internal/api's readinessGate). One nanosecond keeps this test
+		// about what it was always about, whether the endpoint reflects a
+		// broken dependency, and leaves the bound itself to the tests
+		// written for it in readiness_test.go.
+		cfg.ReadinessMinInterval = time.Nanosecond
 		cfg.Readiness = []api.ReadinessCheck{
 			{Name: "nats", Probe: func(ctx context.Context) error {
 				if !natsUp {

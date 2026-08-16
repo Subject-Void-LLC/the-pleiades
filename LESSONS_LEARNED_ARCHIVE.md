@@ -2340,3 +2340,81 @@ answer into that set, in a place no other writer can touch.
 **The general shape.** Ask what event makes a member genuinely unusable by everybody, and
 evict on that. If no such event exists, the set does not shrink, and the honest thing is to
 say what bounds its growth instead of inventing a cap that will kill somebody.
+
+## 129. A run whose infrastructure is removed reports the assertion, never the removal
+
+**The rule.** Anything that cleans up shared infrastructure must first ask whether a live
+process is holding it, and that question has to be a fact about a process rather than about
+the age, the size or the tidiness of the infrastructure. Without it a cleanup does not merely
+break a run: it fabricates a defect in whatever that run was testing, because the failure is
+reported at the assertion that happened to be executing.
+
+**The incident.** A Kubernetes release gate failed at its long-release-name case, timing out
+for eight minutes and then finding the API server refusing connections. Every particular of
+it was credible: that boundary is where this chart has had two real defects, both about names
+being truncated into collisions, and the error named both StatefulSets as not ready. The
+cluster had been deleted out from under the run by an unrelated cleanup. Running the same
+test alone passed in 259 seconds, with the install that had consumed its whole budget
+finishing in 67. FAILURE_PATTERNS.md #141 has the full account.
+
+The general trap is that a removed resource and a broken product are indistinguishable from
+inside the test. The test cannot report "my cluster was deleted", because it does not know;
+it reports the last thing it asked for and did not get. So the misattribution is not a
+reading error, it is the only reading available, and the only place it can be prevented is in
+whatever did the removing.
+
+**What the guard has to be keyed on.** The tool written in response asks two questions, and
+the shape of both matters more than either. Is a testcontainers reaper running, which proves
+a session is open and its containers are held? Is a `go test` process running with its
+working directory inside this repository, which proves a run exists before it has provisioned
+anything? Neither covers the other's window, and both are statements about a live process.
+The rules that suggest themselves first are all statements about the resource instead, "older
+than an hour", "more than sixteen of them", "not currently running", and every one of them is
+wrong for the run that is slower, larger or momentarily stopped. That is the same failure
+LESSONS_LEARNED #128 records about certificate trust anchors, arriving from the opposite
+direction: there a housekeeping rule evicted a live replica's anchor, here a housekeeping
+rule would evict a live run's containers.
+
+**The second half: the name is the bug.** The reason a cleanup could collide at all is that
+the infrastructure was identified by a constant, and a constant has no owner. The gate names
+its cluster `pleiades-release-gate` and deletes any cluster of that name before creating its
+own, which is right for reclaiming what a killed predecessor left and cannot distinguish that
+from a live sibling. A guard in the cleanup tool mitigates the external actor; it does
+nothing for two concurrent runs, because both of them believe the name is theirs. Shared
+names need either a per-run suffix or a liveness check, and picking neither is picking the
+race.
+
+**The general shape.** When you write anything that removes state somebody else might be
+using, the question to answer is not "is this state stale?" but "can I name the process that
+would miss it?" If the answer is no because nothing records an owner, the missing owner is
+the defect, and a cleanup that guesses is worse than one that refuses.
+
+## 130. A guard that only skips writing the zero value is invisible at the field it guards
+
+**The rule.** When an option or setter's whole effect is declining to assign, and the value
+it declines to assign is the field's zero value, the field cannot tell you whether the guard
+ran. Asserting on it produces a test that passes against both versions of the code. The
+guard's real contract is about ORDER or REPETITION, so that is what the test has to state:
+apply the real value first, then the skipped one, and assert the real one survived.
+
+**The incident.** `WithHeartbeat` is a functional option carrying `if hb != nil { a.liveness
+= hb }`, and its doc comment promises "a nil hb is ignored". The obvious test builds an Agent
+with `WithHeartbeat(nil)` and asserts `liveness` is nil. Deleting the guard left that test
+green, because `liveness` is a concrete `*Heartbeat`: the unguarded assignment stores nil and
+the guarded one stores nothing, and the field is nil in both. The comment written alongside
+the test made it worse by explaining a mechanism that does not apply here, a non-nil
+interface holding a nil pointer, which would have been a real distinction if the field were
+an interface and is not one for a pointer.
+
+What the guard actually protects is the option list. Options are applied in sequence, so
+without it a later `WithHeartbeat(nil)` clears a heartbeat an earlier option already set.
+That is not a contrived ordering: a composition root that threads an optional heartbeat
+through a shared `[]AgentOption` produces exactly this call sequence, and the result is a
+Runner whose liveness probe has nothing to read while every unit test still passes. Stated
+that way, the test fails on the unguarded version and passes on the real one.
+
+**The general shape.** Ask what state distinguishes "the guard ran" from "the guard did not",
+and check that the answer is not the zero value. If it is, the observable is somewhere else,
+usually in what happens on the second call. This is #95's "prove an assertion can fail"
+narrowed to the case that most resists it, because here the assertion looks like it is about
+the value when it is really about the write.

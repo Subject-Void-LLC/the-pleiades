@@ -344,6 +344,42 @@ func loadRateLimiter() (*api.RateLimiter, error) {
 	}), nil
 }
 
+// The connection pool bounds, which this binary carried none of.
+//
+// Before these, ent.Config's three pool fields were all left zero and
+// internal/ent applies each only when it is positive, so the controller ran
+// on database/sql's defaults: unlimited connections, two idle, and
+// connections reused forever. Unlimited is the word in the standard
+// library's own documentation and it is meant literally.
+//
+// That was the second half of the /readyz defect. The first half was that
+// an unauthenticated, unthrottled endpoint ran a real query per request;
+// internal/api's readinessGate bounds how OFTEN a check runs, and these
+// bound how much of the database a burst can occupy while it does. Either
+// alone leaves the hole open from one end.
+//
+// maxOpenConns is 16 rather than a larger round number because the ceiling
+// that matters is not this process. Postgres allows 100 connections by
+// default and every replica draws from that one pool, so a chart installed
+// at its default two replicas takes 32 and leaves room for the migrations,
+// psql sessions and whatever else an operator runs; a value like 100 here
+// would let two replicas exhaust the server between them and turn a
+// controller restart into an outage for everything else on it. On SQLite,
+// which is the default backend, the number is close to irrelevant to
+// throughput because writes serialize on one lock regardless, and a bound
+// simply stops a burst from opening thousands of file handles.
+//
+// connMaxLifetime is the one that is not about capacity at all. A pool that
+// reuses a connection forever will hold a TCP connection to a database that
+// has been failed over, restarted or repointed by DNS, and keep handing it
+// to queries that then fail one at a time. Thirty minutes bounds how long a
+// replica can be talking to yesterday's primary.
+const (
+	maxOpenConns    = 16
+	maxIdleConns    = 8
+	connMaxLifetime = 30 * time.Minute
+)
+
 // readinessChecks are the dependencies /readyz reports on, the two this
 // process cannot serve a single API request without.
 //
@@ -513,7 +549,12 @@ func main() {
 		fatal("failed to init telemetry", err)
 	}
 
-	client, err := ent.OpenDatabase(ctx, ent.Config{DSN: dbDSN})
+	client, err := ent.OpenDatabase(ctx, ent.Config{
+		DSN:             dbDSN,
+		MaxOpenConns:    maxOpenConns,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxLifetime: connMaxLifetime,
+	})
 	if err != nil {
 		fatal("failed to open the controller database", err)
 	}

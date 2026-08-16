@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -30,6 +30,13 @@ export PATH := $(shell go env GOPATH)/bin:$(PATH)
 GOSEC_VERSION       ?= v2.28.0
 GOVULNCHECK_VERSION ?= v1.6.0
 
+# The container image scanner, pinned the same way and installed by a
+# SEPARATE target: see image-scan below for why it is not part of ci.
+# Unlike the two above, trivy's own --version reports "dev" when built by
+# `go install`, so ensure-tool's `go version -m` reading is what makes this
+# pin checkable at all.
+TRIVY_VERSION       ?= v0.58.2
+
 # ensure-tool installs $(2)@$(3) as command $(1), but only when what is
 # already on PATH is not already exactly that version, which keeps a
 # repeat `make ci` fast and lets it run with no network once the tools
@@ -55,6 +62,13 @@ endef
 tools:
 	@$(call ensure-tool,gosec,github.com/securego/gosec/v2/cmd/gosec,$(GOSEC_VERSION))
 	@$(call ensure-tool,govulncheck,golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
+
+# image-tools is separate from tools above because image-scan is separate
+# from ci: nothing in ci builds an image, so nothing in ci has an image to
+# scan, and making every `make ci` install a scanner it cannot use would be
+# a cost with no return.
+image-tools:
+	@$(call ensure-tool,trivy,github.com/aquasecurity/trivy/cmd/trivy,$(TRIVY_VERSION))
 
 # hooks points this clone's Git hooks at the tracked .githooks directory,
 # so `git push` runs push-gate (everything `make ci` runs, with
@@ -83,9 +97,18 @@ build:
 # error in a file no gate had ever looked at. Building AND vetting them
 # here costs a second and closes that. How they are invoked does not
 # change: `go run` on an explicitly named file ignores build constraints.
+# Three passes, and the third is here for the same reason vet below runs
+# twice: `go test` respects build tags, so a _test.go file behind the
+# devtools tag is never compiled, never run and never reported by any other
+# target in this file. tools/breakglass is the first devtools package with
+# tests, and without this line its tests would have been written, would have
+# passed locally, and would have been invisible to the gate that decides
+# whether a change lands. Seven seconds, most of it tools/gencatalog, which
+# test-race pays for separately and unavoidably.
 devtools:
 	go build -tags devtools ./tools/...
 	go vet -tags devtools ./tools/...
+	go test -tags devtools ./tools/...
 
 # Two passes, because go vet respects build tags: without the second one
 # the integration-tagged files (the largest tests in this repository)
@@ -374,3 +397,74 @@ ui-stop:
 	-@docker rm -f $$(docker ps -aq --filter name=pleiades-uidev) >/dev/null 2>&1 || true
 	-@rm -rf /tmp/pleiades-uidev-* 2>/dev/null || true
 	@echo "ui-stop: development server, broker and scratch directories cleared"
+
+# break-glass returns this machine to the state every test assumes it starts
+# from: no throwaway kind cluster, no compose project holding a database from
+# a previous run, no containers left by a test binary that was killed before
+# its cleanup ran.
+#
+# It is the recovery path for a class of failure that does not look like one.
+# Leftover infrastructure does not announce itself; it surfaces later as a
+# test failing at whichever assertion touched the stale state, which reads as
+# a defect in whatever that assertion was about. Reach for this the moment a
+# gate fails in a way that does not match the code you changed.
+#
+# NOT `docker system prune`, and the tool's own doc comment says why at
+# length: prune is defined by what is unused, which is a fact about the daemon
+# rather than about this repository, so it takes a developer's long-lived
+# clusters and images with exactly the same confidence it takes ours. Every
+# removal here is positively attributed to this repository first, and anything
+# else is listed and left.
+#
+# It refuses to run while a test run is live, because cleaning up underneath
+# one is how this tool came to exist. Flags:
+#
+#   make break-glass BREAK_GLASS_FLAGS=-n        say what would go, remove nothing
+#   make break-glass BREAK_GLASS_FLAGS=-images   also drop the built images
+#   make break-glass BREAK_GLASS_FLAGS=-force    clean anyway, breaking that run
+#
+# Invoked by file path, like dev-cert above: the tool carries //go:build
+# devtools, which keeps a destructive maintenance command out of the default
+# build and out of gosec's judgement of shipped code, while `make devtools`
+# still compiles and vets it.
+BREAK_GLASS_FLAGS ?=
+
+break-glass:
+	go run tools/breakglass/main.go $(BREAK_GLASS_FLAGS)
+
+# image-scan scans the two images this repository builds for known
+# vulnerabilities in what the BASE IMAGE ships, which is the gap neither Go
+# scanner can see.
+#
+# gosec reads this project's Go source and govulncheck reads its module
+# graph. Neither has any view of glibc, OpenSSL, zlib or the CA bundle that
+# come from gcr.io/distroless/base-debian12, and those are pinned by digest,
+# which means they are frozen and will age. Nothing else in this repository
+# would ever notice that the pinned base had acquired a CVE.
+#
+# DELIBERATELY NOT PART OF ci, for two reasons that are about ci rather than
+# about scanning. Nothing in ci builds an image, so there would be nothing
+# to scan without adding an image build to every run. And trivy resolves
+# findings against a vulnerability database it downloads at first use, so
+# wiring it into ci would add a second live-network dependency to a target
+# that has exactly one today, on a repository whose documentation promises
+# an air-gapped install path.
+#
+# Run it after building the images:
+#
+#   docker build -f Dockerfile.controller -t pleiades/controller:dev .
+#   make image-scan
+#
+# IMAGE_SCAN_SEVERITY selects what fails the run. The default stops at HIGH
+# and CRITICAL because a distroless base reports a long tail of LOW findings
+# in packages nothing in these images calls, and a gate that is always red
+# is a gate nobody reads.
+IMAGE_SCAN_SEVERITY ?= HIGH,CRITICAL
+IMAGE_SCAN_IMAGES ?= pleiades/controller:dev pleiades/runner:dev
+
+image-scan: image-tools
+	@for image in $(IMAGE_SCAN_IMAGES); do \
+		echo "image-scan: $$image"; \
+		trivy image --quiet --scanners vuln --severity $(IMAGE_SCAN_SEVERITY) --exit-code 1 "$$image" || exit 1; \
+	done
+	@echo "image-scan: no $(IMAGE_SCAN_SEVERITY) vulnerabilities in $(IMAGE_SCAN_IMAGES)"

@@ -27,10 +27,10 @@ metadata:
     {{- include "the-pleiades.labels" (dict "root" . "component" "controller") | nindent 4 }}
 spec:
   accessModes:
-    - {{ .Values.controller.persistence.accessMode }}
+    - {{ .Values.controller.persistence.accessMode | quote }}
   resources:
     requests:
-      storage: {{ .Values.controller.persistence.size }}
+      storage: {{ .Values.controller.persistence.size | quote }}
   {{- with .Values.controller.persistence.storageClassName }}
   storageClassName: {{ . }}
   {{- end }}

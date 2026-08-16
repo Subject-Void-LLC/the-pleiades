@@ -123,7 +123,7 @@ spec:
       containers:
         - name: runner
           image: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }}"
-          imagePullPolicy: {{ .Values.runner.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.runner.image.pullPolicy | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             {{- /* This matters more here than anywhere else in the chart: the
@@ -236,10 +236,10 @@ spec:
         - name: runbooks
           {{- if .Values.runbooks.configMapName }}
           configMap:
-            name: {{ .Values.runbooks.configMapName }}
+            name: {{ .Values.runbooks.configMapName | quote }}
           {{- else }}
           persistentVolumeClaim:
-            claimName: {{ .Values.runbooks.existingClaim }}
+            claimName: {{ .Values.runbooks.existingClaim | quote }}
             readOnly: true
           {{- end }}
         {{- end }}

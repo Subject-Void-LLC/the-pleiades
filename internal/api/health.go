@@ -2,9 +2,7 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -49,10 +47,10 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
 }
 
-// readyzHandler is the readiness probe. It runs every check concurrently
-// under one deadline and returns 503 if any of them fails, which is what
-// PATTERNS.md's Liveness & Readiness Probes entry requires: a replica that
-// has lost NATS must stop receiving traffic without being restarted.
+// readyzHandler is the readiness probe. It reports 503 if any dependency
+// check fails, which is what PATTERNS.md's Liveness & Readiness Probes
+// entry requires: a replica that has lost NATS must stop receiving traffic
+// without being restarted.
 //
 // The response body names each check and reports only "ok" or "failed",
 // never the underlying error text. An unauthenticated endpoint that echoes
@@ -60,38 +58,19 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 // versions to anyone who can reach the port; the real error goes to the
 // log line instead, where it is just as useful to an operator and not
 // readable by a stranger.
-func readyzHandler(logger *slog.Logger, checks []ReadinessCheck) http.HandlerFunc {
+//
+// The checks themselves are run by gate rather than by this function, and
+// that indirection is the whole point: this endpoint is unauthenticated and
+// unthrottled, so what it costs cannot be allowed to scale with how often
+// it is asked. See readinessGate for the defect and the bound.
+func readyzHandler(gate *readinessGate) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), readinessProbeTimeout)
-		defer cancel()
-
-		results := make([]error, len(checks))
-		var wg sync.WaitGroup
-		for i, check := range checks {
-			wg.Add(1)
-			go func(i int, check ReadinessCheck) {
-				defer wg.Done()
-				results[i] = check.Probe(ctx)
-			}(i, check)
+		outcome, ok := gate.outcome(r.Context())
+		if !ok {
+			// The caller went away while waiting on a check round somebody
+			// else was leading. There is nothing to write to.
+			return
 		}
-		wg.Wait()
-
-		body := healthResponse{Status: "ready", Checks: make(map[string]string, len(checks))}
-		status := http.StatusOK
-		for i, check := range checks {
-			if results[i] != nil {
-				body.Checks[check.Name] = "failed"
-				body.Status = "not ready"
-				status = http.StatusServiceUnavailable
-				logger.LogAttrs(ctx, slog.LevelWarn, "readiness check failed",
-					slog.String("check", check.Name),
-					slog.String("error", results[i].Error()),
-				)
-				continue
-			}
-			body.Checks[check.Name] = "ok"
-		}
-
-		writeJSON(w, status, body)
+		writeJSON(w, outcome.status, outcome.body)
 	}
 }
