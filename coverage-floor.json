@@ -102,6 +102,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory": 97.4,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/policy": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/registry": 100.0,
+    "github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec": 98.3,
     "github.com/Subject-Void-LLC/the-pleiades/pkg/retry": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/tests/parity": 91.1,
     "github.com/Subject-Void-LLC/the-pleiades/tools/gencatalog": 76.0,

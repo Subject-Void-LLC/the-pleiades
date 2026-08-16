@@ -24,12 +24,12 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 76 declared methods; 5 are implemented.** Every
+- **The module catalog has 76 declared methods; 6 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. The four
-  `net.catalyst.*` methods (against Cisco Catalyst Center) and `net.ssh.ping` are real
-  today.
+  `net.catalyst.*` methods (against Cisco Catalyst Center), `net.ssh.ping`, and
+  `exec.command` (which runs a command on any SSH-reachable device) are real today.
 
 ## What makes this different
 

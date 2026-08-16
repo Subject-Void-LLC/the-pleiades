@@ -6,10 +6,11 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**5 of 76 methods are implemented.**
+**6 of 76 methods are implemented.**
 
 ## Implemented
 
+- [exec.command](modules/exec/command.md)
 - [net.ssh.ping](modules/net/ssh/ping.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
@@ -20,7 +21,6 @@ The full declared-versus-implemented matrix for every registered Collection meth
 
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
-- `exec.command`
 - `exec.shell`
 - `pkg.install`
 - `pkg.remove`

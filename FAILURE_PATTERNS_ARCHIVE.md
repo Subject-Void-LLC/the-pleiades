@@ -4226,3 +4226,164 @@ exact finding, then restoring it.
 
 **Lesson.** A template is an injection surface with no type system in front of it. Ask what a value
 does when it contains a newline, not only when it contains the wrong word.
+
+## 143. A Collection may import only pkg/, so the one SSH module hand-rolled the security-critical dial the transport layer already owned
+
+**Symptom.** `internal/catalog/net/ssh/ping.go` contained its own dial loop, its own
+`buildAuthMethod`, its own `hostKeyCallback` and its own `shellQuote`, all near-copies of
+`internal/transport/ssh`. Its doc comment stated the consequence plainly: the method inherits
+none of that package's circuit breaker or retry-with-backoff, and called the tradeoff
+"acceptable for a lightweight, read-only diagnostic method, and would need revisiting if this
+package grew a second, write-capable method."
+
+**Root cause.** `internal/archtest`'s `TestCatalogPackagesImportOnlyPkg` correctly forbids a
+Collection package from importing anything in this module outside `pkg/`, so no Collection can
+reach `internal/transport/ssh` no matter how much of the same work it needs. Nothing under
+`pkg/` did that work, so the only way to write an SSH-backed module was to write it again. The
+rule is right and the gap under it was the defect.
+
+**Fix.** The mechanism moved to `pkg/remoteexec`: dial with retry and backoff, the per-target
+circuit breaker, fail-closed known_hosts verification, turning secrets into exactly one
+authentication method, and the POSIX quoting that makes a command line safe.
+`internal/transport/ssh` became a thin adapter over it and kept its `transport.Transport`
+identity, its `credential.Credential` translation and its `Options` surface unchanged; its
+container tests against a real, independent sshd pass unmodified, which is what proves the move
+preserved behavior. `net.ssh.ping` was refactored onto the same primitive and its existing tests
+pass unchanged, which is what proves the primitive is usable from a Collection.
+
+**Lesson.** A layering rule that forbids reaching for shared code is only half a design. The
+other half is a home for that code on the allowed side of the line, and the cost of not building
+it is not duplication in the abstract: it is a second implementation of host key verification.
+
+## 144. The Walk tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
+
+**Symptom.** `pleiades run` against a runbook naming `net.ssh.ping` failed with "no usable
+authentication method", and against any `net.catalyst.*` method with `no "username" secret
+available`, on a device whose credential was in `.pleiades/credentials.yaml` the whole time. The
+Crawl tier was unaffected.
+
+**Root cause.** `cmd/pleiades/run.go` passed `engine.NewDeviceRunbookContext` as the executor's
+context constructor. That function ignores its device argument and returns
+`engine.NewRunbookContext(nil)`, so `InjectSecrets` always returned an empty map. Its own comment
+explained why, and the reason had expired: "which is empty here because no method in the catalog
+needs a device secret yet" stopped being true the moment `net.ssh.ping` landed, and nothing
+connected the two changes. The credential store was already constructed two lines away, for the
+`ssh_exec` transport path only.
+
+**Fix.** `engine.RunbookContextFunc` now takes a context and returns an error, and
+`engine.NewCredentialRunbookContext(store)` resolves each device's stored credential and flattens
+it into the context. A device with no stored credential is not an error and yields an empty set,
+matching the Crawl tier; any other lookup failure is reported, because an unreadable store and an
+absent entry must not look alike.
+
+**Lesson.** A comment that says "this is empty because nothing needs it yet" is a dependency
+between two changes with nothing to enforce it. The first feature that needs the thing will not
+find the comment.
+
+## 145. Two collection methods' documentation had already drifted from the data the catalog is generated from
+
+**Symptom.** `net.catalyst.site_facts` and `net.catalyst.tag_facts` each carried a `Doc.Examples`
+entry in their registered manifest that `internal/forge/catalogdata` did not have. Nothing
+failed, and nothing would have failed until somebody regenerated the catalog.
+
+**Root cause.** `catalogdata` is the source `forge new-collection` is driven from, but the
+scaffold template only ever emits `Doc.Summary`; every other documentation field on an
+implemented method is hand-written into the generated file afterward. That makes the two copies
+unavoidable, and no test compared them. The consequence is worse than stale prose: a
+regeneration would silently drop those Examples, and `tools/gendocs`'s own
+`TestImplementedMethodsHaveCompleteDocs` requires at least one Example on an implemented method,
+so a from-scratch regeneration would produce a tree that fails its own completeness gate for a
+reason nothing in the diff would explain.
+
+**Fix.** `internal/archtest`'s `TestCatalogDataDocsMatchTheRegistry` compares every catalogdata
+entry's `Doc` against the registered manifest's, field by field so a failure names which field
+drifted. It found both entries on its first run; both were synced.
+
+**Lesson.** When two copies of something are unavoidable, the test comparing them is not
+optional, it is the thing that makes the duplication safe. Write it at the moment you create the
+second copy, not after somebody notices the drift.
+
+## 146. A circuit breaker latched half-open forever, so a device that was briefly down was never dialed again
+
+**Symptom.** After a target's circuit opened and its cooldown elapsed, every subsequent
+connection returned "circuit open, too many recent failures" with no dial attempted, forever.
+The device could come back and nothing would notice.
+
+**Root cause.** `Allow` is a transaction, not a query: on an open circuit past its cooldown it
+hands out the single half-open probe and mutates the state to record that it did. Two calls sat
+on one dial path, one in `Connect`'s early fast-fail check and one inside the retry loop. The
+first consumed the probe and did not dial; the second saw a probe already in flight and refused.
+Because only a real dial produces a `RecordSuccess` or a `RecordFailure`, nothing ever resolved
+the half-open state, and the half-open branch has no cooldown re-check. Reachable with stock
+defaults: five consecutive dial failures, which is two `exec.command` tasks, and the process
+holds one Runner for its whole life through `remoteexec.Shared` or a composition root.
+
+**Fix.** Split the two questions. `Permitted` looks without consuming and is what `Connect`
+calls; `Allow` claims the probe and is called only by the code about to dial.
+`TestConnect_ProbeSurvivesToTheDial` asserts on DIAL COUNTS across a real cooldown boundary,
+because the wedge produced a perfectly reasonable-looking error every time.
+
+**Lesson.** A method named like a predicate that is really a transaction will be called twice by
+somebody. Name it for what it does, or make the read-only form the one that is easy to reach.
+`LESSONS_LEARNED.md` #135's correction records how a mutation pass rationalized this instead of
+finding it.
+
+## 147. The idempotence guard looked in a different directory from the command it guarded
+
+**Symptom.** A task with `chdir: /opt/app` and `creates: VERSION` re-ran on every execution even
+after `/opt/app/VERSION` existed. The mirror case was worse: `chdir: /opt/app` with
+`removes: stale.lock` reported "skipped, since stale.lock does not exist" and left
+`/opt/app/stale.lock` in place while the run reported success.
+
+**Root cause.** The command was built as `cd '<dir>' && <argv>` while the existence check ran a
+bare `test -e <path>` on its own session, so a relative path resolved against the SSH login
+directory. Ansible's own command module changes directory before evaluating `creates`, and this
+package's doc comment claimed to mean what Ansible means. Every test used absolute paths, so
+nothing noticed.
+
+**Fix.** The working directory is resolved once, before the guard, and threaded into it, so both
+run under the same `cd`. A directory that cannot be entered now reports a distinct exit status
+and becomes an error rather than an absence, because reading it as "not there" is exactly what
+made `removes` skip real work.
+
+**Lesson.** When a predicate and the action it gates are computed separately, enumerate the
+context each depends on and check they get the same one. And a predicate that can fail to
+evaluate has three outcomes, not two.
+
+## 148. A quoted directory beginning with a dash was parsed as a cd option, so the command ran in the home directory
+
+**Symptom.** `chdir: "-P"` did not fail. `cd '-P'` is identical to `cd -P`, a valid flag with no
+operand, so the shell changed to the home directory and the command ran there and reported
+success.
+
+**Root cause.** The value was correctly single-quoted, which defeats word splitting and every
+form of expansion, and does nothing about option parsing. The `&&` already in place to stop a
+bad directory could not help, because `cd` had not failed.
+
+**Fix.** `cd -- '<dir>'`, with a test for both halves: a dash-named value is refused, and a
+directory genuinely named `-P` still works, since "reject everything with a dash" is a different
+and also wrong fix.
+
+**Lesson.** Quoting and option termination are two separate defenses against two separate
+grammars. Interpolating a value as a command's operand needs both.
+
+## 149. A large standard input a remote command never read turned a successful command into an opaque failure
+
+**Symptom.** `exec.command` with a `stdin` payload over roughly 256 KiB, against any command that
+exits without draining its input, returned "EOF" with no exit status, no stdout and no stderr
+recorded at all. The same payload into `cat` succeeded, which is what isolated the cause to
+unconsumed input rather than size.
+
+**Root cause.** `x/crypto/ssh`'s `Session.Wait` returns the standard input copy's error whenever
+the command's own exit status was clean. With `session.Stdin` the library owns that copy, so a
+command that exits successfully while the copy is still writing produces an `io.EOF` that is
+reported in place of the real result, and the caller then returned before recording any stats.
+
+**Fix.** Own the copy: write through `session.StdinPipe` on a goroutine whose error is
+deliberately dropped, since a remote that stopped reading has not failed, it has finished. The
+goroutine is reaped by a `WaitGroup` deferred to run after the session close that unblocks it.
+
+**Lesson.** Worth recording separately: the regression test written beside the code passed
+against the broken version, because an in-process handler never develops the same timing. Only
+restoring the broken code showed that, and the working test had to live a layer up, against a
+real shell. `LESSONS_LEARNED.md` #136.

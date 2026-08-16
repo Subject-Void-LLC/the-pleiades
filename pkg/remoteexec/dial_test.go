@@ -1,4 +1,4 @@
-package ssh
+package remoteexec
 
 import (
 	"bytes"
@@ -12,14 +12,14 @@ import (
 )
 
 // startFakeSSHListener starts a real loopback TCP listener speaking SSH
-// (via serveOneFakeConnection, ssh_test.go) and serves connections until
+// (via serveOneFakeConnection, runner_test.go) and serves connections until
 // the test ends. Unlike newFakeSSHServer (which hands out a dialFunc
 // backed by a single loopback pair per call), this exposes a real
 // "host:port" address so realDial itself, the default dialFunc New
 // wires up, can be exercised directly: a genuine net.Dialer.DialContext
 // TCP dial followed by a genuine SSH handshake, with no Docker
-// dependency (this is loopback-only, not the container test's real,
-// independent sshd).
+// dependency (this is loopback-only, not the real, independent sshd
+// internal/transport/ssh dials in a container).
 func startFakeSSHListener(t *testing.T, handler func(command string) (stdout, stderr string, exitCode int)) (addr string, hostKey ssh.PublicKey) {
 	t.Helper()
 	hostSigner := generateTestHostKey(t)
@@ -52,55 +52,12 @@ func startFakeSSHListener(t *testing.T, handler func(command string) (stdout, st
 	return listener.Addr().String(), hostSigner.PublicKey()
 }
 
-// TestNew_AppliesDefaultsAndReturnsUsableTransport proves New wires up a
-// real dial function and circuit breaker, and applies every documented
-// default to a zero-valued Options.
-func TestNew_AppliesDefaultsAndReturnsUsableTransport(t *testing.T) {
-	tr := New(Options{})
-
-	concrete, ok := tr.(*sshTransport)
-	if !ok {
-		t.Fatalf("expected New to return *sshTransport, got %T", tr)
-	}
-	if concrete.dial == nil {
-		t.Error("expected New to wire a real dial function")
-	}
-	if concrete.breaker == nil {
-		t.Error("expected New to wire a circuit breaker")
-	}
-	if concrete.opts.MaxRetries != defaultMaxRetries {
-		t.Errorf("expected default MaxRetries %d, got %d", defaultMaxRetries, concrete.opts.MaxRetries)
-	}
-	if concrete.opts.DialTimeout != defaultDialTimeout {
-		t.Errorf("expected default DialTimeout %v, got %v", defaultDialTimeout, concrete.opts.DialTimeout)
-	}
-	if concrete.opts.BreakerThreshold != defaultBreakerThreshold {
-		t.Errorf("expected default BreakerThreshold %d, got %d", defaultBreakerThreshold, concrete.opts.BreakerThreshold)
-	}
-	if concrete.opts.BreakerCooldown != defaultBreakerCooldown {
-		t.Errorf("expected default BreakerCooldown %v, got %v", defaultBreakerCooldown, concrete.opts.BreakerCooldown)
-	}
-}
-
-// TestNew_HonorsExplicitOptions proves an explicitly set Options field
-// is preserved rather than overwritten by New's defaulting logic.
-func TestNew_HonorsExplicitOptions(t *testing.T) {
-	tr := New(Options{MaxRetries: 9, DialTimeout: 3 * time.Second})
-	concrete := tr.(*sshTransport)
-	if concrete.opts.MaxRetries != 9 {
-		t.Errorf("expected explicit MaxRetries 9 to be preserved, got %d", concrete.opts.MaxRetries)
-	}
-	if concrete.opts.DialTimeout != 3*time.Second {
-		t.Errorf("expected explicit DialTimeout to be preserved, got %v", concrete.opts.DialTimeout)
-	}
-}
-
 // TestRealDial_ConnectsOverLoopbackTCP exercises the real, default
 // dialFunc end to end: an actual TCP dial via net.Dialer.DialContext
 // followed by an actual SSH handshake, entirely over loopback (no
-// Docker required). This is what New wires sshTransport.dial to; every
-// other test in this package substitutes a fake dial specifically to
-// avoid exercising this function, so it needs its own direct coverage.
+// Docker required). This is what New wires Runner.dial to; every other
+// test in this package substitutes a fake dial specifically to avoid
+// exercising this function, so it needs its own direct coverage.
 func TestRealDial_ConnectsOverLoopbackTCP(t *testing.T) {
 	addr, _ := startFakeSSHListener(t, func(cmd string) (string, string, int) {
 		return "real-dial-ok", "", 0

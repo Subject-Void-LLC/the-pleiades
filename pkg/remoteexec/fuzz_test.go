@@ -1,4 +1,4 @@
-package ssh
+package remoteexec
 
 import (
 	"os"
@@ -38,12 +38,11 @@ func FuzzHostKeyCallbackConstruction(f *testing.F) {
 	})
 }
 
-// FuzzBuildAuthMethod feeds arbitrary bytes as a credential's
-// PrivateKeyPEM and passphrase, asserting buildAuthMethod never panics
-// regardless of content: parsing an arbitrary byte slice as a private
-// key must always end in either a usable ssh.AuthMethod or a clean,
-// wrapped error.
-func FuzzBuildAuthMethod(f *testing.F) {
+// FuzzAuthFrom feeds arbitrary bytes as a private key and passphrase,
+// asserting AuthFrom never panics regardless of content: parsing an
+// arbitrary byte slice as a private key must always end in either a
+// usable Auth or a clean, wrapped error.
+func FuzzAuthFrom(f *testing.F) {
 	f.Add([]byte(""), "")
 	f.Add([]byte("not a pem file at all"), "")
 	f.Add([]byte("-----BEGIN OPENSSH PRIVATE KEY-----\ngarbage\n-----END OPENSSH PRIVATE KEY-----\n"), "")
@@ -51,9 +50,14 @@ func FuzzBuildAuthMethod(f *testing.F) {
 	f.Add([]byte{0x00, 0x01, 0x02, 0x03}, "\x00")
 
 	f.Fuzz(func(t *testing.T, keyBytes []byte, passphrase string) {
-		method, err := buildAuthMethod(credentialFixture(keyBytes, passphrase))
-		if err == nil && method == nil {
-			t.Fatal("buildAuthMethod returned neither an AuthMethod nor an error")
+		// No password is supplied, so AuthFrom is forced down its private
+		// key branch for every input rather than short-circuiting.
+		auth, err := AuthFrom("u", "", keyBytes, passphrase)
+		if err == nil && !auth.usable() {
+			t.Fatal("AuthFrom returned neither a usable Auth nor an error")
+		}
+		if err != nil && auth.usable() {
+			t.Fatal("AuthFrom returned a usable Auth alongside an error, which would let an unauthenticated dial proceed")
 		}
 	})
 }

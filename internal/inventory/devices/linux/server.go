@@ -22,7 +22,9 @@ func init() {
 }
 
 // Server implements InventoryItem plus, structurally,
-// capability.SSHTransportCapable and capability.LinuxCapable.
+// capability.SSHTransportCapable, capability.LinuxCapable and
+// capability.ShellExecCapable (which embeds
+// capability.CommandExecCapable).
 type Server struct {
 	*record.Base
 }
@@ -32,16 +34,24 @@ type Server struct {
 // registry expects.
 //
 // The capability set is the vendor baseline (SSHTransportCapable,
-// LinuxCapable) unioned with rec.Capabilities, per Phase 32's capability
-// granularity decision: classification-derived data can only add to what
-// this type already asserts about itself, never replace it -- a Record
-// hydrated with no Classify path (an explicit Type) still gets the same
-// baseline this constructor always granted, while a classified one can
-// gain more (policy.UnionSlices, Section 25's shared primitive, rather
-// than a bespoke dedup loop here).
+// LinuxCapable, ShellExecCapable) unioned with rec.Capabilities, per
+// Phase 32's capability granularity decision: classification-derived data
+// can only add to what this type already asserts about itself, never
+// replace it -- a Record hydrated with no Classify path (an explicit
+// Type) still gets the same baseline this constructor always granted,
+// while a classified one can gain more (policy.UnionSlices, Section 25's
+// shared primitive, rather than a bespoke dedup loop here).
+//
+// ShellExecCapable is declared rather than CommandExecCapable, and the
+// difference is not cosmetic. It is the narrower of the two, and
+// capability.Resolves walks upward, so declaring it satisfies a method
+// requiring either one; declaring only the parent would satisfy
+// exec.command and refuse exec.shell on a device that plainly has a
+// shell. It is also the honest claim: a Linux server does have /bin/sh,
+// which is exactly what ShellPath reports.
 func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 	caps := policy.UnionSlices(
-		[]capability.Name{capability.NameSSHTransport, capability.NameLinux},
+		[]capability.Name{capability.NameSSHTransport, capability.NameLinux, capability.NameShellExec},
 		rec.Capabilities,
 	)
 	base := record.NewBase(rec, caps)
@@ -66,6 +76,35 @@ func (l *Server) SSHPort() int {
 		return port
 	}
 	return 22
+}
+
+// WorkingDirectory returns the directory a command runs in when the task
+// names none of its own, satisfying capability.CommandExecCapable.
+//
+// It reads the free-form "working_directory" property and returns an
+// empty string when that is unset, which is deliberate rather than a
+// missing default. An empty answer means "wherever this account lands on
+// login," which is what a person running the same command by hand would
+// get, and it is the only answer that is correct for every account: a
+// hardcoded /root or /home/<user> would be wrong for most of them and
+// would silently move where a relative path resolves.
+func (l *Server) WorkingDirectory() string {
+	dir, _ := l.Properties().String("working_directory")
+	return dir
+}
+
+// ShellPath returns the shell a command runs through, satisfying
+// capability.ShellExecCapable.
+//
+// It reads the free-form "shell" property and falls back to /bin/sh.
+// /bin/sh is the POSIX-guaranteed path and the one every Linux
+// distribution ships, so it is a real default rather than a guess; a
+// device that wants bash-specific behavior sets the property.
+func (l *Server) ShellPath() string {
+	if shell, ok := l.Properties().String("shell"); ok && shell != "" {
+		return shell
+	}
+	return "/bin/sh"
 }
 
 // KernelVersion returns the detected Linux kernel version.

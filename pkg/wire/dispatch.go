@@ -51,6 +51,39 @@ package wire
 
 import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 
+// The keys of every flattened credential map on this platform's wire:
+// DispatchPayload.Secrets below, ChildRequest.Secrets in
+// collection_ipc.go, and whatever a Collection method reads back out of
+// sdk.RunbookContext.InjectSecrets.
+//
+// They live here, in the package that declares the map itself, because
+// they had grown four independent copies: internal/credential.Flatten
+// writes them, internal/credtype re-declares them twice, and each
+// Collection package that reads a secret re-declared them again with a
+// comment explaining that it could not import the writer's copy (a
+// Collection may import only pkg/). Four copies of a string that has to
+// match on both sides of a process boundary is a defect waiting for
+// somebody to fix a typo in three of them. There is one copy now, and
+// both sides can reach it.
+//
+// A missing key means the device has no such secret. Flatten omits an
+// empty field rather than writing "", so `v, ok := secrets[k]` is a real
+// question with a real answer.
+const (
+	// SecretUsername is the account to authenticate as.
+	SecretUsername = "username"
+
+	// SecretPassword is a plaintext password.
+	SecretPassword = "password"
+
+	// SecretPrivateKeyPEM is a PEM-encoded private key.
+	SecretPrivateKeyPEM = "private_key_pem"
+
+	// SecretPassphrase decrypts SecretPrivateKeyPEM when that key is
+	// encrypted. It is meaningless on its own.
+	SecretPassphrase = "passphrase"
+)
+
 // DispatchPayload is the message body the Controller publishes to NATS
 // and the Runner decodes back out, one per device, when a runbook is
 // dispatched against an inventory group.

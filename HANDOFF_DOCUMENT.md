@@ -4,220 +4,181 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
-Stages 20a, 20b and 20c are BUILT. Phase 20 is NOT closed: 10 of 19 items are ticked and the nine
-that remain are named below. Nothing is committed. Phase 20a's handoff moved to `HANDOFF_ARCHIVE.md`.**
+**Branch `feature/Catalog-First-Tier`, off `main`. Directive: Phase 38's first tier, build out the
+Collection catalog. `exec.command` is BUILT, wired, proven against a real device and flipped to
+`implemented`; the catalog reads 6 of 76. The other five first-tier modules (`exec.shell`,
+`file.copy`, `file.directory`, `svc.*`, `pkg.*`) are open. Nothing is committed, per the standing
+instruction; the commit message is at the bottom of this section.**
 
-### What is done and proven
+### Why this phase, out of order
 
-- **Images.** Both distroless (`gcr.io/distroless/base-debian12:nonroot`), digest-pinned, non-root at
-  a NUMERIC uid, stripped, with OCI provenance from build args. Build context 410 MB to 13 MB.
-- **Compose.** Named volumes, real healthchecks on every service, warm start about 4 s.
-- **TLS terminates in the controller**, and the insecure cookie path is DELETED rather than disabled.
-  `make gosec` is 9 findings against 12, with **zero `G124`**, which is the promise Phase 79's
-  Security Analysis was amended on.
-- **Certificates self-provision** when the admin configures none, and the provisioning is LOCK-FREE.
-- **Helm chart** is real: two Deployments, two StatefulSets, four liveness and four readiness probes,
-  zero `:latest`, non-root throughout, per-kind name budgets.
-- **`FAILURE_PATTERNS` #119 is CLOSED**, proven by severing a real broker under a real runner.
+Phase 38 sits in Part VIII, well below Phase 23, and taking it first was deliberate: a scheduler
+multiplies whatever the platform does, and the platform did very little. Every engine under the
+catalog is real and proven while the catalog on top of it could not copy a file, install a package
+or start a service. The reasoning is written into `IMPLEMENTATION.md`'s Phase 38 section so the
+next reader does not read the ordering as an accident.
 
-### The nine open items, honestly
+### The three blockers that had to close before any module could be written
 
-`/readyz` bounding is **not implemented** and is the one open item that is code rather than writing.
-The endpoint is unauthenticated, unrate-limited, runs a real query per request, and nothing sets
-`MaxOpenConns`, so a caller can flip a healthy controller out of rotation today. Single-flight
-collapse is the fix and the write-probe alternative was tested and rejected; the item records why.
+Each was a map correction, made before code, and each is recorded in `IMPLEMENTATION.md`.
 
-The other eight are the gate items: Pattern Entry Gate, Fuzz/Stress, Security Analysis, Adversarial
-Pattern Justification, Schema/Injection Hardening, Documentation Gate, Release Gate, and Provide
-Commit Message. Much of the underlying work exists (the release-gate tests are written and pass, the
-docs are updated, `namesFrom` is fuzzed); what is missing is the written justification each gate
-requires, which is the deliverable and not a formality.
+1. **The recorded "71 stubs carry the OLD signature" trap is stale.** All 76 already carry the
+   current one. Settled with the compiler, not grep: a throwaway test assigned all 76 exported
+   methods to a `[]collection.Method` literal and the package compiled. So the
+   full-regeneration-versus-per-module-migration decision the roadmap asked a future session to
+   make once has no subject.
+2. **The Walk tier handed every Collection method an empty secret set.** `pleiades run` could not
+   run `net.ssh.ping` or any `net.catalyst.*` method at all, failing with an authentication error
+   against a device whose credential was on disk. `engine.RunbookContextFunc` now takes a context
+   and returns an error, and `engine.NewCredentialRunbookContext` resolves the stored credential.
+   `FAILURE_PATTERNS` #144.
+3. **No device type implemented `CommandExecCapable`**, so `exec.command` was unreachable by
+   admission before it was unimplemented in body. `linux.Server` gained `WorkingDirectory()` and
+   `ShellPath()` and now declares `ShellExecCapable`, which resolves upward to satisfy both.
 
-### The lesson this phase kept teaching
+### The shared primitive, which is the load-bearing part
 
-Three separate designs for certificate provisioning were built and two were torn out, and each time
-the adversarial pass found the same shape: **a mechanism that made one participant's bad state
-everyone else's problem.** First a fail-closed refusal, then a claim lock whose dead holder froze
-every sibling, then an ownership rule so broad that unparseable bytes bricked a directory forever.
-The design that survived removes the shared decision entirely: one atomic file, load-generate-load,
-losers re-read. When a fix keeps growing new faces, the primitive is wrong.
+`pkg/remoteexec` is new and owns the SSH mechanism once: dial with retry and backoff, the
+per-target circuit breaker, fail-closed known_hosts verification, turning secrets into exactly one
+authentication method, POSIX quoting, and POSIX word splitting.
 
-### Governance corrected, and it took three attempts
+The decision it settles, recorded rather than left implicit: the mechanism **moved** rather than
+being duplicated. `internal/transport/ssh` keeps its `transport.Transport` identity, its
+`credential.Credential` translation and its `Options` surface (now a type alias) and is about 60
+lines of adapter. Its container tests against a real, independent sshd pass **unchanged**, which
+is the proof the move preserved behavior. `net.ssh.ping` was refactored onto the same primitive
+and its existing tests pass **unchanged**, which is the proof the primitive is usable from a
+Collection. `FAILURE_PATTERNS` #143, `LESSONS_LEARNED` #132.
 
-`gosec-waivers.json`'s header demanded "zero remaining waivers" before Phase 20 and attributed that
-to AGENTS.md. **AGENTS.md never said it.** The bar came from Phase 0's policy and was copied with a
-false attribution; both are struck. My first two corrections of it were themselves wrong, in exactly
-the way `LESSONS_LEARNED` #112 records, and were caught by adversarial passes that recomputed every
-number rather than by review. **Phase 82** now owns the seven waivers that pointed at closed Phase 39.
+Two design points worth knowing before the next module:
 
-### New phases recorded this session
+- `remoteexec.Auth` keeps its secret in unexported fields with no accessor, so there is nothing to
+  redact rather than four redaction methods to keep in step with `internal/credential.Credential`.
+- `remoteexec.Shared(opts)` memoizes one Runner per Options for the process. A Collection method
+  is invoked once per task with nowhere to keep a Runner, so `New` every time would carry a
+  breaker that never opens. It buys nothing under the Crawl tier's per-task subprocess, and says
+  so.
 
-- **Phase 82**, retiring the inherited `gosec` waivers.
-- **Phase 83**, the setup command, including the data-loss discipline: guards that scale with blast
-  radius, detection rather than warnings, typed confirmation, and a recovery matrix printed at the
-  moment a key is created.
-- **Phase 84**, upgrade, rollback and restore, which found that concurrent `migrate.Apply` is a race
-  (`schema_migrations` has `version TEXT PRIMARY KEY` and no lock) and that rollback across a schema
-  change does not work today.
+### What `exec.command` establishes for the rest of the tier
+
+`Changed` is true whenever the command ran and false only when it did not. A command cannot be
+inspected, so anything else would be a guess dressed as a fact, and that makes `creates`/`removes`
+load-bearing rather than convenient: they are the only way a task built on this method becomes
+idempotent. Run twice with `creates`, it reports changed then not changed, and the second run
+opens no session for the command at all. A non-zero exit status is an error, matching Ansible's
+own `command` module.
+
+Parameter names are Ansible's throughout (`cmd`, `argv`, `chdir`, `creates`, `removes`, `stdin`),
+per the superset rule. `internal/catalog/exec/exec.go` holds what the namespace shares, so
+`exec.shell` should be cheap.
+
+### Verification, and the one thing that surprised me
+
+The release gate (`cmd/pleiades/exec_command_release_gate_test.go`) drives the real built binary
+through `init`/`add-host`/`add-credential`/`run` against a real openssh-server container, with
+real fail-closed host key verification, and checks every claim by asking the container over a
+second connection it opens itself. It was negative-controlled: disabling `creates` makes it fail
+on both the reported status and the file's mtime read off the device.
+
+**Every test written this pass was mutation-tested.** Seventeen mutations, three of which did not
+fail a test. Two were weak mutations (a field added but never populated; a no-op statement) and
+re-testing with sharper ones showed the tests were fine. The third looked like a coverage gap and
+was actually a defect; see the section below, which is the more important half of this story.
+
+### Four defects a green gate did not catch, and one my own test rationalized
+
+After `make push-gate` passed and after a seventeen-mutation negative-control pass, an
+adversarial review of the finished diff found four real defects, each reproduced by running
+code. All four are fixed with regression tests proven to fail against them
+(`FAILURE_PATTERNS` #146-149):
+
+1. **The circuit breaker latched half-open forever.** `Allow` is a transaction, not a query: past
+   the cooldown it hands out the single probe and mutates state to say so. `Connect` called it and
+   then `dialWithRetry` called it again, so the first took the probe, the second refused, nothing
+   dialed, and nothing ever recorded an outcome to leave half-open. A device that was briefly down
+   was unreachable for the life of the process. Split into `Permitted` (looks) and `Allow`
+   (claims). **This one predates this work in `internal/transport/ssh`**; the refactor carried it
+   into a `pkg/` primitive with three callers, which is what made it worth finding. Worse, the
+   mutation pass had already seen the two guards were indistinguishable and I wrote
+   `TestConnect_OpenCircuitFailsBeforeAnyOtherWork` to justify the pair rather than asking why
+   there were two. `LESSONS_LEARNED` #135 now carries that correction.
+2. **`creates`/`removes` resolved relative paths in the wrong directory.** The command ran under
+   `chdir` and the guard did not, so a relative `creates` never fired and a relative `removes`
+   skipped a task whose file was still sitting in `chdir`, reporting success. An unenterable
+   directory now has its own exit status so it is an error, not an absence.
+3. **`chdir: "-P"` was consumed as a `cd` option** and `cd` succeeded into the home directory.
+   Quoting stops word splitting, not option parsing. Now `cd -- '<dir>'`, tested both ways.
+4. **A large stdin a command never read** turned a successful command into `EOF` with rc, stdout
+   and stderr discarded. `x/crypto/ssh`'s `Wait` returns the stdin copy's error when the exit
+   status was clean, so the copy is ours now. The regression test written beside the code passed
+   against the broken version; it had to move up to the real-shell harness in
+   `internal/catalog/exec` before it could fail. `LESSONS_LEARNED` #136.
+
+### A finding that was not this phase's work
+
+`TestCatalogDataDocsMatchTheRegistry` (new, in `internal/archtest`) compares every catalogdata
+entry's `Doc` against the registered manifest's. It found pre-existing drift on its first run:
+`net.catalyst.site_facts` and `net.catalyst.tag_facts` each carried an Example the catalog data
+did not. A from-scratch regeneration would have dropped them, and `tools/gendocs`'s own
+completeness gate requires an Example on an implemented method, so the regenerated tree would have
+failed its own gate for a reason nothing in the diff explained. Both synced.
+`FAILURE_PATTERNS` #145, `LESSONS_LEARNED` #134.
+
+### Known limitation, deliberately not fixed here
+
+`internal/engine`'s `collectionActionExecutor` discards a method's stats when it returns an error,
+so a failed `exec.command`'s `rc`, `stdout` and `stderr` never reach the run result even though
+the module records them before returning. That is pre-existing engine behavior affecting every
+module equally, and the error message carries the exit status and the relevant stream so an
+operator is not blind. Fixing it means deciding whether `ActionResult` survives an error at the
+executor level, which is an engine change with its own blast radius.
 
 ### Next
 
-Implement `/readyz` single-flight, then write the eight gate justifications, then close.
+`exec.shell` is the cheapest next module: same package, same helpers, and the only real difference
+is that it deliberately does send the command to a shell, so its Doc has to be honest about the
+tradeoff and its capability is `ShellExecCapable`. After that `file.copy` and `file.directory`,
+which will need `remoteexec.Conn.RunWithStdin` (already built and tested for exactly this) and a
+checksum comparison for idempotence. `svc.systemd.*` and `pkg.apt.*` need a different container:
+the openssh-server image is Alpine with no systemd and no apt, so their release gates need a
+Debian-based sshd image, and `internal/testsupport` is where that pin belongs.
+
+When the second module needs the real-shell-over-real-SSH harness in
+`internal/catalog/exec/sshd_test.go`, move it to `internal/testsupport` rather than copying it.
+It will need a `gosec-waivers.json` entry for its `G204` at that point, since testsupport is
+non-test code that gosec scans; today it lives in a `_test.go` file and is not scanned.
 
 ### Commit message, provided per the standing instruction (not committed)
 
-```
-feat(packaging): a product that installs, over TLS, on a clean machine (Phase 20a-c)
-
-Phase 20 opened by correcting its own map. Four of its items described a
-repository that no longer existed: both binaries compiled, both Dockerfiles
-already built package paths, and Phase 19 had deleted the UI service. The
-NATS healthcheck was broken twice over, and both halves were verified
-against the real image before either was touched.
-
-Images are distroless, digest-pinned, stripped and non-root at a NUMERIC
-uid. Numeric matters: USER nonroot:nonroot makes every runAsNonRoot pod
-fail with CreateContainerConfigError, and Compose cannot express
-runAsNonRoot, so no check here could see it. cgo stays on, because
-CGO_ENABLED=0 compiles clean and then dies in the first migration on the
-controller's own default DSN. The shipped Alpine image was already broken
-that way.
-
-The controller terminates TLS and self-provisions a certificate when the
-admin has configured none, so nothing serves plain HTTP unasked and nothing
-refuses to boot for want of a certificate. Provisioning is lock-free: one
-atomic bundle, load-generate-load, losers re-read. Two earlier designs were
-built and torn out because each made one participant's bad state everyone
-else's problem.
-
-The insecure cookie path is deleted rather than disabled. gosec goes from
-12 findings to 9 with zero G124, which is what Phase 79's Security Analysis
-was amended on the strength of. The premise those waivers rested on was
-false: browsers accept Secure cookies on localhost, and the real defect was
-that every non-loopback origin failed as a misleading wrong-password
-message while the password was never checked.
-
-docker-compose.yml gains named volumes, and that is the sharpest fix here:
-it declared none, so every docker compose down destroyed the control plane
-database, the JetStream store and the scheduler leases.
-
-The Helm chart replaces nginx scaffolding: two Deployments, two
-StatefulSets, four liveness and four readiness probes on separate paths,
-per-kind name budgets, non-root throughout. It refuses to render without an
-explicit master encryption key, because a generated one would differ on the
-next helm upgrade and everything stored would become permanently
-undecryptable with no error.
-
-The runner gets a liveness surface driven by its consumer answering, not by
-a ticker, closing FAILURE_PATTERNS 119 with a test that severs a real
-broker under a real runner.
-
-Also corrects a governance rule that was never real: gosec-waivers.json
-demanded zero remaining waivers before this phase and attributed that to
-AGENTS.md, which never said it. Struck at its origin in the Phase 0 policy
-and in the header that copied it.
-
-FAILURE_PATTERNS 119, 122-126. LESSONS_LEARNED 112-114.
-```
-
-### Resuming after a context compaction
-
-Everything needed is on disk; nothing is held only in conversation.
-
-1. **`make ci` is RED**, and this is the result of the re-run the previous version of this
-   sentence asked for, so trust it over any earlier claim. Exactly one test fails:
-   `TestPackagingReleaseGate_KubernetesInstall` in `tests/e2e`. Everything else, including the
-   whole non-integration half and `tests/e2e`'s other cases, passes.
-
-   The failure is at that test's last-but-one assertion,
-   `assertALongReleaseNameStillProducesFourWorkingWorkloads`. Every assertion before it passed
-   against a real cluster: the chart installed, `/readyz` reported its database and broker,
-   `bootstrap-admin` ran through `kubectl exec`, and the runner Deployment reached Available with
-   its in-pod `runner healthcheck` reporting an 8-second-old heartbeat. Then the second install,
-   at a 53-character release name in its own namespace, sat at `Available: 0/1` for its full
-   8-minute budget, after which every `kubectl` and `helm` call returned
-   `connection refused` against the kind API server. The control plane went away mid-test.
-
-   That last detail is what makes the result ambiguous rather than a verdict on the chart. Two
-   candidates, and the log cannot separate them:
-
-   - The cluster was deleted out from under the running test. The gate names its cluster
-     `pleiades-release-gate`, and a cleanup ran `kind delete cluster --name pleiades-release-gate`
-     while this run was still in its integration stage.
-   - The single-node cluster fell over carrying two full releases at once. The long-name case
-     installs a second postgres, nats, controller and runner beside the first, which is still
-     installed at that point. There are no OOM kills in the kernel log, so if this is the cause it
-     is not a host memory ceiling.
-
-   The `connection refused` is evidence for the first: a node under load produces timeouts and
-   `NotReady`, not a refused TCP connect on the API port. Settle it by running the test alone,
-   which is safe: it writes its kubeconfig into its own `t.TempDir()` and passes `KUBECONFIG`
-   explicitly to every command, so it cannot touch `~/.kube/config` or the `desktop` cluster.
-
-   ```
-   go test -tags integration -race -count=1 -timeout 45m ./tests/e2e/ \
-     -run TestPackagingReleaseGate_KubernetesInstall -v
-   ```
-
-   **Resolved.** It passed alone: 259 seconds, all six assertions, and the install that had
-   consumed its full 8-minute budget finished in 67 seconds. The gate is sound and the `make ci`
-   failure was environmental. `FAILURE_PATTERNS` #141 and `LESSONS_LEARNED` #129 record it.
+See the end of this session's report; it is not duplicated here to keep one copy authoritative.
 
 ### The break-glass
 
 `make break-glass` (`tools/breakglass`, `//go:build devtools`) returns the machine to the state
-every test assumes it starts from: no throwaway kind cluster, no compose project holding a
-database from a previous run, no containers left by a test binary killed before its cleanup ran.
+every test assumes it starts from: no throwaway kind cluster, no compose project holding a database
+from a previous run, no containers left by a test binary killed before its cleanup ran.
 
-Reach for it the moment a gate fails in a way that does not match the code you changed. That is
-the failure shape above, and it is not rare: leftover infrastructure never announces itself, it
-surfaces as a test failing at whichever assertion touched the stale state.
+Reach for it the moment a gate fails in a way that does not match the code you changed. Leftover
+infrastructure never announces itself; it surfaces as a test failing at whichever assertion touched
+the stale state (`LESSONS_LEARNED` #129).
 
 - `make break-glass BREAK_GLASS_FLAGS=-n` says what would go and removes nothing.
 - `BREAK_GLASS_FLAGS=-images` also drops the built images, so the next run builds from nothing.
 - `BREAK_GLASS_FLAGS=-force` cleans through the live-run guard, breaking that run.
 
-Two properties it is worth knowing are deliberate. It is **not** `docker system prune`: prune is
-defined by what is unused, which is a fact about the daemon rather than about this repository, so
-it would take the long-lived `desktop` cluster with the same confidence it takes ours. Every
-removal is positively attributed to this repository first and everything else is listed and left.
-And it **refuses while a run is live**, asking whether a testcontainers reaper is running and
-whether a `go test` process has its working directory inside this repository, because cleaning up
-underneath a run is how the tool came to exist. Verified against a genuinely live `make ci`: it
-refused, exited 1, and the gate's cluster survived.
+It refuses while a run is live, and it is not `docker system prune`: every removal is positively
+attributed to this repository first and everything else is listed and left.
 
-The gate's own delete-first is unchanged, so **two concurrent runs still destroy each other**.
-The fix is a per-run cluster name with prefix-matched reclamation, or a liveness check before the
-delete. Neither is written and nobody owns it; `FAILURE_PATTERNS` #141 states both options.
+### Resuming after a context compaction
 
-### The coverage regression the flakes were hiding
+Everything needed is on disk; nothing is held only in conversation.
 
-`make push-gate` reached the ratchet for the first time and failed it: `internal/runner` at
-85.4% against a floor of 86.8. The regression is in this phase's own committed heartbeat work,
-and it had been invisible for three runs because `make ci` stops at its first failure and every
-one of those runs died earlier, at `test-integration`, on container flakes. That is
-`LESSONS_LEARNED` #110 exactly, and it is the reason a red gate must be cleared rather than
-explained: everything behind it is unobserved, not passing.
-
-Three functions were at 0%: `WithHeartbeat`, the option that wires the whole feature into the
-Agent; `detachedValueContext`'s accessors, which are what let a non-interruptible execution
-outlive `Agent.Run`'s shutdown; and `StaleHeartbeatError.Error()`, the message an operator reads
-off a failed probe. `internal/runner/heartbeat_wiring_test.go` covers all three and takes the
-package to 87.4%. The floor was not moved, and `coverage-check` reports 160 packages with none
-below their recorded floor.
-
-Both new tests are negative-controlled by mutating the source and watching them fail. The first
-version of the `WithHeartbeat` test could not fail at all: `liveness` is a concrete `*Heartbeat`,
-so asserting it is nil after `WithHeartbeat(nil)` passes whether or not the guard exists. The
-guard's real contract is about option ORDER, and `LESSONS_LEARNED` #130 records the shape.
-
-**Three separate tests written this session could not fail on first writing**, and source
-mutation caught every one where reading caught none. Treat that as the expected rate, not as a
-run of bad luck.
-2. The one open item that is CODE is `/readyz` single-flight bounding. Phase 20's own item states
-   the design, the measured numbers, and why the write-probe alternative was rejected.
-3. The eight remaining gate items need their written justifications. The evidence for most of them
-   already exists in the tree; what is missing is the prose each gate asks for.
-4. Verify before trusting any claim in this document. Three separate corrections this session were
-   wrong on first writing and were caught by recomputing from source rather than by review.
+1. Read `IMPLEMENTATION.md`'s Phase 38 section. Its 2026-08-16 session note carries the scope
+   re-derivation, all three map corrections, and the primitive decision with its rejected
+   alternatives. The checklist items under it record what each gate was held to.
+2. `pkg/remoteexec`'s package doc explains why it exists and what is deliberately never retried.
+   Read it before writing the next module; it is the shortest path into this design.
+3. `internal/catalog/exec/command.go`'s `Command` doc comment is where the `Changed` contract is
+   written down. Every later module in this tier copies it.
+4. Verify before trusting any claim in this document. The recorded trap about 71 stale signatures
+   was wrong, and it was only settled by making the compiler answer.

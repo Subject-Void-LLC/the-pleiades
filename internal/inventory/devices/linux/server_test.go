@@ -28,6 +28,18 @@ func TestNewServer_BaselineCapabilities(t *testing.T) {
 	if item.HasCapability(capability.NameApt) {
 		t.Error("expected no capability beyond the vendor baseline with no classification data")
 	}
+
+	// ShellExecCapable is the narrower of the two exec capabilities, and
+	// declaring it must satisfy a method requiring the broader
+	// CommandExecCapable through capability.Resolves. exec.command
+	// requires exactly that, so this is what makes a Linux server a legal
+	// target for it.
+	if !item.HasCapability(capability.NameShellExec) {
+		t.Error("expected the vendor baseline to include ShellExecCapable")
+	}
+	if !item.HasCapability(capability.NameCommandExec) {
+		t.Error("expected declaring ShellExecCapable to also satisfy CommandExecCapable, which exec.command requires")
+	}
 }
 
 // TestNewServer_UnionsClassificationCapabilities mirrors
@@ -75,10 +87,12 @@ func TestServer_Accessors(t *testing.T) {
 		Name: "s1",
 		Type: "linux_server",
 		Properties: map[string]inventory.PropertyValue{
-			"host":           "10.0.0.2",
-			"port":           2222,
-			"kernel_version": "6.6.1",
-			"distribution":   "ubuntu",
+			"host":              "10.0.0.2",
+			"port":              2222,
+			"kernel_version":    "6.6.1",
+			"distribution":      "ubuntu",
+			"working_directory": "/srv/app",
+			"shell":             "/bin/bash",
 		},
 	}
 	item, err := linux.NewServer(rec)
@@ -101,6 +115,37 @@ func TestServer_Accessors(t *testing.T) {
 	}
 	if got := server.Distribution(); got != "ubuntu" {
 		t.Errorf("Distribution() = %q, want %q", got, "ubuntu")
+	}
+	if got := server.WorkingDirectory(); got != "/srv/app" {
+		t.Errorf("WorkingDirectory() = %q, want %q", got, "/srv/app")
+	}
+	if got := server.ShellPath(); got != "/bin/bash" {
+		t.Errorf("ShellPath() = %q, want %q", got, "/bin/bash")
+	}
+}
+
+// TestServer_ExecAccessorDefaults proves the two accessors added for the
+// exec capabilities behave sensibly on a device whose inventory entry
+// says nothing about either.
+//
+// The two defaults differ on purpose. /bin/sh is the POSIX-guaranteed
+// path every distribution ships, so it is a real answer. There is no
+// equivalent real answer for a working directory: a hardcoded /root or
+// /home/<user> would be wrong for most accounts and would silently move
+// where a relative path resolves, so an empty string, meaning "wherever
+// this account lands on login," is the only correct default.
+func TestServer_ExecAccessorDefaults(t *testing.T) {
+	item, err := linux.NewServer(record.Record{ID: "s1", Name: "s1", Type: "linux_server"})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	server := item.(*linux.Server)
+
+	if got := server.WorkingDirectory(); got != "" {
+		t.Errorf("WorkingDirectory() = %q, want an empty string when the inventory entry sets none", got)
+	}
+	if got := server.ShellPath(); got != "/bin/sh" {
+		t.Errorf("ShellPath() = %q, want the POSIX default %q", got, "/bin/sh")
 	}
 }
 

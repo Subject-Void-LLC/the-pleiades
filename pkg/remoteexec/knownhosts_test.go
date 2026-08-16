@@ -1,4 +1,4 @@
-package ssh
+package remoteexec
 
 import (
 	"crypto/ed25519"
@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -136,15 +137,64 @@ func TestHostKeyCallback_InsecureSkipBypassesVerification(t *testing.T) {
 	}
 }
 
-// TestHostKeyCallback_EmptyPathFailsClosed proves that hostKeyCallback
-// itself never resolves $HOME (that is applyDefaults's job in ssh.go,
-// run once before opts ever reaches here); given an empty
-// KnownHostsPath directly, it fails closed with a clear error rather
-// than panicking or silently trusting anything.
-func TestHostKeyCallback_EmptyPathFailsClosed(t *testing.T) {
-	_, err := hostKeyCallback(Options{KnownHostsPath: ""})
+// TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory proves an
+// unset KnownHostsPath means "$HOME/.ssh/known_hosts", resolved here on
+// every connection rather than once when a Runner is built.
+//
+// Resolving it late is what lets Shared memoize a Runner without also
+// freezing whichever home directory happened to be set first, and what
+// lets a file written after construction still count.
+func TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// With no file there yet, the resolved path must fail closed and the
+	// error must name where it looked, so an operator can act on it.
+	_, err := hostKeyCallback(Options{})
 	if err == nil {
-		t.Fatal("expected an error for an empty known_hosts path, got nil")
+		t.Fatal("expected an error when $HOME has no known_hosts file yet, got nil")
+	}
+	if !strings.Contains(err.Error(), filepath.Join(home, ".ssh", "known_hosts")) {
+		t.Errorf("error = %v, want it to name the path it resolved under $HOME", err)
+	}
+
+	// Writing the file afterward is enough: nothing cached the earlier
+	// failure.
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("creating %s: %v", sshDir, err)
+	}
+	signer := generateTestHostKey(t)
+	line := knownhosts.Line([]string{"late.test:22"}, signer.PublicKey())
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("writing known_hosts: %v", err)
+	}
+
+	cb, err := hostKeyCallback(Options{})
+	if err != nil {
+		t.Fatalf("hostKeyCallback after the file appeared: %v", err)
+	}
+	if err := cb("late.test:22", fakeRemoteAddr{s: "203.0.113.13:22"}, signer.PublicKey()); err != nil {
+		t.Errorf("expected the newly written entry to be honored, got: %v", err)
+	}
+}
+
+// TestHostKeyCallback_UnresolvableHomeFailsClosed proves that when there
+// is no configured path AND no home directory to fall back on, the
+// result is a clear refusal rather than a path that cannot exist being
+// reported as a missing file, which would send a reader looking for a
+// file they were never going to find.
+func TestHostKeyCallback_UnresolvableHomeFailsClosed(t *testing.T) {
+	// os.UserHomeDir reads $HOME on this platform and errors when it is
+	// empty, which is the sandboxed-environment case Options documents.
+	t.Setenv("HOME", "")
+
+	_, err := hostKeyCallback(Options{})
+	if err == nil {
+		t.Fatal("expected an error when no known_hosts path is configured and no home directory can be determined")
+	}
+	if !strings.Contains(err.Error(), "home directory") {
+		t.Errorf("error = %v, want it to name the unresolvable home directory rather than a missing file", err)
 	}
 }
 
@@ -152,3 +202,24 @@ func TestHostKeyCallback_EmptyPathFailsClosed(t *testing.T) {
 // fakeRemoteAddr, since ssh.HostKeyCallback's signature requires a real
 // net.Addr.
 var _ net.Addr = fakeRemoteAddr{}
+
+// TestHostKeyCallback_UnstatableFileIsReported covers the branch between
+// "the file is missing" and "the file parsed": a path that cannot be
+// stat'd for some other reason must say so rather than be reported as a
+// missing file, since the two need different fixes.
+func TestHostKeyCallback_UnstatableFileIsReported(t *testing.T) {
+	// A path whose parent is a regular file, so stat fails with
+	// ENOTDIR rather than ENOENT.
+	notADir := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatalf("creating %s: %v", notADir, err)
+	}
+
+	_, err := hostKeyCallback(Options{KnownHostsPath: filepath.Join(notADir, "known_hosts")})
+	if err == nil {
+		t.Fatal("expected an unstatable known_hosts path to be refused")
+	}
+	if !strings.Contains(err.Error(), "stat known_hosts file") {
+		t.Errorf("error = %v, want it to report the stat failure rather than a missing file", err)
+	}
+}

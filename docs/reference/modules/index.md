@@ -11,7 +11,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `archive` | 2 | 0 |
 | `cloud` | 4 | 0 |
 | `container` | 3 | 0 |
-| `exec` | 2 | 0 |
+| `exec` | 2 | 1 |
 | `facts` | 1 | 0 |
 | `file` | 11 | 0 |
 | `fs` | 2 | 0 |
@@ -24,7 +24,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 0 |
 | `wait` | 2 | 0 |
 | `win` | 2 | 0 |
-| **total** | **76** | **5** |
+| **total** | **76** | **6** |
 
 ## All methods
 
@@ -39,7 +39,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.docker.remove](container/docker/remove.md) | declared | Removes a Docker container from the target. |
 | [container.docker.run](container/docker/run.md) | declared | Runs a Docker container on the target. |
 | [container.docker.stop](container/docker/stop.md) | declared | Stops a running Docker container on the target. |
-| [exec.command](exec/command.md) | declared | Runs one command directly, with no shell involved. |
+| [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | declared | Runs a command through the target's shell, so pipes and redirects work. |
 | [facts.gather](facts/gather.md) | declared | Gathers baseline system facts from the target (OS, kernel, distribution). |
 | [file.block.remove](file/block/remove.md) | declared | Removes a marked, multi-line block of text from a file. |

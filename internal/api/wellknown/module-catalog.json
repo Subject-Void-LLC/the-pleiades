@@ -128,9 +128,103 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "doc": {
-      "summary": "Runs one command directly, with no shell involved."
+      "summary": "Runs one command directly, with no shell involved.",
+      "description": "Runs a single command on the target over SSH and reports its exit status, stdout and stderr. No shell interprets the command: a semicolon, pipe or dollar sign in an argument is passed through as text, so this cannot chain commands, expand a variable or redirect output. Use exec.shell when those are what you want. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like, and a run they short-circuit reports no change.",
+      "params": [
+        {
+          "name": "cmd",
+          "type": "string",
+          "description": "The command and its arguments as one string, split the way a shell splits a command line: whitespace separates arguments, and single quotes, double quotes and backslashes group them. Mutually exclusive with argv."
+        },
+        {
+          "name": "argv",
+          "type": "list of string",
+          "description": "The command and its arguments already split, one element each. Preferred when an argument contains characters whose quoting would be awkward to write. Mutually exclusive with cmd."
+        },
+        {
+          "name": "chdir",
+          "type": "string",
+          "description": "Change into this directory before running, and resolve a relative creates or removes against it too. The command does not run at all if the directory does not exist. Defaults to the device's own working directory, or to wherever the account lands on login."
+        },
+        {
+          "name": "creates",
+          "type": "string",
+          "description": "A path whose existence on the target means this work is already done. When it exists, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."
+        },
+        {
+          "name": "removes",
+          "type": "string",
+          "description": "A path whose absence on the target means this work is already done. When it is missing, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."
+        },
+        {
+          "name": "stdin",
+          "type": "string",
+          "description": "Text piped to the command's standard input."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "rc",
+          "type": "int",
+          "returned": "always",
+          "description": "The command's exit status. Zero when it succeeded, and 0 for a run that creates or removes skipped."
+        },
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the command wrote to standard output, with the trailing newline removed."
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the command wrote to standard error, with the trailing newline removed."
+        },
+        {
+          "name": "cmd",
+          "type": "string",
+          "returned": "always",
+          "description": "The exact command line sent to the device, empty for a skipped run."
+        },
+        {
+          "name": "skipped",
+          "type": "bool",
+          "returned": "always",
+          "description": "True when creates or removes short-circuited this task, so no command ran."
+        },
+        {
+          "name": "msg",
+          "type": "string",
+          "returned": "on skip",
+          "description": "Why the task was skipped."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Run a command and register its output",
+          "runbookYaml": "- name: Read the kernel version\n  fqcn: exec.command\n  params:\n    cmd: uname -r\n  register: kernel\n"
+        },
+        {
+          "name": "Make a command idempotent with creates",
+          "runbookYaml": "- name: Unpack the release once\n  fqcn: exec.command\n  params:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n"
+        },
+        {
+          "name": "Pass an argument that a shell would mangle",
+          "runbookYaml": "- name: Write a literal value\n  fqcn: exec.command\n  params:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n"
+        }
+      ],
+      "seeAlso": [
+        "exec.shell"
+      ]
     }
   },
   "exec.shell": {

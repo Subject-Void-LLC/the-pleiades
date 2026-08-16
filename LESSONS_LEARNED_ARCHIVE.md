@@ -2457,3 +2457,157 @@ Ask what the assertion is anchored to, and whether that anchor is part of the th
 it is not, the fix is not to widen the bound until both environments fit, which is how a gate becomes
 decoration, but to re-anchor it or to delete it in favour of whatever was already measuring the real
 property.
+
+132. **A layering rule that forbids reaching for shared code owes that code a home on the allowed
+side of the line, and the debt comes due as a duplicated security control rather than as
+duplicated convenience.**
+
+**The incident.** `internal/archtest`'s `TestCatalogPackagesImportOnlyPkg` forbids a Collection
+package from importing anything in this module outside `pkg/`. That rule is correct: it is the
+constraint a third-party Collection will have to satisfy, and a built-in that quietly reached
+into `internal/` would be proving a pattern nobody outside this repository can follow. But
+nothing under `pkg/` did SSH, so the one SSH-backed Collection wrote its own dial, its own
+authentication and its own host key verification, and its own doc comment recorded that it had
+therefore lost the circuit breaker and the retry the transport layer already had.
+
+**Why the shape matters.** The duplication that a missing shared home produces is not random. It
+is exactly the code nobody wants to write twice, which is exactly the code that is hard enough to
+be worth centralizing: the retry policy, the breaker, the fail-closed check. Convenience code
+gets rewritten cheaply and correctly. A second implementation of host key verification is one
+implementation and one liability, and the second one is always the one nobody reviews as hard.
+
+**The general shape.** When a layering rule blocks an import, ask what the blocked caller was
+reaching for. If the answer is a mechanism rather than a detail, the rule has created an
+obligation to put that mechanism where both sides can reach it, and the obligation is due before
+the second caller arrives, not after twenty of them have each solved it privately. Moving it is
+better than copying it: `internal/transport/ssh` kept its port identity and became a thin adapter
+over `pkg/remoteexec`, which is what let its container tests against a real, independent sshd
+pass unchanged and prove the move preserved behavior.
+
+133. **A comment explaining that something is empty "because nothing needs it yet" is a
+dependency between two future changes with nothing to enforce it, and the feature that needs it
+will not read the comment.**
+
+**The incident.** `cmd/pleiades/run.go` handed every Collection method an empty secret set, with
+a comment saying so: "which is empty here because no method in the catalog needs a device secret
+yet." That was true when written. It stopped being true the moment `net.ssh.ping` landed, and
+nothing linked the two. The result was that `pleiades run` could not run any credential-needing
+Collection method at all, failing with an authentication error against a device whose credential
+was on disk, and the failure sat there through an entire phase because the only tests that
+exercised those methods called them directly rather than through the CLI.
+
+**Why the comment made it worse rather than better.** A reader who found the failure would reach
+the comment and read a justification, not a gap. The comment described a state of the world
+instead of an obligation, so it aged into an explanation for a bug.
+
+**The general shape.** When a composition root deliberately supplies nothing, write down what
+must happen before the first real consumer arrives, and prefer a mechanism to a sentence: a
+failing test named for the missing wiring, or a refusal at construction. Where neither fits, at
+least state it as a future obligation ("the first method needing a credential must wire the store
+in here") rather than as a present fact, so the next reader sees a task instead of a rationale.
+
+134. **When two copies of a value are unavoidable, the test comparing them is what makes the
+duplication safe, and it belongs in the same change that creates the second copy.**
+
+**The incident.** A Collection method's documentation lives twice: once in
+`internal/forge/catalogdata`, the data the Forge is driven from, and once in the generated file,
+because the scaffold template only emits `Doc.Summary` and everything else is hand-written
+afterward. Nothing compared them. Writing the comparison while adding a third such method found
+that two already-shipped methods had drifted: both carried an Example the catalog data did not
+have. The visible cost was not stale prose. A regeneration would have silently dropped those
+Examples, and the documentation generator's own completeness gate requires an Example on an
+implemented method, so a from-scratch regeneration would have produced a tree that failed its own
+gate for a reason nothing in the diff explained.
+
+**The general shape.** "These two must stay in step" is either a test or a wish. Note also what
+the test is worth beyond preventing drift: it found two existing defects on its first run, which
+is the usual return on writing the comparison late rather than never. Compare field by field
+rather than with a whole-struct equality, so the failure names which field moved instead of
+printing two thirty-line literals and leaving the reader to diff them.
+
+135. **A guard duplicated for defense in depth hides its own coverage: mutating one copy changes
+no test outcome, so the earlier copy looks redundant right up until somebody deletes it.**
+
+**The incident.** `pkg/remoteexec` consults its circuit breaker twice, once in `Connect` before
+any other work and once inside the dial retry loop. A source-mutation pass over the new tests
+found that removing the check in `Connect` broke nothing: the loop's own check produced the same
+"circuit open" error, so every assertion still passed. The earlier check is not redundant. It is
+what makes the doc comment's promise true, that an open circuit costs zero work, since without it
+the host key source is loaded and parsed before the refusal.
+
+**The fix that generalizes.** The test that pins it does not assert the error text, which both
+copies produce. It arranges for the later path to be unreachable in a distinguishable way, an
+open circuit plus a known_hosts path that does not exist, and asserts the error is about the
+circuit rather than about host key verification. The general form is: to cover the earlier of two
+identical guards, make the work between them fail loudly, and assert that failure did not happen.
+
+**Why this class is easy to miss.** Reading the code, both checks look necessary and the tests
+look thorough. Only mutation exposes it, and only mutation of each copy separately. A pass that
+removes both at once sees a failure and concludes, wrongly, that both are covered.
+
+**Correction, same session, and it inverts the conclusion above.** An adversarial review then
+found that the two calls were not merely uncovered, they were a defect. `Allow` is not a query:
+on an open circuit whose cooldown has elapsed it hands out the single half-open probe and mutates
+the state to record that it did. The first call took the probe and did not dial; the second saw a
+probe in flight and refused; nothing dialed, so nothing recorded an outcome, and the state never
+left half-open. A device that was briefly down became permanently unreachable for the life of the
+process. The defect predated this work in `internal/transport/ssh` and was carried into a
+`pkg/` primitive with three callers, which is what made it worth finding.
+
+So the covering test above was real and the reasoning under it was half right. What the mutation
+pass actually established was that the two calls were indistinguishable to every test, and the
+right response to that was to ask why there were two, not to write a test that made the pair look
+deliberate. **The stronger rule: when a mutation shows two guards are indistinguishable, suspect
+the duplication before you defend it, and check whether the shared call has a side effect.** A
+pure predicate can safely be asked twice. A transaction cannot, and "Allow" reads like a
+predicate.
+
+136. **A test that cannot fail against the defect it names is worse than no test, and only
+restoring the broken code proves which one you wrote.**
+
+**The incident.** A defect in how standard input was piped to a remote command turned successful
+commands into opaque failures. The regression test was written first in the package that owns the
+code, against an in-process SSH server. It passed. It also passed against the broken version,
+because the in-process handler never developed the timing that produces the failure: a real
+/bin/sh with real os/exec plumbing between the channel and the process is what makes the remote
+close the channel while the copy is still writing. The working test had to live in a different
+package, one layer up, where a real shell is on the far end.
+
+**The general shape.** Put the regression test where it demonstrably fails, even when that is not
+where the code lives, and say in the comment why it is there. Then leave the contract test in the
+owning package if it is worth having, but do not let its comment claim to be the regression proof.
+The only way to know which one you wrote is to restore the broken code and watch.
+
+137. **Quoting stops word splitting and expansion; it does not stop option parsing.**
+
+**The incident.** A module built `cd '<dir>' && <command>` with the directory correctly
+single-quoted, which defeats every injection the quoting was there for. It does not defeat `cd`'s
+own argument parsing: `cd '-P'` is identical to `cd -P`, which is a valid flag with no operand, so
+`cd` succeeds into the home directory and the command then runs somewhere the author never named,
+reporting success. The `&&` that was already there to stop a bad directory could not help, because
+`cd` had not failed.
+
+**The general shape.** Every value interpolated as an operand needs `--` before it as well as
+quotes around it. Test it both ways: that a dash-named value is refused, and that a directory
+genuinely named `-P` still works, since "make everything with a dash fail" is a different and
+also wrong fix.
+
+138. **A guard and the work it guards must resolve relative paths in the same place, or the guard
+is decoration.**
+
+**The incident.** A module ran its command under a working directory and checked its idempotence
+predicate without one, so a relative `creates` was evaluated wherever the account happened to log
+in. The `creates` case is a silent no-op: the guard never fires and the command re-runs forever,
+which is merely wrong. The `removes` case is worse. The check looked in the login directory, found
+nothing, concluded the work was already done, and skipped the task, leaving the file it was
+supposed to delete sitting untouched while the run reported success.
+
+**The second half of the rule.** Once the check runs under a directory, "I could not enter that
+directory" becomes a third possible answer, and it must not collapse into "the path is not there."
+Collapsing them puts the failure back: a `removes` guard reads an unenterable directory as an
+absence and skips. The fix is a distinct exit status the caller can tell apart, and an error
+rather than a boolean when it appears.
+
+**The general shape.** Whenever a predicate and an action are computed separately, list the
+context each one depends on and check that both get the same. And when a predicate can fail to
+evaluate, that is a third outcome, never a default to either answer.

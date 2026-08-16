@@ -18,6 +18,8 @@
 package archtest
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -350,5 +352,80 @@ func TestViewsAreCoherent(t *testing.T) {
 		if d.ListsRecords() && !fieldNames[d.IDField] {
 			t.Errorf("view %q lists records keyed on %q, which is not one of its fields", name, d.IDField)
 		}
+	}
+}
+
+// TestCatalogDataDocsMatchTheRegistry proves each entry in
+// internal/forge/catalogdata carries the same Doc the corresponding
+// package actually registered.
+//
+// The two are unavoidably separate copies. catalogdata is the source
+// `forge new-collection` is driven from, but the generator only ever
+// emits Doc.Summary (collectionscaffold's template), and the rest of a
+// real method's documentation is written by hand into the generated file
+// afterward. Nothing checked that the hand-written half matched what
+// catalogdata says it should be, so a Doc could be edited in one place
+// and silently disagree with the other. The disagreement is invisible
+// until somebody regenerates the catalog from scratch, at which point
+// the documentation quietly reverts.
+//
+// Equality is the right invariant rather than "catalogdata is a subset,"
+// because catalogdata's own doc comment states the rule: editing the
+// catalog means editing that data, never hand-editing the output.
+func TestCatalogDataDocsMatchTheRegistry(t *testing.T) {
+	if len(catalogdata.Collections) == 0 {
+		t.Fatal("catalogdata registered no collections, so this test proved nothing")
+	}
+
+	var checked int
+	for _, cfg := range catalogdata.Collections {
+		desc, ok := collection.Lookup(cfg.Name)
+		if !ok {
+			// TestEveryCatalogDataEntryIsRegistered is what owns this
+			// failure; reporting it twice would only make one problem look
+			// like two.
+			continue
+		}
+		checked++
+
+		if diff := describeDocDiff(cfg.Doc, desc.Manifest.Doc); diff != "" {
+			t.Errorf("%s: catalogdata and the registered manifest disagree: %s", cfg.Name, diff)
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("no catalogdata entry resolved in the registry, so this test proved nothing")
+	}
+}
+
+// describeDocDiff returns a human-readable description of the first way
+// two Docs differ, or the empty string when they match.
+//
+// It compares field by field rather than with reflect.DeepEqual on the
+// whole struct so a failure says which field drifted, which is the
+// difference between a one-line fix and re-reading two thirty-line
+// literals side by side.
+func describeDocDiff(want, got collection.Doc) string {
+	switch {
+	case want.Summary != got.Summary:
+		return fmt.Sprintf("Summary: catalogdata has %q, the manifest has %q", want.Summary, got.Summary)
+	case want.Description != got.Description:
+		return fmt.Sprintf("Description: catalogdata has %q, the manifest has %q", want.Description, got.Description)
+	case want.SinceVersion != got.SinceVersion:
+		return fmt.Sprintf("SinceVersion: catalogdata has %q, the manifest has %q", want.SinceVersion, got.SinceVersion)
+	case want.Deprecated != got.Deprecated:
+		return fmt.Sprintf("Deprecated: catalogdata has %q, the manifest has %q", want.Deprecated, got.Deprecated)
+	case !reflect.DeepEqual(want.Params, got.Params):
+		return fmt.Sprintf("Params: catalogdata has %d entr(ies), the manifest has %d, and they are not identical", len(want.Params), len(got.Params))
+	case !reflect.DeepEqual(want.Fragments, got.Fragments):
+		return fmt.Sprintf("Fragments: catalogdata has %v, the manifest has %v", want.Fragments, got.Fragments)
+	case !reflect.DeepEqual(want.Returns, got.Returns):
+		return fmt.Sprintf("Returns: catalogdata has %d entr(ies), the manifest has %d, and they are not identical", len(want.Returns), len(got.Returns))
+	case !reflect.DeepEqual(want.Examples, got.Examples):
+		return fmt.Sprintf("Examples: catalogdata has %d entr(ies), the manifest has %d, and they are not identical", len(want.Examples), len(got.Examples))
+	case !reflect.DeepEqual(want.SeeAlso, got.SeeAlso):
+		return fmt.Sprintf("SeeAlso: catalogdata has %v, the manifest has %v", want.SeeAlso, got.SeeAlso)
+	default:
+		return ""
 	}
 }

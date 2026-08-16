@@ -6,7 +6,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // collectionActionExecutor runs a task whose FQCN names a registered
@@ -30,9 +29,9 @@ type collectionActionExecutor struct {
 
 	// newContext builds the sdk.RunbookContext a method is handed. It is a
 	// field rather than a hardcoded constructor so a caller can supply one
-	// that captures emitted facts, which is what a real run needs and what
-	// tests assert against.
-	newContext func(device inventory.InventoryItem) sdk.RunbookContext
+	// that captures emitted facts and resolves the device's secrets, which
+	// is what a real run needs and what tests assert against.
+	newContext RunbookContextFunc
 
 	// invoke, when non-nil, replaces how a resolved, StatusImplemented
 	// method's body actually runs; see CollectionInvoker's own doc comment.
@@ -71,7 +70,7 @@ func WithCollectionInvoker(invoke CollectionInvoker) CollectionActionExecutorOpt
 //
 // Pass NewBuiltinActionExecutor() as fallback to keep the engine keywords
 // working, which is what the composition root does.
-func NewCollectionActionExecutor(fallback ActionExecutor, newContext func(inventory.InventoryItem) sdk.RunbookContext, opts ...CollectionActionExecutorOption) ActionExecutor {
+func NewCollectionActionExecutor(fallback ActionExecutor, newContext RunbookContextFunc, opts ...CollectionActionExecutorOption) ActionExecutor {
 	e := &collectionActionExecutor{fallback: fallback, newContext: newContext}
 	for _, opt := range opts {
 		opt(e)
@@ -109,7 +108,16 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		return ActionResult{Changed: result.Changed, Stats: stats}, nil
 	}
 
-	rc := e.newContext(device)
+	// Building the context is where a device's secrets are resolved, so a
+	// failure here is a real one (an unreadable credential store, a wrong
+	// master key) and is reported rather than degraded into an empty
+	// secret set. A device that simply has no stored credential is not a
+	// failure and never reaches this branch; see NewCredentialRunbookContext.
+	rc, err := e.newContext(ctx, device)
+	if err != nil {
+		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+	}
+
 	result, err := desc.Invoke(ctx, rc, device, task.Params)
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)

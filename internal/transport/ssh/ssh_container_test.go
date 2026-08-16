@@ -251,7 +251,7 @@ func TestSSHContainer_HostKeyVerification(t *testing.T) {
 		},
 		Timeout: 5 * time.Second,
 	}
-	bootstrapClient, err := realDial(context.Background(), addr, recordingConfig)
+	bootstrapClient, err := ssh.Dial("tcp", addr, recordingConfig)
 	if err != nil {
 		t.Fatalf("bootstrap dial to capture the real host key failed: %v", err)
 	}

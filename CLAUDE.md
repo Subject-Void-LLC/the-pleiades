@@ -58,8 +58,12 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
 - **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
-  Center) and `net.ssh.ping` are implemented.** Everything else returns an explicit "declared
-  but not implemented" error rather than a silent no-op.
+  Center), `net.ssh.ping` and `exec.command` are implemented.** Everything else returns an
+  explicit "declared but not implemented" error rather than a silent no-op. `exec.command`
+  is the first write-capable method and the first built on `pkg/remoteexec`, the shared SSH
+  execution primitive a Collection may import (a Collection may import only `pkg/`, so
+  `internal/transport/ssh` is unreachable from one and is now a thin adapter over the same
+  primitive).
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.

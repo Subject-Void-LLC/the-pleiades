@@ -173,14 +173,16 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 76 declared methods across 16 namespaces; 5 are
+**The module catalog has 76 declared methods across 16 namespaces; 6 are
 implemented.** Every FQCN is registered and reachable through the real dispatcher:
 calling one produces an explicit `"declared but not implemented"` refusal rather than
 a silent no-op or a fabricated success, whether the call comes from the CLI, the
 Controller, or a runner. The four `net.catalyst.*` methods, against Cisco Catalyst
-Center's REST API, and `net.ssh.ping`, against any SSH-reachable device, are real
-today. See the [module catalog](reference/modules/index.md) for every method, by
-namespace.
+Center's REST API, plus `net.ssh.ping` and `exec.command`, against any SSH-reachable
+device, are real today. `exec.command` is the first method that changes anything:
+it runs a command with no shell interpreting it, and `creates`/`removes` are what
+make a task built on it idempotent. See the
+[module catalog](reference/modules/index.md) for every method, by namespace.
 
 **Plan-time capability checking covers two legacy action names, not the catalog.**
 `pleiades validate` compares a task's required capability against its target device

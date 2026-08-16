@@ -124,25 +124,32 @@ func runRunbook(args []string) error {
 		return fmt.Errorf("transport bindings misconfigured: %w", err)
 	}
 
+	// One credential store, read by both halves of the chain below.
+	//
+	// It used to be constructed inline for the transport executor alone,
+	// and the Collection executor got engine.NewDeviceRunbookContext,
+	// which resolves nothing. That made every credential-needing
+	// Collection method unusable from this CLI: net.ssh.ping failed with
+	// "no usable authentication method" and net.catalyst.* with "no
+	// username secret available", against a device whose credential was
+	// sitting in .pleiades/credentials.yaml the whole time. The Crawl tier
+	// never had that gap, because the Controller attaches the credential
+	// to the dispatch payload.
+	credentials := credential.NewLazyFileStore(*dir)
+
 	// The executor chain, innermost fallback last: a registered Collection
 	// method wins, then a transport-backed legacy fqcn, then the two engine
 	// keywords. Ordering matters only in that the Collection registry is
 	// consulted first, which is what makes the generated catalog reachable
 	// at all; the two layers underneath it are namespaced-free fqcn values
 	// the registry has never heard of, so they cannot collide.
-	//
-	// Credentials are resolved per device by the transport layer below.
-	// A Collection method receives them through its RunbookContext, which
-	// is empty here because no method in the catalog needs a device secret
-	// yet: net.catalyst.* authenticates to a controller, and wiring that
-	// through is the next thing this chain grows.
 	actionExecutor := engine.NewCollectionActionExecutor(
 		engine.NewTransportActionExecutor(
 			bindings,
-			credential.NewLazyFileStore(*dir),
+			credentials,
 			engine.NewBuiltinActionExecutor(),
 		),
-		engine.NewDeviceRunbookContext,
+		engine.NewCredentialRunbookContext(credentials),
 	)
 
 	executor := engine.NewExecutor(
