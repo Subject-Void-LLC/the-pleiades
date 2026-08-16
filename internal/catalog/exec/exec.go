@@ -114,11 +114,24 @@ func connect(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 // which is what a person running the same command by hand would get.
 //
 // The capability read is optional rather than a hard type assertion on
-// purpose. Admission has already checked that the device declares
-// CommandExecCapable, but the Runner's own device adapter carries a
-// declared capability list without the accessors behind it, so requiring
-// the accessor here would refuse a dispatch that the Controller
-// correctly admitted.
+// purpose, and the reason is worth stating accurately because an earlier
+// version of this comment stated it wrongly.
+//
+// It is NOT that admission already checked the device declares
+// CommandExecCapable. Nothing checks that. A Manifest's
+// RequiredCapabilities is read by the documentation generators and by
+// registration's name-exists check, and by no run-time gate on either
+// tier: the Controller's admission consults engine.ActionCapability,
+// which is a two-entry table naming only ssh_exec and ios_backup, so a
+// runbook of Collection tasks dispatches with no capability requirement
+// at all. That gap is real and is recorded rather than papered over.
+//
+// The reason is the second one, which does hold: the Runner's own device
+// adapter carries a declared capability list with no accessors behind
+// it, so a hard assertion here would refuse a dispatch at the far end of
+// a network hop with a message about a Go interface. An absent working
+// directory is a perfectly good answer, so asking is better than
+// demanding.
 func workingDirectory(device inventory.InventoryItem, params map[string]any) string {
 	if dir := stringParam(params, paramChdir); dir != "" {
 		return dir

@@ -4387,3 +4387,65 @@ goroutine is reaped by a `WaitGroup` deferred to run after the session close tha
 against the broken version, because an in-process handler never develops the same timing. Only
 restoring the broken code showed that, and the working test had to live a layer up, against a
 real shell. `LESSONS_LEARNED.md` #136.
+
+## 150. The shipped runner container sets no HOME, so every SSH Collection method fails host key verification unless the task opts out
+
+**Symptom.** In the published runner image, any Collection method that opens an SSH connection
+fails at `Connect` with "no known_hosts path configured and the home directory could not be
+determined", before any dial. The only way to make one work is
+`insecure_skip_host_key_verify: true`, which means the escape hatch is not an edge case in
+production, it is the only path that runs.
+
+**Root cause.** Host key verification resolves `$HOME/.ssh/known_hosts` when no path is
+configured, and Go's `os.UserHomeDir` on Linux reads `$HOME` and errors when it is empty; it does
+not consult `/etc/passwd`. `Dockerfile.runner` sets `WORKDIR /app` and `USER 65532:65532` on a
+distroless base and no `ENV HOME`, and `docker-compose.yml` sets none either. Nothing supplies a
+known_hosts file to the container in the first place, so even with `HOME` set the file would be
+absent.
+
+**Why no test caught it.** Every SSH release gate manufactures the affordance it is testing
+against: `cmd/runner/ssh_mesh_release_gate_test.go` and `cmd/pleiades/ssh_release_gate_test.go`
+both set `HOME` to a temp directory and write a real known_hosts into it, which is right for
+proving verification works and is exactly what hides the fact that the shipped image provides
+neither. The gate proves the mechanism; nothing proves the deployment supplies its inputs.
+
+**Fix.** Not applied. It is a packaging change with a real design question inside it: where a
+runner's known_hosts comes from, given the runner is stateless and the fleet it dials is decided
+at dispatch time. Recorded as the highest-priority item before the next SSH-backed module ships,
+because every module added between now and then inherits it.
+
+**Lesson.** A fail-closed default is only as good as the deployment's ability to satisfy it. When
+a test sets up the thing production is supposed to provide, it has stopped testing whether
+production provides it, and the honest place to notice that is the packaging, not the test.
+
+## 151. Every Collection manifest declares a required capability that nothing enforces at run time
+
+**Symptom.** `exec.command` declares `RequiredCapabilities: [CommandExecCapable]` and will run
+against any SSH-reachable device, including a Cisco switch. The same is true of every method in
+the catalog.
+
+**Root cause.** `Manifest.RequiredCapabilities` has no run-time reader. The Controller's admission
+path consults `engine.ActionCapability`, a two-entry table naming only `ssh_exec` and
+`ios_backup`, so a runbook of Collection tasks is dispatched with an empty requirement set and
+`CapabilityAdmits` loops zero times. The Walk tier's `collectionActionExecutor` checks status and
+nothing else, and `internal/validate`'s capability rule keys off the same two-entry table. The
+field is read by the documentation generators, by registration's name-exists check, and by
+`internal/archtest`. That is all.
+
+**How it was found, which is the part worth keeping.** Not by reading the field's definition,
+which says plainly what it is for, but by a reviewer tracing what a comment claimed. A comment in
+freshly written code asserted "admission has already checked that the device declares
+CommandExecCapable" as the justification for an optional type assertion. The assertion was the
+right shape for a different reason; the stated reason was false. It is now corrected in place,
+which is the only reason this entry exists at all.
+
+**Fix.** Not applied. The gap is a design decision, not an oversight to patch: enforcing manifest
+capabilities means deciding what happens on the Runner, whose device adapter reports capabilities
+as a membership test with no structural check, and where a static Go method set cannot express a
+per-device capability set. `docs/03-migrating-from-ansible.md` already tells users the capability
+column is documentation rather than a check, so the product is not lying to anyone; the code
+comments were.
+
+**Lesson.** A declared constraint with no enforcement is a comment, and it will be cited as a
+guarantee by the next person who writes code near it. Either enforce it or say in the field's own
+doc comment that nothing does.

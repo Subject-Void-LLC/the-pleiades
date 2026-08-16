@@ -150,6 +150,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 147. The idempotence guard looked in a different directory from the command it guarded
 148. A quoted directory beginning with a dash was parsed as a cd option, so the command ran in the home directory
 149. A large standard input a remote command never read turned a successful command into an opaque failure
+150. The shipped runner container sets no HOME, so every SSH Collection method fails host key verification unless the task opts out
+151. Every Collection manifest declares a required capability that nothing enforces at run time
 
 ---
 

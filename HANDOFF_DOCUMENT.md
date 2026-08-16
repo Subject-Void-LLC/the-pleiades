@@ -135,22 +135,159 @@ executor level, which is an engine change with its own blast radius.
 
 ### Next
 
-`exec.shell` is the cheapest next module: same package, same helpers, and the only real difference
-is that it deliberately does send the command to a shell, so its Doc has to be honest about the
-tradeoff and its capability is `ShellExecCapable`. After that `file.copy` and `file.directory`,
-which will need `remoteexec.Conn.RunWithStdin` (already built and tested for exactly this) and a
-checksum comparison for idempotence. `svc.systemd.*` and `pkg.apt.*` need a different container:
-the openssh-server image is Alpine with no systemd and no apt, so their release gates need a
-Debian-based sshd image, and `internal/testsupport` is where that pin belongs.
+**`IMPLEMENTATION.md`'s Phase 38 section now carries a full, measured plan for the remaining
+twelve methods.** Read that rather than re-deriving it; what follows is the short version.
+
+**Fix three things before writing another module**, because each is paid twelve more times
+otherwise:
+
+1. **Host key policy, and the shipped container that cannot satisfy it.** `FAILURE_PATTERNS` #150:
+   `Dockerfile.runner` sets no `HOME` and ships no known_hosts, so `os.UserHomeDir` fails and
+   every SSH Collection method refuses unless the task sets `insecure_skip_host_key_verify`. The
+   escape hatch is currently the only working Crawl-tier path. The gates cannot see it because
+   they set `HOME` and write a known_hosts themselves. Fixing the image is necessary but the real
+   question is where a stateless runner's known_hosts comes from.
+2. **`Manifest.RequiredCapabilities` is enforced by nothing at run time** (`FAILURE_PATTERNS`
+   #151). I found this because a comment I had written claimed the opposite; the comment is
+   corrected in `internal/catalog/exec/exec.go` and the gap is not.
+3. **`wireDevice` cannot express a per-device capability set.** Adding accessors makes every
+   dispatched device satisfy the interface, so the type assertion stops gating. `file.copy`,
+   `svc.*` and `pkg.*` all want accessors no device type implements yet.
+
+**Then, cheapest first:** `exec.shell` (nearly free: same package, same helpers, and the only
+things it must not reuse are `SplitWords` and `QuoteCommand`), then `file.copy` and
+`file.directory` (`RunWithStdin` is already built for the write; the open decision is whether
+`src` can work at all under the Crawl tier, where the runner cannot see the runbook's files), then
+`svc.systemd.*` and `pkg.apt.*`.
+
+**The container question is settled, and the answer is better than feared.** Measured this
+session: the current sshd image is Alpine with no `apt-get`, `dpkg` or `systemctl`, so neither
+namespace can be gated against it. But a Debian image carrying `systemd`, `systemd-sysv` and
+`openssh-server`, run `--privileged --cgroupns=host` with `/sys/fs/cgroup` mounted read-write,
+reaches `systemctl is-system-running` = `running` here, and stop/start/is-active on a real unit
+all behave. **`svc.*` does not need a VM.** `pkg.apt.*` needs the image to retain its package
+index or pre-seed a `.deb` at build time, since installing at test time otherwise wants the
+network.
 
 When the second module needs the real-shell-over-real-SSH harness in
-`internal/catalog/exec/sshd_test.go`, move it to `internal/testsupport` rather than copying it.
-It will need a `gosec-waivers.json` entry for its `G204` at that point, since testsupport is
-non-test code that gosec scans; today it lives in a `_test.go` file and is not scanned.
+`internal/catalog/exec/sshd_test.go`, move it rather than copying it, and prefer `pkg/` (beside
+the existing `pkg/inventory/inventorytest` precedent it already uses) over
+`internal/testsupport`: a third-party Collection's tests cannot import `internal/` either, so
+`pkg/` is where the constraint the catalog lives under actually points. Measured while planning:
+`gosec` is invoked without `-tests`, so the move makes its `exec.Command("/bin/sh", ...)` newly
+scannable, and the `#nosec` annotations already on those lines travel with the code and make it a
+no-op. A `gosec-waivers.json` entry is the alternative and the worse one, since a line-numbered
+waiver on a file that keeps growing goes stale and `gosec-check` fails on stale waivers.
+
+Several catalog packages still carry a 100.0 coverage floor set while they were stubs, so each
+implementation lands at 100 percent or moves its floor with a written justification.
+
+### Gate status
+
+`make push-gate` passes. 161 packages measured by the coverage ratchet, none below their recorded
+floor, including the new `pkg/remoteexec` at 98.3. Four packages failed under full parallel `-race`
+load and were downgraded as known-flaky: `cmd/runner`, `tests/e2e`, `internal/election` and
+`internal/runner`. **All four were confirmed passing in isolation rather than assumed**, which
+matters most for `cmd/runner`, since its `TestSSHMeshReleaseGate_*` pair drives `net.ssh.ping`
+through the whole Crawl-tier chain and is therefore also evidence the `pkg/remoteexec` refactor
+holds on that path. `tests/e2e` failed a different test on the isolation run with the documented
+`port "4222/tcp" not found` signature, and that one passed alone too.
+
+One thing about the gate worth knowing before running it: `docs-gen-check` diffs the working tree
+against the git INDEX, so regenerated-but-unstaged documentation fails it every time. Stage the
+tree (`git add -A`) before running `make push-gate` on uncommitted work. That is not a defect, it
+is what the check is for, but it reads as a failure in your own generated output.
 
 ### Commit message, provided per the standing instruction (not committed)
 
-See the end of this session's report; it is not duplicated here to keep one copy authoritative.
+```
+feat(catalog): a shared SSH primitive, and the first module that changes something (Phase 38)
+
+Phase 38 was taken ahead of the scheduler and the IDE plugin, and the
+reasoning is written into the roadmap rather than left implicit: a
+scheduler multiplies whatever the platform does, and the platform did
+very little. Every engine under the catalog was real and proven while
+the catalog on top of it could not copy a file, install a package or
+start a service.
+
+It opened by correcting its own map three times, before any module was
+written. The recorded trap about seventy one stubs carrying an old
+method signature is stale; all seventy six already carry the current
+one, settled by assigning every exported catalog method to a
+[]collection.Method literal and building, because grep cannot see a
+signature. The Walk tier handed every Collection method an empty secret
+set, so pleiades run could not run net.ssh.ping or any net.catalyst.*
+method at all, failing with an authentication error against a device
+whose credential was in .pleiades/credentials.yaml the whole time. And
+no device type implemented CommandExecCapable, so exec.command was
+unreachable by admission before it was unimplemented in body.
+
+pkg/remoteexec is the load-bearing part. A Collection may import only
+pkg/, which is enforced and is the same constraint a third-party
+Collection will have to satisfy, so no module can reach
+internal/transport/ssh no matter how much of the same work it needs.
+The one SSH module hand-rolled its own dial, its own authentication and
+its own host key check as a result, and said in its own doc comment
+that this would need revisiting if the package grew a second,
+write-capable method. This tier is twenty of them.
+
+The mechanism moved rather than being copied. internal/transport/ssh
+keeps its transport.Transport identity, its credential.Credential
+translation and its Options surface, and is now about sixty lines of
+adapter. Its container tests against a real, independent sshd pass
+unchanged, which is what proves the move preserved behavior, and
+net.ssh.ping's existing tests pass unchanged, which is what proves the
+primitive is usable from a Collection. Two implementations of host key
+verification is one implementation and one liability.
+
+exec.command establishes what Changed means for the rest of the tier. A
+command cannot be inspected, so it reports changed whenever it ran and
+false only when it did not, which makes creates and removes
+load-bearing rather than convenient: they are the only way a task built
+on it becomes idempotent. Parameter names are Ansible's throughout, per
+the superset rule. A non-zero exit status fails the task.
+
+Its Release Gate drives the real built binary through init, add-host,
+add-credential and run against a real openssh-server container, with
+real fail-closed host key verification, and checks every claim by
+asking the container over a second connection it opens itself: the
+marker file's contents, the absence of the file a metacharacter
+argument would have created had a shell interpreted it, and the
+marker's mtime unchanged across a second run, which is what separates a
+real creates short-circuit from a rewrite with identical content.
+
+An adversarial review of the finished diff, run after the gate passed
+and after a seventeen-mutation negative-control pass, found four real
+defects and all four are fixed here. A circuit breaker latched
+half-open forever, so a device that was briefly down was never dialed
+again: Allow is a transaction that consumes the single probe, and two
+calls sat on one dial path. The idempotence guard resolved relative
+paths in a different directory from the command it guarded, which made
+creates a silent no-op and made removes skip work it had never done. A
+chdir value beginning with a dash was consumed as a cd option, so the
+command ran in the home directory and reported success. And a large
+standard input a remote command never read turned a successful command
+into an opaque failure with its exit status, stdout and stderr thrown
+away.
+
+Two of those are worth naming for what they say about the process. The
+breaker defect predated this work and was carried into a pkg/ primitive
+with three callers, and the mutation pass had already noticed the two
+guards were indistinguishable and produced a test rationalizing the
+pair instead of asking why there were two. The stdin regression test
+written beside its own code passed against the broken version and had
+to move a package up, to a real shell, before it could fail.
+
+A new archtest comparing the catalog data against the registered
+manifests found drift that predates this work: two net.catalyst.*
+methods each carried an Example the data did not. A from-scratch
+regeneration would have dropped them, and the documentation generator's
+own completeness gate requires an Example on an implemented method, so
+the regenerated tree would have failed its own gate for a reason
+nothing in the diff explained.
+
+FAILURE_PATTERNS 143-149. LESSONS_LEARNED 132-138.
+```
 
 ### The break-glass
 
@@ -173,12 +310,31 @@ attributed to this repository first and everything else is listed and left.
 
 Everything needed is on disk; nothing is held only in conversation.
 
-1. Read `IMPLEMENTATION.md`'s Phase 38 section. Its 2026-08-16 session note carries the scope
-   re-derivation, all three map corrections, and the primitive decision with its rejected
-   alternatives. The checklist items under it record what each gate was held to.
+1. Read `IMPLEMENTATION.md`'s Phase 38 section. It carries TWO 2026-08-16 session notes. The
+   first has the scope re-derivation, all three map corrections and the primitive decision with
+   its rejected alternatives; the checklist items under it record what each gate was held to. The
+   second, at the end of the section, is the measured plan for the remaining twelve methods and
+   is what to read before writing any of them.
 2. `pkg/remoteexec`'s package doc explains why it exists and what is deliberately never retried.
    Read it before writing the next module; it is the shortest path into this design.
 3. `internal/catalog/exec/command.go`'s `Command` doc comment is where the `Changed` contract is
-   written down. Every later module in this tier copies it.
-4. Verify before trusting any claim in this document. The recorded trap about 71 stale signatures
-   was wrong, and it was only settled by making the compiler answer.
+   written down. Every later module in this tier copies it. `internal/catalog/exec/exec.go`'s
+   `workingDirectory` comment is worth reading too, for the opposite reason: it records a claim
+   that was false and what is true instead.
+4. `FAILURE_PATTERNS.md` #143-151 are this session's, and #146-151 are the ones a future reader
+   is most likely to need. #146-149 are defects found and fixed after the gate was already green.
+   #150 and #151 are found, recorded and deliberately NOT fixed, and both are named in the plan
+   note as work that should come before another module.
+5. Verify before trusting any claim in this document. Three things this session that looked
+   settled were not: the recorded trap about 71 stale signatures was wrong and only the compiler
+   settled it; a green `make push-gate` plus a seventeen-mutation pass still left four real
+   defects; and a comment I wrote asserting that admission checks a method's declared capability
+   was false, which is how #151 was found.
+
+### What is deliberately not on disk
+
+Nothing. The commit message is above rather than in the session transcript, the flaky-package
+isolation results are in the gate section, and the container measurements behind the plan note
+(the sshd image is Alpine with no `apt-get`, `dpkg` or `systemctl`; a Debian image with `systemd`
+plus `systemd-sysv` reaches `is-system-running` = `running` under `--privileged --cgroupns=host`)
+are written into the plan rather than left as something to re-measure.
