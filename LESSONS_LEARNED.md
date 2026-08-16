@@ -134,6 +134,7 @@ story, per `.AGENTS/AGENTS.md`.
 128. **A set that decides whether a live process is healthy must be governed by a fact about that process, never by the size or age of the set, and every process judged against such a set must put its own answer into it.**
 129. **A run whose infrastructure is removed reports the assertion that was executing, never the removal, so a cleanup with no liveness check does not just break a run, it fabricates a defect in whatever that run was testing: key the guard on a live process, and give shared infrastructure an owner rather than a constant name.**
 130. **A guard whose only effect is declining to assign the zero value is invisible at the field it guards, so the obvious test passes against both versions: its real contract is about order, so apply the real value first and the skipped one second, and assert the real one survived.**
+131. **An assertion anchored to the developer's environment (a directory name, a working-tree size, a neighbouring file) passes hardest where it matters least: re-anchor it to the artifact or delete it in favour of the direct measurement it was proxying for, and never widen the bound until both environments fit.**
 
 ---
 

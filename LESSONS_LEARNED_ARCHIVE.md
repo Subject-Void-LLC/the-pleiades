@@ -2418,3 +2418,42 @@ and check that the answer is not the zero value. If it is, the observable is som
 usually in what happens on the second call. This is #95's "prove an assertion can fail"
 narrowed to the case that most resists it, because here the assertion looks like it is about
 the value when it is really about the write.
+
+## 131. An assertion anchored to the developer's environment passes hardest where it matters least
+
+**The rule.** A test's reference point has to be a property of the artifact, never of the machine
+the artifact happens to be sitting on. If the denominator, the path, the directory name or the
+neighbouring files can differ between a laptop and CI, the assertion is about the environment and it
+will pass in the place nobody is watching and fail in the place everybody is.
+
+**The incident, which happened three times in one session and twice in CI.**
+
+A `tools/breakglass` constant held the docker compose project name as `"auto-roboto"`, which is what
+compose derives from the enclosing DIRECTORY. CI checks the same commit out into `the-pleiades/`, so
+the tool's own drift guard failed there while passing locally. Fixed by declaring `name:` in
+`docker-compose.yml` and asserting the constant against that, which is two independent sources rather
+than a restatement of where somebody cloned the repository.
+
+Then, on the very next run, the packaging release gate failed on "the build context must be under 33
+percent of the working tree". The context was 11.7 MiB in both places and had not changed. The
+DENOMINATOR moved: a developer tree here carries about 61 MiB of `.git`, 120 MiB of agent working
+directories and a pile of stale binaries, none of which the packaging has anything to do with, while
+a fresh checkout is 18.9 MiB of almost pure source. Locally 3.03 percent, on CI 61.93 percent.
+
+The second one is the more instructive because the rule was INVERTED as an incentive: the messier the
+working tree, the easier it passed, and the hardest case was the clean checkout that CI and every new
+contributor actually have. Its own comment had estimated "closer to 15 percent" for a fresh clone and
+was out by a factor of four, which is what a guess about somebody else's directory is worth. The same
+comment already admitted the ratio was the weak assertion and named the two strong ones beside it.
+
+**What replaced it was nothing.** The absolute ceiling on the context, the paths that must never be
+in it and the paths that must be were all already asserted and all passed on both machines. The ratio
+was a proxy for those three and weaker than any of them, so deleting it removed a false signal and
+lost no coverage. That is the usual shape: an environment-anchored assertion is almost always a proxy
+sitting next to the direct measurement it is proxying for.
+
+**The general shape.** When a test fails only in CI, do not start by asking what CI does differently.
+Ask what the assertion is anchored to, and whether that anchor is part of the thing being tested. If
+it is not, the fix is not to widen the bound until both environments fit, which is how a gate becomes
+decoration, but to re-anchor it or to delete it in favour of whatever was already measuring the real
+property.

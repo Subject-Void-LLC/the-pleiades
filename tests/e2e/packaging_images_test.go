@@ -38,21 +38,28 @@ import (
 // the current source tree is left as headroom for legitimate growth.
 const packagingContextCeiling = 32 << 20
 
-// packagingContextBudget is the largest share of the working tree the
-// build context may be, and it is the WEAKER half of this assertion. The
-// comment is longer than the constant because the number is easy to
-// misread as tighter evidence than it is.
+// There is deliberately NO ratio bound on the build context, and this
+// comment is here because there used to be one and it was wrong in a way
+// worth not repeating.
 //
-// The denominator is whatever the developer's working tree happens to
-// hold, which is not a property of the packaging at all. On the machine
-// this was written on the tree is 384 MiB (61 MiB of `.git`, 120 MiB of
-// `.claude/`, 31 MiB of `.IGNORE/`, about 17 MiB of source) and the
-// context measures 2.99 percent of it. On a freshly cloned checkout with
-// none of those working directories the same context is closer to 15
-// percent, having changed by nothing. So the ratio is bounded loosely, at
-// a level a fresh clone passes with room, and the sharp assertions are the
-// absolute ceiling above and the forbidden-path check below.
-const packagingContextBudget = 0.33
+// The rule was "the context must be under 33 percent of the working tree".
+// It passed on every developer machine and failed on CI at 61.93 percent,
+// having changed nothing: the context measured 11.7 MiB in both places. The
+// denominator moved. A developer tree here holds about 61 MiB of `.git`,
+// 120 MiB of agent working directories and a pile of stale built binaries,
+// none of which the packaging has anything to do with; a fresh checkout
+// holds 18.9 MiB, almost all of it the source the build legitimately needs.
+//
+// So the ratio was inverted as an incentive: the messier the working tree,
+// the easier it passed, and the hardest case was the clean checkout that CI
+// and every new contributor actually has. Its own comment had predicted
+// "closer to 15 percent" for that case and was out by a factor of four,
+// which is what an estimate of somebody else's directory is worth.
+//
+// What replaced it is nothing, because nothing was needed. The three
+// assertions below measure the property directly: an absolute ceiling on
+// the context, the paths that must never be in it, and the paths that must
+// be. The ratio was a proxy for all three and weaker than any of them.
 
 // packagingForbiddenContextPaths are top-level directories whose presence
 // in a build context is the defect this gate exists to prevent, each with
@@ -146,7 +153,7 @@ func assertImageHasNoShell(t *testing.T, image string) {
 	}
 }
 
-// TestPackagingReleaseGate_BuildContextIsASmallFractionOfTheTree measures
+// TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust measures
 // what docker is actually given when it builds these images.
 //
 // The measurement is a real build. A scratch image whose only instruction
@@ -157,7 +164,7 @@ func assertImageHasNoShell(t *testing.T, image string) {
 // on a second build is a few kilobytes and means nothing; and
 // reimplementing .dockerignore's matching rules in Go would prove this
 // test agrees with itself.
-func TestPackagingReleaseGate_BuildContextIsASmallFractionOfTheTree(t *testing.T) {
+func TestPackagingReleaseGate_BuildContextIsBoundedAndExcludesWhatItMust(t *testing.T) {
 	requireDockerDaemon(t)
 	// Not ensurePleiadesImages: building the shipped images is not a
 	// precondition of measuring the context they would be built from, and
@@ -215,21 +222,20 @@ func TestPackagingReleaseGate_BuildContextIsASmallFractionOfTheTree(t *testing.T
 		}
 	}
 
+	// Reported, never asserted on: see the comment where the ratio bound
+	// used to be. It is worth printing because it tells a reader how much of
+	// THIS machine's tree the context represents, which is useful context
+	// for a human and meaningless as a gate.
 	tree := treeBytes(t, root)
-	if tree == 0 {
-		t.Fatal("the repository measured as zero bytes, so the ratio below is meaningless")
+	if tree > 0 {
+		t.Logf("build context: %s across %d files (%s of working tree on this machine, %.2f%%, informational)",
+			humanBytes(contextBytes), files, humanBytes(tree), float64(contextBytes)/float64(tree)*100)
+	} else {
+		t.Logf("build context: %s across %d files", humanBytes(contextBytes), files)
 	}
-	share := float64(contextBytes) / float64(tree)
-	t.Logf("build context: %s across %d files, against %s of working tree (%.2f%%)",
-		humanBytes(contextBytes), files, humanBytes(tree), share*100)
 
 	if contextBytes > packagingContextCeiling {
 		t.Errorf("the build context is %s, over the %s ceiling; check .dockerignore for a rule "+
 			"that was removed or narrowed", humanBytes(contextBytes), humanBytes(packagingContextCeiling))
-	}
-	if share > packagingContextBudget {
-		t.Errorf("the build context is %.2f%% of the working tree, over the %.0f%% budget; "+
-			"check .dockerignore for a rule that was removed or narrowed",
-			share*100, packagingContextBudget*100)
 	}
 }
