@@ -147,6 +147,11 @@ func TestHostKeyCallback_InsecureSkipBypassesVerification(t *testing.T) {
 func TestHostKeyCallback_EmptyPathResolvesTheHomeDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Cleared explicitly, not assumed absent. The home directory is the
+	// LAST of three sources now, so a machine that happens to export this
+	// variable would otherwise make this test pass against a file it never
+	// meant to read.
+	t.Setenv(KnownHostsEnv, "")
 
 	// With no file there yet, the resolved path must fail closed and the
 	// error must name where it looked, so an operator can act on it.
@@ -188,6 +193,7 @@ func TestHostKeyCallback_UnresolvableHomeFailsClosed(t *testing.T) {
 	// os.UserHomeDir reads $HOME on this platform and errors when it is
 	// empty, which is the sandboxed-environment case Options documents.
 	t.Setenv("HOME", "")
+	t.Setenv(KnownHostsEnv, "")
 
 	_, err := hostKeyCallback(Options{})
 	if err == nil {
@@ -195,6 +201,12 @@ func TestHostKeyCallback_UnresolvableHomeFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "home directory") {
 		t.Errorf("error = %v, want it to name the unresolvable home directory rather than a missing file", err)
+	}
+	// This is the exact error the published runner image produced, and the
+	// operator reading it can do nothing about the home directory of a
+	// distroless container. It has to name the thing they CAN set.
+	if !strings.Contains(err.Error(), KnownHostsEnv) {
+		t.Errorf("error = %v, want it to name %s, which is the actionable fix", err, KnownHostsEnv)
 	}
 }
 
@@ -221,5 +233,117 @@ func TestHostKeyCallback_UnstatableFileIsReported(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stat known_hosts file") {
 		t.Errorf("error = %v, want it to report the stat failure rather than a missing file", err)
+	}
+}
+
+// setHomeKnownHosts points $HOME at a fresh temp directory holding a
+// known_hosts file with one entry for hostPort, the shape a real user's
+// home directory has, and returns the file's path.
+func setHomeKnownHosts(t *testing.T, hostPort string, key ssh.PublicKey) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("creating %s: %v", sshDir, err)
+	}
+	path := filepath.Join(sshDir, "known_hosts")
+	line := knownhosts.Line([]string{hostPort}, key)
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+	return path
+}
+
+// assertVerifies checks that cb accepts key for accepted and rejects it
+// for rejected, which together prove WHICH known_hosts file was read
+// rather than merely that some file was.
+//
+// Asserting the rejection matters as much as the acceptance. A callback
+// built from the wrong file still returns a nil error from
+// hostKeyCallback, so a test that only checked for "no error" would pass
+// no matter which of the three sources won.
+func assertVerifies(t *testing.T, cb ssh.HostKeyCallback, key ssh.PublicKey, accepted, rejected string) {
+	t.Helper()
+	if err := cb(accepted, fakeRemoteAddr{s: "203.0.113.20:22"}, key); err != nil {
+		t.Errorf("expected %q to be accepted, got: %v", accepted, err)
+	}
+	if err := cb(rejected, fakeRemoteAddr{s: "203.0.113.21:22"}, key); err == nil {
+		t.Errorf("expected %q to be rejected, since its entry lives in a file that should not have been read", rejected)
+	}
+}
+
+// TestHostKeyCallback_EnvironmentPathBeatsTheHomeDirectory proves the
+// deployment's own known_hosts is used when the caller configured none,
+// in preference to whatever the account's home directory holds.
+//
+// This is the case the runner container is in, and the case that did not
+// exist before: with no way to name a file, the home directory was the
+// only source, and a distroless container has neither a home directory
+// nor a file in it.
+func TestHostKeyCallback_EnvironmentPathBeatsTheHomeDirectory(t *testing.T) {
+	key := generateTestHostKey(t)
+	setHomeKnownHosts(t, "home.test:22", key.PublicKey())
+	t.Setenv(KnownHostsEnv, writeKnownHosts(t, "deployment.test:22", key.PublicKey()))
+
+	cb, err := hostKeyCallback(Options{})
+	if err != nil {
+		t.Fatalf("hostKeyCallback returned an error: %v", err)
+	}
+	assertVerifies(t, cb, key.PublicKey(), "deployment.test:22", "home.test:22")
+}
+
+// TestHostKeyCallback_ExplicitPathBeatsTheEnvironment proves the
+// hierarchy runs the right way round: a caller that named a file for one
+// connection is more specific than a variable set for the whole process,
+// so the caller wins.
+func TestHostKeyCallback_ExplicitPathBeatsTheEnvironment(t *testing.T) {
+	key := generateTestHostKey(t)
+	explicit := writeKnownHosts(t, "explicit.test:22", key.PublicKey())
+	t.Setenv(KnownHostsEnv, writeKnownHosts(t, "deployment.test:22", key.PublicKey()))
+
+	cb, err := hostKeyCallback(Options{KnownHostsPath: explicit})
+	if err != nil {
+		t.Fatalf("hostKeyCallback returned an error: %v", err)
+	}
+	assertVerifies(t, cb, key.PublicKey(), "explicit.test:22", "deployment.test:22")
+}
+
+// TestHostKeyCallback_EmptyEnvironmentValueCountsAsUnset proves that
+// exporting the name with no value configures nothing and falls through
+// to the home directory, rather than resolving to a file named "" and
+// reporting it missing.
+func TestHostKeyCallback_EmptyEnvironmentValueCountsAsUnset(t *testing.T) {
+	key := generateTestHostKey(t)
+	setHomeKnownHosts(t, "home.test:22", key.PublicKey())
+	t.Setenv(KnownHostsEnv, "")
+
+	cb, err := hostKeyCallback(Options{})
+	if err != nil {
+		t.Fatalf("hostKeyCallback returned an error: %v", err)
+	}
+	if err := cb("home.test:22", fakeRemoteAddr{s: "203.0.113.22:22"}, key.PublicKey()); err != nil {
+		t.Errorf("expected the home directory entry to be honored when %s is exported empty, got: %v", KnownHostsEnv, err)
+	}
+}
+
+// TestHostKeyCallback_EnvironmentPathStillFailsClosed proves the new
+// source is not a way around the fail-closed rule: a variable naming a
+// file that is not there is refused, and the error names the path so an
+// operator can see the mount landed somewhere else.
+func TestHostKeyCallback_EnvironmentPathStillFailsClosed(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-mounted", "known_hosts")
+	// A home directory WITH a usable file, to prove the environment path is
+	// not quietly abandoned in favor of a fallback that happens to work.
+	setHomeKnownHosts(t, "home.test:22", generateTestHostKey(t).PublicKey())
+	t.Setenv(KnownHostsEnv, missing)
+
+	_, err := hostKeyCallback(Options{})
+	if err == nil {
+		t.Fatal("expected a missing known_hosts file named by the environment to be refused, not fall back to $HOME")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("error = %v, want it to name %q", err, missing)
 	}
 }

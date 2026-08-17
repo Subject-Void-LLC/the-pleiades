@@ -62,6 +62,41 @@ var execCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameShellExec},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Runs a command through the target's shell, so pipes and redirects work."},
+		Doc: collection.Doc{
+			Summary:     "Runs a command through the target's shell, so pipes and redirects work.",
+			Description: "Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like.",
+			Params: []collection.Param{
+				{Name: "cmd", Type: "string", Required: true, Description: "The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them."},
+				{Name: "executable", Type: "string", Description: "The shell to run the command with, invoked as `<executable> -c <cmd>`. Defaults to the shell the device declares, or /bin/sh."},
+				{Name: "chdir", Type: "string", Description: "Change into this directory before running, and resolve a relative creates or removes against it too. The command does not run at all if the directory does not exist. Defaults to the device's own working directory, or to wherever the account lands on login."},
+				{Name: "creates", Type: "string", Description: "A path whose existence on the target means this work is already done. When it exists, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."},
+				{Name: "removes", Type: "string", Description: "A path whose absence on the target means this work is already done. When it is missing, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."},
+				{Name: "stdin", Type: "string", Description: "Text piped to the command's standard input."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "rc", Type: "int", Returned: "always", Description: "The command's exit status, which for a pipeline is the last command's. Zero when it succeeded, and 0 for a run that creates or removes skipped."},
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output, with the trailing newline removed."},
+				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error, with the trailing newline removed."},
+				{Name: "cmd", Type: "string", Returned: "always", Description: "The command line sent to the device, empty for a skipped run."},
+				{Name: "skipped", Type: "bool", Returned: "always", Description: "True when creates or removes short-circuited this task, so no command ran."},
+				{Name: "msg", Type: "string", Returned: "on skip", Description: "Why the task was skipped."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Use a pipeline",
+					RunbookYAML: "- name: Count the failed units\n  fqcn: exec.shell\n  params:\n    cmd: systemctl list-units --state=failed --no-legend | wc -l\n  register: failed\n",
+				},
+				{
+					Name:        "Redirect output to a file, once",
+					RunbookYAML: "- name: Snapshot the package list\n  fqcn: exec.shell\n  params:\n    cmd: dpkg -l > /var/backups/packages.txt\n    creates: /var/backups/packages.txt\n",
+				},
+				{
+					Name:        "Choose the shell",
+					RunbookYAML: "- name: Use a bash-only construct\n  fqcn: exec.shell\n  params:\n    cmd: \"[[ -f /etc/os-release ]] && echo present\"\n    executable: /bin/bash\n",
+				},
+			},
+			SeeAlso: []string{"exec.command"},
+		},
 	},
 }

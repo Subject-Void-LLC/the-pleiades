@@ -50,6 +50,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Nothing to undo, which is the same fact that makes this
+			// method report changed: false.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+			},
 			Doc: collection.Doc{
 				Summary:     "Gathers a Cisco Catalyst Center's site hierarchy, as facts.",
 				Description: "Reads every site the targeted Catalyst Center manages. Emits the full site_name_hierarchy for each site, not just its bare name, since two sites in different regions can share a bare name.",

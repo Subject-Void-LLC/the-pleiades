@@ -30,6 +30,14 @@ Reads every site the targeted Catalyst Center manages. Emits the full site_name_
 | `sites` | `list of map` | always | One entry per site: id, name, site_name_hierarchy. |
 | `site_count` | `int` | always | The number of sites in the sites fact. |
 
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
 ## See also
 
 - `net.catalyst.device_facts`

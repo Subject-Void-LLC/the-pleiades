@@ -554,6 +554,60 @@ mutually-authenticated short-lived connection, and that needs a runner identity 
 that does not exist yet. Until it does, treat the stream as holding secrets and size
 its retention accordingly.
 
+### Host key verification, and where a container gets its known_hosts
+
+Every SSH connection Pleiades makes verifies the device's host key against an
+OpenSSH-format `known_hosts` file, and fails closed when it cannot. There is no
+trust on first use: a device with no entry is refused, and so is a device whose key
+stopped matching the entry it has. That is the behavior of `ssh` with
+`StrictHostKeyChecking=yes`, and it is deliberate, because the alternative is that a
+machine in the middle can answer for a device and collect the credential you were
+about to send it.
+
+The file is resolved from the first of three sources that names one:
+
+1. whatever the caller passed for that one connection;
+2. the `PLEIADES_KNOWN_HOSTS` environment variable, which is how a deployment
+   configures the whole process;
+3. `$HOME/.ssh/known_hosts`, which is where you already keep yours.
+
+Most specific wins, the same order `ssh` itself uses. On the Walk tier the third
+entry means the CLI simply reuses the file you have, and there is nothing to
+configure.
+
+**In a container there is no third entry, so this is a required deployment step.**
+The runner image is distroless and has no home directory, so it sets
+`PLEIADES_KNOWN_HOSTS=/app/ssh/known_hosts` and ships that directory empty. Mount a
+real file over it or every SSH task refuses, naming that path. The chart takes a
+ConfigMap or a Secret:
+
+```bash
+ssh-keyscan -H device-a.example.com device-b.example.com > known_hosts
+kubectl create configmap pleiades-known-hosts --from-file=known_hosts
+helm upgrade pleiades ./helm/the-pleiades \
+  --set runner.knownHosts.configMapName=pleiades-known-hosts
+```
+
+The key inside the object has to be named `known_hosts`; the chart mounts that name
+specifically, so a wrongly-keyed object leaves the pod unable to start rather than
+running with no host keys. Compose has the same mount commented into
+`docker-compose.yml` with both shapes.
+
+Nothing is baked into the image on purpose. Host keys in an image mean rebuilding it
+to add a device, and an empty file would be worse than none: it parses and matches
+nothing, so every connection would fail with a per-device "no entry" message instead
+of one clear message about a mount nobody made.
+
+**The escape hatch, and what it costs.** A task may set
+`insecure_skip_host_key_verify: true`, which skips verification for that task only.
+It is a per-task parameter rather than a setting precisely so it appears in the
+runbook next to the command it applies to, where review can see it; there is
+deliberately no environment variable or chart value that turns verification off
+fleet-wide. Use it for a throwaway lab and treat it as a finding anywhere else. Note
+that until recently this was the only thing that worked inside the shipped runner
+image, so a runbook inherited from that period may be carrying it for a reason that
+no longer exists.
+
 ### PKI and TLS
 
 Two different things, at different stages, and it is worth not confusing them.

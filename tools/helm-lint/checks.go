@@ -40,6 +40,8 @@ func checkManifests(profile string, objects []manifest, wantScheme string) []fin
 			}
 		}
 
+		findings = append(findings, checkVolumeMounts(profile, name, pod, obj.Spec.VolumeClaimTemplates)...)
+
 		all := append(append([]container{}, pod.InitContainers...), pod.Containers...)
 		if len(all) == 0 {
 			findings = append(findings, finding{
@@ -259,4 +261,54 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// checkVolumeMounts requires every volumeMount to name a volume the pod
+// actually declares.
+//
+// This is the one class of chart defect that renders perfectly and then does
+// not run. A volumeMount naming a volume that is not there is valid YAML and
+// a well formed object, so `helm template` prints it and `helm lint` accepts
+// it; the API server is what refuses it, which means the first thing that
+// notices is an install. Nothing before this looked, and a mount and its
+// volume are usually written far enough apart in a template that renaming one
+// and not the other is an ordinary mistake rather than a careless one.
+//
+// It matters more in this chart than in most, because several mounts here are
+// conditional. Two independent {{- if }} blocks, one around the mount and one
+// around the volume, are one edit away from disagreeing about when the volume
+// exists, and the arrangement where they disagree may not be the arrangement
+// anybody renders by hand.
+//
+// The check runs the direction that fails: an unused volume is wasteful and
+// legal, while a mount with no volume cannot start.
+//
+// claims are a StatefulSet's volumeClaimTemplates, which are the second legal
+// way to declare a volume and are named in a different part of the object
+// entirely. Leaving them out is not a small omission: the first run of this
+// check reported both database StatefulSets as broken, because each mounts a
+// claim template rather than a pod volume. A checker that is wrong about
+// correct charts gets switched off.
+func checkVolumeMounts(profile, object string, pod podSpec, claims []claimTemplate) []finding {
+	declared := make(map[string]bool, len(pod.Volumes)+len(claims))
+	for _, vol := range pod.Volumes {
+		declared[vol.Name] = true
+	}
+	for _, claim := range claims {
+		declared[claim.Metadata.Name] = true
+	}
+
+	var findings []finding
+	for _, c := range append(append([]container{}, pod.InitContainers...), pod.Containers...) {
+		for _, mount := range c.VolumeMounts {
+			if declared[mount.Name] {
+				continue
+			}
+			findings = append(findings, finding{
+				profile: profile, object: object, container: c.Name,
+				message: fmt.Sprintf("volumeMount %q at %q names a volume this pod does not declare. This renders and lints cleanly and is rejected by the API server, so the first thing to notice would be an install.", mount.Name, mount.MountPath),
+			})
+		}
+	}
+	return findings
 }

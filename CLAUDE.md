@@ -57,13 +57,21 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
-  Center), `net.ssh.ping` and `exec.command` are implemented.** Everything else returns an
-  explicit "declared but not implemented" error rather than a silent no-op. `exec.command`
-  is the first write-capable method and the first built on `pkg/remoteexec`, the shared SSH
-  execution primitive a Collection may import (a Collection may import only `pkg/`, so
-  `internal/transport/ssh` is unreachable from one and is now a thin adapter over the same
-  primitive).
+- **Module catalog: 76 declared FQCNs; 22 implemented:** the 4 `net.catalyst.*` ones (Cisco
+  Catalyst Center), `net.ssh.ping`, `exec.command`, `exec.shell`, ten of the `file.*` methods
+  (`copy`, `directory`, `touch`, `permissions`, `remove`, `symlink`, `line.set`, `line.remove`,
+  `block.set`, `block.remove`), `wait.path`, `wait.search`, `pleiades.builtin.wait.port`,
+  `facts.gather` and `http.request`. `file.template` is deliberately still declared: the render
+  engine lives in `internal/render` and a Collection may not import `internal/`. Everything else
+  returns an explicit "declared but not implemented" error rather than a silent no-op.
+  `exec.command` is the first write-capable method and the first built on `pkg/remoteexec`,
+  the shared SSH execution primitive a Collection may import (a Collection may import only
+  `pkg/`, so `internal/transport/ssh` is unreachable from one and is now a thin adapter over
+  the same primitive). Every implemented method declares `collection.Reversibility` (a bool plus
+  a required reason when false, enforced at registration), and a run that changes something emits
+  the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
+  and resolved params. Nothing performs a rollback yet; the recording exists because only the
+  forward run can capture the values an undo needs.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.

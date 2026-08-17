@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	winrmtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
@@ -63,10 +64,14 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 	if err != nil {
 		return nil, fmt.Errorf("failed to init collection subprocess executor: %w", err)
 	}
+	winrmTransport, err := winrmtransport.New(winrmtransport.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to init the WinRM transport: %w", err)
+	}
 	return &Adapter{
 		bus:      bus,
 		runbooks: runbooks,
-		bindings: engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All(),
+		bindings: engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{}), winrmTransport).All(),
 		ipc:      ipc,
 		logger:   logger,
 	}, nil

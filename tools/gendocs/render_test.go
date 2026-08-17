@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
+)
 
 func TestMdEscape(t *testing.T) {
 	cases := map[string]string{
@@ -94,5 +99,65 @@ func TestItoa(t *testing.T) {
 	}
 	if got := itoa(0); got != "0" {
 		t.Errorf("itoa(0) = %q, want \"0\"", got)
+	}
+}
+
+// TestWriteReversibility covers both answers the rollback section can
+// give, and the honest limit it always carries.
+//
+// A unit test rather than a check on the generated tree, because the
+// section's wording is the only place a reader learns that the platform
+// records an undo instruction without yet being able to run one. A
+// generated page asserting more than that would be the aspirational
+// documentation this generator exists to replace.
+func TestWriteReversibility(t *testing.T) {
+	tests := []struct {
+		name          string
+		reversibility collection.Reversibility
+		want          []string
+		absent        []string
+	}{
+		{
+			name:          "reversible explains that the instruction is recorded per run",
+			reversibility: collection.Reversibility{Reversible: true, Notes: "The previous content is not restored."},
+			want: []string{
+				"Undoing this", "Can be undone", "`inverse` stat",
+				// The load-bearing sentence: a converged run records nothing,
+				// and that absence is meaningful rather than an omission.
+				"records no instruction", "The previous content is not restored.",
+			},
+			absent: []string{"Cannot be undone"},
+		},
+		{
+			name:          "not reversible says a rollback stops rather than guessing",
+			reversibility: collection.Reversibility{Notes: "A command's effect is unknown to this platform."},
+			want:          []string{"Cannot be undone", "stops rather than guessing", "A command's effect is unknown to this platform."},
+			absent:        []string{"Can be undone"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var b strings.Builder
+			writeReversibility(&b, tc.reversibility)
+			got := b.String()
+
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("rendered page does not contain %q:\n%s", want, got)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(got, absent) {
+					t.Errorf("rendered page unexpectedly contains %q:\n%s", absent, got)
+				}
+			}
+			// Every rendered section says the metadata is not yet acted on. A
+			// reader who assumed the platform could perform a rollback would
+			// be worse off than one who found nothing.
+			if !strings.Contains(got, "no rollback engine reads this yet") {
+				t.Errorf("rendered page omits the honest limit:\n%s", got)
+			}
+		})
 	}
 }

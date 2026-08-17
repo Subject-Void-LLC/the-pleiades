@@ -17,8 +17,11 @@ func registerChildTestMethod(t *testing.T, suffix string, status collection.Stat
 	t.Helper()
 	name := "nativechildtest." + suffix
 	if err := collection.Register(collection.Descriptor{
-		Name:     name,
-		Manifest: collection.Manifest{Status: status},
+		Name: name,
+		// A test fixture still answers the question every real implemented
+		// method answers. Not reversible, with the reason registration
+		// requires: these fixtures change nothing on any device.
+		Manifest: collection.Manifest{Status: status, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},
 		Invoke:   fn,
 	}); err != nil {
 		t.Fatalf("registering %s: %v", name, err)

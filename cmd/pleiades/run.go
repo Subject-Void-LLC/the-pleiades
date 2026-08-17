@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	winrmtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
@@ -114,7 +115,15 @@ func runRunbook(args []string) error {
 	// from (Phase 16, Native Go Execution Adapter), so this codebase has
 	// exactly one capability-keyed transport-binding table, not two
 	// independently maintained copies.
-	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All()
+	//
+	// winrmtransport.New's own defaults are conservative in the same way:
+	// HTTP on 5985 with SPNEGO message encryption required, which is what
+	// a stock Enable-PSRemoting host offers and refuses to do without.
+	winrmTransport, err := winrmtransport.New(winrmtransport.Options{})
+	if err != nil {
+		return fmt.Errorf("building the WinRM transport: %w", err)
+	}
+	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{}), winrmTransport).All()
 	// The chain audit's fqcn-table finding (IMPLEMENTATION.md Phase W3):
 	// this map and validate.CapabilityRule's table had drifted before
 	// engine.ActionCapability unified them. This check is what stops a

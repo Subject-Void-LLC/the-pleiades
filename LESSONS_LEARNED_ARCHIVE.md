@@ -2611,3 +2611,102 @@ rather than a boolean when it appears.
 **The general shape.** Whenever a predicate and an action are computed separately, list the
 context each one depends on and check that both get the same. And when a predicate can fail to
 evaluate, that is a third outcome, never a default to either answer.
+
+## 139. A security control needs a channel that reaches the process that enforces it, and a container is a different process from a laptop
+
+**The rule.** Before shipping a control that fails closed, name the channel each deployment uses
+to satisfy it, and prove that channel reaches the code doing the enforcing in the arrangement the
+product ships. If the only channel is the developer's own environment, the control is off in
+production and on in the tests.
+
+**The incident.** Every SSH connection Pleiades makes verifies the device's host key against a
+known_hosts file and fails closed. That was written carefully, tested thoroughly, and completely
+unusable in the shipped runner image, because the only way to name the file was
+`$HOME/.ssh/known_hosts` and a distroless container has no home directory. `os.UserHomeDir`
+failed, so every SSH task refused, and the only setting that worked was the one that turns
+verification off. Four call sites all passed an empty path and none of them could have passed
+anything else: a Collection method builds its own options from task parameters, and task
+parameters are the runbook, not the deployment.
+
+**What the shape of the fix says.** The channel had to be an environment variable read inside
+`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Crawl tier
+a Collection method runs in a per-task child process with no composition root of its own, so a
+value wired at startup cannot reach it; the environment is what a child inherits. One read in one
+place fixed all four call sites. The related discipline: it is a PATH and never a POLICY. There
+is deliberately no variable that turns verification off, because a variable set once is forgotten
+while a task parameter sits in the runbook where review can see it.
+
+**The other half, which is about tests.** Every SSH gate in the repository manufactured the
+affordance it was testing against: set `HOME`, write a known_hosts, run. That is right for
+proving the mechanism and is exactly what hid the fact that nothing supplies the input in
+production. The gate that closes it uses a deliberately different arrangement, and its value is
+entirely in the difference. Where a test sets up what the deployment is supposed to provide, add
+one that does not.
+
+## 140. When a fix is blocked on a hard design question, check whether the hard half is load-bearing
+
+**The rule.** A finding written up as "blocked on a design decision" deserves one pass to
+separate the expensive question from the cheap one. Two questions welded together in a write-up
+will be scheduled as one, at the price of the harder.
+
+**The incident.** The runner's host key defect was recorded, correctly, as needing a decision
+about where a stateless runner's known_hosts comes from for a fleet chosen at dispatch time.
+That is a real and unsolved fleet-management question, and it kept the item at "highest priority,
+not fixed" for a session. It also was not what was broken. Where the host keys COME FROM is hard;
+where the file IS is a property of a process, and every SSH tool answers it with a setting. The
+second half was the whole outage and took one function, three layers of packaging and an
+afternoon. The first half is still open and is now merely a feature rather than an outage.
+
+**How to apply it.** When re-reading a deferred finding, ask what the smallest change is that
+moves the product from "cannot work" to "works when configured". Ship that, and let the
+remaining question stay a question. Note the tell in the original write-up: it said "fixing the
+image is necessary but not sufficient", which was true about the feature and false about the
+outage.
+
+## 141. Ask whether a property belongs to the method or to the run before putting it on the manifest
+
+**The rule.** A manifest describes what is true of a method for every invocation. Before adding a
+field, construct two runs of the same method, with the same parameters, against devices in
+different states, and check whether the field's value differs. If it does, the field does not
+belong there: it belongs in what the run emits.
+
+**The incident.** `Manifest.Inverse` named the method that undoes each Collection method, plus the
+prior-state keys a rollback would feed it. It was coherent, enforced at registration, rendered on
+every generated documentation page, and wrong. Starting a service that was already running must
+undo to nothing rather than to a stop. Creating a directory undoes to a removal, but fixing an
+existing directory's mode undoes to the old mode, and the static declaration named the removal, so
+a rollback acting on it would have deleted a directory the run never created. An HTTP request is
+read-only or destructive depending on a parameter.
+
+**The tell, which is generalizable.** The field carried a `Captures` list: the names of the values
+someone else would need in order to interpret the declaration. That is the signature of a
+declaration that is really half a computation, and the missing half is the half that knows the
+answer. A declaration needing an interpreter is a sign the data is in the wrong place.
+
+**What replaced it.** The manifest answers only whether the method can ever be undone, with a
+reason required when it cannot. The run emits the concrete instruction, already parameterized from
+what it found. An absent instruction became meaningful, which the static form could not express: it
+is how a converged run says that undoing it means doing nothing.
+
+**Also worth keeping:** this came from a user reading one method's declaration and saying it was
+too generic to be useful. The generic case is a good place to test a design, because a field that
+cannot describe the most general member of a set usually cannot describe the specific ones either;
+it just fails less visibly.
+
+## 142. Reconcile before deleting, and treat a failure in an untouched package as an environment fact
+
+**The rule.** Before removing anything a tool generated (a worktree, a container, a cache), verify
+that nothing in it is unintegrated. And when a test fails in a package the change did not touch,
+suspect the environment before the diff.
+
+**The incident.** A test asserting a configuration file appears exactly once in the repository
+failed, reporting 19 copies: one real, eighteen inside leftover agent worktrees, each of which is a
+full checkout. The worktrees were deleted to clear it, and only afterward checked for unintegrated
+work. It was safe, because copying results out to a directory outside the repository was part of the
+workflow's contract, but the check came after the irreversible step.
+
+**How to apply it.** The reconciliation itself is cheap and worth doing every time: diff each
+produced file against the copy in the main tree, and check every branch for commits ahead of the
+target. Both were clean here, which is what made the report honest rather than reassuring. Note
+also that worktree branches survive `git worktree remove`, so committed work stays reachable even
+when the checkout does not.

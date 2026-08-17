@@ -40,6 +40,14 @@ Runs a single command on the target over SSH and reports its exit status, stdout
 | `skipped` | `bool` | always | True when creates or removes short-circuited this task, so no command ran. |
 | `msg` | `string` | on skip | Why the task was skipped. |
 
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+An arbitrary command's effect is unknown to this platform, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
 ## See also
 
 - `exec.shell`

@@ -51,6 +51,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Nothing to undo, which is the same fact that makes this
+			// method report changed: false.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+			},
 			Doc: collection.Doc{
 				Summary:     "Gathers every device a Cisco Catalyst Center manages, as facts.",
 				Description: "Pages through the Catalyst Center's device inventory and emits one fact entry per device: identity, platform, software, role, and reachability/collection status. Never reports changed: reading an inventory does not alter it.",

@@ -132,11 +132,20 @@ type Result struct {
 // field added here must stay comparable (no slices, maps or functions).
 type Options struct {
 	// KnownHostsPath is the OpenSSH-format known_hosts file used to
-	// verify a target's host key. When empty it resolves to
-	// "$HOME/.ssh/known_hosts" at the moment a connection is made, not
-	// when the Runner is built, so a file written after construction
-	// still counts. A missing file is a hard error, never trust on first
-	// use; see knownhosts.go.
+	// verify a target's host key, and is the most specific of three
+	// sources. When empty it falls back to the KnownHostsEnv environment
+	// variable, and then to "$HOME/.ssh/known_hosts". All three resolve at
+	// the moment a connection is made, not when the Runner is built, so a
+	// file written or a variable exported after construction still counts.
+	// A missing file is a hard error, never trust on first use; see
+	// knownhosts.go.
+	//
+	// Note for anything that keys off an Options value, as Shared does:
+	// two Runners built from an equal Options can still verify against
+	// different files, because the environment is read per connection and
+	// is not part of this struct. That is deliberate and harmless. What
+	// Shared memoizes is circuit-breaker state, which is about whether a
+	// target answers, not about which key it presented.
 	KnownHostsPath string
 
 	// InsecureSkipHostKeyVerify bypasses host key verification

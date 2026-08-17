@@ -33,6 +33,14 @@ Answers a different question than device_facts: device_facts describes what the 
 | `reachable_count` | `int` | always | Count of devices with reachability_status Reachable. |
 | `managed_count` | `int` | always | Count of devices with collection_status Managed. |
 
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+A read-only reachability check changes nothing on the device, so there is nothing to undo.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
 ## See also
 
 - `net.catalyst.device_facts`

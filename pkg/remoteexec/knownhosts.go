@@ -46,7 +46,13 @@ func hostKeyCallback(opts Options) (ssh.HostKeyCallback, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			// Fail closed: a missing known_hosts file must never become
 			// "trust everything."
-			return nil, fmt.Errorf("known_hosts file %q not found, host key verification cannot proceed (set InsecureSkipHostKeyVerify to explicitly bypass this)", path)
+			//
+			// Both fixes are named, and the order they are named in is the
+			// point. The secure one comes first, because "point me at the
+			// right file" is what an operator whose mount landed elsewhere
+			// actually needs, and an error that offers only the bypass
+			// teaches every reader to reach for the bypass.
+			return nil, fmt.Errorf("known_hosts file %q not found, host key verification cannot proceed (set %s to the right file, or set InsecureSkipHostKeyVerify to explicitly bypass verification)", path, KnownHostsEnv)
 		}
 		return nil, fmt.Errorf("stat known_hosts file %q: %w", path, err)
 	}
@@ -58,21 +64,78 @@ func hostKeyCallback(opts Options) (ssh.HostKeyCallback, error) {
 	return cb, nil
 }
 
-// knownHostsPath returns the known_hosts file to verify against: the
-// caller's explicit path, or "$HOME/.ssh/known_hosts" when none is set.
+// KnownHostsEnv names the environment variable a DEPLOYMENT sets to
+// point every SSH connection this process makes at one known_hosts file.
 //
-// It resolves $HOME here, per connection, rather than once when a Runner
-// is built. $HOME may also be unavailable in a sandboxed environment, in
-// which case this reports that plainly instead of producing a path that
-// cannot exist and letting the stat above blame a missing file.
+// It exists because there was no way at all to configure this. Every
+// caller in this repository builds its Options with an empty
+// KnownHostsPath: both Collection methods construct one from task
+// parameters, which carry no path, and both composition roots that build
+// a transport pass a bare Options{}. So every SSH connection resolved
+// $HOME/.ssh/known_hosts, and the published runner image sets no HOME and
+// ships no such file. Verification could not succeed there at all, which
+// left insecure_skip_host_key_verify as the only working path on that
+// tier: a security control whose off switch was the only thing that
+// worked. FAILURE_PATTERNS.md #150.
+//
+// A package reading its own environment variable is usually a smell, and
+// it is the right answer here for one specific reason: this is the only
+// channel that reaches the code that needs it. Under the Crawl tier a
+// Collection method runs inside a per-task subprocess with no composition
+// root of its own and no argument it controls, so a value wired at
+// startup cannot reach it. The subprocess inherits the environment
+// (internal/adapters/native's exec.CommandContext sets no Env), so this
+// does, and one variable read in one place configures all four call sites
+// at once rather than each of them growing a parameter.
+//
+// Deliberately a PATH and never a POLICY. There is no environment
+// variable that turns host key verification off, and there must not be
+// one: an operator who sets a variable once forgets it, while a task
+// parameter is written in the runbook next to the command it applies to
+// and shows up in review. The only way to skip verification stays the
+// loud, per-task opt-in.
+const KnownHostsEnv = "PLEIADES_KNOWN_HOSTS"
+
+// knownHostsPath returns the known_hosts file to verify against, from the
+// first of three sources that names one:
+//
+//  1. the caller's explicit Options.KnownHostsPath, which one call site
+//     chose for this one connection;
+//  2. the KnownHostsEnv environment variable, which the deployment chose
+//     for this whole process;
+//  3. "$HOME/.ssh/known_hosts", which is where the person running this
+//     already keeps theirs.
+//
+// That is OpenSSH's own layering (-o UserKnownHostsFile beats
+// GlobalKnownHostsFile beats the default), so an operator who knows ssh
+// already knows this. Most specific wins, which is also AGENTS.md's
+// hierarchical policy principle.
+//
+// All three resolve here, per connection, rather than once when a Runner
+// is built. That keeps New free of an error return, means a file written
+// or a variable exported after construction still counts, and is what
+// lets Shared memoize a Runner without also freezing the environment of
+// whichever caller happened to build it first.
 func knownHostsPath(opts Options) (string, error) {
 	if opts.KnownHostsPath != "" {
 		return opts.KnownHostsPath, nil
 	}
 
+	// An empty value counts as unset, matching how every other environment
+	// variable in this repository is read. A deployment that exports the
+	// name with no value has configured nothing, and silently treating ""
+	// as a path would report a missing file named "" instead.
+	if fromEnv := os.Getenv(KnownHostsEnv); fromEnv != "" {
+		return fromEnv, nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("no known_hosts path configured and the home directory could not be determined, host key verification cannot proceed: %w", err)
+		// Name the variable, because this is the error a container hits and
+		// setting it is the fix. Without that the message describes an
+		// environment problem the reader cannot act on, which is exactly how
+		// #150 stayed invisible.
+		return "", fmt.Errorf("no known_hosts path configured and the home directory could not be determined, host key verification cannot proceed: set %s to a known_hosts file: %w", KnownHostsEnv, err)
 	}
 	return filepath.Join(home, ".ssh", "known_hosts"), nil
 }

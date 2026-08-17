@@ -137,6 +137,14 @@ type container struct {
 	SecurityContext *securityContext `yaml:"securityContext"`
 	LivenessProbe   *probe           `yaml:"livenessProbe"`
 	ReadinessProbe  *probe           `yaml:"readinessProbe"`
+	VolumeMounts    []volumeMount    `yaml:"volumeMounts"`
+}
+
+// volumeMount is one container's use of a pod volume, decoded far enough to
+// check that the volume it names is really there.
+type volumeMount struct {
+	Name      string `yaml:"name"`
+	MountPath string `yaml:"mountPath"`
 }
 
 // securityContext is the subset of the Kubernetes security context this tool

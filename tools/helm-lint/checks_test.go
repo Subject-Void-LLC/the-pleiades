@@ -349,6 +349,44 @@ func TestCheckManifests(t *testing.T) {
 		}
 	})
 
+	t.Run("a volumeMount naming no declared volume is refused", func(t *testing.T) {
+		c := hardened()
+		c.VolumeMounts = []volumeMount{{Name: "known-hosts", MountPath: "/app/ssh"}}
+		pod := podSpec{Containers: []container{c}}
+
+		findings := checkManifests("p", []manifest{controllerDeployment(pod)}, "HTTPS")
+		if len(findings) != 1 || !strings.Contains(findings[0].message, "does not declare") {
+			t.Fatalf("reported %v, want one finding about the missing volume", findings)
+		}
+	})
+
+	t.Run("a volumeMount backed by a pod volume is accepted", func(t *testing.T) {
+		c := hardened()
+		c.VolumeMounts = []volumeMount{{Name: "known-hosts", MountPath: "/app/ssh"}}
+		pod := podSpec{Containers: []container{c}, Volumes: []volume{{Name: "known-hosts"}}}
+
+		findings := checkManifests("p", []manifest{controllerDeployment(pod)}, "HTTPS")
+		if len(findings) != 0 {
+			t.Fatalf("reported %v, want nothing", findings)
+		}
+	})
+
+	t.Run("a volumeMount backed by a StatefulSet claim template is accepted", func(t *testing.T) {
+		// The false positive this check shipped with for about a minute. A
+		// StatefulSet declares its storage in volumeClaimTemplates, which is
+		// a different part of the object, so both database workloads in this
+		// chart looked broken until the check learned to read it.
+		c := hardened()
+		c.VolumeMounts = []volumeMount{{Name: "data", MountPath: "/var/lib/postgresql/data"}}
+		obj := controllerDeployment(podSpec{Containers: []container{c}})
+		obj.Spec.VolumeClaimTemplates = []claimTemplate{{Metadata: objectMeta{Name: "data"}}}
+
+		findings := checkManifests("p", []manifest{obj}, "HTTPS")
+		if len(findings) != 0 {
+			t.Fatalf("reported %v, want nothing", findings)
+		}
+	})
+
 	t.Run("a render with no controller proves nothing and says so", func(t *testing.T) {
 		// The failure mode a linter develops silently: parsing changes, the
 		// workloads stop being recognized, and a run over zero containers

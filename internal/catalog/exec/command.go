@@ -43,7 +43,14 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
-			Doc:             commandDoc(),
+			// Nothing here can be undone, and the reason is the same fact
+			// that makes Changed unconditional: a command cannot be
+			// inspected, so the platform cannot know what it did.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "An arbitrary command's effect is unknown to this platform, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback.",
+			},
+			Doc: commandDoc(),
 		},
 		Invoke: Command,
 	})
@@ -63,7 +70,7 @@ func commandDoc() collection.Doc {
 			{Name: paramCreates, Type: "string", Description: "A path whose existence on the target means this work is already done. When it exists, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."},
 			{Name: paramRemoves, Type: "string", Description: "A path whose absence on the target means this work is already done. When it is missing, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in."},
 			{Name: paramStdin, Type: "string", Description: "Text piped to the command's standard input."},
-			{Name: paramInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
 			{Name: statRC, Type: "int", Returned: "always", Description: "The command's exit status. Zero when it succeeded, and 0 for a run that creates or removes skipped."},
@@ -124,7 +131,7 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	conn, err := connect(ctx, rc, device, params, fqcn)
+	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)
 	if err != nil {
 		return collection.Result{}, err
 	}
@@ -151,7 +158,7 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 	command := commandLine(argv, dir)
 
 	var stdin *strings.Reader
-	if text := stringParam(params, paramStdin); text != "" {
+	if text := sdk.StringParam(params, paramStdin); text != "" {
 		stdin = strings.NewReader(text)
 	}
 
@@ -191,8 +198,8 @@ func Command(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 // substitute, and a module that ran something anyway would be running
 // something the author did not write.
 func commandArgv(params map[string]any) ([]string, error) {
-	cmd := stringParam(params, paramCmd)
-	argv, argvPresent, err := stringSlice(params, paramArgv)
+	cmd := sdk.StringParam(params, paramCmd)
+	argv, argvPresent, err := sdk.StringSlice(params, paramArgv)
 	if err != nil {
 		return nil, err
 	}

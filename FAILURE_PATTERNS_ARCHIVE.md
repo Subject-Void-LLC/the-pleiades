@@ -4409,14 +4409,48 @@ both set `HOME` to a temp directory and write a real known_hosts into it, which 
 proving verification works and is exactly what hides the fact that the shipped image provides
 neither. The gate proves the mechanism; nothing proves the deployment supplies its inputs.
 
-**Fix.** Not applied. It is a packaging change with a real design question inside it: where a
-runner's known_hosts comes from, given the runner is stateless and the fleet it dials is decided
-at dispatch time. Recorded as the highest-priority item before the next SSH-backed module ships,
-because every module added between now and then inherits it.
+**Fix.** Applied 2026-08-16, in three layers, after being recorded unfixed for one session.
+
+The design question turned out to have two halves that were being confused. Where the host keys
+COME FROM is a fleet-management question with no cheap answer. Where the file IS is a property of
+the process, and every SSH tool ever written answers it with a setting. Only the second half was
+blocking, so only the second half was solved: `pkg/remoteexec` gained `KnownHostsEnv`
+(`PLEIADES_KNOWN_HOSTS`), resolved per connection between the caller's explicit path and the home
+directory, which is OpenSSH's own layering and AGENTS.md's hierarchical-policy principle.
+
+It went in `pkg/remoteexec` rather than a composition root because that is the only place that
+reaches the code that needs it: under the Crawl tier a Collection method runs in a per-task child
+process with no composition root and no argument it controls, and it builds its own Options from
+task parameters. One variable read in one place fixed all four call sites, which had all been
+passing an empty path. Deliberately a PATH and never a POLICY: there is no variable that turns
+verification off, because a variable set once is forgotten while a task parameter sits in the
+runbook where review can see it.
+
+`Dockerfile.runner` declares the variable and ships an empty `/app/ssh` to mount over, and
+nothing is baked in: host keys in an image mean rebuilding to add a device, and an empty
+known_hosts would be worse than none, since it parses and matches nothing and would fail per
+device instead of once about a mount nobody made. `helm/the-pleiades` takes a ConfigMap or Secret
+through `runner.knownHosts`, and `docker-compose.yml` carries the mount commented with both
+shapes and with the reason it is not uncommented (a bind mount whose source is missing creates a
+root-owned directory on the host).
+
+**How it is proven, and the part that matters.** The unit tests on resolution order prove
+nothing about the place this had to work, so the real evidence is
+`TestSSHMeshReleaseGate_HostKeyVerifiedFromTheEnvironment`: a real dispatch over real NATS,
+through the real Agent and DAG executor, into the spawned child process, dialing a real sshd
+container whose key was captured the way `ssh-keyscan` captures one, with no known_hosts under
+`$HOME` and no insecure flag anywhere. Its negative control removes the variable and requires
+both a failure and an error naming the variable. `$HOME` is set to an empty directory rather
+than unset, because emptying it also takes away what the Docker client reads and the test starts
+containers. `TestPackagingReleaseGate_ImagesRunUnprivilegedWithNoShell` asserts the built image
+declares the variable and carries the directory; mutating away either half fails it.
 
 **Lesson.** A fail-closed default is only as good as the deployment's ability to satisfy it. When
 a test sets up the thing production is supposed to provide, it has stopped testing whether
 production provides it, and the honest place to notice that is the packaging, not the test.
+Separately: when a fix looks blocked on a hard design question, check whether the hard question
+is actually load-bearing. This one had a cheap half and an expensive half welded together in the
+write-up, and the cheap half was the whole outage.
 
 ## 151. Every Collection manifest declares a required capability that nothing enforces at run time
 
@@ -4449,3 +4483,209 @@ comments were.
 **Lesson.** A declared constraint with no enforcement is a comment, and it will be cited as a
 guarantee by the next person who writes code near it. Either enforce it or say in the field's own
 doc comment that nothing does.
+
+## 152. The chart linter could not see a volumeMount naming a volume that does not exist
+
+**Symptom.** A `volumeMount` whose `name` matches no volume in the pod renders cleanly, passes
+`helm lint`, passes `tools/helm-lint`, and is then rejected by the API server at apply time. The
+first thing that notices is an install.
+
+**Root cause.** `tools/helm-lint` decoded `volumes` (to refuse a `hostPath`) and never decoded
+`volumeMounts` at all, so the two sides were never compared. Nothing else in the pipeline can
+compare them either: `helm template` produces text, and `helm lint` checks that a chart is well
+formed rather than that what it produces is valid.
+
+**How it was found.** By trying to justify a comment. A new render profile was added for the
+runner's host key mount, and its comment claimed the profile would catch a mount and volume that
+had drifted apart. Renaming the volume to check that claim produced a clean run, so the comment
+was false. Fixing the linter was cheaper than softening the comment and protects the chart's four
+other volumes as well.
+
+**A false positive on the first run, which is part of the entry.** The check immediately reported
+both database StatefulSets as broken. A StatefulSet declares storage in `volumeClaimTemplates`,
+which is a different part of the object, so a mount against a claim looked like a mount against
+nothing. A checker that is wrong about correct charts gets switched off, so this is a unit test
+of its own rather than a line in a commit message.
+
+**Fix.** `checkVolumeMounts` in `tools/helm-lint/checks.go`, reading pod volumes and
+`volumeClaimTemplates` together. It runs the direction that fails: an unused volume is wasteful
+and legal, a mount with no volume cannot start.
+
+**Lesson.** When a comment claims a test catches something, break the thing and watch it get
+caught. Two of this session's findings came from that one habit, and neither came from reading.
+
+## 153. break-glass refuses forever under an agent harness, because its liveness guard matches the harness's own shells
+
+**Symptom.** `make break-glass` reports "a test run appears to be using this state right now" and
+lists eight `/bin/bash -c source /root/.claude/shell-snapshots/...` processes, then removes
+nothing. No test is running. It never stops refusing, because those shells are the agent's
+persistent shell pool and outlive every command.
+
+**Root cause, sharper than it first looked.** The processes were not idle harness shells. They
+were stale wait loops left by earlier sessions, each of the form
+`until ! pgrep -f "make push-gate"; do sleep 15; done`. That pattern matches the loop's OWN
+command line, so `pgrep` always finds something, the condition is never true, and the loop cannot
+exit. Eleven of them had accumulated, the oldest running 31 hours. break-glass then sees eleven
+live processes whose command lines name this repository's test commands and correctly concludes
+something is using the state.
+
+So there are two defects stacked. The self-matching `pgrep` is the one that creates the
+processes, and it belongs to whoever writes the wait loop, not to break-glass; a loop waiting on
+a command must exclude itself (match the real process, or check a pid, or `pgrep -f "[m]ake
+push-gate"`). break-glass's own heuristic is then right for a human at a terminal and wrong in
+the presence of any long-lived process that merely mentions the command.
+
+**Fix.** None applied to the tool, deliberately. Kill the stale loops, which do nothing but
+sleep. Then verify no real run is live (`pgrep -af "go test"`, `docker ps`), and check what would
+go with
+`make break-glass BREAK_GLASS_FLAGS="-force -n"` before running `-force`. The dry run is the
+important half: it attributes every removal to this repository first, and on the run that found
+this it correctly left Docker Desktop's own kind cluster alone.
+
+**Lesson.** Two of them. A wait loop whose predicate can match the loop itself never terminates,
+and `pgrep -f` on a string that appears in your own command line is the standard way to write
+that bug. And a liveness heuristic keyed on "is something running that looks like it uses this"
+inverts under any long-lived process that merely mentions the command, so read its evidence
+before overriding it rather than deleting the guard.
+
+## 154. A zero-value sentinel collided with a meaningful zero, turning "reject every session" into "accept them all"
+
+**Symptom.** Three tests that prove a Collection method reports a connection failing partway
+through a task started reporting "a connection failure partway through the task was reported as
+success". Nothing about those methods had changed.
+
+**Root cause.** The SSH test harness moved from one package's test file into
+`pkg/remoteexec/remoteexectest`, and its session cap moved from a bare function argument into an
+`Options` struct field. The old argument said "negative means unlimited". The new field's doc said
+"zero means the default, which is unlimited", so `Options{}` would be a normal server. But zero is
+a MEANINGFUL budget for this type: it means reject the very first session, which is precisely how
+those tests reach the branch where authentication succeeds and the session does not. So every
+caller asking for "reject everything" silently got an unlimited server, and the tests passed
+through the happy path instead of the branch they were written for.
+
+**Why it was caught.** Only because the move was verified by running the moved-onto tests
+unchanged, which is the same evidence the `pkg/remoteexec` extraction was held to. Reading the
+diff would not have found it: both the field and its default read perfectly sensibly on their own.
+
+**Fix.** `SessionLimit *int`, with nil meaning unlimited, plus a `Limit(n int) *int` helper so no
+caller writes a temporary. The zero value of the struct is now unambiguous and zero is expressible.
+
+**Lesson.** Before making a struct field's zero value mean "unset", check whether zero is a value
+the field can legitimately take. When it is, a pointer, a separate presence flag or a distinct
+sentinel type is the fix; an int with a documented default is a silent behavior swap. Note the
+shape of the failure: the code did the OPPOSITE of what the caller asked, and every affected test
+still passed its setup, so the only signal was an assertion much later.
+
+## 155. chmod before chown threw away the setuid bit the task had just asked for, and the module could never converge
+
+**Symptom.** A task setting a special-bit mode together with an owner or group (a setuid helper, a
+setgid shared directory's files) reported success and changed, and the device did not have the
+special bit. Every later run reported changed again, forever, because the requested state was
+never reached.
+
+**Root cause.** `pkg/remotefile.Apply` sent `chmod` first and `chown`/`chgrp` second. Linux clears
+`S_ISUID` and `S_ISGID` on a regular file whenever its owner or group changes, which is a
+deliberate kernel protection: a setuid binary that changed hands would otherwise run as its new
+owner. So the chown undid the chmod that had just run. Verified at a real shell before the fix:
+
+    chmod 4755 f; chown daemon f   ->  755
+    chmod 2755 f; chgrp daemon f   ->  755
+    chgrp daemon f; chmod 2755 f   ->  2755
+    mkdir d; chmod 2775 d; chown daemon d  ->  2775   (directories are immune)
+
+Ansible orders owner, then group, then mode for exactly this reason
+(`module_utils/basic.py`'s `set_fs_attributes_if_different`), which is the kind of detail the
+superset rule exists to inherit rather than rediscover.
+
+**Why no test caught it.** No test in the package combined a special-bit mode with an ownership
+change; every mode fixture was an ordinary 0644 or 0600, on which the reordering is invisible.
+Directories are immune, so `file.directory`'s tests could never have found it either. The
+`file.permissions` tests were thorough, mutation-tested and all passed against the defect.
+
+**How it was found.** An adversarial review pass whose whole assignment was convergence, run over
+five freshly written modules after they were integrated green. It was reported with a shell
+transcript rather than an argument, which is why it took one command to confirm rather than a
+debugging session.
+
+**Fix.** Ownership first, mode last, with the reason written at the call site. A side effect worth
+knowing: `file.permissions` can no longer reach its own partial-failure branch, because a refused
+chown now leaves the mode untouched, so there is no partial state to report. That branch is kept
+anyway (the case it reports is real, just no longer reachable in the test environment) and the
+package's coverage floor moved 100.0 to 99.5 with that written justification.
+
+**Lesson.** Two. Ordering between two operations that each succeed is invisible to a test suite
+that never combines them, so when a helper applies several attributes, test the combination and
+not only each attribute. And where this platform claims to be a superset of Ansible, read what
+Ansible's own module actually does before writing the equivalent: the ordering here is not
+folklore, it is documented behavior that exists because someone hit this.
+
+## 156. The manifest declared an inverse that could not be right, because the true inverse is a property of the run and not of the method
+
+**Symptom.** No failure in a test. A design that was internally consistent, enforced at
+registration, documented on every generated page, and wrong in a way that would have caused data
+loss the first time anything acted on it.
+
+**What it was.** `Manifest.Inverse` named the FQCN that undoes a method plus the prior-state keys a
+rollback would feed it. `file.directory` declared `Method: "file.remove"`, `Captures:
+["exists","kind","mode","owner","group"]`.
+
+**Root cause.** A method's inverse is not a property of the method. It is a property of the run.
+Three ways the static form breaks, each different:
+
+- `svc.start` against a service that was ALREADY RUNNING must undo to nothing. Declaring "stop"
+  tells a rollback to stop something the run never touched.
+- `file.directory` that FOUND a directory and only fixed its mode must undo to the old mode, not to
+  a removal. The static declaration named a removal, so a rollback would have deleted a directory
+  the run did not create, along with everything in it.
+- `http.request` is read-only or destructive depending on a parameter, so one declaration covering
+  every invocation can only describe the worst case and is useless for the common one.
+
+The shape also pushed reconstruction logic into the rollback engine: given an FQCN and a list of
+captured keys, something has to know how to assemble a call, which means the engine has to know
+something about every method in the catalog.
+
+**How it was found.** Not by testing. The user pointed at `http.request` and said it was too
+generic for the field to be useful, and proposed declaring reversibility as a true/false statement
+with the actual inverse emitted in the output as nested data. That reframing is what exposed the
+other two cases, which were latent in already-merged code.
+
+**Fix.** Split whether from what. `Manifest.Reversibility{Reversible bool, Notes string}` answers
+once, at registration, with the reason required when false. `sdk.RecordInverse` emits the concrete
+instruction per run: an FQCN plus already-resolved parameters plus a human-readable description,
+written to an `inverse` stat. The emitted instruction is a task, so undoing a run is running more
+tasks through the same dispatcher, with the same capability checks and audit trail, and a rollback
+engine needs no second execution path and no per-method knowledge.
+
+A converged run emits NOTHING, and that absence is now meaningful: it is how the journal says
+undoing this means doing nothing. The old shape had no way to express that.
+
+**Lesson.** Before putting a property on a manifest, ask whether it is a property of the METHOD or
+of the RUN. A run-dependent value declared statically has to collapse every case into one, and the
+case it collapses to is usually the most destructive one. The tell here was that the field needed a
+`Captures` list at all: a declaration that has to name the data someone else will need in order to
+interpret it is not a declaration, it is half of a computation, and the half that is missing is the
+half that knows the answer.
+
+## 157. A repo-wide uniqueness test fails while worktree-isolated agents' checkouts are on disk
+
+**Symptom.** `internal/redact`'s `TestRulesetHasExactlyOneCopy` failed reporting 19 copies of
+`rules.json`, having found one in each of 18 leftover `.claude/worktrees/*` checkouts plus the real
+one. Nothing in the change under test touched that package.
+
+**Root cause.** A worktree is a full checkout of the repository. Any test that scans the tree and
+asserts something is unique counts every worktree's copy. The Workflow tool auto-removes a worktree
+only when it is UNCHANGED, and every one of these had files synced into it, so none qualified for
+cleanup.
+
+**Fix.** Remove the worktrees (`git worktree remove --force`, then `git worktree prune`). The
+branches survive that, so committed work is still reachable.
+
+**The mistake made while fixing it, which is the more useful half.** The worktrees were deleted to
+make the test pass, BEFORE verifying they held nothing unintegrated. It happened to be safe, since
+copying outputs to a directory outside the repository was part of the workflow's contract, but that
+was luck rather than a check. Reconciled afterward: every one of 37 agent files diffed byte
+identical against its copy in the main tree, and all 20 worktree branches were zero commits ahead.
+
+**Lesson.** Reconcile before deleting, not after. And when a test fails in a package the change did
+not touch, the cause is more often the environment than the code, so look at what the tooling left
+behind before looking at the diff.

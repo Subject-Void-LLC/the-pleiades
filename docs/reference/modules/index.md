@@ -11,20 +11,20 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `archive` | 2 | 0 |
 | `cloud` | 4 | 0 |
 | `container` | 3 | 0 |
-| `exec` | 2 | 1 |
-| `facts` | 1 | 0 |
-| `file` | 11 | 0 |
+| `exec` | 2 | 2 |
+| `facts` | 1 | 1 |
+| `file` | 11 | 10 |
 | `fs` | 2 | 0 |
 | `fw` | 3 | 0 |
-| `http` | 1 | 0 |
+| `http` | 1 | 1 |
 | `identity` | 6 | 0 |
 | `net` | 11 | 5 |
 | `pkg` | 9 | 0 |
-| `pleiades` | 1 | 0 |
+| `pleiades` | 1 | 1 |
 | `svc` | 16 | 0 |
-| `wait` | 2 | 0 |
+| `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **76** | **6** |
+| **total** | **76** | **22** |
 
 ## All methods
 
@@ -40,25 +40,25 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.docker.run](container/docker/run.md) | declared | Runs a Docker container on the target. |
 | [container.docker.stop](container/docker/stop.md) | declared | Stops a running Docker container on the target. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
-| [exec.shell](exec/shell.md) | declared | Runs a command through the target's shell, so pipes and redirects work. |
-| [facts.gather](facts/gather.md) | declared | Gathers baseline system facts from the target (OS, kernel, distribution). |
-| [file.block.remove](file/block/remove.md) | declared | Removes a marked, multi-line block of text from a file. |
-| [file.block.set](file/block/set.md) | declared | Ensures a marked, multi-line block of text is present in a file. |
-| [file.copy](file/copy.md) | declared | Copies a file to the target, from a local source or inline content. |
-| [file.directory](file/directory.md) | declared | Creates or removes a directory on the target, recursively if needed. |
-| [file.line.remove](file/line/remove.md) | declared | Ensures no line matching a pattern remains in a file. |
-| [file.line.set](file/line/set.md) | declared | Ensures one line matching a pattern is present in a file, replacing or appending it. |
-| [file.permissions](file/permissions.md) | declared | Sets a file's owner, group, and mode on the target. |
-| [file.remove](file/remove.md) | declared | Removes a file or directory from the target. |
-| [file.symlink](file/symlink.md) | declared | Creates a symbolic link on the target. |
+| [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
+| [facts.gather](facts/gather.md) | implemented | Gathers baseline system facts from the target (OS, kernel, distribution). |
+| [file.block.remove](file/block/remove.md) | implemented | Removes a marked, multi-line block of text from a file. |
+| [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |
+| [file.copy](file/copy.md) | implemented | Writes inline content to a file on the target, only when the bytes there differ. |
+| [file.directory](file/directory.md) | implemented | Makes sure a directory exists on the target, with the mode, owner and group the task asks for. |
+| [file.line.remove](file/line/remove.md) | implemented | Ensures no line matching a pattern remains in a file. |
+| [file.line.set](file/line/set.md) | implemented | Ensures one line matching a pattern is present in a file, replacing or appending it. |
+| [file.permissions](file/permissions.md) | implemented | Sets a file's owner, group, and mode on the target. |
+| [file.remove](file/remove.md) | implemented | Removes a file or directory from the target. |
+| [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
 | [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
-| [file.touch](file/touch.md) | declared | Creates an empty file on the target, or updates its modification time. |
+| [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |
 | [fs.mount](fs/mount.md) | declared | Mounts a filesystem on the target, and optionally persists it to fstab. |
 | [fs.unmount](fs/unmount.md) | declared | Unmounts a filesystem on the target, and optionally removes it from fstab. |
 | [fw.firewalld.allow](fw/firewalld/allow.md) | declared | Opens a port or service in firewalld. |
 | [fw.firewalld.deny](fw/firewalld/deny.md) | declared | Closes a port or service in firewalld. |
 | [fw.firewalld.reload](fw/firewalld/reload.md) | declared | Reloads firewalld to apply pending rule changes. |
-| [http.request](http/request.md) | declared | Makes an HTTP request and reports its status code and body. |
+| [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
 | [identity.group.create](identity/group/create.md) | declared | Creates a POSIX group on the target. |
 | [identity.group.modify](identity/group/modify.md) | declared | Modifies an existing POSIX group on the target. |
 | [identity.group.remove](identity/group/remove.md) | declared | Removes a POSIX group from the target. |
@@ -85,7 +85,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [pkg.install](pkg/install.md) | declared | Installs a package using the target's own package manager, whichever it is. |
 | [pkg.remove](pkg/remove.md) | declared | Removes a package using the target's own package manager, whichever it is. |
 | [pkg.upgrade](pkg/upgrade.md) | declared | Upgrades a package using the target's own package manager, whichever it is. |
-| [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | declared | Waits for a TCP port on the target to start (or stop) accepting connections. |
+| [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
 | [svc.disable](svc/disable.md) | declared | Disables a service from starting at boot, using the target's own service manager. |
 | [svc.enable](svc/enable.md) | declared | Enables a service to start at boot, using the target's own service manager. |
 | [svc.restart](svc/restart.md) | declared | Restarts a service using the target's own service manager, whichever it is. |
@@ -102,7 +102,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.windows.restart](svc/windows/restart.md) | declared | Restarts a Windows service. |
 | [svc.windows.start](svc/windows/start.md) | declared | Starts a Windows service. |
 | [svc.windows.stop](svc/windows/stop.md) | declared | Stops a Windows service. |
-| [wait.path](wait/path.md) | declared | Waits for a file path on the target to exist (or stop existing). |
-| [wait.search](wait/search.md) | declared | Waits for a pattern to appear in a file's contents on the target. |
+| [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
+| [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
 | [win.feature.install](win/feature/install.md) | declared | Installs a Windows feature or role. |
 | [win.feature.remove](win/feature/remove.md) | declared | Removes a Windows feature or role. |

@@ -6,6 +6,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestNewServer_ConstructsFromRecord is a starter test,
@@ -28,10 +29,10 @@ func TestNewServer_ConstructsFromRecord(t *testing.T) {
 // TestNewServer_BaselineCapabilities is a starter, table-driven
 // regression proof: the vendor baseline given at generation time is
 // unioned into the declared capability set. It deliberately checks
-// Capabilities(), not HasCapability(): this generated type has no
-// capability-specific accessor methods yet (see the TODO in
-// windows.go), so HasCapability correctly stays false until a human
-// adds them.
+// Capabilities(), not HasCapability(): three of these four capabilities
+// still have no accessor methods on this type (see the TODO in
+// server.go), so HasCapability correctly stays false for them.
+// TestServer_WinRMCapability below covers the fourth, which does.
 func TestNewServer_BaselineCapabilities(t *testing.T) {
 	item, err := windows.NewServer(record.Record{ID: "t1", Name: "t1", Type: "windows_server"})
 	if err != nil {
@@ -60,6 +61,90 @@ func TestNewServer_BaselineCapabilities(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("expected the vendor baseline to include declared capability %s", tt.name)
+			}
+		})
+	}
+}
+
+// TestServer_WinRMCapability proves the claim that actually decides
+// whether a Windows device can be reached: HasCapability is
+// Declares(name) AND capability.Implements(w, name), so declaring
+// WinRMCapable without implementing WinRMHost and WinRMPort makes the
+// executor refuse the dispatch before any dial. That was this type's
+// state until the WinRM transport arrived, and it is the exact failure
+// this asserts against.
+//
+// It checks HasCapability rather than calling the two accessors
+// directly, because a test calling them directly would pass even if the
+// structural assertion still failed, which is the part that gates
+// dispatch.
+func TestServer_WinRMCapability(t *testing.T) {
+	item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server"})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if !item.HasCapability(capability.NameWinRM) {
+		t.Error("HasCapability(WinRMCapable) = false, want true: the type declares it, so it must also implement WinRMHost and WinRMPort")
+	}
+}
+
+// TestServer_WinRMHostAndPort covers the accessors' own contract,
+// including the default that exists because a stock Enable-PSRemoting
+// host listens on 5985 and an inventory entry should not have to repeat
+// it.
+func TestServer_WinRMHostAndPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		props    map[string]inventory.PropertyValue
+		wantHost string
+		wantPort int
+	}{
+		{
+			name:     "no properties at all",
+			props:    nil,
+			wantHost: "",
+			wantPort: 5985,
+		},
+		{
+			name:     "host set, port defaulted",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246"},
+			wantHost: "10.0.0.246",
+			wantPort: 5985,
+		},
+		{
+			name:     "both set",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246", "port": 5986},
+			wantHost: "10.0.0.246",
+			wantPort: 5986,
+		},
+		{
+			// An explicit zero is indistinguishable from an absent value
+			// for this purpose, and defaulting is the safer reading: a
+			// dial to port 0 cannot succeed.
+			name:     "explicit zero port falls back to the default",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246", "port": 0},
+			wantHost: "10.0.0.246",
+			wantPort: 5985,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{
+				ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props,
+			})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.WinRMCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.WinRMCapable")
+			}
+			if got := dev.WinRMHost(); got != tt.wantHost {
+				t.Errorf("WinRMHost() = %q, want %q", got, tt.wantHost)
+			}
+			if got := dev.WinRMPort(); got != tt.wantPort {
+				t.Errorf("WinRMPort() = %d, want %d", got, tt.wantPort)
 			}
 		})
 	}

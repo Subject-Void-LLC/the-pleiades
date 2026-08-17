@@ -83,6 +83,21 @@ Both workloads must see the same source: they resolve a dispatched runbook
 independently, so two different directories means a job that launches on one
 side and fails on the other.
 {{- end }}
+{{- if not (or .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName) }}
+
+WARNING: no SSH host keys are configured, so every task that reaches a device
+over SSH will refuse. Each one verifies the device's host key against a
+known_hosts file and fails closed without one, and the runners are mounting the
+empty directory baked into their image.
+
+  ssh-keyscan -H device-a.example.com device-b.example.com > known_hosts
+  kubectl create configmap pleiades-known-hosts -n {{ .Release.Namespace }} --from-file=known_hosts
+  helm upgrade {{ .Release.Name }} <chart> --set runner.knownHosts.configMapName=pleiades-known-hosts
+
+The key inside the object must be named known_hosts. The alternative,
+insecure_skip_host_key_verify on individual tasks, turns off the protection
+rather than configuring it, and belongs in a lab and nowhere else.
+{{- end }}
 {{- if or .Values.postgresql.enabled .Values.nats.enabled }}
 
 NOTE: this release runs its own {{ if and .Values.postgresql.enabled .Values.nats.enabled }}PostgreSQL and NATS{{ else if .Values.postgresql.enabled }}PostgreSQL{{ else }}NATS{{ end }}, single instance, with no

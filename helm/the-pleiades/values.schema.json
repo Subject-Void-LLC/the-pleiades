@@ -487,6 +487,18 @@
         },
         "extraEnv": {
           "$ref": "#/definitions/envList"
+        },
+        "knownHosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "configMapName": {
+              "type": "string"
+            },
+            "secretName": {
+              "type": "string"
+            }
+          }
         }
       }
     },

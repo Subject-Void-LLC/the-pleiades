@@ -31,6 +31,14 @@ Pages through the Catalyst Center's device inventory and emits one fact entry pe
 | `devices` | `list of map` | always | One entry per device: id, hostname, management_ip, family, series, platform_id, software_type, software_version, role, serial_number, reachability_status, collection_status. |
 | `device_count` | `int` | always | The number of devices in the devices fact. |
 
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
 ## See also
 
 - `net.catalyst.reachability`

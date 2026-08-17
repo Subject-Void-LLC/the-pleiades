@@ -355,6 +355,51 @@ func TestViewsAreCoherent(t *testing.T) {
 	}
 }
 
+// TestEveryImplementedMethodAnswersReversibility sweeps the catalog for a
+// method that never says whether it can be undone.
+//
+// Registration already refuses a non-reversible method with no reason, so
+// what this adds is the whole-table view registration cannot have: that
+// every implemented method really was asked, and that the sweep examined
+// something rather than passing by looking at nothing.
+//
+// It replaced a sweep that checked an inverse FQCN resolved to a
+// registered method. That check went away with the field: the manifest no
+// longer names an inverse, because the real one depends on what a run
+// found rather than on what the method is, and a method emits it at run
+// time instead. What used to be a build-time typo check is now covered
+// where it belongs, by each method's own tests asserting the emitted
+// instruction, including that its parameter names match the method that
+// would receive it.
+func TestEveryImplementedMethodAnswersReversibility(t *testing.T) {
+	if len(catalogdata.Collections) == 0 {
+		t.Fatal("catalogdata registered no collections, so this test proved nothing")
+	}
+
+	var answered int
+	for _, cfg := range catalogdata.Collections {
+		desc, ok := collection.Lookup(cfg.Name)
+		if !ok || desc.Manifest.Status != collection.StatusImplemented {
+			continue
+		}
+		answered++
+
+		// The one thing that can be wrong here and nowhere else: a method
+		// claiming it cannot be undone without saying what about its effect
+		// this platform cannot observe. Registration refuses it, so reaching
+		// this loop means it passed; asserting it again is cheap and keeps
+		// the rule visible where a reader is looking for it.
+		if !desc.Manifest.Reversibility.Reversible && desc.Manifest.Reversibility.Notes == "" {
+			t.Errorf("%s declares itself not reversible with no reason", cfg.Name)
+		}
+	}
+
+	if answered == 0 {
+		t.Fatal("no implemented method was examined, so this test proved nothing")
+	}
+	t.Logf("%d implemented method(s) answered reversibility", answered)
+}
+
 // TestCatalogDataDocsMatchTheRegistry proves each entry in
 // internal/forge/catalogdata carries the same Doc the corresponding
 // package actually registered.

@@ -56,6 +56,75 @@ func SSHTarget(item inventory.InventoryItem) (transport.Target, bool) {
 	return transport.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, true
 }
 
+// WinRMTarget is the TransportBinding.Target function for any fqcn bound
+// to capability.NameWinRM, the exact counterpart of SSHTarget above:
+// capability.WinRMCapable is "the same shape as SSHTransportCapable
+// (host plus port)", so this is the same three lines against the other
+// interface rather than anything new.
+func WinRMTarget(item inventory.InventoryItem) (transport.Target, bool) {
+	winrmDev, ok := item.(capability.WinRMCapable)
+	if !ok {
+		return transport.Target{}, false
+	}
+	return transport.Target{Host: winrmDev.WinRMHost(), Port: winrmDev.WinRMPort()}, true
+}
+
+// taskShell reads params.shell off a task and turns it into the typed
+// transport.Shell the ports below take. A task that omits the parameter
+// gets transport.ShellNone, which is what every task meant before a
+// shell could be named at all.
+//
+// A non-string params.shell is refused rather than coerced. YAML will
+// happily hand this an integer or a boolean if an author writes one, and
+// silently treating that as "no shell" would run the task through a
+// different interpreter than the one they were reaching for.
+func taskShell(task *Task) (transport.Shell, error) {
+	raw, present := task.Params["shell"]
+	if !present {
+		return transport.ShellNone, nil
+	}
+	name, ok := raw.(string)
+	if !ok {
+		return transport.ShellNone, fmt.Errorf("params.shell must be a string, got %T", raw)
+	}
+	return transport.ParseShell(name)
+}
+
+// runOnTransport sends one command to one device through whichever port
+// the requested shell needs.
+//
+// This type assertion is the single change to dispatch logic that adding
+// a second protocol required, and it is worth being precise about why it
+// is not the "change to TransportActionExecutor" TransportBinding's doc
+// comment above promises would never be needed. It is additive and
+// total: transport.ShellNone is the zero value, so every task and
+// binding that predates it takes the same Exec path it always did, and
+// no existing behavior moves. What it buys is that a task asking for a
+// shell the bound transport cannot offer gets an explained refusal
+// naming the device and the shell, instead of silently running through
+// whatever interpreter that transport happens to default to.
+func runOnTransport(
+	ctx context.Context,
+	tr transport.Transport,
+	target transport.Target,
+	cred credential.Credential,
+	shell transport.Shell,
+	command string,
+	deviceName string,
+) (transport.Result, error) {
+	if shell == transport.ShellNone {
+		return tr.Exec(ctx, target, cred, command)
+	}
+
+	shellTransport, ok := tr.(transport.ShellTransport)
+	if !ok {
+		return transport.Result{}, fmt.Errorf(
+			"device %q: this task asks for shell %q, and the transport bound to it cannot run a named shell",
+			deviceName, shell)
+	}
+	return shellTransport.ExecShell(ctx, target, cred, shell, command)
+}
+
 // transportActionExecutor is the ActionExecutor that dispatches a task to
 // a real transport.Transport, keyed by fqcn via bindings, falling back to
 // fallback for any fqcn bindings does not cover. This is how "noop" keeps
@@ -106,6 +175,14 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 		return ActionResult{}, fmt.Errorf("fqcn %q requires a non-empty string params.command", task.FQCN)
 	}
 
+	// Resolved before the credential lookup on purpose: a runbook naming
+	// a shell this platform does not know is an authoring mistake, and
+	// there is no reason to fetch a secret in order to report it.
+	shell, err := taskShell(task)
+	if err != nil {
+		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %w", task.FQCN, device.Name(), err)
+	}
+
 	cred, err := e.credentials.Lookup(ctx, device.Name())
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
@@ -127,7 +204,7 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	// printed output). FAILURE_PATTERNS.md #22.
 	secrets := []string{cred.Password, string(cred.PrivateKeyPEM), cred.Passphrase}
 
-	result, err := binding.Transport.Exec(ctx, target, cred, command)
+	result, err := runOnTransport(ctx, binding.Transport, target, cred, shell, command, device.Name())
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("fqcn %q on device %q: %s", task.FQCN, device.Name(), redact.Text(secrets, err.Error()))
 	}

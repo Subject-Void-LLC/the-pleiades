@@ -50,6 +50,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Nothing to undo, which is the same fact that makes this
+			// method report changed: false.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "A read-only fact gatherer changes nothing on the device, so there is nothing to undo.",
+			},
 			Doc: collection.Doc{
 				Summary:     "Gathers the tags defined on a Cisco Catalyst Center, as facts.",
 				Description: "Reads every tag the targeted Catalyst Center knows about, and separates the controller's own system tags (its internal bookkeeping) from operator-created ones, so a runbook grouping devices by operator intent does not have to filter system tags out itself.",

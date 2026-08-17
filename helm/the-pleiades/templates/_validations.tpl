@@ -194,6 +194,9 @@ Kubernetes itself would reject, and a runbook source given twice.
 {{- if and .Values.runbooks.configMapName .Values.runbooks.existingClaim -}}
 {{- include "the-pleiades.refuse" "runbooks.configMapName and runbooks.existingClaim both name a runbook source. Set one. The controller and the runners must mount the SAME source, so there is exactly one to choose." -}}
 {{- end -}}
+{{- if and .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName -}}
+{{- include "the-pleiades.refuse" "runner.knownHosts.configMapName and runner.knownHosts.secretName both name a host key source. Set one. Both mount at the same path, so the chart would have to pick one silently, and the one it picked would decide which device keys every SSH task trusts." -}}
+{{- end -}}
 {{- end }}
 
 {{/*

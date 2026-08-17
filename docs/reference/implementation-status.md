@@ -6,22 +6,37 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**6 of 76 methods are implemented.**
+**22 of 76 methods are implemented.**
 
 ## Implemented
 
 - [exec.command](modules/exec/command.md)
+- [exec.shell](modules/exec/shell.md)
+- [file.copy](modules/file/copy.md)
+- [file.directory](modules/file/directory.md)
+- [file.symlink](modules/file/symlink.md)
+- [file.remove](modules/file/remove.md)
+- [file.touch](modules/file/touch.md)
+- [file.permissions](modules/file/permissions.md)
+- [file.line.set](modules/file/line/set.md)
+- [file.line.remove](modules/file/line/remove.md)
+- [file.block.set](modules/file/block/set.md)
+- [file.block.remove](modules/file/block/remove.md)
 - [net.ssh.ping](modules/net/ssh/ping.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
 - [net.catalyst.tag_facts](modules/net/catalyst/tag_facts.md)
 - [net.catalyst.reachability](modules/net/catalyst/reachability.md)
+- [http.request](modules/http/request.md)
+- [pleiades.builtin.wait.port](modules/pleiades/builtin/wait/port.md)
+- [wait.path](modules/wait/path.md)
+- [wait.search](modules/wait/search.md)
+- [facts.gather](modules/facts/gather.md)
 
 ## Declared, not yet implemented
 
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
-- `exec.shell`
 - `pkg.install`
 - `pkg.remove`
 - `pkg.upgrade`
@@ -53,17 +68,7 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `identity.group.create`
 - `identity.group.remove`
 - `identity.group.modify`
-- `file.copy`
 - `file.template`
-- `file.directory`
-- `file.symlink`
-- `file.remove`
-- `file.touch`
-- `file.permissions`
-- `file.line.set`
-- `file.line.remove`
-- `file.block.set`
-- `file.block.remove`
 - `net.cli.command`
 - `net.cli.config`
 - `net.netconf.config`
@@ -86,9 +91,4 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `cloud.aws.ec2.terminate`
 - `cloud.aws.s3.create_bucket`
 - `cloud.aws.s3.delete_bucket`
-- `http.request`
-- `pleiades.builtin.wait.port`
-- `wait.path`
-- `wait.search`
-- `facts.gather`
 

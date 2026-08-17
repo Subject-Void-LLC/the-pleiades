@@ -51,6 +51,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Nothing to undo, which is the same fact that makes this
+			// method report changed: false.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "A read-only reachability check changes nothing on the device, so there is nothing to undo.",
+			},
 			Doc: collection.Doc{
 				Summary:     "Reports which devices a Cisco Catalyst Center can currently reach and manage.",
 				Description: "Answers a different question than device_facts: device_facts describes what the fleet is, gathered once; reachability describes what the fleet is doing right now, the check a gate task waits on before acting. Reports reachability_status (can the controller talk to the device at all) and collection_status (is it successfully collecting from it) separately, since a device can be reachable and still not managed.",

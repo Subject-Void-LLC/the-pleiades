@@ -112,6 +112,7 @@ func writeModulePage(modulesDir, fqcn string, m collection.Manifest) error {
 	if m.Status == collection.StatusImplemented {
 		writeParameters(&b, m.Doc)
 		writeReturns(&b, m.Doc)
+		writeReversibility(&b, m.Reversibility)
 	}
 
 	if len(m.Doc.SeeAlso) > 0 {
@@ -167,6 +168,44 @@ func writeReturns(b *strings.Builder, doc collection.Doc) {
 	b.WriteString("## Returns\n\n")
 	b.WriteString(table([]string{"Name", "Type", "Returned", "Description"}, rows))
 	b.WriteString("\n")
+}
+
+// writeReversibility renders whether this method can be undone, which is
+// what a reader planning a rollback needs and what nothing else on the
+// page says.
+//
+// It renders for every implemented method including the read-only ones,
+// because "nothing to undo" is a real and useful answer and its absence
+// would read as an omission rather than as a fact.
+//
+// What it deliberately does NOT render is the inverse itself. The
+// manifest no longer holds one, and an earlier version of this function
+// printed a static inverse FQCN taken from it, which was documentation of
+// something that could not be right: the real inverse depends on what a
+// run found rather than on what the method is. A method emits its own
+// concrete inverse at run time instead, so the honest thing a generated
+// page can say is whether one is ever produced and what it will not
+// cover.
+func writeReversibility(b *strings.Builder, r collection.Reversibility) {
+	b.WriteString("## Undoing this\n\n")
+
+	if r.Reversible {
+		b.WriteString("**Can be undone.** A run that changes something records the instruction that " +
+			"reverses it, as an `inverse` stat holding the method to call and the parameters to call it " +
+			"with, resolved from the state this run actually found. A run that changed nothing records " +
+			"no instruction, which is how it says that undoing it means doing nothing.\n\n")
+	} else {
+		b.WriteString("**Cannot be undone.** This method never records a reversing instruction, so a " +
+			"rollback reaching a task that used it stops rather than guessing.\n\n")
+	}
+
+	if r.Notes != "" {
+		fmt.Fprintf(b, "%s\n\n", r.Notes)
+	}
+
+	b.WriteString("Note that no rollback engine reads this yet. What exists today is the recording, " +
+		"which has to happen during the forward run because the values an undo needs are gone once the " +
+		"change is applied.\n\n")
 }
 
 func writeExamples(b *strings.Builder, doc collection.Doc) {

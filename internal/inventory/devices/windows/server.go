@@ -47,12 +47,23 @@ func init() {
 
 // Server implements inventory.InventoryItem.
 //
-// TODO(forge): Server does not yet structurally implement any of
-// its declared capabilities. Add accessor methods matching each
-// capability interface in pkg/capability (for example, a network device
-// type typically needs a CLIPrompt() string method to satisfy
-// NetworkCLICapable) so HasCapability returns true for a capability this
-// type declares.
+// It structurally implements WinRMCapable, via the WinRMHost and
+// WinRMPort accessors below, which is what makes a Windows device
+// reachable at all: the executor gates every dispatch on
+// device.HasCapability(binding.Capability), and HasCapability is
+// Declares(name) AND capability.Implements(w, name). Declaring
+// WinRMCapable without implementing its two methods, which is what this
+// type did until the WinRM transport arrived, means the gate refuses
+// before any dial and the declaration is a claim the type cannot back.
+//
+// TODO(forge): Server declares three further capabilities it does not
+// structurally implement, so HasCapability correctly returns false for
+// each: WindowsCapable (needs WindowsEdition() string),
+// WindowsServiceCapable, and WindowsFeatureCapable (needs
+// DISMLogPath() string). Those gate the seven declared svc.windows.* and
+// win.feature.* methods, which are not implemented either; wiring an
+// accessor here before the method that needs it exists would replace a
+// truthful "false" with an untested "true".
 type Server struct {
 	*record.Base
 }
@@ -86,4 +97,26 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 // registry assertion, so a true result is a guarantee, not a hope.
 func (w *Server) HasCapability(name capability.Name) bool {
 	return w.Declares(name) && capability.Implements(w, name)
+}
+
+// WinRMHost returns the configured management host for this server,
+// reading the same "host" property linux.Server reads for SSH so one
+// inventory file describes both kinds of device the same way.
+func (w *Server) WinRMHost() string {
+	host, _ := w.Properties().String("host")
+	return host
+}
+
+// WinRMPort returns the configured WinRM port, defaulting to 5985.
+//
+// 5985 is the HTTP listener Enable-PSRemoting creates; 5986 is the HTTPS
+// one. The default is the cleartext port because it is the one that
+// exists on a stock host, and the WinRM transport compensates by
+// requiring SPNEGO message encryption on it rather than by pretending
+// the default is TLS.
+func (w *Server) WinRMPort() int {
+	if port, ok := w.Properties().Int("port"); ok && port != 0 {
+		return port
+	}
+	return 5985
 }

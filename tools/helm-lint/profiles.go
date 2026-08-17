@@ -111,6 +111,24 @@ var profiles = []profile{
 		probeScheme:           "HTTPS",
 		wantDisruptionBudgets: 2,
 	},
+	{
+		// The arrangement any install that manages real devices needs, and
+		// the one nothing rendered until now: the runners get the host keys
+		// they verify against. Without this mount every SSH task fails
+		// closed, so a chart that could not express it could only produce a
+		// fleet whose runbooks all refused (FAILURE_PATTERNS.md #150).
+		//
+		// It is a profile rather than a unit assertion because the mount and
+		// its volume are written in two places twenty lines apart, and the
+		// failure mode is a volumeMount naming a volume that no longer
+		// exists, which renders fine and is rejected by the API server.
+		name: "runners carrying the fleet's host keys",
+		values: []string{
+			"--set", "runner.knownHosts.configMapName=pleiades-known-hosts",
+		},
+		probeScheme:           "HTTPS",
+		wantDisruptionBudgets: 1,
+	},
 }
 
 // refusal is a configuration the chart must NOT render, and the words its
@@ -297,5 +315,17 @@ var refusals = []refusal{
 			"--set", "runner.podDisruptionBudget.maxUnavailable=0",
 		},
 		wantMessage: "sets both minAvailable and maxUnavailable",
+	},
+	{
+		// Two host key sources mount at the same path, so the chart would
+		// have to pick one with nothing but template ordering to justify the
+		// choice. What it picked would decide which device keys every SSH
+		// task in the fleet trusts, which is too much to decide by accident.
+		name: "both a ConfigMap and a Secret of host keys",
+		values: []string{
+			"--set", "runner.knownHosts.configMapName=pleiades-known-hosts",
+			"--set", "runner.knownHosts.secretName=pleiades-host-keys",
+		},
+		wantMessage: "both name a host key source",
 	},
 }

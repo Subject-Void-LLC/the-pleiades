@@ -1,12 +1,12 @@
 ---
-status: declared
+status: beta
 ---
 
 # exec.shell
 
 Runs a command through the target's shell, so pipes and redirects work.
 
-**Status: declared, not implemented.** Registered with the manifest below, so `pleiades validate` and editor tooling already know about it, but calling it refuses with an explicit "not implemented" error rather than running.
+Runs a command line on the target through a real shell, which is what makes a pipe, a redirect, a variable expansion, a glob or a chain of commands behave the way they would if you typed them. That is also the whole risk: every one of those characters is syntax, so any runbook value interpolated into this command is code. Use exec.command when the command is a single program with arguments, which is most of the time. A command cannot be inspected, so this reports changed every time it runs; creates and removes are how a task says what its work having already happened looks like.
 
 ## Attributes
 
@@ -16,4 +16,71 @@ Runs a command through the target's shell, so pipes and redirects work.
 | Transports | `ssh` |
 | Requires elevation | no |
 | Engine version | `>=1.0.0` |
+
+## Parameters
+
+| Name | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `cmd` | `string` | yes | - | The command line, passed to the shell exactly as written. Pipes, redirects, globs, variable expansions and semicolons all work, because the shell sees them. |
+| `executable` | `string` | no | - | The shell to run the command with, invoked as `<executable> -c <cmd>`. Defaults to the shell the device declares, or /bin/sh. |
+| `chdir` | `string` | no | - | Change into this directory before running, and resolve a relative creates or removes against it too. The command does not run at all if the directory does not exist. Defaults to the device's own working directory, or to wherever the account lands on login. |
+| `creates` | `string` | no | - | A path whose existence on the target means this work is already done. When it exists, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in. |
+| `removes` | `string` | no | - | A path whose absence on the target means this work is already done. When it is missing, the command does not run and the task reports no change. A relative path is resolved from chdir, the same directory the command itself runs in. |
+| `stdin` | `string` | no | - | Text piped to the command's standard input. |
+| `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
+
+## Returns
+
+| Name | Type | Returned | Description |
+| --- | --- | --- | --- |
+| `rc` | `int` | always | The command's exit status, which for a pipeline is the last command's. Zero when it succeeded, and 0 for a run that creates or removes skipped. |
+| `stdout` | `string` | always | Everything the command wrote to standard output, with the trailing newline removed. |
+| `stderr` | `string` | always | Everything the command wrote to standard error, with the trailing newline removed. |
+| `cmd` | `string` | always | The command line sent to the device, empty for a skipped run. |
+| `skipped` | `bool` | always | True when creates or removes short-circuited this task, so no command ran. |
+| `msg` | `string` | on skip | Why the task was skipped. |
+
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+A shell command's effect is unknown to this platform, and a pipeline or redirect can touch things the command line does not name, so no undo can be derived from it. Pair the task with creates or removes to make re-running it safe, which is idempotence rather than rollback.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
+## See also
+
+- `exec.command`
+
+## Examples
+
+Use a pipeline:
+
+```yaml
+- name: Count the failed units
+  fqcn: exec.shell
+  params:
+    cmd: systemctl list-units --state=failed --no-legend | wc -l
+  register: failed
+```
+
+Redirect output to a file, once:
+
+```yaml
+- name: Snapshot the package list
+  fqcn: exec.shell
+  params:
+    cmd: dpkg -l > /var/backups/packages.txt
+    creates: /var/backups/packages.txt
+```
+
+Choose the shell:
+
+```yaml
+- name: Use a bash-only construct
+  fqcn: exec.shell
+  params:
+    cmd: "[[ -f /etc/os-release ]] && echo present"
+    executable: /bin/bash
+```
 

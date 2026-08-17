@@ -37,19 +37,6 @@ const (
 	paramCreates = "creates"
 	paramRemoves = "removes"
 	paramStdin   = "stdin"
-
-	// paramInsecureSkipHostKeyVerify is the escape hatch for a target
-	// with no known_hosts entry yet, off by default. Skipping host key
-	// verification is a real MITM exposure, so it must be set explicitly
-	// and loudly by the runbook author, never assumed.
-	//
-	// It is a task parameter here only because this platform has no
-	// per-device connection configuration yet. Host key policy is a
-	// property of the connection, not of the command being run, so its
-	// eventual home is the inventory item; net.ssh.ping already carries
-	// the same parameter for the same interim reason, and the two should
-	// move together when that home exists.
-	paramInsecureSkipHostKeyVerify = "insecure_skip_host_key_verify"
 )
 
 // Stat keys these methods emit, matching what Ansible's command module
@@ -61,48 +48,6 @@ const (
 	statCmd     = "cmd"
 	statSkipped = "skipped"
 )
-
-// connect opens one SSH connection to the device a task targets. The
-// caller must Close the returned connection.
-//
-// It returns one connection rather than running one command because a
-// method in this namespace may need two or three: a creates or removes
-// check before the command, and the command itself. Paying for a fresh
-// TCP connect, key exchange and authentication round for each would make
-// the idempotence check the expensive part of the task.
-func connect(ctx context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (*remoteexec.Conn, error) {
-	if device == nil {
-		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
-	}
-
-	sshDev, ok := device.(capability.SSHTransportCapable)
-	if !ok {
-		return nil, fmt.Errorf("%s: device %q is not reachable over SSH (it does not implement %s)",
-			fqcn, device.Name(), capability.NameSSHTransport)
-	}
-
-	// Credentials arrive through InjectSecrets rather than through params,
-	// because params come from the runbook file and a runbook file is
-	// committed to version control.
-	auth, err := remoteexec.AuthFromSecrets(rc.InjectSecrets())
-	if err != nil {
-		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
-	}
-
-	// Shared rather than New: a Collection method is invoked once per task
-	// with nowhere to keep a Runner in between, so a fresh one every time
-	// would carry a circuit breaker that has never seen a failure and
-	// could therefore never open.
-	runner := remoteexec.Shared(remoteexec.Options{
-		InsecureSkipHostKeyVerify: boolParam(params, paramInsecureSkipHostKeyVerify),
-	})
-
-	conn, err := runner.Connect(ctx, remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, auth)
-	if err != nil {
-		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
-	}
-	return conn, nil
-}
 
 // workingDirectory decides which directory a command runs in: the task's
 // own chdir parameter when it sets one, otherwise whatever the device
@@ -133,7 +78,7 @@ func connect(ctx context.Context, rc sdk.RunbookContext, device inventory.Invent
 // directory is a perfectly good answer, so asking is better than
 // demanding.
 func workingDirectory(device inventory.InventoryItem, params map[string]any) string {
-	if dir := stringParam(params, paramChdir); dir != "" {
+	if dir := sdk.StringParam(params, paramChdir); dir != "" {
 		return dir
 	}
 	if execDev, ok := device.(capability.CommandExecCapable); ok {
@@ -220,7 +165,7 @@ type skipDecision string
 // task does not set it, and both are resolved from dir, the same
 // directory the command itself will run in.
 func shouldSkip(ctx context.Context, conn *remoteexec.Conn, dir string, params map[string]any) (skipDecision, error) {
-	if creates := stringParam(params, paramCreates); creates != "" {
+	if creates := sdk.StringParam(params, paramCreates); creates != "" {
 		exists, err := pathExists(ctx, conn, dir, creates)
 		if err != nil {
 			return "", fmt.Errorf("checking creates path %q: %w", creates, err)
@@ -230,7 +175,7 @@ func shouldSkip(ctx context.Context, conn *remoteexec.Conn, dir string, params m
 		}
 	}
 
-	if removes := stringParam(params, paramRemoves); removes != "" {
+	if removes := sdk.StringParam(params, paramRemoves); removes != "" {
 		exists, err := pathExists(ctx, conn, dir, removes)
 		if err != nil {
 			return "", fmt.Errorf("checking removes path %q: %w", removes, err)
@@ -281,54 +226,4 @@ func recordResult(rc sdk.RunbookContext, command string, result remoteexec.Resul
 		}
 	}
 	return nil
-}
-
-// stringParam reads a string task parameter, treating a missing or
-// non-string value as absent.
-func stringParam(params map[string]any, key string) string {
-	v, _ := params[key].(string)
-	return v
-}
-
-// boolParam reads a boolean task parameter, treating a missing or
-// non-boolean value as false.
-//
-// It accepts a real bool only, not the string "true". YAML already
-// decodes an unquoted true into a bool, and accepting the string form
-// would mean silently honoring a quoted "false" as true-ish somewhere
-// down the line. That matters more than usual here: the one parameter
-// this reads turns off host key verification.
-func boolParam(params map[string]any, key string) bool {
-	v, ok := params[key].(bool)
-	return ok && v
-}
-
-// stringSlice reads a list-of-strings task parameter.
-//
-// A non-string element is refused rather than rendered with %v. A YAML
-// author who wrote a bare 8080 in an argument list meant the text 8080,
-// but a value that arrived as a float64 across the Runner's task
-// subprocess boundary would render as "8080" in one tier and "8080.000"
-// in another, and a module that silently produced two different command
-// lines depending on which tier ran it is worse than one that refuses.
-func stringSlice(params map[string]any, key string) ([]string, bool, error) {
-	raw, present := params[key]
-	if !present || raw == nil {
-		return nil, false, nil
-	}
-
-	items, ok := raw.([]any)
-	if !ok {
-		return nil, true, fmt.Errorf("%s must be a list of strings", key)
-	}
-
-	out := make([]string, 0, len(items))
-	for i, item := range items {
-		s, ok := item.(string)
-		if !ok {
-			return nil, true, fmt.Errorf("%s[%d] is %T, not a string: quote it in the runbook", key, i, item)
-		}
-		out = append(out, s)
-	}
-	return out, true, nil
 }

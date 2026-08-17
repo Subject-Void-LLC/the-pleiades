@@ -1,22 +1,12 @@
 package exec_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/binary"
-	"errors"
-	"fmt"
-	"net"
-	"os/exec"
-	"sync"
-	"sync/atomic"
 	"testing"
-
-	cryptossh "golang.org/x/crypto/ssh"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec/remoteexectest"
 )
 
 // This file is the harness the tests in this package run against: a real
@@ -36,223 +26,48 @@ import (
 // that, against a real, independent sshd in a container reached over a
 // real network hop, which is what actually flips this method's status.
 
-// testSSHServer is a running in-process SSH server.
+// testSSHServer is this package's thin alias over the shared harness in
+// pkg/remoteexec/remoteexectest, kept so the tests written against the
+// old local server read unchanged.
+//
+// The server itself moved out of this file when a second package needed
+// it. Those tests passing unchanged afterward is the proof the move
+// preserved behavior, which is the same evidence the pkg/remoteexec
+// extraction was held to.
 type testSSHServer struct {
 	host     string
 	port     int
-	hostKey  cryptossh.PublicKey
 	username string
 	password string
 }
 
-// startShellSSHServer starts an SSH server that accepts one fixed
-// username and password and runs every exec request through /bin/sh.
+// startShellSSHServer starts a real SSH server that runs every command
+// through a real /bin/sh, and stops it when the test ends.
 func startShellSSHServer(t *testing.T) testSSHServer {
 	return startShellSSHServerWithSessionBudget(t, -1)
 }
 
 // startShellSSHServerWithSessionBudget is startShellSSHServer with a cap
-// on how many session channels it will accept before rejecting every
-// further one. A negative budget means no cap.
-//
-// It exists to reach the error branches that only a connection failing
-// partway through a task can produce. exec.command opens up to three
-// sessions (a creates check, a removes check, the command), and a budget
-// of one is the only way to make the second of them fail while the first
-// succeeds. Rejecting a channel is a real protocol-level refusal, not an
-// injected Go error, so the branch under test sees the same shape a
-// device dropping the connection would produce.
+// on how many session channels it accepts before refusing, which is how
+// a test reaches the branches that only a connection failing partway
+// through a task can produce.
 func startShellSSHServerWithSessionBudget(t *testing.T, budget int) testSSHServer {
 	t.Helper()
 
-	const (
-		username = "testuser"
-		password = "testpass"
-	)
+	// A negative budget is this package's own spelling of "unlimited",
+	// and the harness spells that as an absent limit.
+	opts := remoteexectest.Options{}
+	if budget >= 0 {
+		opts.SessionLimit = remoteexectest.Limit(budget)
+	}
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	srv, err := remoteexectest.Start(opts)
 	if err != nil {
-		t.Fatalf("generating a host key: %v", err)
+		t.Fatalf("starting the SSH harness: %v", err)
 	}
-	signer, err := cryptossh.NewSignerFromKey(priv)
-	if err != nil {
-		t.Fatalf("building a host key signer: %v", err)
-	}
+	t.Cleanup(srv.Close)
 
-	config := &cryptossh.ServerConfig{
-		PasswordCallback: func(c cryptossh.ConnMetadata, pass []byte) (*cryptossh.Permissions, error) {
-			if c.User() != username || string(pass) != password {
-				return nil, fmt.Errorf("denied")
-			}
-			return &cryptossh.Permissions{}, nil
-		},
-	}
-	config.AddHostKey(signer)
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listening: %v", err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-
-	// serving tracks the connection goroutines so cleanup can wait for
-	// them, which keeps a still-running /bin/sh from outliving the test
-	// that started it.
-	var serving sync.WaitGroup
-	t.Cleanup(serving.Wait)
-
-	// remaining counts down the session budget across every connection
-	// this server accepts.
-	remaining := int64(budget)
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			serving.Add(1)
-			go func() {
-				defer serving.Done()
-				serveShellConn(conn, config, &remaining)
-			}()
-		}
-	}()
-
-	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("listener address %T is not TCP", listener.Addr())
-	}
-	return testSSHServer{
-		host:     "127.0.0.1",
-		port:     tcpAddr.Port,
-		hostKey:  signer.PublicKey(),
-		username: username,
-		password: password,
-	}
-}
-
-// serveShellConn completes one handshake and serves its session
-// channels. Errors are dropped rather than reported: the listener
-// closing at cleanup is the ordinary way this ends, and a t.Error from a
-// background goroutine after the test returns would panic.
-func serveShellConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64) {
-	defer func() { _ = conn.Close() }()
-
-	serverConn, chans, reqs, err := cryptossh.NewServerConn(conn, config)
-	if err != nil {
-		return
-	}
-	defer func() { _ = serverConn.Close() }()
-	go cryptossh.DiscardRequests(reqs)
-
-	var sessions sync.WaitGroup
-	defer sessions.Wait()
-
-	for newChannel := range chans {
-		if newChannel.ChannelType() != "session" {
-			_ = newChannel.Reject(cryptossh.UnknownChannelType, "only sessions")
-			continue
-		}
-		if !claimSession(remaining) {
-			_ = newChannel.Reject(cryptossh.Prohibited, "session budget exhausted")
-			continue
-		}
-		channel, requests, err := newChannel.Accept()
-		if err != nil {
-			return
-		}
-		sessions.Add(1)
-		go func() {
-			defer sessions.Done()
-			serveShellSession(channel, requests)
-		}()
-	}
-}
-
-// serveShellSession answers one exec request by running the command
-// through /bin/sh, exactly as a real sshd hands it to the account's
-// login shell.
-func serveShellSession(channel cryptossh.Channel, requests <-chan *cryptossh.Request) {
-	defer func() { _ = channel.Close() }()
-
-	for req := range requests {
-		if req.Type != "exec" {
-			if req.WantReply {
-				_ = req.Reply(false, nil)
-			}
-			continue
-		}
-		if req.WantReply {
-			_ = req.Reply(true, nil)
-		}
-
-		command := decodeExecPayload(req.Payload)
-
-		// The command comes from this package's own tests, and running it
-		// through a real shell is the entire point of this harness: a
-		// stand-in that pattern-matched on the command string would be
-		// asserting against its own idea of a shell rather than a shell.
-		cmd := exec.Command("/bin/sh", "-c", command) // #nosec G204 -- test harness; the command is this package's own test input, see this file's doc comment
-		cmd.Stdin = channel
-		cmd.Stdout = channel
-		cmd.Stderr = channel.Stderr()
-
-		exitStatus := runAndReportExit(cmd)
-		_, _ = channel.SendRequest("exit-status", false,
-			cryptossh.Marshal(struct{ Status uint32 }{exitStatus}))
-		return
-	}
-}
-
-// claimSession consumes one unit of a server's session budget,
-// reporting whether there was one to consume. A negative budget is
-// unlimited and is never decremented.
-func claimSession(remaining *int64) bool {
-	for {
-		left := atomic.LoadInt64(remaining)
-		if left < 0 {
-			return true
-		}
-		if left == 0 {
-			return false
-		}
-		if atomic.CompareAndSwapInt64(remaining, left, left-1) {
-			return true
-		}
-	}
-}
-
-// runAndReportExit runs cmd and returns the exit status a remote sshd
-// would report: the process's own status, or 255 for a failure that
-// never produced one.
-func runAndReportExit(cmd *exec.Cmd) uint32 {
-	err := cmd.Run()
-	if err == nil {
-		return 0
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		code := exitErr.ExitCode()
-		if code < 0 {
-			return 255
-		}
-		return uint32(code) // #nosec G115 -- guarded non-negative immediately above
-	}
-	return 255
-}
-
-// decodeExecPayload reads RFC 4254's exec request payload: a 32-bit
-// big-endian length followed by the command string.
-func decodeExecPayload(payload []byte) string {
-	if len(payload) < 4 {
-		return ""
-	}
-	n := binary.BigEndian.Uint32(payload[:4])
-	if int(n) > len(payload)-4 {
-		return ""
-	}
-	return string(payload[4 : 4+n])
+	return testSSHServer{host: srv.Host, port: srv.Port, username: srv.Username, password: srv.Password}
 }
 
 // sshDevice is a target reachable over SSH: the shared
@@ -293,6 +108,27 @@ func newDevice(server testSSHServer, workingDir string) *execDevice {
 	return &execDevice{
 		sshDevice:  sshDevice{Stub: newStub(), host: server.host, port: server.port},
 		workingDir: workingDir,
+	}
+}
+
+// shellDevice adds the capability.ShellExecCapable accessor on top of
+// execDevice, which is the shape a real linux.Server presents: it
+// declares ShellExecCapable, and that resolves upward to satisfy
+// CommandExecCapable too, so one type carries both accessors.
+type shellDevice struct {
+	execDevice
+	shell string
+}
+
+func (d *shellDevice) ShellPath() string { return d.shell }
+
+// newShellDevice builds a target declaring shell through
+// ShellExecCapable, so a test can prove exec.shell reads the device's
+// answer rather than always using its own default.
+func newShellDevice(server testSSHServer, shell string) *shellDevice {
+	return &shellDevice{
+		execDevice: execDevice{sshDevice: sshDevice{Stub: newStub(), host: server.host, port: server.port}},
+		shell:      shell,
 	}
 }
 

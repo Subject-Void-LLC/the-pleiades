@@ -30,6 +30,14 @@ Reads every tag the targeted Catalyst Center knows about, and separates the cont
 | `tags` | `list of map` | always | One entry per tag: id, name, system_tag. |
 | `operator_tags` | `list of string` | always | Names of every tag not created by the controller itself. |
 
+## Undoing this
+
+**Cannot be undone.** This method never records a reversing instruction, so a rollback reaching a task that used it stops rather than guessing.
+
+A read-only fact gatherer changes nothing on the device, so there is nothing to undo.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
 ## Examples
 
 Gather operator-created tags:
