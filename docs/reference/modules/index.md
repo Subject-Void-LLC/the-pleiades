@@ -8,14 +8,14 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 
 | Namespace | Methods | Implemented |
 | --- | --- | --- |
-| `archive` | 2 | 0 |
+| `archive` | 2 | 2 |
 | `cloud` | 4 | 0 |
-| `container` | 3 | 0 |
+| `container` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
 | `file` | 11 | 10 |
-| `fs` | 2 | 0 |
-| `fw` | 3 | 0 |
+| `fs` | 2 | 2 |
+| `fw` | 3 | 3 |
 | `http` | 1 | 1 |
 | `identity` | 6 | 6 |
 | `net` | 11 | 5 |
@@ -24,21 +24,21 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 11 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **77** | **49** |
+| **total** | **77** | **59** |
 
 ## All methods
 
 | FQCN | Status | Summary |
 | --- | --- | --- |
-| [archive.create](archive/create.md) | declared | Creates an archive (tar or zip) from files on the target. |
-| [archive.extract](archive/extract.md) | declared | Extracts an archive (tar or zip) on the target. |
+| [archive.create](archive/create.md) | implemented | Creates an archive (tar or tar.gz) from files on the target. |
+| [archive.extract](archive/extract.md) | implemented | Extracts an archive (tar or tar.gz) on the target. |
 | [cloud.aws.ec2.create](cloud/aws/ec2/create.md) | declared | Creates an EC2 instance via the AWS API. |
 | [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | declared | Terminates an EC2 instance via the AWS API. |
 | [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | declared | Creates an S3 bucket via the AWS API. |
 | [cloud.aws.s3.delete_bucket](cloud/aws/s3/delete_bucket.md) | declared | Deletes an S3 bucket via the AWS API. |
-| [container.docker.remove](container/docker/remove.md) | declared | Removes a Docker container from the target. |
-| [container.docker.run](container/docker/run.md) | declared | Runs a Docker container on the target. |
-| [container.docker.stop](container/docker/stop.md) | declared | Stops a running Docker container on the target. |
+| [container.docker.remove](container/docker/remove.md) | implemented | Removes a Docker container from the target. |
+| [container.docker.run](container/docker/run.md) | implemented | Runs a Docker container on the target. |
+| [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
 | [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM. |
@@ -54,11 +54,11 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [file.symlink](file/symlink.md) | implemented | Makes a path a symbolic link pointing at a target, and refuses to replace a real file or directory. |
 | [file.template](file/template.md) | declared | Renders a template and writes the result to the target. |
 | [file.touch](file/touch.md) | implemented | Creates an empty file on the target, or updates its modification time. |
-| [fs.mount](fs/mount.md) | declared | Mounts a filesystem on the target, and optionally persists it to fstab. |
-| [fs.unmount](fs/unmount.md) | declared | Unmounts a filesystem on the target, and optionally removes it from fstab. |
-| [fw.firewalld.allow](fw/firewalld/allow.md) | declared | Opens a port or service in firewalld. |
-| [fw.firewalld.deny](fw/firewalld/deny.md) | declared | Closes a port or service in firewalld. |
-| [fw.firewalld.reload](fw/firewalld/reload.md) | declared | Reloads firewalld to apply pending rule changes. |
+| [fs.mount](fs/mount.md) | implemented | Mounts a filesystem on the target, and optionally persists it to fstab. |
+| [fs.unmount](fs/unmount.md) | implemented | Unmounts a filesystem on the target, and optionally removes it from fstab. |
+| [fw.firewalld.allow](fw/firewalld/allow.md) | implemented | Opens a port or service in firewalld. |
+| [fw.firewalld.deny](fw/firewalld/deny.md) | implemented | Closes a port or service in firewalld. |
+| [fw.firewalld.reload](fw/firewalld/reload.md) | implemented | Reloads firewalld to apply pending rule changes. |
 | [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
 | [identity.group.create](identity/group/create.md) | implemented | Makes sure a POSIX group exists on the target. |
 | [identity.group.modify](identity/group/modify.md) | implemented | Changes the gid of an existing POSIX group on the target. |

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**49 of 77 methods are implemented.**
+**59 of 77 methods are implemented.**
 
 ## Implemented
 
@@ -54,6 +54,16 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
 - [net.catalyst.tag_facts](modules/net/catalyst/tag_facts.md)
 - [net.catalyst.reachability](modules/net/catalyst/reachability.md)
+- [fw.firewalld.allow](modules/fw/firewalld/allow.md)
+- [fw.firewalld.deny](modules/fw/firewalld/deny.md)
+- [fw.firewalld.reload](modules/fw/firewalld/reload.md)
+- [fs.mount](modules/fs/mount.md)
+- [fs.unmount](modules/fs/unmount.md)
+- [archive.create](modules/archive/create.md)
+- [archive.extract](modules/archive/extract.md)
+- [container.docker.run](modules/container/docker/run.md)
+- [container.docker.stop](modules/container/docker/stop.md)
+- [container.docker.remove](modules/container/docker/remove.md)
 - [http.request](modules/http/request.md)
 - [pleiades.builtin.wait.port](modules/pleiades/builtin/wait/port.md)
 - [wait.path](modules/wait/path.md)
@@ -76,18 +86,8 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `net.ios.config`
 - `net.junos.config`
 - `net.eos.config`
-- `fw.firewalld.allow`
-- `fw.firewalld.deny`
-- `fw.firewalld.reload`
-- `fs.mount`
-- `fs.unmount`
 - `win.feature.install`
 - `win.feature.remove`
-- `archive.create`
-- `archive.extract`
-- `container.docker.run`
-- `container.docker.stop`
-- `container.docker.remove`
 - `cloud.aws.ec2.create`
 - `cloud.aws.ec2.terminate`
 - `cloud.aws.s3.create_bucket`

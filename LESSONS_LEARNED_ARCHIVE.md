@@ -2883,3 +2883,43 @@ this because neither of their inverses depends on a converge's after-state: `ins
 a plain removal, `remove`'s inverse pins the version captured before deleting, and `upgrade` records
 no inverse at all. The first method in the catalog whose inverse depends on *which* attributes an
 existing resource's converge changed is where this pattern had to be worked out.
+
+## 148. When a method's own tests must exercise a real command executor, a well-known system path it touches has to be a task parameter, not a hardcoded constant
+
+**The rule.** If a Collection method reads or writes a specific system path (`/etc/fstab`,
+`/etc/hosts`, a registry hive, a well-known config file) and its tests run that method against a
+*real* command executor rather than a mock (this codebase's own RULE 0), that path must be exposed
+as a parameter with the well-known location as its default, never hardcoded. The parameter is not
+convenience API surface; it is what makes the method testable at all without either touching the
+real host's file during a test run or falling back to a mock that would fail RULE 0.
+
+**Why.** `pkg/remoteexec/remoteexectest.Start` runs every command a test sends through a real
+`exec.Command("/bin/sh", "-c", command)` on the actual machine running the test — there is no
+sandboxed filesystem underneath it, no chroot, no fake `/etc`. `fs.mount`/`fs.unmount` need to read
+and rewrite an fstab file (via `pkg/remotefile`'s real `Read`/`Write`/`Stat`/`Apply`, the same
+primitive `internal/catalog/file/line` already established for "read the whole file, decide in Go,
+write the whole file back" rather than trusting `sed`). Had the fstab path been hardcoded to
+`/etc/fstab` the way a first draft assumed, every test exercising the persistence half of these
+methods would have had to either genuinely rewrite the test-runner's own `/etc/fstab` — unacceptable
+in any environment, let alone a sandboxed one — or abandon RULE 0 and mock `remotefile` out from
+under the method, which is exactly the failure mode RULE 0 exists to catch (a test that mocks the
+layer being tested proves nothing about it). Making `fstab` a parameter, defaulting to `/etc/fstab`,
+let every test point it at a `t.TempDir()` path instead, so the tests run the method's real read-
+modify-write logic against a real file without touching anything outside the test's own sandbox.
+
+**The tell that this is available, not invented.** Ansible's own `ansible.builtin.mount` module
+already exposes an `fstab:` parameter for the identical reason (its own test suite needs to point
+at a fixture file, not the control node's real one). This platform's own vocabulary-reuse
+philosophy — a runbook migrating from Ansible should rename nothing it does not have to — means the
+same parameter existing for the same underlying reason is confirmation the design is right, not a
+coincidence to double check. When a method's own test-safety need and an existing Ansible module's
+parameter surface point at the same missing parameter, that is the parameter to add.
+
+**How to apply it.** Before hardcoding any path a method's real command executor will touch —
+especially one central enough that a real environment guarantees its existence (`/etc/fstab`,
+`/etc/hosts`, `/etc/resolv.conf`) — check whether the Ansible module this method mirrors already
+parameterizes it, and if this method's own tests will need to run real commands against it (per
+RULE 0), add the parameter regardless of whether Ansible does. A method that never needs a real
+command executor in its own tests (an HTTP-API-backed method, for instance) does not have this
+pressure and can reasonably default to a hardcoded well-known value with no parameter at all; the
+pressure is specific to "this runs a real shell command against this path in its own tests."

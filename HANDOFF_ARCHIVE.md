@@ -1,5 +1,58 @@
 # Handoff Document Archive
 
+## Previous session: identity.user.* and identity.group.*, the six POSIX account methods
+
+**Branch `feature/Catalog-First-Tier`, off `main`. HEAD was `f481fbb`, the nine `pkg.*` methods,
+at the start of this session; the six `identity.*` methods below landed at `7d3638a` (the user ran
+the commit themselves after seeing the drafted message, same as `f481fbb` before it).**
+
+### What landed
+
+All six `identity.*` methods, implemented and tested. `identity.user.create`/`modify`/`remove` and
+`identity.group.create`/`modify`/`remove` are built entirely on `pkg/remoteexec` via `sdk.Connect`,
+no new `pkg/` primitive: account/group state is read with `getent passwd`/`getent group`, and
+changed with `useradd`/`usermod`/`userdel`/`groupadd`/`groupmod`/`groupdel`, quoted through
+`remoteexec.QuoteCommand`. Unlike `pkg.*`, there is no generic-plus-concrete dispatcher here — these
+six FQCNs were already the concrete layer with nothing generic above them to resolve to.
+
+`identity.user.create` converges an existing account's `uid`/`group`/`shell`/`home`/`comment` toward
+whichever of those the runbook named, using `usermod`, rather than only ever creating; a brand-new
+account is created with `useradd` from the same set of attributes. `identity.user.modify` is the
+same converge logic but refuses outright if the account does not exist, rather than creating one.
+`identity.user.remove` captures the full attribute set before deleting so its inverse is a real
+`identity.user.create` pinned to the old values. `identity.group.*` mirrors this shape with `gid` as
+the only mutable attribute. Supplementary group membership and account passwords are deliberately
+out of scope this pass. All six methods are `Reversible: true`.
+
+A new shared `sdk.IntParam` helper was added to `pkg/sdk/params.go` for `uid`/`gid` parsing, the
+fourth place in the catalog needing int/int64/float64 handling across the Walk-tier-YAML vs
+Runner-subprocess-JSON boundary. The three prior private copies (`wait.port`,
+`net.catalyst.device_facts`, `http.request`, `exec.winrm.shell`) were deliberately left alone.
+
+A capability-wiring gap, the same one `pkg.*` found, for a related but distinct reason:
+`capability.PosixAccountCapable` already existed but no device type implements it — not because it
+lacks an honest per-instance default (POSIX accounts genuinely are universal), but because nothing
+had ever wired the accessor at all. See `LESSONS_LEARNED` #146's update.
+
+A real design bug, caught by the test harness before it ever shipped: the first draft built each
+converge's inverse by re-querying the account after `usermod` ran and diffing "after" against
+"before", which failed against a static test fake and, more importantly, was never a safe assumption
+against a real NSS-backed source either. Fixed by having `converge` return the old value of each
+attribute at the point it decides to change it. Written up as `LESSONS_LEARNED` #147.
+
+A real correctness bug, also caught before it shipped: `useraddArgs` built every `useradd` flag
+correctly but never appended the account's own name, its one required positional argument.
+
+Both new packages reached 100.0% coverage against a pre-existing 100.0% floor. The module catalog
+had 49 of 77 methods at `collection.StatusImplemented` after this session (43 at `f481fbb`, plus
+these six), confirmed via `internal/archtest`'s `TestEveryImplementedMethodAnswersReversibility`.
+
+This session also corrected a standing-rule near-miss: mid-session, a system reminder said
+"Ultracode is still on," which nudges toward using the Workflow tool for delegation, but the prior
+session's rule ("never use Agent/Workflow without being asked") held anyway. The choice not to
+delegate was deliberate and is recorded as its own durable memory
+(`pleiades_no_unrequested_delegation`).
+
 ## Previous session: pkg.install/remove/upgrade and the six concrete apt/dnf methods
 
 **Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `f81257a`, the docs-gen-check fix
