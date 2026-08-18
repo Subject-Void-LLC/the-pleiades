@@ -88,6 +88,39 @@ func StringSlice(params map[string]any, key string) ([]string, bool, error) {
 	return out, true, nil
 }
 
+// IntParam reads a whole-number task parameter, reporting whether the key
+// was present at all so a caller can tell an explicit value apart from
+// none given.
+//
+// A value arrives as one of three shapes depending on which tier decoded
+// it: int from YAML on the Walk tier, int64 from a wide-integer decoder,
+// or float64 once the same value has crossed the Runner's per-task
+// subprocess boundary as JSON. Refusing the last would make a working
+// runbook fail on one tier and not the other. This is the fourth
+// Collection method to need exactly this handling (wait.port,
+// net.catalyst.device_facts, http.request and exec.winrm.shell each grew
+// their own private copy first); it lives here, with its own test,
+// rather than as a fifth.
+func IntParam(params map[string]any, key string) (int, bool, error) {
+	raw, present := params[key]
+	if !present || raw == nil {
+		return 0, false, nil
+	}
+	switch v := raw.(type) {
+	case int:
+		return v, true, nil
+	case int64:
+		return int(v), true, nil
+	case float64:
+		if v != float64(int(v)) {
+			return 0, true, fmt.Errorf("%s %v is not a whole number", key, v)
+		}
+		return int(v), true, nil
+	default:
+		return 0, true, fmt.Errorf("%s is %T, not a whole number", key, raw)
+	}
+}
+
 // RequiredStringParam reads a string parameter that a method cannot
 // proceed without, refusing an absent or empty one by name.
 //

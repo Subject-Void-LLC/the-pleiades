@@ -2837,3 +2837,49 @@ exactly that (`TestNewServer_UnionsClassificationCapabilities` here) is doing it
 staying red. `identity.*` will face this same question (`useradd`/`groupadd` are POSIX-universal in
 a way package managers are not, so it may resolve differently) and should be decided freshly rather
 than by analogy to either `svc.*` or `pkg.*` alone.
+
+**Update, `identity.*` session:** the question did resolve freshly, and landed on the same outcome
+as `pkg.*` for a different reason. `useradd`/`groupadd` being POSIX-universal turned out not to be
+the relevant fact: the gap `capability.AptCapable` has is that no device type implements its
+accessor method (`AptSourcesList`) at all, not that the accessor's *answer* varies by instance.
+`capability.PosixAccountCapable`'s own accessor, `PasswdPath() string`, has exactly the same
+problem — nothing in this repository implements it either, regardless of how universal POSIX
+accounts are. A capability interface needs a real accessor on a real device type before
+`HasCapability` can ever return true for it, independent of whether the underlying concept has an
+honest default; `identity.user.*`/`identity.group.*` shipped at the same tier `pkg.apt.*` did,
+implemented and tested against a real SSH server with fake `getent`/`useradd`/`groupadd` on `PATH`,
+genuinely unreachable against a real inventory device until some device type adds that accessor.
+
+## 147. Build a converge method's inverse from the value you are about to overwrite, not from a before/after requery
+
+**The rule.** When a method converges an existing resource's attributes (as opposed to creating or
+removing it outright) and needs to record a real, restorable inverse, capture each attribute's old
+value at the moment the method decides to change it — from the same query that drove the decision
+— rather than by diffing a "before" snapshot against an "after" snapshot taken by re-querying the
+resource once the mutating command has run.
+
+**Why.** `identity.user.create`'s and `identity.user.modify`'s first implementation built their
+inverse this second way: converge whichever attributes differed from what `getent passwd` reported,
+run `usermod`, re-query the account, and diff the fresh "after" against the original "before" to
+find which fields to restore. Every test written against a synthetic fake `getent` (the same
+technique `pkg.apt.*`'s own tests use — a shell script controlled by fixed environment variables)
+failed with the inverse missing the very attribute the test had just changed, because the fake
+script's output does not depend on what `usermod` was told to do: it is a canned response, not a
+stateful simulation of the account database. The requery after a converge, in the test harness,
+reports exactly what it reported before. The deeper problem this exposed is not really about test
+fakes: relying on a post-mutation query to correctly reflect a mutation this platform itself just
+issued is an assumption about NSS-backed system state (LDAP, SSSD, cached `getent` responses) that
+does not need to be made at all, because the value being overwritten was already in hand from the
+query that decided to overwrite it.
+
+**How to apply it.** In a `desired`-vs-`current` converge function (see
+`internal/catalog/identity/user/user.go`'s `converge`), return the old value of each attribute
+alongside the mutation's own command-line flags, at the same point the decision to touch that
+attribute is made, and build the inverse's `Params` directly from that returned map. Keep the
+post-mutation requery only for what it is legitimately for: the operator-facing `sdk.Diff` before/
+after record, which is allowed to be aspirational about a real device's state in a way an inverse
+that a future rollback will actually execute cannot afford to be. `pkg.apt.*`/`pkg.dnf.*` never hit
+this because neither of their inverses depends on a converge's after-state: `install`'s inverse is
+a plain removal, `remove`'s inverse pins the version captured before deleting, and `upgrade` records
+no inverse at all. The first method in the catalog whose inverse depends on *which* attributes an
+existing resource's converge changed is where this pattern had to be worked out.

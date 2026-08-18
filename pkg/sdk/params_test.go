@@ -178,6 +178,56 @@ func TestStringSlice(t *testing.T) {
 	}
 }
 
+func TestIntParam(t *testing.T) {
+	params := map[string]any{
+		"int-form":   1000,
+		"int64-form": int64(1001),
+		"float-form": float64(1002),
+		"fractional": 1003.5,
+		"stringy":    "1004",
+		"nil":        nil,
+	}
+
+	tests := []struct {
+		name        string
+		key         string
+		want        int
+		wantPresent bool
+		wantErr     string
+	}{
+		{name: "absent", key: "absent", wantPresent: false},
+		{name: "nil is absent", key: "nil", wantPresent: false},
+		{name: "int from YAML on the Walk tier", key: "int-form", want: 1000, wantPresent: true},
+		{name: "int64 from a wide-integer decoder", key: "int64-form", want: 1001, wantPresent: true},
+		{name: "float64 across the Runner's JSON boundary", key: "float-form", want: 1002, wantPresent: true},
+		{name: "a fractional float is refused, not truncated", key: "fractional", wantPresent: true, wantErr: "not a whole number"},
+		{name: "a string is refused rather than parsed", key: "stringy", wantPresent: true, wantErr: "not a whole number"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, present, err := sdk.IntParam(params, tc.key)
+			if present != tc.wantPresent {
+				t.Errorf("present = %v, want %v", present, tc.wantPresent)
+			}
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error mentioning %q", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error = %v, want it to mention %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRequiredStringParam(t *testing.T) {
 	got, err := sdk.RequiredStringParam(map[string]any{"path": "/etc/hosts"}, "path")
 	if err != nil {

@@ -17,14 +17,14 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fs` | 2 | 0 |
 | `fw` | 3 | 0 |
 | `http` | 1 | 1 |
-| `identity` | 6 | 0 |
+| `identity` | 6 | 6 |
 | `net` | 11 | 5 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
 | `svc` | 16 | 11 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **77** | **43** |
+| **total** | **77** | **49** |
 
 ## All methods
 
@@ -60,12 +60,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [fw.firewalld.deny](fw/firewalld/deny.md) | declared | Closes a port or service in firewalld. |
 | [fw.firewalld.reload](fw/firewalld/reload.md) | declared | Reloads firewalld to apply pending rule changes. |
 | [http.request](http/request.md) | implemented | Makes an HTTP request and reports its status code and body. |
-| [identity.group.create](identity/group/create.md) | declared | Creates a POSIX group on the target. |
-| [identity.group.modify](identity/group/modify.md) | declared | Modifies an existing POSIX group on the target. |
-| [identity.group.remove](identity/group/remove.md) | declared | Removes a POSIX group from the target. |
-| [identity.user.create](identity/user/create.md) | declared | Creates a POSIX user account on the target. |
-| [identity.user.modify](identity/user/modify.md) | declared | Modifies an existing POSIX user account on the target. |
-| [identity.user.remove](identity/user/remove.md) | declared | Removes a POSIX user account from the target. |
+| [identity.group.create](identity/group/create.md) | implemented | Makes sure a POSIX group exists on the target. |
+| [identity.group.modify](identity/group/modify.md) | implemented | Changes the gid of an existing POSIX group on the target. |
+| [identity.group.remove](identity/group/remove.md) | implemented | Removes a POSIX group from the target. |
+| [identity.user.create](identity/user/create.md) | implemented | Makes sure a POSIX user account exists on the target. |
+| [identity.user.modify](identity/user/modify.md) | implemented | Changes attributes of an existing POSIX user account on the target. |
+| [identity.user.remove](identity/user/remove.md) | implemented | Removes a POSIX user account from the target. |
 | [net.catalyst.device_facts](net/catalyst/device_facts.md) | implemented | Gathers every device a Cisco Catalyst Center manages, as facts. |
 | [net.catalyst.reachability](net/catalyst/reachability.md) | implemented | Reports which devices a Cisco Catalyst Center can currently reach and manage. |
 | [net.catalyst.site_facts](net/catalyst/site_facts.md) | implemented | Gathers a Cisco Catalyst Center's site hierarchy, as facts. |

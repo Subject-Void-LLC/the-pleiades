@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**43 of 77 methods are implemented.**
+**49 of 77 methods are implemented.**
 
 ## Implemented
 
@@ -33,6 +33,12 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [svc.systemd.enable](modules/svc/systemd/enable.md)
 - [svc.systemd.disable](modules/svc/systemd/disable.md)
 - [svc.systemd.daemon_reload](modules/svc/systemd/daemon_reload.md)
+- [identity.user.create](modules/identity/user/create.md)
+- [identity.user.modify](modules/identity/user/modify.md)
+- [identity.user.remove](modules/identity/user/remove.md)
+- [identity.group.create](modules/identity/group/create.md)
+- [identity.group.modify](modules/identity/group/modify.md)
+- [identity.group.remove](modules/identity/group/remove.md)
 - [file.copy](modules/file/copy.md)
 - [file.directory](modules/file/directory.md)
 - [file.symlink](modules/file/symlink.md)
@@ -63,12 +69,6 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `svc.windows.restart`
 - `svc.windows.enable`
 - `svc.windows.disable`
-- `identity.user.create`
-- `identity.user.remove`
-- `identity.user.modify`
-- `identity.group.create`
-- `identity.group.remove`
-- `identity.group.modify`
 - `file.template`
 - `net.cli.command`
 - `net.cli.config`
