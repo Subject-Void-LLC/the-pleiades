@@ -23,6 +23,9 @@ Runs a script on a Windows host over WinRM, naming which interpreter runs it. Th
 | --- | --- | --- | --- | --- |
 | `command` | `string` | yes | - | The script to run. It is passed to the interpreter named by shell, verbatim, so every metacharacter that interpreter understands is syntax and any runbook value interpolated into it is code. |
 | `shell` | `string` | yes | `powershell` | Which interpreter runs the script: powershell or cmd. Required rather than defaulted silently, because the two have disjoint metacharacter sets and a script written for one is not safe in the other. The value none is refused: it would mean running a program directly with no interpreter, and this transport cannot promise that. |
+| `timeout` | `int` | no | `60` | How many seconds to wait for the script to finish before giving up. This bounds the whole operation, including a device that accepts the connection and then never answers, which is what a host looks like after a script has reconfigured its own network. Raise it for an installer or an update run; the default is short because most work here is not. |
+| `expect_disconnect` | `bool` | no | `false` | Declare that this script is expected to destroy the connection carrying it, as an address change or a reboot does. The task then waits for the device to answer WinRM again instead of failing, and reports result_known false, because the script's exit status and output went down with the connection and are not recoverable. A device that never comes back is still a failure. |
+| `reconnect_timeout` | `int` | no | `300` | How many seconds to wait for the device to answer again after an expected disconnect. Only meaningful with expect_disconnect, and setting it without that is refused rather than silently ignored. |
 
 ## Returns
 
@@ -31,6 +34,7 @@ Runs a script on a Windows host over WinRM, naming which interpreter runs it. Th
 | `stdout` | `string` | always | Everything the script wrote to standard output. |
 | `stderr` | `string` | always | Everything the script wrote to standard error. PowerShell progress output is suppressed before the script runs, so this carries real errors rather than progress records. |
 | `exit_code` | `int` | always | The script's exit status. A non-zero status fails the task. |
+| `result_known` | `bool` | always | Whether this task actually saw the script finish. False only after an expected disconnect, where stdout, stderr and the exit status are all unavailable. Check this before trusting the other three: an unreceived result and a silent success are otherwise indistinguishable. |
 
 ## Undoing this
 
