@@ -11,7 +11,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `archive` | 2 | 0 |
 | `cloud` | 4 | 0 |
 | `container` | 3 | 0 |
-| `exec` | 2 | 2 |
+| `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
 | `file` | 11 | 10 |
 | `fs` | 2 | 0 |
@@ -21,10 +21,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `net` | 11 | 5 |
 | `pkg` | 9 | 0 |
 | `pleiades` | 1 | 1 |
-| `svc` | 16 | 0 |
+| `svc` | 16 | 11 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **76** | **22** |
+| **total** | **77** | **34** |
 
 ## All methods
 
@@ -41,6 +41,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [container.docker.stop](container/docker/stop.md) | declared | Stops a running Docker container on the target. |
 | [exec.command](exec/command.md) | implemented | Runs one command directly, with no shell involved. |
 | [exec.shell](exec/shell.md) | implemented | Runs a command through the target's shell, so pipes and redirects work. |
+| [exec.winrm.shell](exec/winrm/shell.md) | implemented | Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM. |
 | [facts.gather](facts/gather.md) | implemented | Gathers baseline system facts from the target (OS, kernel, distribution). |
 | [file.block.remove](file/block/remove.md) | implemented | Removes a marked, multi-line block of text from a file. |
 | [file.block.set](file/block/set.md) | implemented | Ensures a marked, multi-line block of text is present in a file. |
@@ -86,17 +87,17 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [pkg.remove](pkg/remove.md) | declared | Removes a package using the target's own package manager, whichever it is. |
 | [pkg.upgrade](pkg/upgrade.md) | declared | Upgrades a package using the target's own package manager, whichever it is. |
 | [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
-| [svc.disable](svc/disable.md) | declared | Disables a service from starting at boot, using the target's own service manager. |
-| [svc.enable](svc/enable.md) | declared | Enables a service to start at boot, using the target's own service manager. |
-| [svc.restart](svc/restart.md) | declared | Restarts a service using the target's own service manager, whichever it is. |
-| [svc.start](svc/start.md) | declared | Starts a service using the target's own service manager, whichever it is. |
-| [svc.stop](svc/stop.md) | declared | Stops a service using the target's own service manager, whichever it is. |
-| [svc.systemd.daemon_reload](svc/systemd/daemon_reload.md) | declared | Reloads systemd's unit files, after one on disk has changed. |
-| [svc.systemd.disable](svc/systemd/disable.md) | declared | Disables a systemd unit from starting at boot. |
-| [svc.systemd.enable](svc/systemd/enable.md) | declared | Enables a systemd unit to start at boot. |
-| [svc.systemd.restart](svc/systemd/restart.md) | declared | Restarts a systemd unit. |
-| [svc.systemd.start](svc/systemd/start.md) | declared | Starts a systemd unit. |
-| [svc.systemd.stop](svc/systemd/stop.md) | declared | Stops a systemd unit. |
+| [svc.disable](svc/disable.md) | implemented | Stops a service starting at boot, whichever service manager the device runs. |
+| [svc.enable](svc/enable.md) | implemented | Makes a service start at boot, whichever service manager the device runs. |
+| [svc.restart](svc/restart.md) | implemented | Restarts a service, whichever service manager the device runs. |
+| [svc.start](svc/start.md) | implemented | Starts a service now, whichever service manager the device runs. |
+| [svc.stop](svc/stop.md) | implemented | Stops a service now, whichever service manager the device runs. |
+| [svc.systemd.daemon_reload](svc/systemd/daemon_reload.md) | implemented | Makes systemd re-read every unit file on disk. |
+| [svc.systemd.disable](svc/systemd/disable.md) | implemented | Stops a systemd unit starting at boot, without stopping it now. |
+| [svc.systemd.enable](svc/systemd/enable.md) | implemented | Makes a systemd unit start at boot, without starting it now. |
+| [svc.systemd.restart](svc/systemd/restart.md) | implemented | Restarts a systemd unit, starting it if it was not running. |
+| [svc.systemd.start](svc/systemd/start.md) | implemented | Starts a systemd unit now, without changing whether it starts at boot. |
+| [svc.systemd.stop](svc/systemd/stop.md) | implemented | Stops a systemd unit now, without changing whether it starts at boot. |
 | [svc.windows.disable](svc/windows/disable.md) | declared | Sets a Windows service's start type to disabled. |
 | [svc.windows.enable](svc/windows/enable.md) | declared | Sets a Windows service's start type to automatic. |
 | [svc.windows.restart](svc/windows/restart.md) | declared | Restarts a Windows service. |

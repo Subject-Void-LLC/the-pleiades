@@ -2710,3 +2710,84 @@ produced file against the copy in the main tree, and check every branch for comm
 target. Both were clean here, which is what made the report honest rather than reassuring. Note
 also that worktree branches survive `git worktree remove`, so committed work stays reachable even
 when the checkout does not.
+
+## 143. When the mitigation for a risk becomes unavailable, re-make the decision instead of inheriting it
+
+A lab VM was lost converting its adapter from DHCP to a static address. The runbook that did it was
+originally written WITH a safety net: a scheduled task that reverted to DHCP after ten minutes
+unless a later step disarmed it, because losing the box was the foreseeable failure and there would
+be no remote way back in. The harness classifier blocked that runbook for looking like persistence.
+The net was removed and the change was run anyway.
+
+The reasoning error was not "the risk was misjudged". It was that the judgement "this risk is
+acceptable" had been formed WITH the net in place and was then carried across the removal of the
+net unexamined. A conclusion is only valid under the premises that produced it, and the premise had
+just changed.
+
+Later in the same session the identical shape recurred with the opposite polarity. Permission was
+explicitly asked for and given, and the thing that then broke the box was a SECOND conversion the
+question had never separated out: "run the destructive half" was presented as one decision when it
+was two operations, and only the first had actually been reasoned about. Getting consent does not
+transfer the obligation to know what is being consented to.
+
+**The rule.** When a safeguard is removed, delayed, refused or simply turns out not to exist, stop
+and re-derive whether the action is still acceptable. And when asking for approval on something
+risky, enumerate the operations rather than the phase: an approved plan with an unexamined step
+inside it is an unexamined step.
+
+## 144. Do not replace a correct hypothesis with a confident wrong one; say the evidence is unexplained
+
+Diagnosing why a Windows host went unreachable, the first hypothesis was a firewall profile flip,
+and it was later shown to be a real and correct description of one of the mechanisms in play. It
+was then abandoned, because ARP was failing and an IP-layer firewall cannot stop ARP, and replaced
+with the flat assertion "nothing is at that address, this is not filtering". That second claim was
+delivered with more confidence than the ARP evidence could carry, and it was wrong about the cause.
+
+The honest move at the abandonment point was available and cheap: "ARP is failing, which a firewall
+does not explain, and I cannot account for that from here." That states the anomaly without
+manufacturing a replacement theory to fill the hole. Instead a correct-but-incomplete explanation
+was swapped for an incorrect-but-complete one, because a complete story felt like progress.
+
+The actual answer came from a console `ipconfig` a human ran, showing `DHCP Enabled: No` with an
+APIPA address: netsh had disabled DHCP and then failed to bind the static address. Neither
+hypothesis had predicted it, and the first one was closer.
+
+**The rule.** An unexplained observation is a fact to report, not a gap to fill. When evidence
+contradicts a working theory, the options are "the theory is incomplete", "the evidence means
+something I do not understand", and "here is a better theory", and the third one requires actually
+having a better theory, not just an unsatisfied need for one. Grade confidence to evidence
+separately for each claim, especially when replacing an earlier claim, because a correction
+inherits unearned authority from the act of correcting.
+
+## 145. A test that has to break the thing it observes is measuring the wrong path
+
+**The rule.** When a test makes its subject fail in order to see the subject's output, treat that as
+a defect report against the product, not as a testing technique. Fix the observability gap and
+rewrite the test on the success path.
+
+**Where this came from.** `pleiades run` printed `ok` or `changed` per task and nothing else, while
+the failure path printed the error, and a Collection method's error carries its stdout. So the only
+way to read a device's answer back from the CLI was to make the task exit non-zero. Three places in
+one release gate did exactly that, each with a task literally named "and fail so its output is
+printed," and the workaround was documented in a comment as a known CLI gap rather than treated as
+one to close.
+
+The cost was not the ugliness. It was that every one of those assertions ran against the error path
+while claiming to be about the success path. A regression that broke reporting for successful tasks
+would have left all three green. The gate that proved "WinRM reaches a Windows host" proved it
+about a failing run only.
+
+The fix was `run --verbose`, which is fifteen lines in the CLI and one field on `NodeResult`, and it
+was available the entire time. What kept it from being written is that the workaround worked: each
+individual test passed, so nothing forced the question, and the comment explaining the trick made it
+look considered rather than deferred.
+
+**How to apply it.** When you write `exit 3` so you can see something, or assert on an error string
+to read a value that is not an error, stop and ask what the product should have printed. If the
+answer is "this, on success," that is the change. The tell is a test name or comment containing the
+word "so": "fail so its output is printed," "error so we can read the body." That word marks a
+workaround wearing a technique's clothes.
+
+The counter-case is real and worth naming: a test that deliberately fails something to prove the
+FAILURE path is correct is not this. The difference is whether the failure is the subject or the
+instrument.

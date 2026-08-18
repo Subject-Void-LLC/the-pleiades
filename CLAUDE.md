@@ -57,7 +57,10 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 76 declared FQCNs; 22 implemented:** the 4 `net.catalyst.*` ones (Cisco
+- **Module catalog: 77 declared FQCNs; 34 implemented:** the 6 `svc.systemd.*` methods
+  (`start`, `stop`, `restart`, `enable`, `disable`, `daemon_reload`) and the 5 generic `svc.*`
+  ones that resolve a device's service manager and dispatch to them, both built on
+  `pkg/remotesvc`; the 4 `net.catalyst.*` ones (Cisco
   Catalyst Center), `net.ssh.ping`, `exec.command`, `exec.shell`, ten of the `file.*` methods
   (`copy`, `directory`, `touch`, `permissions`, `remove`, `symlink`, `line.set`, `line.remove`,
   `block.set`, `block.remove`), `wait.path`, `wait.search`, `pleiades.builtin.wait.port`,
@@ -174,6 +177,21 @@ go generate ./internal/forge/catalogdata
 
 Fix the data in `internal/forge/catalogdata` or the scaffold templates
 (`internal/forge/collectionscaffold` / `devicescaffold`), never the generated output directly.
+
+The command is idempotent and safe to re-run: every subcommand is invoked with
+`--skip-existing`, so an entry already on disk is left exactly as it is (implementation,
+hand-written tests and all) and only a genuinely new entry is written. It reports how many
+files it wrote, which on an unchanged table is legitimately zero. Skipping is per ENTRY, not
+per file: writing only the missing half of an already-implemented method would drop a
+generated starter test asserting "declared, not implemented" underneath a real
+implementation.
+
+A method's `Doc` travels to the scaffold as JSON on `forge new-collection --doc-json`
+(or `--doc-json @file.json`), so a scaffolded method comes out carrying the full reference
+documentation `internal/forge/catalogdata` declares, rather than needing it transcribed by
+hand before `internal/archtest`'s `TestCatalogDataDocsMatchTheRegistry` will pass.
+
+`docs/11-extending-pleiades.md` has the full worked example, using `exec.winrm.shell`.
 
 ## Architecture
 

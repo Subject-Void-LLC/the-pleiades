@@ -13,6 +13,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/container/docker"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/exec/winrm"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/facts"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file/block"

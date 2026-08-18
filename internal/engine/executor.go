@@ -93,6 +93,26 @@ type NodeResult struct {
 	// Err is non-nil if resolving the target, acquiring a lock, running
 	// the action, or recording its result failed.
 	Err error
+
+	// Stats is the action's own output (ActionResult.Stats): the stdout,
+	// exit status, resolved paths and diffs a Collection method recorded
+	// with sdk.RunbookContext.SetStat. Nil for a node that never ran.
+	//
+	// It is carried here in addition to being merged into WorkflowContext
+	// under the task's Register name, because those two answer different
+	// questions. WorkflowContext answers "what can a later task's when_cel
+	// read", and is keyed by a register name a task without one does not
+	// have. This answers "what did this node do", for a caller reporting
+	// the run to a human, and a task's output should not become invisible
+	// because nothing downstream needed it. Before this existed, a
+	// successful task's output was unreachable from cmd/pleiades entirely
+	// and the only way to read a device's answer back was to make the task
+	// fail on purpose so the error path would print it.
+	//
+	// Values are unmasked, exactly as WorkflowContext holds them. Any
+	// caller printing or logging them must mask through
+	// RunResult.Secrets first.
+	Stats map[string]interface{}
 }
 
 // RunResult aggregates every NodeResult produced walking a DAG with
@@ -589,6 +609,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	}
 
 	result.Changed = actionResult.Changed
+	result.Stats = actionResult.Stats
 	status := "ok"
 	if actionResult.Changed {
 		status = "changed"

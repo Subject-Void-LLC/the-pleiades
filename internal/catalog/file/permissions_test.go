@@ -1115,3 +1115,97 @@ func TestPermissions_StatRecordFailureIsReported(t *testing.T) {
 		t.Error("the diff was not recorded before the stats, so the two call sites ran in the wrong order")
 	}
 }
+
+// TestPermissions_ReadsTheAfterStateBackFromTheDevice proves diff.after
+// records what the path actually carries, not what the task asked for.
+//
+// This method used to derive the after state by applying the request to
+// the before state, on the argument that nothing could come back
+// differently: NormalizeMode fixes the spelling of a mode, and owner and
+// group are names it refuses to accept as ids. The argument is wrong
+// about the mode in exactly the case where being wrong costs the most.
+// The kernel silently drops the setgid bit when an unprivileged account
+// chmods a file whose group it is not in, and drops setuid and setgid on
+// any ownership change, so a task asking for 2755 can leave 0755 behind.
+// diff.after is the record a rollback reads; a derived one is a guess
+// wearing an observation's clothes.
+//
+// The device here is made to disagree with the request on purpose,
+// through a chmod on PATH that succeeds and does nothing. That is a
+// stand-in for the kernel's own silent clearing, and it is the honest
+// way to test it: reproducing the real setgid case needs a second group
+// this account is not in, and a test that skipped unless the machine had
+// one would leave the property unpinned everywhere it matters.
+func TestPermissions_ReadsTheAfterStateBackFromTheDevice(t *testing.T) {
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(fakeBin, 0o700); err != nil {
+		t.Fatalf("creating the fake bin directory: %v", err)
+	}
+	// Exits zero, changes nothing. Apply therefore reports the change as
+	// applied, and the path still carries the mode it started with.
+	if err := os.WriteFile(filepath.Join(fakeBin, "chmod"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
+		t.Fatalf("writing the fake chmod: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	server := startPermissionsServer(t)
+	rc := newPermissionsContext(server)
+	path := permissionsFile(t, 0o600)
+
+	result, err := file.Permissions(context.Background(), rc, newPermissionsTarget(server), map[string]any{
+		"path":                          path,
+		"mode":                          "0755",
+		"insecure_skip_host_key_verify": true,
+	})
+	if err != nil {
+		t.Fatalf("Permissions: %v", err)
+	}
+	if !result.Changed {
+		t.Fatal("the run reported no change, so it never reached the read-back this test is about")
+	}
+
+	after := permissionsDiffHalf(t, rc, "after")
+	if got := after["mode"]; got != "0600" {
+		t.Errorf("diff.after records mode %v, want 0600, which is what the path really carries: the after state is being derived from the request rather than read from the device", got)
+	}
+	// The recorded stats are the same claim in the other place it is made,
+	// so they have to agree with the device too.
+	if got := rc.stats["mode"]; got != "0600" {
+		t.Errorf("the mode stat reports %v, want 0600: it is reporting what was asked for rather than what is there", got)
+	}
+}
+
+// TestPermissions_ReadBackFailureIsReported covers the second stat, the
+// one this method only performs when something actually changed.
+//
+// A budget of two lets the first read and the chmod through and refuses
+// the read-back. The change is already on the device at that point, so
+// the task genuinely failed: it cannot say what it left behind, and a
+// diff whose after half was guessed is worse than no diff at all, because
+// a rollback would act on it.
+func TestPermissions_ReadBackFailureIsReported(t *testing.T) {
+	server := startPermissionsServerWithSessionBudget(t, 2)
+	rc := newPermissionsContext(server)
+	path := permissionsFile(t, 0o600)
+
+	_, err := file.Permissions(context.Background(), rc, newPermissionsTarget(server), map[string]any{
+		"path":                          path,
+		"mode":                          "0644",
+		"insecure_skip_host_key_verify": true,
+	})
+	if err == nil {
+		t.Fatal("a failed read-back was reported as success")
+	}
+	if !strings.Contains(err.Error(), "could not be read back") {
+		t.Errorf("error = %q, want it to say the change landed but its result could not be read", err)
+	}
+	// The mode really did change, so the error has to say so rather than
+	// read as though the task did nothing.
+	if got := permissionsFileMode(t, path); got != "0644" {
+		t.Errorf("the file is %s, want 0644: this test is not exercising the branch it claims to", got)
+	}
+	if _, recorded := rc.stats["diff"]; recorded {
+		t.Error("a diff was recorded for a run that could not read its own result")
+	}
+}

@@ -6781,3 +6781,399 @@ is a real gap. And `internal/adapters/native`'s named follow-up for file injecti
 would live in the per-task subprocess's memory for one task and never touch a filesystem; do not
 invent a tmpfs on the Runner to close it, which would be building a new secret-at-rest surface to
 satisfy a checklist.
+
+
+## Archived handoff: catalog first tier, reversibility contract (22 of 76)
+
+## Current Status (this session)
+
+**Branch `feature/Catalog-First-Tier`, off `main`. Standing goal: every declared-but-unimplemented
+Collection method made real, each recording what would undo it. The catalog reads 22 of 76, up from
+7. Nothing this session is committed; the commit message is at the bottom.**
+
+Two commits from earlier sessions are in: `591441e` (`pkg/remoteexec` and `exec.command`) and
+`aa383e9` (its follow-up docs).
+
+### Read this first: the reversibility contract changed, and the old shape is wrong
+
+`Manifest.Inverse` used to name the method that undoes each Collection method plus the prior-state
+keys a rollback would feed it. **It could not be right**, and the reason generalizes:
+
+**A method's inverse is a property of the RUN, not of the method.** `svc.start` against a service
+that was already running must undo to nothing. `file.directory` that found a directory and only
+fixed its mode must undo to the old mode, and the static declaration named `file.remove`, so a
+rollback acting on it would have deleted a directory the run never created, with everything in it.
+`http.request` is read-only or destructive depending on a parameter.
+
+The contract now:
+
+- **`Manifest.Reversibility{Reversible bool, Notes string}`** answers WHETHER, once, at
+  registration. `Notes` is required when `Reversible` is false, and registration refuses without it,
+  because "this cannot be undone" is the answer an operator most needs a reason for.
+- **`sdk.RecordInverse`** emits WHAT, per run: an `inverse` stat holding an FQCN, already-resolved
+  params and a one-line description. It is a TASK, so undoing a run is running more tasks through
+  the same dispatcher, with the same capability checks and audit trail. A rollback engine needs no
+  second execution path and no per-method knowledge.
+- **A converged run emits nothing**, and that absence is meaningful: it is how the journal says
+  undoing this means doing nothing. The static form could not express that at all.
+
+`FAILURE_PATTERNS.md` #156 and `LESSONS_LEARNED.md` #141 carry the full reasoning. Nothing performs
+a rollback yet; the recording exists because only the forward run can capture what an undo needs.
+
+### What is implemented (22)
+
+`exec.command`, `exec.shell`, `net.ssh.ping`, four `net.catalyst.*`, ten `file.*`
+(`copy`, `directory`, `touch`, `permissions`, `remove`, `symlink`, `line.set`, `line.remove`,
+`block.set`, `block.remove`), `wait.path`, `wait.search`, `pleiades.builtin.wait.port`,
+`facts.gather`, `http.request`.
+
+**Honest split on evidence.** Seven are gated against a real device over a real network hop
+(`exec.*`, `net.ssh.ping`, the four `net.catalyst.*`). The other fifteen pass against a real
+in-process SSH server running a real `/bin/sh`, at 99.8 to 100 percent coverage, each
+mutation-tested, but have **no Release Gate against a container**. By this repository's own rule
+that is ahead of their evidence, and closing it is cheap: the harness exists in
+`cmd/pleiades/exec_shell_release_gate_test.go`.
+
+### Three findings still OPEN, verified open at the end of this session
+
+From an adversarial review of the first `file.*` batch. Fix these before adding more methods, since
+two of them are the same class of problem twice:
+
+1. **`file.touch` validates nothing.** It reads mode, owner and group with `sdk.StringParam`, so an
+   unquoted `mode: 0600` (the integer 384 after YAML) is silently dropped and the task still reports
+   success. `file.directory` and `file.permissions` both refuse that and a symbolic mode by name.
+2. **`file.permissions` builds `diff.after` from the REQUEST** (`permApplied(before, want)`) rather
+   than re-reading the device. Every sibling re-reads. This is precisely what made the setuid defect
+   below invisible in the run report.
+3. **The setuid ordering fix is pinned by no assertion.** `FAILURE_PATTERNS.md` #155: ownership must
+   be applied before mode, because Linux clears setuid and setgid on a regular file whenever its
+   owner or group changes. Verified at a real shell and by convergence; a comment records the
+   reasoning and nothing fails if someone reverses the order again. A test needs a secondary group
+   (`os.Getgroups`) to make a chgrp succeed unprivileged.
+
+### Next, in order, with the reasoning
+
+**1. Two small things that unblock more than their size.**
+
+- **`file.template`**, the one method group one could not finish. The render engine is
+  `internal/render` and a Collection may import only `pkg/`. This is a decision about what the
+  template surface IS (move the engine, or expose a `pkg/` subset), not a module-sized task. It also
+  closes the `file.*` namespace.
+- **The three open findings above.**
+
+**2. The capability decision, and it belongs BEFORE the next group rather than after.**
+
+Eight of the remaining methods are DISPATCHERS: `svc.start`/`stop`/`restart`/`enable`/`disable` and
+`pkg.install`/`remove`/`upgrade` resolve to a platform-specific implementation based on what the
+device can do. They cannot be honestly written until two things are settled:
+
+- **`Manifest.RequiredCapabilities` is enforced by nothing at run time** (`FAILURE_PATTERNS.md`
+  #151). Note the concrete consequence found this session: all seven remaining `file.*` methods
+  require `POSIXFileSystemCapable` and `linux.Server` declares only `Linux`, `SSHTransport` and
+  `ShellExec`. They work solely because nothing checks.
+- **`wireDevice` cannot express a per-device capability set.** Go interface satisfaction is static,
+  so the moment it grows `RootPath()`, every dispatched device satisfies `POSIXFileSystemCapable`,
+  Cisco switch included, and the type assertion stops gating anything. The alternative worth costing
+  is rehydrating the real device type on the Runner from `record.LookupType`, which deletes
+  `wireDevice` and its whole class of divergence.
+
+Writing the 8 dispatchers before this is decided means writing them twice.
+
+**3. Group two: one systemd container image, 11 methods.** `svc.systemd.*` (6) plus the `svc.*`
+dispatchers (5). The container question is already MEASURED, not guessed: the current sshd image is
+Alpine with no `apt-get`, `dpkg` or `systemctl`, and a Debian image with `systemd` plus
+`systemd-sysv`, run `--privileged --cgroupns=host` with `/sys/fs/cgroup` mounted read-write, reaches
+`systemctl is-system-running` = `running` on this machine, with stop/start/is-active all behaving.
+**No VM needed.** `internal/testsupport/ansible_image.go` is the precedent for building an image
+from a Dockerfile rather than pulling one. Add the package to `flaky-packages.json` with a written
+reason, as every container-backed package here has needed.
+
+Their inverses, worked out: `start`/`stop` and `enable`/`disable` are each other's, and each must
+emit NOTHING when the state it found already matched, which is the case the old contract could not
+express. `restart` is reversible false with a reason (it converges to the state it started in,
+though the process identity changed). `daemon_reload` likewise.
+
+**4. Then, in descending return on work:** `identity.*` (6, needs only root in an ordinary Linux
+container), `pkg.apt.*` plus `pkg.*` (6, needs an image retaining its package index or a pre-seeded
+`.deb`; installing at test time otherwise wants the network), `pkg.dnf.*` (3, a second image),
+then the specialized group (`fs.mount`/`unmount`, `fw.firewalld.*`, `archive.*`,
+`container.docker.*`), then the genuinely blocked 17 (`net.*.config` needs real hardware,
+`win.*`/`svc.windows.*` need a Windows target and a WinRM transport that does not exist,
+`cloud.aws.*` needs an SDK dependency and credentials).
+
+### Using workflows for this, and the two things that went wrong
+
+Both fan-outs worked and both hit the same avoidable problems. Read this before launching another.
+
+- **Worktrees are cut from COMMITTED state, and this work is uncommitted.** Every agent's worktree
+  was missing `pkg/remotefile`, `pkg/sdk`'s additions and the `Reversibility` type. Give agents an
+  explicit step zero: check for a specific file, and sync from the main checkout if it is absent.
+  The prompts in the persisted workflow scripts already do this and are worth reusing.
+- **Leftover worktrees break a repo-wide uniqueness test** (`FAILURE_PATTERNS.md` #157):
+  `internal/redact`'s `TestRulesetHasExactlyOneCopy` counted 19 copies of one file across 18
+  checkouts. Clean up with `git worktree remove --force` then `git worktree prune`. **Reconcile
+  before deleting**, which is the mistake made here: diff every produced file against the
+  integrated copy and check each branch for commits ahead. Branches survive the removal, so
+  committed work stays reachable.
+- **What worked**: batching related methods into one agent so shared helpers are written once, and
+  making agents copy finished files to a directory OUTSIDE the repository and return only a summary,
+  which keeps file contents out of the orchestrator's context entirely.
+- **The adversarial review earned its cost.** Four lens-based reviewers over five freshly written
+  modules found the setuid defect, which a green suite and a clean mutation pass had both missed.
+  Run one after any fan-out, read-only, and require a runnable reproduction per finding.
+
+### Gate status
+
+`go build`, `go vet`, `gofmt`, full `go test ./...`, `make docs-lint` (170 files),
+`make docs-gen-check` all pass. Zero em-dashes in added lines. New packages at 100 percent;
+`internal/catalog/file` 99.8 against 99.5.
+
+**A full `make push-gate` has NOT been run since the redesign.** Run it before the commit lands, and
+`git add -A` first: `docs-gen-check` diffs against the git INDEX, so regenerated-but-unstaged
+documentation fails it every time.
+
+### The break-glass
+
+`make break-glass` returns the machine to the state every test assumes it starts from. Reach for it
+the moment a gate fails in a way that does not match the code you changed.
+
+- `BREAK_GLASS_FLAGS=-n` says what would go and removes nothing.
+- `BREAK_GLASS_FLAGS=-images` also drops the built images.
+- `BREAK_GLASS_FLAGS=-force` cleans through the live-run guard.
+
+If it refuses and names processes that are not a real test run, read `FAILURE_PATTERNS.md` #153
+first: stale self-matching `pgrep` wait loops from earlier sessions never exit and look like a live
+run. Killing them is the actual fix. Note the same trap when writing one: a `pkill` pattern that
+appears in its own command line kills its own shell.
+
+### Resuming after a context compaction
+
+1. `IMPLEMENTATION.md`'s Phase 38 section carries FIVE session notes plus the reasoning behind the
+   reversibility redesign. Read the last one first.
+2. `pkg/collection/manifest.go`'s `Reversibility` doc comment and `pkg/sdk/inverse.go` are the
+   contract. Read both before writing any method.
+3. `internal/catalog/file/permissions.go` is the worked example for a converging method;
+   `internal/catalog/file/directory.go` shows an inverse that BRANCHES on what the run found, which
+   is the pattern `svc.*` will need.
+4. `FAILURE_PATTERNS.md` #143-157. #151 blocks the 8 dispatchers; #155 is fixed but unpinned;
+   #156 is the redesign.
+5. Verify before trusting anything here. Across these sessions, six things that looked settled were
+   not, and five of the six were found by testing a claim rather than reading it.
+
+### Commit message, provided per the standing instruction (not committed)
+
+```
+feat(catalog): emit the inverse instead of declaring it, and ten more methods (Phase 38)
+
+The catalog reads 22 of 76, and the more important change is how a
+method says it can be undone.
+
+The manifest used to name the method that undoes each collection method,
+plus the prior state keys a rollback would feed it. That could not be
+right, and the reason generalizes past this field: a method's inverse is
+a property of the RUN, not of the method. Starting a service that was
+already running must undo to nothing rather than to a stop. Creating a
+directory undoes to a removal, but fixing an existing directory's mode
+undoes to the old mode, and the declaration named the removal, so a
+rollback acting on it would have deleted a directory the run never
+created along with everything in it. An HTTP request is read only or
+destructive depending on one of its parameters, so a single declaration
+covering every invocation can only describe the worst case.
+
+So whether and what are now separate. The manifest answers whether, once,
+at registration, with a reason required when the answer is no. The run
+answers what, every time, by emitting a concrete already parameterized
+instruction: a method to call, the arguments to call it with, and a
+sentence saying what running it would do. That instruction is a task, so
+undoing a run is running more tasks through the same dispatcher with the
+same capability checks and the same audit trail, and nothing needs a
+second execution path or per method knowledge to interpret it.
+
+A converged run emits nothing at all, and that absence carries meaning
+the old shape could not express: it is how the record says undoing this
+means doing nothing.
+
+Ten methods landed on that contract. file.copy, the four file.line and
+file.block editors, the two waits, the port wait, the fact gatherer and
+the HTTP request. The five file methods written earlier were migrated to
+emit real inverses, and file.directory is the one worth reading: it
+branches on what it found, emitting a removal only for a directory it
+created and the old attributes for one it merely adjusted.
+
+file.template is deliberately still declared rather than half built. Its
+renderer lives under internal/ and a collection may import only pkg/, so
+implementing it is a decision about what the template surface is rather
+than a module sized task, and its page says so.
+
+http.request declares itself not reversible, which is where this started:
+a GET changes nothing and a DELETE may change something on a system this
+platform cannot see, and one static answer covering both can only be the
+worst one. Saying so is more useful than a declaration that would be
+wrong half the time.
+
+Three findings from an adversarial review of the earlier file batch are
+recorded as still open rather than quietly carried: the touch method
+validates none of its attribute parameters, so an unquoted octal mode is
+silently dropped; the permissions method builds the after half of its
+diff from the request rather than from the device, which is what made the
+setuid ordering defect invisible in the run report; and that ordering fix
+is verified at a shell and by convergence but pinned by no assertion.
+
+FAILURE_PATTERNS 156-157. LESSONS_LEARNED 141-142.
+```
+
+
+## Archived handoff: WinRM as a real FQCN, the svc.* namespace, capability enforcement (34 of 77)
+
+
+**Branch `feature/Catalog-First-Tier`, off `main`. The catalog reads 34 of 77, up from 22.
+Nothing this session is committed; the commit message is at the bottom. Two changesets are in the
+tree: the previously-staged 144-file reversibility/Group-One work with its own message in
+`HANDOFF_ARCHIVE.md`, and this session's WinRM plus `svc.*` work. They want to be two commits.**
+
+### What landed
+
+**WinRM, reached properly on the second attempt.** `pkg/winrmexec` runs a script on a Windows host
+over WinRM with NTLM and SPNEGO message encryption, and `exec.winrm.shell` is the Collection method
+on top of it. Proven against a real Windows Server 2025 host: the built binary through
+`init`/`add-host`/`add-credential`/`run`, returning live device state with the remote exit status
+intact.
+
+**The 11 `svc.*` methods.** Six `svc.systemd.*` on `pkg/remotesvc`, and five generic `svc.*` that
+resolve a device's service manager and dispatch through the registry. Every one reads state before
+acting, so a converged run reports `Changed: false` and sends nothing; `start`/`stop` and
+`enable`/`disable` record concrete inverses, `restart` and `daemon_reload` declare
+`Reversible: false` with reasons.
+
+**Four capability-enforcement blockers, which were the real gate on that group.**
+`engine.checkMethodCapabilities` now compares a manifest's `RequiredCapabilities` against the target
+device, which nothing did before. Turning it on immediately broke 15 of the 22 then-implemented
+methods, because `linux.Server` never declared `POSIXFileSystemCapable` or `FactGathererCapable`
+that `file.*`, `wait.*` and `facts.gather` had been requiring all along. That is the latent bug the
+check exists to find. `wireDevice` and `inventorytest.Stub` each held a third and fourth
+exact-match copy of the capability test, so the same method against the same device answered
+differently on the Walk tier, the Crawl tier and in tests; all three now resolve the hierarchy.
+
+**Forge enhancements.** Generated stubs now default `EngineVersion` to `>=1.0.0` instead of `""`,
+and carry a commented-out `Reversibility` block explaining the question `Register` will otherwise
+enforce with a panic. Deliberately commented: an uncommented answer nobody considered is worse than
+an absent one, and a test pins it that way.
+
+### Read this first: two corrections that cost real work
+
+**`winrm_exec` was the wrong shape and is gone.** WinRM shipped first as a bare transport-action
+name copied from `ssh_exec`, the oldest dispatch path in the module. A module name here is
+`xxx.xxx.xxx`. Removing it also removed `transport.Shell`, `transport.ShellTransport`,
+`WinRMTarget`, the executor's shell dispatch and `internal/transport/winrm`, all of which existed
+only to serve that name. FAILURE_PATTERNS #158. **Do not add another bare action name.**
+
+**Runbooks are authored in sugar with a `metadata:` block.** Module-as-key
+(`exec.winrm.shell:` with its arguments directly under it), not `fqcn:`/`params:`. The
+`metadata:` block carrying `service_effecting` and the `mcp_*` fields is how a runbook declares
+blast radius, and a service-effecting runbook that omits it is missing the part that makes it safe
+to approve. `examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe_sugar.yaml` is the reference.
+
+### The remainder, in order
+
+1. **`Doc` emission from the forge.** The largest and highest-value item. `catalogdata` carries a
+   full `Doc` and `archtest`'s `TestCatalogDataDocsMatchTheRegistry` requires the generated
+   manifest to match it exactly, but the forge emits no `Doc`, so every scaffolded method fails
+   that guard until a human transcribes a page of prose. Design is settled: serialize `cfg.Doc` to
+   JSON in `gencatalog`, add `--doc-json` to `forge new-collection`, render it in
+   `collectionscaffold`. A working prototype of the renderer was written and deleted this session;
+   reconstruct it from `pkg/collection.Doc`'s fields.
+2. **`gencatalog` idempotence.** `go generate ./internal/forge/catalogdata` fails on the first
+   existing file, so the command CLAUDE.md documents only works on a clean slate. Adding one method
+   means calling the forge CLI directly. The refusal-to-clobber is correct and protects
+   hand-completed methods; the fix is a deliberate choice between "skip existing" and `--new-only`.
+   Worth doing after item 1, which makes regeneration produce the right file rather than a stub.
+3. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to
+   `svc.systemd.start`, so a runbook can say `exec.shell` and reach either platform.
+   `exec.winrm.shell` is already the concrete half and needs no change.
+4. **The WinRM gate's precondition is checking the wrong thing.** It verifies the Public WinRM
+   firewall rule is enabled, which was my first and wrong diagnosis. What actually breaks the
+   conversion is reusing the address the adapter already holds by DHCP (FAILURE_PATTERNS #159), so
+   the precondition should assert `PLEIADES_WINRM_IP` differs from the current lease. Add this
+   before anyone runs that gate again.
+5. **A successful transport task's stdout is invisible.** The CLI prints output on the error path
+   only, which is why several example runbooks and gate tests exit non-zero on purpose to read
+   device state. This is now blocking real work rather than being untidy.
+6. **Three `file.*` review findings, still open** from before this session: `file.touch` validates
+   no attribute params (an unquoted `mode: 0600` is silently dropped), `file.permissions` builds
+   `diff.after` from the request rather than re-reading, and the setuid ordering fix is pinned by
+   no assertion.
+7. **Remaining namespaces**, largest first: `identity.*` (6), `pkg.apt/dnf/*` (9, same dispatcher
+   shape as `svc.*` and now unblocked), `cloud.aws.*` (4), `fw.*` and `container.*` (6),
+   `net.cli/ios/eos/junos/netconf` (6, needs a NETCONF transport), `fs.*`/`archive.*` (4),
+   `svc.windows.*` and `win.feature.*` (7, now transport-unblocked but needing the two Windows
+   capability accessors), and `file.template` (renderer is `internal/render`, unreachable from a
+   Collection).
+
+### The Windows lab
+
+`examples/windows_lab/` is the worked example, with the inventory carrying the same host twice,
+IPv4 and IPv6. The IPv6 entry is the rescue path and it is not theoretical: it was confirmed
+reachable while IPv4 was completely dark. The lab VM was rolled back to a snapshot at the end of
+this session, so it is on DHCP and healthy.
+
+### Verification state
+
+`go build`, `go vet`, `gofmt`, `internal/archtest`, both catalogdata drift guards, `make docs-lint`
+and `make docs-gen-check` all pass. Full `go test ./...` fails only in the five Docker-dependent
+packages (`cmd/controller`, `cmd/pleiades`, `cmd/runner`, `internal/ent`, `internal/transport/ssh`),
+every one reporting "failed to create Docker provider"; there are no non-container failure reasons.
+Docker is unavailable in this environment, so `make ci` has never been run against this work and
+nothing here is "verified" in RULE 0's full sense beyond the targeted package tests, the mutation
+runs, and the live Windows runs. Coverage floors were ratcheted for every package touched.
+
+### Commit message
+
+```
+feat(catalog): WinRM as a real FQCN, the svc.* namespace, and capability enforcement
+
+Adds pkg/winrmexec and exec.winrm.shell, implements the eleven svc.*
+and svc.systemd.* methods on pkg/remotesvc, and makes a manifest's
+RequiredCapabilities mean something at dispatch. The catalog reads 34 of
+77, up from 22.
+
+Capability enforcement is the load-bearing change. engine.
+checkMethodCapabilities compares a method's declared requirements
+against the target device, which nothing did before, and turning it on
+broke fifteen already-implemented methods: linux.Server never declared
+POSIXFileSystemCapable or FactGathererCapable, which file.*, wait.* and
+facts.gather had been requiring all along. They had been running on a
+claim their target device never made. Declaring what was already true is
+the fix; loosening the methods would have been the wrong one.
+
+Three copies of the capability test disagreed with each other.
+record.Base resolves the hierarchy, wireDevice and inventorytest.Stub
+each matched exactly, so the same method against the same device
+answered differently on the Walk tier, the Crawl tier and in tests. All
+three resolve now.
+
+The svc methods read state before acting, so a converged run reports no
+change and sends no command, and the generic svc.* pair resolves a
+device's service manager and dispatches through the registry rather than
+reimplementing anything. start/stop and enable/disable record concrete
+inverses built from what the run found; restart and daemon_reload
+declare themselves irreversible with reasons, because a restart's effect
+is the interruption and no instruction un-interrupts a service.
+
+WinRM arrives as exec.winrm.shell rather than a bare action name. An
+earlier revision of this work shipped it as winrm_exec, copying
+ssh_exec, which is the oldest dispatch path in the module rather than
+the current one; that name and the transport.ShellTransport port,
+WinRMTarget and executor dispatch that existed only to serve it are all
+removed. FAILURE_PATTERNS.md #158.
+
+ShellNone is refused rather than approximated: the WS-Man option
+deciding between direct execution and cmd.exe is hardcoded by the
+library with no seam, and one interface may not mean two things. The
+library's unescaped CDATA terminator is rejected on the cmd path, and
+needs no check on the PowerShell path because base64 cannot contain it.
+
+Also: the forge now defaults EngineVersion and prompts for
+Reversibility; examples/windows_lab documents the whole thing including
+two real outages; and FAILURE_PATTERNS #159 records why converting an
+adapter to the address it already holds by DHCP leaves it with none.
+```

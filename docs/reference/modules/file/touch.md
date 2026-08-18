@@ -22,9 +22,9 @@ Makes sure a regular file exists at a path, creating it empty when nothing is th
 | Name | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `path` | `string` | yes | - | The full path to the file. It is created empty when nothing is there, and left alone apart from its modification time when a regular file already is. A directory, a symbolic link or anything else at the path is refused. |
-| `mode` | `string` | no | - | The permission bits, written the way chmod takes them, for example 0644. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set. |
-| `owner` | `string` | no | - | The user that should own the file, by name rather than numeric id, since a numeric id is not portable between devices. Sent only when it differs. Left alone when not set. |
-| `group` | `string` | no | - | The group that should own the file, by name rather than numeric id. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set. |
+| `mode` | `string` | no | - | The permission bits as one to four octal digits, quoted, for example "0644". Quote it: an unquoted 0644 is a number in YAML, not text, and is refused rather than silently ignored. A symbolic mode such as u+x is refused too, because it cannot be compared against the mode the device reports. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set. |
+| `owner` | `string` | no | - | The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set. |
+| `group` | `string` | no | - | The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set. |
 | `insecure_skip_host_key_verify` | `bool` | no | `false` | Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it. |
 
 ## Returns

@@ -848,6 +848,61 @@ func TestTouch_ReportsAFailureToCreateTheFile(t *testing.T) {
 	}
 }
 
+// TestTouch_RefusesAnAttributeItCannotApply covers the parameter rules
+// this method gained when it stopped reading its attributes with
+// sdk.StringParam.
+//
+// The first case is the one that matters and the reason the rest exist.
+// `mode: 0600` written without quotes is a number by the time YAML is
+// done with it, and sdk.StringParam reports a non-string as absent, so
+// the mode used to be dropped in silence: the task touched the file,
+// applied no mode, and reported success. Nothing about that run looked
+// wrong.
+//
+// Every case asserts the same three things, and the second and third are
+// what make this more than an error-message test. Nothing is created,
+// and nothing is connected to: the refusal happens against the runbook,
+// before the method spends a round trip discovering that the device
+// dislikes a value the runbook could have been told about for free. The
+// unreachable device is what proves the second half, since any attempt
+// to connect to it fails with a different error entirely.
+func TestTouch_RefusesAnAttributeItCannotApply(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra map[string]any
+		want  string
+	}{
+		{name: "an unquoted mode YAML turned into a number", extra: map[string]any{"mode": 384}, want: "not text"},
+		{name: "an unquoted mode as a float, the shape it can cross a subprocess boundary in", extra: map[string]any{"mode": 384.0}, want: "not text"},
+		{name: "a symbolic mode", extra: map[string]any{"mode": "u+x"}, want: "octal digits"},
+		{name: "a mode with too many digits", extra: map[string]any{"mode": "07551"}, want: "octal digits"},
+		{name: "a numeric owner", extra: map[string]any{"owner": "1000"}, want: "numeric id"},
+		{name: "a numeric group", extra: map[string]any{"group": "1000"}, want: "numeric id"},
+		{name: "an owner that is not text", extra: map[string]any{"owner": 1000}, want: "not text"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := &touchContext{secrets: map[string]string{}, stats: map[string]any{}}
+			path := filepath.Join(t.TempDir(), "attributes")
+
+			_, err := file.Touch(context.Background(), rc, newTouchUnreachableDevice(), touchParams(path, tt.extra))
+			if err == nil {
+				t.Fatal("an attribute this method cannot apply was accepted")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want it to explain the problem with %q", err, tt.want)
+			}
+			if _, statErr := os.Stat(path); statErr == nil {
+				t.Error("the file was created despite the task being refused")
+			}
+			if len(rc.stats) != 0 {
+				t.Errorf("a refused task recorded stats: %v", rc.stats)
+			}
+		})
+	}
+}
+
 // TestTouch_ReportsAFailureToApplyAttributes covers the Apply call, twice
 // over, and does double duty.
 //
@@ -856,13 +911,19 @@ func TestTouch_ReportsAFailureToCreateTheFile(t *testing.T) {
 // parameter was read and passed through at all. That is what lets the
 // positive ownership test skip on a machine without root while both
 // parameters stay covered.
+//
+// Only owner and group are here. A mode this method cannot apply is now
+// refused before connecting (see
+// TestTouch_RefusesAnAttributeItCannotApply), so there is no mode that
+// both passes validation and fails on the device. An account name is
+// different: "no-such-user-here" is a perfectly well-formed name, and
+// whether it exists is a fact only the device has.
 func TestTouch_ReportsAFailureToApplyAttributes(t *testing.T) {
 	tests := []struct {
 		name  string
 		extra map[string]any
 		want  string
 	}{
-		{name: "an impossible mode", extra: map[string]any{"mode": "not-a-mode"}, want: "not-a-mode"},
 		{name: "an unknown owner", extra: map[string]any{"owner": "no-such-user-here"}, want: "no-such-user-here"},
 		{name: "an unknown group", extra: map[string]any{"group": "no-such-group-here"}, want: "no-such-group-here"},
 	}

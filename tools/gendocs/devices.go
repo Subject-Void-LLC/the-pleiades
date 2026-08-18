@@ -30,7 +30,10 @@ var handWrittenDevices = []struct {
 	Capabilities []string
 }{
 	{Vendor: "cisco", TypeKey: "cisco_router", Capabilities: []string{"SSHTransportCapable", "CiscoIOSCapable"}},
-	{Vendor: "linux", TypeKey: "linux_server", Capabilities: []string{"SSHTransportCapable", "LinuxCapable", "ShellExecCapable"}},
+	{Vendor: "linux", TypeKey: "linux_server", Capabilities: []string{
+		"SSHTransportCapable", "LinuxCapable", "ShellExecCapable",
+		"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
+	}},
 }
 
 // generateDevices emits outDir/devices.md: every registered device type,

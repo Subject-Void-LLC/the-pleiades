@@ -147,3 +147,70 @@ func TestGenerate_ZeroValueManifestFields(t *testing.T) {
 		t.Fatalf("generated source with zero-value manifest fields does not parse: %v\n---\n%s", err, files[0].Content)
 	}
 }
+
+// TestGenerate_DefaultsTheEngineVersion covers the field that used to be
+// emitted empty.
+//
+// An empty constraint is not a permissive one, it is a field that says
+// nothing, and every hand-written manifest in this catalog declares
+// ">=1.0.0". A generated one that declared nothing left a reader unable
+// to tell "no opinion" from "forgot".
+func TestGenerate_DefaultsTheEngineVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "unset", version: "", want: `EngineVersion:   ">=1.0.0"`},
+		{name: "whitespace only", version: "   ", want: `EngineVersion:   ">=1.0.0"`},
+		{name: "explicit is left alone", version: ">=2.4.0", want: `EngineVersion:   ">=2.4.0"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files, err := collectionscaffold.Generate(collectionscaffold.Config{Name: "probe.engine", EngineVersion: tt.version})
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			if !strings.Contains(string(files[0].Content), tt.want) {
+				t.Errorf("generated manifest does not contain %q:\n%s", tt.want, files[0].Content)
+			}
+		})
+	}
+}
+
+// TestGenerate_PromptsForReversibility proves the generated file asks the
+// question collection.Register will otherwise enforce with a panic.
+//
+// Register refuses an implemented method that declares itself not
+// reversible with no reason. A stub is exempt, so nothing forces the
+// author to think about it until they flip Status, at which point the
+// binary fails at start and they go read pkg/collection to find out why.
+// Putting the question where the answer goes moves that discovery to
+// authoring time.
+func TestGenerate_PromptsForReversibility(t *testing.T) {
+	files, err := collectionscaffold.Generate(collectionscaffold.Config{Name: "probe.reversibility"})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	got := string(files[0].Content)
+
+	for _, want := range []string{
+		"Reversibility",
+		"StatusImplemented",
+		"sdk.RecordInverse",
+		"observe or reconstruct",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the generated stub does not mention %q, so an author has no prompt to answer it:\n%s", want, got)
+		}
+	}
+
+	// Commented out rather than emitted live: an uncommented
+	// Reversibility{} on a declared stub would be a real answer to a
+	// question nobody has considered, and a false one is worse than an
+	// absent one.
+	if strings.Contains(got, "\n\t\t\tReversibility: collection.Reversibility{") {
+		t.Error("Reversibility is emitted as live code; it must stay commented until an author answers it")
+	}
+}

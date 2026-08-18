@@ -173,7 +173,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 76 declared methods across 16 namespaces; 22 are
+**The module catalog has 77 declared methods across 16 namespaces; 34 are
 implemented.** Every FQCN is registered and reachable through the real dispatcher:
 calling one produces an explicit `"declared but not implemented"` refusal rather than
 a silent no-op or a fabricated success, whether the call comes from the CLI, the

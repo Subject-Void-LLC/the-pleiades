@@ -371,6 +371,74 @@
       ]
     }
   },
+  "exec.winrm.shell": {
+    "supportedTransports": [
+      "winrm"
+    ],
+    "requiredCapabilities": [
+      "WinRMCapable"
+    ],
+    "executionContext": {},
+    "engineVersion": ">=1.0.0",
+    "status": "implemented",
+    "reversibility": {
+      "reversible": false,
+      "notes": "This platform cannot see what a script did, so it cannot say what would undo it. The same reasoning exec.command and exec.shell record: an arbitrary script's effect is opaque, and a guessed inverse is worse than none because a rollback would run it believing it was true. A task whose effect must be reversible should use a method that models the change it is making."
+    },
+    "doc": {
+      "summary": "Runs a script on a Windows target through PowerShell or cmd.exe, over WinRM.",
+      "description": "Runs a script on a Windows host over WinRM, naming which interpreter runs it. This is exec.shell's Windows counterpart, and it is a separate FQCN for the same reason svc.systemd.start is separate from svc.start: the concrete method names the platform it actually speaks to. Two shells are available and the task must pick one. powershell encodes the script UTF-16LE and base64 into powershell.exe -EncodedCommand, which is also what makes it safe: the base64 alphabet contains no cmd.exe metacharacter, so no script content can reach a shell as syntax. cmd runs the script through cmd.exe, which is the only way to reach a cmd builtin such as dir, set or %ERRORLEVEL%. Running a program directly with an argument vector nothing parses is refused rather than approximated, because the WS-Man option that would make it true is not settable from here. A script cannot be inspected, so this reports changed every time it runs.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "The script to run. It is passed to the interpreter named by shell, verbatim, so every metacharacter that interpreter understands is syntax and any runbook value interpolated into it is code."
+        },
+        {
+          "name": "shell",
+          "type": "string",
+          "required": true,
+          "default": "powershell",
+          "description": "Which interpreter runs the script: powershell or cmd. Required rather than defaulted silently, because the two have disjoint metacharacter sets and a script written for one is not safe in the other. The value none is refused: it would mean running a program directly with no interpreter, and this transport cannot promise that."
+        }
+      ],
+      "returns": [
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the script wrote to standard output."
+        },
+        {
+          "name": "stderr",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the script wrote to standard error. PowerShell progress output is suppressed before the script runs, so this carries real errors rather than progress records."
+        },
+        {
+          "name": "exit_code",
+          "type": "int",
+          "returned": "always",
+          "description": "The script's exit status. A non-zero status fails the task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a fact from a Windows host",
+          "runbookYaml": "- name: Report the OS caption\n  exec.winrm.shell:\n    shell: powershell\n    command: (Get-CimInstance Win32_OperatingSystem).Caption\n  register: os_caption\n"
+        },
+        {
+          "name": "Use a cmd builtin",
+          "runbookYaml": "- name: Show the environment cmd sees\n  exec.winrm.shell:\n    shell: cmd\n    command: set\n"
+        }
+      ],
+      "seeAlso": [
+        "exec.shell",
+        "exec.command"
+      ]
+    }
+  },
   "facts.gather": {
     "supportedTransports": [
       "ssh"
@@ -1342,17 +1410,17 @@
         {
           "name": "mode",
           "type": "string",
-          "description": "The permission bits, written the way chmod takes them, for example 0644. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set."
+          "description": "The permission bits as one to four octal digits, quoted, for example \"0644\". Quote it: an unquoted 0644 is a number in YAML, not text, and is refused rather than silently ignored. A symbolic mode such as u+x is refused too, because it cannot be compared against the mode the device reports. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set."
         },
         {
           "name": "owner",
           "type": "string",
-          "description": "The user that should own the file, by name rather than numeric id, since a numeric id is not portable between devices. Sent only when it differs. Left alone when not set."
+          "description": "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set."
         },
         {
           "name": "group",
           "type": "string",
-          "description": "The group that should own the file, by name rather than numeric id. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."
+          "description": "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."
         },
         {
           "name": "insecure_skip_host_key_verify",
@@ -2329,9 +2397,6 @@
     }
   },
   "svc.disable": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -2339,18 +2404,56 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that disabled an enabled service emits an svc.systemd.enable and a run that found it already disabled emits nothing. That concrete method also records what its own undo cannot preserve, such as a unit that was enabled only until the next reboot."
     },
     "doc": {
-      "summary": "Disables a service from starting at boot, using the target's own service manager."
+      "summary": "Stops a service starting at boot, whichever service manager the device runs.",
+      "description": "Makes sure a service is not set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=no: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service disabled by this task keeps running until svc.stop runs or the device reboots.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Take a service out of the boot sequence",
+          "runbookYaml": "- name: Stop the service coming back after a reboot\n  fqcn: svc.disable\n  params:\n    name: legacy-app\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.enable",
+        "svc.stop",
+        "svc.systemd.disable"
+      ]
     }
   },
   "svc.enable": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -2358,18 +2461,56 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that enabled a disabled service emits an svc.systemd.disable and a run that found it already enabled emits nothing. The undo restores the boot-time setting only, never stopping a service that is running."
     },
     "doc": {
-      "summary": "Enables a service to start at boot, using the target's own service manager."
+      "summary": "Makes a service start at boot, whichever service manager the device runs.",
+      "description": "Makes sure a service is set to start at boot, without caring which init system the device uses. This is ansible.builtin.service with enabled=yes: it resolves the device's service manager and hands the call to that manager's concrete method. It changes the boot-time setting only, so a service enabled by this task is not running until svc.start runs or the device reboots.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Enable and start, in that order",
+          "runbookYaml": "- name: Make sure the service comes back after a reboot\n  fqcn: svc.enable\n  params:\n    name: app\n\n- name: And make sure it is running now\n  fqcn: svc.start\n  params:\n    name: app\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.disable",
+        "svc.start",
+        "svc.systemd.enable"
+      ]
     }
   },
   "svc.restart": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -2377,18 +2518,56 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "A restart's effect is the interruption itself, and no instruction un-interrupts a service. Restarting a second time repeats this method rather than reversing it. The concrete method still records the service's state under diff, so a rollback reaching this task can see what was running and decide for itself."
     },
     "doc": {
-      "summary": "Restarts a service using the target's own service manager, whichever it is."
+      "summary": "Restarts a service, whichever service manager the device runs.",
+      "description": "Restarts a service, starting it if it was not running. This is ansible.builtin.service with state=restarted: it resolves the device's service manager and hands the call to that manager's concrete method. It is the one method here that is never converged, since restarting a running service is the point rather than a no-op, so it always reports changed. That makes it the one most worth putting behind a when condition, so a service is only bounced when something it reads actually changed.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart only when the config changed",
+          "runbookYaml": "- name: Write the config\n  fqcn: file.copy\n  params:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  fqcn: svc.restart\n  params:\n    name: app\n  when:\n    - app_config.changed\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.start",
+        "svc.stop",
+        "svc.systemd.restart"
+      ]
     }
   },
   "svc.start": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -2396,18 +2575,57 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that started a stopped service emits an svc.systemd.stop and a run that found it already running emits nothing. The instruction names the concrete method rather than svc.stop, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
     },
     "doc": {
-      "summary": "Starts a service using the target's own service manager, whichever it is."
+      "summary": "Starts a service now, whichever service manager the device runs.",
+      "description": "Makes sure a service is running right now, without caring which init system the device uses. This is ansible.builtin.service with state=started: it resolves the device's service manager and hands the call to that manager's concrete method, so on a Linux host it runs svc.systemd.start and behaves exactly as that method does, including reporting no change when the service is already running. Use the concrete method instead when a runbook is written for one platform and should say so.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a service without naming the init system",
+          "runbookYaml": "- name: Make sure nginx is running\n  fqcn: svc.start\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.stop",
+        "svc.restart",
+        "svc.enable",
+        "svc.systemd.start"
+      ]
     }
   },
   "svc.stop": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "ServiceManagerCapable"
     ],
@@ -2415,12 +2633,53 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on a systemd host a run that stopped a running service emits an svc.systemd.start and a run that found it already stopped emits nothing. Starting it again restores the service, never what it missed while it was down."
     },
     "doc": {
-      "summary": "Stops a service using the target's own service manager, whichever it is."
+      "summary": "Stops a service now, whichever service manager the device runs.",
+      "description": "Makes sure a service is not running right now, without caring which init system the device uses. This is ansible.builtin.service with state=stopped: it resolves the device's service manager and hands the call to that manager's concrete method. It stops the service now and leaves the boot-time setting alone, so a service stopped by this task starts again at the next reboot unless svc.disable is also run.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The service to act on. This is passed straight through to the concrete method for the device's service manager, so it means whatever that manager means by a service name: a systemd unit such as nginx or nginx.service on a Linux host."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stop a service without naming the init system",
+          "runbookYaml": "- name: Stop nginx before maintenance\n  fqcn: svc.stop\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.start",
+        "svc.disable",
+        "svc.systemd.stop"
+      ]
     }
   },
   "svc.systemd.daemon_reload": {
@@ -2434,12 +2693,32 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "Re-reading unit files has no prior state to restore. What systemd held before the reload was a view of unit files that have since changed on disk, and nothing can ask it to go back to believing the old contents. Undoing whatever wrote those files is that task's inverse, not this one's."
     },
     "doc": {
-      "summary": "Reloads systemd's unit files, after one on disk has changed."
+      "summary": "Makes systemd re-read every unit file on disk.",
+      "description": "Runs systemctl daemon-reload, which makes systemd pick up unit files that were written, changed or removed since it last read them. This is ansible.builtin.systemd with daemon_reload=yes on its own. It is the step that makes a unit file an earlier task wrote visible to systemd at all: without it, svc.systemd.start on a brand new unit fails with the unit not found, which reads as a broken unit file rather than as a stale view. It takes no unit name, because it is not about one unit, and it always reports changed: systemd exposes no way to ask whether a reload would have made any difference, so claiming otherwise would be a guess.",
+      "params": [
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Install a unit file and make systemd see it",
+          "runbookYaml": "- name: Write the unit file\n  fqcn: file.copy\n  params:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  fqcn: svc.systemd.daemon_reload\n  params: {}\n\n- name: Start the new service\n  fqcn: svc.systemd.start\n  params:\n    name: app\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.start",
+        "svc.systemd.enable"
+      ]
     }
   },
   "svc.systemd.disable": {
@@ -2453,12 +2732,53 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that disabled an enabled unit emits an svc.systemd.enable naming it. A run that found it already disabled emits nothing. One thing the undo does not preserve: a unit that was enabled-runtime, meaning enabled only until the next reboot, comes back as permanently enabled, because systemctl enable has no way to say \"only until reboot\" about a unit it is restoring."
     },
     "doc": {
-      "summary": "Disables a systemd unit from starting at boot."
+      "summary": "Stops a systemd unit starting at boot, without stopping it now.",
+      "description": "Makes sure a systemd unit is not set to start at boot. This is ansible.builtin.systemd with enabled=no, and it leaves the running system alone: a unit disabled by this task keeps running until svc.systemd.stop runs or the device reboots. State is read before anything is sent, so a unit that is already disabled reports no change. A static unit is refused, since a unit with no [Install] section was never enabled and cannot be disabled.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The unit this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a service from starting at boot",
+          "runbookYaml": "- name: Stop nginx coming back after a reboot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.enable",
+        "svc.systemd.stop",
+        "svc.disable"
+      ]
     }
   },
   "svc.systemd.enable": {
@@ -2472,12 +2792,53 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that enabled a disabled unit emits an svc.systemd.disable naming it. A run that found it already enabled emits nothing. The undo restores the boot-time setting only; it never stops a unit that is running, because enabling never started one."
     },
     "doc": {
-      "summary": "Enables a systemd unit to start at boot."
+      "summary": "Makes a systemd unit start at boot, without starting it now.",
+      "description": "Makes sure a systemd unit is set to start at boot. This is ansible.builtin.systemd with enabled=yes, and it is deliberately not also start: a unit enabled by this task is not running until svc.systemd.start runs or the device reboots. State is read before anything is sent, so a unit that is already enabled reports no change. A static unit is refused with that word named, because systemd's own failure for enabling one describes a missing symlink rather than the cause, which is that the unit has no [Install] section and is meant to be pulled in by another unit.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The unit this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make a service start at boot",
+          "runbookYaml": "- name: Make sure nginx comes back after a reboot\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.disable",
+        "svc.systemd.start",
+        "svc.enable"
+      ]
     }
   },
   "svc.systemd.restart": {
@@ -2491,12 +2852,53 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The unit's state is deliberately still recorded under diff, so a rollback reaching this task can see that the unit was running before and after and decide for itself, but this method emits no instruction because none would be true."
     },
     "doc": {
-      "summary": "Restarts a systemd unit."
+      "summary": "Restarts a systemd unit, starting it if it was not running.",
+      "description": "Restarts a systemd unit. This is ansible.builtin.systemd with state=restarted, and like that module it starts a unit that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running unit is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A unit systemd does not know is refused, and a masked unit is refused with the mask named.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The unit this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart after a config change",
+          "runbookYaml": "- name: Write the nginx config\n  fqcn: file.copy\n  params:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  fqcn: svc.systemd.restart\n  params:\n    name: nginx\n  when:\n    - nginx_config.changed\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.start",
+        "svc.systemd.stop",
+        "svc.restart"
+      ]
     }
   },
   "svc.systemd.start": {
@@ -2510,12 +2912,58 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that started a stopped unit emits an svc.systemd.stop naming it. A run that found it already running emits nothing, since undoing it means doing nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the unit to where it was, not the system."
     },
     "doc": {
-      "summary": "Starts a systemd unit."
+      "summary": "Starts a systemd unit now, without changing whether it starts at boot.",
+      "description": "Makes sure a systemd unit is running right now. This is ansible.builtin.systemd with state=started, and it is deliberately not also enable: starting and enabling are separate in systemd and separate here, so a task that wants both says both. State is read before anything is sent, so a unit that is already running reports no change and no command reaches the device. A unit systemd does not know is refused rather than reported as started, and a masked unit is refused with the mask named, since systemd's own error for that case describes a symlink rather than the cause.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The unit this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a service",
+          "runbookYaml": "- name: Make sure nginx is running\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n"
+        },
+        {
+          "name": "Start it and make it survive a reboot",
+          "runbookYaml": "- name: Start nginx\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n\n- name: Make nginx start at boot too\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.stop",
+        "svc.systemd.restart",
+        "svc.systemd.enable",
+        "svc.start"
+      ]
     }
   },
   "svc.systemd.stop": {
@@ -2529,12 +2977,57 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that stopped a running unit emits an svc.systemd.start naming it. A run that found it already stopped emits nothing. Starting it again returns the unit to running, but nothing can restore what the service missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
     },
     "doc": {
-      "summary": "Stops a systemd unit."
+      "summary": "Stops a systemd unit now, without changing whether it starts at boot.",
+      "description": "Makes sure a systemd unit is not running right now. This is ansible.builtin.systemd with state=stopped, and it leaves the boot-time setting alone: a unit stopped by this task still starts at the next reboot unless svc.systemd.disable is also run. State is read before anything is sent, so a unit that is already stopped reports no change. A unit systemd does not know is refused rather than reported as stopped, which matters more here than anywhere else in this namespace: systemctl answers \"inactive\" for a name that has never existed, so a method trusting it would report success for a typo.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The systemd unit to act on, such as nginx or nginx.service. This is ansible.builtin.systemd's own parameter name. The unit must already exist: a name systemd does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The unit this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stop a service",
+          "runbookYaml": "- name: Stop nginx before swapping its config\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n"
+        },
+        {
+          "name": "Stop it now and keep it from coming back at boot",
+          "runbookYaml": "- name: Stop nginx\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.systemd.start",
+        "svc.systemd.disable",
+        "svc.stop"
+      ]
     }
   },
   "svc.windows.disable": {

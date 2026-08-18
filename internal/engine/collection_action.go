@@ -78,6 +78,48 @@ func NewCollectionActionExecutor(fallback ActionExecutor, newContext RunbookCont
 	return e
 }
 
+// checkMethodCapabilities refuses a Collection method whose target device
+// does not carry every capability the method's manifest requires.
+//
+// Until this existed, Manifest.RequiredCapabilities was documentation.
+// pkg/collection.Register validates that each name is a capability this
+// vocabulary knows, and tools/gendocs prints the list on the reference
+// page, but nothing anywhere compared it against the device a task was
+// about to run on. A method declaring SystemdCapable would happily
+// invoke against a Cisco switch, and the first sign of trouble would be
+// whatever the remote shell said about "systemctl".
+//
+// It deliberately uses HasCapability rather than comparing declared
+// names directly, for two reasons that matter here. HasCapability
+// resolves the hierarchy (record.Base.Declares runs capability.Resolves),
+// so a device declaring the concrete SystemdCapable satisfies a method
+// requiring the broad ServiceManagerCapable, which is exactly what
+// ServiceManagerCapable's own doc comment says the parent exists for. And
+// on a real device type it also runs the structural assertion, so a
+// declaration the Go type cannot back does not pass.
+//
+// This mirrors, at run time, what validate.CapabilityRule already does at
+// plan time for transport-backed fqcns. Both exist for the same reason
+// the transport executor keeps its own check after validation has run: a
+// plan can be built, stored, and executed later against a registry or an
+// inventory that has since changed.
+func checkMethodCapabilities(desc collection.Descriptor, fqcn string, device inventory.InventoryItem) error {
+	if len(desc.Manifest.RequiredCapabilities) == 0 {
+		return nil
+	}
+	if device == nil {
+		return fmt.Errorf("collection method %q requires capabilities %v but the task has no target device",
+			fqcn, desc.Manifest.RequiredCapabilities)
+	}
+	for _, required := range desc.Manifest.RequiredCapabilities {
+		if !device.HasCapability(required) {
+			return fmt.Errorf("collection method %q requires capability %s, which device %q does not have",
+				fqcn, required, device.Name())
+		}
+	}
+	return nil
+}
+
 // Execute runs task, dispatching to the registered Collection method when
 // one exists.
 func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error) {
@@ -98,6 +140,10 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		// Register rejects this combination, so reaching it means something
 		// bypassed Register. Refusing beats a nil-pointer panic.
 		return ActionResult{}, fmt.Errorf("collection method %q is registered as implemented but carries no implementation", task.FQCN)
+	}
+
+	if err := checkMethodCapabilities(desc, task.FQCN, device); err != nil {
+		return ActionResult{}, err
 	}
 
 	if e.invoke != nil {

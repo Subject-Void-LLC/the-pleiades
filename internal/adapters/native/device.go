@@ -81,15 +81,26 @@ func (d *wireDevice) Properties() inventory.Properties {
 func (d *wireDevice) Tags() []inventory.Tag { return nil }
 
 // HasCapability implements inventory.InventoryItem as a trusted-relay
-// membership check; see this type's own doc comment for why that is sound
-// here specifically.
+// check; see this type's own doc comment for why trusting the relayed set
+// rather than re-deriving it structurally is sound here specifically.
+//
+// It resolves the capability hierarchy rather than testing set
+// membership, which is the one thing an exact-match loop got wrong. A
+// real device type answers through record.Base.Declares, which runs
+// capability.Resolves, so a device declaring the concrete SystemdCapable
+// satisfies a method requiring the broad ServiceManagerCapable. An
+// exact-match loop here answered false for that same pair, which meant
+// the identical method against the identical device succeeded on the
+// Walk tier and was refused on the Crawl tier. A capability check that
+// disagrees with itself depending on which binary is running is worse
+// than either answer, because the runbook that proves out on a laptop is
+// the one that fails in the mesh.
 func (d *wireDevice) HasCapability(name capability.Name) bool {
+	declared := make(map[capability.Name]struct{}, len(d.payload.Capabilities))
 	for _, c := range d.payload.Capabilities {
-		if c == name {
-			return true
-		}
+		declared[c] = struct{}{}
 	}
-	return false
+	return capability.Resolves(declared, name)
 }
 
 // Capabilities implements inventory.InventoryItem.

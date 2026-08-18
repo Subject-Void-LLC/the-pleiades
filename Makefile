@@ -224,10 +224,12 @@ docs-lint:
 # plan's Part 4 Step 6 asks for. It runs the one generator directly rather
 # than through `go generate`, for two reasons. First, `go generate ./...`
 # would also fire internal/forge/catalogdata/doc.go's directive for
-# tools/gencatalog, which shells out to `forge new-collection` and refuses
-# to overwrite files that already exist (see LESSONS_LEARNED.md #69), so
-# running it over an already-generated tree fails the build instead of
-# proving anything. Second, `go generate` runs a directive in its own
+# tools/gencatalog, which rebuilds the pleiades binary and shells out to
+# it once per catalog entry: correct, but minutes of work to prove
+# something about a different tree. (That directive used to fail outright
+# over an already-generated tree, LESSONS_LEARNED.md #69; it now passes
+# --skip-existing and is a no-op, so this is a cost argument rather than a
+# correctness one.) Second, `go generate` runs a directive in its own
 # package's directory, and gendocs writes to repo-root-relative paths:
 # invoking it that way wrote a full copy of docs/reference and
 # internal/api/wellknown under tools/gendocs/ and left the two trees the

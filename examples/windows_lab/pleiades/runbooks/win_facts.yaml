@@ -1,0 +1,50 @@
+# The first thing to run against a new Windows target: prove Pleiades can
+# reach it at all, and read back enough to know what you are working with.
+#
+# Run with: pleiades run runbooks/win_facts.yaml
+id: win_facts
+hosts: win2025
+metadata:
+  service_effecting: false
+  mcp: true
+  mcp_description: "Reads identity and network configuration from a Windows host over WinRM. Changes nothing."
+  mcp_impact: "None. Every task here only reads."
+
+tasks:
+  - name: Identify the host
+    # `shell: powershell` is required rather than decorative. The WinRM
+    # transport refuses `shell: none`, which would mean running a program
+    # directly with an argument vector nothing parses: the WS-Man option
+    # deciding between direct execution and cmd.exe is pinned to cmd.exe
+    # by the underlying library, and this platform will not claim a
+    # command runs verbatim when it would actually be parsed by a shell.
+    # `shell: cmd` is the other supported value.
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        hostname
+        (Get-CimInstance Win32_OperatingSystem).Caption
+        $PSVersionTable.PSVersion.ToString()
+    register: host_identity
+
+  - name: Report the IPv4 configuration
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        $i = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias Ethernet
+        "address={0}/{1} origin={2} state={3}" -f $i.IPAddress, $i.PrefixLength, $i.PrefixOrigin, $i.AddressState
+        "dhcp=" + (Get-NetIPInterface -InterfaceAlias Ethernet -AddressFamily IPv4).Dhcp
+        "gateway=" + (Get-NetRoute -InterfaceAlias Ethernet -DestinationPrefix '0.0.0.0/0').NextHop
+        "dns=" + ((Get-DnsClientServerAddress -InterfaceAlias Ethernet -AddressFamily IPv4).ServerAddresses -join ',')
+    register: ipv4_config
+
+  - name: Report what would survive a network address change
+    # Both of these matter before any task changes an address. See
+    # win_static_ip.yaml for what they cost when they are wrong.
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        Get-NetConnectionProfile | ForEach-Object { "profile name={0} category={1}" -f $_.Name, $_.NetworkCategory }
+        Get-NetFirewallRule -DisplayGroup 'Windows Remote Management' -ErrorAction SilentlyContinue |
+          ForEach-Object { "rule={0} enabled={1} profile={2}" -f $_.Name, $_.Enabled, $_.Profile }
+    register: change_survivability

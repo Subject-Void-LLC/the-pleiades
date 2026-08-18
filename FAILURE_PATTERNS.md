@@ -158,6 +158,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 155. chmod before chown threw away the setuid bit the task had just asked for, and the module could never converge
 156. The manifest declared an inverse that could not be right, because the true inverse is a property of the run and not of the method
 157. A repo-wide uniqueness test fails while worktree-isolated agents' checkouts are on disk
+158. A new module was added as a bare transport-action name instead of an FQCN, by copying the oldest thing in the codebase
+159. netsh converting an adapter to the address it already holds by DHCP leaves it with no address at all
+160. A "skip what already exists" flag applied per file resurrected fifteen stub tests underneath real implementations
 
 ---
 

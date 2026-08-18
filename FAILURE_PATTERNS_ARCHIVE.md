@@ -4689,3 +4689,108 @@ identical against its copy in the main tree, and all 20 worktree branches were z
 **Lesson.** Reconcile before deleting, not after. And when a test fails in a package the change did
 not touch, the cause is more often the environment than the code, so look at what the tooling left
 behind before looking at the diff.
+
+## 158. A new module was added as a bare transport-action name instead of an FQCN, by copying the oldest thing in the codebase
+
+**Symptom.** WinRM execution shipped as `winrm_exec`, a bare underscored name registered in
+`engine.ActionCapability` beside `ssh_exec` and `ios_backup`, and it was written into four example
+runbooks and a Release Gate before anyone noticed. A module name in this catalog is
+`xxx.xxx.xxx`: `net.cli.command`, `svc.systemd.start`, `pleiades.builtin.set_metadata`. The name
+shipped was not merely un-namespaced, it was not in the shape at all.
+
+**Root cause.** Two existing patterns sat side by side and the wrong one was nearer. `ssh_exec` is
+the Phase W6 transport-action path and is the oldest dispatch mechanism in the module;
+`internal/catalog/*` is the current one, with a registry, manifests, capability requirements,
+reversibility and generated docs. Reaching a Windows host looked like "what `ssh_exec` does, but
+WinRM", so `ssh_exec` became the template. Nothing in the code says "this is legacy": the
+transport-action path is load-bearing, well-documented and passing tests, which is exactly what
+makes it a convincing thing to copy.
+
+The same session had already built the correct pattern for a different namespace, `svc.start`
+resolving to `svc.systemd.start`, without recognising it applied here. The generic/concrete pair
+was the answer to "how does one FQCN reach two platforms" and it had been written that morning.
+
+**Fix.** `pkg/winrmexec` holds the implementation, because a Collection may import only `pkg/`.
+`exec.winrm.shell` was scaffolded with `pleiades forge new-collection` and hand-completed, giving
+it the manifest, capability requirement, reversibility answer and generated reference page every
+other method has. `winrm_exec` was removed entirely, and with it `transport.Shell`,
+`transport.ShellTransport`, `WinRMTarget`, the executor's shell dispatch and
+`internal/transport/winrm`: all of that existed only to serve the wrong name.
+
+**The general rule.** When extending a subsystem, find out which of its conventions is CURRENT
+before copying the one that is nearest. Age is invisible in source: a legacy path that still works
+looks exactly like a recommended one. The tell here was available and ignored, that everything
+generated into `internal/catalog` had a three-segment name and the thing being copied did not.
+Second tell: new code should come out of the generator when a generator exists. `pleiades forge
+new-collection` would have produced the right shape by construction, and hand-writing the file was
+what made the wrong shape possible.
+
+## 159. netsh converting an adapter to the address it already holds by DHCP leaves it with no address at all
+
+**Symptom.** `netsh interface ipv4 set address name=Ethernet static <ip> <mask> <gw>`, where `<ip>`
+is the address the interface currently holds from its own DHCP lease, left a lab VM unreachable
+twice. From the console: `DHCP Enabled: No`, and the only IPv4 address an APIPA `169.254.45.78`.
+DHCP was disabled and nothing was bound.
+
+**Root cause.** netsh performs the conversion in two steps, disabling DHCP and then binding the
+static address, and the bind can fail while the disable has already taken, because the address
+being bound is still held by the lease that was just released. The result is neither
+configuration. It is timing-dependent rather than deterministic: the first conversion in a session
+tends to succeed, and one run immediately after reverting to DHCP tends to fail, because the lease
+has just been reissued.
+
+**Two wrong diagnoses, recorded because the wrongness was the expensive part.** First guess was a
+Windows Firewall profile flip: changing the address makes Network Location Awareness re-identify
+the network, it is classified Public with no domain controller, and `WINRM-HTTP-In-TCP` covers
+Domain and Private only. That is all true and it is not what happened. Second guess was the
+opposite, that ARP failing proved nothing was at the address and so filtering was ruled out, which
+was correct reasoning stated with more confidence than the evidence carried. The firewall theory
+was then disproven properly: the Public rule was enabled for the second outage and the host went
+dark anyway.
+
+**Fix.** Convert to an address OUTSIDE the DHCP pool, reserved for the host. If the leased address
+must be reused, release the lease first and accept the gap. Never run the conversion twice
+back-to-back against the same address.
+`cmd/pleiades/winrm_static_ip_release_gate_test.go` converts exactly once per run and registers its
+revert as `t.Cleanup` before the change, so the adapter is restored even on failure or panic.
+
+**The general rule.** A remote change that reconfigures the transport it arrived on cannot report
+its own success, so it needs a verification path that does not depend on the change having worked.
+IPv6 is that path on Windows: IPv4 and IPv6 are configured independently and WinRM listens on both,
+so a host that has lost IPv4 usually still answers on 5985 over IPv6. That was confirmed working
+during the second outage and is why the example inventory carries the same machine twice.
+
+## 160. A "skip what already exists" flag applied per file resurrected fifteen stub tests underneath real implementations
+
+**Symptom.** `go generate ./internal/forge/catalogdata` had never worked on an already-generated
+tree: `forge new-collection` refuses to overwrite, so the second entry it reached failed the whole
+run. Adding `--skip-existing` fixed that and reported "wrote 15 new file(s)" on a tree where every
+method already existed. The fifteen were generated starter tests for `svc.*`, `svc.systemd.*` and
+`net.catalyst.*`, and `go test ./internal/catalog/svc/...` immediately failed eleven times with
+`Manifest.Status = implemented, want declared`.
+
+**Root cause.** The skip was decided per file, and the unit a `forge new-*` subcommand generates is
+per entry. A Collection method is two files, a source file and a starter test, and they are only
+coherent together. Every one of the fifteen was a method whose implementation had been
+hand-completed and whose generated starter test had been deliberately deleted, replaced by a real
+test under a different name (`svc_test.go`, `systemd_test.go`, `catalyst_test.go`). The
+implementation file existed, so it was skipped; the starter test did not, so it was written. What
+landed was a generated test asserting the method is declared and returns "not implemented",
+sitting next to an implementation that is neither.
+
+The deeper mistake was reading the refusal as being about files. `writeGeneratedFile` refuses per
+file because that is the level it operates at, and inverting a per-file refusal gives a per-file
+skip, which is a mechanical transformation rather than an answer to "what does skipping mean here."
+Skipping means "this entry has already been generated, leave it alone," and the evidence for that
+is any of its files existing, not each of them separately.
+
+**Fix.** `firstExistingFile` checks the whole set before writing any of it, and each subcommand
+skips the entry as a unit and says so. The per-file refusal is unchanged for the normal path, where
+it is still the right answer.
+
+**Lesson.** When you invert a guard, re-derive what the inverted rule should mean rather than
+negating the condition where it happens to be written. A refusal is allowed to be finer-grained
+than the permission that replaces it, because refusing wrongly costs an error message and skipping
+wrongly costs silence. Also: this was found by running the generator against the real repository
+and reading `git status`, not by the tests, which is the argument for running a code generator
+somewhere it can do damage you can still see.

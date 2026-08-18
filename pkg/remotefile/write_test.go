@@ -466,3 +466,77 @@ func TestOperationsReportDeviceFailures(t *testing.T) {
 		t.Logf("Checksum under a regular file: %v", err)
 	}
 }
+
+// TestApply_ChangesOwnershipBeforeMode pins the one ordering constraint
+// in this function that has real consequences and no visible symptom.
+//
+// Linux clears the setuid and setgid bits on a regular file whenever its
+// owner or group changes. A chmod that runs BEFORE the chown therefore
+// sets a special bit the chown immediately throws away, and Apply
+// returns true having not achieved what it was asked for: the task
+// reports changed, the device does not carry the bit, and the next run
+// reports changed again, forever.
+//
+// Nothing else in this package's tests would notice a regression. The
+// ordering is invisible in the return value, invisible in the file's
+// permissions unless the fixture happens to be setuid AND the account
+// running the test can chown (which is to say, unless it runs as root),
+// and invisible in every error path because both commands succeed. That
+// combination, load-bearing and asymptomatic, is exactly what an
+// assertion is for.
+//
+// It observes the commands themselves rather than the resulting file,
+// through fake chown and chmod on PATH, because the real effect needs
+// root and a test that skipped without it would leave the constraint
+// unpinned on every machine that matters.
+func TestApply_ChangesOwnershipBeforeMode(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "invocations")
+
+	// The record path travels by environment rather than being written
+	// into the script, so nothing derived from the test's name can be
+	// re-expanded by the shell.
+	for _, name := range []string{"chown", "chgrp", "chmod"} {
+		script := "#!/bin/sh\nprintf '" + name + "\\n' >> \"$FAKE_RECORD\"\nexit 0\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil { // #nosec G306 -- test fixture that must be executable
+			t.Fatalf("writing the fake %s: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_RECORD", record)
+
+	conn := connect(t)
+	path := filepath.Join(dir, "target")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	// before differs from want in both owner and mode, so both commands
+	// have to run. A setuid mode is what is at stake, so it is what the
+	// test asks for.
+	before := remotefile.Info{Mode: "0644", Owner: "olduser", Group: "oldgroup"}
+	want := remotefile.Attributes{Mode: "4755", Owner: "newuser", Group: "newgroup"}
+
+	changed, err := remotefile.Apply(context.Background(), conn, path, want, before)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !changed {
+		t.Fatal("Apply reported no change after running both a chown and a chmod")
+	}
+
+	data, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("reading the recorded invocations: %v", err)
+	}
+	got := strings.Fields(string(data))
+	want2 := []string{"chown", "chmod"}
+	if len(got) != len(want2) {
+		t.Fatalf("commands run = %v, want exactly %v", got, want2)
+	}
+	for i := range got {
+		if got[i] != want2[i] {
+			t.Fatalf("commands ran in the order %v, want %v: a chmod before a chown loses the setuid bit the chown clears", got, want2)
+		}
+	}
+}

@@ -50,14 +50,6 @@ const (
 	permParamGroup = "group"
 )
 
-// permMaxModeDigits is how many octal digits a mode may carry.
-//
-// Four covers the widest real mode, the setuid, setgid and sticky bits
-// plus the three permission triads (for example 4755). A fifth digit is
-// not a mode anyone meant, so refusing it catches a typo at the runbook
-// rather than passing it to chmod on the device.
-const permMaxModeDigits = 4
-
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name: "file.permissions",
@@ -205,7 +197,32 @@ func Permissions(ctx context.Context, rc sdk.RunbookContext, device inventory.In
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	after := permApplied(before, want)
+	// Read back rather than assume, and only when something moved.
+	//
+	// This used to derive the after state from the request, on the
+	// argument that every value was already pinned: the mode is whatever
+	// NormalizeMode makes of the requested one, and owner and group are
+	// names this method refused to accept as ids. That argument is wrong
+	// about the mode, in the one case where being wrong matters most.
+	// The kernel silently clears the setgid bit when an unprivileged
+	// account chmods a file whose group it does not belong to, and
+	// clears setuid and setgid on any ownership change (which is why
+	// remotefile.Apply orders the chown first). A task asking for 2755
+	// can therefore leave 0755 on the device while this recorded 2755,
+	// and diff.after is the record a rollback reads. A guess that looks
+	// like an observation is worse than a round trip.
+	//
+	// A converged run skips the read because nothing ran between the
+	// first stat and here, so before IS the after state, and paying for
+	// a second stat to learn that is the cost this method is careful not
+	// to incur on the common path.
+	after := before
+	if changed {
+		after, err = remotefile.Stat(ctx, conn, path)
+		if err != nil {
+			return collection.Result{}, fmt.Errorf("%s: the change was applied but its result could not be read back: %w", fqcn, err)
+		}
+	}
 	if err := sdk.RecordDiff(rc, sdk.Diff{Before: before.Map(), After: after.Map()}); err != nil {
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
@@ -242,7 +259,7 @@ func permRequest(params map[string]any) (string, remotefile.Attributes, error) {
 	// four copies of it is four places for one of them to drift.
 	values := make(map[string]string, 4)
 	for _, key := range []string{permParamPath, permParamMode, permParamOwner, permParamGroup} {
-		value, err := permTextParam(params, key)
+		value, err := textParam(params, key)
 		if err != nil {
 			return "", none, err
 		}
@@ -268,130 +285,17 @@ func permRequest(params map[string]any) (string, remotefile.Attributes, error) {
 			permParamMode, permParamOwner, permParamGroup)
 	}
 
-	if err := permCheckMode(want.Mode); err != nil {
+	if err := checkMode(permParamMode, want.Mode); err != nil {
 		return "", none, err
 	}
-	if err := permCheckName(permParamOwner, want.Owner); err != nil {
+	if err := checkName(permParamOwner, want.Owner); err != nil {
 		return "", none, err
 	}
-	if err := permCheckName(permParamGroup, want.Group); err != nil {
+	if err := checkName(permParamGroup, want.Group); err != nil {
 		return "", none, err
 	}
 
 	return path, want, nil
-}
-
-// permTextParam reads one string parameter, refusing a value that arrived
-// as something other than text.
-//
-// sdk.StringParam is the usual reader and it treats a non-string as
-// absent, which is the wrong answer for exactly this method. `mode: 0644`
-// without quotes is the most common mistake anyone makes with Ansible's
-// file module: YAML reads the leading zero as octal and hands over the
-// number 420, so a reader that shrugged at a non-string would report
-// "at least one of mode, owner or group is required" and send the author
-// hunting for a parameter they did in fact write.
-func permTextParam(params map[string]any, key string) (string, error) {
-	raw, present := params[key]
-	if !present || raw == nil {
-		return "", nil
-	}
-	text, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s is %T, not text: quote it in the runbook, since an unquoted mode such as 0644 is read as a number rather than as the digits you wrote", key, raw)
-	}
-	return text, nil
-}
-
-// permCheckMode refuses a mode this method cannot compare, which is any
-// mode that is not plain octal digits.
-//
-// A symbolic mode (u+x, go-w) is what this rejects, and rejecting it is
-// the honest option rather than the limited one. Deciding whether u+x is
-// already applied means resolving it against the current bits, and the
-// alternative that needs no resolution, applying it every time, is a
-// method that reports changed forever. remotefile.NormalizeMode compares
-// "0644" against stat's "644" by padding; there is nothing it can pad
-// "u+x" into.
-func permCheckMode(mode string) error {
-	if mode == "" || permIsOctal(mode) {
-		return nil
-	}
-	return fmt.Errorf("%s %q must be one to four octal digits such as \"0644\": a symbolic mode cannot be compared against what the device reports, so the task would report changed on every run",
-		permParamMode, mode)
-}
-
-// permCheckName refuses a numeric owner or group.
-//
-// chown itself is the reason. An all-digit argument is read by chown as a
-// numeric id, never as a name, while the device reports names back
-// through stat, so "1000" and "alice" would compare unequal on every
-// single run even when they are the same account. Resolving one to the
-// other would need a passwd lookup on the device that this namespace has
-// no primitive for, so the refusal says what to write instead.
-func permCheckName(key, name string) error {
-	if name == "" || !permIsDigits(name) {
-		return nil
-	}
-	return fmt.Errorf("%s %q is a numeric id: name the account instead, since the device reports names and a numeric id would compare unequal on every run", key, name)
-}
-
-// permIsOctal reports whether text is one to permMaxModeDigits octal
-// digits, which is the only mode form this method accepts.
-func permIsOctal(text string) bool {
-	return len(text) <= permMaxModeDigits && permDigitsOnly(text, '7')
-}
-
-// permIsDigits reports whether text is entirely decimal digits, which is
-// how an owner or group given as a numeric id is recognized.
-func permIsDigits(text string) bool {
-	return permDigitsOnly(text, '9')
-}
-
-// permDigitsOnly reports whether text is non-empty and made only of
-// digits from '0' up to and including highest.
-//
-// One helper for both checks rather than two loops that differ by one
-// byte, and it works on bytes rather than runes deliberately: a multi-byte
-// rune's bytes are all above '9', so a mode or a name containing one is
-// refused rather than being silently truncated by a byte comparison.
-func permDigitsOnly(text string, highest byte) bool {
-	for i := 0; i < len(text); i++ {
-		if text[i] < '0' || text[i] > highest {
-			return false
-		}
-	}
-	return len(text) > 0
-}
-
-// permApplied returns the state the path is in once want has been applied
-// to before.
-//
-// It derives the after state rather than reading it back with a second
-// stat. That is a real trade and worth naming: a re-read would observe
-// the truth instead of asserting it, but it costs another round trip on
-// every single run, and every value it could report is already pinned.
-// The mode is whatever remotefile.NormalizeMode makes of the requested
-// one, and the owner and group are names this method already refused to
-// accept as ids, so nothing can come back in a different spelling than it
-// went out in.
-//
-// On a converged run the derived after equals before exactly, field for
-// field, which is what sdk.Unchanged expresses for methods that need a
-// separate path for it. This one needs no separate path, and one path is
-// easier to keep correct than two.
-func permApplied(before remotefile.Info, want remotefile.Attributes) remotefile.Info {
-	after := before
-	if want.Mode != "" {
-		after.Mode = remotefile.NormalizeMode(want.Mode)
-	}
-	if want.Owner != "" {
-		after.Owner = want.Owner
-	}
-	if want.Group != "" {
-		after.Group = want.Group
-	}
-	return after
 }
 
 // permRecordInverse writes the instruction that undoes this run: the same

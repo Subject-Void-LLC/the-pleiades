@@ -103,9 +103,9 @@ func touchDoc() collection.Doc {
 		Description: "Makes sure a regular file exists at a path, creating it empty when nothing is there and updating its modification time when it already is. This is ansible.builtin.file with state: touch, and it reports changed on every run for the same reason that module does: moving a modification time is a real change to the device, so a run that claimed otherwise would be wrong rather than tidy. The two kinds of change are told apart in the recorded diff, where a created file reads exists false then true and a re-stamped one reads true then true. Anything at the path that is not a regular file is refused rather than replaced.",
 		Params: []collection.Param{
 			{Name: touchParamPath, Type: "string", Required: true, Description: "The full path to the file. It is created empty when nothing is there, and left alone apart from its modification time when a regular file already is. A directory, a symbolic link or anything else at the path is refused."},
-			{Name: touchParamMode, Type: "string", Description: "The permission bits, written the way chmod takes them, for example 0644. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set."},
-			{Name: touchParamOwner, Type: "string", Description: "The user that should own the file, by name rather than numeric id, since a numeric id is not portable between devices. Sent only when it differs. Left alone when not set."},
-			{Name: touchParamGroup, Type: "string", Description: "The group that should own the file, by name rather than numeric id. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."},
+			{Name: touchParamMode, Type: "string", Description: "The permission bits as one to four octal digits, quoted, for example \"0644\". Quote it: an unquoted 0644 is a number in YAML, not text, and is refused rather than silently ignored. A symbolic mode such as u+x is refused too, because it cannot be compared against the mode the device reports. Sent to the device only when it differs from what is already there, so a converged file is not re-chmodded. Left alone when not set."},
+			{Name: touchParamOwner, Type: "string", Description: "The user that should own the file, by name. A numeric id is refused: chown reads an all-digit argument as an id while the device reports names back, so the two would compare unequal on every run. Sent only when it differs. Left alone when not set."},
+			{Name: touchParamGroup, Type: "string", Description: "The group that should own the file, by name. A numeric id is refused, for the same reason it is on owner. Sent only when it differs, and in one chown alongside owner when both are set. Left alone when not set."},
 			{Name: sdk.ParamInsecureSkipHostKeyVerify, Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 		},
 		Returns: []collection.ReturnField{
@@ -179,12 +179,18 @@ func Touch(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventor
 		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
-	// An empty field means "leave this alone", which is what lets a task
-	// set a mode without also having an opinion about the owner.
-	want := remotefile.Attributes{
-		Mode:  sdk.StringParam(params, touchParamMode),
-		Owner: sdk.StringParam(params, touchParamOwner),
-		Group: sdk.StringParam(params, touchParamGroup),
+	// Validated here, before connecting, for the same reason path is: a
+	// runbook mistake should cost no round trip and should be reported
+	// against the runbook.
+	//
+	// This used to read the three attributes with sdk.StringParam, which
+	// reports a non-string as absent. `mode: 0600` written without quotes
+	// is a number by the time YAML is done with it, so it arrived as
+	// absent, and the task touched the file, left the mode alone and
+	// reported success. See attributes.go.
+	want, err := attributeParams(params, touchParamMode, touchParamOwner, touchParamGroup)
+	if err != nil {
+		return collection.Result{}, fmt.Errorf("%s: %w", fqcn, err)
 	}
 
 	conn, err := sdk.Connect(ctx, rc, device, params, fqcn)

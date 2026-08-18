@@ -22,9 +22,10 @@ func init() {
 }
 
 // Server implements InventoryItem plus, structurally,
-// capability.SSHTransportCapable, capability.LinuxCapable and
+// capability.SSHTransportCapable, capability.LinuxCapable,
 // capability.ShellExecCapable (which embeds
-// capability.CommandExecCapable).
+// capability.CommandExecCapable) and capability.SystemdCapable (which
+// embeds capability.ServiceManagerCapable).
 type Server struct {
 	*record.Base
 }
@@ -51,7 +52,14 @@ type Server struct {
 // which is exactly what ShellPath reports.
 func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 	caps := policy.UnionSlices(
-		[]capability.Name{capability.NameSSHTransport, capability.NameLinux, capability.NameShellExec},
+		[]capability.Name{
+			capability.NameSSHTransport,
+			capability.NameLinux,
+			capability.NameShellExec,
+			capability.NameSystemd,
+			capability.NamePOSIXFileSystem,
+			capability.NameFactGatherer,
+		},
 		rec.Capabilities,
 	)
 	base := record.NewBase(rec, caps)
@@ -76,6 +84,64 @@ func (l *Server) SSHPort() int {
 		return port
 	}
 	return 22
+}
+
+// RootPath returns the filesystem root.
+//
+// This and FactSourceName below are not new claims about what a Linux
+// server can do. Every implemented file.* method, plus wait.path and
+// wait.search, already required POSIXFileSystemCapable, and facts.gather
+// already required FactGathererCapable; they ran anyway because nothing
+// compared a manifest's RequiredCapabilities against the target device.
+// Once engine.checkMethodCapabilities started making that comparison,
+// this type's silence became a refusal of fifteen methods that have been
+// working against real Linux hosts all along. Declaring what was already
+// true is the fix; loosening the methods would have been the wrong one.
+func (l *Server) RootPath() string { return "/" }
+
+// FactSourceName identifies which backend gathered this device's facts.
+//
+// "setup" is Ansible's own name for the module that does this, kept
+// deliberately rather than invented fresh, for the same reason the
+// runbook schema reuses Ansible's parameter vocabulary: an operator
+// reading a fact source should recognize the word.
+func (l *Server) FactSourceName() string { return "setup" }
+
+// ServiceManagerName returns which service manager this device runs,
+// defaulting to systemd.
+//
+// The default is a claim about the mainstream case rather than about
+// every Linux system, and the property is how the exceptions say so: an
+// Alpine or OpenRC host sets service_manager to its own manager, and the
+// svc methods then refuse it by name instead of running systemctl and
+// failing with "command not found".
+//
+// SystemdCapable is declared in the baseline rather than gated on this
+// property because a capability is what a device CAN do and the union in
+// NewServer can only add. Declaring the parent alone would leave the
+// concrete systemd methods unreachable on every stock linux_server,
+// which is the case they exist for. The property is what keeps the
+// declaration from overreaching: it names the manager, so a method can
+// check it and stop.
+func (l *Server) ServiceManagerName() string {
+	if name, ok := l.Properties().String("service_manager"); ok && name != "" {
+		return name
+	}
+	return "systemd"
+}
+
+// SystemdUnitPath returns the directory systemd unit files live in,
+// defaulting to the standard location for administrator-provided units.
+//
+// /etc/systemd/system is deliberately the default rather than
+// /lib/systemd/system or /usr/lib/systemd/system: those hold units the
+// distribution package manager owns, and anything this platform writes
+// belongs in the administrator's directory, which also takes precedence.
+func (l *Server) SystemdUnitPath() string {
+	if path, ok := l.Properties().String("systemd_unit_path"); ok && path != "" {
+		return path
+	}
+	return "/etc/systemd/system"
 }
 
 // WorkingDirectory returns the directory a command runs in when the task

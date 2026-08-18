@@ -13,7 +13,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
-	winrmtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/winrm"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
 )
 
@@ -34,15 +33,24 @@ import (
 // engine.NewBuiltinActionExecutor unchanged, exactly the seam action.go's
 // own doc comment named this phase as filling.
 func runRunbook(args []string) error {
+	// splitPositional rather than fs.Arg(0), for the same reason
+	// add-host and the forge subcommands use it: Go's flag package stops
+	// parsing at the first non-flag argument, so `run site.yaml
+	// --verbose` would silently treat --verbose as a second positional
+	// and fail with a usage error naming neither the flag nor why. The
+	// runbook path is the thing a person types first.
+	runbook, rest, err := splitPositional(args, map[string]bool{"verbose": true, "v": true})
+	if err != nil {
+		return fmt.Errorf("usage: pleiades run <runbook.yaml> [--verbose] [--dir .]: %w", err)
+	}
+
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project directory")
-	if err := fs.Parse(args); err != nil {
+	verbose := fs.Bool("verbose", false, "print each task's own output (stdout, exit status, diffs), not just whether it changed")
+	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: pleiades run <runbook.yaml>")
-	}
-	runbook := fs.Arg(0)
 
 	items, dag, err := loadWorld(*dir, runbook)
 	if err != nil {
@@ -115,15 +123,7 @@ func runRunbook(args []string) error {
 	// from (Phase 16, Native Go Execution Adapter), so this codebase has
 	// exactly one capability-keyed transport-binding table, not two
 	// independently maintained copies.
-	//
-	// winrmtransport.New's own defaults are conservative in the same way:
-	// HTTP on 5985 with SPNEGO message encryption required, which is what
-	// a stock Enable-PSRemoting host offers and refuses to do without.
-	winrmTransport, err := winrmtransport.New(winrmtransport.Options{})
-	if err != nil {
-		return fmt.Errorf("building the WinRM transport: %w", err)
-	}
-	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{}), winrmTransport).All()
+	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All()
 	// The chain audit's fqcn-table finding (IMPLEMENTATION.md Phase W3):
 	// this map and validate.CapabilityRule's table had drifted before
 	// engine.ActionCapability unified them. This check is what stops a
@@ -197,6 +197,9 @@ func runRunbook(args []string) error {
 		default:
 			fmt.Printf("  %s: ok\n", label)
 		}
+		if *verbose && node.Err == nil && !node.Skipped {
+			printNodeStats(node.Stats, result.Secrets)
+		}
 	}
 
 	if len(result.Metadata) > 0 {
@@ -260,6 +263,50 @@ func printMetadata(metadata map[string]interface{}, secrets []string) {
 				value := redact.Text(secrets, fmt.Sprintf("%v", stats[k]))
 				fmt.Printf("%s%s: %s\n", prefix, k, value)
 			}
+		}
+	}
+}
+
+// printNodeStats prints one successful node's own output under `run
+// --verbose`: every key the action recorded, sorted, masked through this
+// run's complete secret set.
+//
+// It exists because "ok" and "changed" are the whole of what a
+// successful run used to say. A task that read a device's OS version, a
+// file's mode or a service's state produced that answer, put it in
+// Stats, and had it printed nowhere; the only way to see it from the CLI
+// was to make the task exit non-zero, because the failure path prints
+// the error and a Collection method's error carries its output. Several
+// example runbooks and release gates were written that way, and a test
+// that has to break something to observe it is testing the wrong thing.
+//
+// Not on by default. A run over a large inventory would otherwise print
+// every device's whole stdout between the plan and the summary, which
+// buries the one line saying whether the run succeeded.
+//
+// A multi-line value is printed under its key rather than beside it,
+// because the common case here is exactly that: a captured stdout with
+// newlines in it, which as a single line is unreadable and as %q is
+// worse.
+func printNodeStats(stats map[string]interface{}, secrets []string) {
+	keys := make([]string, 0, len(stats))
+	for k := range stats {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		value := redact.Text(secrets, fmt.Sprintf("%v", stats[k]))
+		if value == "" {
+			continue
+		}
+		if !strings.Contains(value, "\n") {
+			fmt.Printf("    %s: %s\n", k, value)
+			continue
+		}
+		fmt.Printf("    %s:\n", k)
+		for _, line := range strings.Split(strings.TrimRight(value, "\n"), "\n") {
+			fmt.Printf("      %s\n", line)
 		}
 	}
 }

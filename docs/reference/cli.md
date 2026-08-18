@@ -71,8 +71,12 @@ build, validate, and run a runbook
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | --dir | `string` | `.` | project directory |
+| --verbose | `bool` | `false` | print each task's own output (stdout, exit status, diffs), not just whether it changed |
+| --v | `bool` | `false` | shorthand for --verbose |
 
 `pleiades run runbooks/site.yaml`
+
+`pleiades run runbooks/site.yaml --verbose`
 
 ## pleiades inventory
 
@@ -144,6 +148,7 @@ generate a new vendor device-type package
 | --dir | `string` | `.` | repository directory to write the generated package into |
 | --type | `string` | - | the full record.RegisterType key (e.g. cisco_router) |
 | --capabilities | `string` | - | comma-separated vendor baseline capability names (e.g. AptCapable,SSHTransportCapable) |
+| --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 
 ### pleiades forge new-collection
 
@@ -158,8 +163,12 @@ generate a new namespaced Collection method package
 | --transports | `string` | - | comma-separated supported transport names (e.g. ssh) |
 | --requires-elevation | `bool` | `false` | whether this method needs elevated privileges on the target device |
 | --engine-version | `string` | - | minimum core engine version constraint (unparsed, e.g. >=1.0.0) |
+| --doc-json | `string` | - | reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file |
+| --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 
 `pleiades forge new-collection net.junos.config --capabilities SSHTransportCapable --transports ssh`
+
+`pleiades forge new-collection net.junos.config --doc-json @junos-config-doc.json`
 
 ### pleiades forge new-plugin
 
@@ -173,6 +182,7 @@ generate a new inventory sync plugin package
 | --description | `string` | - | one-line help text describing the upstream system this plugin reads |
 | --endpoint | `string` | - | default upstream base URL (e.g. https://sandboxdnac.cisco.com) |
 | --read-only | `bool` | `false` | declare the upstream authoritative and never written back |
+| --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
 
 ### pleiades forge new-view
 

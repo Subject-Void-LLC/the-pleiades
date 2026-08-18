@@ -1,0 +1,55 @@
+# Put an adapter back on DHCP, over IPv6.
+#
+# This is the rescue runbook, and it targets win2025-v6 rather than
+# win2025 on purpose. It is meant to be run when IPv4 is already broken,
+# which is exactly when the ordinary target is unreachable.
+#
+# ## Why IPv6 works when IPv4 does not
+#
+# A Windows host configures IPv4 and IPv6 independently, and WinRM listens
+# on both. An adapter left with DHCP disabled and no IPv4 address, which
+# is what a failed static conversion produces, still holds its DHCPv6
+# lease and its link-local address and still answers on 5985 over IPv6.
+# That is the difference between fixing this from a runbook and walking to
+# a console.
+#
+# The inventory entry brackets the address ("[2001:db8::b0f1]") because
+# the URL the WinRM transport builds needs a literal IPv6 address wrapped
+# that way.
+#
+# ## Getting the address when the host is already unreachable
+#
+# From the Hyper-V or VM console: `ipconfig /all`, and read the global
+# IPv6 address off the adapter. A link-local address (fe80::) works too
+# from a host on the same segment, but needs a zone index the transport
+# does not currently carry, so prefer the global one.
+id: win_revert
+hosts: win2025-v6
+tasks:
+  - name: Put the Ethernet adapter back on DHCP
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        $alias = 'Ethernet'
+
+        # Report the state being repaired, so the run's own output
+        # records what was actually wrong rather than only that a repair
+        # was attempted. A broken conversion shows dhcp=Disabled with an
+        # APIPA 169.254.x.x address, or no IPv4 address at all.
+        "before: dhcp=" + (Get-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4).Dhcp
+        "before: " + ((Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            ForEach-Object { "{0}/{1} origin={2} state={3}" -f $_.IPAddress, $_.PrefixLength, $_.PrefixOrigin, $_.AddressState }) -join ' | ')
+
+        netsh interface ipv4 set address name=$alias source=dhcp
+        netsh interface ipv4 set dnsservers name=$alias source=dhcp
+
+        # Give the interface time to bind and the lease time to arrive.
+        # Without this the read below reports the state mid-transition,
+        # which looks like a failed repair.
+        Start-Sleep -Seconds 8
+        ipconfig /renew $alias | Out-Null
+        Start-Sleep -Seconds 5
+
+        "after: dhcp=" + (Get-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4).Dhcp
+        "after: " + ((Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 |
+            ForEach-Object { "{0}/{1} origin={2} state={3}" -f $_.IPAddress, $_.PrefixLength, $_.PrefixOrigin, $_.AddressState }) -join ' | ')

@@ -22,7 +22,6 @@ import (
 // CheckActionCapabilityBindings is enough.
 var ActionCapability = map[string]capability.Name{
 	"ssh_exec":   capability.NameSSHTransport,
-	"winrm_exec": capability.NameWinRM,
 	"ios_backup": capability.NameCiscoIOS,
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/format"
 	"strconv"
+	"strings"
 	"text/template"
 )
 
@@ -29,14 +30,17 @@ type templateData struct {
 	RequiresElevation bool
 	EngineVersion     string
 
-	// DocSummary feeds a declared stub's Manifest.Doc.Summary, rendered
-	// only when non-empty. It carries just the one field a generated
-	// stub can honestly have: Params, Returns, and Examples describe
-	// real behavior, and a declared method has none yet. A method
-	// hand-implemented after generation adds those fields by hand,
-	// outside this template's reach, the same way it already adds
-	// Status: StatusImplemented and Invoke.
-	DocSummary string
+	// Doc is the already-rendered Go source for the manifest's Doc
+	// field (see renderDoc), spliced into the template verbatim, or the
+	// empty string when there is no documentation to emit.
+	//
+	// It is pre-rendered in Go rather than built by the template
+	// because a Doc is a nested struct literal with four record types
+	// and per-field omission rules. Expressing that in text/template
+	// would mean a page of {{if}} blocks whose failure mode is
+	// generated source that does not compile, reported as a formatting
+	// error a long way from the branch that caused it.
+	Doc string
 }
 
 var funcMap = template.FuncMap{
@@ -66,8 +70,8 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		Capabilities:      make([]string, 0, len(cfg.Capabilities)),
 		Transports:        cfg.Transports,
 		RequiresElevation: cfg.RequiresElevation,
-		EngineVersion:     cfg.EngineVersion,
-		DocSummary:        cfg.Doc.Summary,
+		EngineVersion:     engineVersionOrDefault(cfg.EngineVersion),
+		Doc:               renderDoc(cfg.Doc),
 	}
 	for _, c := range cfg.Capabilities {
 		data.Capabilities = append(data.Capabilities, string(c))
@@ -102,4 +106,23 @@ func renderAndFormat(tmpl *template.Template, data templateData) ([]byte, error)
 		return nil, fmt.Errorf("formatting generated source: %w\n---\n%s", err, buf.String())
 	}
 	return formatted, nil
+}
+
+// DefaultEngineVersion is what a generated manifest declares when the
+// caller names no constraint.
+//
+// It exists because the alternative was emitting EngineVersion: "", and
+// an empty constraint is not a permissive one, it is a field that says
+// nothing. Every hand-written manifest in this catalog already declares
+// ">=1.0.0", so a generated one that declared nothing was the odd entry
+// out and gave a reader no way to tell "no opinion" from "forgot".
+const DefaultEngineVersion = ">=1.0.0"
+
+// engineVersionOrDefault fills in DefaultEngineVersion for an unset
+// constraint, leaving any explicit value alone.
+func engineVersionOrDefault(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return DefaultEngineVersion
+	}
+	return version
 }

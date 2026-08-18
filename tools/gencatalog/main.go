@@ -11,6 +11,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"os"
@@ -54,20 +55,9 @@ func run() error {
 	}
 	defer cleanup()
 
-	for _, cfg := range catalogdata.Collections {
-		if err := runPleiades(binPath, root, newCollectionArgs(cfg)...); err != nil {
-			return err
-		}
-	}
-	for _, cfg := range catalogdata.Devices {
-		if err := runPleiades(binPath, root, newDeviceArgs(cfg)...); err != nil {
-			return err
-		}
-	}
-	for _, cfg := range catalogdata.Plugins {
-		if err := runPleiades(binPath, root, newPluginArgs(cfg)...); err != nil {
-			return err
-		}
+	written, err := generateEntries(binPath, root, catalogdata.Collections, catalogdata.Devices, catalogdata.Plugins)
+	if err != nil {
+		return err
 	}
 
 	if err := writeCatalogBuiltins(root, catalogdata.Collections); err != nil {
@@ -82,9 +72,68 @@ func run() error {
 	// unregister a working plugin. That is the same reason
 	// internal/inventory/builtins.go stays hand-maintained for device types.
 	// internal/archtest is what catches a missing entry.
-	fmt.Printf("gencatalog: generated %d collection(s), %d device type(s), %d sync plugin(s), and the catalog builtins aggregator\n",
-		len(catalogdata.Collections), len(catalogdata.Devices), len(catalogdata.Plugins))
+	//
+	// The count reported is files newly written, not entries visited,
+	// and on a repository whose catalog is already generated it is
+	// legitimately zero. That is the difference this run has to make
+	// visible: every subcommand is invoked with --skip-existing, so a
+	// second run over an unchanged table is a no-op by design rather
+	// than by accident, and printing only the entry counts would make a
+	// run that wrote three new files look exactly like one that wrote
+	// none.
+	fmt.Printf("gencatalog: visited %d collection(s), %d device type(s), %d sync plugin(s); wrote %d new file(s), left the rest alone, and regenerated the catalog builtins aggregator\n",
+		len(catalogdata.Collections), len(catalogdata.Devices), len(catalogdata.Plugins), written)
 	return nil
+}
+
+// generateEntries drives binPath through `forge new-collection`,
+// `new-device` and `new-plugin` once per entry, against root, and returns
+// how many files those invocations actually wrote.
+//
+// The three tables are parameters rather than reads of catalogdata, the
+// same shape validateCatalogEntries already uses and for the same reason:
+// it is the only way to exercise this against a small synthetic set. The
+// alternative is a test that regenerates the real seventy-seven-entry
+// catalog, which is slow enough that nobody runs it and destructive
+// enough that nobody should.
+//
+// A failure stops the run rather than being collected. Every invocation
+// after the first is generating into the same tree, so continuing past a
+// failure means writing more files while already in an unknown state.
+func generateEntries(
+	binPath, root string,
+	collections []collectionscaffold.Config,
+	devices []devicescaffold.Config,
+	plugins []pluginscaffold.Config,
+) (int, error) {
+	var written int
+
+	for _, cfg := range collections {
+		args, err := newCollectionArgs(cfg)
+		if err != nil {
+			return written, err
+		}
+		n, err := runPleiades(binPath, root, args...)
+		if err != nil {
+			return written, err
+		}
+		written += n
+	}
+	for _, cfg := range devices {
+		n, err := runPleiades(binPath, root, newDeviceArgs(cfg)...)
+		if err != nil {
+			return written, err
+		}
+		written += n
+	}
+	for _, cfg := range plugins {
+		n, err := runPleiades(binPath, root, newPluginArgs(cfg)...)
+		if err != nil {
+			return written, err
+		}
+		written += n
+	}
+	return written, nil
 }
 
 // newPluginArgs builds the exact `forge new-plugin` argument list for cfg,
@@ -97,7 +146,7 @@ func newPluginArgs(cfg pluginscaffold.Config) []string {
 	if cfg.ReadOnly {
 		args = append(args, "--read-only")
 	}
-	return args
+	return append(args, "--skip-existing")
 }
 
 // writeCatalogBuiltins writes internal/catalog/builtins.go: a blank
@@ -158,9 +207,7 @@ func writeCatalogBuiltins(root string, collections []collectionscaffold.Config) 
 // the filesystem or the CLI at all, so a data-table typo fails fast with
 // every bad entry named at once, rather than as a single opaque CLI
 // failure partway through a run that already wrote real files for every
-// entry before it (forge new-collection/new-device refuse to overwrite,
-// so a second attempt after a partial failure would also need those
-// partial files cleaned up first). collections and devices are passed in
+// entry before it. collections and devices are passed in
 // explicitly, rather than read from catalogdata directly, so this
 // function is testable against a small synthetic set.
 func validateCatalogEntries(
@@ -236,21 +283,40 @@ func buildPleiadesBinary(root string) (binPath string, cleanup func(), err error
 }
 
 // runPleiades runs the real built binary with args against root, exactly
-// as a user invoking `pleiades <args>` from the repository root would.
-func runPleiades(binPath, root string, args ...string) error {
+// as a user invoking `pleiades <args>` from the repository root would,
+// and reports how many files that invocation actually wrote.
+//
+// The count comes from parsing the CLI's own output rather than from
+// stat-ing the filesystem here, because the CLI is the thing that
+// decided: this tool passes --skip-existing to every subcommand and has
+// no independent opinion about which paths a given entry produces.
+func runPleiades(binPath, root string, args ...string) (written int, err error) {
 	cmd := exec.Command(binPath, args...) // #nosec G204 -- binPath is our own freshly built binary; args are this tool's own fixed catalogdata-derived arguments, not external input
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("pleiades %s: %w\n%s", strings.Join(args, " "), err, out)
+		return 0, fmt.Errorf("pleiades %s: %w\n%s", strings.Join(args, " "), err, out)
 	}
-	return nil
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "wrote ") {
+			written++
+		}
+	}
+	return written, nil
 }
 
 // newCollectionArgs builds the exact `forge new-collection` argument list
 // for cfg, mirroring cmd/pleiades/forge_new_collection.go's own flag
 // surface.
-func newCollectionArgs(cfg collectionscaffold.Config) []string {
+//
+// The Doc travels as JSON on --doc-json rather than as a flag per field:
+// see pkg/collection.Doc for what it holds, and
+// collectionscaffold.Config.Doc for why no flat flag surface can carry
+// it. Passing it inline rather than through a temporary file keeps this
+// tool's "drive the real CLI, hold no state of its own" shape; the
+// largest Doc in the catalog is a few kilobytes against a Linux argument
+// limit measured in megabytes.
+func newCollectionArgs(cfg collectionscaffold.Config) ([]string, error) {
 	args := []string{"forge", "new-collection", cfg.Name}
 	if len(cfg.Capabilities) > 0 {
 		args = append(args, "--capabilities", joinCapabilities(cfg.Capabilities))
@@ -264,7 +330,18 @@ func newCollectionArgs(cfg collectionscaffold.Config) []string {
 	if cfg.EngineVersion != "" {
 		args = append(args, "--engine-version", cfg.EngineVersion)
 	}
-	return args
+	// Every field of Doc is omitempty, so an entry that documents
+	// nothing encodes to exactly "{}" and the flag is left off. Doc
+	// holds slices and so cannot be compared to its zero value
+	// directly.
+	encoded, err := json.Marshal(cfg.Doc)
+	if err != nil {
+		return nil, fmt.Errorf("encoding %s's Doc as JSON: %w", cfg.Name, err)
+	}
+	if string(encoded) != "{}" {
+		args = append(args, "--doc-json", string(encoded))
+	}
+	return append(args, "--skip-existing"), nil
 }
 
 // newDeviceArgs builds the exact `forge new-device` argument list for cfg,
@@ -274,7 +351,7 @@ func newDeviceArgs(cfg devicescaffold.Config) []string {
 	if len(cfg.Capabilities) > 0 {
 		args = append(args, "--capabilities", joinCapabilities(cfg.Capabilities))
 	}
-	return args
+	return append(args, "--skip-existing")
 }
 
 func joinCapabilities(names []capability.Name) string {

@@ -66,10 +66,24 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   {{quote .EngineVersion}},
 			Status:          collection.StatusDeclared,
-{{if .DocSummary}}			Doc: collection.Doc{
-				Summary: {{quote .DocSummary}},
-			},
-{{end}}		},
+			// TODO(forge): answer this before flipping Status to
+			// StatusImplemented. collection.Register REFUSES an
+			// implemented method that says it is not reversible without
+			// saying why, so leaving this alone turns into a panic at
+			// process start rather than a question at authoring time.
+			//
+			// Reversible is true if a run of this method can ever emit
+			// the instruction that undoes it, false if it cannot. Which
+			// inverse it is belongs to the RUN and not here: a method
+			// that created something undoes to a removal, and the same
+			// method finding it already there undoes to whatever it
+			// changed, so the concrete instruction is emitted at run time
+			// with sdk.RecordInverse. Notes is required when Reversible
+			// is false and should say what about this method's effect
+			// the platform cannot observe or reconstruct.
+			//
+			// Reversibility: collection.Reversibility{Reversible: false, Notes: ""},
+{{.Doc}}		},
 	})
 }
 

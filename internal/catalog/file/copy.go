@@ -58,11 +58,6 @@ const (
 	copyStatSize     = "size"
 )
 
-// copyMaxModeDigits is how many octal digits a mode may carry: the three
-// permission triads plus one for setuid, setgid and sticky (4755). A
-// fifth digit is not a mode anyone meant.
-const copyMaxModeDigits = 4
-
 // copyCreateMode is the mode a file this method CREATES gets when the
 // task names none.
 //
@@ -346,7 +341,7 @@ func copyParseRequest(params map[string]any) (copyRequest, error) {
 	// five copies of it is five places for one of them to drift.
 	values := make(map[string]string, 5)
 	for _, key := range []string{copyParamDest, copyParamContent, copyParamMode, copyParamOwner, copyParamGroup} {
-		value, err := copyTextParam(params, key)
+		value, err := textParam(params, key)
 		if err != nil {
 			return none, err
 		}
@@ -377,99 +372,17 @@ func copyParseRequest(params map[string]any) (copyRequest, error) {
 		},
 	}
 
-	if err := copyCheckMode(req.attrs.Mode); err != nil {
+	if err := checkMode(copyParamMode, req.attrs.Mode); err != nil {
 		return none, err
 	}
-	if err := copyCheckName(copyParamOwner, req.attrs.Owner); err != nil {
+	if err := checkName(copyParamOwner, req.attrs.Owner); err != nil {
 		return none, err
 	}
-	if err := copyCheckName(copyParamGroup, req.attrs.Group); err != nil {
+	if err := checkName(copyParamGroup, req.attrs.Group); err != nil {
 		return none, err
 	}
 
 	return req, nil
-}
-
-// copyTextParam reads one string parameter, refusing a value that arrived
-// as something other than text.
-//
-// sdk.StringParam is the usual reader and it treats a non-string as
-// absent, which is the wrong answer for this method twice over.
-// `mode: 0644` without quotes is the most common mistake anyone makes
-// with Ansible's file modules: YAML reads the leading zero as octal and
-// hands over the number 420. And `content: 8080` is a number that would
-// render as "8080" on the Walk tier and could arrive as a float64 across
-// the Runner's task subprocess boundary on the Crawl tier, so a method
-// that stringified it would write different bytes depending on which tier
-// ran it. Both are refused by name instead.
-func copyTextParam(params map[string]any, key string) (string, error) {
-	raw, present := params[key]
-	if !present || raw == nil {
-		return "", nil
-	}
-	text, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s is %T, not text: quote it in the runbook, since YAML reads an unquoted 0644 as the number 420 and an unquoted 8080 as an integer rather than as the digits you wrote", key, raw)
-	}
-	return text, nil
-}
-
-// copyCheckMode refuses a mode this method cannot compare, which is any
-// mode that is not plain octal digits.
-//
-// A symbolic mode (u+x, go-w) is what this rejects, and rejecting it is
-// the honest option rather than the limited one. Deciding whether u+x is
-// already applied means resolving it against the current bits, and the
-// alternative that needs no resolution, applying it every time, is a
-// method that reports changed forever. remotefile.NormalizeMode compares
-// "0644" against stat's "644" by padding; there is nothing it can pad
-// "u+x" into.
-func copyCheckMode(mode string) error {
-	if mode == "" || copyIsOctal(mode) {
-		return nil
-	}
-	return fmt.Errorf("%s %q must be one to four octal digits such as \"0644\": a symbolic mode cannot be compared against what the device reports, so the task would report changed on every run",
-		copyParamMode, mode)
-}
-
-// copyCheckName refuses a numeric owner or group.
-//
-// chown itself is the reason. An all-digit argument is read by chown as a
-// numeric id, never as a name, while the device reports names back
-// through stat, so "1000" and "alice" would compare unequal on every
-// single run even when they are the same account.
-func copyCheckName(key, name string) error {
-	if name == "" || !copyIsDigits(name) {
-		return nil
-	}
-	return fmt.Errorf("%s %q is a numeric id: name the account instead, since the device reports names and a numeric id would compare unequal on every run", key, name)
-}
-
-// copyIsOctal reports whether text is one to copyMaxModeDigits octal
-// digits, which is the only mode form this method accepts.
-func copyIsOctal(text string) bool {
-	return len(text) <= copyMaxModeDigits && copyDigitsOnly(text, '7')
-}
-
-// copyIsDigits reports whether text is entirely decimal digits, which is
-// how an owner or group given as a numeric id is recognized.
-func copyIsDigits(text string) bool {
-	return copyDigitsOnly(text, '9')
-}
-
-// copyDigitsOnly reports whether text is non-empty and made only of
-// digits from '0' up to and including highest.
-//
-// It works on bytes rather than runes deliberately: a multi-byte rune's
-// bytes are all above '9', so a mode or a name containing one is refused
-// rather than being silently truncated by a byte comparison.
-func copyDigitsOnly(text string, highest byte) bool {
-	for i := 0; i < len(text); i++ {
-		if text[i] < '0' || text[i] > highest {
-			return false
-		}
-	}
-	return len(text) > 0
 }
 
 // copyEffective is the attribute set the device must end up with, which

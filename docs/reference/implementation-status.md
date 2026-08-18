@@ -6,12 +6,24 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**22 of 76 methods are implemented.**
+**34 of 77 methods are implemented.**
 
 ## Implemented
 
 - [exec.command](modules/exec/command.md)
 - [exec.shell](modules/exec/shell.md)
+- [exec.winrm.shell](modules/exec/winrm/shell.md)
+- [svc.start](modules/svc/start.md)
+- [svc.stop](modules/svc/stop.md)
+- [svc.restart](modules/svc/restart.md)
+- [svc.enable](modules/svc/enable.md)
+- [svc.disable](modules/svc/disable.md)
+- [svc.systemd.start](modules/svc/systemd/start.md)
+- [svc.systemd.stop](modules/svc/systemd/stop.md)
+- [svc.systemd.restart](modules/svc/systemd/restart.md)
+- [svc.systemd.enable](modules/svc/systemd/enable.md)
+- [svc.systemd.disable](modules/svc/systemd/disable.md)
+- [svc.systemd.daemon_reload](modules/svc/systemd/daemon_reload.md)
 - [file.copy](modules/file/copy.md)
 - [file.directory](modules/file/directory.md)
 - [file.symlink](modules/file/symlink.md)
@@ -46,17 +58,6 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `pkg.dnf.install`
 - `pkg.dnf.remove`
 - `pkg.dnf.upgrade`
-- `svc.start`
-- `svc.stop`
-- `svc.restart`
-- `svc.enable`
-- `svc.disable`
-- `svc.systemd.start`
-- `svc.systemd.stop`
-- `svc.systemd.restart`
-- `svc.systemd.enable`
-- `svc.systemd.disable`
-- `svc.systemd.daemon_reload`
 - `svc.windows.start`
 - `svc.windows.stop`
 - `svc.windows.restart`
