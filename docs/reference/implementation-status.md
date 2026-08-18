@@ -6,13 +6,22 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**34 of 77 methods are implemented.**
+**43 of 77 methods are implemented.**
 
 ## Implemented
 
 - [exec.command](modules/exec/command.md)
 - [exec.shell](modules/exec/shell.md)
 - [exec.winrm.shell](modules/exec/winrm/shell.md)
+- [pkg.install](modules/pkg/install.md)
+- [pkg.remove](modules/pkg/remove.md)
+- [pkg.upgrade](modules/pkg/upgrade.md)
+- [pkg.apt.install](modules/pkg/apt/install.md)
+- [pkg.apt.remove](modules/pkg/apt/remove.md)
+- [pkg.apt.upgrade](modules/pkg/apt/upgrade.md)
+- [pkg.dnf.install](modules/pkg/dnf/install.md)
+- [pkg.dnf.remove](modules/pkg/dnf/remove.md)
+- [pkg.dnf.upgrade](modules/pkg/dnf/upgrade.md)
 - [svc.start](modules/svc/start.md)
 - [svc.stop](modules/svc/stop.md)
 - [svc.restart](modules/svc/restart.md)
@@ -49,15 +58,6 @@ The full declared-versus-implemented matrix for every registered Collection meth
 
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
-- `pkg.install`
-- `pkg.remove`
-- `pkg.upgrade`
-- `pkg.apt.install`
-- `pkg.apt.remove`
-- `pkg.apt.upgrade`
-- `pkg.dnf.install`
-- `pkg.dnf.remove`
-- `pkg.dnf.upgrade`
 - `svc.windows.start`
 - `svc.windows.stop`
 - `svc.windows.restart`

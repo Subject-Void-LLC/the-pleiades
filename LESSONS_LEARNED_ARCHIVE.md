@@ -2791,3 +2791,49 @@ workaround wearing a technique's clothes.
 The counter-case is real and worth naming: a test that deliberately fails something to prove the
 FAILURE path is correct is not this. The difference is whether the failure is the subject or the
 instrument.
+
+## 146. A generic method's capability floor is not automatically safe to declare in a device type's baseline just because a sibling generic method's was
+
+**Where this came from.** `svc.start`/`svc.stop`/etc. resolve `capability.ServiceManagerCapable`
+and dispatch to a concrete method (`svc.systemd.start`), and `linux.Server` declares the concrete
+`SystemdCapable` unconditionally in its baseline, because systemd is the mainstream case and
+declaring only the broad parent would leave the concrete methods unreachable on every stock
+`linux_server`. Writing `pkg.install`/`pkg.apt.install` the same session, the same shape looked
+obviously reusable: resolve `PackageManagerCapable`, dispatch to `pkg.apt.install`, declare
+`AptCapable` in `linux.Server`'s baseline the same way `SystemdCapable` is declared. It is not the
+same shape. `internal/inventory/devices/linux/server_test.go`'s
+`TestNewServer_UnionsClassificationCapabilities` already exists specifically to forbid this:
+`linux.Server` does not structurally implement `AptCapable`, on purpose, and the test's own comment
+says why ("neither side is trusted alone").
+
+**Why the two cases differ even though they look identical.** Service manager and package manager
+are both "which specific implementation of a near-universal Linux subsystem does this box run,"
+and both have a generic-plus-concrete dispatcher of the same shape. The difference is whether a
+single default is honestly true of most instances of the device type. Systemd genuinely is the
+default for the overwhelming majority of modern Linux servers; a non-systemd host is the rare
+exception, and the `service_manager` property exists precisely to let that exception say so.
+Package manager has no equivalent honest default: a generic `linux_server` record is Debian-family
+or Red Hat-family in roughly the same proportion across a real fleet, and declaring `AptCapable`
+unconditionally would be actively wrong on every RHEL/CentOS/Fedora/Rocky/Alma box, far more often
+wrong than defaulting a service manager to systemd ever is.
+
+**What this means in practice, and what it does not.** `pkg.apt.*`/`pkg.dnf.*` were implemented and
+tested at full quality (real converge logic, real inverses, real mutation-proofed tests against a
+fake `apt-get`/`dnf` on `PATH` over a real SSH server) without touching `linux.Server`'s capability
+set at all, leaving the namespace genuinely implemented but not yet reachable against any real
+inventory device. That is not a shortcut or an unfinished half of the work; wiring a device to a
+capability that is genuinely per-instance data is a separate, deliberate decision (a new
+distro-family-specific device type, or a classification-driven accessor with no safe unconditional
+default) that deserves its own session rather than being smuggled in as a side effect of "make the
+new namespace match the pattern the last one used."
+
+**How to apply it.** Before declaring a capability in a device type's baseline because a sibling
+generic method's dispatcher already does something that looks the same, ask whether the concrete
+value (which service manager, which package family, which init system) has an honest majority
+default across real instances of that device type, the way `service_manager` defaulting to
+`systemd` does. If every real instance is roughly as likely to need one branch as another, a
+baseline declaration is a coin flip dressed as a fact, and the regression test protecting against
+exactly that (`TestNewServer_UnionsClassificationCapabilities` here) is doing its job correctly by
+staying red. `identity.*` will face this same question (`useradd`/`groupadd` are POSIX-universal in
+a way package managers are not, so it may resolve differently) and should be decided freshly rather
+than by analogy to either `svc.*` or `pkg.*` alone.

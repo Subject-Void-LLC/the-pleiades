@@ -19,12 +19,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `http` | 1 | 1 |
 | `identity` | 6 | 0 |
 | `net` | 11 | 5 |
-| `pkg` | 9 | 0 |
+| `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
 | `svc` | 16 | 11 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **77** | **34** |
+| **total** | **77** | **43** |
 
 ## All methods
 
@@ -77,15 +77,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
 | [net.netconf.config](net/netconf/config.md) | declared | Applies configuration to a device over NETCONF. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
-| [pkg.apt.install](pkg/apt/install.md) | declared | Installs a package via APT. |
-| [pkg.apt.remove](pkg/apt/remove.md) | declared | Removes a package via APT. |
-| [pkg.apt.upgrade](pkg/apt/upgrade.md) | declared | Upgrades a package via APT. |
-| [pkg.dnf.install](pkg/dnf/install.md) | declared | Installs a package via DNF. |
-| [pkg.dnf.remove](pkg/dnf/remove.md) | declared | Removes a package via DNF. |
-| [pkg.dnf.upgrade](pkg/dnf/upgrade.md) | declared | Upgrades a package via DNF. |
-| [pkg.install](pkg/install.md) | declared | Installs a package using the target's own package manager, whichever it is. |
-| [pkg.remove](pkg/remove.md) | declared | Removes a package using the target's own package manager, whichever it is. |
-| [pkg.upgrade](pkg/upgrade.md) | declared | Upgrades a package using the target's own package manager, whichever it is. |
+| [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
+| [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |
+| [pkg.apt.upgrade](pkg/apt/upgrade.md) | implemented | Makes sure a package is at its newest available version via APT. |
+| [pkg.dnf.install](pkg/dnf/install.md) | implemented | Makes sure a package is installed via DNF. |
+| [pkg.dnf.remove](pkg/dnf/remove.md) | implemented | Removes a package via DNF. |
+| [pkg.dnf.upgrade](pkg/dnf/upgrade.md) | implemented | Makes sure a package is at its newest available version via DNF. |
+| [pkg.install](pkg/install.md) | implemented | Makes sure a package is present, whichever package manager the device runs. |
+| [pkg.remove](pkg/remove.md) | implemented | Makes sure a package is absent, whichever package manager the device runs. |
+| [pkg.upgrade](pkg/upgrade.md) | implemented | Makes sure the newest available version of a package is installed, whichever package manager the device runs. |
 | [pleiades.builtin.wait.port](pleiades/builtin/wait/port.md) | implemented | Waits for a TCP port on the target to start (or stop) accepting connections. |
 | [svc.disable](svc/disable.md) | implemented | Stops a service starting at boot, whichever service manager the device runs. |
 | [svc.enable](svc/enable.md) | implemented | Makes a service start at boot, whichever service manager the device runs. |

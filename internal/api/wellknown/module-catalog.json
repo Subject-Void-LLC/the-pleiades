@@ -2148,12 +2148,69 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that installed an absent package emits a pkg.apt.remove naming it. A run that found it already present, even at a different version than requested, emits nothing: reinstalling over an existing package is not something removing it would undo correctly, since the version that was already there before this task ran would be lost along with the one this task left. What the inverse cannot restore is anything the package's install scripts did: a service they started, a user they created, a config file they wrote outside dpkg's own tracking."
     },
     "doc": {
-      "summary": "Installs a package via APT."
+      "summary": "Makes sure a package is installed via APT.",
+      "description": "Makes sure a package is present on a Debian-family host, installing it if it is absent. This is ansible.builtin.apt with state=present. Installed state is read from dpkg before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version string, the same way apt-get install name=version does; leave it unset to mean whatever apt-get would install unpinned.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The APT package name to install, such as curl or nginx."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "Install exactly this version rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version left installed after this task."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What dpkg reported about the package before this task and after it, each holding installed and version. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Install a package",
+          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.apt.install\n  params:\n    name: curl\n"
+        },
+        {
+          "name": "Pin an exact version",
+          "runbookYaml": "- name: Install a specific nginx build\n  fqcn: pkg.apt.install\n  params:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.apt.remove",
+        "pkg.apt.upgrade",
+        "pkg.dnf.install",
+        "pkg.install"
+      ]
     }
   },
   "pkg.apt.remove": {
@@ -2167,12 +2224,60 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that removed a present package emits a pkg.apt.install pinned to the exact version this run captured before removing it, which is a real, restorable inverse: reinstalling that version undoes exactly what this run did to the package database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own maintainer scripts did beyond deleting the package's files."
     },
     "doc": {
-      "summary": "Removes a package via APT."
+      "summary": "Removes a package via APT.",
+      "description": "Makes sure a package is absent from a Debian-family host, removing it if it is present. This is ansible.builtin.apt with state=absent. Installed state is read from dpkg before anything is sent, so a package that is already absent reports no change and no command reaches the device. This removes the package but does not purge it (apt-get remove, not apt-get purge), so its configuration files are left on disk; there is no separate purge parameter today.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The APT package name to remove."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What dpkg reported about the package before this task and after it, each holding installed and version."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a package",
+          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.apt.remove\n  params:\n    name: telnet\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.apt.install",
+        "pkg.apt.upgrade",
+        "pkg.dnf.remove",
+        "pkg.remove"
+      ]
     }
   },
   "pkg.apt.upgrade": {
@@ -2186,12 +2291,60 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "Downgrading a package is not something apt-get reliably supports once the previous version has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here. This mirrors exec.command's own reasoning for why it cannot be undone: the platform does not control whether the information an undo would need still exists anywhere reachable."
     },
     "doc": {
-      "summary": "Upgrades a package via APT."
+      "summary": "Makes sure a package is at its newest available version via APT.",
+      "description": "Makes sure one named package is at the newest version APT knows about, upgrading it if a newer one is available. This is ansible.builtin.apt with state=latest for a single package, not apt-get upgrade or apt-get dist-upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest candidate version reports no change and no command reaches the device.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The APT package to keep current."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version left installed after this task."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What dpkg reported about the package before this task and after it, each holding installed and version."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a package at its newest available version",
+          "runbookYaml": "- name: Keep openssl current\n  fqcn: pkg.apt.upgrade\n  params:\n    name: openssl\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.apt.install",
+        "pkg.apt.remove",
+        "pkg.dnf.upgrade",
+        "pkg.upgrade"
+      ]
     }
   },
   "pkg.dnf.install": {
@@ -2205,12 +2358,69 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that installed an absent package emits a pkg.dnf.remove naming it. A run that found it already present, even at a different version than requested, emits nothing, for the same reason pkg.apt.install's inverse does not fire on a version change: the version already there before this task ran is gone the moment dnf replaces it, so removing afterward would not restore it. What the inverse cannot restore is anything the package's scriptlets did beyond placing its own files."
     },
     "doc": {
-      "summary": "Installs a package via DNF."
+      "summary": "Makes sure a package is installed via DNF.",
+      "description": "Makes sure a package is present on a Red Hat-family host, installing it if it is absent. This is ansible.builtin.dnf with state=present. Installed state is read from rpm before anything is sent, so a package that is already present at the requested version (or present at any version, when none is requested) reports no change and no command reaches the device. version pins to an exact version-release string, appended to the package name the way dnf's own name-version syntax expects (name-version, e.g. nginx-1.24.0); leave it unset to mean whatever dnf would install unpinned.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The RPM package name to install, such as curl or nginx."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "Install exactly this version-release rather than whatever is current. A package already installed at a different version is upgraded or downgraded to match."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version-release left installed after this task."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What rpm reported about the package before this task and after it, each holding installed and version. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Install a package",
+          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.dnf.install\n  params:\n    name: curl\n"
+        },
+        {
+          "name": "Pin an exact version",
+          "runbookYaml": "- name: Install a specific nginx build\n  fqcn: pkg.dnf.install\n  params:\n    name: nginx\n    version: 1.24.0-1.el9\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.dnf.remove",
+        "pkg.dnf.upgrade",
+        "pkg.apt.install",
+        "pkg.install"
+      ]
     }
   },
   "pkg.dnf.remove": {
@@ -2224,12 +2434,60 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that removed a present package emits a pkg.dnf.install pinned to the exact version-release this run captured before removing it, which is a real, restorable inverse: reinstalling that build undoes exactly what this run did to the rpm database. A run that found the package already absent emits nothing. What the inverse cannot restore is anything the removal's own scriptlets did beyond deleting the package's files."
     },
     "doc": {
-      "summary": "Removes a package via DNF."
+      "summary": "Removes a package via DNF.",
+      "description": "Makes sure a package is absent from a Red Hat-family host, removing it if it is present. This is ansible.builtin.dnf with state=absent. Installed state is read from rpm before anything is sent, so a package that is already absent reports no change and no command reaches the device.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The RPM package name to remove."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "Always empty after a successful run: a removed package has no installed version, and a package that was already absent had none either."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What rpm reported about the package before this task and after it, each holding installed and version."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a package",
+          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.dnf.remove\n  params:\n    name: telnet\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.dnf.install",
+        "pkg.dnf.upgrade",
+        "pkg.apt.remove",
+        "pkg.remove"
+      ]
     }
   },
   "pkg.dnf.upgrade": {
@@ -2243,18 +2501,63 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "Downgrading a package is not something dnf reliably supports once the previous build has left the local cache and the repository's own metadata (a mirror generally keeps only the latest build of a package), so no safe inverse can be promised here, for the same reason pkg.apt.upgrade cannot promise one."
     },
     "doc": {
-      "summary": "Upgrades a package via DNF."
+      "summary": "Makes sure a package is at its newest available version via DNF.",
+      "description": "Makes sure one named package is at the newest version DNF knows about, upgrading it if a newer build is available. This is ansible.builtin.dnf with state=latest for a single package, not a full-system dnf upgrade: it never touches any package other than the one named. A package that is absent is installed fresh, since there is no \"current\" version to upgrade from. A package that is already at the newest available build reports no change and no command reaches the device.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The RPM package to keep current."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version-release left installed after this task."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What rpm reported about the package before this task and after it, each holding installed and version."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a package at its newest available version",
+          "runbookYaml": "- name: Keep openssl current\n  fqcn: pkg.dnf.upgrade\n  params:\n    name: openssl\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.dnf.install",
+        "pkg.dnf.remove",
+        "pkg.apt.upgrade",
+        "pkg.upgrade"
+      ]
     }
   },
   "pkg.install": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -2262,18 +2565,68 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that installed an absent package emits a pkg.apt.remove and a run that found it already present emits nothing. The instruction names the concrete method rather than pkg.remove, which is deliberate: by the time an undo runs, the device that was resolved is the device that must be undone."
     },
     "doc": {
-      "summary": "Installs a package using the target's own package manager, whichever it is."
+      "summary": "Makes sure a package is present, whichever package manager the device runs.",
+      "description": "Makes sure a package is installed, without caring which package manager the device uses. This is ansible.builtin.package with state=present: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.install and behaves exactly as that method does, including reporting no change when the package is already present at the requested version. Use the concrete method instead when a runbook is written for one platform and should say so.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version left installed after this task, empty when the package is absent afterward. The exact value comes from the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Install a package without naming the package manager",
+          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.install\n  params:\n    name: curl\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.remove",
+        "pkg.upgrade",
+        "pkg.apt.install",
+        "pkg.dnf.install"
+      ]
     }
   },
   "pkg.remove": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -2281,18 +2634,68 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "The inverse is whatever the concrete method records, so on an APT host a run that removed a present package emits a pkg.apt.install pinned to the version it captured before removing, and a run that found the package already absent emits nothing. The instruction names the concrete method rather than pkg.install, for the same reason pkg.start's inverse names svc.systemd.stop rather than svc.stop."
     },
     "doc": {
-      "summary": "Removes a package using the target's own package manager, whichever it is."
+      "summary": "Makes sure a package is absent, whichever package manager the device runs.",
+      "description": "Makes sure a package is removed, without caring which package manager the device uses. This is ansible.builtin.package with state=absent: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.remove and behaves exactly as that method does, including reporting no change when the package is already absent. Use the concrete method instead when a runbook is written for one platform and should say so.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version left installed after this task, empty when the package is absent afterward. The exact value comes from the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Remove a package without naming the package manager",
+          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.remove\n  params:\n    name: telnet\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.install",
+        "pkg.upgrade",
+        "pkg.apt.remove",
+        "pkg.dnf.remove"
+      ]
     }
   },
   "pkg.upgrade": {
-    "supportedTransports": [
-      "ssh"
-    ],
     "requiredCapabilities": [
       "PackageManagerCapable"
     ],
@@ -2300,12 +2703,65 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "Every concrete upgrade method this resolves to is itself irreversible: downgrading a package is not something apt or dnf reliably support once the previous version has left the local cache and the repository's own metadata, so no method in this namespace can promise a safe undo for it."
     },
     "doc": {
-      "summary": "Upgrades a package using the target's own package manager, whichever it is."
+      "summary": "Makes sure the newest available version of a package is installed, whichever package manager the device runs.",
+      "description": "Makes sure a package is at its newest available version, without caring which package manager the device uses. This is ansible.builtin.package with state=latest for one named package, not a full-system upgrade: it resolves the device's package manager and hands the call to that manager's concrete method, so on an APT host it runs pkg.apt.upgrade and behaves exactly as that method does, including installing the package fresh when it is absent and reporting no change when it is already current. Use the concrete method instead when a runbook is written for one platform and should say so.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The package to act on. This is passed straight through to the concrete method for the device's package manager, so it means whatever that manager means by a package name: an APT package name on a Debian-family host, an RPM package name on a Red Hat-family one."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "description": "Pin to this exact version instead of whatever the package manager considers current. Passed straight through to the concrete method; leave unset to mean \"whatever version is current.\""
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The package this task acted on, as recorded by the concrete method that ran."
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "returned": "always",
+          "description": "The version left installed after this task, empty when the package is absent afterward. The exact value comes from the concrete method that ran."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a package current without naming the package manager",
+          "runbookYaml": "- name: Keep openssl at its newest available version\n  fqcn: pkg.upgrade\n  params:\n    name: openssl\n"
+        }
+      ],
+      "seeAlso": [
+        "pkg.install",
+        "pkg.remove",
+        "pkg.apt.upgrade",
+        "pkg.dnf.upgrade"
+      ]
     }
   },
   "pleiades.builtin.wait.port": {

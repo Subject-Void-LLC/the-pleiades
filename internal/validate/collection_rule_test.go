@@ -40,18 +40,24 @@ func TestCollectionRule_UnregisteredName(t *testing.T) {
 
 // TestCollectionRule_DeclaredButUnimplemented is the other half of Phase
 // 34's Release Gate: pleiades validate rejects a runbook calling a real
-// catalog name whose manifest Status is still StatusDeclared, which is
-// every catalog name today (Phase 34 generates stubs, not
-// implementations).
+// catalog name whose manifest Status is still StatusDeclared.
+//
+// file.template is the fixture rather than an arbitrary declared name,
+// because it is documented (CLAUDE.md, the module catalog reference) as
+// staying declared for a real, structural reason: the render engine
+// lives in internal/render, which a Collection may not import. A name
+// that stays declared on purpose is a stable fixture; one declared only
+// because nobody had gotten to it yet is not, and pkg.apt.install was
+// exactly that until this namespace was implemented.
 func TestCollectionRule_DeclaredButUnimplemented(t *testing.T) {
-	world := validate.WorldView{DAG: dagWithOneTask("pkg.apt.install", "")}
+	world := validate.WorldView{DAG: dagWithOneTask("file.template", "")}
 
 	report := validate.Validate(world)
 	if !report.HasErrors() {
 		t.Fatal("expected a declared-but-unimplemented collection name to be flagged")
 	}
 	msg := report.String()
-	if !strings.Contains(msg, "pkg.apt.install") {
+	if !strings.Contains(msg, "file.template") {
 		t.Errorf("expected the message to name the fqcn, got: %s", msg)
 	}
 	if !strings.Contains(msg, "declared but not yet implemented") {
@@ -133,14 +139,14 @@ func TestCollectionRule_StressAllCatalogNames(t *testing.T) {
 // TestCapabilityRule_NamedTaskInMessage: a task's human-given Name, when
 // set, is folded into the Finding's Message alongside its synthesized ID.
 func TestCollectionRule_NamedTaskInMessage(t *testing.T) {
-	world := validate.WorldView{DAG: dagWithOneTask("pkg.apt.install", "")}
-	world.DAG.Nodes["tasks[0]"].Name = "install apt packages"
+	world := validate.WorldView{DAG: dagWithOneTask("file.template", "")}
+	world.DAG.Nodes["tasks[0]"].Name = "render a config file"
 
 	findings := validate.CollectionRule(world)
 	if len(findings) != 1 {
 		t.Fatalf("expected exactly one finding, got %d: %v", len(findings), findings)
 	}
-	if !strings.Contains(findings[0].Message, "install apt packages") {
+	if !strings.Contains(findings[0].Message, "render a config file") {
 		t.Errorf("expected the message to include the task's Name, got: %s", findings[0].Message)
 	}
 	if !strings.Contains(findings[0].Message, "tasks[0]") {
