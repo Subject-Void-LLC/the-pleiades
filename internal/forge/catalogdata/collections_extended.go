@@ -293,24 +293,112 @@ var extendedCollections = []collectionscaffold.Config{
 		Name:          "cloud.aws.ec2.create",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Creates an EC2 instance via the AWS API."},
+		Doc: collection.Doc{
+			Summary: "Launches an EC2 instance via the AWS API.",
+			Description: "Makes sure an instance tagged Name=name exists among the account/region's " +
+				"non-terminated instances, launching one from image_id if none does. This is a narrow slice of " +
+				"amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of " +
+				"a matching instance's configuration against what was requested. An instance already present under " +
+				"that name is left exactly as it is, regardless of whether its image or instance type match; this " +
+				"method never recreates. The target device is the AWS account/region context itself " +
+				"(an aws_account inventory item), not a device this task reaches over any transport.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Name tag to find or create an instance under."},
+				{Name: "image_id", Type: "string", Required: true, Description: "The AMI id to launch from. Ignored when an instance already exists under name."},
+				{Name: "instance_type", Type: "string", Required: true, Description: "The EC2 instance type (e.g. t3.micro). Ignored when an instance already exists under name."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "instance_id", Type: "string", Returned: "when an instance exists", Description: "The instance this task found or launched."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the account reported about the Name-tagged instance before this task and after it (exists, instance_id, state). Recorded even on a run that changed nothing."},
+				{Name: "inverse", Type: "dict", Returned: "when this task launched a new instance", Description: "The cloud.aws.ec2.terminate task that undoes this run."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Launch a small instance",
+					RunbookYAML: "- name: Launch the build agent\n  fqcn: cloud.aws.ec2.create\n  params:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n",
+				},
+			},
+			SeeAlso: []string{"cloud.aws.ec2.terminate"},
+		},
 	},
 	{
 		Name:          "cloud.aws.ec2.terminate",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Terminates an EC2 instance via the AWS API."},
+		Doc: collection.Doc{
+			Summary: "Terminates an EC2 instance via the AWS API.",
+			Description: "Terminates the instance named by instance_id. A no-op if AWS has no record of that id " +
+				"at all, or if it is already terminated. Unlike cloud.aws.ec2.create, this takes an exact " +
+				"instance_id rather than a Name-tag lookup: terminating by a fuzzy match is a worse default than " +
+				"requiring the exact resource for a destructive action.",
+			Params: []collection.Param{
+				{Name: "instance_id", Type: "string", Required: true, Description: "The instance id to terminate."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "instance_id", Type: "string", Returned: "always", Description: "The instance this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the account reported about the instance before this task and after it (exists, instance_id, state). Recorded even on a run that changed nothing."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Terminate an instance",
+					RunbookYAML: "- name: Tear down the build agent\n  fqcn: cloud.aws.ec2.terminate\n  params:\n    instance_id: i-0123456789abcdef0\n",
+				},
+			},
+			SeeAlso: []string{"cloud.aws.ec2.create"},
+		},
 	},
 	{
 		Name:          "cloud.aws.s3.create_bucket",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Creates an S3 bucket via the AWS API."},
+		Doc: collection.Doc{
+			Summary: "Creates an S3 bucket via the AWS API.",
+			Description: "Makes sure bucket exists in the account/region, creating it if it does not. Idempotent " +
+				"on existence alone: this method has no bucket configuration surface (versioning, encryption, " +
+				"policy) to compare or converge, the same restraint every other narrowly-scoped method in this " +
+				"catalog applies against its own upstream's larger surface. The target device is the AWS " +
+				"account/region context itself (an aws_account inventory item), not a device this task reaches " +
+				"over any transport.",
+			Params: []collection.Param{
+				{Name: "bucket", Type: "string", Required: true, Description: "The bucket name to create or leave alone."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "bucket", Type: "string", Returned: "always", Description: "The bucket this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the bucket existed before this task and after it. Recorded even on a run that changed nothing."},
+				{Name: "inverse", Type: "dict", Returned: "when this task created the bucket", Description: "The cloud.aws.s3.delete_bucket task that undoes this run."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Create a bucket",
+					RunbookYAML: "- name: Create the release artifacts bucket\n  fqcn: cloud.aws.s3.create_bucket\n  params:\n    bucket: my-release-artifacts\n",
+				},
+			},
+			SeeAlso: []string{"cloud.aws.s3.delete_bucket"},
+		},
 	},
 	{
 		Name:          "cloud.aws.s3.delete_bucket",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Deletes an S3 bucket via the AWS API."},
+		Doc: collection.Doc{
+			Summary: "Deletes an S3 bucket via the AWS API.",
+			Description: "Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty " +
+				"bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the " +
+				"safety rail, not an error this method routes around.",
+			Params: []collection.Param{
+				{Name: "bucket", Type: "string", Required: true, Description: "The bucket name to delete."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "bucket", Type: "string", Returned: "always", Description: "The bucket this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the bucket existed before this task and after it. Recorded even on a run that changed nothing."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Delete a bucket",
+					RunbookYAML: "- name: Remove the release artifacts bucket\n  fqcn: cloud.aws.s3.delete_bucket\n  params:\n    bucket: my-release-artifacts\n",
+				},
+			},
+			SeeAlso: []string{"cloud.aws.s3.create_bucket"},
+		},
 	},
 }

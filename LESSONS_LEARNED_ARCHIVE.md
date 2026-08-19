@@ -2923,3 +2923,46 @@ RULE 0), add the parameter regardless of whether Ansible does. A method that nev
 command executor in its own tests (an HTTP-API-backed method, for instance) does not have this
 pressure and can reasonably default to a hardcoded well-known value with no parameter at all; the
 pressure is specific to "this runs a real shell command against this path in its own tests."
+
+---
+
+## 149. Verify a live dependency's current terms and behavior by actually running it, not from what a prior session established
+
+**The incident.** The `cloud.aws.*` batch's plan named LocalStack as the real-target verification
+strategy for methods that address the AWS HTTP API directly (no fake shell script can stand in for
+a wire protocol), and named "no live account, no cost, no CI secret dependency" as the reason it
+was chosen over real AWS. That premise was true when the plan was written and false by the time the
+first container actually started: `localstack/localstack`'s published image now exits immediately
+with "License activation failed" unless `LOCALSTACK_AUTH_TOKEN` is set, a real relicensing that
+happened at some point in this project's own lifetime, not a misconfiguration or a bad image tag.
+The plan's own stated rationale was gone the moment the container was actually run. The fix was not
+to argue from the plan's original reasoning (which was sound when written) but to run the real
+container, read its real refusal, and revise the plan with the user rather than silently
+substituting a fake.
+
+The same discipline paid off repeatedly afterward, on smaller questions the same session kept
+running into: whether a fabricated instance ID would produce a real `InvalidInstanceID.NotFound`
+API error or a quiet empty success (both actually happen, depending on whether the ID merely looks
+well-formed); whether `RunInstances` would reject an invalid `instance_type` the way real AWS does
+(it does not, against LocalStack); whether requesting a specific `PrivateIpAddress` would suppress
+the automatic `PublicIpAddress` assignment (it does not — both are set, confirmed by one throwaway
+`main.go` hitting the real container and printing the result). Every one of these was a case where
+the *plausible* assumption (derived from how real AWS is documented to behave, or from how the
+previous SSH-based batches' fake shell scripts behaved) was either right or wrong in a way that
+could only be told apart by asking the real target directly, in under a minute, with a disposable
+Go program deleted immediately after. Guessing wrong and writing a test around the guess would have
+produced a test that passively verified a fiction — passing today, telling nothing about tomorrow —
+which is exactly the failure RULE 0 exists to rule out, applied one level up: not just "does this
+test touch a real system," but "is what I believe about that real system's current behavior itself
+verified, or inherited."
+
+**How to apply it.** When a plan's chosen verification strategy depends on a live dependency's
+current behavior, terms, or state — an image's licensing, an API's validation strictness, a
+service's default configuration — verify it by running the real thing before committing code or
+tests to the assumption, even (especially) when the assumption was true in an earlier session or
+reads as obviously true from documentation. A disposable diagnostic program (or command) against
+the real target, run once and deleted, is cheap; a test suite built on a stale or merely-plausible
+belief about that target is not. When the real behavior contradicts the plan, stop and revise with
+whoever approved the plan rather than quietly substituting a workaround — the same "re-derive
+before carrying across a stale judgement" instinct LESSONS_LEARNED #143 already names for a removed
+safeguard, applied here to a changed dependency instead.

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**59 of 77 methods are implemented.**
+**63 of 77 methods are implemented.**
 
 ## Implemented
 
@@ -64,6 +64,10 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [container.docker.run](modules/container/docker/run.md)
 - [container.docker.stop](modules/container/docker/stop.md)
 - [container.docker.remove](modules/container/docker/remove.md)
+- [cloud.aws.ec2.create](modules/cloud/aws/ec2/create.md)
+- [cloud.aws.ec2.terminate](modules/cloud/aws/ec2/terminate.md)
+- [cloud.aws.s3.create_bucket](modules/cloud/aws/s3/create_bucket.md)
+- [cloud.aws.s3.delete_bucket](modules/cloud/aws/s3/delete_bucket.md)
 - [http.request](modules/http/request.md)
 - [pleiades.builtin.wait.port](modules/pleiades/builtin/wait/port.md)
 - [wait.path](modules/wait/path.md)
@@ -88,8 +92,4 @@ Registered and reachable through the real dispatcher. Calling one refuses with a
 - `net.eos.config`
 - `win.feature.install`
 - `win.feature.remove`
-- `cloud.aws.ec2.create`
-- `cloud.aws.ec2.terminate`
-- `cloud.aws.s3.create_bucket`
-- `cloud.aws.s3.delete_bucket`
 

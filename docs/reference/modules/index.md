@@ -9,7 +9,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | Namespace | Methods | Implemented |
 | --- | --- | --- |
 | `archive` | 2 | 2 |
-| `cloud` | 4 | 0 |
+| `cloud` | 4 | 4 |
 | `container` | 3 | 3 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
@@ -24,7 +24,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 11 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 0 |
-| **total** | **77** | **59** |
+| **total** | **77** | **63** |
 
 ## All methods
 
@@ -32,10 +32,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | --- | --- | --- |
 | [archive.create](archive/create.md) | implemented | Creates an archive (tar or tar.gz) from files on the target. |
 | [archive.extract](archive/extract.md) | implemented | Extracts an archive (tar or tar.gz) on the target. |
-| [cloud.aws.ec2.create](cloud/aws/ec2/create.md) | declared | Creates an EC2 instance via the AWS API. |
-| [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | declared | Terminates an EC2 instance via the AWS API. |
-| [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | declared | Creates an S3 bucket via the AWS API. |
-| [cloud.aws.s3.delete_bucket](cloud/aws/s3/delete_bucket.md) | declared | Deletes an S3 bucket via the AWS API. |
+| [cloud.aws.ec2.create](cloud/aws/ec2/create.md) | implemented | Launches an EC2 instance via the AWS API. |
+| [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | implemented | Terminates an EC2 instance via the AWS API. |
+| [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | implemented | Creates an S3 bucket via the AWS API. |
+| [cloud.aws.s3.delete_bucket](cloud/aws/s3/delete_bucket.md) | implemented | Deletes an S3 bucket via the AWS API. |
 | [container.docker.remove](container/docker/remove.md) | implemented | Removes a Docker container from the target. |
 | [container.docker.run](container/docker/run.md) | implemented | Runs a Docker container on the target. |
 | [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |

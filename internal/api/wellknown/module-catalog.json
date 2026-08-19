@@ -165,12 +165,63 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that launched a fresh instance (name did not already exist among non-terminated instances) emits a cloud.aws.ec2.terminate naming the launched instance_id. A run that found an existing match emits nothing, the same as every other converged run in this catalog, even though this method does not compare that existing instance's image or type against what was requested."
     },
     "doc": {
-      "summary": "Creates an EC2 instance via the AWS API."
+      "summary": "Launches an EC2 instance via the AWS API.",
+      "description": "Makes sure an instance tagged Name=name exists among the account/region's non-terminated instances, launching one from image_id if none does. This is a narrow slice of amazon.aws.ec2_instance: idempotency here is existence of the Name tag only, not a comparison of a matching instance's configuration against what was requested. An instance already present under that name is left exactly as it is, regardless of whether its image or instance type match; this method never recreates. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Name tag to find or create an instance under."
+        },
+        {
+          "name": "image_id",
+          "type": "string",
+          "required": true,
+          "description": "The AMI id to launch from. Ignored when an instance already exists under name."
+        },
+        {
+          "name": "instance_type",
+          "type": "string",
+          "required": true,
+          "description": "The EC2 instance type (e.g. t3.micro). Ignored when an instance already exists under name."
+        }
+      ],
+      "returns": [
+        {
+          "name": "instance_id",
+          "type": "string",
+          "returned": "when an instance exists",
+          "description": "The instance this task found or launched."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the account reported about the Name-tagged instance before this task and after it (exists, instance_id, state). Recorded even on a run that changed nothing."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when this task launched a new instance",
+          "description": "The cloud.aws.ec2.terminate task that undoes this run."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Launch a small instance",
+          "runbookYaml": "- name: Launch the build agent\n  fqcn: cloud.aws.ec2.create\n  params:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n"
+        }
+      ],
+      "seeAlso": [
+        "cloud.aws.ec2.terminate"
+      ]
     }
   },
   "cloud.aws.ec2.terminate": {
@@ -179,12 +230,45 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "A terminated instance's storage (unless an EBS volume was explicitly detached beforehand, which this method does not do) and identity are gone; there is nothing a cloud.aws.ec2.create could restore."
     },
     "doc": {
-      "summary": "Terminates an EC2 instance via the AWS API."
+      "summary": "Terminates an EC2 instance via the AWS API.",
+      "description": "Terminates the instance named by instance_id. A no-op if AWS has no record of that id at all, or if it is already terminated. Unlike cloud.aws.ec2.create, this takes an exact instance_id rather than a Name-tag lookup: terminating by a fuzzy match is a worse default than requiring the exact resource for a destructive action.",
+      "params": [
+        {
+          "name": "instance_id",
+          "type": "string",
+          "required": true,
+          "description": "The instance id to terminate."
+        }
+      ],
+      "returns": [
+        {
+          "name": "instance_id",
+          "type": "string",
+          "returned": "always",
+          "description": "The instance this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the account reported about the instance before this task and after it (exists, instance_id, state). Recorded even on a run that changed nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Terminate an instance",
+          "runbookYaml": "- name: Tear down the build agent\n  fqcn: cloud.aws.ec2.terminate\n  params:\n    instance_id: i-0123456789abcdef0\n"
+        }
+      ],
+      "seeAlso": [
+        "cloud.aws.ec2.create"
+      ]
     }
   },
   "cloud.aws.s3.create_bucket": {
@@ -193,12 +277,51 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that created the bucket (it did not already exist) emits a cloud.aws.s3.delete_bucket naming it. A run that found the bucket already present emits nothing, the same as every other converged run in this catalog."
     },
     "doc": {
-      "summary": "Creates an S3 bucket via the AWS API."
+      "summary": "Creates an S3 bucket via the AWS API.",
+      "description": "Makes sure bucket exists in the account/region, creating it if it does not. Idempotent on existence alone: this method has no bucket configuration surface (versioning, encryption, policy) to compare or converge, the same restraint every other narrowly-scoped method in this catalog applies against its own upstream's larger surface. The target device is the AWS account/region context itself (an aws_account inventory item), not a device this task reaches over any transport.",
+      "params": [
+        {
+          "name": "bucket",
+          "type": "string",
+          "required": true,
+          "description": "The bucket name to create or leave alone."
+        }
+      ],
+      "returns": [
+        {
+          "name": "bucket",
+          "type": "string",
+          "returned": "always",
+          "description": "The bucket this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the bucket existed before this task and after it. Recorded even on a run that changed nothing."
+        },
+        {
+          "name": "inverse",
+          "type": "dict",
+          "returned": "when this task created the bucket",
+          "description": "The cloud.aws.s3.delete_bucket task that undoes this run."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Create a bucket",
+          "runbookYaml": "- name: Create the release artifacts bucket\n  fqcn: cloud.aws.s3.create_bucket\n  params:\n    bucket: my-release-artifacts\n"
+        }
+      ],
+      "seeAlso": [
+        "cloud.aws.s3.delete_bucket"
+      ]
     }
   },
   "cloud.aws.s3.delete_bucket": {
@@ -207,12 +330,45 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "Bucket names are globally unique across all of AWS, so a bucket this task just deleted may be claimed by an unrelated account before any inverse would run; there is no safe cloud.aws.s3.create_bucket to record."
     },
     "doc": {
-      "summary": "Deletes an S3 bucket via the AWS API."
+      "summary": "Deletes an S3 bucket via the AWS API.",
+      "description": "Deletes bucket if it exists; a no-op otherwise. This method does not empty a non-empty bucket first: AWS itself refuses to delete one that still holds objects, and that refusal is the safety rail, not an error this method routes around.",
+      "params": [
+        {
+          "name": "bucket",
+          "type": "string",
+          "required": true,
+          "description": "The bucket name to delete."
+        }
+      ],
+      "returns": [
+        {
+          "name": "bucket",
+          "type": "string",
+          "returned": "always",
+          "description": "The bucket this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "Whether the bucket existed before this task and after it. Recorded even on a run that changed nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Delete a bucket",
+          "runbookYaml": "- name: Remove the release artifacts bucket\n  fqcn: cloud.aws.s3.delete_bucket\n  params:\n    bucket: my-release-artifacts\n"
+        }
+      ],
+      "seeAlso": [
+        "cloud.aws.s3.create_bucket"
+      ]
     }
   },
   "container.docker.remove": {

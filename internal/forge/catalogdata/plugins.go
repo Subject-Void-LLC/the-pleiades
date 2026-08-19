@@ -38,4 +38,24 @@ var Plugins = []pluginscaffold.Config{
 		// manages, so Pleiades imports from it and never writes back.
 		ReadOnly: true,
 	},
+	{
+		// The second real dynamic sync plugin, and the AWS-side answer to
+		// AWX_PARITY.md's own inventory-sources row, which names AWS
+		// alongside NetBox, Nautobot and VMware. Discovers EC2 instances
+		// and hydrates them as ordinary linux_server devices, the same way
+		// catalyst_center hydrates real Cisco gear.
+		//
+		// Endpoint is deliberately empty: unlike Catalyst Center, AWS has
+		// no fixed public sandbox to default to, so an empty Endpoint
+		// (meaning "real AWS") is the honest default, per
+		// pluginscaffold.Config's own doc comment that Endpoint "may be
+		// empty for a plugin whose endpoint is always per-deployment."
+		Name:        "aws",
+		Description: "reads EC2 instances from an AWS account/region",
+		Endpoint:    "",
+		// This plugin only ever calls DescribeInstances; there is no
+		// write-back path to guard, the same structural guarantee
+		// catalyst_center's own ReadOnly documents.
+		ReadOnly: true,
+	},
 }

@@ -73,8 +73,8 @@ func TestRunDoc_Entry(t *testing.T) {
 
 func TestRunDoc_EntryDeclared(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"cloud.aws.ec2.create"}); err != nil {
-			t.Fatalf("runDoc(cloud.aws.ec2.create) error: %v", err)
+		if err := runDoc([]string{"svc.windows.start"}); err != nil {
+			t.Fatalf("runDoc(svc.windows.start) error: %v", err)
 		}
 	})
 	if !strings.Contains(out, "declared, not implemented") {
@@ -108,11 +108,11 @@ func TestRunDoc_Snippet(t *testing.T) {
 
 func TestRunDoc_SnippetDeclaredFallsBackToSkeleton(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"--snippet", "cloud.aws.ec2.create"}); err != nil {
-			t.Fatalf("runDoc(--snippet cloud.aws.ec2.create) error: %v", err)
+		if err := runDoc([]string{"--snippet", "svc.windows.start"}); err != nil {
+			t.Fatalf("runDoc(--snippet svc.windows.start) error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "fqcn: cloud.aws.ec2.create") {
+	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "fqcn: svc.windows.start") {
 		t.Errorf("declared snippet should fall back to a bare skeleton, got:\n%s", out)
 	}
 }

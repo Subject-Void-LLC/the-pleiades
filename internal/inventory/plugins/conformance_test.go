@@ -7,17 +7,25 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/localstack"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
+	awsplugin "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
@@ -58,8 +66,40 @@ type pluginBackend struct {
 	extraDevices int
 
 	// unclassifiable builds a host this plugin cannot place, for the
-	// Section 6g quarantine assertion.
+	// Section 6g quarantine assertion. Leave the zero value and set
+	// unclassifiableUnsupported instead if this backend's upstream has no
+	// way to produce one through this suite's harness.
 	unclassifiable conformanceHost
+
+	// unclassifiableUnsupported, when non-empty, is the reason
+	// TestPluginConformance_QuarantinesUnclassifiable skips this backend
+	// rather than asserting against unclassifiable. The "aws" backend
+	// needs this: EC2's Platform field, the only signal this plugin's
+	// Classify refuses on, is derived from the launched AMI's real
+	// metadata, not something a RunInstances caller can set directly, and
+	// LocalStack (confirmed empirically) does not infer it from a
+	// fabricated AMI id either. The quarantine behavior itself is still
+	// proven, directly, by aws's own TestClassify_WindowsInstance_Quarantines
+	// against a hand-built record — RULE 0 does not require a live
+	// upstream for logic that is pure Go over an already-discovered value.
+	unclassifiableUnsupported string
+
+	// checkIP validates the "ip" property recorded for hosts[0] once
+	// synced. Nil means the default: an exact match against hosts[0].IP,
+	// which static_yaml and catalyst_center's upstreams both honor
+	// exactly since this suite controls what they report directly. "aws"
+	// supplies its own: LocalStack (confirmed empirically) always assigns
+	// its own public IP on top of any requested private one, so no
+	// fixture can dictate the exact value a real cloud upstream reports.
+	checkIP func(t *testing.T, hosts []conformanceHost, ip string)
+}
+
+// defaultCheckIP is checkIP's default: hosts[0].IP must come back exactly.
+func defaultCheckIP(t *testing.T, hosts []conformanceHost, ip string) {
+	t.Helper()
+	if ip != hosts[0].IP {
+		t.Errorf("ip = %q, want %q", ip, hosts[0].IP)
+	}
 }
 
 // conformanceHost is one device the suite asks a backend's upstream to
@@ -102,6 +142,30 @@ func pluginBackends() []pluginBackend {
 			// leaves inventory able to run net.catalyst.* runbooks.
 			extraDevices:   1,
 			unclassifiable: conformanceHost{Name: "mystery1", IP: "10.0.0.9", SoftwareType: "PlanetExpressOS"},
+		},
+		{
+			name:      "aws",
+			newPlugin: newAWSBackend,
+			// Plus the account/region itself, which this plugin emits so a
+			// sync leaves inventory able to run cloud.aws.* runbooks, the
+			// same reasoning catalyst_center's controller record states.
+			extraDevices: 1,
+			// LocalStack does not infer an instance's Platform from a
+			// fabricated AMI id (confirmed empirically), so this backend
+			// cannot produce a naturally-unclassifiable host through
+			// RunInstances the way the other two backends can through a
+			// document field or a raw upstream field. See
+			// unclassifiableUnsupported's own doc comment.
+			unclassifiableUnsupported: "LocalStack cannot be made to report an EC2 instance's Platform as anything but empty for a fabricated AMI id, so this backend has no way to produce an unclassifiable host through RunInstances; see aws's own TestClassify_WindowsInstance_Quarantines for the direct proof of that behavior",
+			// A real cloud upstream assigns its own addressing; see
+			// checkIP's own doc comment for why this cannot be
+			// hosts[0].IP.
+			checkIP: func(t *testing.T, _ []conformanceHost, ip string) {
+				t.Helper()
+				if ip == "" {
+					t.Error("ip is empty, want the real address DescribeInstances reported")
+				}
+			},
 		},
 	}
 }
@@ -229,6 +293,131 @@ func catalystDevicePage(hosts []conformanceHost, r *http.Request) []byte {
 	return []byte(b.String())
 }
 
+// newAWSBackend launches one real EC2 instance per host in a shared
+// LocalStack container and connects a plugin to it.
+//
+// Unlike the two backends above, this one cannot fake its upstream with an
+// httptest.Server: the AWS SDK's real request signing and wire protocol
+// are what this plugin actually has to work against, and a hand-rolled
+// fake would stop being representative the moment a real one is needed
+// again. See pkg/awscloud's own tests for why that means a real
+// LocalStack container (and LOCALSTACK_AUTH_TOKEN) rather than an
+// anonymous one.
+func newAWSBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plugin, syncplugin.Config) {
+	t.Helper()
+	endpoint := requireLocalStackForConformance(t)
+
+	client, err := awscloud.New(awsConformanceRegion, awsConformanceKey, awsConformanceSecret, "", awscloud.WithEndpoint(endpoint))
+	if err != nil {
+		t.Fatalf("awscloud.New: %v", err)
+	}
+	ctx := context.Background()
+	for _, h := range hosts {
+		launched, err := client.RunInstance(ctx, h.Name, "ami-12345678", "t2.micro")
+		if err != nil {
+			t.Fatalf("RunInstance(%s): %v", h.Name, err)
+		}
+		// Every subtest across this suite shares one LocalStack account
+		// (one real container, started once), unlike the other two
+		// backends' own fresh-per-call fake server or temp file. Without
+		// terminating what this call launched, an EARLIER subtest's
+		// instances would still be discoverable when a LATER one runs,
+		// which is exactly the duplicate-name pollution a fresh fake or
+		// temp file never has to guard against.
+		instanceID := launched.ID
+		t.Cleanup(func() {
+			if _, err := client.TerminateInstance(context.Background(), instanceID); err != nil {
+				t.Logf("cleanup: terminating %s: %v", instanceID, err)
+			}
+		})
+	}
+
+	cfg := syncplugin.Config{
+		Name:     awsplugin.Name,
+		Endpoint: endpoint,
+		ReadOnly: true,
+		// Below the fixture size (once minPageSize's floor is accounted
+		// for further tests won't all land on one page), matching
+		// catalystDevicePage's own PageSize: 1 intent: force the
+		// multi-page path to run rather than only ever exercising a
+		// single-page fetch.
+		PageSize: 1,
+	}
+	p := awsplugin.New(
+		awsplugin.WithRegion(awsConformanceRegion),
+		awsplugin.WithCredentialStore(staticStore{credential.Credential{Username: awsConformanceKey, Password: awsConformanceSecret}}),
+	)
+	if err := p.Connect(ctx, cfg); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	return p, cfg
+}
+
+// LocalStack accepts any non-empty static credential by default; this is
+// a throwaway container started fresh for this test run, never a real
+// account, so a hardcoded key pair here is not a secret leak.
+const (
+	awsConformanceKey    = "test"
+	awsConformanceSecret = "test"
+	awsConformanceRegion = "us-east-1"
+)
+
+// Shared LocalStack container for the "aws" backend, mirroring the exact
+// pattern pkg/awscloud's, cloud.aws.{ec2,s3}'s, and the aws plugin's own
+// package tests already established this session: lazy, exactly-once
+// startup guarded by sync.Once, torn down once by TestMain after every
+// test in this package has run.
+var (
+	awsConformanceContainerOnce sync.Once
+	awsConformanceContainerErr  error
+	awsConformanceContainer     *localstack.LocalStackContainer
+	awsConformanceEndpoint      string
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if awsConformanceContainer != nil {
+		_ = awsConformanceContainer.Terminate(context.Background())
+	}
+	os.Exit(code)
+}
+
+func requireLocalStackForConformance(tb testing.TB) string {
+	tb.Helper()
+	token := os.Getenv("LOCALSTACK_AUTH_TOKEN")
+	if token == "" {
+		tb.Skip("set LOCALSTACK_AUTH_TOKEN to run the conformance suite's aws backend")
+	}
+	awsConformanceContainerOnce.Do(func() {
+		ctx := context.Background()
+		ctr, err := localstack.Run(ctx, testsupport.LocalStackImage,
+			testcontainers.WithEnv(map[string]string{"LOCALSTACK_AUTH_TOKEN": token}),
+		)
+		if err != nil {
+			awsConformanceContainerErr = fmt.Errorf("failed to start localstack container: %w", err)
+			return
+		}
+		awsConformanceContainer = ctr
+
+		mappedPort, err := ctr.MappedPort(ctx, "4566/tcp")
+		if err != nil {
+			awsConformanceContainerErr = fmt.Errorf("failed to get mapped port: %w", err)
+			return
+		}
+		host, err := ctr.Host(ctx)
+		if err != nil {
+			awsConformanceContainerErr = fmt.Errorf("failed to get container host: %w", err)
+			return
+		}
+		awsConformanceEndpoint = fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
+	})
+	if awsConformanceContainerErr != nil {
+		tb.Fatalf("shared LocalStack container setup failed: %v", awsConformanceContainerErr)
+	}
+	return awsConformanceEndpoint
+}
+
 // newConformanceRepo builds an empty project inventory to reconcile into.
 func newConformanceRepo(t *testing.T) inv.Repository {
 	t.Helper()
@@ -272,9 +461,12 @@ func TestPluginConformance_SyncOnboardsEveryDevice(t *testing.T) {
 			if item.Source().SyncedAt.IsZero() {
 				t.Error("sync did not stamp SyncedAt")
 			}
-			if ip, _ := item.Properties().String("ip"); ip != "10.0.0.1" {
-				t.Errorf("ip = %q, want 10.0.0.1", ip)
+			checkIP := backend.checkIP
+			if checkIP == nil {
+				checkIP = defaultCheckIP
 			}
+			ip, _ := item.Properties().String("ip")
+			checkIP(t, hosts, ip)
 		})
 	}
 }
@@ -324,6 +516,9 @@ func TestPluginConformance_ResyncIsIdempotent(t *testing.T) {
 func TestPluginConformance_QuarantinesUnclassifiable(t *testing.T) {
 	for _, backend := range pluginBackends() {
 		t.Run(backend.name, func(t *testing.T) {
+			if backend.unclassifiableUnsupported != "" {
+				t.Skip(backend.unclassifiableUnsupported)
+			}
 			p, _ := backend.newPlugin(t, []conformanceHost{backend.unclassifiable})
 
 			report, err := p.Sync(context.Background(), newConformanceRepo(t))

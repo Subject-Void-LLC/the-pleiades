@@ -4,11 +4,14 @@ import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 
 // DefaultRuleSet returns the built-in classification rules PLAN.md Section
 // 7 promises every `pleiades init` scaffold ships with ("built-in
-// classification rules for common OS families"). It is grounded only in
-// the two device types internal/inventory/record.Types actually holds
-// today (cisco_router, linux_server): a resolved Type always successfully
-// hydrates through the real ItemFactory, rather than inventing a
-// WindowsDesktop or generic NetworkDevice type nothing registers.
+// classification rules for common OS families"). Every rule below is
+// grounded in a device type internal/inventory/record.Types actually
+// holds: a resolved Type always successfully hydrates through the real
+// ItemFactory, rather than inventing a WindowsDesktop or generic
+// NetworkDevice type nothing registers. catalyst_center and aws_account
+// were each added later, when the sync plugin that needed them was built,
+// not when their device types first landed — the same pattern this file
+// itself follows for whatever the next plugin needs.
 //
 // The tree shape mirrors PLAN.md Section 6d's own worked example
 // (linux_server -> debian_family -> ubuntu; network_device -> cisco ->
@@ -60,6 +63,20 @@ func DefaultRuleSet() *RuleSet {
 			ConnectionMode: str("agentless"),
 			Onboard:        str("configure_polling"),
 			Capabilities:   []capability.Name{capability.NameCatalystAPI},
+		},
+		// An AWS account/region context, added when the "aws" sync plugin
+		// was built (internal/inventory/plugins/aws), the same way the
+		// catalyst_center rule above was added when that plugin was built
+		// rather than when the device type itself first landed. It answers
+		// the AWS API rather than a device transport, exactly like
+		// catalyst_center answering a REST API rather than IOS's CLI, so it
+		// sits at its own root rather than under linux_server or any
+		// network_device branch.
+		"aws_account": {
+			Type:           str("aws_account"),
+			ConnectionMode: str("agentless"),
+			Onboard:        str("configure_polling"),
+			Capabilities:   []capability.Name{capability.NameAWSAPI},
 		},
 	})
 	if err != nil {
