@@ -23,6 +23,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
@@ -148,7 +149,77 @@ type releaseGateHarness struct {
 	js      jetstream.JetStream
 }
 
+// knownHostsSource says how a test makes the container's real host key
+// reachable by the code under test. The two values are the two real
+// deployments, and they are not interchangeable.
+//
+// This distinction exists because its absence hid a defect. Every gate in
+// this repository used the home directory, which is what a person running
+// the CLI on their own laptop has and what no container has, so the
+// published runner image could not verify a host key at all and nothing
+// noticed (FAILURE_PATTERNS.md #150).
+type knownHostsSource int
+
+const (
+	// knownHostsInHomeDir writes $HOME/.ssh/known_hosts, the Walk tier's
+	// arrangement: a person, a home directory, a file ssh itself would
+	// have written.
+	knownHostsInHomeDir knownHostsSource = iota
+
+	// knownHostsInEnvironment writes the file somewhere unrelated and
+	// names it with remoteexec.KnownHostsEnv, leaving $HOME pointing at a
+	// directory with no known_hosts anywhere in it. That is the Crawl
+	// tier's arrangement, and the empty home directory is load-bearing:
+	// it means a pass can only come from the environment variable being
+	// read, and read inside the per-task child process, which is a
+	// separate OS process from the one this test is running in.
+	knownHostsInEnvironment
+)
+
 func newReleaseGateHarness(t *testing.T) *releaseGateHarness {
+	t.Helper()
+	return newReleaseGateHarnessWith(t, knownHostsInHomeDir)
+}
+
+// writeKnownHostsFor records addr's real, captured host key where source
+// says the code under test will look for it, and returns nothing: the
+// effect is entirely in the environment this process hands its children.
+//
+// $HOME is set in both cases, never unset. Emptying it would also take
+// away what the Docker client reads for its own configuration, and this
+// test starts containers; a home directory that simply has no known_hosts
+// in it fails the fallback just as completely and leaves Docker alone.
+func writeKnownHostsFor(t *testing.T, addr string, source knownHostsSource) {
+	t.Helper()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	realKey := captureRealHostKey(t, addr)
+	line := knownhosts.Line([]string{addr}, realKey) + "\n"
+
+	if source == knownHostsInEnvironment {
+		// Deliberately not under $HOME, so nothing about this path could be
+		// found by the home directory fallback even by accident.
+		path := filepath.Join(t.TempDir(), "deployment_known_hosts")
+		if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+			t.Fatalf("failed to write %s: %v", path, err)
+		}
+		t.Setenv(remoteexec.KnownHostsEnv, path)
+		return
+	}
+
+	t.Setenv(remoteexec.KnownHostsEnv, "")
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("failed to create %s: %v", sshDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(line), 0o600); err != nil {
+		t.Fatalf("failed to write known_hosts: %v", err)
+	}
+}
+
+func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGateHarness {
 	t.Helper()
 	ctx := context.Background()
 
@@ -156,21 +227,11 @@ func newReleaseGateHarness(t *testing.T) *releaseGateHarness {
 	addr := net.JoinHostPort(sshHost, strconv.Itoa(sshPort))
 
 	// A real known_hosts file, populated with the container's own real
-	// captured key, exactly like a real operator's $HOME/.ssh/known_hosts
-	// would be after a first legitimate connection: net.ssh.ping's own
-	// hostKeyCallback (internal/catalog/net/ssh/ping.go) reads
-	// $HOME/.ssh/known_hosts and fails closed if it is missing.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	sshDir := filepath.Join(home, ".ssh")
-	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		t.Fatalf("failed to create %s: %v", sshDir, err)
-	}
-	realKey := captureRealHostKey(t, addr)
-	line := knownhosts.Line([]string{addr}, realKey)
-	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(line+"\n"), 0o600); err != nil {
-		t.Fatalf("failed to write known_hosts: %v", err)
-	}
+	// captured key, exactly like a real operator's would be after a first
+	// legitimate connection. Both Collection methods fail closed when it
+	// is missing, so where this lands decides whether the run can work at
+	// all.
+	writeKnownHostsFor(t, addr, source)
 
 	natsC, err := natscontainer.RunContainer(ctx,
 		testcontainers.WithImage(testsupport.NATSImage),
@@ -353,5 +414,86 @@ func TestSSHMeshReleaseGate_WrongSecretFails(t *testing.T) {
 
 	if final.Status != "failed" {
 		t.Fatalf("final status = %q, want %q: a wrong password must not authenticate", final.Status, "failed")
+	}
+}
+
+// pingPayload builds the dispatch both host key tests below publish. They
+// differ only in where the host key was put, so the payload must not be a
+// second variable between them.
+func pingPayload(h *releaseGateHarness) wire.DispatchPayload {
+	return wire.DispatchPayload{
+		JobID:        uuid.New().String(),
+		RunbookID:    "ping",
+		DeviceID:     "release-gate-device",
+		DeviceName:   "release-gate-device",
+		DeviceHost:   h.sshHost,
+		SSHPort:      h.sshPort,
+		Capabilities: []capability.Name{capability.NameSSHTransport},
+		Secrets:      credential.Flatten(credential.Credential{Username: releaseGateSSHUser, Password: releaseGateSSHPassword}),
+	}
+}
+
+// TestSSHMeshReleaseGate_HostKeyVerifiedFromTheEnvironment proves the
+// Crawl tier can verify a real host key against a real device without a
+// home directory to keep one in, which is what the published runner
+// container is missing and what FAILURE_PATTERNS.md #150 recorded.
+//
+// The claim is narrow and worth stating exactly, because it is the whole
+// reason this test is here rather than in pkg/remoteexec. The variable is
+// read by a Collection method running inside a per-task CHILD PROCESS
+// that native.Adapter spawns, several boundaries away from this test: a
+// real NATS dispatch, the real Agent, the real DAG executor, then a fork
+// and exec. A unit test on the resolution order proves none of that
+// reaches the place it has to reach. This does, against a real sshd whose
+// key was captured the way ssh-keyscan captures one, with the runbook
+// setting no insecure_skip_host_key_verify anywhere.
+//
+// Before this, that flag was the only thing that worked on this tier: the
+// off switch of a security control was the control's only functioning
+// setting.
+func TestSSHMeshReleaseGate_HostKeyVerifiedFromTheEnvironment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+	h := newReleaseGateHarnessWith(t, knownHostsInEnvironment)
+
+	final := h.dispatch(t, pingPayload(h))
+
+	if final.Status != "ok" {
+		t.Fatalf("final status = %q, want %q: host key verification should have succeeded against %s with no known_hosts under $HOME: message=%q",
+			final.Status, "ok", remoteexec.KnownHostsEnv, final.EventData.Message)
+	}
+}
+
+// TestSSHMeshReleaseGate_NoHostKeySourceFailsWithAnActionableError is the
+// negative control for the test above, and is also the reproduction of
+// the defect itself.
+//
+// Same dispatch, same real container, same real credential, with the host
+// key put nowhere the process will look. Two things must hold. The run
+// must fail, which proves the test above passed because the environment
+// variable was genuinely read rather than because verification had
+// quietly stopped happening. And the failure must name the variable that
+// fixes it, because the operator hitting this in a container cannot do
+// anything about its home directory, and an error that offers only
+// insecure_skip_host_key_verify is an error that teaches everyone to turn
+// verification off.
+func TestSSHMeshReleaseGate_NoHostKeySourceFailsWithAnActionableError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Release Gate container test in short mode")
+	}
+	h := newReleaseGateHarnessWith(t, knownHostsInEnvironment)
+	// Take the one source away, leaving $HOME pointing at the same
+	// known_hosts-free directory the harness already set up.
+	t.Setenv(remoteexec.KnownHostsEnv, "")
+
+	final := h.dispatch(t, pingPayload(h))
+
+	if final.Status != "failed" {
+		t.Fatalf("final status = %q, want %q: with no known_hosts anywhere, the connection must fail closed", final.Status, "failed")
+	}
+	if !strings.Contains(final.EventData.Message, remoteexec.KnownHostsEnv) {
+		t.Errorf("failure message = %q, want it to name %s, which is the fix an operator can actually apply",
+			final.EventData.Message, remoteexec.KnownHostsEnv)
 	}
 }

@@ -225,9 +225,49 @@ spec:
               mountPath: /app/runbooks
               readOnly: true
             {{- end }}
+            {{- if or .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName }}
+            {{- /* The host keys every SSH task verifies against. Mounted as a
+                 DIRECTORY over the empty /app/ssh the image ships, because a
+                 ConfigMap and a Secret both project directories; the file
+                 inside it is pinned to known_hosts by the items list on the
+                 volume below, which is what makes the path here and
+                 PLEIADES_KNOWN_HOSTS in the image agree.
+
+                 Not mounting this is a supported configuration, and it means
+                 every SSH task refuses. See values.yaml for why that refusal
+                 is the intended behavior rather than something to route
+                 around. */}}
+            - name: known-hosts
+              mountPath: /app/ssh
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if or .Values.runner.knownHosts.configMapName .Values.runner.knownHosts.secretName }}
+        - name: known-hosts
+          {{- /* An explicit items list rather than projecting every key. It
+               pins the filename to known_hosts whatever else the object
+               holds, and it makes a wrongly-keyed source fail loudly: the
+               kubelet cannot resolve the key, so the pod stays pending with
+               a message naming it. The alternative, projecting everything,
+               would mount a directory with no known_hosts in it and the
+               runner would report the file missing, which sends the reader
+               looking at the mount instead of at the key name. */}}
+          {{- if .Values.runner.knownHosts.configMapName }}
+          configMap:
+            name: {{ .Values.runner.knownHosts.configMapName | quote }}
+            items:
+              - key: known_hosts
+                path: known_hosts
+          {{- else }}
+          secret:
+            secretName: {{ .Values.runner.knownHosts.secretName | quote }}
+            items:
+              - key: known_hosts
+                path: known_hosts
+          {{- end }}
+        {{- end }}
         {{- if or .Values.runbooks.configMapName .Values.runbooks.existingClaim }}
         {{- /* The same source the controller mounts, at the same path. Both
              binaries resolve a dispatched runbook id independently, so two

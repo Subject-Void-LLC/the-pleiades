@@ -19,6 +19,7 @@
 package plugins
 
 import (
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml"
 )

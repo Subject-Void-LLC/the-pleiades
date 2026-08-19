@@ -27,62 +27,42 @@
 // not-yet-built distribution mechanism (Part X's OCI distribution work),
 // not this one.
 //
-// Like every generated Collection package it imports only pkg/ and
-// golang.org/x/crypto/ssh directly, never internal/transport/ssh: a
-// Collection method may depend only on pkg/, the same constraint a
-// third-party Collection will have to satisfy once Part X's OCI
-// distribution exists. This means it does not inherit
-// internal/transport/ssh's own circuit breaker or retry-with-backoff dial
-// phase (Phase W6); that tradeoff is acceptable for a lightweight,
-// read-only diagnostic method, and would need revisiting if this package
-// grew a second, write-capable method.
+// Like every Collection package it imports only pkg/. What that used to
+// cost is worth recording, because it is the reason pkg/remoteexec
+// exists. This method could not import internal/transport/ssh, so it
+// hand-rolled its own dial, its own authentication and its own
+// known_hosts check, and inherited none of that package's circuit
+// breaker or retry-with-backoff. This file's own doc comment said that
+// tradeoff was "acceptable for a lightweight, read-only diagnostic
+// method, and would need revisiting if this package grew a second,
+// write-capable method." Phase 38's first tier is roughly twenty
+// write-capable methods, so it was revisited: the mechanism moved to
+// pkg/remoteexec, which both a Collection and internal/transport/ssh can
+// reach, and this method now gets the breaker and the retry it never had
+// while carrying no copy of the security-critical parts.
 package ssh
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
-
-	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
-)
-
-// Secret keys this method reads from the RunbookContext. Credentials
-// arrive through InjectSecrets rather than through params, because
-// params come from the runbook file and a runbook file is committed to
-// version control (mirroring internal/catalog/net/catalyst/client.go's
-// own identical convention for the identical reason). A Collection
-// package cannot import internal/credential (pkg/-only), so these are
-// this package's own copy of the same key strings, not a shared constant.
-const (
-	secretUsername      = "username"
-	secretPassword      = "password"
-	secretPrivateKeyPEM = "private_key_pem"
-	secretPassphrase    = "passphrase"
 )
 
 // paramData is the optional string a runbook task can set to change what
 // this method echoes back, mirroring Ansible's own ping module ("data"
-// defaults to "pong"). paramInsecureSkipHostKeyVerify is the
-// escape hatch for a target with no known_hosts entry yet, off by
-// default: skipping host key verification is a real MITM exposure, so it
-// must be set explicitly and loudly by the runbook author, never assumed.
+// defaults to "pong"). paramInsecureSkipHostKeyVerify is the escape
+// hatch for a target with no known_hosts entry yet, off by default:
+// skipping host key verification is a real MITM exposure, so it must be
+// set explicitly and loudly by the runbook author, never assumed.
 const (
 	paramData                      = "data"
 	paramInsecureSkipHostKeyVerify = "insecure_skip_host_key_verify"
 	defaultPingData                = "pong"
-	dialTimeout                    = 10 * time.Second
 )
 
 func init() {
@@ -101,6 +81,12 @@ func init() {
 			PlatformTargets: nil,
 			EngineVersion:   ">=1.0.0",
 			Status:          collection.StatusImplemented,
+			// Nothing to undo, which is the same fact that makes this
+			// method report changed: false.
+			Reversibility: collection.Reversibility{
+				Reversible: false,
+				Notes:      "This method opens a connection and echoes a value back. It changes nothing on the device, so there is nothing to undo; that is the same fact that makes it report changed: false.",
+			},
 			Doc: collection.Doc{
 				Summary:     "Opens a real SSH connection to the target and echoes a value back, to prove reachability.",
 				Description: "Dials the device's SSHTransportCapable host and port, authenticates with the credential the Controller attached to this dispatch, and runs a trivial, read-only remote command that echoes params.data (default \"pong\") back. Never reports changed: a connectivity check does not alter device state.",
@@ -129,52 +115,40 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 		data = v
 	}
 
-	secrets := rc.InjectSecrets()
-	authMethod, err := buildAuthMethod(secrets)
+	// Credentials arrive through InjectSecrets rather than through
+	// params, because params come from the runbook file and a runbook
+	// file is committed to version control. AuthFromSecrets reads the
+	// same wire.Secret* keys the Controller flattened the credential into,
+	// so neither end of that map carries its own spelling of them.
+	auth, err := remoteexec.AuthFromSecrets(rc.InjectSecrets())
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}
-	hostKeyCB, err := hostKeyCallback(params)
+
+	// Shared rather than New: a Collection method is invoked once per task
+	// with nowhere to keep a Runner in between, so a fresh one every time
+	// would carry a circuit breaker that has never seen a failure and can
+	// therefore never open. See remoteexec.Shared for the honest limit on
+	// what that buys under the per-task subprocess boundary.
+	runner := remoteexec.Shared(remoteexec.Options{
+		InsecureSkipHostKeyVerify: boolParam(params, paramInsecureSkipHostKeyVerify),
+	})
+	target := remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}
+
+	// QuoteArg is what makes params.data safe to interpolate: an
+	// author-supplied value can contain any byte sequence, including shell
+	// metacharacters, and must come back as one argument rather than as a
+	// second command.
+	result, err := runner.Run(ctx, target, auth, "echo "+remoteexec.QuoteArg(data))
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}
-
-	config := &ssh.ClientConfig{
-		User:            secrets[secretUsername],
-		Auth:            []ssh.AuthMethod{authMethod},
-		HostKeyCallback: hostKeyCB,
-		Timeout:         dialTimeout,
+	if result.ExitCode != 0 {
+		return collection.Result{}, fmt.Errorf("net.ssh.ping: run command on %s exited %d: %s",
+			target.Addr(), result.ExitCode, result.Stderr)
 	}
 
-	addr := net.JoinHostPort(sshDev.SSHHost(), strconv.Itoa(sshDev.SSHPort()))
-
-	dialer := net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("net.ssh.ping: dial %s: %w", addr, err)
-	}
-
-	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
-	if err != nil {
-		_ = conn.Close()
-		return collection.Result{}, fmt.Errorf("net.ssh.ping: handshake with %s: %w", addr, err)
-	}
-	client := ssh.NewClient(sshConn, chans, reqs)
-	defer func() { _ = client.Close() }()
-
-	session, err := client.NewSession()
-	if err != nil {
-		return collection.Result{}, fmt.Errorf("net.ssh.ping: open session: %w", err)
-	}
-	defer func() { _ = session.Close() }()
-
-	var stdout strings.Builder
-	session.Stdout = &stdout
-	if err := session.Run("echo " + shellQuote(data)); err != nil {
-		return collection.Result{}, fmt.Errorf("net.ssh.ping: run command: %w", err)
-	}
-
-	reply := strings.TrimSpace(stdout.String())
+	reply := trimTrailingNewline(result.Stdout)
 	if err := rc.SetStat("reply", reply); err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}
@@ -182,71 +156,33 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	return collection.Result{Changed: false}, nil
 }
 
-// buildAuthMethod translates secrets into exactly one ssh.AuthMethod,
-// preferring password authentication, falling back to key authentication,
-// and returning an explicit error when neither secret is present. It
-// never returns a nil AuthMethod with a nil error: proceeding with no
-// usable authentication would let a device with no stored credential
-// silently attempt an unauthenticated connection.
-func buildAuthMethod(secrets map[string]string) (ssh.AuthMethod, error) {
-	switch {
-	case secrets[secretPassword] != "":
-		return ssh.Password(secrets[secretPassword]), nil
-
-	case secrets[secretPrivateKeyPEM] != "":
-		var signer ssh.Signer
-		var err error
-		if secrets[secretPassphrase] != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(secrets[secretPrivateKeyPEM]), []byte(secrets[secretPassphrase]))
-		} else {
-			signer, err = ssh.ParsePrivateKey([]byte(secrets[secretPrivateKeyPEM]))
-		}
-		if err != nil {
-			return nil, fmt.Errorf("parse private key: %w", err)
-		}
-		return ssh.PublicKeys(signer), nil
-
-	default:
-		return nil, errors.New("no usable authentication method: inject a username/password or username/private_key_pem secret for this device")
-	}
+// boolParam reads a boolean task parameter, treating a missing or
+// non-boolean value as false.
+//
+// It accepts a real bool only, not the string "true". YAML already
+// decodes an unquoted true into a bool, and accepting the string form
+// would mean silently honoring a quoted "false" as true-ish somewhere
+// down the line. That matters more than usual here: the one parameter
+// this reads turns off host key verification.
+func boolParam(params map[string]any, key string) bool {
+	v, ok := params[key].(bool)
+	return ok && v
 }
 
-// hostKeyCallback builds the ssh.HostKeyCallback Ping uses to verify the
-// target's host key, mirroring internal/transport/ssh's own identical
-// MITM-prevention requirement (that package cannot be imported here; see
-// this file's own doc comment): fail-closed by default, with an explicit,
-// loud opt-out via params.insecure_skip_host_key_verify. A missing
-// known_hosts file is never treated as "trust on first use".
-func hostKeyCallback(params map[string]any) (ssh.HostKeyCallback, error) {
-	if skip, ok := params[paramInsecureSkipHostKeyVerify].(bool); ok && skip {
-		return ssh.InsecureIgnoreHostKey(), nil // #nosec G106 -- explicit, loud opt-in only
+// trimTrailingNewline removes the single line terminator a remote echo
+// appends, and nothing else.
+//
+// It is deliberately not strings.TrimSpace. The value being echoed is
+// whatever the runbook author put in params.data, and trimming every
+// leading and trailing space would quietly return something other than
+// what they asked to be echoed back, which for a method whose entire
+// output is "did this value survive the round trip" is the wrong answer.
+func trimTrailingNewline(s string) string {
+	if len(s) > 0 && s[len(s)-1] == '\n' {
+		s = s[:len(s)-1]
 	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("cannot determine home directory for known_hosts: %w", err)
+	if len(s) > 0 && s[len(s)-1] == '\r' {
+		s = s[:len(s)-1]
 	}
-	path := filepath.Join(home, ".ssh", "known_hosts")
-
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("known_hosts file %q not found, host key verification cannot proceed (set params.insecure_skip_host_key_verify to explicitly bypass this)", path)
-		}
-		return nil, fmt.Errorf("stat known_hosts file %q: %w", path, err)
-	}
-
-	cb, err := knownhosts.New(path)
-	if err != nil {
-		return nil, fmt.Errorf("parse known_hosts file %q: %w", path, err)
-	}
-	return cb, nil
-}
-
-// shellQuote single-quotes s for safe inclusion in a POSIX remote shell
-// command line, escaping any embedded single quote as '\”. This is what
-// makes params.data safe to interpolate into the remote echo command: an
-// author-supplied value can contain any byte sequence, including shell
-// metacharacters, without it being interpreted as a second command.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return s
 }

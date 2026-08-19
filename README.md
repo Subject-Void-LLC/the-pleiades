@@ -24,12 +24,16 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 76 declared methods; 5 are implemented.** Every
+- **The module catalog has 77 declared methods; 34 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
   an explicit "not implemented" error rather than pretending to succeed. The four
-  `net.catalyst.*` methods (against Cisco Catalyst Center) and `net.ssh.ping` are real
-  today.
+  `net.catalyst.*` methods (against Cisco Catalyst Center), `net.ssh.ping`, and
+  `exec.command` and `exec.shell` (which run a command on any SSH-reachable device,
+  without and with a shell interpreting it), most of the `file.*` namespace, and the
+  read-only `wait.*`, `facts.gather` and `http.request` methods are real today. Every
+  implemented method also answers whether it can be undone, and a run that changes
+  something records the instruction that would reverse it.
 
 ## What makes this different
 
@@ -77,7 +81,9 @@ mkdir my-project && cd my-project
 - [`docs/10-running-in-production.md`](docs/10-running-in-production.md): failure
   semantics, safety, security, credentials, and what data is and is not encrypted.
 - [`docs/11-extending-pleiades.md`](docs/11-extending-pleiades.md): the Forge commands,
-  the Collection method and sync plugin contracts, and their conformance suite.
+  the Collection method and sync plugin contracts, their conformance suite, and a
+  step-by-step worked example that takes one real module from naming it to running
+  it against a real device.
 - [`docs/12-web-ui.md`](docs/12-web-ui.md): the web UI the controller serves itself —
   signing in, what each view does and does not do, the environment banner, mobile,
   accessibility (including the manual verification script), and adding a view.

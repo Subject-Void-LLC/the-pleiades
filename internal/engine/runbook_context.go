@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
@@ -91,9 +94,60 @@ func (c *runbookContext) Facts() map[string]interface{} {
 	return snapshot
 }
 
-// NewDeviceRunbookContext is the constructor the composition root passes to
-// NewCollectionActionExecutor. It exists so the common case (no secrets
-// resolved yet) needs no closure at the call site.
-func NewDeviceRunbookContext(_ inventory.InventoryItem) sdk.RunbookContext {
-	return NewRunbookContext(nil)
+// RunbookContextFunc builds the sdk.RunbookContext one Collection method
+// invocation is handed, for the one device it is acting on.
+//
+// It takes a context and returns an error because resolving a device's
+// secrets is real work that can fail: the Walk tier reads and decrypts a
+// credential file here. Before this signature existed the composition
+// root had nowhere to report that, so it passed every method an empty
+// secret set and no method needing a credential could run through the
+// CLI at all.
+type RunbookContextFunc func(ctx context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error)
+
+// NewDeviceRunbookContext is the RunbookContextFunc for a caller that
+// resolves no secrets at all: every method it builds a context for sees
+// an empty InjectSecrets.
+//
+// It is correct for a composition root with no credential store, and for
+// tests. A real Walk-tier run wants NewCredentialRunbookContext instead;
+// this one is not the sensible default it was once used as.
+func NewDeviceRunbookContext(_ context.Context, _ inventory.InventoryItem) (sdk.RunbookContext, error) {
+	return NewRunbookContext(nil), nil
+}
+
+// NewCredentialRunbookContext returns a RunbookContextFunc that resolves
+// each device's stored credential and hands it to the Collection method
+// as flattened secrets.
+//
+// This is what makes a credential-needing Collection method work at the
+// Walk tier. The Crawl tier does the same thing by a different route:
+// the Controller resolves the credential at dispatch time and attaches
+// it to the payload, and the per-task subprocess builds its context from
+// that. Both ends read the map by the same wire.Secret* keys.
+//
+// A device with no stored credential is NOT an error. It produces an
+// empty secret set, exactly as an empty payload does on the other tier,
+// and only a method that actually needs a secret fails, at the point it
+// needs one, with a message about authentication rather than about a
+// file. Any other lookup failure (an unreadable store, a wrong master
+// key, a corrupt entry) is reported, because that is a broken
+// installation rather than an absent credential and the two must not
+// look alike.
+func NewCredentialRunbookContext(store credential.Store) RunbookContextFunc {
+	return func(ctx context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
+		if store == nil || device == nil {
+			return NewRunbookContext(nil), nil
+		}
+
+		cred, err := store.Lookup(ctx, device.Name())
+		switch {
+		case errors.Is(err, credential.ErrNotFound):
+			return NewRunbookContext(nil), nil
+		case err != nil:
+			return nil, fmt.Errorf("resolve credential for device %q: %w", device.Name(), err)
+		}
+
+		return NewRunbookContext(credential.Flatten(cred)), nil
+	}
 }

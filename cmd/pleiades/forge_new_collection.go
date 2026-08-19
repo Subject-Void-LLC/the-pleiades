@@ -20,9 +20,9 @@ import (
 // runbook task calling the new FQCN reaches the real dispatcher and is
 // refused there, by design, until the method is really implemented.
 func runForgeNewCollection(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"requires-elevation": true})
+	name, rest, err := splitPositional(args, map[string]bool{"requires-elevation": true, "skip-existing": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--engine-version x.y.z] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades forge new-collection <namespace.method> [--capabilities Name1,Name2] [--transports ssh] [--requires-elevation] [--engine-version x.y.z] [--doc-json '{...}'|@file.json] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("forge new-collection", flag.ContinueOnError)
@@ -31,6 +31,8 @@ func runForgeNewCollection(args []string) error {
 	transportsFlag := fs.String("transports", "", "comma-separated supported transport names (e.g. ssh)")
 	requiresElevation := fs.Bool("requires-elevation", false, "whether this method needs elevated privileges on the target device")
 	engineVersion := fs.String("engine-version", "", "minimum core engine version constraint (unparsed, e.g. >=1.0.0)")
+	docJSON := fs.String("doc-json", "", "reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file")
+	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -41,17 +43,38 @@ func runForgeNewCollection(args []string) error {
 		transports = strings.Split(*transportsFlag, ",")
 	}
 
+	doc, err := parseDocJSONFlag(*docJSON)
+	if err != nil {
+		return err
+	}
+
 	cfg := collectionscaffold.Config{
 		Name:              name,
 		Capabilities:      parseCapabilitiesFlag(*capabilitiesFlag),
 		Transports:        transports,
 		RequiresElevation: *requiresElevation,
 		EngineVersion:     *engineVersion,
+		Doc:               doc,
 	}
 
 	files, err := collectionscaffold.Generate(cfg)
 	if err != nil {
 		return err
+	}
+
+	if *skipExisting {
+		relPaths := make([]string, len(files))
+		for i, f := range files {
+			relPaths[i] = f.Path
+		}
+		existing, err := firstExistingFile(*dir, relPaths)
+		if err != nil {
+			return err
+		}
+		if existing != "" {
+			fmt.Printf("skipped %s (%s already exists)\n", cfg.Name, existing)
+			return nil
+		}
 	}
 
 	for _, f := range files {

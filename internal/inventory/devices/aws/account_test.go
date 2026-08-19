@@ -6,6 +6,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestNewAccount_ConstructsFromRecord is a starter test,
@@ -27,11 +28,7 @@ func TestNewAccount_ConstructsFromRecord(t *testing.T) {
 
 // TestNewAccount_BaselineCapabilities is a starter, table-driven
 // regression proof: the vendor baseline given at generation time is
-// unioned into the declared capability set. It deliberately checks
-// Capabilities(), not HasCapability(): this generated type has no
-// capability-specific accessor methods yet (see the TODO in
-// aws.go), so HasCapability correctly stays false until a human
-// adds them.
+// unioned into the declared capability set.
 func TestNewAccount_BaselineCapabilities(t *testing.T) {
 	item, err := aws.NewAccount(record.Record{ID: "t1", Name: "t1", Type: "aws_account"})
 	if err != nil {
@@ -43,7 +40,7 @@ func TestNewAccount_BaselineCapabilities(t *testing.T) {
 		name       string
 		capability capability.Name
 	}{
-		{name: "AWSAPICapable", capability: capability.Name("AWSAPICapable")},
+		{name: "AWSAPICapable", capability: capability.NameAWSAPI},
 	}
 
 	for _, tt := range tests {
@@ -57,6 +54,96 @@ func TestNewAccount_BaselineCapabilities(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("expected the vendor baseline to include declared capability %s", tt.name)
+			}
+		})
+	}
+}
+
+// TestAccount_HasCapability_AWSAPI proves the structural gap the old
+// scaffold's TODO named is closed: AWSRegion makes Account satisfy
+// capability.AWSAPICapable, so HasCapability now returns true for the
+// declared capability rather than the scaffold's permanent false.
+func TestAccount_HasCapability_AWSAPI(t *testing.T) {
+	item, err := aws.NewAccount(record.Record{ID: "t1", Name: "t1", Type: "aws_account"})
+	if err != nil {
+		t.Fatalf("NewAccount: %v", err)
+	}
+	if !item.HasCapability(capability.NameAWSAPI) {
+		t.Error("HasCapability(NameAWSAPI) = false, want true now that AWSRegion is implemented")
+	}
+}
+
+func TestAccount_AWSRegion(t *testing.T) {
+	tests := []struct {
+		name string
+		rec  record.Record
+		want string
+	}{
+		{
+			name: "region set",
+			rec: record.Record{
+				ID: "t1", Name: "t1", Type: "aws_account",
+				Properties: map[string]inventory.PropertyValue{"region": "us-east-1"},
+			},
+			want: "us-east-1",
+		},
+		{
+			name: "no region property",
+			rec:  record.Record{ID: "t1", Name: "t1", Type: "aws_account"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := aws.NewAccount(tt.rec)
+			if err != nil {
+				t.Fatalf("NewAccount: %v", err)
+			}
+			account, ok := item.(*aws.Account)
+			if !ok {
+				t.Fatalf("NewAccount returned %T, want *aws.Account", item)
+			}
+			if got := account.AWSRegion(); got != tt.want {
+				t.Errorf("AWSRegion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAccount_AWSEndpointOverride(t *testing.T) {
+	tests := []struct {
+		name string
+		rec  record.Record
+		want string
+	}{
+		{
+			name: "endpoint override set, e.g. LocalStack",
+			rec: record.Record{
+				ID: "t1", Name: "t1", Type: "aws_account",
+				Properties: map[string]inventory.PropertyValue{"endpoint_override": "http://localhost:4566"},
+			},
+			want: "http://localhost:4566",
+		},
+		{
+			name: "no override, real AWS",
+			rec:  record.Record{ID: "t1", Name: "t1", Type: "aws_account"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := aws.NewAccount(tt.rec)
+			if err != nil {
+				t.Fatalf("NewAccount: %v", err)
+			}
+			account, ok := item.(*aws.Account)
+			if !ok {
+				t.Fatalf("NewAccount returned %T, want *aws.Account", item)
+			}
+			if got := account.AWSEndpointOverride(); got != tt.want {
+				t.Errorf("AWSEndpointOverride() = %q, want %q", got, tt.want)
 			}
 		})
 	}

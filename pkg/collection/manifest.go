@@ -55,6 +55,53 @@ type ExecutionContext struct {
 	RequiresElevation bool `json:"requiresElevation,omitempty"`
 }
 
+// Reversibility is a method's static answer to one question: can this
+// method ever produce an instruction that undoes what it did?
+//
+// IT IS DELIBERATELY NOT A DESCRIPTION OF THE INVERSE, and an earlier
+// version of this type was, which is the mistake worth recording. That
+// version named an inverse FQCN and the prior-state keys a rollback would
+// have to feed it. It could not work, because the true inverse is almost
+// never a property of the METHOD. It is a property of the RUN.
+//
+// Three examples, each breaking it a different way. Starting a service
+// that was already running must undo to nothing at all, not to a stop,
+// and a static declaration naming "stop" would tell a rollback to break
+// something the run never touched. Removing a file is reversible only if
+// the content happened to be captured, which the method knows and the
+// manifest cannot. And an HTTP request is read-only or destructive
+// depending on a parameter, so one declaration covering every invocation
+// has to describe the worst case and is useless for the common one.
+//
+// So the split is: this type says WHETHER, once, at registration. The run
+// says WHAT, every time, by emitting a concrete already-parameterized
+// instruction through sdk.RecordInverse. A rollback engine then reads
+// something it can execute rather than a template it has to reconstruct.
+//
+// NOTHING PERFORMS A ROLLBACK YET. There is no journal and no rollback
+// engine. What this buys today is that the values an undo needs are
+// captured by the forward run, which is the only thing in a position to
+// capture them, and that is why it is worth declaring before the engine
+// exists rather than after.
+type Reversibility struct {
+	// Reversible reports whether this method can ever emit an inverse.
+	//
+	// False is a real and common answer: a method whose effect this
+	// platform cannot observe or reconstruct should say so plainly rather
+	// than declare an inverse that would do something merely similar.
+	// True does not promise that every invocation emits one; a run that
+	// changed nothing correctly emits nothing to undo.
+	Reversible bool `json:"reversible"`
+
+	// Notes explains the limits in plain words. Required when Reversible
+	// is false, because "this cannot be undone" is the answer an operator
+	// most needs a reason for, and it is the easiest answer to reach for
+	// when the real one is "I did not want to work out the captures."
+	// Worth writing when Reversible is true as well, to say what the
+	// inverse does NOT restore.
+	Notes string `json:"notes,omitempty"`
+}
+
 // Manifest is the full declared contract for one namespaced Collection
 // method. Its JSON tags are the stable serialized form: Part X's Phase 42
 // later embeds this exact document as an OCI artifact's config layer, so
@@ -95,6 +142,14 @@ type Manifest struct {
 	EngineVersion string `json:"engineVersion,omitempty"`
 
 	Status Status `json:"status"`
+
+	// Reversibility says whether this method can ever produce an
+	// instruction that undoes it. Every implemented method answers,
+	// including the read-only ones, which answer false because they
+	// changed nothing there is anything to undo. The instruction itself is
+	// emitted at run time; see the Reversibility type for why it cannot
+	// live here.
+	Reversibility Reversibility `json:"reversibility"`
 
 	// Doc is this method's human-facing reference documentation. See
 	// the Doc type's own comment for what a declared method carries

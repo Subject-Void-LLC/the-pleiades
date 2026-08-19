@@ -22,6 +22,9 @@ func TestNewDefaultTransportBindings_RegistersSSHExec(t *testing.T) {
 		},
 	}
 
+	// nil for WinRM: a composition root with no reason to reach Windows
+	// registers no winrm_exec binding, which is what keeps this a
+	// one-entry table.
 	bindings := engine.NewDefaultTransportBindings(sshTransport)
 	all := bindings.All()
 
@@ -51,6 +54,8 @@ func TestNewDefaultTransportBindings_RegistersSSHExec(t *testing.T) {
 // class of bug CheckActionCapabilityBindings exists to catch: this test
 // runs that same check directly against the Registry's own All() output.
 func TestNewDefaultTransportBindings_AgreesWithActionCapability(t *testing.T) {
+	// Both transports supplied, so the check covers every binding this
+	// constructor can produce rather than only the SSH one.
 	bindings := engine.NewDefaultTransportBindings(&fakeTransport{})
 	if err := engine.CheckActionCapabilityBindings(bindings.All()); err != nil {
 		t.Errorf("CheckActionCapabilityBindings: %v", err)

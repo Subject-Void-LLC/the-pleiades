@@ -20,15 +20,18 @@ import (
 // that makes PLAN.md Section 17's Just-in-Time delivery real on the
 // in-process path: the secrets the Controller attached to the wire payload
 // are what a Collection method's InjectSecrets actually returns, rather
-// than the empty set internal/engine.NewDeviceRunbookContext returns at
-// Walk tier (which ignores its device argument entirely).
+// than the empty set internal/engine.NewDeviceRunbookContext returns
+// (which ignores its device argument entirely).
 func TestNewDeviceRunbookContext_CarriesPayloadSecrets(t *testing.T) {
 	device := newWireDevice(wire.DispatchPayload{
 		DeviceName: "core-1",
 		Secrets:    map[string]string{"username": "admin", "password": "hunter2"},
 	})
 
-	rc := newDeviceRunbookContext(device)
+	rc, err := newDeviceRunbookContext(context.Background(), device)
+	if err != nil {
+		t.Fatalf("newDeviceRunbookContext: %v", err)
+	}
 	secrets := rc.InjectSecrets()
 
 	if got := secrets["username"]; got != "admin" {
@@ -46,7 +49,10 @@ func TestNewDeviceRunbookContext_CarriesPayloadSecrets(t *testing.T) {
 // one: an unexpected device type must yield NO secrets rather than
 // silently carrying another device's.
 func TestNewDeviceRunbookContext_NonWireDeviceGetsNoSecrets(t *testing.T) {
-	rc := newDeviceRunbookContext(nil)
+	rc, err := newDeviceRunbookContext(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("newDeviceRunbookContext: %v", err)
+	}
 	if got := rc.InjectSecrets(); len(got) != 0 {
 		t.Errorf("InjectSecrets() = %v, want empty for a non-wireDevice", got)
 	}

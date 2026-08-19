@@ -34,17 +34,28 @@ func (s *Stub) Properties() inventory.Properties { return inventory.NewPropertie
 // Tags returns the stub's configured tags.
 func (s *Stub) Tags() []inventory.Tag { return s.StubTags }
 
-// HasCapability reports whether name is present in Caps. Unlike the real
-// concrete types, this does not also check a structural assertion: a test
-// declaring a capability on the stub is asserting the behavior it wants,
-// not classifying a real device.
+// HasCapability reports whether Caps resolves name, walking the
+// capability hierarchy exactly as a real device type does.
+//
+// Unlike the real concrete types, this does not also check a structural
+// assertion: a test declaring a capability on the stub is asserting the
+// behavior it wants, not classifying a real device.
+//
+// It does resolve the hierarchy, though, and that half is not optional.
+// record.Base.Declares runs capability.Resolves, so a real device
+// declaring SystemdCapable satisfies a method requiring the broad
+// ServiceManagerCapable. A stub answering by exact match would say no to
+// that same pair, which makes a test either pass for a reason production
+// does not share or fail for a reason production does not have. A test
+// double is only worth having when it is wrong in no way that matters,
+// and disagreeing with the real type about the central question this
+// method exists to answer matters.
 func (s *Stub) HasCapability(name capability.Name) bool {
+	declared := make(map[capability.Name]struct{}, len(s.Caps))
 	for _, c := range s.Caps {
-		if c == name {
-			return true
-		}
+		declared[c] = struct{}{}
 	}
-	return false
+	return capability.Resolves(declared, name)
 }
 
 // Capabilities returns the stub's configured capability set.

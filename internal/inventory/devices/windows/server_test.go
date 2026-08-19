@@ -6,6 +6,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
 // TestNewServer_ConstructsFromRecord is a starter test,
@@ -27,11 +28,10 @@ func TestNewServer_ConstructsFromRecord(t *testing.T) {
 
 // TestNewServer_BaselineCapabilities is a starter, table-driven
 // regression proof: the vendor baseline given at generation time is
-// unioned into the declared capability set. It deliberately checks
-// Capabilities(), not HasCapability(): this generated type has no
-// capability-specific accessor methods yet (see the TODO in
-// windows.go), so HasCapability correctly stays false until a human
-// adds them.
+// unioned into the declared capability set. It checks Capabilities()
+// only; TestServer_HasCapability below is what proves each one also
+// structurally holds (Declares AND Implements), which is the half that
+// actually gates dispatch.
 func TestNewServer_BaselineCapabilities(t *testing.T) {
 	item, err := windows.NewServer(record.Record{ID: "t1", Name: "t1", Type: "windows_server"})
 	if err != nil {
@@ -60,6 +60,215 @@ func TestNewServer_BaselineCapabilities(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("expected the vendor baseline to include declared capability %s", tt.name)
+			}
+		})
+	}
+}
+
+// TestServer_HasCapability proves the claim that actually decides
+// whether a Windows device can be reached or acted on: HasCapability is
+// Declares(name) AND capability.Implements(w, name), so declaring a
+// capability without implementing its accessors makes the executor
+// refuse the dispatch before any dial. That was this type's state for
+// all four of these until each accessor was wired -- WinRMCapable when
+// the WinRM transport arrived, the other three once svc.windows.*/
+// win.feature.* existed to need them -- and this is the exact failure
+// each case asserts against.
+//
+// It checks HasCapability rather than calling each accessor directly,
+// because a test calling them directly would pass even if the structural
+// assertion still failed, which is the part that gates dispatch.
+func TestServer_HasCapability(t *testing.T) {
+	item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server"})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		capability capability.Name
+	}{
+		{name: "WinRMCapable", capability: capability.NameWinRM},
+		{name: "WindowsCapable", capability: capability.NameWindows},
+		{name: "WindowsServiceCapable", capability: capability.NameWindowsService},
+		{name: "WindowsFeatureCapable", capability: capability.NameWindowsFeature},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !item.HasCapability(tt.capability) {
+				t.Errorf("HasCapability(%s) = false, want true: the type declares it, so it must also implement its accessors", tt.name)
+			}
+		})
+	}
+}
+
+// TestServer_WinRMHostAndPort covers the accessors' own contract,
+// including the default that exists because a stock Enable-PSRemoting
+// host listens on 5985 and an inventory entry should not have to repeat
+// it.
+func TestServer_WinRMHostAndPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		props    map[string]inventory.PropertyValue
+		wantHost string
+		wantPort int
+	}{
+		{
+			name:     "no properties at all",
+			props:    nil,
+			wantHost: "",
+			wantPort: 5985,
+		},
+		{
+			name:     "host set, port defaulted",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246"},
+			wantHost: "10.0.0.246",
+			wantPort: 5985,
+		},
+		{
+			name:     "both set",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246", "port": 5986},
+			wantHost: "10.0.0.246",
+			wantPort: 5986,
+		},
+		{
+			// An explicit zero is indistinguishable from an absent value
+			// for this purpose, and defaulting is the safer reading: a
+			// dial to port 0 cannot succeed.
+			name:     "explicit zero port falls back to the default",
+			props:    map[string]inventory.PropertyValue{"host": "10.0.0.246", "port": 0},
+			wantHost: "10.0.0.246",
+			wantPort: 5985,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{
+				ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props,
+			})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.WinRMCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.WinRMCapable")
+			}
+			if got := dev.WinRMHost(); got != tt.wantHost {
+				t.Errorf("WinRMHost() = %q, want %q", got, tt.wantHost)
+			}
+			if got := dev.WinRMPort(); got != tt.wantPort {
+				t.Errorf("WinRMPort() = %d, want %d", got, tt.wantPort)
+			}
+		})
+	}
+}
+
+// TestServer_WindowsEdition covers the one accessor with no default: an
+// unset edition is reported as empty, honestly, rather than guessed at.
+func TestServer_WindowsEdition(t *testing.T) {
+	tests := []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		want  string
+	}{
+		{name: "unset", props: nil, want: ""},
+		{name: "set", props: map[string]inventory.PropertyValue{"windows_edition": "Server 2022 Datacenter"}, want: "Server 2022 Datacenter"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.WindowsCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.WindowsCapable")
+			}
+			if got := dev.WindowsEdition(); got != tt.want {
+				t.Errorf("WindowsEdition() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestServer_ServiceManagerName mirrors linux.Server's own test shape for
+// the identical property-with-fallback pattern: the default is the claim
+// about the mainstream case, and the property is the escape hatch.
+func TestServer_ServiceManagerName(t *testing.T) {
+	tests := []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		want  string
+	}{
+		{name: "unset defaults to windows_scm", props: nil, want: "windows_scm"},
+		{name: "explicit override", props: map[string]inventory.PropertyValue{"service_manager": "custom_scm"}, want: "custom_scm"},
+		{name: "explicit empty string falls back to the default", props: map[string]inventory.PropertyValue{"service_manager": ""}, want: "windows_scm"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.ServiceManagerCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.ServiceManagerCapable")
+			}
+			if got := dev.ServiceManagerName(); got != tt.want {
+				t.Errorf("ServiceManagerName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServer_WindowsServiceStartMode(t *testing.T) {
+	tests := []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		want  string
+	}{
+		{name: "unset defaults to Automatic", props: nil, want: "Automatic"},
+		{name: "explicit override", props: map[string]inventory.PropertyValue{"windows_service_start_mode": "Manual"}, want: "Manual"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.WindowsServiceCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.WindowsServiceCapable")
+			}
+			if got := dev.WindowsServiceStartMode(); got != tt.want {
+				t.Errorf("WindowsServiceStartMode() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServer_DISMLogPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		props map[string]inventory.PropertyValue
+		want  string
+	}{
+		{name: "unset defaults to the real Windows default", props: nil, want: `C:\Windows\Logs\DISM\dism.log`},
+		{name: "explicit override", props: map[string]inventory.PropertyValue{"dism_log_path": `D:\Logs\dism.log`}, want: `D:\Logs\dism.log`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, err := windows.NewServer(record.Record{ID: "w1", Name: "w1", Type: "windows_server", Properties: tt.props})
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			dev, ok := item.(capability.WindowsFeatureCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.WindowsFeatureCapable")
+			}
+			if got := dev.DISMLogPath(); got != tt.want {
+				t.Errorf("DISMLogPath() = %q, want %q", got, tt.want)
 			}
 		})
 	}

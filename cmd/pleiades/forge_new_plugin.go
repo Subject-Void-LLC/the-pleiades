@@ -17,9 +17,9 @@ import (
 // generated package's own doc comment for what a human fills in and in what
 // order.
 func runForgeNewPlugin(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"read-only": true})
+	name, rest, err := splitPositional(args, map[string]bool{"read-only": true, "skip-existing": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("forge new-plugin", flag.ContinueOnError)
@@ -27,6 +27,7 @@ func runForgeNewPlugin(args []string) error {
 	description := fs.String("description", "", "one-line help text describing the upstream system this plugin reads")
 	endpoint := fs.String("endpoint", "", "default upstream base URL (e.g. https://sandboxdnac.cisco.com)")
 	readOnly := fs.Bool("read-only", false, "declare the upstream authoritative and never written back")
+	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -42,6 +43,21 @@ func runForgeNewPlugin(args []string) error {
 	files, err := pluginscaffold.Generate(cfg)
 	if err != nil {
 		return err
+	}
+
+	if *skipExisting {
+		relPaths := make([]string, len(files))
+		for i, f := range files {
+			relPaths[i] = f.Path
+		}
+		existing, err := firstExistingFile(*dir, relPaths)
+		if err != nil {
+			return err
+		}
+		if existing != "" {
+			fmt.Printf("skipped %q (%s already exists)\n", cfg.Name, existing)
+			return nil
+		}
 	}
 
 	for _, f := range files {

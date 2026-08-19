@@ -424,6 +424,39 @@ runner:
   # disappears.
   extraEnv: []
 
+  knownHosts:
+    # -- The SSH host keys of the devices this fleet manages, mounted
+    # read-only at /app/ssh in every runner. Set one of these or neither.
+    #
+    # WHAT BREAKS WITHOUT IT. Every SSH task verifies the device's host key
+    # against this file and fails closed when it is not there, so with
+    # neither key set, a runbook that touches a device over SSH refuses with
+    # a message naming PLEIADES_KNOWN_HOSTS. That is the intended behavior
+    # and not a bug to work around: the only other way to make such a task
+    # run is insecure_skip_host_key_verify on the task itself, which turns
+    # off the protection this file provides.
+    #
+    # Only the runners need this. The controller never opens an SSH
+    # connection, which is why this lives under runner and runbooks does
+    # not.
+    #
+    # THE KEY MUST BE NAMED known_hosts. The mount pins that name, so a
+    # ConfigMap keyed anything else leaves the pod stuck rather than
+    # silently running without host key verification. Build one from the
+    # file you already have:
+    #
+    #   ssh-keyscan -H device-a.example.com device-b.example.com > known_hosts
+    #   kubectl create configmap pleiades-known-hosts --from-file=known_hosts
+    #
+    # A ConfigMap is the right shape here and a Secret is accepted only for
+    # operators whose policy says all mounted files are Secrets. A
+    # known_hosts file holds PUBLIC keys; there is nothing in it to keep
+    # secret, and treating it as a secret mostly makes it harder to review.
+    configMapName: ""
+    # -- A Secret holding the same thing under the same key, for a cluster
+    # whose policy requires it. Set this or configMapName, never both.
+    secretName: ""
+
 runbooks:
   # -- Where both the controller and every runner read runbooks from, mounted
   # read-only at /app/runbooks in both.

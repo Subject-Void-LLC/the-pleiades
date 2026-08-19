@@ -90,3 +90,37 @@ func TestWireDevice_VersionAndHistoryAreEmpty(t *testing.T) {
 		t.Errorf("Tags() = %v, want empty", d.Tags())
 	}
 }
+
+// TestWireDevice_HasCapability_ResolvesHierarchy pins the property that
+// makes the Crawl tier agree with the Walk tier.
+//
+// A real device type answers HasCapability through record.Base.Declares,
+// which runs capability.Resolves, so a device declaring the concrete
+// SystemdCapable satisfies a method requiring the broad
+// ServiceManagerCapable. This adapter answered by exact set membership
+// until engine.checkMethodCapabilities started enforcing manifests, at
+// which point that difference stopped being academic: the same runbook,
+// the same method and the same device succeeded through the CLI and were
+// refused through the runner. A capability check that depends on which
+// binary is running is worse than either answer on its own.
+func TestWireDevice_HasCapability_ResolvesHierarchy(t *testing.T) {
+	d := newWireDevice(wire.DispatchPayload{
+		Capabilities: []capability.Name{capability.NameSystemd},
+	})
+
+	if !d.HasCapability(capability.NameSystemd) {
+		t.Error("HasCapability(SystemdCapable) = false for a device that declares it")
+	}
+	if !d.HasCapability(capability.NameServiceManager) {
+		t.Error("HasCapability(ServiceManagerCapable) = false: declaring the child must satisfy the parent")
+	}
+	// Resolution walks upward only. A sibling under the same parent, and
+	// a child of the declared capability, are both still refusals: a
+	// systemd host is not a Windows one, and it has not claimed firewalld.
+	if d.HasCapability(capability.NameWindowsService) {
+		t.Error("HasCapability(WindowsServiceCapable) = true for a systemd device")
+	}
+	if d.HasCapability(capability.NameFirewalld) {
+		t.Error("HasCapability(FirewalldCapable) = true: resolution must not walk downward into a narrower claim")
+	}
+}

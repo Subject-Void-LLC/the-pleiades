@@ -1,17 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 func TestNewCollectionArgs(t *testing.T) {
@@ -23,7 +27,7 @@ func TestNewCollectionArgs(t *testing.T) {
 		{
 			name: "bare minimum",
 			cfg:  collectionscaffold.Config{Name: "http.request"},
-			want: []string{"forge", "new-collection", "http.request"},
+			want: []string{"forge", "new-collection", "http.request", "--skip-existing"},
 		},
 		{
 			name: "every flag set",
@@ -33,6 +37,7 @@ func TestNewCollectionArgs(t *testing.T) {
 				Transports:        []string{"ssh"},
 				RequiresElevation: true,
 				EngineVersion:     ">=1.0.0",
+				Doc:               collection.Doc{Summary: "Installs a package via APT."},
 			},
 			want: []string{
 				"forge", "new-collection", "pkg.apt.install",
@@ -40,6 +45,8 @@ func TestNewCollectionArgs(t *testing.T) {
 				"--transports", "ssh",
 				"--requires-elevation",
 				"--engine-version", ">=1.0.0",
+				"--doc-json", `{"summary":"Installs a package via APT."}`,
+				"--skip-existing",
 			},
 		},
 		{
@@ -53,18 +60,98 @@ func TestNewCollectionArgs(t *testing.T) {
 				"forge", "new-collection", "net.cli.command",
 				"--capabilities", "NetworkCLICapable,LinuxCapable",
 				"--transports", "ssh,telnet",
+				"--skip-existing",
 			},
+		},
+		{
+			// An entry that documents nothing must not grow an empty
+			// --doc-json: the flag's absence is what tells the CLI to
+			// leave Doc out of the generated manifest entirely.
+			name: "empty Doc emits no --doc-json",
+			cfg:  collectionscaffold.Config{Name: "fs.mount", Doc: collection.Doc{}},
+			want: []string{"forge", "new-collection", "fs.mount", "--skip-existing"},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := newCollectionArgs(tc.cfg)
+			got, err := newCollectionArgs(tc.cfg)
+			if err != nil {
+				t.Fatalf("newCollectionArgs(%+v) returned %v", tc.cfg, err)
+			}
 			if !equalArgs(got, tc.want) {
 				t.Errorf("newCollectionArgs(%+v) = %v, want %v", tc.cfg, got, tc.want)
 			}
 		})
 	}
+}
+
+// TestCollectionDocSurvivesTheCommandLine proves every real catalogdata
+// Doc reaches the generated manifest unchanged after the trip through
+// --doc-json.
+//
+// That trip is JSON in one process and back out in another, and JSON is
+// not a faithful encoding of a Go struct: a field the encoder skips, a
+// tag that does not match the one the decoder expects, a rune that
+// survives marshalling but not the shell, and the generated
+// documentation is quietly wrong in a way internal/archtest reports as
+// a mismatch a long way from the cause. This asserts the property
+// directly, over the actual catalog rather than a fixture, because the
+// content that breaks an encoding is real prose: the quotation marks,
+// embedded newlines and YAML bodies these Docs already contain.
+func TestCollectionDocSurvivesTheCommandLine(t *testing.T) {
+	if len(catalogdata.Collections) == 0 {
+		t.Fatal("catalogdata registered no collections, so this test proved nothing")
+	}
+
+	var documented int
+	for _, cfg := range catalogdata.Collections {
+		args, err := newCollectionArgs(cfg)
+		if err != nil {
+			t.Fatalf("%s: newCollectionArgs: %v", cfg.Name, err)
+		}
+
+		encoded, found := flagValue(args, "--doc-json")
+		if !found {
+			// Every field of Doc is omitempty, so no flag means the
+			// entry genuinely documents nothing. Prove that rather
+			// than assuming it: a bug that dropped the flag would
+			// otherwise read as an undocumented entry.
+			if !reflect.DeepEqual(cfg.Doc, collection.Doc{}) {
+				t.Errorf("%s: carries a Doc but newCollectionArgs emitted no --doc-json", cfg.Name)
+			}
+			continue
+		}
+		documented++
+
+		// Decoded exactly as cmd/pleiades does it, unknown fields and
+		// all, so a tag this test tolerates is not one the real CLI
+		// would reject.
+		dec := json.NewDecoder(strings.NewReader(encoded))
+		dec.DisallowUnknownFields()
+		var got collection.Doc
+		if err := dec.Decode(&got); err != nil {
+			t.Errorf("%s: the CLI would reject its own --doc-json: %v", cfg.Name, err)
+			continue
+		}
+		if !reflect.DeepEqual(cfg.Doc, got) {
+			t.Errorf("%s: Doc changed crossing the command line:\n  sent %+v\n   got %+v", cfg.Name, cfg.Doc, got)
+		}
+	}
+
+	if documented == 0 {
+		t.Fatal("no catalogdata entry carried a Doc, so this test proved nothing")
+	}
+}
+
+// flagValue returns the value following name in args.
+func flagValue(args []string, name string) (string, bool) {
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
 }
 
 func TestNewDeviceArgs(t *testing.T) {
@@ -76,7 +163,7 @@ func TestNewDeviceArgs(t *testing.T) {
 		{
 			name: "no capabilities",
 			cfg:  devicescaffold.Config{Vendor: "aws", TypeKey: "aws_account"},
-			want: []string{"forge", "new-device", "aws", "--type", "aws_account"},
+			want: []string{"forge", "new-device", "aws", "--type", "aws_account", "--skip-existing"},
 		},
 		{
 			name: "with capabilities",
@@ -88,6 +175,7 @@ func TestNewDeviceArgs(t *testing.T) {
 			want: []string{
 				"forge", "new-device", "windows", "--type", "windows_server",
 				"--capabilities", "WindowsCapable,WinRMCapable",
+				"--skip-existing",
 			},
 		},
 	}
@@ -111,7 +199,7 @@ func TestNewPluginArgs(t *testing.T) {
 		{
 			name: "minimal",
 			cfg:  pluginscaffold.Config{Name: "netbox", Description: "reads NetBox"},
-			want: []string{"forge", "new-plugin", "netbox", "--description", "reads NetBox"},
+			want: []string{"forge", "new-plugin", "netbox", "--description", "reads NetBox", "--skip-existing"},
 		},
 		{
 			name: "endpoint and read-only",
@@ -126,6 +214,7 @@ func TestNewPluginArgs(t *testing.T) {
 				"--description", "reads a Catalyst Center",
 				"--endpoint", "https://sandboxdnac.cisco.com",
 				"--read-only",
+				"--skip-existing",
 			},
 		},
 	}
@@ -235,7 +324,7 @@ func TestBuildPleiadesBinary_ErrorsOnBuildFailure(t *testing.T) {
 }
 
 func TestRunPleiades_ErrorsForNonexistentBinary(t *testing.T) {
-	err := runPleiades(filepath.Join(t.TempDir(), "no-such-binary"), t.TempDir(), "forge", "new-collection", "test.x")
+	_, err := runPleiades(filepath.Join(t.TempDir(), "no-such-binary"), t.TempDir(), "forge", "new-collection", "test.x")
 	if err == nil {
 		t.Fatal("runPleiades against a nonexistent binary: expected an error, got nil")
 	}
@@ -348,11 +437,32 @@ func TestGencatalog_DogfoodsRealCLI_EndToEnd(t *testing.T) {
 	if err := validateCatalogEntries([]collectionscaffold.Config{collectionCfg}, []devicescaffold.Config{deviceCfg}, nil); err != nil {
 		t.Fatalf("validateCatalogEntries: %v", err)
 	}
-	if err := runPleiades(binPath, root, newCollectionArgs(collectionCfg)...); err != nil {
-		t.Fatalf("runPleiades new-collection: %v", err)
+	// Through generateEntries rather than a hand-rolled pair of
+	// runPleiades calls, so this exercises the loop the real run uses,
+	// including the count it reports.
+	collections := []collectionscaffold.Config{collectionCfg}
+	devices := []devicescaffold.Config{deviceCfg}
+
+	written, err := generateEntries(binPath, root, collections, devices, nil)
+	if err != nil {
+		t.Fatalf("generateEntries: %v", err)
 	}
-	if err := runPleiades(binPath, root, newDeviceArgs(deviceCfg)...); err != nil {
-		t.Fatalf("runPleiades new-device: %v", err)
+	// Two files per entry, a source file and its starter test.
+	if written != 4 {
+		t.Errorf("generateEntries wrote %d file(s), want 4 (two entries, two files each)", written)
+	}
+
+	// The same run again, which is what `go generate` does on an already
+	// generated tree and what used to fail outright on the first existing
+	// file. It must write nothing and report that it wrote nothing: a
+	// count of zero here is the whole difference between "already done"
+	// and "silently did nothing," and the reason the number is printed.
+	again, err := generateEntries(binPath, root, collections, devices, nil)
+	if err != nil {
+		t.Fatalf("generateEntries over an already generated tree: %v", err)
+	}
+	if again != 0 {
+		t.Errorf("a second generateEntries wrote %d file(s), want 0: regeneration is supposed to be a no-op", again)
 	}
 
 	collectionImport := "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/test/" + suffix

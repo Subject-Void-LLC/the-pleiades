@@ -129,8 +129,13 @@ var Root = Command{
 			Synopsis:   "build, validate, and run a runbook",
 			Flags: []Flag{
 				{Name: "dir", Type: "string", Default: ".", Doc: "project directory"},
+				{Name: "verbose", Type: "bool", Default: "false", Doc: "print each task's own output (stdout, exit status, diffs), not just whether it changed"},
+				{Name: "v", Type: "bool", Default: "false", Doc: "shorthand for --verbose"},
 			},
-			Examples: []string{"pleiades run runbooks/site.yaml"},
+			Examples: []string{
+				"pleiades run runbooks/site.yaml",
+				"pleiades run runbooks/site.yaml --verbose",
+			},
 		},
 		{
 			Name:     "inventory",
@@ -188,6 +193,7 @@ var Root = Command{
 						{Name: "dir", Type: "string", Default: ".", Doc: "repository directory to write the generated package into"},
 						{Name: "type", Type: "string", Default: "", Doc: "the full record.RegisterType key (e.g. cisco_router)"},
 						{Name: "capabilities", Type: "string", Default: "", Doc: "comma-separated vendor baseline capability names (e.g. AptCapable,SSHTransportCapable)"},
+						{Name: "skip-existing", Type: "bool", Default: "false", Doc: "leave an already-generated entry alone instead of refusing, for regenerating a catalog in place"},
 					},
 				},
 				{
@@ -200,8 +206,13 @@ var Root = Command{
 						{Name: "transports", Type: "string", Default: "", Doc: "comma-separated supported transport names (e.g. ssh)"},
 						{Name: "requires-elevation", Type: "bool", Default: "false", Doc: "whether this method needs elevated privileges on the target device"},
 						{Name: "engine-version", Type: "string", Default: "", Doc: "minimum core engine version constraint (unparsed, e.g. >=1.0.0)"},
+						{Name: "doc-json", Type: "string", Default: "", Doc: "reference documentation as a JSON pkg/collection.Doc object, or @path to read it from a file"},
+						{Name: "skip-existing", Type: "bool", Default: "false", Doc: "leave an already-generated entry alone instead of refusing, for regenerating a catalog in place"},
 					},
-					Examples: []string{"pleiades forge new-collection net.junos.config --capabilities SSHTransportCapable --transports ssh"},
+					Examples: []string{
+						"pleiades forge new-collection net.junos.config --capabilities SSHTransportCapable --transports ssh",
+						"pleiades forge new-collection net.junos.config --doc-json @junos-config-doc.json",
+					},
 				},
 				{
 					Name:       "new-plugin",
@@ -212,6 +223,7 @@ var Root = Command{
 						{Name: "description", Type: "string", Default: "", Doc: "one-line help text describing the upstream system this plugin reads"},
 						{Name: "endpoint", Type: "string", Default: "", Doc: "default upstream base URL (e.g. https://sandboxdnac.cisco.com)"},
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "declare the upstream authoritative and never written back"},
+						{Name: "skip-existing", Type: "bool", Default: "false", Doc: "leave an already-generated entry alone instead of refusing, for regenerating a catalog in place"},
 					},
 				},
 				{

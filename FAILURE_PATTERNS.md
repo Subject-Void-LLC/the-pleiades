@@ -143,6 +143,24 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 140. A log field named for a certificate carried the path of the private key
 141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
 142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
+143. A Collection may import only pkg/, so the one SSH module hand-rolled the security-critical dial the transport layer already owned
+144. The Walk tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
+145. Two collection methods' documentation had already drifted from the data the catalog is generated from
+146. A circuit breaker latched half-open forever, so a device that was briefly down was never dialed again
+147. The idempotence guard looked in a different directory from the command it guarded
+148. A quoted directory beginning with a dash was parsed as a cd option, so the command ran in the home directory
+149. A large standard input a remote command never read turned a successful command into an opaque failure
+150. The shipped runner container sets no HOME, so every SSH Collection method fails host key verification unless the task opts out (FIXED: PLEIADES_KNOWN_HOSTS)
+151. Every Collection manifest declares a required capability that nothing enforces at run time
+152. The chart linter could not see a volumeMount naming a volume that does not exist
+153. break-glass refuses forever, because stale self-matching pgrep wait loops from earlier sessions never exit and look like a live run
+154. A zero-value sentinel collided with a meaningful zero, turning "reject every session" into "accept them all"
+155. chmod before chown threw away the setuid bit the task had just asked for, and the module could never converge
+156. The manifest declared an inverse that could not be right, because the true inverse is a property of the run and not of the method
+157. A repo-wide uniqueness test fails while worktree-isolated agents' checkouts are on disk
+158. A new module was added as a bare transport-action name instead of an FQCN, by copying the oldest thing in the codebase
+159. netsh converting an adapter to the address it already holds by DHCP leaves it with no address at all
+160. A "skip what already exists" flag applied per file resurrected fifteen stub tests underneath real implementations
 
 ---
 

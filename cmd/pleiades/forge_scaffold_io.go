@@ -7,23 +7,31 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
 
 // writeGeneratedFile writes content to filepath.Join(dir, relPath),
-// refusing to overwrite anything that already exists there (naming the
-// colliding path) rather than silently skipping it. This deliberately
-// diverges from internal/inventory/project.go's Scaffold, which silently
-// skips a file that already exists because re-running `pleiades init` in
-// an existing project is expected and idempotent: `forge new-*` is a
-// different kind of action, an explicit "generate this new, specific
-// thing," so a collision is a real problem the caller should see. It
-// returns the full path written, for the caller's own success message.
+// refusing by default to overwrite anything that already exists there
+// (naming the colliding path) rather than silently skipping it. This
+// deliberately diverges from internal/inventory/project.go's Scaffold,
+// which silently skips a file that already exists because re-running
+// `pleiades init` in an existing project is expected and idempotent:
+// `forge new-*` is a different kind of action, an explicit "generate
+// this new, specific thing," so a collision is a real problem the caller
+// should see. It returns the full path either way, plus whether it
+// actually wrote, for the caller's own success message.
+//
+// Callers wanting the skip behaviour go through firstExistingFile first
+// and skip the whole set, rather than passing a per-file flag here; see
+// that function for why the distinction matters.
 func writeGeneratedFile(dir, relPath string, content []byte) (string, error) {
 	full := filepath.Join(dir, relPath)
 
@@ -40,6 +48,71 @@ func writeGeneratedFile(dir, relPath string, content []byte) (string, error) {
 		return "", fmt.Errorf("writing %s: %w", full, err)
 	}
 	return full, nil
+}
+
+// firstExistingFile returns the first of relPaths that already exists
+// under dir, or "" when none of them do. It is how `--skip-existing`
+// decides, and it takes the whole set rather than one path at a time on
+// purpose.
+//
+// The unit a `forge new-*` subcommand generates is one entry, not one
+// file: a collection method is a source file plus its starter test, and
+// those two are only coherent together. Deciding per file means a method
+// whose implementation was hand-completed and whose generated starter
+// test was replaced by a real one under a different name gets that stub
+// test written back underneath it, asserting the method is declared and
+// returns "not implemented" against an implementation that is neither.
+// That is not hypothetical: the first run of this with a per-file check
+// resurrected fifteen such tests across svc.* and net.catalyst.*, and
+// every one of them failed immediately. Either the whole entry is
+// already on disk or none of it is.
+func firstExistingFile(dir string, relPaths []string) (string, error) {
+	for _, relPath := range relPaths {
+		full := filepath.Join(dir, relPath)
+		if _, err := os.Stat(full); err == nil {
+			return full, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("checking %s: %w", full, err)
+		}
+	}
+	return "", nil
+}
+
+// parseDocJSONFlag decodes a --doc-json flag value into a
+// pkg/collection.Doc. An empty value yields the zero Doc. A value
+// beginning with "@" is a path to read the JSON from, the convention
+// curl and gh already established, because a real Doc runs to
+// paragraphs of prose and nobody types that on a command line.
+//
+// Unknown fields are rejected rather than ignored. The whole point of
+// this flag is to carry documentation into a generated manifest that
+// internal/archtest then compares for exact equality, so a mistyped key
+// that decodes to "field absent" would produce a file that fails that
+// comparison with no hint that the input was the problem.
+func parseDocJSONFlag(value string) (collection.Doc, error) {
+	if value == "" {
+		return collection.Doc{}, nil
+	}
+
+	raw := []byte(value)
+	source := "--doc-json"
+	if strings.HasPrefix(value, "@") {
+		path := strings.TrimPrefix(value, "@")
+		contents, err := os.ReadFile(path) // #nosec G304 -- a path the operator typed on their own command line, in their own repository
+		if err != nil {
+			return collection.Doc{}, fmt.Errorf("reading --doc-json file: %w", err)
+		}
+		raw = contents
+		source = path
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var doc collection.Doc
+	if err := dec.Decode(&doc); err != nil {
+		return collection.Doc{}, fmt.Errorf("parsing %s as a collection.Doc: %w", source, err)
+	}
+	return doc, nil
 }
 
 // parseCapabilitiesFlag splits a comma-separated --capabilities flag value

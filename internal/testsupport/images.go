@@ -194,3 +194,21 @@ const SSHDImage = "lscr.io/linuxserver/openssh-server:version-10.3_p1-r0"
 // compose healthcheck and the tests reach it through pg_isready or a real
 // connection, so the suffix is only a smaller download.
 const PostgresImage = "postgres:15.19-alpine"
+
+// LocalStackImage is the AWS-API emulator pkg/awscloud's tests dial: a
+// real (if emulated) HTTP+SigV4 server in a container, not a fake shell
+// script or a mocked SDK client, the same RULE 0 reasoning SSHDImage above
+// already applies to the transport layer. There is no shell command to
+// fake here: cloud.aws.* addresses the AWS API directly, and this is
+// what "representative" means for that shape of dependency.
+//
+// LocalStack itself moved off semantic versioning to CalVer
+// (`YYYY.MM.patch`) partway through this repository's lifetime; the tag
+// below is still a real, specific release, which is what the pin rule
+// requires, not a particular numbering scheme.
+//
+// Unlike NATSImage and PostgresImage, this image is not in
+// docker-compose.yml and therefore not in pinnedImages() below: nothing
+// in this platform's real deployment talks to AWS through a local
+// emulator, only the test suite does.
+const LocalStackImage = "localstack/localstack:2026.7.4"

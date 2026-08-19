@@ -54,7 +54,14 @@ COPY . .
 # it this container could execute only the runbooks baked into its image,
 # which is none of them, while the controller happily launched jobs
 # against runbooks it could see and this side could not.
-RUN mkdir -p /staging/app/runbooks
+#
+# /app/ssh is the second such directory, and it exists so a deployment has
+# somewhere to put a known_hosts file. The runtime stage's ENV below
+# explains what goes in it and what happens when nothing does. It is a
+# DIRECTORY rather than an empty file on purpose: a Kubernetes Secret or
+# ConfigMap volume mounts a directory, so this shape works for a plain
+# bind mount and for a chart without either side needing a subPath.
+RUN mkdir -p /staging/app/runbooks /staging/app/ssh
 
 # Built as a PACKAGE path, not a single file. A single-file build
 # silently stops compiling the moment the composition root is split
@@ -150,6 +157,35 @@ LABEL org.opencontainers.image.title="Pleiades Runner" \
 # so the file is read back off disk repeatedly during normal operation,
 # and a replaced one would be picked up without any restart at all.
 COPY --from=builder /staging/app /app
+
+# Where this container looks for the host keys of the devices it connects
+# to, and the correction to a defect that made the security control's off
+# switch its only working setting (FAILURE_PATTERNS.md #150).
+#
+# Every SSH connection this binary makes verifies the device's host key
+# against an OpenSSH-format known_hosts file and fails closed when it
+# cannot. Before this line there was no way to tell it where that file
+# was: it fell back to $HOME/.ssh/known_hosts, and a distroless image sets
+# no HOME and ships no such file, so os.UserHomeDir failed and EVERY SSH
+# task refused. The only thing that ran was a task setting
+# insecure_skip_host_key_verify, which is to say the only working
+# configuration of this image was the insecure one.
+#
+# Nothing is mounted here by default, and that is deliberate rather than
+# unfinished. Baking host keys into an image would mean rebuilding it to
+# add a device, and shipping an empty file would be worse still: an empty
+# known_hosts parses fine and matches nothing, so every connection would
+# fail with a per-device "no entry" message instead of one clear message
+# about a file nobody mounted. So the path is declared and empty, and a
+# deployment mounts a real file over it. docker-compose.yml and
+# helm/the-pleiades both do; see them for the two shapes.
+#
+# The failure when nothing is mounted is a refusal that names this
+# variable, which is the whole improvement. An operator can act on "set
+# PLEIADES_KNOWN_HOSTS to the right file". Nobody can act on "the home
+# directory of a container that has no home directory could not be
+# determined".
+ENV PLEIADES_KNOWN_HOSTS=/app/ssh/known_hosts
 
 # No writable directory at all, and that is the one deliberate difference
 # from Dockerfile.controller.

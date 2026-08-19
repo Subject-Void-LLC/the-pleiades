@@ -41,7 +41,7 @@ const nativeIPCEchoMethodName = "nativeipctest.subprocess_echo"
 func init() {
 	collection.MustRegister(collection.Descriptor{
 		Name:     nativeIPCEchoMethodName,
-		Manifest: collection.Manifest{Status: collection.StatusImplemented},
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},
 		Invoke: func(_ context.Context, rc sdk.RunbookContext, device inventory.InventoryItem, params map[string]any) (collection.Result, error) {
 			secrets := rc.InjectSecrets()
 			if err := rc.SetStat("echoed_param", params["message"]); err != nil {
@@ -132,7 +132,7 @@ func TestIPCCollectionExecutor_Invoke_CancelKillsSubprocessPromptly(t *testing.T
 	name := "nativeipctest.slow"
 	if err := collection.Register(collection.Descriptor{
 		Name:     name,
-		Manifest: collection.Manifest{Status: collection.StatusImplemented},
+		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},
 		Invoke: func(ctx context.Context, _ sdk.RunbookContext, _ inventory.InventoryItem, _ map[string]any) (collection.Result, error) {
 			select {
 			case <-ctx.Done():

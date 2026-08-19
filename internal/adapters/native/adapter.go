@@ -84,12 +84,17 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 // composition, not an expected runtime case: it can only be reached if a
 // future change hands engine.Executor a TargetResolver other than
 // singleDeviceResolver.
-func newDeviceRunbookContext(device inventory.InventoryItem) sdk.RunbookContext {
+// It returns a nil error unconditionally, and that is the honest answer
+// rather than a signature it does not use: nothing here can fail,
+// because the secrets are already in hand. It is the Walk tier that has
+// a credential store to read and therefore a failure to report, which is
+// why engine.RunbookContextFunc carries an error at all.
+func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
 	wd, ok := device.(*wireDevice)
 	if !ok {
-		return engine.NewRunbookContext(nil)
+		return engine.NewRunbookContext(nil), nil
 	}
-	return engine.NewRunbookContext(wd.payload.Secrets)
+	return engine.NewRunbookContext(wd.payload.Secrets), nil
 }
 
 // Execute implements runner.ExecutionAdapter. It resolves payload's

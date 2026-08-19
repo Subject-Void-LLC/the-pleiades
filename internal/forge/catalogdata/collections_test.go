@@ -29,10 +29,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// checked against this package's section files, previously resolved to
 	// 75 individual <namespace>.<method> names. Phase 16 (Native Go
 	// Execution Adapter) added the 76th, net.ssh.ping, its own real,
-	// StatusImplemented Release Gate method. This test pins the number
-	// down so a future accidental entry loss or duplication is a build
-	// failure, not a silent gap.
-	const wantCollections = 76
+	// StatusImplemented Release Gate method. Part XV's WinRM work added
+	// the 77th, exec.winrm.shell, the Windows counterpart of exec.shell
+	// and the first method reaching a device over a transport other than
+	// SSH or HTTPS. This test pins the number down so a future accidental
+	// entry loss or duplication is a build failure, not a silent gap.
+	const wantCollections = 77
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

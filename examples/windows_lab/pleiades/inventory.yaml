@@ -1,0 +1,42 @@
+# Pleiades static inventory for the Windows lab.
+#
+# Add hosts with the real CLI rather than by hand:
+#
+#   pleiades add-host win2025 --type windows_server --set host=10.0.0.246
+#   pleiades add-credential win2025 --username administrator --password '...'
+#
+# The port is omitted on purpose. windows_server defaults to 5985, the
+# cleartext WinRM listener Enable-PSRemoting creates, and the transport
+# compensates by requiring SPNEGO message encryption on it rather than
+# by pretending the default is TLS. Set port: 5986 for an HTTPS listener.
+#
+# The second entry is the same machine reached over IPv6, and it is not
+# padding: it is the rescue path. A change that breaks IPv4 on a Windows
+# host very often leaves IPv6 working, because DHCPv6 and IPv4 are
+# configured independently, and WinRM listens on both. This is not
+# theory. It has recovered this exact lab machine from a half-applied
+# address change, putting IPv4 back on DHCP in about seven seconds with
+# no console access, at a point when nothing on IPv4 answered at all.
+#
+# A literal IPv6 address may be written with or without square brackets;
+# both reach the device. This example used to assert that the brackets
+# were required, and they were in fact rejected, so the documented
+# rescue path did not work as written.
+hosts:
+    - id: 8bbf5a2c-2f4c-4f0a-9a1e-1c0f5e6a7b30
+      name: win2025
+      type: windows_server
+      tags:
+        - lab
+        - windows
+      properties:
+        host: 10.0.0.246
+    - id: 0f7c1de4-6a55-4b1f-9c3e-2d8a4f6b1c92
+      name: win2025-v6
+      type: windows_server
+      tags:
+        - lab
+        - windows
+        - rescue
+      properties:
+        host: "[2001:db8:ca01:1030::b0f1]"

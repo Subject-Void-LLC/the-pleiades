@@ -114,6 +114,9 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "sites", Type: "list of map", Returned: "always", Description: "One entry per site: id, name, site_name_hierarchy."},
 				{Name: "site_count", Type: "int", Returned: "always", Description: "The number of sites in the sites fact."},
 			},
+			Examples: []collection.Example{
+				{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  fqcn: net.catalyst.site_facts\n  register: sites\n"},
+			},
 			SeeAlso: []string{"net.catalyst.device_facts"},
 		},
 	},
@@ -129,6 +132,9 @@ var networkCollections = []collectionscaffold.Config{
 			Returns: []collection.ReturnField{
 				{Name: "tags", Type: "list of map", Returned: "always", Description: "One entry per tag: id, name, system_tag."},
 				{Name: "operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
+			},
+			Examples: []collection.Example{
+				{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  fqcn: net.catalyst.tag_facts\n  register: tags\n"},
 			},
 		},
 	},

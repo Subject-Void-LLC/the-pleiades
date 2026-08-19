@@ -8,7 +8,8 @@ Every registered inventory sync plugin, read from the live registry `pleiades in
 
 | Name | Description | Read-only | Status | Origin |
 | --- | --- | --- | --- | --- |
+| `aws` | reads EC2 instances from an AWS account/region | yes | `implemented` | generated |
 | `catalyst_center` | reads managed network devices from a Cisco Catalyst Center | yes | `implemented` | generated |
 | `static_yaml` | reads a static hosts.yaml inventory file | no | `implemented` | hand-written, predates the Forge |
 
-2 sync plugins registered.
+3 sync plugins registered.

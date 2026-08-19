@@ -103,6 +103,10 @@ func Register(d Descriptor) error {
 		return fmt.Errorf("collection: %q claims status %q but carries no implementation", d.Name, StatusImplemented)
 	}
 
+	if err := checkReversibility(d); err != nil {
+		return err
+	}
+
 	return collections.Register(d.Name, d)
 }
 

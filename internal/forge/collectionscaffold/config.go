@@ -38,13 +38,18 @@ type Config struct {
 	// semver library is involved).
 	EngineVersion string
 
-	// Doc feeds Manifest.Doc. Every registered method should carry at
-	// least a Summary; a declared stub carries nothing more, since
-	// there is no real behavior yet for Params or Returns to describe.
-	// tools/gendocs reads this field directly from catalogdata, so it
-	// is this scaffold's one field with no corresponding CLI flag on
-	// `forge new-collection`: real Doc content is written by hand into
-	// catalogdata, not typed on a command line.
+	// Doc feeds Manifest.Doc, rendered in full by renderDoc: Summary,
+	// Description, Params, Returns, Examples and the rest, not just the
+	// one-line summary an earlier revision emitted.
+	//
+	// It is the one field whose CLI flag takes JSON rather than a
+	// plain value (`forge new-collection --doc-json`). A Doc is a
+	// nested structure carrying paragraphs of prose, and the
+	// alternatives were worse: a flag per leaf field cannot express a
+	// repeated Param at all, and leaving it out entirely is what used
+	// to force every scaffolded method's documentation to be retyped
+	// by hand before it could pass
+	// internal/archtest's TestCatalogDataDocsMatchTheRegistry.
 	Doc collection.Doc
 }
 

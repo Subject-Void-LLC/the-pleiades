@@ -681,6 +681,33 @@ services:
       # instead of a claim, and this is the half that needs it most: the
       # runner compiles the DAG it executes out of these files.
       - ./examples/upgrade_ios/pleiades/runbooks:/app/runbooks:ro
+      # THE HOST KEYS. Deliberately commented out, and deliberately
+      # documented rather than omitted.
+      #
+      # Every SSH task this runner executes verifies the device's host key
+      # against the file at PLEIADES_KNOWN_HOSTS, which Dockerfile.runner
+      # sets to /app/ssh/known_hosts, and fails closed when that file is
+      # not there. So the day this stack points at a real device, one of
+      # the two lines below has to be uncommented or every task refuses
+      # with a message naming that path.
+      #
+      # It ships commented because an uncommented bind mount whose SOURCE
+      # does not exist does not fail: Docker creates the source as an
+      # empty DIRECTORY, on the host, owned by root. Mounting your own
+      # known_hosts is right for a laptop and wrong for a machine that has
+      # never had one, and quietly making a root-owned directory in
+      # somebody's ~/.ssh is not a default this file gets to choose.
+      #
+      # Reuse the host's own, which is what a single-machine install
+      # wants, once you are sure the file exists:
+      #   - ${HOME}/.ssh/known_hosts:/app/ssh/known_hosts:ro
+      # Or keep a fleet file next to this stack, which is what anything
+      # shared or version-controlled wants:
+      #   - ./known_hosts:/app/ssh/known_hosts:ro
+      #
+      # Populate either one the way you would any known_hosts, for
+      # example:
+      #   ssh-keyscan -H device.example.com >> ./known_hosts
     # This service used to carry no healthcheck, and the comment here used
     # to explain at length why one was impossible. That is no longer true
     # and the explanation has been replaced rather than left to rot.

@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // packagingContextCeiling is the largest the build context may be in
@@ -86,6 +87,61 @@ func TestPackagingReleaseGate_ImagesRunUnprivilegedWithNoShell(t *testing.T) {
 			assertImageHasNoShell(t, image)
 		})
 	}
+
+	assertRunnerCanVerifyHostKeys(t, root, packagingRunnerImage)
+}
+
+// assertRunnerCanVerifyHostKeys proves the runner image is capable of the
+// thing every SSH task in it depends on, which it was not.
+//
+// THE DEFECT THIS PINS (FAILURE_PATTERNS.md #150). Every SSH connection
+// this binary makes verifies the device's host key against a known_hosts
+// file and fails closed when it cannot find one. With nothing naming that
+// file, the code fell back to $HOME/.ssh/known_hosts, and a distroless
+// image sets no HOME at all: os.UserHomeDir failed, so every SSH task
+// refused, and the only way to run one was to turn host key verification
+// off per task. The insecure setting was the image's only working setting.
+//
+// Two assertions, because either alone is satisfiable by a broken image.
+// The variable has to be declared, or the binary is back to guessing at a
+// home directory that is not there. And the directory it names has to
+// exist, or the first mount into it behaves differently depending on
+// whether the operator mounted a file or a directory, which is a
+// deployment-time surprise rather than a build-time one.
+//
+// What this deliberately does NOT assert is that a known_hosts file is in
+// the image. There must not be one. Baking host keys in would mean
+// rebuilding to add a device, and an empty file would be worse: it parses
+// and matches nothing, so every connection would fail per device instead
+// of once, clearly, about a mount nobody made.
+func assertRunnerCanVerifyHostKeys(t *testing.T, root, image string) {
+	t.Helper()
+
+	out := mustRunPackagingTool(t, root, nil, "",
+		"docker", "image", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", image)
+
+	const want = remoteexec.KnownHostsEnv + "="
+	var declared string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, want) {
+			declared = strings.TrimPrefix(line, want)
+		}
+	}
+	if declared == "" {
+		t.Fatalf("%s declares no %s, so every SSH task in it falls back to a home directory a distroless image does not have: env was\n%s",
+			image, remoteexec.KnownHostsEnv, out)
+	}
+
+	// The directory, not the file. The file is the deployment's to mount.
+	wantDir := strings.TrimPrefix(filepath.Dir(declared), "/")
+	for _, entry := range exportImageEntries(t, image) {
+		if strings.TrimSuffix(entry.Name, "/") == wantDir {
+			t.Logf("%s: %s=%s, with %s/ present and empty for a mount", image, remoteexec.KnownHostsEnv, declared, wantDir)
+			return
+		}
+	}
+	t.Errorf("%s declares %s=%s but has no %s/ directory to mount over, so a bind mount there decides its own type",
+		image, remoteexec.KnownHostsEnv, declared, wantDir)
 }
 
 // assertImageRunsAsUnprivilegedUID reads the user the image will start as

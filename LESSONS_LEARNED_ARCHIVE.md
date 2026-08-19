@@ -2457,3 +2457,550 @@ Ask what the assertion is anchored to, and whether that anchor is part of the th
 it is not, the fix is not to widen the bound until both environments fit, which is how a gate becomes
 decoration, but to re-anchor it or to delete it in favour of whatever was already measuring the real
 property.
+
+132. **A layering rule that forbids reaching for shared code owes that code a home on the allowed
+side of the line, and the debt comes due as a duplicated security control rather than as
+duplicated convenience.**
+
+**The incident.** `internal/archtest`'s `TestCatalogPackagesImportOnlyPkg` forbids a Collection
+package from importing anything in this module outside `pkg/`. That rule is correct: it is the
+constraint a third-party Collection will have to satisfy, and a built-in that quietly reached
+into `internal/` would be proving a pattern nobody outside this repository can follow. But
+nothing under `pkg/` did SSH, so the one SSH-backed Collection wrote its own dial, its own
+authentication and its own host key verification, and its own doc comment recorded that it had
+therefore lost the circuit breaker and the retry the transport layer already had.
+
+**Why the shape matters.** The duplication that a missing shared home produces is not random. It
+is exactly the code nobody wants to write twice, which is exactly the code that is hard enough to
+be worth centralizing: the retry policy, the breaker, the fail-closed check. Convenience code
+gets rewritten cheaply and correctly. A second implementation of host key verification is one
+implementation and one liability, and the second one is always the one nobody reviews as hard.
+
+**The general shape.** When a layering rule blocks an import, ask what the blocked caller was
+reaching for. If the answer is a mechanism rather than a detail, the rule has created an
+obligation to put that mechanism where both sides can reach it, and the obligation is due before
+the second caller arrives, not after twenty of them have each solved it privately. Moving it is
+better than copying it: `internal/transport/ssh` kept its port identity and became a thin adapter
+over `pkg/remoteexec`, which is what let its container tests against a real, independent sshd
+pass unchanged and prove the move preserved behavior.
+
+133. **A comment explaining that something is empty "because nothing needs it yet" is a
+dependency between two future changes with nothing to enforce it, and the feature that needs it
+will not read the comment.**
+
+**The incident.** `cmd/pleiades/run.go` handed every Collection method an empty secret set, with
+a comment saying so: "which is empty here because no method in the catalog needs a device secret
+yet." That was true when written. It stopped being true the moment `net.ssh.ping` landed, and
+nothing linked the two. The result was that `pleiades run` could not run any credential-needing
+Collection method at all, failing with an authentication error against a device whose credential
+was on disk, and the failure sat there through an entire phase because the only tests that
+exercised those methods called them directly rather than through the CLI.
+
+**Why the comment made it worse rather than better.** A reader who found the failure would reach
+the comment and read a justification, not a gap. The comment described a state of the world
+instead of an obligation, so it aged into an explanation for a bug.
+
+**The general shape.** When a composition root deliberately supplies nothing, write down what
+must happen before the first real consumer arrives, and prefer a mechanism to a sentence: a
+failing test named for the missing wiring, or a refusal at construction. Where neither fits, at
+least state it as a future obligation ("the first method needing a credential must wire the store
+in here") rather than as a present fact, so the next reader sees a task instead of a rationale.
+
+134. **When two copies of a value are unavoidable, the test comparing them is what makes the
+duplication safe, and it belongs in the same change that creates the second copy.**
+
+**The incident.** A Collection method's documentation lives twice: once in
+`internal/forge/catalogdata`, the data the Forge is driven from, and once in the generated file,
+because the scaffold template only emits `Doc.Summary` and everything else is hand-written
+afterward. Nothing compared them. Writing the comparison while adding a third such method found
+that two already-shipped methods had drifted: both carried an Example the catalog data did not
+have. The visible cost was not stale prose. A regeneration would have silently dropped those
+Examples, and the documentation generator's own completeness gate requires an Example on an
+implemented method, so a from-scratch regeneration would have produced a tree that failed its own
+gate for a reason nothing in the diff explained.
+
+**The general shape.** "These two must stay in step" is either a test or a wish. Note also what
+the test is worth beyond preventing drift: it found two existing defects on its first run, which
+is the usual return on writing the comparison late rather than never. Compare field by field
+rather than with a whole-struct equality, so the failure names which field moved instead of
+printing two thirty-line literals and leaving the reader to diff them.
+
+135. **A guard duplicated for defense in depth hides its own coverage: mutating one copy changes
+no test outcome, so the earlier copy looks redundant right up until somebody deletes it.**
+
+**The incident.** `pkg/remoteexec` consults its circuit breaker twice, once in `Connect` before
+any other work and once inside the dial retry loop. A source-mutation pass over the new tests
+found that removing the check in `Connect` broke nothing: the loop's own check produced the same
+"circuit open" error, so every assertion still passed. The earlier check is not redundant. It is
+what makes the doc comment's promise true, that an open circuit costs zero work, since without it
+the host key source is loaded and parsed before the refusal.
+
+**The fix that generalizes.** The test that pins it does not assert the error text, which both
+copies produce. It arranges for the later path to be unreachable in a distinguishable way, an
+open circuit plus a known_hosts path that does not exist, and asserts the error is about the
+circuit rather than about host key verification. The general form is: to cover the earlier of two
+identical guards, make the work between them fail loudly, and assert that failure did not happen.
+
+**Why this class is easy to miss.** Reading the code, both checks look necessary and the tests
+look thorough. Only mutation exposes it, and only mutation of each copy separately. A pass that
+removes both at once sees a failure and concludes, wrongly, that both are covered.
+
+**Correction, same session, and it inverts the conclusion above.** An adversarial review then
+found that the two calls were not merely uncovered, they were a defect. `Allow` is not a query:
+on an open circuit whose cooldown has elapsed it hands out the single half-open probe and mutates
+the state to record that it did. The first call took the probe and did not dial; the second saw a
+probe in flight and refused; nothing dialed, so nothing recorded an outcome, and the state never
+left half-open. A device that was briefly down became permanently unreachable for the life of the
+process. The defect predated this work in `internal/transport/ssh` and was carried into a
+`pkg/` primitive with three callers, which is what made it worth finding.
+
+So the covering test above was real and the reasoning under it was half right. What the mutation
+pass actually established was that the two calls were indistinguishable to every test, and the
+right response to that was to ask why there were two, not to write a test that made the pair look
+deliberate. **The stronger rule: when a mutation shows two guards are indistinguishable, suspect
+the duplication before you defend it, and check whether the shared call has a side effect.** A
+pure predicate can safely be asked twice. A transaction cannot, and "Allow" reads like a
+predicate.
+
+136. **A test that cannot fail against the defect it names is worse than no test, and only
+restoring the broken code proves which one you wrote.**
+
+**The incident.** A defect in how standard input was piped to a remote command turned successful
+commands into opaque failures. The regression test was written first in the package that owns the
+code, against an in-process SSH server. It passed. It also passed against the broken version,
+because the in-process handler never developed the timing that produces the failure: a real
+/bin/sh with real os/exec plumbing between the channel and the process is what makes the remote
+close the channel while the copy is still writing. The working test had to live in a different
+package, one layer up, where a real shell is on the far end.
+
+**The general shape.** Put the regression test where it demonstrably fails, even when that is not
+where the code lives, and say in the comment why it is there. Then leave the contract test in the
+owning package if it is worth having, but do not let its comment claim to be the regression proof.
+The only way to know which one you wrote is to restore the broken code and watch.
+
+137. **Quoting stops word splitting and expansion; it does not stop option parsing.**
+
+**The incident.** A module built `cd '<dir>' && <command>` with the directory correctly
+single-quoted, which defeats every injection the quoting was there for. It does not defeat `cd`'s
+own argument parsing: `cd '-P'` is identical to `cd -P`, which is a valid flag with no operand, so
+`cd` succeeds into the home directory and the command then runs somewhere the author never named,
+reporting success. The `&&` that was already there to stop a bad directory could not help, because
+`cd` had not failed.
+
+**The general shape.** Every value interpolated as an operand needs `--` before it as well as
+quotes around it. Test it both ways: that a dash-named value is refused, and that a directory
+genuinely named `-P` still works, since "make everything with a dash fail" is a different and
+also wrong fix.
+
+138. **A guard and the work it guards must resolve relative paths in the same place, or the guard
+is decoration.**
+
+**The incident.** A module ran its command under a working directory and checked its idempotence
+predicate without one, so a relative `creates` was evaluated wherever the account happened to log
+in. The `creates` case is a silent no-op: the guard never fires and the command re-runs forever,
+which is merely wrong. The `removes` case is worse. The check looked in the login directory, found
+nothing, concluded the work was already done, and skipped the task, leaving the file it was
+supposed to delete sitting untouched while the run reported success.
+
+**The second half of the rule.** Once the check runs under a directory, "I could not enter that
+directory" becomes a third possible answer, and it must not collapse into "the path is not there."
+Collapsing them puts the failure back: a `removes` guard reads an unenterable directory as an
+absence and skips. The fix is a distinct exit status the caller can tell apart, and an error
+rather than a boolean when it appears.
+
+**The general shape.** Whenever a predicate and an action are computed separately, list the
+context each one depends on and check that both get the same. And when a predicate can fail to
+evaluate, that is a third outcome, never a default to either answer.
+
+## 139. A security control needs a channel that reaches the process that enforces it, and a container is a different process from a laptop
+
+**The rule.** Before shipping a control that fails closed, name the channel each deployment uses
+to satisfy it, and prove that channel reaches the code doing the enforcing in the arrangement the
+product ships. If the only channel is the developer's own environment, the control is off in
+production and on in the tests.
+
+**The incident.** Every SSH connection Pleiades makes verifies the device's host key against a
+known_hosts file and fails closed. That was written carefully, tested thoroughly, and completely
+unusable in the shipped runner image, because the only way to name the file was
+`$HOME/.ssh/known_hosts` and a distroless container has no home directory. `os.UserHomeDir`
+failed, so every SSH task refused, and the only setting that worked was the one that turns
+verification off. Four call sites all passed an empty path and none of them could have passed
+anything else: a Collection method builds its own options from task parameters, and task
+parameters are the runbook, not the deployment.
+
+**What the shape of the fix says.** The channel had to be an environment variable read inside
+`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Crawl tier
+a Collection method runs in a per-task child process with no composition root of its own, so a
+value wired at startup cannot reach it; the environment is what a child inherits. One read in one
+place fixed all four call sites. The related discipline: it is a PATH and never a POLICY. There
+is deliberately no variable that turns verification off, because a variable set once is forgotten
+while a task parameter sits in the runbook where review can see it.
+
+**The other half, which is about tests.** Every SSH gate in the repository manufactured the
+affordance it was testing against: set `HOME`, write a known_hosts, run. That is right for
+proving the mechanism and is exactly what hid the fact that nothing supplies the input in
+production. The gate that closes it uses a deliberately different arrangement, and its value is
+entirely in the difference. Where a test sets up what the deployment is supposed to provide, add
+one that does not.
+
+## 140. When a fix is blocked on a hard design question, check whether the hard half is load-bearing
+
+**The rule.** A finding written up as "blocked on a design decision" deserves one pass to
+separate the expensive question from the cheap one. Two questions welded together in a write-up
+will be scheduled as one, at the price of the harder.
+
+**The incident.** The runner's host key defect was recorded, correctly, as needing a decision
+about where a stateless runner's known_hosts comes from for a fleet chosen at dispatch time.
+That is a real and unsolved fleet-management question, and it kept the item at "highest priority,
+not fixed" for a session. It also was not what was broken. Where the host keys COME FROM is hard;
+where the file IS is a property of a process, and every SSH tool answers it with a setting. The
+second half was the whole outage and took one function, three layers of packaging and an
+afternoon. The first half is still open and is now merely a feature rather than an outage.
+
+**How to apply it.** When re-reading a deferred finding, ask what the smallest change is that
+moves the product from "cannot work" to "works when configured". Ship that, and let the
+remaining question stay a question. Note the tell in the original write-up: it said "fixing the
+image is necessary but not sufficient", which was true about the feature and false about the
+outage.
+
+## 141. Ask whether a property belongs to the method or to the run before putting it on the manifest
+
+**The rule.** A manifest describes what is true of a method for every invocation. Before adding a
+field, construct two runs of the same method, with the same parameters, against devices in
+different states, and check whether the field's value differs. If it does, the field does not
+belong there: it belongs in what the run emits.
+
+**The incident.** `Manifest.Inverse` named the method that undoes each Collection method, plus the
+prior-state keys a rollback would feed it. It was coherent, enforced at registration, rendered on
+every generated documentation page, and wrong. Starting a service that was already running must
+undo to nothing rather than to a stop. Creating a directory undoes to a removal, but fixing an
+existing directory's mode undoes to the old mode, and the static declaration named the removal, so
+a rollback acting on it would have deleted a directory the run never created. An HTTP request is
+read-only or destructive depending on a parameter.
+
+**The tell, which is generalizable.** The field carried a `Captures` list: the names of the values
+someone else would need in order to interpret the declaration. That is the signature of a
+declaration that is really half a computation, and the missing half is the half that knows the
+answer. A declaration needing an interpreter is a sign the data is in the wrong place.
+
+**What replaced it.** The manifest answers only whether the method can ever be undone, with a
+reason required when it cannot. The run emits the concrete instruction, already parameterized from
+what it found. An absent instruction became meaningful, which the static form could not express: it
+is how a converged run says that undoing it means doing nothing.
+
+**Also worth keeping:** this came from a user reading one method's declaration and saying it was
+too generic to be useful. The generic case is a good place to test a design, because a field that
+cannot describe the most general member of a set usually cannot describe the specific ones either;
+it just fails less visibly.
+
+## 142. Reconcile before deleting, and treat a failure in an untouched package as an environment fact
+
+**The rule.** Before removing anything a tool generated (a worktree, a container, a cache), verify
+that nothing in it is unintegrated. And when a test fails in a package the change did not touch,
+suspect the environment before the diff.
+
+**The incident.** A test asserting a configuration file appears exactly once in the repository
+failed, reporting 19 copies: one real, eighteen inside leftover agent worktrees, each of which is a
+full checkout. The worktrees were deleted to clear it, and only afterward checked for unintegrated
+work. It was safe, because copying results out to a directory outside the repository was part of the
+workflow's contract, but the check came after the irreversible step.
+
+**How to apply it.** The reconciliation itself is cheap and worth doing every time: diff each
+produced file against the copy in the main tree, and check every branch for commits ahead of the
+target. Both were clean here, which is what made the report honest rather than reassuring. Note
+also that worktree branches survive `git worktree remove`, so committed work stays reachable even
+when the checkout does not.
+
+## 143. When the mitigation for a risk becomes unavailable, re-make the decision instead of inheriting it
+
+A lab VM was lost converting its adapter from DHCP to a static address. The runbook that did it was
+originally written WITH a safety net: a scheduled task that reverted to DHCP after ten minutes
+unless a later step disarmed it, because losing the box was the foreseeable failure and there would
+be no remote way back in. The harness classifier blocked that runbook for looking like persistence.
+The net was removed and the change was run anyway.
+
+The reasoning error was not "the risk was misjudged". It was that the judgement "this risk is
+acceptable" had been formed WITH the net in place and was then carried across the removal of the
+net unexamined. A conclusion is only valid under the premises that produced it, and the premise had
+just changed.
+
+Later in the same session the identical shape recurred with the opposite polarity. Permission was
+explicitly asked for and given, and the thing that then broke the box was a SECOND conversion the
+question had never separated out: "run the destructive half" was presented as one decision when it
+was two operations, and only the first had actually been reasoned about. Getting consent does not
+transfer the obligation to know what is being consented to.
+
+**The rule.** When a safeguard is removed, delayed, refused or simply turns out not to exist, stop
+and re-derive whether the action is still acceptable. And when asking for approval on something
+risky, enumerate the operations rather than the phase: an approved plan with an unexamined step
+inside it is an unexamined step.
+
+## 144. Do not replace a correct hypothesis with a confident wrong one; say the evidence is unexplained
+
+Diagnosing why a Windows host went unreachable, the first hypothesis was a firewall profile flip,
+and it was later shown to be a real and correct description of one of the mechanisms in play. It
+was then abandoned, because ARP was failing and an IP-layer firewall cannot stop ARP, and replaced
+with the flat assertion "nothing is at that address, this is not filtering". That second claim was
+delivered with more confidence than the ARP evidence could carry, and it was wrong about the cause.
+
+The honest move at the abandonment point was available and cheap: "ARP is failing, which a firewall
+does not explain, and I cannot account for that from here." That states the anomaly without
+manufacturing a replacement theory to fill the hole. Instead a correct-but-incomplete explanation
+was swapped for an incorrect-but-complete one, because a complete story felt like progress.
+
+The actual answer came from a console `ipconfig` a human ran, showing `DHCP Enabled: No` with an
+APIPA address: netsh had disabled DHCP and then failed to bind the static address. Neither
+hypothesis had predicted it, and the first one was closer.
+
+**The rule.** An unexplained observation is a fact to report, not a gap to fill. When evidence
+contradicts a working theory, the options are "the theory is incomplete", "the evidence means
+something I do not understand", and "here is a better theory", and the third one requires actually
+having a better theory, not just an unsatisfied need for one. Grade confidence to evidence
+separately for each claim, especially when replacing an earlier claim, because a correction
+inherits unearned authority from the act of correcting.
+
+## 145. A test that has to break the thing it observes is measuring the wrong path
+
+**The rule.** When a test makes its subject fail in order to see the subject's output, treat that as
+a defect report against the product, not as a testing technique. Fix the observability gap and
+rewrite the test on the success path.
+
+**Where this came from.** `pleiades run` printed `ok` or `changed` per task and nothing else, while
+the failure path printed the error, and a Collection method's error carries its stdout. So the only
+way to read a device's answer back from the CLI was to make the task exit non-zero. Three places in
+one release gate did exactly that, each with a task literally named "and fail so its output is
+printed," and the workaround was documented in a comment as a known CLI gap rather than treated as
+one to close.
+
+The cost was not the ugliness. It was that every one of those assertions ran against the error path
+while claiming to be about the success path. A regression that broke reporting for successful tasks
+would have left all three green. The gate that proved "WinRM reaches a Windows host" proved it
+about a failing run only.
+
+The fix was `run --verbose`, which is fifteen lines in the CLI and one field on `NodeResult`, and it
+was available the entire time. What kept it from being written is that the workaround worked: each
+individual test passed, so nothing forced the question, and the comment explaining the trick made it
+look considered rather than deferred.
+
+**How to apply it.** When you write `exit 3` so you can see something, or assert on an error string
+to read a value that is not an error, stop and ask what the product should have printed. If the
+answer is "this, on success," that is the change. The tell is a test name or comment containing the
+word "so": "fail so its output is printed," "error so we can read the body." That word marks a
+workaround wearing a technique's clothes.
+
+The counter-case is real and worth naming: a test that deliberately fails something to prove the
+FAILURE path is correct is not this. The difference is whether the failure is the subject or the
+instrument.
+
+## 146. A generic method's capability floor is not automatically safe to declare in a device type's baseline just because a sibling generic method's was
+
+**Where this came from.** `svc.start`/`svc.stop`/etc. resolve `capability.ServiceManagerCapable`
+and dispatch to a concrete method (`svc.systemd.start`), and `linux.Server` declares the concrete
+`SystemdCapable` unconditionally in its baseline, because systemd is the mainstream case and
+declaring only the broad parent would leave the concrete methods unreachable on every stock
+`linux_server`. Writing `pkg.install`/`pkg.apt.install` the same session, the same shape looked
+obviously reusable: resolve `PackageManagerCapable`, dispatch to `pkg.apt.install`, declare
+`AptCapable` in `linux.Server`'s baseline the same way `SystemdCapable` is declared. It is not the
+same shape. `internal/inventory/devices/linux/server_test.go`'s
+`TestNewServer_UnionsClassificationCapabilities` already exists specifically to forbid this:
+`linux.Server` does not structurally implement `AptCapable`, on purpose, and the test's own comment
+says why ("neither side is trusted alone").
+
+**Why the two cases differ even though they look identical.** Service manager and package manager
+are both "which specific implementation of a near-universal Linux subsystem does this box run,"
+and both have a generic-plus-concrete dispatcher of the same shape. The difference is whether a
+single default is honestly true of most instances of the device type. Systemd genuinely is the
+default for the overwhelming majority of modern Linux servers; a non-systemd host is the rare
+exception, and the `service_manager` property exists precisely to let that exception say so.
+Package manager has no equivalent honest default: a generic `linux_server` record is Debian-family
+or Red Hat-family in roughly the same proportion across a real fleet, and declaring `AptCapable`
+unconditionally would be actively wrong on every RHEL/CentOS/Fedora/Rocky/Alma box, far more often
+wrong than defaulting a service manager to systemd ever is.
+
+**What this means in practice, and what it does not.** `pkg.apt.*`/`pkg.dnf.*` were implemented and
+tested at full quality (real converge logic, real inverses, real mutation-proofed tests against a
+fake `apt-get`/`dnf` on `PATH` over a real SSH server) without touching `linux.Server`'s capability
+set at all, leaving the namespace genuinely implemented but not yet reachable against any real
+inventory device. That is not a shortcut or an unfinished half of the work; wiring a device to a
+capability that is genuinely per-instance data is a separate, deliberate decision (a new
+distro-family-specific device type, or a classification-driven accessor with no safe unconditional
+default) that deserves its own session rather than being smuggled in as a side effect of "make the
+new namespace match the pattern the last one used."
+
+**How to apply it.** Before declaring a capability in a device type's baseline because a sibling
+generic method's dispatcher already does something that looks the same, ask whether the concrete
+value (which service manager, which package family, which init system) has an honest majority
+default across real instances of that device type, the way `service_manager` defaulting to
+`systemd` does. If every real instance is roughly as likely to need one branch as another, a
+baseline declaration is a coin flip dressed as a fact, and the regression test protecting against
+exactly that (`TestNewServer_UnionsClassificationCapabilities` here) is doing its job correctly by
+staying red. `identity.*` will face this same question (`useradd`/`groupadd` are POSIX-universal in
+a way package managers are not, so it may resolve differently) and should be decided freshly rather
+than by analogy to either `svc.*` or `pkg.*` alone.
+
+**Update, `identity.*` session:** the question did resolve freshly, and landed on the same outcome
+as `pkg.*` for a different reason. `useradd`/`groupadd` being POSIX-universal turned out not to be
+the relevant fact: the gap `capability.AptCapable` has is that no device type implements its
+accessor method (`AptSourcesList`) at all, not that the accessor's *answer* varies by instance.
+`capability.PosixAccountCapable`'s own accessor, `PasswdPath() string`, has exactly the same
+problem — nothing in this repository implements it either, regardless of how universal POSIX
+accounts are. A capability interface needs a real accessor on a real device type before
+`HasCapability` can ever return true for it, independent of whether the underlying concept has an
+honest default; `identity.user.*`/`identity.group.*` shipped at the same tier `pkg.apt.*` did,
+implemented and tested against a real SSH server with fake `getent`/`useradd`/`groupadd` on `PATH`,
+genuinely unreachable against a real inventory device until some device type adds that accessor.
+
+## 147. Build a converge method's inverse from the value you are about to overwrite, not from a before/after requery
+
+**The rule.** When a method converges an existing resource's attributes (as opposed to creating or
+removing it outright) and needs to record a real, restorable inverse, capture each attribute's old
+value at the moment the method decides to change it — from the same query that drove the decision
+— rather than by diffing a "before" snapshot against an "after" snapshot taken by re-querying the
+resource once the mutating command has run.
+
+**Why.** `identity.user.create`'s and `identity.user.modify`'s first implementation built their
+inverse this second way: converge whichever attributes differed from what `getent passwd` reported,
+run `usermod`, re-query the account, and diff the fresh "after" against the original "before" to
+find which fields to restore. Every test written against a synthetic fake `getent` (the same
+technique `pkg.apt.*`'s own tests use — a shell script controlled by fixed environment variables)
+failed with the inverse missing the very attribute the test had just changed, because the fake
+script's output does not depend on what `usermod` was told to do: it is a canned response, not a
+stateful simulation of the account database. The requery after a converge, in the test harness,
+reports exactly what it reported before. The deeper problem this exposed is not really about test
+fakes: relying on a post-mutation query to correctly reflect a mutation this platform itself just
+issued is an assumption about NSS-backed system state (LDAP, SSSD, cached `getent` responses) that
+does not need to be made at all, because the value being overwritten was already in hand from the
+query that decided to overwrite it.
+
+**How to apply it.** In a `desired`-vs-`current` converge function (see
+`internal/catalog/identity/user/user.go`'s `converge`), return the old value of each attribute
+alongside the mutation's own command-line flags, at the same point the decision to touch that
+attribute is made, and build the inverse's `Params` directly from that returned map. Keep the
+post-mutation requery only for what it is legitimately for: the operator-facing `sdk.Diff` before/
+after record, which is allowed to be aspirational about a real device's state in a way an inverse
+that a future rollback will actually execute cannot afford to be. `pkg.apt.*`/`pkg.dnf.*` never hit
+this because neither of their inverses depends on a converge's after-state: `install`'s inverse is
+a plain removal, `remove`'s inverse pins the version captured before deleting, and `upgrade` records
+no inverse at all. The first method in the catalog whose inverse depends on *which* attributes an
+existing resource's converge changed is where this pattern had to be worked out.
+
+## 148. When a method's own tests must exercise a real command executor, a well-known system path it touches has to be a task parameter, not a hardcoded constant
+
+**The rule.** If a Collection method reads or writes a specific system path (`/etc/fstab`,
+`/etc/hosts`, a registry hive, a well-known config file) and its tests run that method against a
+*real* command executor rather than a mock (this codebase's own RULE 0), that path must be exposed
+as a parameter with the well-known location as its default, never hardcoded. The parameter is not
+convenience API surface; it is what makes the method testable at all without either touching the
+real host's file during a test run or falling back to a mock that would fail RULE 0.
+
+**Why.** `pkg/remoteexec/remoteexectest.Start` runs every command a test sends through a real
+`exec.Command("/bin/sh", "-c", command)` on the actual machine running the test — there is no
+sandboxed filesystem underneath it, no chroot, no fake `/etc`. `fs.mount`/`fs.unmount` need to read
+and rewrite an fstab file (via `pkg/remotefile`'s real `Read`/`Write`/`Stat`/`Apply`, the same
+primitive `internal/catalog/file/line` already established for "read the whole file, decide in Go,
+write the whole file back" rather than trusting `sed`). Had the fstab path been hardcoded to
+`/etc/fstab` the way a first draft assumed, every test exercising the persistence half of these
+methods would have had to either genuinely rewrite the test-runner's own `/etc/fstab` — unacceptable
+in any environment, let alone a sandboxed one — or abandon RULE 0 and mock `remotefile` out from
+under the method, which is exactly the failure mode RULE 0 exists to catch (a test that mocks the
+layer being tested proves nothing about it). Making `fstab` a parameter, defaulting to `/etc/fstab`,
+let every test point it at a `t.TempDir()` path instead, so the tests run the method's real read-
+modify-write logic against a real file without touching anything outside the test's own sandbox.
+
+**The tell that this is available, not invented.** Ansible's own `ansible.builtin.mount` module
+already exposes an `fstab:` parameter for the identical reason (its own test suite needs to point
+at a fixture file, not the control node's real one). This platform's own vocabulary-reuse
+philosophy — a runbook migrating from Ansible should rename nothing it does not have to — means the
+same parameter existing for the same underlying reason is confirmation the design is right, not a
+coincidence to double check. When a method's own test-safety need and an existing Ansible module's
+parameter surface point at the same missing parameter, that is the parameter to add.
+
+**How to apply it.** Before hardcoding any path a method's real command executor will touch —
+especially one central enough that a real environment guarantees its existence (`/etc/fstab`,
+`/etc/hosts`, `/etc/resolv.conf`) — check whether the Ansible module this method mirrors already
+parameterizes it, and if this method's own tests will need to run real commands against it (per
+RULE 0), add the parameter regardless of whether Ansible does. A method that never needs a real
+command executor in its own tests (an HTTP-API-backed method, for instance) does not have this
+pressure and can reasonably default to a hardcoded well-known value with no parameter at all; the
+pressure is specific to "this runs a real shell command against this path in its own tests."
+
+---
+
+## 149. Verify a live dependency's current terms and behavior by actually running it, not from what a prior session established
+
+**The incident.** The `cloud.aws.*` batch's plan named LocalStack as the real-target verification
+strategy for methods that address the AWS HTTP API directly (no fake shell script can stand in for
+a wire protocol), and named "no live account, no cost, no CI secret dependency" as the reason it
+was chosen over real AWS. That premise was true when the plan was written and false by the time the
+first container actually started: `localstack/localstack`'s published image now exits immediately
+with "License activation failed" unless `LOCALSTACK_AUTH_TOKEN` is set, a real relicensing that
+happened at some point in this project's own lifetime, not a misconfiguration or a bad image tag.
+The plan's own stated rationale was gone the moment the container was actually run. The fix was not
+to argue from the plan's original reasoning (which was sound when written) but to run the real
+container, read its real refusal, and revise the plan with the user rather than silently
+substituting a fake.
+
+The same discipline paid off repeatedly afterward, on smaller questions the same session kept
+running into: whether a fabricated instance ID would produce a real `InvalidInstanceID.NotFound`
+API error or a quiet empty success (both actually happen, depending on whether the ID merely looks
+well-formed); whether `RunInstances` would reject an invalid `instance_type` the way real AWS does
+(it does not, against LocalStack); whether requesting a specific `PrivateIpAddress` would suppress
+the automatic `PublicIpAddress` assignment (it does not — both are set, confirmed by one throwaway
+`main.go` hitting the real container and printing the result). Every one of these was a case where
+the *plausible* assumption (derived from how real AWS is documented to behave, or from how the
+previous SSH-based batches' fake shell scripts behaved) was either right or wrong in a way that
+could only be told apart by asking the real target directly, in under a minute, with a disposable
+Go program deleted immediately after. Guessing wrong and writing a test around the guess would have
+produced a test that passively verified a fiction — passing today, telling nothing about tomorrow —
+which is exactly the failure RULE 0 exists to rule out, applied one level up: not just "does this
+test touch a real system," but "is what I believe about that real system's current behavior itself
+verified, or inherited."
+
+**How to apply it.** When a plan's chosen verification strategy depends on a live dependency's
+current behavior, terms, or state — an image's licensing, an API's validation strictness, a
+service's default configuration — verify it by running the real thing before committing code or
+tests to the assumption, even (especially) when the assumption was true in an earlier session or
+reads as obviously true from documentation. A disposable diagnostic program (or command) against
+the real target, run once and deleted, is cheap; a test suite built on a stale or merely-plausible
+belief about that target is not. When the real behavior contradicts the plan, stop and revise with
+whoever approved the plan rather than quietly substituting a workaround — the same "re-derive
+before carrying across a stale judgement" instinct LESSONS_LEARNED #143 already names for a removed
+safeguard, applied here to a changed dependency instead.
+
+## 150. A generic dispatcher's "declared but not implemented" branch loses its only real test case the moment every namespace it can resolve to becomes implemented
+
+**The incident.** `internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed`
+proved `dispatch`'s refusal for a registered-but-unimplemented concrete target by pointing a
+`windows_scm` device at `svc.windows.start`, which was true and declared-not-implemented at the
+time that test was written. This session implemented all five `svc.windows.*` methods, and the
+test kept compiling and kept passing its own assertions' *shape* right up until the moment `go
+test` actually ran it: `svc.windows.start` was now `StatusImplemented`, so `dispatch` sailed past
+the branch under test entirely and invoked the real `windows.Start`, which failed for a completely
+different reason (the test harness's fake device implements `SSHHost`/`SSHPort`, not
+`WinRMHost`/`WinRMPort`) that happened to still produce a non-nil error — meaning a naively
+observed "err != nil, test still red for basically the right shape" run could have read as passing
+if the assertion checked less precisely. `internal/catalog/svc.managerNamespace` maps exactly two
+service-manager names to exactly two namespaces (`systemd`, `windows_scm`), and once both are fully
+implemented there is no longer any real device/verb combination reachable from outside the package
+that exercises the "found in the registry, but `Status != StatusImplemented`" branch — every legal
+input now either resolves to a real implementation or refuses earlier (unknown manager, missing
+capability). The branch is still live, load-bearing code (it is what makes a partially-implemented
+service-manager namespace fail cleanly rather than nil-pointer-panic), but the public API can no
+longer reach it.
+
+**How to apply it.** Before extending a batch that flips the last `StatusDeclared` entry a generic
+dispatcher can resolve to, check whether any of that dispatcher's own tests depend on a *specific
+concrete FQCN* remaining declared rather than on the *mechanism* of refusing a declared target in
+the abstract — grep the dispatcher's test file for the FQCN literal, not just for the word
+"declared". When the last real example is about to disappear, do not delete the test or leave it
+silently asserting a now-false premise: add a whitebox (same-package) test file that registers one
+throwaway, uniquely-named `StatusDeclared` descriptor purely as a fixture (a `pleiades forge`-style
+name that cannot collide with anything real, e.g. `svc.systemd.dispatchtestonly`) and calls the
+unexported dispatch function directly with a verb that resolves to it. This proves the branch
+itself, honestly, using a fixture that is clearly a fixture, rather than either deleting real test
+coverage or letting a test's premise quietly go stale while its assertions happen to still compile.
+Replace what the retired test *was* actually reachable to prove — here, that dispatch really does
+resolve and invoke the correct concrete method for a device — with a black-box test pointed at an
+address nothing answers, asserting on the failure having reached the network with the right FQCN
+named in it, the same "assert on the failure mode, not a live host" pattern
+`pkg/winrmexec`'s own tests already use for the identical missing-real-backend constraint.

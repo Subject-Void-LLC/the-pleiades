@@ -1,0 +1,78 @@
+# Convert an adapter from a DHCP lease to a static address.
+#
+# READ THIS BEFORE RUNNING IT. This runbook is the example that cost a lab
+# machine twice, and the comments below are what those two outages bought.
+# It is included because it is the honest shape of a hard remote change,
+# not because it is a safe thing to copy.
+#
+# ## The change destroys the channel it arrived on
+#
+# Reconfiguring an adapter's address tears down the WinRM connection
+# carrying the instruction. The task's own success can therefore never be
+# reported back over that connection: expect the task to fail with a
+# transport error even when the change worked, and verify from a fresh
+# connection afterward (win_verify_ip.yaml).
+#
+# ## Do not use the address the adapter already holds by DHCP
+#
+# This is the failure that actually happened. `netsh ... set address
+# ... static <same-ip>` disables DHCP and then binds the address, and when
+# the address it is binding is the one the interface currently holds from
+# its own lease, the bind can fail while the DHCP disable has already
+# taken. What is left is an adapter with DHCP off and no address at all,
+# falling back to APIPA (169.254.x.x), which is a machine unreachable on
+# IPv4 with the change half applied.
+#
+# It does not fail every time, which is worse than failing every time. The
+# first conversion in a session tends to work; one run immediately after
+# reverting to DHCP tends not to, because the lease has just been
+# reissued and the old binding is still present.
+#
+# Prefer an address OUTSIDE the DHCP pool, reserved for this host. If the
+# address must be the leased one, release the lease first
+# (`ipconfig /release`) and accept that the box is offline in between.
+#
+# ## Windows will re-identify the network as Public
+#
+# Changing the address makes Network Location Awareness treat the result
+# as a new network, and on a host with no domain controller it classifies
+# it Public. The firewall rule Enable-PSRemoting creates,
+# WINRM-HTTP-In-TCP, covers Domain and Private only, so WinRM stops
+# answering the moment the address changes unless WINRM-HTTP-In-TCP-PUBLIC
+# is also enabled. Check that first: win_facts.yaml's third task reports
+# it.
+#
+# ## Have a way back in that does not use IPv4
+#
+# See win_revert.yaml. IPv6 is configured independently of IPv4 and WinRM
+# listens on both, so a host that has lost IPv4 is very often still
+# reachable over IPv6, and that is the difference between a runbook fix
+# and a trip to the console.
+id: win_static_ip
+hosts: win2025
+tasks:
+  - name: Convert Ethernet from DHCP to a static address
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        $ErrorActionPreference = 'Stop'
+        $alias = 'Ethernet'
+        # Deliberately NOT the address currently held by DHCP. See the
+        # header: reusing the leased address is what breaks this.
+        $ip    = '10.0.0.40'
+        $mask  = '255.255.255.0'
+        $gw    = '10.0.0.1'
+        $dns1  = '10.0.0.1'
+
+        # Converged already: change nothing and say so. Without this the
+        # task would reconfigure the adapter on every run, and each run
+        # would drop the connection again for no reason.
+        $current = Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if ($current.PrefixOrigin -eq 'Manual' -and $current.IPAddress -eq $ip) {
+            'unchanged: already static at ' + $ip
+            exit 0
+        }
+
+        netsh interface ipv4 set address name=$alias static $ip $mask $gw
+        netsh interface ipv4 set dnsservers name=$alias static $dns1 primary
+        'converted ' + $alias + ' to static ' + $ip

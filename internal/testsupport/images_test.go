@@ -341,9 +341,10 @@ func rejectPin(ref string) string {
 // evidence.
 func TestPinsNameAnExactVersion(t *testing.T) {
 	pins := map[string]string{
-		"NATSImage":     testsupport.NATSImage,
-		"SSHDImage":     testsupport.SSHDImage,
-		"PostgresImage": testsupport.PostgresImage,
+		"NATSImage":       testsupport.NATSImage,
+		"SSHDImage":       testsupport.SSHDImage,
+		"PostgresImage":   testsupport.PostgresImage,
+		"LocalStackImage": testsupport.LocalStackImage,
 	}
 
 	for name, ref := range pins {

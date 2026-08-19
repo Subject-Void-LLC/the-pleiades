@@ -57,9 +57,24 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 76 declared FQCNs, only the 4 `net.catalyst.*` ones (Cisco Catalyst
-  Center) and `net.ssh.ping` are implemented.** Everything else returns an explicit "declared
-  but not implemented" error rather than a silent no-op.
+- **Module catalog: 77 declared FQCNs; 34 implemented:** the 6 `svc.systemd.*` methods
+  (`start`, `stop`, `restart`, `enable`, `disable`, `daemon_reload`) and the 5 generic `svc.*`
+  ones that resolve a device's service manager and dispatch to them, both built on
+  `pkg/remotesvc`; the 4 `net.catalyst.*` ones (Cisco
+  Catalyst Center), `net.ssh.ping`, `exec.command`, `exec.shell`, ten of the `file.*` methods
+  (`copy`, `directory`, `touch`, `permissions`, `remove`, `symlink`, `line.set`, `line.remove`,
+  `block.set`, `block.remove`), `wait.path`, `wait.search`, `pleiades.builtin.wait.port`,
+  `facts.gather` and `http.request`. `file.template` is deliberately still declared: the render
+  engine lives in `internal/render` and a Collection may not import `internal/`. Everything else
+  returns an explicit "declared but not implemented" error rather than a silent no-op.
+  `exec.command` is the first write-capable method and the first built on `pkg/remoteexec`,
+  the shared SSH execution primitive a Collection may import (a Collection may import only
+  `pkg/`, so `internal/transport/ssh` is unreachable from one and is now a thin adapter over
+  the same primitive). Every implemented method declares `collection.Reversibility` (a bool plus
+  a required reason when false, enforced at registration), and a run that changes something emits
+  the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
+  and resolved params. Nothing performs a rollback yet; the recording exists because only the
+  forward run can capture the values an undo needs.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.
@@ -162,6 +177,21 @@ go generate ./internal/forge/catalogdata
 
 Fix the data in `internal/forge/catalogdata` or the scaffold templates
 (`internal/forge/collectionscaffold` / `devicescaffold`), never the generated output directly.
+
+The command is idempotent and safe to re-run: every subcommand is invoked with
+`--skip-existing`, so an entry already on disk is left exactly as it is (implementation,
+hand-written tests and all) and only a genuinely new entry is written. It reports how many
+files it wrote, which on an unchanged table is legitimately zero. Skipping is per ENTRY, not
+per file: writing only the missing half of an already-implemented method would drop a
+generated starter test asserting "declared, not implemented" underneath a real
+implementation.
+
+A method's `Doc` travels to the scaffold as JSON on `forge new-collection --doc-json`
+(or `--doc-json @file.json`), so a scaffolded method comes out carrying the full reference
+documentation `internal/forge/catalogdata` declares, rather than needing it transcribed by
+hand before `internal/archtest`'s `TestCatalogDataDocsMatchTheRegistry` will pass.
+
+`docs/11-extending-pleiades.md` has the full worked example, using `exec.winrm.shell`.
 
 ## Architecture
 

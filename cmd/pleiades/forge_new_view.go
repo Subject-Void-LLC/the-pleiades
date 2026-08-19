@@ -48,6 +48,10 @@ func runForgeNewView(args []string) error {
 		return err
 	}
 
+	// No --skip-existing here, unlike the three catalog subcommands: a
+	// view is not part of a generated table anything re-runs in bulk,
+	// so there is no caller that wants a collision treated as a
+	// non-event, and refusing stays the right answer.
 	for _, f := range files {
 		written, err := writeGeneratedFile(*dir, f.Path, f.Content)
 		if err != nil {

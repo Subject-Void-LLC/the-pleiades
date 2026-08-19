@@ -5,520 +5,393 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
-	"errors"
-	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 )
 
-// credentialFixture builds a credential.Credential carrying keyBytes as
-// PrivateKeyPEM and passphrase as Passphrase, with no password set, so
-// buildAuthMethod is exercised on its key-authentication branch (or the
-// no-usable-auth branch, when keyBytes is empty).
-func credentialFixture(keyBytes []byte, passphrase string) credential.Credential {
-	return credential.Credential{Username: "u", PrivateKeyPEM: keyBytes, Passphrase: passphrase}
-}
+// This file tests what this package is, which since pkg/remoteexec took
+// over the mechanism is an Adapter and nothing else: it translates a
+// transport.Target into a remoteexec.Target, a credential.Credential
+// into a remoteexec.Auth, and a remoteexec.Result back into a
+// transport.Result, and it must not lose or reshape anything on the way.
+//
+// Retry, backoff, the circuit breaker, host key verification and the
+// dial itself are pkg/remoteexec's tests, not copies of them here.
+// ssh_container_test.go is what proves the whole stack still reaches a
+// real, independent sshd after that move.
+//
+// These run against a real loopback SSH server rather than an injected
+// dial function, because an Adapter with an injected dial would be
+// testing pkg/remoteexec through a wrapper. A loopback socket is local
+// and near-instant, so this stays a fast unit test.
 
-// localPipe returns two ends of a real, loopback TCP connection. It is
-// deliberately NOT net.Pipe(): net.Pipe is fully synchronous and
-// unbuffered, and the SSH handshake writes from both sides without
-// waiting for a matching read first, which deadlocks net.Pipe outright
-// (this is exactly why golang.org/x/crypto/ssh's own test suite defines
-// this same real-loopback-socket helper instead of using net.Pipe; see
-// its handshake_test.go's netPipe). A loopback TCP connection is still
-// entirely local and near-instant, so this stays a fast unit test, not
-// a network test.
-func localPipe(t *testing.T) (net.Conn, net.Conn) {
+// generateTestHostKey returns a real ed25519 ssh.Signer, the same shape
+// a real sshd's host key takes.
+func generateTestHostKey(t testing.TB) ssh.Signer {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("failed to open a loopback listener: %v", err)
+		t.Fatalf("failed to generate ed25519 key: %v", err)
 	}
-	defer listener.Close()
-
-	type acceptResult struct {
-		conn net.Conn
-		err  error
-	}
-	acceptCh := make(chan acceptResult, 1)
-	go func() {
-		conn, err := listener.Accept()
-		acceptCh <- acceptResult{conn, err}
-	}()
-
-	clientConn, err := net.Dial("tcp", listener.Addr().String())
+	signer, err := ssh.NewSignerFromKey(priv)
 	if err != nil {
-		t.Fatalf("failed to dial the loopback listener: %v", err)
+		t.Fatalf("failed to build ssh.Signer: %v", err)
 	}
-
-	result := <-acceptCh
-	if result.err != nil {
-		t.Fatalf("failed to accept the loopback connection: %v", result.err)
-	}
-	return clientConn, result.conn
+	return signer
 }
 
-// newFakeSSHServer starts an in-process, loopback-TCP-backed SSH server
-// for fast, deterministic unit tests that need a genuine SSH handshake
-// and a genuine session, without the container test's real, independent
-// sshd (ssh_container_test.go covers that side of RULE 0). It accepts
-// any username/password: auth acceptance/rejection against a real,
-// independent server implementation is covered by the container tests,
-// not duplicated here. It runs handler once per "exec" request on the
-// resulting session, replying with handler's stdout, stderr, and exit
-// code. It returns a dialFunc that establishes exactly one such
-// connection per call, and the server's host public key.
-func newFakeSSHServer(t *testing.T, handler func(command string) (stdout, stderr string, exitCode int)) (dialFunc, ssh.PublicKey) {
+// writeKnownHosts writes a single known_hosts line for hostPort and key
+// into a fresh temp file, returning the file's path.
+func writeKnownHosts(t testing.TB, hostPort string, key ssh.PublicKey) string {
+	t.Helper()
+	line := knownhosts.Line([]string{hostPort}, key)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("failed to write known_hosts file: %v", err)
+	}
+	return path
+}
+
+// loopbackServer is a real SSH server on a loopback socket, accepting
+// any credential and answering one exec request per session with
+// handler's result.
+type loopbackServer struct {
+	target  transport.Target
+	hostKey ssh.PublicKey
+}
+
+// startLoopbackServer starts a loopbackServer that runs until the test
+// ends. It accepts any username and password because which credential
+// authenticated is not what this file tests; whether the Adapter
+// produced one at all is.
+func startLoopbackServer(t *testing.T, handler func(command string) (stdout, stderr string, exitCode int)) loopbackServer {
 	t.Helper()
 	hostSigner := generateTestHostKey(t)
 
 	config := &ssh.ServerConfig{
-		PasswordCallback: func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
-			return nil, nil
+		PasswordCallback: func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) {
+			return &ssh.Permissions{}, nil
+		},
+		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
+			return &ssh.Permissions{}, nil
 		},
 	}
 	config.AddHostKey(hostSigner)
 
-	dial := func(ctx context.Context, addr string, clientConfig *ssh.ClientConfig) (*ssh.Client, error) {
-		clientConn, serverConn := localPipe(t)
-		go serveOneFakeConnection(serverConn, config, handler)
-		sshConn, chans, reqs, err := ssh.NewClientConn(clientConn, addr, clientConfig)
-		if err != nil {
-			return nil, err
-		}
-		return ssh.NewClient(sshConn, chans, reqs), nil
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to open a loopback listener: %v", err)
 	}
-	return dial, hostSigner.PublicKey()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				// The listener was closed at cleanup; this goroutine's job
+				// is done.
+				return
+			}
+			go serveLoopbackConnection(conn, config, handler)
+		}
+	}()
+
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener address %T is not TCP", listener.Addr())
+	}
+	return loopbackServer{
+		target:  transport.Target{Host: "127.0.0.1", Port: tcpAddr.Port},
+		hostKey: hostSigner.PublicKey(),
+	}
 }
 
-// serveOneFakeConnection completes the server side of one SSH handshake
-// over conn and dispatches every resulting session channel to
-// handleFakeSession.
-func serveOneFakeConnection(conn net.Conn, config *ssh.ServerConfig, handler func(string) (string, string, int)) {
+// addr is the "host:port" a known_hosts line is written against.
+func (s loopbackServer) addr() string {
+	return net.JoinHostPort(s.target.Host, strconv.Itoa(s.target.Port))
+}
+
+// serveLoopbackConnection completes one server-side handshake and serves
+// its session channels.
+func serveLoopbackConnection(conn net.Conn, config *ssh.ServerConfig, handler func(string) (string, string, int)) {
 	sConn, chans, reqs, err := ssh.NewServerConn(conn, config)
 	if err != nil {
-		// The client side may have deliberately triggered a handshake
-		// failure (a fuzz/negative-path test, for example); there is no
-		// test-visible reporting mechanism from this goroutine, so this
-		// simply stops serving.
+		// A test may have deliberately triggered a handshake failure;
+		// there is no reporting channel from this goroutine, so it simply
+		// stops serving.
+		_ = conn.Close()
 		return
 	}
-	defer sConn.Close()
+	defer func() { _ = sConn.Close() }()
 	go ssh.DiscardRequests(reqs)
+
 	for newChannel := range chans {
 		if newChannel.ChannelType() != "session" {
-			newChannel.Reject(ssh.UnknownChannelType, "only session channels supported")
+			_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels supported")
 			continue
 		}
 		channel, requests, err := newChannel.Accept()
 		if err != nil {
 			continue
 		}
-		go handleFakeSession(channel, requests, handler)
+		go serveLoopbackSession(channel, requests, handler)
 	}
 }
 
-// handleFakeSession answers exactly one "exec" request on channel with
-// handler's result, then closes the channel. Any other request type is
-// declined.
-func handleFakeSession(channel ssh.Channel, requests <-chan *ssh.Request, handler func(string) (string, string, int)) {
-	defer channel.Close()
+// serveLoopbackSession answers exactly one exec request with handler's
+// stdout, stderr and exit code.
+func serveLoopbackSession(channel ssh.Channel, requests <-chan *ssh.Request, handler func(string) (string, string, int)) {
+	defer func() { _ = channel.Close() }()
 	for req := range requests {
 		if req.Type != "exec" {
 			if req.WantReply {
-				req.Reply(false, nil)
+				_ = req.Reply(false, nil)
 			}
 			continue
 		}
-
 		var payload struct{ Command string }
 		if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
-			req.Reply(false, nil)
+			_ = req.Reply(false, nil)
 			return
 		}
-		req.Reply(true, nil)
+		_ = req.Reply(true, nil)
 
 		stdout, stderr, exitCode := handler(payload.Command)
-		channel.Write([]byte(stdout))
-		channel.Stderr().Write([]byte(stderr))
-		channel.SendRequest("exit-status", false, ssh.Marshal(&struct{ Status uint32 }{uint32(exitCode)}))
+		_, _ = channel.Write([]byte(stdout))
+		_, _ = channel.Stderr().Write([]byte(stderr))
+		_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(&struct{ Status uint32 }{uint32(exitCode)})) // #nosec G115 -- a test's own small, fixed exit codes
 		return
 	}
 }
 
-// newTestTransport builds an sshTransport wired to dial, with host key
-// verification bypassed (the fake server's host key has nothing to do
-// with the behavior under test here; known_hosts_test.go and the
-// container tests already cover host key verification itself).
-func newTestTransport(dial dialFunc, opts Options) *sshTransport {
-	opts.InsecureSkipHostKeyVerify = true
-	opts = applyDefaults(opts)
-	return &sshTransport{
-		opts:    opts,
-		breaker: newCircuitBreaker(opts.BreakerThreshold, opts.BreakerCooldown),
-		dial:    dial,
-	}
-}
-
-var testTarget = transport.Target{Host: "127.0.0.1", Port: 2222}
-var testCred = credential.Credential{Username: "u", Password: "p"}
-
-// TestExec_Success proves a successful Exec call returns the remote
-// command's stdout and a zero exit code with no error.
-func TestExec_Success(t *testing.T) {
-	var execCount int32
-	dial, _ := newFakeSSHServer(t, func(cmd string) (string, string, int) {
-		atomic.AddInt32(&execCount, 1)
-		return "hello\n", "", 0
-	})
-	tr := newTestTransport(dial, Options{})
-
-	result, err := tr.Exec(context.Background(), testTarget, testCred, "echo hello")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.ExitCode != 0 {
-		t.Errorf("expected exit code 0, got %d", result.ExitCode)
-	}
-	if !strings.Contains(result.Stdout, "hello") {
-		t.Errorf("expected stdout to contain %q, got %q", "hello", result.Stdout)
-	}
-	if got := atomic.LoadInt32(&execCount); got != 1 {
-		t.Errorf("expected exactly 1 exec on the server side, got %d", got)
-	}
-}
-
-// TestExec_NonZeroExitCode proves a command that exits non-zero on the
-// remote side is reported via Result.ExitCode with a nil error, per
-// transport.Transport's documented contract: a non-zero exit code is
-// not itself a Go error.
-func TestExec_NonZeroExitCode(t *testing.T) {
-	dial, _ := newFakeSSHServer(t, func(cmd string) (string, string, int) {
-		return "", "boom\n", 7
-	})
-	tr := newTestTransport(dial, Options{})
-
-	result, err := tr.Exec(context.Background(), testTarget, testCred, "exit 7")
-	if err != nil {
-		t.Fatalf("expected no error for a non-zero remote exit code, got: %v", err)
-	}
-	if result.ExitCode != 7 {
-		t.Errorf("expected exit code 7, got %d", result.ExitCode)
-	}
-	if !strings.Contains(result.Stderr, "boom") {
-		t.Errorf("expected stderr to contain %q, got %q", "boom", result.Stderr)
-	}
-}
-
-// TestExec_SeparatesStdoutAndStderr proves stdout and stderr are
-// captured into separate Result fields, never combined.
-func TestExec_SeparatesStdoutAndStderr(t *testing.T) {
-	dial, _ := newFakeSSHServer(t, func(cmd string) (string, string, int) {
-		return "out-line", "err-line", 0
-	})
-	tr := newTestTransport(dial, Options{})
-
-	result, err := tr.Exec(context.Background(), testTarget, testCred, "noop")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Stdout != "out-line" {
-		t.Errorf("expected stdout %q, got %q", "out-line", result.Stdout)
-	}
-	if result.Stderr != "err-line" {
-		t.Errorf("expected stderr %q, got %q", "err-line", result.Stderr)
-	}
-}
-
-// TestExec_CommandRunsVerbatim proves the exact command string reaches
-// the remote side unmodified: no local shell wrapping, and no string
-// concatenation with the target host or anything else.
-func TestExec_CommandRunsVerbatim(t *testing.T) {
-	const want = `echo "$(whoami)"; rm -rf /tmp/should-not-be-touched`
-
-	var got string
-	dial, _ := newFakeSSHServer(t, func(cmd string) (string, string, int) {
-		got = cmd
-		return "", "", 0
-	})
-	tr := newTestTransport(dial, Options{})
-
-	if _, err := tr.Exec(context.Background(), testTarget, testCred, want); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != want {
-		t.Errorf("expected the remote side to receive command verbatim:\nwant: %q\ngot:  %q", want, got)
-	}
-}
-
-// TestExec_NoAuthMethod proves a credential with neither Password nor
-// PrivateKeyPEM set is rejected explicitly, before any dial is
-// attempted.
-func TestExec_NoAuthMethod(t *testing.T) {
-	var dialCalls int32
-	dial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		atomic.AddInt32(&dialCalls, 1)
-		return nil, errors.New("dial should never be reached")
-	}
-	tr := newTestTransport(dial, Options{})
-
-	_, err := tr.Exec(context.Background(), testTarget, credential.Credential{Username: "u"}, "echo hi")
-	if err == nil {
-		t.Fatal("expected an error for a credential with no usable authentication method")
-	}
-	if !strings.Contains(err.Error(), "no usable authentication method") {
-		t.Errorf("expected a clear no-usable-authentication error, got: %v", err)
-	}
-	if got := atomic.LoadInt32(&dialCalls); got != 0 {
-		t.Errorf("expected no dial attempt for an unusable credential, got %d", got)
-	}
-}
-
-// TestExec_BadPrivateKeyPEM proves a credential with unparsable
-// PrivateKeyPEM bytes fails with a wrapped parse error, before any dial
-// is attempted, rather than silently falling through to no
-// authentication.
-func TestExec_BadPrivateKeyPEM(t *testing.T) {
-	var dialCalls int32
-	dial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		atomic.AddInt32(&dialCalls, 1)
-		return nil, errors.New("dial should never be reached")
-	}
-	tr := newTestTransport(dial, Options{})
-
-	cred := credentialFixture([]byte("not a valid private key"), "")
-	_, err := tr.Exec(context.Background(), testTarget, cred, "echo hi")
-	if err == nil {
-		t.Fatal("expected an error for an unparsable private key")
-	}
-	if got := atomic.LoadInt32(&dialCalls); got != 0 {
-		t.Errorf("expected no dial attempt for an unparsable private key, got %d", got)
-	}
-}
-
-// TestExec_RetryOnlyWrapsDialPhase is the direct proof this package's
-// central safety rule holds: a dial that fails twice and succeeds on the
-// third attempt must result in the remote command running EXACTLY ONCE,
-// never once per dial attempt. The first two dial attempts fail before
-// ever reaching the fake server (no session is created for them at
-// all); only the third, successful dial reaches handleFakeSession.
-func TestExec_RetryOnlyWrapsDialPhase(t *testing.T) {
-	var execCount int32
-	realDialFn, _ := newFakeSSHServer(t, func(cmd string) (string, string, int) {
-		atomic.AddInt32(&execCount, 1)
-		return "ok", "", 0
-	})
-
-	var dialAttempts int32
-	flakyDial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		attempt := atomic.AddInt32(&dialAttempts, 1)
-		if attempt <= 2 {
-			return nil, fmt.Errorf("simulated dial failure %d", attempt)
-		}
-		return realDialFn(ctx, addr, config)
-	}
-
-	tr := newTestTransport(flakyDial, Options{MaxRetries: 3})
-
-	result, err := tr.Exec(context.Background(), testTarget, testCred, "echo hi")
-	if err != nil {
-		t.Fatalf("expected the third dial attempt to succeed, got error: %v", err)
-	}
-	if result.ExitCode != 0 || result.Stdout != "ok" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if got := atomic.LoadInt32(&dialAttempts); got != 3 {
-		t.Fatalf("expected exactly 3 dial attempts, got %d", got)
-	}
-	if got := atomic.LoadInt32(&execCount); got != 1 {
-		t.Fatalf("expected the command to run exactly ONCE despite 2 dial retries, got %d", got)
-	}
-}
-
-// TestExec_DialRetryExhaustedThenBreakerOpens proves that once
-// MaxRetries dial attempts have all failed, Exec reports a clean error,
-// and (when MaxRetries reaches BreakerThreshold) the circuit is now
-// open: a following Exec call against the same target fails fast, well
-// under the time a real dial-timeout*retries budget would take, and
-// attempts no further dial at all.
-func TestExec_DialRetryExhaustedThenBreakerOpens(t *testing.T) {
-	var dialCalls int32
-	failingDial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		atomic.AddInt32(&dialCalls, 1)
-		return nil, errors.New("simulated unreachable target")
-	}
-	tr := newTestTransport(failingDial, Options{MaxRetries: 3, BreakerThreshold: 3, BreakerCooldown: time.Hour})
-
-	_, err := tr.Exec(context.Background(), testTarget, testCred, "echo hi")
-	if err == nil {
-		t.Fatal("expected an error once retries are exhausted")
-	}
-	if got := atomic.LoadInt32(&dialCalls); got != 3 {
-		t.Fatalf("expected exactly 3 dial attempts (MaxRetries), got %d", got)
-	}
-
-	start := time.Now()
-	_, err = tr.Exec(context.Background(), testTarget, testCred, "echo hi")
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("expected the now-open breaker to reject this call")
-	}
-	if !strings.Contains(err.Error(), "circuit open") {
-		t.Errorf("expected a clear circuit-open error, got: %v", err)
-	}
-	if got := atomic.LoadInt32(&dialCalls); got != 3 {
-		t.Errorf("expected NO additional dial attempts once the breaker is open, total stayed at %d", got)
-	}
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("expected the breaker to fail fast (no dial, no backoff wait), took %v", elapsed)
-	}
-}
-
-// TestExec_ContextCanceledDuringBackoff proves that a caller's context
-// cancellation aborts an in-flight retry loop promptly, rather than
-// waiting out the full MaxRetries*backoff budget.
-func TestExec_ContextCanceledDuringBackoff(t *testing.T) {
-	failingDial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		return nil, errors.New("simulated unreachable target")
-	}
-	// A high threshold/cooldown keeps the breaker out of the way, so
-	// only ctx cancellation can explain a fast return here.
-	tr := newTestTransport(failingDial, Options{MaxRetries: 5, BreakerThreshold: 1000, BreakerCooldown: time.Hour})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	start := time.Now()
-	_, err := tr.Exec(ctx, testTarget, testCred, "echo hi")
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("expected an error when the context is canceled mid-retry")
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("expected context cancellation to abort retries promptly, took %v", elapsed)
-	}
-}
-
-// TestExec_SessionFailureIsNeverRetried proves that once a dial has
-// succeeded and a session has been established, a failure while running
-// the command (as opposed to a non-zero exit code) is reported as a
-// genuine error and never triggers a second dial attempt: the dial
-// phase is over by then, and Exec's retry loop has already returned.
-func TestExec_SessionFailureIsNeverRetried(t *testing.T) {
-	hostSigner := generateTestHostKey(t)
-	srvConfig := &ssh.ServerConfig{NoClientAuth: true}
-	srvConfig.AddHostKey(hostSigner)
-
-	var dialAttempts int32
-	dial := func(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-		atomic.AddInt32(&dialAttempts, 1)
-		clientConn, serverConn := localPipe(t)
-		go func() {
-			sConn, chans, reqs, err := ssh.NewServerConn(serverConn, srvConfig)
-			if err != nil {
-				return
-			}
-			defer sConn.Close()
-			go ssh.DiscardRequests(reqs)
-			for newChannel := range chans {
-				// Reject every session channel outright, forcing
-				// session.Run to fail with a connection-level error
-				// rather than reporting a translated exit code.
-				newChannel.Reject(ssh.Prohibited, "session channels are refused by this test server")
-			}
-		}()
-
-		sshConn, chans, reqs, err := ssh.NewClientConn(clientConn, addr, config)
-		if err != nil {
-			return nil, err
-		}
-		return ssh.NewClient(sshConn, chans, reqs), nil
-	}
-
-	tr := newTestTransport(dial, Options{MaxRetries: 3})
-
-	_, err := tr.Exec(context.Background(), testTarget, testCred, "echo hi")
-	if err == nil {
-		t.Fatal("expected an error when the session cannot be established")
-	}
-	if got := atomic.LoadInt32(&dialAttempts); got != 1 {
-		t.Fatalf("expected exactly 1 dial attempt: a post-dial session failure must never trigger a retried dial, got %d", got)
-	}
-}
-
-// TestBuildAuthMethod is a table-driven test of buildAuthMethod's four
-// branches: password, unencrypted key, passphrase-encrypted key, and
-// neither set.
-func TestBuildAuthMethod(t *testing.T) {
-	plainKeyPEM := marshalTestPrivateKey(t, "")
-	encryptedKeyPEM := marshalTestPrivateKey(t, "correct-horse")
-
+// TestExec_TranslatesResultFaithfully proves the three fields of a
+// remote result reach transport.Result unchanged and unmerged, and that
+// a non-zero exit status arrives as an ExitCode with a nil error rather
+// than as a Go error.
+//
+// That last part is transport.Transport's load-bearing contract: a
+// caller must be able to tell "the command ran and failed" apart from
+// "the command's outcome is unknown," and folding one into the other
+// would make every failed command look like a broken connection.
+func TestExec_TranslatesResultFaithfully(t *testing.T) {
 	tests := []struct {
-		name    string
-		cred    credential.Credential
-		wantErr bool
+		name     string
+		stdout   string
+		stderr   string
+		exitCode int
 	}{
-		{
-			name: "password",
-			cred: credential.Credential{Username: "u", Password: "p"},
-		},
-		{
-			name: "unencrypted private key",
-			cred: credential.Credential{Username: "u", PrivateKeyPEM: plainKeyPEM},
-		},
-		{
-			name: "passphrase-encrypted private key with correct passphrase",
-			cred: credential.Credential{Username: "u", PrivateKeyPEM: encryptedKeyPEM, Passphrase: "correct-horse"},
-		},
-		{
-			name:    "passphrase-encrypted private key with wrong passphrase",
-			cred:    credential.Credential{Username: "u", PrivateKeyPEM: encryptedKeyPEM, Passphrase: "wrong"},
-			wantErr: true,
-		},
-		{
-			name:    "unparsable private key bytes",
-			cred:    credential.Credential{Username: "u", PrivateKeyPEM: []byte("garbage")},
-			wantErr: true,
-		},
-		{
-			name:    "neither password nor key set",
-			cred:    credential.Credential{Username: "u"},
-			wantErr: true,
-		},
+		{name: "success", stdout: "out-line", stderr: "", exitCode: 0},
+		{name: "output on both streams", stdout: "out-line", stderr: "err-line", exitCode: 0},
+		{name: "non-zero exit status", stdout: "", stderr: "boom", exitCode: 7},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			method, err := buildAuthMethod(tc.cred)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected an error, got nil")
-				}
-				if method != nil {
-					t.Error("expected a nil AuthMethod alongside a non-nil error")
-				}
-				return
-			}
+			server := startLoopbackServer(t, func(string) (string, string, int) {
+				return tc.stdout, tc.stderr, tc.exitCode
+			})
+			tr := New(Options{KnownHostsPath: writeKnownHosts(t, server.addr(), server.hostKey)})
+
+			result, err := tr.Exec(context.Background(), server.target, testCred(), "anything")
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf("Exec: %v", err)
 			}
-			if method == nil {
-				t.Fatal("expected a non-nil AuthMethod")
+			if result.Stdout != tc.stdout {
+				t.Errorf("Stdout = %q, want %q", result.Stdout, tc.stdout)
+			}
+			if result.Stderr != tc.stderr {
+				t.Errorf("Stderr = %q, want %q", result.Stderr, tc.stderr)
+			}
+			if result.ExitCode != tc.exitCode {
+				t.Errorf("ExitCode = %d, want %d", result.ExitCode, tc.exitCode)
 			}
 		})
 	}
 }
 
+// TestExec_CommandRunsVerbatim proves the exact command string survives
+// the Adapter untouched: no local shell wrapping, and no concatenation
+// with the target address.
+func TestExec_CommandRunsVerbatim(t *testing.T) {
+	const want = `echo "$(whoami)"; rm -rf /tmp/should-not-be-touched`
+
+	received := make(chan string, 1)
+	server := startLoopbackServer(t, func(cmd string) (string, string, int) {
+		received <- cmd
+		return "", "", 0
+	})
+	tr := New(Options{KnownHostsPath: writeKnownHosts(t, server.addr(), server.hostKey)})
+
+	if _, err := tr.Exec(context.Background(), server.target, testCred(), want); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got := <-received; got != want {
+		t.Errorf("the remote side received %q, want %q", got, want)
+	}
+}
+
+// TestExec_TranslatesEveryCredentialShape proves each field of a
+// credential.Credential reaches an authentication method that a real
+// server accepts, and that a credential carrying nothing usable is
+// refused outright.
+//
+// Refusal is the important case. A credential store that found nothing
+// returns a zero Credential, and an Adapter that turned that into a
+// connection attempt would be trying to log in with no authentication at
+// all against a device it was told it had no key for.
+func TestExec_TranslatesEveryCredentialShape(t *testing.T) {
+	plainKey := marshalTestPrivateKey(t, "")
+	encryptedKey := marshalTestPrivateKey(t, "correct-horse")
+
+	tests := []struct {
+		name    string
+		cred    credential.Credential
+		wantErr string
+	}{
+		{name: "password", cred: credential.Credential{Username: "u", Password: "p"}},
+		{name: "private key", cred: credential.Credential{Username: "u", PrivateKeyPEM: plainKey}},
+		{
+			name: "passphrase-encrypted private key",
+			cred: credential.Credential{Username: "u", PrivateKeyPEM: encryptedKey, Passphrase: "correct-horse"},
+		},
+		{
+			name:    "no usable material",
+			cred:    credential.Credential{Username: "u"},
+			wantErr: "no usable authentication method",
+		},
+		{
+			name:    "unparsable private key",
+			cred:    credential.Credential{Username: "u", PrivateKeyPEM: []byte("garbage")},
+			wantErr: "parse private key",
+		},
+		{
+			name:    "wrong passphrase",
+			cred:    credential.Credential{Username: "u", PrivateKeyPEM: encryptedKey, Passphrase: "wrong"},
+			wantErr: "parse private key",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := startLoopbackServer(t, func(string) (string, string, int) {
+				return "authenticated", "", 0
+			})
+			tr := New(Options{KnownHostsPath: writeKnownHosts(t, server.addr(), server.hostKey)})
+
+			result, err := tr.Exec(context.Background(), server.target, tc.cred, "whoami")
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected an error mentioning %q, got a successful call", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error = %v, want it to mention %q", err, tc.wantErr)
+				}
+				// Every refusal happens before any network I/O, so a
+				// failure here must never carry a dial or handshake in it.
+				if strings.Contains(err.Error(), "dial") {
+					t.Errorf("error = %v, want the refusal to happen before any dial", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Exec: %v", err)
+			}
+			if result.Stdout != "authenticated" {
+				t.Errorf("Stdout = %q, want the server to have accepted this credential", result.Stdout)
+			}
+		})
+	}
+}
+
+// TestExec_HostKeyVerificationStillApplies proves the Adapter did not
+// lose the fail-closed host key check when the mechanism moved to
+// pkg/remoteexec: a known_hosts file naming somebody else's key for this
+// address is exactly what an interposed server looks like, and it must
+// be refused.
+func TestExec_HostKeyVerificationStillApplies(t *testing.T) {
+	server := startLoopbackServer(t, func(string) (string, string, int) {
+		return "reached", "", 0
+	})
+
+	t.Run("the real host key is accepted", func(t *testing.T) {
+		tr := New(Options{KnownHostsPath: writeKnownHosts(t, server.addr(), server.hostKey)})
+		if _, err := tr.Exec(context.Background(), server.target, testCred(), "echo hi"); err != nil {
+			t.Fatalf("Exec with a matching known_hosts entry: %v", err)
+		}
+	})
+
+	t.Run("a different host key is refused", func(t *testing.T) {
+		forged := generateTestHostKey(t)
+		tr := New(Options{
+			KnownHostsPath: writeKnownHosts(t, server.addr(), forged.PublicKey()),
+			MaxRetries:     1, // a forged key is not a transient condition retrying would fix
+		})
+		if _, err := tr.Exec(context.Background(), server.target, testCred(), "echo hi"); err == nil {
+			t.Fatal("a mismatched host key was accepted, so the connection is not MITM-resistant")
+		}
+	})
+
+	t.Run("a missing known_hosts file fails closed", func(t *testing.T) {
+		tr := New(Options{
+			KnownHostsPath: filepath.Join(t.TempDir(), "does-not-exist"),
+			MaxRetries:     1,
+		})
+		_, err := tr.Exec(context.Background(), server.target, testCred(), "echo hi")
+		if err == nil {
+			t.Fatal("a missing known_hosts file was treated as trust on first use")
+		}
+		if strings.Contains(err.Error(), "dial") {
+			t.Errorf("error = %v, want host key verification to fail before any dial", err)
+		}
+	})
+}
+
+// TestExec_ContextCancellationReachesTheCall proves a caller's canceled
+// context aborts an Exec promptly rather than waiting out the dial
+// budget, which is what lets an interruptible job actually stop.
+func TestExec_ContextCancellationReachesTheCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// TEST-NET-1 (RFC 5737) is reserved for documentation and not routed,
+	// so a dial here would otherwise sit until the timeout.
+	target := transport.Target{Host: "192.0.2.1", Port: 22}
+	tr := New(Options{InsecureSkipHostKeyVerify: true, DialTimeout: 30 * time.Second})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := tr.Exec(ctx, target, testCred(), "echo hi")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected a failure on an already-canceled context")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Exec did not return promptly on a canceled context")
+	}
+}
+
+// testCred is the password credential the loopback server accepts.
+func testCred() credential.Credential {
+	return credential.Credential{Username: "u", Password: "p"}
+}
+
 // marshalTestPrivateKey generates a fresh ed25519 key and returns it PEM
-// encoded, encrypted with passphrase if non-empty.
+// encoded, encrypted with passphrase when passphrase is not empty.
 func marshalTestPrivateKey(t *testing.T, passphrase string) []byte {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -527,13 +400,14 @@ func marshalTestPrivateKey(t *testing.T, passphrase string) []byte {
 	}
 
 	var block *pem.Block
+	var err2 error
 	if passphrase == "" {
-		block, err = ssh.MarshalPrivateKey(priv, "")
+		block, err2 = ssh.MarshalPrivateKey(priv, "")
 	} else {
-		block, err = ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte(passphrase))
+		block, err2 = ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte(passphrase))
 	}
-	if err != nil {
-		t.Fatalf("failed to marshal private key: %v", err)
+	if err2 != nil {
+		t.Fatalf("failed to marshal private key: %v", err2)
 	}
 	return pem.EncodeToMemory(block)
 }

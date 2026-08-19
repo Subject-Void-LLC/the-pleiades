@@ -1,0 +1,24 @@
+# Verify an address change took, from a connection opened after it.
+#
+# This is a separate runbook rather than a task appended to
+# win_static_ip.yaml, and the separation is the point: the conversion
+# destroys the connection it arrived on, so a verification task in the
+# same run would be checking through a channel that no longer exists.
+# Running this afterward opens a fresh connection, which is also the only
+# real proof the host survived the change.
+id: win_verify_ip
+hosts: win2025
+tasks:
+  - name: Report the adapter state after a change
+    exec.winrm.shell:
+      shell: powershell
+      command: |
+        $i = Get-NetIPAddress -InterfaceAlias Ethernet -AddressFamily IPv4
+        "address={0}/{1} origin={2} state={3}" -f $i.IPAddress, $i.PrefixLength, $i.PrefixOrigin, $i.AddressState
+        "dhcp=" + (Get-NetIPInterface -InterfaceAlias Ethernet -AddressFamily IPv4).Dhcp
+
+        # origin=Manual means the static address took.
+        # origin=Dhcp means it did not, and the lease is still in charge.
+        # An address starting 169.254 means the conversion half applied:
+        # DHCP is off and nothing bound. That host needs win_revert.yaml.
+        Get-NetConnectionProfile | ForEach-Object { "profile={0} category={1}" -f $_.Name, $_.NetworkCategory }

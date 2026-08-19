@@ -6,7 +6,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
-	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
 // collectionActionExecutor runs a task whose FQCN names a registered
@@ -30,9 +29,9 @@ type collectionActionExecutor struct {
 
 	// newContext builds the sdk.RunbookContext a method is handed. It is a
 	// field rather than a hardcoded constructor so a caller can supply one
-	// that captures emitted facts, which is what a real run needs and what
-	// tests assert against.
-	newContext func(device inventory.InventoryItem) sdk.RunbookContext
+	// that captures emitted facts and resolves the device's secrets, which
+	// is what a real run needs and what tests assert against.
+	newContext RunbookContextFunc
 
 	// invoke, when non-nil, replaces how a resolved, StatusImplemented
 	// method's body actually runs; see CollectionInvoker's own doc comment.
@@ -71,12 +70,54 @@ func WithCollectionInvoker(invoke CollectionInvoker) CollectionActionExecutorOpt
 //
 // Pass NewBuiltinActionExecutor() as fallback to keep the engine keywords
 // working, which is what the composition root does.
-func NewCollectionActionExecutor(fallback ActionExecutor, newContext func(inventory.InventoryItem) sdk.RunbookContext, opts ...CollectionActionExecutorOption) ActionExecutor {
+func NewCollectionActionExecutor(fallback ActionExecutor, newContext RunbookContextFunc, opts ...CollectionActionExecutorOption) ActionExecutor {
 	e := &collectionActionExecutor{fallback: fallback, newContext: newContext}
 	for _, opt := range opts {
 		opt(e)
 	}
 	return e
+}
+
+// checkMethodCapabilities refuses a Collection method whose target device
+// does not carry every capability the method's manifest requires.
+//
+// Until this existed, Manifest.RequiredCapabilities was documentation.
+// pkg/collection.Register validates that each name is a capability this
+// vocabulary knows, and tools/gendocs prints the list on the reference
+// page, but nothing anywhere compared it against the device a task was
+// about to run on. A method declaring SystemdCapable would happily
+// invoke against a Cisco switch, and the first sign of trouble would be
+// whatever the remote shell said about "systemctl".
+//
+// It deliberately uses HasCapability rather than comparing declared
+// names directly, for two reasons that matter here. HasCapability
+// resolves the hierarchy (record.Base.Declares runs capability.Resolves),
+// so a device declaring the concrete SystemdCapable satisfies a method
+// requiring the broad ServiceManagerCapable, which is exactly what
+// ServiceManagerCapable's own doc comment says the parent exists for. And
+// on a real device type it also runs the structural assertion, so a
+// declaration the Go type cannot back does not pass.
+//
+// This mirrors, at run time, what validate.CapabilityRule already does at
+// plan time for transport-backed fqcns. Both exist for the same reason
+// the transport executor keeps its own check after validation has run: a
+// plan can be built, stored, and executed later against a registry or an
+// inventory that has since changed.
+func checkMethodCapabilities(desc collection.Descriptor, fqcn string, device inventory.InventoryItem) error {
+	if len(desc.Manifest.RequiredCapabilities) == 0 {
+		return nil
+	}
+	if device == nil {
+		return fmt.Errorf("collection method %q requires capabilities %v but the task has no target device",
+			fqcn, desc.Manifest.RequiredCapabilities)
+	}
+	for _, required := range desc.Manifest.RequiredCapabilities {
+		if !device.HasCapability(required) {
+			return fmt.Errorf("collection method %q requires capability %s, which device %q does not have",
+				fqcn, required, device.Name())
+		}
+	}
+	return nil
 }
 
 // Execute runs task, dispatching to the registered Collection method when
@@ -101,6 +142,10 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		return ActionResult{}, fmt.Errorf("collection method %q is registered as implemented but carries no implementation", task.FQCN)
 	}
 
+	if err := checkMethodCapabilities(desc, task.FQCN, device); err != nil {
+		return ActionResult{}, err
+	}
+
 	if e.invoke != nil {
 		result, stats, err := e.invoke(ctx, desc, device, task.Params)
 		if err != nil {
@@ -109,7 +154,16 @@ func (e *collectionActionExecutor) Execute(ctx context.Context, task *Task, devi
 		return ActionResult{Changed: result.Changed, Stats: stats}, nil
 	}
 
-	rc := e.newContext(device)
+	// Building the context is where a device's secrets are resolved, so a
+	// failure here is a real one (an unreadable credential store, a wrong
+	// master key) and is reported rather than degraded into an empty
+	// secret set. A device that simply has no stored credential is not a
+	// failure and never reaches this branch; see NewCredentialRunbookContext.
+	rc, err := e.newContext(ctx, device)
+	if err != nil {
+		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)
+	}
+
 	result, err := desc.Invoke(ctx, rc, device, task.Params)
 	if err != nil {
 		return ActionResult{}, fmt.Errorf("collection method %q: %w", task.FQCN, err)

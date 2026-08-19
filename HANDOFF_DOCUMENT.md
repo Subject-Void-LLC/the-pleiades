@@ -4,220 +4,307 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Production-Packaging`. Directive: plan and build Phase 20, Production Packaging.
-Stages 20a, 20b and 20c are BUILT. Phase 20 is NOT closed: 10 of 19 items are ticked and the nine
-that remain are named below. Nothing is committed. Phase 20a's handoff moved to `HANDOFF_ARCHIVE.md`.**
+**Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `60dae0d`, `cloud.aws.*` plus the `aws`
+sync plugin (committed with the user's own live go-ahead). Everything below — the four Windows
+capability accessors on `windows.Server`, `svc.windows.*`/`win.feature.*` (7 methods) and the
+`windows_server` classification rule — is implemented, tested, and verified on top of that commit,
+but uncommitted: no such word has been given yet this session.**
 
-### What is done and proven
+This session opened with "what's the next batch?" `HANDOFF_DOCUMENT.md`'s own "remainder, in
+order" list named items 3 and 4 (the `windows_server` classification rule, and
+`svc.windows.*`/`win.feature.*`) as next. A plan for both together was written, approved, and
+implemented — one batch rather than two, because the classification rule only matters once
+`windows_server` is a device type real methods can run against, the same reasoning that made
+`cloud.aws.*` and the `aws` plugin one combined commit even though they were planned separately.
 
-- **Images.** Both distroless (`gcr.io/distroless/base-debian12:nonroot`), digest-pinned, non-root at
-  a NUMERIC uid, stripped, with OCI provenance from build args. Build context 410 MB to 13 MB.
-- **Compose.** Named volumes, real healthchecks on every service, warm start about 4 s.
-- **TLS terminates in the controller**, and the insecure cookie path is DELETED rather than disabled.
-  `make gosec` is 9 findings against 12, with **zero `G124`**, which is the promise Phase 79's
-  Security Analysis was amended on.
-- **Certificates self-provision** when the admin configures none, and the provisioning is LOCK-FREE.
-- **Helm chart** is real: two Deployments, two StatefulSets, four liveness and four readiness probes,
-  zero `:latest`, non-root throughout, per-kind name budgets.
-- **`FAILURE_PATTERNS` #119 is CLOSED**, proven by severing a real broker under a real runner.
+### What landed
 
-### The nine open items, honestly
+**`windows.Server` gained four real accessors**, closing the TODO its own doc comment named since
+the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback — purely
+descriptive, nothing gates on it, the same restraint `linux.Server.Distribution` applies to its own
+detected fact), `ServiceManagerName()` (property `service_manager`, defaulting to `"windows_scm"`,
+the exact mirror of `linux.Server.ServiceManagerName`'s shape — this is what makes
+`internal/catalog/svc.managerNamespace`'s pre-existing `"windows_scm" -> "svc.windows"` mapping
+resolve for real for the first time), `WindowsServiceStartMode()` (property
+`windows_service_start_mode`, defaulting to `"Automatic"`, informational like
+`SystemdUnitPath` — no method reads it, it satisfies the capability's structural contract) and
+`DISMLogPath()` (property `dism_log_path`, defaulting to the real Windows default,
+`C:\Windows\Logs\DISM\dism.log`).
 
-`/readyz` bounding is **not implemented** and is the one open item that is code rather than writing.
-The endpoint is unauthenticated, unrate-limited, runs a real query per request, and nothing sets
-`MaxOpenConns`, so a caller can flip a healthy controller out of rotation today. Single-flight
-collapse is the fix and the write-probe alternative was tested and rejected; the item records why.
+**Two new `pkg/` packages, mirroring `pkg/remotesvc` for a transport with no persistent
+connection.** `pkg/winrmsvc` (Service Control Manager state) and `pkg/winrmdism` (DISM feature
+state) are both built on the existing `pkg/winrmexec`, which dials fresh per call rather than
+holding a `Conn` (the credential is a call argument to `winrmexec.Run`, not package state), so both
+take an explicit `Session{Target, Auth, Options}` config bundle instead of a live connection.
+`pkg/winrmsvc.Status` reads a service's existence, run state and start type in one PowerShell round
+trip (`Get-Service -ErrorAction SilentlyContinue` plus `ConvertTo-Json`), the same "one round trip,
+decide from real reported state" rule `pkg/remotesvc.Status` already applies. `pkg/winrmdism`
+shells out to `dism.exe` directly rather than the `ServerManager` PowerShell module
+(`Install-WindowsFeature`), deliberately: `windows.Server.DISMLogPath` already commits this design
+to DISM, and `dism.exe /online` works on every Windows SKU while `ServerManager` is Server-only. A
+real, non-obvious gotcha surfaced building it: calling a native executable from a PowerShell script
+does not make the script's own exit code reflect the executable's, so every script this package
+sends ends with an explicit `exit $LASTEXITCODE` line — without it, `Result.ExitCode` would read
+success regardless of what `dism.exe` actually reported. DISM's real exit codes are applied
+directly: `0` success, `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) success-needs-restart (surfaced as
+a new `reboot_required` stat rather than folded into `changed`), `87`
+(`ERROR_INVALID_PARAMETER`) an unrecognized feature name (surfaced as `Exists: false`, not an
+error — the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
+applies to a systemd unit).
 
-The other eight are the gate items: Pattern Entry Gate, Fuzz/Stress, Security Analysis, Adversarial
-Pattern Justification, Schema/Injection Hardening, Documentation Gate, Release Gate, and Provide
-Commit Message. Much of the underlying work exists (the release-gate tests are written and pass, the
-docs are updated, `namesFrom` is fuzzed); what is missing is the written justification each gate
-requires, which is the deliverable and not a formality.
+**`svc.windows.*` (5 methods: `start`/`stop`/`restart`/`enable`/`disable`)** mirrors
+`svc/systemd`'s own `unitOp`/`runUnitOp` shared-body shape exactly (`serviceOp`/`runServiceOp`
+here). No `daemon_reload` counterpart: the Service Control Manager has no "reread unit files from
+disk" operation to expose. `enable`/`disable`'s inverse is genuinely more careful than
+`svc.systemd`'s own: Windows services have three start types
+(`Automatic`/`Manual`/`Disabled`), and this namespace's `enable`/`disable` only ever set the first
+and third. A service found `Manual` that `enable` moves to `Automatic` has no exact reverse through
+`disable` (which sets `Disabled`, not `Manual`) — that specific transition emits no inverse at all
+rather than one that would over-correct a rollback, which is documented on each method's own
+`Reversibility.Notes` and verified directly by driving the real, registered `Enable`/`Disable`
+functions with seams swapped, not a hand-copied stand-in for their inverse logic.
 
-### The lesson this phase kept teaching
+**`win.feature.install`/`remove`** mirror the same read-decide-act-read-back shape over
+`pkg/winrmdism`. Unlike `svc.windows`'s enable/disable, this inverse is unconditional on the state
+found before: DISM's feature states have no third state this namespace manages around the way
+`Manual` complicates services, so `Enabled`/`Disabled` are exact complements for the transitions
+`install`/`remove` make. `install` passes `/all` (also enabling required parent features, matching
+what the Windows GUI's own "Add roles and features" does by default); `remove` deliberately does
+not, so removing a feature never silently removes the parents it depended on.
 
-Three separate designs for certificate provisioning were built and two were torn out, and each time
-the adversarial pass found the same shape: **a mechanism that made one participant's bad state
-everyone else's problem.** First a fail-closed refusal, then a claim lock whose dead holder froze
-every sibling, then an ownership rule so broad that unparseable bytes bricked a directory forever.
-The design that survived removes the shared decision entirely: one atomic file, load-generate-load,
-losers re-read. When a fix keeps growing new faces, the primitive is wrong.
+**The `windows_server` classification rule** (`internal/classification/default_ruleset.go`), added
+at its own root — agentless, `configure_polling`, the same four capabilities
+`windows.NewServer`'s baseline already grants — the same pattern `aws_account`/`catalyst_center`
+were each added under when the plugin or batch that needed them was built. The one real, direct
+consumer: the `aws` sync plugin's `Classify` no longer quarantines a discovered Windows EC2
+instance (`Platform: "windows"`) — it resolves to `windows_server` — while a `Platform` value this
+tree still has no rule for continues to quarantine honestly. `aws_localstack_test.go`'s own
+`TestClassify_WindowsInstance_Quarantines` (proving the old, now-false behavior) was replaced with
+`TestClassify_WindowsInstance` plus a new `TestClassify_UnrecognizedPlatform_Quarantines`
+preserving direct coverage of the real quarantine path; `conformance_test.go`'s `aws` backend's own
+`unclassifiableUnsupported` explanation was updated to stop citing the retired test by name.
 
-### Governance corrected, and it took three attempts
+**A real regression, caught and fixed, in code from an earlier session, not new to this batch.**
+`internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed` depended on
+`svc.windows.start` staying declared forever, and both concrete namespaces
+`svc.managerNamespace` maps to are now fully implemented, so there is no longer any real
+device/verb combination reachable from outside the package that exercises `dispatch`'s own
+"declared but not implemented" branch. `LESSONS_LEARNED.md` #150 generalizes this. Fixed with a new
+whitebox test (`internal/catalog/svc/dispatch_internal_test.go`) registering one throwaway,
+uniquely-named `StatusDeclared` fixture purely to prove the branch, and a new black-box
+`TestDispatchesToWindows` (mirroring `TestDispatchesToSystemd`) proving real dispatch resolves to
+`svc.windows.start` against an unreachable address. The identical regression class
+`cmd/pleiades/doc_test.go` has hit every prior session that flips a fixture FQCN from declared to
+implemented recurred here too, fixed the same way: the fixture moved to `file.template`, the one
+FQCN this document already commits to staying declared.
 
-`gosec-waivers.json`'s header demanded "zero remaining waivers" before Phase 20 and attributed that
-to AGENTS.md. **AGENTS.md never said it.** The bar came from Phase 0's policy and was copied with a
-false attribution; both are struck. My first two corrections of it were themselves wrong, in exactly
-the way `LESSONS_LEARNED` #112 records, and were caught by adversarial passes that recomputed every
-number rather than by review. **Phase 82** now owns the seven waivers that pointed at closed Phase 39.
+### Testing posture: `pkg/winrmexec`'s, not `cloud.aws.*`'s LocalStack precedent
 
-### New phases recorded this session
+There is no WinRM emulator the way LocalStack emulates the AWS wire protocol, and `pkg/winrmexec`'s
+own package doc already states and accepts that constraint rather than building a stub server that
+"would only prove this package agrees with the stub." Every new package and Collection method hits
+**100% coverage on everything reachable without a live host**: `pkg/winrmsvc`/`pkg/winrmdism`'s
+script construction, quoting and state parsing against canned input; `internal/catalog/svc/windows`
+and `internal/catalog/win/feature`'s full decision logic (converged/refusal/inverse, including every
+downstream failure-wrapping branch) via `statusFunc`/`startFunc`/`stopFunc`/`restartFunc`/
+`enableFunc`/`disableFunc` seams swapped to canned answers — the same role `remoteexectest`'s fake
+systemctl plays for `pkg/remotesvc`'s own tests, adapted to a transport with no in-process fake
+worth building. `pkg/winrmsvc`/`pkg/winrmdism` themselves sit at 77.5%/73.3% (no recorded floor,
+the same "informational" bucket `pkg/winrmexec` itself already sits in): the remaining gap is the
+one thing that genuinely needs a live host, a real command's real output coming back, which is
+exactly what `pkg/winrmexec`'s own tests document as unfakeable. That one thing gets a new,
+env-gated Release Gate, `cmd/pleiades/winrm_service_feature_release_gate_test.go`, reusing
+`winrm_static_ip_release_gate_test.go`'s existing host/user/password env vars and adding its own
+(`PLEIADES_WINRM_TEST_SERVICE`, `PLEIADES_WINRM_TEST_FEATURE`). It reports **skipped** in this
+environment, the same honest status the static-IP gate has carried every session that has touched
+WinRM.
 
-- **Phase 82**, retiring the inherited `gosec` waivers.
-- **Phase 83**, the setup command, including the data-loss discipline: guards that scale with blast
-  radius, detection rather than warnings, typed confirmation, and a recovery matrix printed at the
-  moment a key is created.
-- **Phase 84**, upgrade, rollback and restore, which found that concurrent `migrate.Apply` is a race
-  (`schema_migrations` has `version TEXT PRIMARY KEY` and no lock) and that rollback across a schema
-  change does not work today.
+### Read this first
 
-### Next
+**Module names are `xxx.xxx.xxx`.** FAILURE_PATTERNS #158; still the rule, still not violated here.
 
-Implement `/readyz` single-flight, then write the eight gate justifications, then close.
+**No commit without the user's own live word in the current conversation.** Unchanged. `60dae0d`
+landed because the user gave that word; nothing below has been asked for yet.
 
-### Commit message, provided per the standing instruction (not committed)
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Unchanged (`pleiades_no_unrequested_delegation`). Held again this session, including through the
+plan-mode transition for this batch.
+
+**Before flipping the last `StatusDeclared` entry a generic dispatcher can resolve to, grep that
+dispatcher's own tests for the specific FQCN literal, not just for the word "declared."**
+`LESSONS_LEARNED.md` #150, new this session. `svc.managerNamespace` only ever mapped two names
+(`systemd`, `windows_scm`); once both concrete namespaces were fully implemented, the dispatcher's
+"declared but not implemented" refusal branch had no real example left to exercise it through the
+public API at all, which a naive "the test still compiles and the error is still non-nil" glance
+would not have caught. The fix (a throwaway registered-but-declared fixture in a new whitebox test
+file) is the reusable pattern; watch for the same shape in `net.cli`/`net.netconf` once every
+`net.*` vendor namespace is eventually implemented too.
+
+**Calling a native executable from a PowerShell script does not propagate its exit code
+automatically.** New this session, in `pkg/winrmdism`'s own package doc: `$LASTEXITCODE` holds the
+value, and a script that never reads it leaves the host process's own exit status at whatever it
+would otherwise be, typically 0, regardless of what the executable actually reported. Every script
+`pkg/winrmdism` builds ends with an explicit `exit $LASTEXITCODE` line for exactly this reason;
+worth checking for in any future package that shells out to a native `.exe` over WinRM the way this
+one shells out to `dism.exe`.
+
+**Docker was unreachable from this session's shell partway through**
+(`docker: command not found in this WSL 2 distro`), and was confirmed clean and reachable again
+before this session ended: the user isolated the host crashes this session's earlier segment
+discussed to running Docker and Hyper-V at the same time, and a re-check after that fix landed
+found `docker ps` answering normally. Every check that needed it was re-run for real at that point
+(see "Verification state" below); nothing here is inferred from the earlier Docker-unavailable
+window.
+
+### The remainder, in order
+
+1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
+2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ — done, committed at `60dae0d`.
+3. ~~A `windows_server` classification rule~~ — done this session.
+4. ~~`svc.windows.*`/`win.feature.*` (7)~~ — done this session.
+5. **`net.cli`/`ios`/`eos`/`junos`/`netconf` (6)** is blocked on a NETCONF transport that does not
+   exist yet. The next natural batch by this list's own ordering, and the last real transport gap
+   in the catalog.
+6. **`file.template`** stays declared: the render engine is `internal/render`, unreachable from a
+   Collection, and is a stable test fixture in `internal/validate` (and now also
+   `cmd/pleiades/doc_test.go`) precisely because it is expected to stay declared for a while.
+7. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to `svc.systemd.start`
+   (and, as of this session, `svc.windows.start`). Unchanged from prior sessions: a design step,
+   not a port, still not done.
+8. **`file.directory` still has its own mode validator**, unreconciled with `attributes.go`. Also
+   unchanged from prior sessions.
+9. **Supplementary group membership and account passwords**, deliberately out of scope for
+   `identity.user.*`. Unchanged from prior sessions.
+10. **The four pre-existing private int-param parsers** could migrate to `sdk.IntParam`. Unchanged
+    from prior sessions: deliberately not done, mechanical once started.
+11. **Wire `FirewalldCapable`/`DockerCapable`** (and, from a prior session, `PosixAccountCapable`)
+    onto a real device type. `FirewalldCapable` specifically needs a per-instance property (like
+    `service_manager`) rather than a baseline declare, since firewalld isn't universal the way
+    `LinuxCapable`/`SystemdCapable` are.
+12. **An S3 object-level primitive** (`PutObject` at minimum) was deliberately not added to
+    `pkg/awscloud`. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
+
+With items 3 and 4 done, the module catalog now has **70 of 77** methods at
+`collection.StatusImplemented` in the working tree (63 committed at `60dae0d`, plus these seven),
+confirmed via `internal/archtest`'s `TestEveryImplementedMethodAnswersReversibility`, which logs
+the count.
+
+### Verification state
+
+**Every package this batch actually touched, verified individually and cleanly**: `go build
+./...`, `go vet ./...`, `make fmt`, `go test -race` (each touched package: `pkg/winrmsvc`,
+`pkg/winrmdism`, `internal/catalog/svc/...`, `internal/catalog/win/feature`,
+`internal/inventory/devices/windows`, `internal/classification`, `internal/inventory/plugins/aws`,
+`cmd/pleiades`), `go test ./internal/archtest/...` (full suite clean, including
+`TestCatalogPackagesImportOnlyPkg` proving the two new `pkg/` packages are layered correctly,
+`TestCatalogDataDocsMatchTheRegistry` after hand-syncing `internal/forge/catalogdata`'s two files,
+and `TestEveryImplementedMethodAnswersReversibility` reporting 70), `make gosec` (the same 9
+pre-existing individually-waived findings, zero new ones), `go run ./tools/docs-lint` (clean),
+`go run ./tools/govulncheck`/`make govulncheck` (clean — 0 vulnerabilities affecting this code, an
+improvement on the `lib/pq` CVEs prior sessions noted; worth re-confirming next session rather than
+assuming), and `go generate ./internal/forge/catalogdata` plus `go run ./tools/gendocs` (both
+confirmed idempotent, a second run of each produces no further diff).
+
+**Full-repo verification completed cleanly once Docker came back**, and every earlier caveat about
+it is superseded by this: `go test -race ./...` (whole repo, real containers — real LocalStack,
+real sshd, real NATS) ran to completion with **zero failures across 126 packages**. `go run
+./tools/coverage-check`, run non-tolerant with `LOCALSTACK_AUTH_TOKEN` sourced from
+`.IGNORE/.localstack.env` (needed separately from Docker itself — the first run after Docker came
+back still showed `cloud.aws.ec2`/`s3` "regressed," and the actual cause was this token not yet
+being exported in the fresh shell, not Docker), reports **173 packages measured, none below their
+recorded floor**. `pkg/awscloud` (95.6%), `internal/inventory/plugins/aws` (99.0%), and every other
+LocalStack-dependent number matches exactly what the prior `cloud.aws.*` session recorded, with no
+drift. `make gosec` and `go run ./tools/docs-lint` were both re-run clean after Docker returned too.
+The one loose end from the Docker-unavailable window is worth still naming rather than dropping:
+`internal/catalog/pleiades/builtin/wait`'s `TestPort_UsesTheBashProber` failed once under
+full-suite load during that earlier pass and passed cleanly in isolation immediately after and
+again during this clean full run; this session touched nothing in or near that package, and it is
+not yet added to `flaky-packages.json` — worth watching for a repeat before deciding whether it
+belongs there.
+
+`make docs-gen-check` "fails" for the same non-defect reason as every prior session: its own `git
+diff --exit-code` compares the regenerated tree against `60dae0d`, and this session's work is real,
+intentional, uncommitted content in `docs/reference` and `internal/api/wellknown`. Resolves on its
+own the moment this is committed.
+
+### Commit message
+
+Drafted, not run; nothing is committed except `60dae0d`.
 
 ```
-feat(packaging): a product that installs, over TLS, on a clean machine (Phase 20a-c)
+feat(catalog): svc.windows.* and win.feature.*, the windows_server classification rule (70 of 77)
 
-Phase 20 opened by correcting its own map. Four of its items described a
-repository that no longer existed: both binaries compiled, both Dockerfiles
-already built package paths, and Phase 19 had deleted the UI service. The
-NATS healthcheck was broken twice over, and both halves were verified
-against the real image before either was touched.
+windows.Server gains four real accessors (WindowsEdition,
+ServiceManagerName, WindowsServiceStartMode, DISMLogPath), closing the
+TODO its own doc comment has named since the type was first generated
+and structurally implementing the three capabilities svc.windows.*/
+win.feature.* need. ServiceManagerName defaults to "windows_scm",
+which is what makes svc.*'s pre-existing "windows_scm" -> "svc.windows"
+dispatch mapping resolve for real for the first time.
 
-Images are distroless, digest-pinned, stripped and non-root at a NUMERIC
-uid. Numeric matters: USER nonroot:nonroot makes every runAsNonRoot pod
-fail with CreateContainerConfigError, and Compose cannot express
-runAsNonRoot, so no check here could see it. cgo stays on, because
-CGO_ENABLED=0 compiles clean and then dies in the first migration on the
-controller's own default DSN. The shipped Alpine image was already broken
-that way.
+pkg/winrmsvc and pkg/winrmdism are new, mirroring pkg/remotesvc for a
+transport (WinRM) with no persistent connection to hold: both take an
+explicit Session{Target, Auth, Options} bundle rather than a live
+conn, since pkg/winrmexec dials fresh per call. pkg/winrmdism shells
+out to dism.exe directly rather than the ServerManager PowerShell
+module, since dism.exe works on every Windows SKU and
+windows.Server.DISMLogPath already commits this design to DISM; every
+script it builds ends with an explicit "exit $LASTEXITCODE" line,
+without which a native executable's real exit code never reaches
+Result.ExitCode at all. DISM's own exit codes are applied directly:
+3010 (reboot required) is success, surfaced as a new reboot_required
+stat rather than folded into changed; 87 (invalid parameter) on
+/get-featureinfo means an unrecognized feature name, surfaced as
+Exists: false rather than an error.
 
-The controller terminates TLS and self-provisions a certificate when the
-admin has configured none, so nothing serves plain HTTP unasked and nothing
-refuses to boot for want of a certificate. Provisioning is lock-free: one
-atomic bundle, load-generate-load, losers re-read. Two earlier designs were
-built and torn out because each made one participant's bad state everyone
-else's problem.
+svc.windows.* (start/stop/restart/enable/disable) mirrors
+svc/systemd's own shared unitOp/runUnitOp shape. enable/disable's
+inverse is more careful than svc.systemd's own: a service found with
+start type Manual that enable moves to Automatic has no exact reverse
+through disable (which sets Disabled, not Manual), so that specific
+transition emits no inverse at all rather than one that would
+over-correct a rollback. win.feature.install/remove mirror the same
+read-decide-act-read-back shape over pkg/winrmdism; install passes
+/all (also enabling required parent features), remove deliberately
+does not.
 
-The insecure cookie path is deleted rather than disabled. gosec goes from
-12 findings to 9 with zero G124, which is what Phase 79's Security Analysis
-was amended on the strength of. The premise those waivers rested on was
-false: browsers accept Secure cookies on localhost, and the real defect was
-that every non-loopback origin failed as a misleading wrong-password
-message while the password was never checked.
+The windows_server classification rule (internal/classification/
+default_ruleset.go) is what lets the aws sync plugin's Classify
+resolve a discovered Windows EC2 instance instead of quarantining it,
+the one real consumer this session wired: Classify now resolves
+Platform "windows" to windows_server and "" to linux_server, still
+quarantining any Platform value neither names.
 
-docker-compose.yml gains named volumes, and that is the sharpest fix here:
-it declared none, so every docker compose down destroyed the control plane
-database, the JetStream store and the scheduler leases.
+A real regression in code from an earlier session, not new to this
+batch: internal/catalog/svc/svc_test.go's
+TestDeclaredButNotImplementedTargetIsNamed depended on
+svc.windows.start staying declared forever, and both concrete
+namespaces svc.managerNamespace maps to are now fully implemented, so
+dispatch's own "declared but not implemented" branch had no real
+example left reachable from outside the package. Fixed with a new
+whitebox test registering one throwaway declared-only fixture purely
+to prove the branch, and a new black-box TestDispatchesToWindows
+proving real dispatch to svc.windows.start against an unreachable
+address. cmd/pleiades/doc_test.go's own recurring fixture regression
+(every prior session that flips a declared FQCN to implemented has hit
+this) recurred here too; its two "still declared" fixtures moved to
+file.template, the one FQCN this document already commits to staying
+declared.
 
-The Helm chart replaces nginx scaffolding: two Deployments, two
-StatefulSets, four liveness and four readiness probes on separate paths,
-per-kind name budgets, non-root throughout. It refuses to render without an
-explicit master encryption key, because a generated one would differ on the
-next helm upgrade and everything stored would become permanently
-undecryptable with no error.
+Coverage: pkg/winrmsvc/pkg/winrmdism 77.5%/73.3% (no recorded floor,
+the same informational bucket pkg/winrmexec itself already sits in --
+the remaining gap is the one thing that genuinely needs a live
+Windows host, which pkg/winrmexec's own tests already document as
+unfakeable). Every Collection method and the windows.Server accessors
+hit 100% coverage on everything reachable without one, via
+statusFunc/startFunc/stopFunc/restartFunc/enableFunc/disableFunc seams
+swapped to canned answers. cmd/pleiades/
+winrm_service_feature_release_gate_test.go is the new, env-gated
+Release Gate for the one thing that does need a live host; it reports
+skipped in every environment without one, the same honest status
+winrm_static_ip_release_gate_test.go has carried every session that
+has touched WinRM.
 
-The runner gets a liveness surface driven by its consumer answering, not by
-a ticker, closing FAILURE_PATTERNS 119 with a test that severs a real
-broker under a real runner.
-
-Also corrects a governance rule that was never real: gosec-waivers.json
-demanded zero remaining waivers before this phase and attributed that to
-AGENTS.md, which never said it. Struck at its origin in the Phase 0 policy
-and in the header that copied it.
-
-FAILURE_PATTERNS 119, 122-126. LESSONS_LEARNED 112-114.
+The module catalog now has 70 of 77 methods implemented in the
+working tree (63 committed, plus these seven).
 ```
-
-### Resuming after a context compaction
-
-Everything needed is on disk; nothing is held only in conversation.
-
-1. **`make ci` is RED**, and this is the result of the re-run the previous version of this
-   sentence asked for, so trust it over any earlier claim. Exactly one test fails:
-   `TestPackagingReleaseGate_KubernetesInstall` in `tests/e2e`. Everything else, including the
-   whole non-integration half and `tests/e2e`'s other cases, passes.
-
-   The failure is at that test's last-but-one assertion,
-   `assertALongReleaseNameStillProducesFourWorkingWorkloads`. Every assertion before it passed
-   against a real cluster: the chart installed, `/readyz` reported its database and broker,
-   `bootstrap-admin` ran through `kubectl exec`, and the runner Deployment reached Available with
-   its in-pod `runner healthcheck` reporting an 8-second-old heartbeat. Then the second install,
-   at a 53-character release name in its own namespace, sat at `Available: 0/1` for its full
-   8-minute budget, after which every `kubectl` and `helm` call returned
-   `connection refused` against the kind API server. The control plane went away mid-test.
-
-   That last detail is what makes the result ambiguous rather than a verdict on the chart. Two
-   candidates, and the log cannot separate them:
-
-   - The cluster was deleted out from under the running test. The gate names its cluster
-     `pleiades-release-gate`, and a cleanup ran `kind delete cluster --name pleiades-release-gate`
-     while this run was still in its integration stage.
-   - The single-node cluster fell over carrying two full releases at once. The long-name case
-     installs a second postgres, nats, controller and runner beside the first, which is still
-     installed at that point. There are no OOM kills in the kernel log, so if this is the cause it
-     is not a host memory ceiling.
-
-   The `connection refused` is evidence for the first: a node under load produces timeouts and
-   `NotReady`, not a refused TCP connect on the API port. Settle it by running the test alone,
-   which is safe: it writes its kubeconfig into its own `t.TempDir()` and passes `KUBECONFIG`
-   explicitly to every command, so it cannot touch `~/.kube/config` or the `desktop` cluster.
-
-   ```
-   go test -tags integration -race -count=1 -timeout 45m ./tests/e2e/ \
-     -run TestPackagingReleaseGate_KubernetesInstall -v
-   ```
-
-   **Resolved.** It passed alone: 259 seconds, all six assertions, and the install that had
-   consumed its full 8-minute budget finished in 67 seconds. The gate is sound and the `make ci`
-   failure was environmental. `FAILURE_PATTERNS` #141 and `LESSONS_LEARNED` #129 record it.
-
-### The break-glass
-
-`make break-glass` (`tools/breakglass`, `//go:build devtools`) returns the machine to the state
-every test assumes it starts from: no throwaway kind cluster, no compose project holding a
-database from a previous run, no containers left by a test binary killed before its cleanup ran.
-
-Reach for it the moment a gate fails in a way that does not match the code you changed. That is
-the failure shape above, and it is not rare: leftover infrastructure never announces itself, it
-surfaces as a test failing at whichever assertion touched the stale state.
-
-- `make break-glass BREAK_GLASS_FLAGS=-n` says what would go and removes nothing.
-- `BREAK_GLASS_FLAGS=-images` also drops the built images, so the next run builds from nothing.
-- `BREAK_GLASS_FLAGS=-force` cleans through the live-run guard, breaking that run.
-
-Two properties it is worth knowing are deliberate. It is **not** `docker system prune`: prune is
-defined by what is unused, which is a fact about the daemon rather than about this repository, so
-it would take the long-lived `desktop` cluster with the same confidence it takes ours. Every
-removal is positively attributed to this repository first and everything else is listed and left.
-And it **refuses while a run is live**, asking whether a testcontainers reaper is running and
-whether a `go test` process has its working directory inside this repository, because cleaning up
-underneath a run is how the tool came to exist. Verified against a genuinely live `make ci`: it
-refused, exited 1, and the gate's cluster survived.
-
-The gate's own delete-first is unchanged, so **two concurrent runs still destroy each other**.
-The fix is a per-run cluster name with prefix-matched reclamation, or a liveness check before the
-delete. Neither is written and nobody owns it; `FAILURE_PATTERNS` #141 states both options.
-
-### The coverage regression the flakes were hiding
-
-`make push-gate` reached the ratchet for the first time and failed it: `internal/runner` at
-85.4% against a floor of 86.8. The regression is in this phase's own committed heartbeat work,
-and it had been invisible for three runs because `make ci` stops at its first failure and every
-one of those runs died earlier, at `test-integration`, on container flakes. That is
-`LESSONS_LEARNED` #110 exactly, and it is the reason a red gate must be cleared rather than
-explained: everything behind it is unobserved, not passing.
-
-Three functions were at 0%: `WithHeartbeat`, the option that wires the whole feature into the
-Agent; `detachedValueContext`'s accessors, which are what let a non-interruptible execution
-outlive `Agent.Run`'s shutdown; and `StaleHeartbeatError.Error()`, the message an operator reads
-off a failed probe. `internal/runner/heartbeat_wiring_test.go` covers all three and takes the
-package to 87.4%. The floor was not moved, and `coverage-check` reports 160 packages with none
-below their recorded floor.
-
-Both new tests are negative-controlled by mutating the source and watching them fail. The first
-version of the `WithHeartbeat` test could not fail at all: `liveness` is a concrete `*Heartbeat`,
-so asserting it is nil after `WithHeartbeat(nil)` passes whether or not the guard exists. The
-guard's real contract is about option ORDER, and `LESSONS_LEARNED` #130 records the shape.
-
-**Three separate tests written this session could not fail on first writing**, and source
-mutation caught every one where reading caught none. Treat that as the expected rate, not as a
-run of bad luck.
-2. The one open item that is CODE is `/readyz` single-flight bounding. Phase 20's own item states
-   the design, the measured numbers, and why the write-probe alternative was rejected.
-3. The eight remaining gate items need their written justifications. The evidence for most of them
-   already exists in the tree; what is missing is the prose each gate asks for.
-4. Verify before trusting any claim in this document. Three separate corrections this session were
-   wrong on first writing and were caught by recomputing from source rather than by review.
