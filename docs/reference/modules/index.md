@@ -21,10 +21,10 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `net` | 11 | 5 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
-| `svc` | 16 | 11 |
+| `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
-| `win` | 2 | 0 |
-| **total** | **77** | **63** |
+| `win` | 2 | 2 |
+| **total** | **77** | **70** |
 
 ## All methods
 
@@ -98,12 +98,12 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [svc.systemd.restart](svc/systemd/restart.md) | implemented | Restarts a systemd unit, starting it if it was not running. |
 | [svc.systemd.start](svc/systemd/start.md) | implemented | Starts a systemd unit now, without changing whether it starts at boot. |
 | [svc.systemd.stop](svc/systemd/stop.md) | implemented | Stops a systemd unit now, without changing whether it starts at boot. |
-| [svc.windows.disable](svc/windows/disable.md) | declared | Sets a Windows service's start type to disabled. |
-| [svc.windows.enable](svc/windows/enable.md) | declared | Sets a Windows service's start type to automatic. |
-| [svc.windows.restart](svc/windows/restart.md) | declared | Restarts a Windows service. |
-| [svc.windows.start](svc/windows/start.md) | declared | Starts a Windows service. |
-| [svc.windows.stop](svc/windows/stop.md) | declared | Stops a Windows service. |
+| [svc.windows.disable](svc/windows/disable.md) | implemented | Stops a Windows service starting at boot, without stopping it now. |
+| [svc.windows.enable](svc/windows/enable.md) | implemented | Makes a Windows service start at boot, without starting it now. |
+| [svc.windows.restart](svc/windows/restart.md) | implemented | Restarts a Windows service, starting it if it was not running. |
+| [svc.windows.start](svc/windows/start.md) | implemented | Starts a Windows service now, without changing its start type. |
+| [svc.windows.stop](svc/windows/stop.md) | implemented | Stops a Windows service now, without changing its start type. |
 | [wait.path](wait/path.md) | implemented | Waits for a file path on the target to exist (or stop existing). |
 | [wait.search](wait/search.md) | implemented | Waits for a pattern to appear in a file's contents on the target. |
-| [win.feature.install](win/feature/install.md) | declared | Installs a Windows feature or role. |
-| [win.feature.remove](win/feature/remove.md) | declared | Removes a Windows feature or role. |
+| [win.feature.install](win/feature/install.md) | implemented | Enables a Windows optional feature or role via DISM, including its required parent features. |
+| [win.feature.remove](win/feature/remove.md) | implemented | Disables a Windows optional feature or role via DISM. |

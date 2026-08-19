@@ -78,10 +78,15 @@ type pluginBackend struct {
 	// Classify refuses on, is derived from the launched AMI's real
 	// metadata, not something a RunInstances caller can set directly, and
 	// LocalStack (confirmed empirically) does not infer it from a
-	// fabricated AMI id either. The quarantine behavior itself is still
-	// proven, directly, by aws's own TestClassify_WindowsInstance_Quarantines
-	// against a hand-built record — RULE 0 does not require a live
-	// upstream for logic that is pure Go over an already-discovered value.
+	// fabricated AMI id either -- it reports Platform as either "" or
+	// "windows", both of which now classify (linux_server/windows_server),
+	// so there is no realistic Platform value left for RunInstances to
+	// produce that would even ask Classify to quarantine. The quarantine
+	// behavior itself is still proven, directly, by aws's own
+	// TestClassify_UnrecognizedPlatform_Quarantines against a hand-built
+	// record naming a Platform EC2 does not define — RULE 0 does not
+	// require a live upstream for logic that is pure Go over an
+	// already-discovered value.
 	unclassifiableUnsupported string
 
 	// checkIP validates the "ip" property recorded for hosts[0] once
@@ -156,7 +161,7 @@ func pluginBackends() []pluginBackend {
 			// RunInstances the way the other two backends can through a
 			// document field or a raw upstream field. See
 			// unclassifiableUnsupported's own doc comment.
-			unclassifiableUnsupported: "LocalStack cannot be made to report an EC2 instance's Platform as anything but empty for a fabricated AMI id, so this backend has no way to produce an unclassifiable host through RunInstances; see aws's own TestClassify_WindowsInstance_Quarantines for the direct proof of that behavior",
+			unclassifiableUnsupported: "LocalStack cannot be made to report an EC2 instance's Platform as anything but empty or \"windows\" for a fabricated AMI id, and both of those now classify (linux_server/windows_server), so this backend has no way to produce an unclassifiable host through RunInstances; see aws's own TestClassify_UnrecognizedPlatform_Quarantines for the direct proof of that behavior against a hand-built record",
 			// A real cloud upstream assigns its own addressing; see
 			// checkIP's own doc comment for why this cannot be
 			// hosts[0].IP.

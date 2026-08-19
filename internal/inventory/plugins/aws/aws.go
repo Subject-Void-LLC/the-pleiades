@@ -25,12 +25,13 @@
 //
 // Scope is deliberately narrow, matching every other batch's restraint
 // this session: EC2 instances only, never S3 (there is no S3-bucket
-// "inventory" concept anywhere in this codebase — inventory means hosts),
-// and only Linux instances classify cleanly. A Windows instance
-// quarantines with an explicit reason rather than guessing: no
-// windows_server classification rule exists yet in
-// internal/classification, even though the windows_server device type
-// itself does. Wiring that up is a separate, real piece of follow-on work.
+// "inventory" concept anywhere in this codebase — inventory means hosts).
+// Both instance platforms EC2 reports classify: a Linux instance resolves
+// to linux_server, a Windows one to windows_server (added once
+// svc.windows.*/win.feature.* gave that device type real capability
+// accessors to classify into). Any platform value EC2 could add in the
+// future that this classification tree has no rule for still quarantines
+// with an explicit reason rather than guessing.
 package aws
 
 import (
@@ -219,11 +220,12 @@ func (p *Aws) Discover(_ context.Context) (syncplugin.RecordIterator, error) {
 //
 // The account record classifies as aws_account trivially: it carries
 // nothing further to derive, unlike an instance. An instance's platform
-// decides everything else: Linux instances resolve to the existing
-// linux_server root path (no new classification rule needed, it already
-// grants LinuxCapable and SSHTransportCapable); a Windows instance
-// quarantines rather than guessing, since no windows_server classification
-// rule exists yet.
+// decides everything else: a Linux instance (EC2 reports no Platform at
+// all) resolves to the existing linux_server root path, and a Windows
+// one ("windows", the only other value EC2's DescribeInstances defines)
+// resolves to windows_server. Any other value -- which would mean AWS
+// added a Platform this classification tree has no rule for -- quarantines
+// with an explicit reason rather than guessing at a device type.
 func (p *Aws) Classify(_ context.Context, rec record.Record) (syncplugin.Classification, error) {
 	state := inventory.StateSimulateLocked
 	if !p.cfg.ReadOnly {
@@ -236,10 +238,14 @@ func (p *Aws) Classify(_ context.Context, rec record.Record) (syncplugin.Classif
 		return syncplugin.ClassifyPath(p.ruleSet, []string{"aws_account"}, state), nil
 	case roleInstance:
 		platform, _ := rec.Properties[propPlatform].(string)
-		if platform != "" {
-			return syncplugin.Quarantine(fmt.Sprintf("instance platform %q has no classification rule yet (only Linux instances classify)", platform)), nil
+		switch platform {
+		case "":
+			return syncplugin.ClassifyPath(p.ruleSet, []string{"linux_server"}, state), nil
+		case "windows":
+			return syncplugin.ClassifyPath(p.ruleSet, []string{"windows_server"}, state), nil
+		default:
+			return syncplugin.Quarantine(fmt.Sprintf("instance platform %q has no classification rule yet", platform)), nil
 		}
-		return syncplugin.ClassifyPath(p.ruleSet, []string{"linux_server"}, state), nil
 	default:
 		return syncplugin.Quarantine(fmt.Sprintf("upstream record carries no recognized %s", propRole)), nil
 	}

@@ -4590,12 +4590,51 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now."
     },
     "doc": {
-      "summary": "Sets a Windows service's start type to disabled."
+      "summary": "Stops a Windows service starting at boot, without stopping it now.",
+      "description": "Makes sure a Windows service's start type is Disabled, refusing it from starting at all until this is undone. This is ansible.windows.win_service with start_mode=disabled, and it leaves the running system alone: a service disabled by this task keeps running until svc.windows.stop also runs or it is stopped some other way. State is read before anything is sent, so a service whose start type is already Disabled reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.enable targets: a service found Manual becomes Disabled, and running svc.windows.enable afterward would leave it Automatic rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Keep a service from starting at boot",
+          "runbookYaml": "- name: Make sure the print spooler cannot start at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+        },
+        {
+          "name": "Disable it and stop it running now too",
+          "runbookYaml": "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.windows.enable",
+        "svc.windows.stop",
+        "svc.disable"
+      ]
     }
   },
   "svc.windows.enable": {
@@ -4609,12 +4648,47 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that enabled a service whose start type was Disabled emits an svc.windows.disable naming it. A run that found the start type already Automatic emits nothing. A run that changed a start type of Manual to Automatic emits no inverse at all, deliberately: this namespace's disable only sets Disabled, which is a stronger claim than restoring Manual, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never stops a service that is running, because enabling never started one."
     },
     "doc": {
-      "summary": "Sets a Windows service's start type to automatic."
+      "summary": "Makes a Windows service start at boot, without starting it now.",
+      "description": "Makes sure a Windows service's start type is Automatic. This is ansible.windows.win_service with start_mode=auto, and it is deliberately not also start: a service enabled by this task is not running until svc.windows.start runs or the device reboots. State is read before anything is sent, so a service whose start type is already Automatic reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.disable targets: a service found Manual becomes Automatic, and running svc.windows.disable afterward would leave it Disabled rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Make a service start at boot",
+          "runbookYaml": "- name: Make sure the print spooler comes back after a reboot\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.windows.disable",
+        "svc.windows.start",
+        "svc.enable"
+      ]
     }
   },
   "svc.windows.restart": {
@@ -4628,12 +4702,47 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "A restart's effect is the interruption itself, and there is no instruction that un-interrupts a service. Restarting it a second time would run this method again rather than reverse it. The service's state is still recorded under diff, so a rollback reaching this task can see the service was running before and after and decide for itself, but this method emits no instruction because none would be true."
     },
     "doc": {
-      "summary": "Restarts a Windows service."
+      "summary": "Restarts a Windows service, starting it if it was not running.",
+      "description": "Restarts a Windows service. This is ansible.windows.win_service with state=restarted, and like that module it starts a service that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running service is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A service the Service Control Manager does not know is refused, and a service whose start type is Disabled is refused with that named.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Restart after a config change",
+          "runbookYaml": "- name: Write the app's config\n  fqcn: file.copy\n  params:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  fqcn: svc.windows.restart\n  params:\n    name: AppService\n  when:\n    - app_config.changed\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.windows.start",
+        "svc.windows.stop",
+        "svc.restart"
+      ]
     }
   },
   "svc.windows.start": {
@@ -4647,12 +4756,52 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that started a stopped service emits an svc.windows.stop naming it. A run that found it already running emits nothing. What the inverse cannot restore is anything the service did while it was up: connections it accepted, files it wrote, messages it consumed. Stopping it again returns the service to where it was, not the system."
     },
     "doc": {
-      "summary": "Starts a Windows service."
+      "summary": "Starts a Windows service now, without changing its start type.",
+      "description": "Makes sure a Windows service is running right now. This is ansible.windows.win_service with state=started, and it is deliberately not also enable: starting and setting the start type are separate in the Service Control Manager and separate here, so a task that wants both says both. State is read before anything is sent, so a service that is already running reports no change and no command reaches the device. A service the Service Control Manager does not know is refused rather than reported as started, and a service whose start type is Disabled is refused with that named, since Windows itself refuses to start one and its own error describes a generic failure rather than the cause.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Start a service",
+          "runbookYaml": "- name: Make sure the print spooler is running\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n"
+        },
+        {
+          "name": "Start it and make it survive a reboot",
+          "runbookYaml": "- name: Start the print spooler\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.windows.stop",
+        "svc.windows.restart",
+        "svc.windows.enable",
+        "svc.start"
+      ]
     }
   },
   "svc.windows.stop": {
@@ -4666,12 +4815,51 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that stopped a running service emits an svc.windows.start naming it. A run that found it already stopped emits nothing. Starting it again returns the service to running, but nothing can restore what it missed while it was down: requests that were refused, queues that backed up, timers that did not fire."
     },
     "doc": {
-      "summary": "Stops a Windows service."
+      "summary": "Stops a Windows service now, without changing its start type.",
+      "description": "Makes sure a Windows service is not running right now. This is ansible.windows.win_service with state=stopped, and it leaves the start type alone: a service stopped by this task still starts at the next reboot unless svc.windows.disable is also run. State is read before anything is sent, so a service that is already stopped reports no change. A service the Service Control Manager does not know is refused rather than reported as stopped, since a typo in the name should not read as success.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The service this task acted on."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Stop a service",
+          "runbookYaml": "- name: Stop the print spooler before changing its config\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n"
+        },
+        {
+          "name": "Stop it now and keep it from coming back at boot",
+          "runbookYaml": "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+        }
+      ],
+      "seeAlso": [
+        "svc.windows.start",
+        "svc.windows.disable",
+        "svc.stop"
+      ]
     }
   },
   "wait.path": {
@@ -4911,12 +5099,51 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that enabled a disabled feature emits a win.feature.remove naming it. A run that found it already enabled emits nothing. What the inverse cannot undo is anything the feature's own presence changed on the system while it was enabled, and either direction may need the restart reboot_required reports before it is complete."
     },
     "doc": {
-      "summary": "Installs a Windows feature or role."
+      "summary": "Enables a Windows optional feature or role via DISM, including its required parent features.",
+      "description": "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The feature this task acted on."
+        },
+        {
+          "name": "reboot_required",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether DISM reported that a restart is needed for this change to take full effect (its own ERROR_SUCCESS_REBOOT_REQUIRED). False on a run that changed nothing."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Enable IIS",
+          "runbookYaml": "- name: Make sure the web server role is enabled\n  fqcn: win.feature.install\n  params:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  fqcn: exec.winrm.shell\n  params:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"
+        }
+      ],
+      "seeAlso": [
+        "win.feature.remove"
+      ]
     }
   },
   "win.feature.remove": {
@@ -4930,12 +5157,51 @@
       "requiresElevation": true
     },
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": true,
+      "notes": "A run that disabled an enabled feature emits a win.feature.install naming it. A run that found it already disabled emits nothing. Re-enabling it does not pass /all a second time from this inverse, so a parent feature the original install pulled in stays exactly as removing this one left it."
     },
     "doc": {
-      "summary": "Removes a Windows feature or role."
+      "summary": "Disables a Windows optional feature or role via DISM.",
+      "description": "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."
+        }
+      ],
+      "returns": [
+        {
+          "name": "name",
+          "type": "string",
+          "returned": "always",
+          "description": "The feature this task acted on."
+        },
+        {
+          "name": "reboot_required",
+          "type": "bool",
+          "returned": "always",
+          "description": "Whether DISM reported that a restart is needed for this change to take full effect (its own ERROR_SUCCESS_REBOOT_REQUIRED). False on a run that changed nothing."
+        },
+        {
+          "name": "diff",
+          "type": "dict",
+          "returned": "always",
+          "description": "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Disable IIS",
+          "runbookYaml": "- name: Make sure the web server role is disabled\n  fqcn: win.feature.remove\n  params:\n    name: IIS-WebServerRole\n"
+        }
+      ],
+      "seeAlso": [
+        "win.feature.install"
+      ]
     }
   }
 }

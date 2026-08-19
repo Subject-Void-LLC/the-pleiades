@@ -4,193 +4,173 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `93a7818`, the ten
-`fs.*`/`archive.*`/`fw.firewalld.*`/`container.docker.*` methods (committed with the user's own
-live go-ahead, after they ran it themselves). Everything below — `cloud.aws.*` (4 methods) plus a
-follow-on AWS inventory sync plugin neither of which existed at the start of this session — is
-implemented, tested, and verified on top of that commit, but uncommitted: the standing rule holds
-(no commit without the user's own live word in the current conversation), and no such word has
-been given yet this session.**
+**Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `60dae0d`, `cloud.aws.*` plus the `aws`
+sync plugin (committed with the user's own live go-ahead). Everything below — the four Windows
+capability accessors on `windows.Server`, `svc.windows.*`/`win.feature.*` (7 methods) and the
+`windows_server` classification rule — is implemented, tested, and verified on top of that commit,
+but uncommitted: no such word has been given yet this session.**
 
-This session opened with "plan next batch." A plan for `cloud.aws.*` (the next remainder-list item)
-was written, approved, and implemented. Partway through verifying it, the user asked directly
-whether an AWS inventory sync method had been accounted for — it had not, and was never part of the
-approved plan. A second plan, for an AWS EC2-discovery sync plugin, was written, approved, and
-implemented as a genuine follow-on, the same way the real Catalyst Center plugin was built in a
-session separate from `net.catalyst.*` itself.
+This session opened with "what's the next batch?" `HANDOFF_DOCUMENT.md`'s own "remainder, in
+order" list named items 3 and 4 (the `windows_server` classification rule, and
+`svc.windows.*`/`win.feature.*`) as next. A plan for both together was written, approved, and
+implemented — one batch rather than two, because the classification rule only matters once
+`windows_server` is a device type real methods can run against, the same reasoning that made
+`cloud.aws.*` and the `aws` plugin one combined commit even though they were planned separately.
 
-### What landed, part 1: `cloud.aws.*` (4 methods)
+### What landed
 
-The first batch in this catalog that could not be built on `pkg/remoteexec` alone: all four methods
-address the AWS HTTP API directly (`SupportedTransports: []string{}`), not a device transport.
+**`windows.Server` gained four real accessors**, closing the TODO its own doc comment named since
+the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback — purely
+descriptive, nothing gates on it, the same restraint `linux.Server.Distribution` applies to its own
+detected fact), `ServiceManagerName()` (property `service_manager`, defaulting to `"windows_scm"`,
+the exact mirror of `linux.Server.ServiceManagerName`'s shape — this is what makes
+`internal/catalog/svc.managerNamespace`'s pre-existing `"windows_scm" -> "svc.windows"` mapping
+resolve for real for the first time), `WindowsServiceStartMode()` (property
+`windows_service_start_mode`, defaulting to `"Automatic"`, informational like
+`SystemdUnitPath` — no method reads it, it satisfies the capability's structural contract) and
+`DISMLogPath()` (property `dism_log_path`, defaulting to the real Windows default,
+`C:\Windows\Logs\DISM\dism.log`).
 
-- **`pkg/awscloud`** (new): a minimal wrapper around the real `aws-sdk-go-v2` (core +
-  `config`/`credentials` + `service/ec2` + `service/s3`), not a hand-rolled SigV4 client the way
-  `pkg/catalystcenter` hand-rolls its own HTTP auth — reimplementing AWS's request signing was
-  judged the wrong tradeoff, the same class of decision this codebase's own injection-hardening
-  discipline argues for. `Client` exposes `FindInstanceByName`, `RunInstance`, `DescribeInstance`,
-  `TerminateInstance`, `BucketExists`, `CreateBucket`, `DeleteBucket`, and (added during the sync
-  plugin follow-on) a paginated `ListInstancesPage`. `New` deliberately does not use
-  `config.LoadDefaultConfig`: that loader falls back through environment variables and
-  `~/.aws/config` on whatever machine runs `pleiades`, the identical side-channel-credential
-  problem this platform's SSH methods already reject.
-- **`inventory/devices/aws.Account`** hand-completed from its pre-existing forge stub: gained
-  `AWSRegion()` (backed by a `region` property, no fallback default — a region is not a convention)
-  and `AWSEndpointOverride()` (backed by `endpoint_override`, empty for real AWS, a LocalStack URL
-  in a test). The first of these closes the structural gap its own stub TODO named
-  (`HasCapability(NameAWSAPI)` now genuinely returns true).
-- **`cloud.aws.ec2.create`/`terminate`, `cloud.aws.s3.create_bucket`/`delete_bucket`**
-  (`internal/catalog/cloud/aws/{ec2,s3}`): `ec2.create` is idempotent on the instance's `Name` tag
-  existing among non-terminated instances only, never a config comparison, and never recreates —
-  the same restraint `container.docker.run` already applied against a much larger upstream surface.
-  `ec2.terminate` takes an exact `instance_id`, not a name lookup: a destructive action deserves the
-  exact resource, not a fuzzy match. `s3.delete_bucket` deliberately does not empty a non-empty
-  bucket first — AWS's own refusal is the safety rail, not an error this method routes around.
-  `ec2.create`/`s3.create_bucket` are `Reversible: true` (inverses: `ec2.terminate`/
-  `s3.delete_bucket`, only when they actually created something); `ec2.terminate` and
-  `s3.delete_bucket` are both `Reversible: false` (a terminated instance's storage is gone; bucket
-  names are globally unique and may be claimed by someone else before any inverse would run).
+**Two new `pkg/` packages, mirroring `pkg/remotesvc` for a transport with no persistent
+connection.** `pkg/winrmsvc` (Service Control Manager state) and `pkg/winrmdism` (DISM feature
+state) are both built on the existing `pkg/winrmexec`, which dials fresh per call rather than
+holding a `Conn` (the credential is a call argument to `winrmexec.Run`, not package state), so both
+take an explicit `Session{Target, Auth, Options}` config bundle instead of a live connection.
+`pkg/winrmsvc.Status` reads a service's existence, run state and start type in one PowerShell round
+trip (`Get-Service -ErrorAction SilentlyContinue` plus `ConvertTo-Json`), the same "one round trip,
+decide from real reported state" rule `pkg/remotesvc.Status` already applies. `pkg/winrmdism`
+shells out to `dism.exe` directly rather than the `ServerManager` PowerShell module
+(`Install-WindowsFeature`), deliberately: `windows.Server.DISMLogPath` already commits this design
+to DISM, and `dism.exe /online` works on every Windows SKU while `ServerManager` is Server-only. A
+real, non-obvious gotcha surfaced building it: calling a native executable from a PowerShell script
+does not make the script's own exit code reflect the executable's, so every script this package
+sends ends with an explicit `exit $LASTEXITCODE` line — without it, `Result.ExitCode` would read
+success regardless of what `dism.exe` actually reported. DISM's real exit codes are applied
+directly: `0` success, `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) success-needs-restart (surfaced as
+a new `reboot_required` stat rather than folded into `changed`), `87`
+(`ERROR_INVALID_PARAMETER`) an unrecognized feature name (surfaced as `Exists: false`, not an
+error — the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
+applies to a systemd unit).
 
-**A new external dependency, decided rather than avoided**: `aws-sdk-go-v2` (Apache-2.0, explicitly
-allowed) is the first non-`golang.org/x`, non-observability third-party module this catalog has
-needed. Scoped to exactly the four submodules used, not the monolithic SDK.
+**`svc.windows.*` (5 methods: `start`/`stop`/`restart`/`enable`/`disable`)** mirrors
+`svc/systemd`'s own `unitOp`/`runUnitOp` shared-body shape exactly (`serviceOp`/`runServiceOp`
+here). No `daemon_reload` counterpart: the Service Control Manager has no "reread unit files from
+disk" operation to expose. `enable`/`disable`'s inverse is genuinely more careful than
+`svc.systemd`'s own: Windows services have three start types
+(`Automatic`/`Manual`/`Disabled`), and this namespace's `enable`/`disable` only ever set the first
+and third. A service found `Manual` that `enable` moves to `Automatic` has no exact reverse through
+`disable` (which sets `Disabled`, not `Manual`) — that specific transition emits no inverse at all
+rather than one that would over-correct a rollback, which is documented on each method's own
+`Reversibility.Notes` and verified directly by driving the real, registered `Enable`/`Disable`
+functions with seams swapped, not a hand-copied stand-in for their inverse logic.
 
-**LocalStack, not a fake, is the real target** for every test in this whole session's work — the
-first batch in this catalog where a fake shell script or `httptest.Server` genuinely cannot stand in
-(there is no shell command to fake; the target is the wire protocol itself). This surfaced a real,
-unplanned blocker: `localstack/localstack`'s published image now refuses to start at all without a
-`LOCALSTACK_AUTH_TOKEN` (a real licensing change, confirmed by running it), breaking the original
-plan's "no CI secret dependency" premise. The user resolved it by providing a real token
-(`.IGNORE/.localstack.env`, gitignored, read only via the `LOCALSTACK_AUTH_TOKEN` environment
-variable at test time, never hardcoded). Every LocalStack-backed test skips cleanly
-(`tb.Skip`) when that variable is unset, so `make ci` and any machine without a token are
-unaffected; there is no fallback to a fake. `internal/testsupport.LocalStackImage` pins
-`localstack/localstack:2026.7.4` (CalVer, the pin rule's "a real, specific release" requirement,
-not a numbering-scheme requirement), following this file's own established image-pinning
-discipline. LocalStack's own emulation is looser than real AWS in a few specific, empirically
-confirmed ways (documented below and in `coverage-floor.json`'s new `_exceptions` entries): it
-does not infer `Platform` from a fabricated AMI id, and it does not validate `instance_type`/
-`image_id` the way real `RunInstances` does — each was verified directly (a throwaway diagnostic
-program hitting the real container) before being accepted as a coverage gap rather than guessed at.
+**`win.feature.install`/`remove`** mirror the same read-decide-act-read-back shape over
+`pkg/winrmdism`. Unlike `svc.windows`'s enable/disable, this inverse is unconditional on the state
+found before: DISM's feature states have no third state this namespace manages around the way
+`Manual` complicates services, so `Enabled`/`Disabled` are exact complements for the transitions
+`install`/`remove` make. `install` passes `/all` (also enabling required parent features, matching
+what the Windows GUI's own "Add roles and features" does by default); `remove` deliberately does
+not, so removing a feature never silently removes the parents it depended on.
 
-**Coverage**: `pkg/awscloud` 95.6%, `cloud.aws.ec2` 96.7%, `cloud.aws.s3` 98.0% — all three
-package-specific gaps are documented (in code comments and, for the two with a pre-existing 100.0%
-floor from their old stubs, in `coverage-floor.json`'s `_exceptions` map, a real recorded downward
-adjustment with the same per-package written-reason discipline `gosec-waivers.json` already uses).
+**The `windows_server` classification rule** (`internal/classification/default_ruleset.go`), added
+at its own root — agentless, `configure_polling`, the same four capabilities
+`windows.NewServer`'s baseline already grants — the same pattern `aws_account`/`catalyst_center`
+were each added under when the plugin or batch that needed them was built. The one real, direct
+consumer: the `aws` sync plugin's `Classify` no longer quarantines a discovered Windows EC2
+instance (`Platform: "windows"`) — it resolves to `windows_server` — while a `Platform` value this
+tree still has no rule for continues to quarantine honestly. `aws_localstack_test.go`'s own
+`TestClassify_WindowsInstance_Quarantines` (proving the old, now-false behavior) was replaced with
+`TestClassify_WindowsInstance` plus a new `TestClassify_UnrecognizedPlatform_Quarantines`
+preserving direct coverage of the real quarantine path; `conformance_test.go`'s `aws` backend's own
+`unclassifiableUnsupported` explanation was updated to stop citing the retired test by name.
 
-### What landed, part 2: the "aws" inventory sync plugin
+**A real regression, caught and fixed, in code from an earlier session, not new to this batch.**
+`internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed` depended on
+`svc.windows.start` staying declared forever, and both concrete namespaces
+`svc.managerNamespace` maps to are now fully implemented, so there is no longer any real
+device/verb combination reachable from outside the package that exercises `dispatch`'s own
+"declared but not implemented" branch. `LESSONS_LEARNED.md` #150 generalizes this. Fixed with a new
+whitebox test (`internal/catalog/svc/dispatch_internal_test.go`) registering one throwaway,
+uniquely-named `StatusDeclared` fixture purely to prove the branch, and a new black-box
+`TestDispatchesToWindows` (mirroring `TestDispatchesToSystemd`) proving real dispatch resolves to
+`svc.windows.start` against an unreachable address. The identical regression class
+`cmd/pleiades/doc_test.go` has hit every prior session that flips a fixture FQCN from declared to
+implemented recurred here too, fixed the same way: the fixture moved to `file.template`, the one
+FQCN this document already commits to staying declared.
 
-`.SPECIFICATION/AWX_PARITY.md` names AWS explicitly as a required sync-plugin source, alongside
-NetBox, Nautobot and VMware, matching Ansible's own `amazon.aws.aws_ec2` dynamic inventory plugin.
-Only `catalyst_center` and `static_yaml` existed before this. `aws_account` (part 1, above) is the
-*target* `cloud.aws.*` methods run against; this plugin is the other half — it discovers real EC2
-instances and lands them in inventory as ordinary `linux_server` devices, so every existing
-SSH-based method (`net.ssh.ping`, `exec.command`, ...) already works against a discovered instance
-with no new transport or method needed.
+### Testing posture: `pkg/winrmexec`'s, not `cloud.aws.*`'s LocalStack precedent
 
-- **Scaffolded with `pleiades forge new-plugin`**, per this session's own "use the forge" discipline
-  (confirmed live, mid-session, when asked directly): a new `internal/forge/catalogdata/plugins.go`
-  entry (`Name: "aws"`, empty default `Endpoint` — AWS has no fixed public sandbox the way DevNet
-  gives `catalyst_center` one — `ReadOnly: true`), then `go generate ./internal/forge/catalogdata`
-  produced the real skeleton, hand-completed exactly like every `cloud.aws.*` stub this session.
-- **`Connect`/`Discover`/`Classify`/`Sync`/`Close`** mirror `catalystcenter.go` point-for-point:
-  eager real authentication (a cheap `ListInstancesPage` call, EC2's own documented `MaxResults`
-  floor of 5) so a bad credential or unreachable endpoint fails at `Connect`; a pull-based,
-  one-page-at-a-time iterator (token-based, since that is EC2's own pagination contract, not offset-
-  based like Catalyst Center's); `Sync` delegates to `syncplugin.Reconcile` verbatim. Region is a
-  required constructor `Option` (`WithRegion`, no fallback default, the same reasoning
-  `aws.Account.AWSRegion()` and `pkg/awscloud.New` already apply) rather than a new
-  `syncplugin.Config` field; `cfg.Endpoint` itself is reused as the AWS API base-endpoint override
-  (empty targets real AWS), since `Config.Endpoint`'s own doc comment already permits a plugin to
-  validate what it needs itself rather than growing the shared struct.
-- **Emits the account/region itself as a record too**, classified `aws_account`, mirroring
-  `controllerRecord`'s own reasoning: a sync leaves inventory able to run `cloud.aws.*` tasks
-  without a separate manual `add-host` step. This needed one new classification rule
-  (`internal/classification/default_ruleset.go`'s `"aws_account"` entry, granting
-  `capability.NameAWSAPI`) added the same way `"network_device.cisco.catalyst_center"` was added
-  when *that* plugin was built — the device type already existed, unwired, exactly the
-  registered-but-unreachable pattern this whole catalog effort keeps closing.
-- **Classification scope: Linux instances only.** EC2's `Platform` field is the one reliable signal
-  (empty for Linux, `"Windows"` for Windows), and a Windows instance quarantines with an explicit
-  reason rather than being guessed at — no `windows_server` classification rule exists yet, even
-  though the device type does (a real, documented follow-on gap, item 3 below). Confirmed
-  empirically that LocalStack cannot be made to report a Windows platform for a fabricated AMI id,
-  which is why the plugin's own conformance-suite entry documents (rather than works around) being
-  unable to exercise that specific quarantine path through a live discovery call; the behavior
-  itself is proven directly by `TestClassify_WindowsInstance_Quarantines` against a hand-built
-  record, which needs no live upstream since `Classify` is pure Go over an already-discovered value.
-- **Joined the existing conformance suite** (`internal/inventory/plugins/conformance_test.go`) by
-  adding one `pluginBackends` entry, per that file's own "never by editing a test function" rule —
-  except two shared assertions genuinely could not hold for a backend whose upstream assigns its
-  own addressing autonomously: the suite's hardcoded `ip == "10.0.0.1"` check (generalized to a
-  `checkIP` hook, defaulting to the prior exact-match behavior, with the `aws` backend's own hook
-  checking only non-empty, since LocalStack — confirmed empirically — always assigns its own public
-  IP on top of any requested private one) and the shared "unclassifiable host" fixture (a new
-  `unclassifiableUnsupported` reason field skips that one subtest for `aws`, rather than the suite
-  quietly failing or `aws` faking a fixture it cannot honestly produce). Both existing backends'
-  own assertions are byte-for-byte unchanged.
-- **A real correctness gap caught by writing the conformance backend, not by review**: `Discover`
-  ignored `syncplugin.Config.PageSize` entirely (a hardcoded `500`), unlike `catalystcenter`'s own
-  honoring of `cfg.EffectivePageSize()`. Fixed, and clamped into `[5, 1000]` (EC2's own documented
-  `MaxResults` bounds) rather than forwarded raw — `gosec` caught the unclamped upper bound as a
-  real `int`-to-`int32` overflow risk (`G115`), not a style complaint, since a config-supplied
-  `PageSize` has no caller-side upper bound today.
-- **A real test-isolation bug, caught by the conformance suite's own shared LocalStack container**:
-  the first backend `newPlugin` call to launch a "sw1" instance left it running, so a *later*
-  subtest's own "sw1" launch produced two instances answering to the same name, and `Discover`
-  correctly reported both — exactly the real behavior a leftover, never-cleaned-up EC2 instance
-  would produce in production. Fixed with `t.Cleanup` terminating what each call launched, not by
-  loosening any assertion.
-
-**Coverage**: 99.0% on the new `internal/inventory/plugins/aws` package (only `Next`'s empty-page
-branch — a real page returning zero instances while also reporting no further token — is
-unexercised; no package in this repo can force that shape without inventing an artificial
-signal an upstream never actually sends). No pre-existing floor to regress against, since the
-package is new.
+There is no WinRM emulator the way LocalStack emulates the AWS wire protocol, and `pkg/winrmexec`'s
+own package doc already states and accepts that constraint rather than building a stub server that
+"would only prove this package agrees with the stub." Every new package and Collection method hits
+**100% coverage on everything reachable without a live host**: `pkg/winrmsvc`/`pkg/winrmdism`'s
+script construction, quoting and state parsing against canned input; `internal/catalog/svc/windows`
+and `internal/catalog/win/feature`'s full decision logic (converged/refusal/inverse, including every
+downstream failure-wrapping branch) via `statusFunc`/`startFunc`/`stopFunc`/`restartFunc`/
+`enableFunc`/`disableFunc` seams swapped to canned answers — the same role `remoteexectest`'s fake
+systemctl plays for `pkg/remotesvc`'s own tests, adapted to a transport with no in-process fake
+worth building. `pkg/winrmsvc`/`pkg/winrmdism` themselves sit at 77.5%/73.3% (no recorded floor,
+the same "informational" bucket `pkg/winrmexec` itself already sits in): the remaining gap is the
+one thing that genuinely needs a live host, a real command's real output coming back, which is
+exactly what `pkg/winrmexec`'s own tests document as unfakeable. That one thing gets a new,
+env-gated Release Gate, `cmd/pleiades/winrm_service_feature_release_gate_test.go`, reusing
+`winrm_static_ip_release_gate_test.go`'s existing host/user/password env vars and adding its own
+(`PLEIADES_WINRM_TEST_SERVICE`, `PLEIADES_WINRM_TEST_FEATURE`). It reports **skipped** in this
+environment, the same honest status the static-IP gate has carried every session that has touched
+WinRM.
 
 ### Read this first
 
 **Module names are `xxx.xxx.xxx`.** FAILURE_PATTERNS #158; still the rule, still not violated here.
 
-**No commit without the user's own live word in the current conversation.** Unchanged. `93a7818`
-landed because the user ran it themselves after seeing the drafted message; nothing below has been
-asked for yet.
+**No commit without the user's own live word in the current conversation.** Unchanged. `60dae0d`
+landed because the user gave that word; nothing below has been asked for yet.
 
 **Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
 Unchanged (`pleiades_no_unrequested_delegation`). Held again this session, including through the
-plan-mode transitions for both `cloud.aws.*` and the sync plugin follow-on.
+plan-mode transition for this batch.
 
-**Real credentials belong in the environment, read at test time, never hardcoded — and gitignored
-files still deserve care.** `.IGNORE/.localstack.env` holds a real LocalStack auth token the user
-provided mid-session; it is read only via `os.Getenv("LOCALSTACK_AUTH_TOKEN")` inside test harnesses
-and was never written into any tracked file, HANDOFF entry, or committed test fixture. New this
-session, worth carrying forward explicitly rather than assuming it is obvious.
+**Before flipping the last `StatusDeclared` entry a generic dispatcher can resolve to, grep that
+dispatcher's own tests for the specific FQCN literal, not just for the word "declared."**
+`LESSONS_LEARNED.md` #150, new this session. `svc.managerNamespace` only ever mapped two names
+(`systemd`, `windows_scm`); once both concrete namespaces were fully implemented, the dispatcher's
+"declared but not implemented" refusal branch had no real example left to exercise it through the
+public API at all, which a naive "the test still compiles and the error is still non-nil" glance
+would not have caught. The fix (a throwaway registered-but-declared fixture in a new whitebox test
+file) is the reusable pattern; watch for the same shape in `net.cli`/`net.netconf` once every
+`net.*` vendor namespace is eventually implemented too.
 
-**When a real dependency's behavior contradicts a plan's premise (LocalStack's license change),
-verify empirically before either working around it or asking** — a throwaway diagnostic program
-against the real target answers faster and more honestly than reasoning from what used to be true.
-Used repeatedly this session (the LocalStack token requirement itself, `Platform` not being
-inferrable from a fake AMI id, `PrivateIpAddress` being honored while `PublicIpAddress` is still
-auto-assigned regardless, `MaxResults` validation being looser than real AWS).
+**Calling a native executable from a PowerShell script does not propagate its exit code
+automatically.** New this session, in `pkg/winrmdism`'s own package doc: `$LASTEXITCODE` holds the
+value, and a script that never reads it leaves the host process's own exit status at whatever it
+would otherwise be, typically 0, regardless of what the executable actually reported. Every script
+`pkg/winrmdism` builds ends with an explicit `exit $LASTEXITCODE` line for exactly this reason;
+worth checking for in any future package that shells out to a native `.exe` over WinRM the way this
+one shells out to `dism.exe`.
+
+**Docker was unreachable from this session's shell partway through**
+(`docker: command not found in this WSL 2 distro`), and was confirmed clean and reachable again
+before this session ended: the user isolated the host crashes this session's earlier segment
+discussed to running Docker and Hyper-V at the same time, and a re-check after that fix landed
+found `docker ps` answering normally. Every check that needed it was re-run for real at that point
+(see "Verification state" below); nothing here is inferred from the earlier Docker-unavailable
+window.
 
 ### The remainder, in order
 
 1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
-2. ~~`cloud.aws.*` (4)~~ — done this session, plus the AWS inventory sync plugin as an unplanned
-   but confirmed-necessary follow-on.
-3. **A `windows_server` classification rule**, so the `aws` sync plugin (and any future Windows-
-   discovering plugin) can classify a Windows instance instead of quarantining it. The device type
-   exists; the classification rule and the two `svc.windows.*`/`win.feature.*`-blocking capability
-   accessors below are the same underlying gap.
-4. **`svc.windows.*`/`win.feature.*` (7)** is transport-unblocked (WinRM exists) but needs two
-   Windows capability accessors on `windows.Server` first.
+2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ — done, committed at `60dae0d`.
+3. ~~A `windows_server` classification rule~~ — done this session.
+4. ~~`svc.windows.*`/`win.feature.*` (7)~~ — done this session.
 5. **`net.cli`/`ios`/`eos`/`junos`/`netconf` (6)** is blocked on a NETCONF transport that does not
-   exist yet.
+   exist yet. The next natural batch by this list's own ordering, and the last real transport gap
+   in the catalog.
 6. **`file.template`** stays declared: the render engine is `internal/render`, unreachable from a
-   Collection, and is a stable test fixture in `internal/validate` precisely because it is expected
-   to stay declared for a while.
-7. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to `svc.systemd.start`.
-   Unchanged from prior sessions: a design step, not a port, still not done.
+   Collection, and is a stable test fixture in `internal/validate` (and now also
+   `cmd/pleiades/doc_test.go`) precisely because it is expected to stay declared for a while.
+7. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to `svc.systemd.start`
+   (and, as of this session, `svc.windows.start`). Unchanged from prior sessions: a design step,
+   not a port, still not done.
 8. **`file.directory` still has its own mode validator**, unreconciled with `attributes.go`. Also
    unchanged from prior sessions.
 9. **Supplementary group membership and account passwords**, deliberately out of scope for
@@ -202,223 +182,129 @@ auto-assigned regardless, `MaxResults` validation being looser than real AWS).
     `service_manager`) rather than a baseline declare, since firewalld isn't universal the way
     `LinuxCapable`/`SystemdCapable` are.
 12. **An S3 object-level primitive** (`PutObject` at minimum) was deliberately not added to
-    `pkg/awscloud` this session — `cloud.aws.s3.delete_bucket`'s own scope stops at what
-    `DeleteBucket` does, and `coverage-floor.json`'s new `cloud/aws/s3` exception names this
-    explicitly as why its one remaining gap (deleting a non-empty bucket) cannot be fixture-tested
-    without it. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
+    `pkg/awscloud`. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
 
-With items 1 and 2 done, the module catalog now has **63 of 77** methods at
-`collection.StatusImplemented` in the working tree (59 committed at `93a7818`, plus these four),
+With items 3 and 4 done, the module catalog now has **70 of 77** methods at
+`collection.StatusImplemented` in the working tree (63 committed at `60dae0d`, plus these seven),
 confirmed via `internal/archtest`'s `TestEveryImplementedMethodAnswersReversibility`, which logs
-the count. Sync plugins: **3 of however many this platform eventually wants** (`static_yaml`,
-`catalyst_center`, `aws`), tracked separately in `docs/reference/plugins.md`, not in the method
-count above.
+the count.
 
 ### Verification state
 
-Full `go build ./...`, `go vet ./...`, `make fmt`, `go test -race ./...` (whole repo, twice — once
-mid-session catching the same `cmd/pleiades/doc_test.go` regression class as every prior batch
-that implements a method those tests hardcoded as "still declared" — this time fixed by moving the
-fixture to `svc.windows.start`, confirmed still genuinely declared — and once clean after the AWS
-sync plugin's own changes landed), `make gosec` (9 pre-existing individually-waived findings after
-fixing the one real new finding this session surfaced — the `PageSize` overflow above — no other
-new findings, `gosec-waivers.json` itself untouched), `go run ./tools/coverage-check` (171 packages
-measured, none below their recorded floor, after the two documented `cloud/aws/{ec2,s3}` floor
-adjustments), and `go run ./tools/docs-lint` all pass clean on top of `93a7818` plus this session's
-uncommitted work. `go generate ./internal/forge/catalogdata` and `go run ./tools/gendocs` are both
-confirmed idempotent (a second run of each produces no further diff), and `internal/archtest`'s
-full suite passes, including `TestCatalogDataDocsMatchTheRegistry`, `TestCatalogPackagesImportOnlyPkg`,
-`TestCatalogPlugins_AllRegistered`, and `TestRegisteredPluginsAreWellFormed`.
+**Every package this batch actually touched, verified individually and cleanly**: `go build
+./...`, `go vet ./...`, `make fmt`, `go test -race` (each touched package: `pkg/winrmsvc`,
+`pkg/winrmdism`, `internal/catalog/svc/...`, `internal/catalog/win/feature`,
+`internal/inventory/devices/windows`, `internal/classification`, `internal/inventory/plugins/aws`,
+`cmd/pleiades`), `go test ./internal/archtest/...` (full suite clean, including
+`TestCatalogPackagesImportOnlyPkg` proving the two new `pkg/` packages are layered correctly,
+`TestCatalogDataDocsMatchTheRegistry` after hand-syncing `internal/forge/catalogdata`'s two files,
+and `TestEveryImplementedMethodAnswersReversibility` reporting 70), `make gosec` (the same 9
+pre-existing individually-waived findings, zero new ones), `go run ./tools/docs-lint` (clean),
+`go run ./tools/govulncheck`/`make govulncheck` (clean — 0 vulnerabilities affecting this code, an
+improvement on the `lib/pq` CVEs prior sessions noted; worth re-confirming next session rather than
+assuming), and `go generate ./internal/forge/catalogdata` plus `go run ./tools/gendocs` (both
+confirmed idempotent, a second run of each produces no further diff).
+
+**Full-repo verification completed cleanly once Docker came back**, and every earlier caveat about
+it is superseded by this: `go test -race ./...` (whole repo, real containers — real LocalStack,
+real sshd, real NATS) ran to completion with **zero failures across 126 packages**. `go run
+./tools/coverage-check`, run non-tolerant with `LOCALSTACK_AUTH_TOKEN` sourced from
+`.IGNORE/.localstack.env` (needed separately from Docker itself — the first run after Docker came
+back still showed `cloud.aws.ec2`/`s3` "regressed," and the actual cause was this token not yet
+being exported in the fresh shell, not Docker), reports **173 packages measured, none below their
+recorded floor**. `pkg/awscloud` (95.6%), `internal/inventory/plugins/aws` (99.0%), and every other
+LocalStack-dependent number matches exactly what the prior `cloud.aws.*` session recorded, with no
+drift. `make gosec` and `go run ./tools/docs-lint` were both re-run clean after Docker returned too.
+The one loose end from the Docker-unavailable window is worth still naming rather than dropping:
+`internal/catalog/pleiades/builtin/wait`'s `TestPort_UsesTheBashProber` failed once under
+full-suite load during that earlier pass and passed cleanly in isolation immediately after and
+again during this clean full run; this session touched nothing in or near that package, and it is
+not yet added to `flaky-packages.json` — worth watching for a repeat before deciding whether it
+belongs there.
 
 `make docs-gen-check` "fails" for the same non-defect reason as every prior session: its own `git
-diff --exit-code` compares the regenerated tree against `93a7818`, and this session's work is real,
-intentional, uncommitted content in `docs/reference`, `internal/api/wellknown`, and
-`docs/reference/plugins.md` (new this session). Resolves on its own the moment this is committed.
+diff --exit-code` compares the regenerated tree against `60dae0d`, and this session's work is real,
+intentional, uncommitted content in `docs/reference` and `internal/api/wellknown`. Resolves on its
+own the moment this is committed.
 
-**`govulncheck` still fails, still not this session's doing** — the same five real, unrelated CVEs
-in `github.com/lib/pq@v1.10.9` that blocked `make ci` every prior session, confirmed again, none
-with a fix available upstream. Also worth checking explicitly given the new `aws-sdk-go-v2`
-dependency tree this session added: no new finding attributable to it.
+### Commit message
 
-Both `cloud.aws.*` and the `aws` sync plugin are proven against a real (if emulated) AWS backend —
-LocalStack — through the full real request/response wire protocol via the actual `aws-sdk-go-v2`
-client, which is a genuine step up from every prior batch's "not yet run against a real device"
-caveat: there is no fake shell script standing in for anything here. The honest remaining caveat is
-the emulator itself: nothing in this session ran against a real AWS account, and LocalStack's own
-looser validation in a few specific, named spots (documented above) is a property of the emulator,
-not of this code's correctness against real AWS's stricter API contract.
-
-### Commit messages
-
-Drafted, not run; nothing is committed except `93a7818`. Two separable units of work, offered as
-two commits matching this repository's one-topic-per-commit convention — combine them if you'd
-rather have one.
-
-**Commit 1 — `cloud.aws.*`:**
+Drafted, not run; nothing is committed except `60dae0d`.
 
 ```
-feat(catalog): cloud.aws.ec2.* and cloud.aws.s3.*, the first API-addressed methods
+feat(catalog): svc.windows.* and win.feature.*, the windows_server classification rule (70 of 77)
 
-The first batch in this catalog that cannot be built on pkg/remoteexec
-alone: cloud.aws.ec2.create/terminate and cloud.aws.s3.create_bucket/
-delete_bucket all address the AWS HTTP API directly
-(SupportedTransports: []string{}), not a device transport, the same
-shape net.catalyst.* already established for a controller-side
-target.
+windows.Server gains four real accessors (WindowsEdition,
+ServiceManagerName, WindowsServiceStartMode, DISMLogPath), closing the
+TODO its own doc comment has named since the type was first generated
+and structurally implementing the three capabilities svc.windows.*/
+win.feature.* need. ServiceManagerName defaults to "windows_scm",
+which is what makes svc.*'s pre-existing "windows_scm" -> "svc.windows"
+dispatch mapping resolve for real for the first time.
 
-pkg/awscloud (new) wraps the real aws-sdk-go-v2 -- core plus
-config/credentials plus service/ec2 and service/s3, scoped to exactly
-those four submodules -- rather than hand-rolling SigV4 the way
-pkg/catalystcenter hand-rolls its own HTTP auth. Reimplementing AWS's
-request signing was judged the wrong tradeoff: it is security-critical
-cryptographic code, not a REST convenience layer, and the official SDK
-is Apache-2.0, explicitly allowed. This is the first non-golang.org/x,
-non-observability third-party dependency this catalog has needed.
-New() deliberately does not use config.LoadDefaultConfig, which falls
-back through environment variables and ~/.aws/config on whatever
-machine runs pleiades -- the identical side-channel-credential problem
-this platform's SSH methods already reject. Credentials arrive
-through RunbookContext.InjectSecrets, mapped onto the existing
-AWX-derived AWS credential type's own username/password field names,
-so no new credential type or injector wiring was needed anywhere in
-internal/credtype.
+pkg/winrmsvc and pkg/winrmdism are new, mirroring pkg/remotesvc for a
+transport (WinRM) with no persistent connection to hold: both take an
+explicit Session{Target, Auth, Options} bundle rather than a live
+conn, since pkg/winrmexec dials fresh per call. pkg/winrmdism shells
+out to dism.exe directly rather than the ServerManager PowerShell
+module, since dism.exe works on every Windows SKU and
+windows.Server.DISMLogPath already commits this design to DISM; every
+script it builds ends with an explicit "exit $LASTEXITCODE" line,
+without which a native executable's real exit code never reaches
+Result.ExitCode at all. DISM's own exit codes are applied directly:
+3010 (reboot required) is success, surfaced as a new reboot_required
+stat rather than folded into changed; 87 (invalid parameter) on
+/get-featureinfo means an unrecognized feature name, surfaced as
+Exists: false rather than an error.
 
-inventory/devices/aws.Account, a pre-existing forge stub, gained
-AWSRegion() (backed by a region property, no fallback default -- a
-region is not a convention to guess at) and AWSEndpointOverride()
-(backed by endpoint_override, empty for real AWS, a test-only
-override otherwise), closing the structural gap its own stub TODO
-named: HasCapability(NameAWSAPI) now genuinely returns true.
+svc.windows.* (start/stop/restart/enable/disable) mirrors
+svc/systemd's own shared unitOp/runUnitOp shape. enable/disable's
+inverse is more careful than svc.systemd's own: a service found with
+start type Manual that enable moves to Automatic has no exact reverse
+through disable (which sets Disabled, not Manual), so that specific
+transition emits no inverse at all rather than one that would
+over-correct a rollback. win.feature.install/remove mirror the same
+read-decide-act-read-back shape over pkg/winrmdism; install passes
+/all (also enabling required parent features), remove deliberately
+does not.
 
-ec2.create is idempotent on the instance's Name tag existing among
-non-terminated instances only, never a config comparison, and never
-recreates -- the same restraint container.docker.run already applied
-against a much larger upstream surface. ec2.terminate takes an exact
-instance_id rather than a name lookup: a destructive action deserves
-the exact resource, not a fuzzy match. s3.delete_bucket deliberately
-does not empty a non-empty bucket first -- AWS's own refusal is the
-safety rail, not an error this method routes around.
-ec2.create/s3.create_bucket are Reversible: true, inverses to
-terminate/delete_bucket, only when they actually created something;
-ec2.terminate/s3.delete_bucket are both Reversible: false (a
-terminated instance's storage is gone; bucket names are globally
-unique and may be claimed by someone else before any inverse would
-run).
+The windows_server classification rule (internal/classification/
+default_ruleset.go) is what lets the aws sync plugin's Classify
+resolve a discovered Windows EC2 instance instead of quarantining it,
+the one real consumer this session wired: Classify now resolves
+Platform "windows" to windows_server and "" to linux_server, still
+quarantining any Platform value neither names.
 
-Every test in this batch runs against a real LocalStack container,
-not a fake: this is the first batch in the catalog where the target
-is the AWS wire protocol itself rather than a shell command a fake
-script could stand in for. LocalStack's published image now refuses
-to start without a LOCALSTACK_AUTH_TOKEN (confirmed by actually
-running it, a real licensing change partway through this
-codebase's own lifetime); every LocalStack-backed test skips cleanly
-when that variable is unset, so make ci and any machine without a
-token are unaffected, with no fallback to a fake.
-internal/testsupport gained LocalStackImage (pinned to a real,
-specific CalVer release, following this repository's own image-pin
-discipline).
+A real regression in code from an earlier session, not new to this
+batch: internal/catalog/svc/svc_test.go's
+TestDeclaredButNotImplementedTargetIsNamed depended on
+svc.windows.start staying declared forever, and both concrete
+namespaces svc.managerNamespace maps to are now fully implemented, so
+dispatch's own "declared but not implemented" branch had no real
+example left reachable from outside the package. Fixed with a new
+whitebox test registering one throwaway declared-only fixture purely
+to prove the branch, and a new black-box TestDispatchesToWindows
+proving real dispatch to svc.windows.start against an unreachable
+address. cmd/pleiades/doc_test.go's own recurring fixture regression
+(every prior session that flips a declared FQCN to implemented has hit
+this) recurred here too; its two "still declared" fixtures moved to
+file.template, the one FQCN this document already commits to staying
+declared.
 
-Coverage: pkg/awscloud 95.6%, cloud.aws.ec2 96.7%, cloud.aws.s3
-98.0%. The three gaps are each a real branch LocalStack's own looser
-emulation cannot be made to exercise (confirmed empirically with a
-throwaway diagnostic program against the real container before being
-accepted, not guessed at): RunInstances/TerminateInstances error
-branches LocalStack does not validate into the same way real AWS
-does, and DeleteBucket's real refusal to delete a non-empty bucket,
-which this pass's scope does not build a PutObject primitive to
-fixture. cloud.aws.ec2 and cloud.aws.s3 each carry a real,
-individually-justified downward floor adjustment in
-coverage-floor.json's _exceptions map, the same per-entry written-
-reason discipline gosec-waivers.json already uses.
+Coverage: pkg/winrmsvc/pkg/winrmdism 77.5%/73.3% (no recorded floor,
+the same informational bucket pkg/winrmexec itself already sits in --
+the remaining gap is the one thing that genuinely needs a live
+Windows host, which pkg/winrmexec's own tests already document as
+unfakeable). Every Collection method and the windows.Server accessors
+hit 100% coverage on everything reachable without one, via
+statusFunc/startFunc/stopFunc/restartFunc/enableFunc/disableFunc seams
+swapped to canned answers. cmd/pleiades/
+winrm_service_feature_release_gate_test.go is the new, env-gated
+Release Gate for the one thing that does need a live host; it reports
+skipped in every environment without one, the same honest status
+winrm_static_ip_release_gate_test.go has carried every session that
+has touched WinRM.
 
-cmd/pleiades/doc_test.go's two still-declared-method fixtures moved
-from cloud.aws.ec2.create to svc.windows.start, since the former is
-no longer declared.
-
-The module catalog now has 63 of 77 methods implemented in the
-working tree (59 committed, plus these four).
-```
-
-**Commit 2 — the `aws` inventory sync plugin:**
-
-```
-feat(inventory): the "aws" sync plugin, EC2 discovery into linux_server
-
-AWX_PARITY.md names AWS explicitly as a required sync-plugin source,
-alongside NetBox, Nautobot and VMware, matching Ansible's own
-amazon.aws.aws_ec2 dynamic inventory plugin. Only catalyst_center and
-static_yaml existed before this. inventory/devices/aws.Account (the
-prior commit) is the target cloud.aws.* methods run against; this
-plugin is the other half -- it discovers real EC2 instances and lands
-them in inventory as ordinary linux_server devices, so every existing
-SSH-based method already works against a discovered instance with no
-new transport or method needed.
-
-Scaffolded with pleiades forge new-plugin: a new entry in
-internal/forge/catalogdata/plugins.go (empty default Endpoint, since
-AWS has no fixed public sandbox the way DevNet gives catalyst_center
-one) drove go generate to produce the real skeleton, hand-completed
-exactly like every cloud.aws.* stub in the prior commit.
-
-Connect/Discover/Classify/Sync/Close mirror catalystcenter.go
-point-for-point: eager real authentication so a bad credential or
-unreachable endpoint fails at Connect, not partway through Discover;
-a pull-based, one-page-at-a-time iterator over
-pkg/awscloud.ListInstancesPage (new this commit), token-based rather
-than offset-based since that is EC2's own pagination contract; Sync
-delegates to syncplugin.Reconcile verbatim. Region is a required
-constructor Option (WithRegion, no fallback default) rather than a
-new syncplugin.Config field; cfg.Endpoint itself is reused as the AWS
-API base-endpoint override, since Config.Endpoint's own doc comment
-already permits a plugin to validate what it needs itself.
-
-Emits the account/region itself as a record too, classified
-aws_account, mirroring controllerRecord's own reasoning: a sync
-leaves inventory able to run cloud.aws.* tasks without a separate
-manual add-host step. This needed one new classification rule
-(internal/classification/default_ruleset.go's "aws_account" entry),
-added the same way catalyst_center's own rule was added when that
-plugin was built -- the device type already existed, unwired.
-
-Classification is Linux-only this pass: EC2's Platform field is the
-one reliable signal, and a Windows instance quarantines with an
-explicit reason rather than being guessed at, since no
-windows_server classification rule exists yet even though the device
-type does. Confirmed empirically that LocalStack cannot be made to
-report a Windows platform for a fabricated AMI id.
-
-Joined the existing plugin conformance suite
-(internal/inventory/plugins/conformance_test.go) by adding one
-pluginBackends entry. Two of the suite's shared assertions needed a
-real generalization, not a workaround, since no fixture can make a
-real cloud upstream behave like a fake one: the hardcoded
-ip == "10.0.0.1" check became a checkIP hook (default: the prior
-exact-match behavior, unchanged for the two existing backends; aws's
-own hook checks only non-empty, since LocalStack always assigns its
-own public IP on top of any requested private one), and a new
-unclassifiableUnsupported reason field lets a backend skip the
-unclassifiable-host subtest honestly when its upstream has no way to
-produce one, rather than the suite failing or a fixture being faked.
-
-Building the conformance backend caught two real bugs before they
-shipped. First, Discover ignored syncplugin.Config.PageSize entirely
-(a hardcoded 500), unlike catalystcenter's own honoring of
-cfg.EffectivePageSize(); fixed, and clamped into EC2's own documented
-[5, 1000] MaxResults bounds rather than forwarded raw, which gosec
-caught as a real int-to-int32 overflow risk once the clamp's ceiling
-was added. Second, the first subtest to launch an instance named
-"sw1" left it running, so a later subtest's own "sw1" launch produced
-two instances answering to the same name -- exactly the real behavior
-an un-terminated leftover instance would produce in production. Fixed
-with real cleanup terminating what each conformance call launches,
-not by loosening any assertion.
-
-Coverage: 99.0% on the new package. The one gap (Next's empty-page
-branch) is a page reporting zero instances while also reporting no
-further token, a shape no upstream in this repository's test
-environment can be made to send without inventing a signal that does
-not exist.
-
-Sync plugins: 3 (static_yaml, catalyst_center, aws), tracked in
-docs/reference/plugins.md.
+The module catalog now has 70 of 77 methods implemented in the
+working tree (63 committed, plus these seven).
 ```

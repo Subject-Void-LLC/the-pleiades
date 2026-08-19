@@ -2966,3 +2966,41 @@ belief about that target is not. When the real behavior contradicts the plan, st
 whoever approved the plan rather than quietly substituting a workaround — the same "re-derive
 before carrying across a stale judgement" instinct LESSONS_LEARNED #143 already names for a removed
 safeguard, applied here to a changed dependency instead.
+
+## 150. A generic dispatcher's "declared but not implemented" branch loses its only real test case the moment every namespace it can resolve to becomes implemented
+
+**The incident.** `internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed`
+proved `dispatch`'s refusal for a registered-but-unimplemented concrete target by pointing a
+`windows_scm` device at `svc.windows.start`, which was true and declared-not-implemented at the
+time that test was written. This session implemented all five `svc.windows.*` methods, and the
+test kept compiling and kept passing its own assertions' *shape* right up until the moment `go
+test` actually ran it: `svc.windows.start` was now `StatusImplemented`, so `dispatch` sailed past
+the branch under test entirely and invoked the real `windows.Start`, which failed for a completely
+different reason (the test harness's fake device implements `SSHHost`/`SSHPort`, not
+`WinRMHost`/`WinRMPort`) that happened to still produce a non-nil error — meaning a naively
+observed "err != nil, test still red for basically the right shape" run could have read as passing
+if the assertion checked less precisely. `internal/catalog/svc.managerNamespace` maps exactly two
+service-manager names to exactly two namespaces (`systemd`, `windows_scm`), and once both are fully
+implemented there is no longer any real device/verb combination reachable from outside the package
+that exercises the "found in the registry, but `Status != StatusImplemented`" branch — every legal
+input now either resolves to a real implementation or refuses earlier (unknown manager, missing
+capability). The branch is still live, load-bearing code (it is what makes a partially-implemented
+service-manager namespace fail cleanly rather than nil-pointer-panic), but the public API can no
+longer reach it.
+
+**How to apply it.** Before extending a batch that flips the last `StatusDeclared` entry a generic
+dispatcher can resolve to, check whether any of that dispatcher's own tests depend on a *specific
+concrete FQCN* remaining declared rather than on the *mechanism* of refusing a declared target in
+the abstract — grep the dispatcher's test file for the FQCN literal, not just for the word
+"declared". When the last real example is about to disappear, do not delete the test or leave it
+silently asserting a now-false premise: add a whitebox (same-package) test file that registers one
+throwaway, uniquely-named `StatusDeclared` descriptor purely as a fixture (a `pleiades forge`-style
+name that cannot collide with anything real, e.g. `svc.systemd.dispatchtestonly`) and calls the
+unexported dispatch function directly with a verb that resolves to it. This proves the branch
+itself, honestly, using a fixture that is clearly a fixture, rather than either deleting real test
+coverage or letting a test's premise quietly go stale while its assertions happen to still compile.
+Replace what the retired test *was* actually reachable to prove — here, that dispatch really does
+resolve and invoke the correct concrete method for a device — with a black-box test pointed at an
+address nothing answers, asserting on the failure having reached the network with the right FQCN
+named in it, the same "assert on the failure mode, not a live host" pattern
+`pkg/winrmexec`'s own tests already use for the identical missing-real-backend constraint.

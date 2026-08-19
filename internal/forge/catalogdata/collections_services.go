@@ -265,7 +265,22 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Starts a Windows service."},
+		Doc: collection.Doc{
+			Summary:     "Starts a Windows service now, without changing its start type.",
+			Description: "Makes sure a Windows service is running right now. This is ansible.windows.win_service with state=started, and it is deliberately not also enable: starting and setting the start type are separate in the Service Control Manager and separate here, so a task that wants both says both. State is read before anything is sent, so a service that is already running reports no change and no command reaches the device. A service the Service Control Manager does not know is refused rather than reported as started, and a service whose start type is Disabled is refused with that named, since Windows itself refuses to start one and its own error describes a generic failure rather than the cause.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Start a service", RunbookYAML: "- name: Make sure the print spooler is running\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n"},
+				{Name: "Start it and make it survive a reboot", RunbookYAML: "- name: Start the print spooler\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"},
+			},
+			SeeAlso: []string{"svc.windows.stop", "svc.windows.restart", "svc.windows.enable", "svc.start"},
+		},
 	},
 	{
 		Name:              "svc.windows.stop",
@@ -273,7 +288,22 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Stops a Windows service."},
+		Doc: collection.Doc{
+			Summary:     "Stops a Windows service now, without changing its start type.",
+			Description: "Makes sure a Windows service is not running right now. This is ansible.windows.win_service with state=stopped, and it leaves the start type alone: a service stopped by this task still starts at the next reboot unless svc.windows.disable is also run. State is read before anything is sent, so a service that is already stopped reports no change. A service the Service Control Manager does not know is refused rather than reported as stopped, since a typo in the name should not read as success.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Stop a service", RunbookYAML: "- name: Stop the print spooler before changing its config\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n"},
+				{Name: "Stop it now and keep it from coming back at boot", RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
+			},
+			SeeAlso: []string{"svc.windows.start", "svc.windows.disable", "svc.stop"},
+		},
 	},
 	{
 		Name:              "svc.windows.restart",
@@ -281,7 +311,21 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Restarts a Windows service."},
+		Doc: collection.Doc{
+			Summary:     "Restarts a Windows service, starting it if it was not running.",
+			Description: "Restarts a Windows service. This is ansible.windows.win_service with state=restarted, and like that module it starts a service that was not running rather than failing. It is the one method in this namespace that is never converged: restarting a running service is the point, not a no-op, so this always sends the command and always reports changed. That makes it the method most worth putting behind a when condition or a handler, so a service is only bounced when something it reads actually changed. A service the Service Control Manager does not know is refused, and a service whose start type is Disabled is refused with that named.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Restart after a config change", RunbookYAML: "- name: Write the app's config\n  fqcn: file.copy\n  params:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  fqcn: svc.windows.restart\n  params:\n    name: AppService\n  when:\n    - app_config.changed\n"},
+			},
+			SeeAlso: []string{"svc.windows.start", "svc.windows.stop", "svc.restart"},
+		},
 	},
 	{
 		Name:              "svc.windows.enable",
@@ -289,7 +333,21 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Sets a Windows service's start type to automatic."},
+		Doc: collection.Doc{
+			Summary:     "Makes a Windows service start at boot, without starting it now.",
+			Description: "Makes sure a Windows service's start type is Automatic. This is ansible.windows.win_service with start_mode=auto, and it is deliberately not also start: a service enabled by this task is not running until svc.windows.start runs or the device reboots. State is read before anything is sent, so a service whose start type is already Automatic reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.disable targets: a service found Manual becomes Automatic, and running svc.windows.disable afterward would leave it Disabled rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Make a service start at boot", RunbookYAML: "- name: Make sure the print spooler comes back after a reboot\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"},
+			},
+			SeeAlso: []string{"svc.windows.disable", "svc.windows.start", "svc.enable"},
+		},
 	},
 	{
 		Name:              "svc.windows.disable",
@@ -297,6 +355,21 @@ var servicesCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Sets a Windows service's start type to disabled."},
+		Doc: collection.Doc{
+			Summary:     "Stops a Windows service starting at boot, without stopping it now.",
+			Description: "Makes sure a Windows service's start type is Disabled, refusing it from starting at all until this is undone. This is ansible.windows.win_service with start_mode=disabled, and it leaves the running system alone: a service disabled by this task keeps running until svc.windows.stop also runs or it is stopped some other way. State is read before anything is sent, so a service whose start type is already Disabled reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.enable targets: a service found Manual becomes Disabled, and running svc.windows.enable afterward would leave it Automatic rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows service to act on, its short service name (not its display name), such as Spooler rather than \"Print Spooler\". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The service this task acted on."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Keep a service from starting at boot", RunbookYAML: "- name: Make sure the print spooler cannot start at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
+				{Name: "Disable it and stop it running now too", RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
+			},
+			SeeAlso: []string{"svc.windows.enable", "svc.windows.stop", "svc.disable"},
+		},
 	},
 }

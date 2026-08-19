@@ -15,11 +15,9 @@ import (
 	// statement about the test binary rather than about the dispatcher.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/systemd"
 
-	// Also blank-imported, so the declared-but-not-implemented path is
-	// exercised as it really is. Without this the windows methods are
-	// absent from the registry entirely and the test would pass against
-	// "not registered", which is a different refusal from the one a real
-	// binary produces.
+	// Also blank-imported, so TestDispatchesToWindows resolves against the
+	// real svc.windows.* registrations rather than "not registered", which
+	// is a different refusal from the one a real binary produces.
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/svc/windows"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -58,6 +56,14 @@ func (d *device) SSHHost() string            { return d.host }
 func (d *device) SSHPort() int               { return d.port }
 func (d *device) ServiceManagerName() string { return d.manager }
 func (d *device) SystemdUnitPath() string    { return "/etc/systemd/system" }
+
+// WinRMHost and WinRMPort let this same device type also stand in for a
+// windows_scm target: TestDispatchesToWindows points host/port at an
+// address nothing answers, so dispatch resolving to the real
+// svc.windows.* implementation surfaces as a dial failure naming the
+// concrete FQCN, not a capability or parameter refusal.
+func (d *device) WinRMHost() string { return d.host }
+func (d *device) WinRMPort() int    { return d.port }
 
 // plainDevice reports no service manager at all: it satisfies neither
 // ServiceManagerCapable nor anything below it.
@@ -250,20 +256,37 @@ func TestUnknownServiceManagerIsRefused(t *testing.T) {
 	}
 }
 
-// TestDeclaredButNotImplementedTargetIsNamed is where svc.windows.*
-// stands today, and the error has to say which concrete method is
-// missing rather than failing somewhere confusing.
-func TestDeclaredButNotImplementedTargetIsNamed(t *testing.T) {
-	h := newHarness(t, "windows_scm", capability.NameWindowsService)
-
-	_, err := svc.Start(context.Background(), h.rc, h.dev, params())
-	if err == nil {
-		t.Fatal("expected a refusal: svc.windows.start is declared, not implemented")
+// TestDispatchesToWindows is svc.windows.*'s own version of
+// TestDispatchesToSystemd, once that namespace stopped being declared and
+// became a real implementation: proof that a windows_scm device resolves
+// through the generic dispatcher to the concrete svc.windows.* method
+// rather than stopping short at "not registered" or a capability refusal.
+//
+// There is no in-process WinRM server to run the real command against
+// (the identical constraint pkg/winrmexec's own tests document), so this
+// points the device at an address nothing answers and asserts on the
+// FAILURE MODE: an error naming the concrete FQCN and reaching the
+// network is only possible if dispatch actually resolved and invoked
+// windows.Start, not if it had refused earlier on a missing registration
+// or a missing capability.
+func TestDispatchesToWindows(t *testing.T) {
+	rc := &ctxStub{secrets: map[string]string{"username": "administrator", "password": "secret"}, stats: map[string]any{}}
+	dev := &device{
+		Stub:    &inventorytest.Stub{StubName: "win1", Caps: []capability.Name{capability.NameWindowsService}},
+		host:    "127.0.0.1",
+		port:    1,
+		manager: "windows_scm",
 	}
-	for _, want := range []string{"svc.windows.start", "not implemented"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %v, want it to mention %q", err, want)
-		}
+
+	_, err := svc.Start(context.Background(), rc, dev, params())
+	if err == nil {
+		t.Fatal("expected an error dialing an unreachable target")
+	}
+	if !strings.Contains(err.Error(), "svc.windows.start") {
+		t.Errorf("error = %v, want it to name the concrete FQCN dispatch resolved to", err)
+	}
+	if strings.Contains(err.Error(), "not registered") || strings.Contains(err.Error(), "declared but not implemented") {
+		t.Errorf("error = %v, want a real dispatch attempt, not an early refusal", err)
 	}
 }
 

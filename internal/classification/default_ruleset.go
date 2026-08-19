@@ -10,8 +10,10 @@ import "github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 // ItemFactory, rather than inventing a WindowsDesktop or generic
 // NetworkDevice type nothing registers. catalyst_center and aws_account
 // were each added later, when the sync plugin that needed them was built,
-// not when their device types first landed — the same pattern this file
-// itself follows for whatever the next plugin needs.
+// not when their device types first landed; windows_server was added
+// later still, when svc.windows.*/win.feature.* gave windows.Server real
+// capability accessors to classify into — the same pattern this file
+// itself follows for whatever the next plugin or method batch needs.
 //
 // The tree shape mirrors PLAN.md Section 6d's own worked example
 // (linux_server -> debian_family -> ubuntu; network_device -> cisco ->
@@ -77,6 +79,25 @@ func DefaultRuleSet() *RuleSet {
 			ConnectionMode: str("agentless"),
 			Onboard:        str("configure_polling"),
 			Capabilities:   []capability.Name{capability.NameAWSAPI},
+		},
+		// A stock Windows server, added when svc.windows.*/win.feature.*
+		// landed and windows.Server gained real accessors for the three
+		// capabilities those methods need. It sits at its own root, the
+		// same reasoning aws_account's own comment gives: it is not a more
+		// specific linux_server, so it inherits nothing from that branch.
+		// Capabilities matches windows.NewServer's own vendor baseline
+		// exactly (Phase 32's capability granularity decision), which is
+		// also the set that makes the aws sync plugin's Classify able to
+		// resolve a discovered Windows EC2 instance here instead of
+		// quarantining it.
+		"windows_server": {
+			Type:           str("windows_server"),
+			ConnectionMode: str("agentless"),
+			Onboard:        str("configure_polling"),
+			Capabilities: []capability.Name{
+				capability.NameWindows, capability.NameWinRM,
+				capability.NameWindowsService, capability.NameWindowsFeature,
+			},
 		},
 	})
 	if err != nil {

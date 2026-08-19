@@ -150,7 +150,22 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Installs a Windows feature or role."},
+		Doc: collection.Doc{
+			Summary:     "Enables a Windows optional feature or role via DISM, including its required parent features.",
+			Description: "Makes sure a Windows optional feature or role is enabled. This is ansible.windows.win_optional_feature with state=present (or win_feature's default), built on dism.exe /online /enable-feature rather than the ServerManager PowerShell module, since dism.exe works on every Windows SKU and this platform's own DISMLogPath capability already commits to it. /all is passed, so enabling a feature also enables the parent features it requires, matching what the Windows GUI's own \"Add roles and features\" does by default. State is read before anything is sent, so a feature that is already enabled reports no change and no command reaches the device. A feature name DISM does not recognize is refused rather than reported as already enabled, since that is nearly always a typo. Many features need a restart before they finish taking effect; check reboot_required rather than assuming changed alone means the feature is fully usable.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The feature this task acted on."},
+				{Name: "reboot_required", Type: "bool", Returned: "always", Description: "Whether DISM reported that a restart is needed for this change to take full effect (its own ERROR_SUCCESS_REBOOT_REQUIRED). False on a run that changed nothing."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Enable IIS", RunbookYAML: "- name: Make sure the web server role is enabled\n  fqcn: win.feature.install\n  params:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  fqcn: exec.winrm.shell\n  params:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"},
+			},
+			SeeAlso: []string{"win.feature.remove"},
+		},
 	},
 	{
 		Name:              "win.feature.remove",
@@ -158,7 +173,22 @@ var extendedCollections = []collectionscaffold.Config{
 		Transports:        []string{"winrm"},
 		RequiresElevation: true,
 		EngineVersion:     engineVersion,
-		Doc:               collection.Doc{Summary: "Removes a Windows feature or role."},
+		Doc: collection.Doc{
+			Summary:     "Disables a Windows optional feature or role via DISM.",
+			Description: "Makes sure a Windows optional feature or role is disabled. This is ansible.windows.win_optional_feature with state=absent, built on dism.exe /online /disable-feature. Unlike install, this does not pass /all: removing a feature should not silently remove the parent features it depended on. State is read before anything is sent, so a feature that is already disabled reports no change. A feature name DISM does not recognize is refused rather than reported as already disabled, since that is nearly always a typo. Many features need a restart before removal fully takes effect; check reboot_required rather than assuming changed alone means the feature is gone.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The Windows optional feature or role's DISM feature name, such as IIS-WebServerRole, not its display name. The feature must be one DISM recognizes: a name it does not is refused rather than reported as already the target state, since that is nearly always a typo."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The feature this task acted on."},
+				{Name: "reboot_required", Type: "bool", Returned: "always", Description: "Whether DISM reported that a restart is needed for this change to take full effect (its own ERROR_SUCCESS_REBOOT_REQUIRED). False on a run that changed nothing."},
+				{Name: "diff", Type: "dict", Returned: "always", Description: "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
+			},
+			Examples: []collection.Example{
+				{Name: "Disable IIS", RunbookYAML: "- name: Make sure the web server role is disabled\n  fqcn: win.feature.remove\n  params:\n    name: IIS-WebServerRole\n"},
+			},
+			SeeAlso: []string{"win.feature.install"},
+		},
 	},
 	{
 		Name:          "archive.create",

@@ -293,7 +293,7 @@ func TestClassify_LinuxInstance(t *testing.T) {
 	}
 }
 
-func TestClassify_WindowsInstance_Quarantines(t *testing.T) {
+func TestClassify_WindowsInstance(t *testing.T) {
 	p := awsplugin.New()
 	cls, err := p.Classify(context.Background(), record.Record{
 		Properties: map[string]inventory.PropertyValue{"aws_role": "instance", "aws_platform": "windows"},
@@ -301,8 +301,30 @@ func TestClassify_WindowsInstance_Quarantines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
+	if cls.Quarantined() {
+		t.Fatalf("Windows instance quarantined: %+v", cls)
+	}
+	if cls.Type != "windows_server" {
+		t.Errorf("Type = %q, want %q", cls.Type, "windows_server")
+	}
+}
+
+// TestClassify_UnrecognizedPlatform_Quarantines covers the one platform
+// value this plugin cannot classify: anything other than "" (Linux) or
+// "windows", which EC2's DescribeInstances does not define today but a
+// future AWS API change could. It must quarantine rather than guess, the
+// same restraint TestClassify_UnrecognizedRole_Quarantines below asserts
+// for an unrecognized aws_role.
+func TestClassify_UnrecognizedPlatform_Quarantines(t *testing.T) {
+	p := awsplugin.New()
+	cls, err := p.Classify(context.Background(), record.Record{
+		Properties: map[string]inventory.PropertyValue{"aws_role": "instance", "aws_platform": "some-future-platform"},
+	})
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
 	if !cls.Quarantined() {
-		t.Error("Windows instance was not quarantined, want it to be (no windows_server classification rule exists yet)")
+		t.Error("an unrecognized instance platform was not quarantined, want it to be")
 	}
 	if cls.Reason == "" {
 		t.Error("a quarantined classification must explain why")

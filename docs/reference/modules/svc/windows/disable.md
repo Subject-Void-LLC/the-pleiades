@@ -1,12 +1,12 @@
 ---
-status: declared
+status: beta
 ---
 
 # svc.windows.disable
 
-Sets a Windows service's start type to disabled.
+Stops a Windows service starting at boot, without stopping it now.
 
-**Status: declared, not implemented.** Registered with the manifest below, so `pleiades validate` and editor tooling already know about it, but calling it refuses with an explicit "not implemented" error rather than running.
+Makes sure a Windows service's start type is Disabled, refusing it from starting at all until this is undone. This is ansible.windows.win_service with start_mode=disabled, and it leaves the running system alone: a service disabled by this task keeps running until svc.windows.stop also runs or it is stopped some other way. State is read before anything is sent, so a service whose start type is already Disabled reports no change. Windows recognizes a third start type, Manual, that neither this method nor svc.windows.enable targets: a service found Manual becomes Disabled, and running svc.windows.enable afterward would leave it Automatic rather than back at Manual, which is why that specific transition records no inverse instruction rather than a wrong one.
 
 ## Attributes
 
@@ -16,4 +16,56 @@ Sets a Windows service's start type to disabled.
 | Transports | `winrm` |
 | Requires elevation | yes |
 | Engine version | `>=1.0.0` |
+
+## Parameters
+
+| Name | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | `string` | yes | - | The Windows service to act on, its short service name (not its display name), such as Spooler rather than "Print Spooler". The service must already exist: a name the Service Control Manager does not know is refused rather than reported as already stopped, since that is nearly always a typo. |
+
+## Returns
+
+| Name | Type | Returned | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | always | The service this task acted on. |
+| `diff` | `dict` | always | What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because "it was already like this" is what tells a later rollback to do nothing. |
+
+## Undoing this
+
+**Can be undone.** A run that changes something records the instruction that reverses it, as an `inverse` stat holding the method to call and the parameters to call it with, resolved from the state this run actually found. A run that changed nothing records no instruction, which is how it says that undoing it means doing nothing.
+
+A run that disabled a service whose start type was Automatic emits an svc.windows.enable naming it. A run that found the start type already Disabled emits nothing. A run that changed a start type of Manual to Disabled emits no inverse at all, deliberately: this namespace's enable only sets Automatic, which is not what Manual was, and emitting an instruction that would over-correct is worse than emitting none. The undo restores the boot-time setting only; it never starts a service, because disabling never stopped one running right now.
+
+Note that no rollback engine reads this yet. What exists today is the recording, which has to happen during the forward run because the values an undo needs are gone once the change is applied.
+
+## See also
+
+- `svc.windows.enable`
+- `svc.windows.stop`
+- `svc.disable`
+
+## Examples
+
+Keep a service from starting at boot:
+
+```yaml
+- name: Make sure the print spooler cannot start at boot
+  fqcn: svc.windows.disable
+  params:
+    name: Spooler
+```
+
+Disable it and stop it running now too:
+
+```yaml
+- name: Stop the print spooler
+  fqcn: svc.windows.stop
+  params:
+    name: Spooler
+
+- name: Keep the print spooler from starting at boot
+  fqcn: svc.windows.disable
+  params:
+    name: Spooler
+```
 

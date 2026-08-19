@@ -73,8 +73,8 @@ func TestRunDoc_Entry(t *testing.T) {
 
 func TestRunDoc_EntryDeclared(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"svc.windows.start"}); err != nil {
-			t.Fatalf("runDoc(svc.windows.start) error: %v", err)
+		if err := runDoc([]string{"file.template"}); err != nil {
+			t.Fatalf("runDoc(file.template) error: %v", err)
 		}
 	})
 	if !strings.Contains(out, "declared, not implemented") {
@@ -108,11 +108,11 @@ func TestRunDoc_Snippet(t *testing.T) {
 
 func TestRunDoc_SnippetDeclaredFallsBackToSkeleton(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := runDoc([]string{"--snippet", "svc.windows.start"}); err != nil {
-			t.Fatalf("runDoc(--snippet svc.windows.start) error: %v", err)
+		if err := runDoc([]string{"--snippet", "file.template"}); err != nil {
+			t.Fatalf("runDoc(--snippet file.template) error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "fqcn: svc.windows.start") {
+	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "fqcn: file.template") {
 		t.Errorf("declared snippet should fall back to a bare skeleton, got:\n%s", out)
 	}
 }

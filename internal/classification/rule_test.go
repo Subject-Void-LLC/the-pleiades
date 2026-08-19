@@ -224,6 +224,8 @@ func TestDefaultRuleSet(t *testing.T) {
 			[]capability.Name{capability.NameLinux, capability.NameSSHTransport, capability.NameApt}},
 		{"cisco ios", []string{"network_device", "cisco", "ios"}, "cisco_router", "agentless", "configure_polling",
 			[]capability.Name{capability.NameCiscoIOS, capability.NameSSHTransport}},
+		{"windows server root", []string{"windows_server"}, "windows_server", "agentless", "configure_polling",
+			[]capability.Name{capability.NameWindows, capability.NameWinRM, capability.NameWindowsService, capability.NameWindowsFeature}},
 	}
 
 	for _, tt := range tests {
