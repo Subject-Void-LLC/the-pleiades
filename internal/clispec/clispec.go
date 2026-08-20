@@ -239,6 +239,23 @@ var Root = Command{
 					},
 					Examples: []string{"pleiades forge new-view access-reviews --title \"Access Reviews\" --summary \"Who approved what, and when.\""},
 				},
+				{
+					Name:       "new-filter",
+					Positional: "<GoName>",
+					Synopsis:   "generate a new pkg/filters function and its starter test",
+					Flags: []Flag{
+						{Name: "dir", Type: "string", Default: ".", Doc: "repository directory to write the generated files into"},
+						{Name: "cel-name", Type: "string", Default: "", Doc: "the bare name after \"filters.\" in a runbook condition, e.g. cidrToNetmask"},
+						{Name: "category", Type: "string", Default: "", Doc: "the filter category this belongs to (network, structured data, string/encoding/path, and so on), e.g. network"},
+						{Name: "summary", Type: "string", Default: "", Doc: "one sentence describing what this filter does"},
+						{Name: "param", Type: "string", Default: "", Doc: "one argument: name:goType, or name:goType:celType for a type filterscaffold does not know; repeatable"},
+						{Name: "return", Type: "string", Default: "", Doc: "this filter's result: goType, or goType:celType for a type filterscaffold does not know"},
+						{Name: "skip-existing", Type: "bool", Default: "false", Doc: "leave an already-generated entry alone instead of refusing, for regenerating a catalog in place"},
+					},
+					Examples: []string{
+						"pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary \"converts a CIDR prefix length to its dotted-decimal netmask.\" --param cidr:string --return string",
+					},
+				},
 			},
 		},
 		{

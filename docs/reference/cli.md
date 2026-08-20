@@ -200,6 +200,24 @@ generate a new web UI view resource package
 
 `pleiades forge new-view access-reviews --title "Access Reviews" --summary "Who approved what, and when."`
 
+### pleiades forge new-filter
+
+generate a new pkg/filters function and its starter test
+
+`pleiades forge new-filter <GoName> [flags]`
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| --dir | `string` | `.` | repository directory to write the generated files into |
+| --cel-name | `string` | - | the bare name after "filters." in a runbook condition, e.g. cidrToNetmask |
+| --category | `string` | - | the filter category this belongs to (network, structured data, string/encoding/path, and so on), e.g. network |
+| --summary | `string` | - | one sentence describing what this filter does |
+| --param | `string` | - | one argument: name:goType, or name:goType:celType for a type filterscaffold does not know; repeatable |
+| --return | `string` | - | this filter's result: goType, or goType:celType for a type filterscaffold does not know |
+| --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
+
+`pleiades forge new-filter CIDRToNetmask --cel-name cidrToNetmask --category network --summary "converts a CIDR prefix length to its dotted-decimal netmask." --param cidr:string --return string`
+
 ## pleiades doc
 
 look up a Collection method's reference from the live registry (see 'pleiades doc --help')

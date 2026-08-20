@@ -20,6 +20,7 @@ var forgeCommands = map[string]commandFunc{
 	"new-collection": runForgeNewCollection,
 	"new-plugin":     runForgeNewPlugin,
 	"new-view":       runForgeNewView,
+	"new-filter":     runForgeNewFilter,
 }
 
 // runForge is cmd/pleiades's forge subcommand dispatcher. It mirrors

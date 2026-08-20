@@ -240,6 +240,128 @@ perform computation on the value if present and return the result as an optional
 
 `pkg/filters`, registered under the flat `filters.` prefix, a namespace independent of a Collection's `<namespace>.<method>` FQCN (the two never cross-reference each other, so no collision is possible even in principle). Every function here is independently unit-tested as plain Go, with no dependency on CEL; `internal/engine/cel_filters.go` is the only translation between the two.
 
+### `filters.broadcastAddress`
+
+computes a CIDR block's broadcast address.
+
+- `filters.broadcastAddress(string) -> string`
+  - `filters.broadcastAddress("10.0.0.0/24") // "10.0.0.255"`
+
+### `filters.cidrToNetmask`
+
+converts a CIDR prefix length to its dotted-decimal netmask.
+
+- `filters.cidrToNetmask(string) -> string`
+  - `filters.cidrToNetmask("10.0.0.0/24") // "255.255.255.0"`
+
+### `filters.classifyIP`
+
+classifies an IP address as private, public, loopback, link-local, or multicast.
+
+- `filters.classifyIP(string) -> string`
+  - `filters.classifyIP("10.0.0.5") // "private"`
+  - `filters.classifyIP("8.8.8.8") // "public"`
+
+### `filters.fqdnToHostname`
+
+extracts the hostname (first label) from a fully qualified domain name.
+
+- `filters.fqdnToHostname(string) -> string`
+  - `filters.fqdnToHostname("host1.example.com") // "host1"`
+
+### `filters.fromIPv4MappedIPv6`
+
+converts an IPv4-mapped IPv6 address back to plain dotted-decimal IPv4.
+
+- `filters.fromIPv4MappedIPv6(string) -> string`
+  - `filters.fromIPv4MappedIPv6("::ffff:10.0.0.5") // "10.0.0.5"`
+
+### `filters.hostnameToFQDN`
+
+joins a bare hostname with a domain suffix into a fully qualified domain name.
+
+- `filters.hostnameToFQDN(string, string) -> string`
+  - `filters.hostnameToFQDN("host1", "example.com") // "host1.example.com"`
+
+### `filters.intToIP`
+
+converts a 32-bit unsigned integer to its dotted-decimal IPv4 form.
+
+- `filters.intToIP(int) -> string`
+  - `filters.intToIP(1) // "0.0.0.1"`
+
+### `filters.interfaceLongForm`
+
+normalizes a Cisco IOS interface name to its long form (Gi0/1 becomes GigabitEthernet0/1).
+
+- `filters.interfaceLongForm(string) -> string`
+  - `filters.interfaceLongForm("Gi0/1") // "GigabitEthernet0/1"`
+
+### `filters.interfaceShortForm`
+
+normalizes a Cisco IOS interface name to its short form (GigabitEthernet0/1 becomes Gi0/1).
+
+- `filters.interfaceShortForm(string) -> string`
+  - `filters.interfaceShortForm("GigabitEthernet0/1") // "Gi0/1"`
+
+### `filters.ipToInt`
+
+converts a dotted-decimal IPv4 address to its 32-bit unsigned integer form.
+
+- `filters.ipToInt(string) -> int`
+  - `filters.ipToInt("0.0.0.1") // 1`
+
+### `filters.isCiscoReservedVLAN`
+
+reports whether a VLAN ID is one Cisco reserves by default (1, 1002 to 1005), a vendor convention, not an IEEE rule.
+
+- `filters.isCiscoReservedVLAN(int) -> bool`
+  - `filters.isCiscoReservedVLAN(1002) // true`
+  - `filters.isCiscoReservedVLAN(100) // false`
+
+### `filters.isPrivateASN`
+
+reports whether an ASN falls in a private-use range (64512 to 65534, or 4200000000 to 4294967294).
+
+- `filters.isPrivateASN(int) -> bool`
+  - `filters.isPrivateASN(64512) // true`
+  - `filters.isPrivateASN(30000) // false`
+
+### `filters.macOUI`
+
+extracts a MAC address's OUI (organizationally unique identifier), its first three octets, colon-separated and uppercase.
+
+- `filters.macOUI(string) -> string`
+  - `filters.macOUI("00:00:5e:00:53:01") // "00:00:5E"`
+
+### `filters.macToCiscoFormat`
+
+normalizes a MAC address to Cisco dotted-quad notation (aabb.ccdd.eeff).
+
+- `filters.macToCiscoFormat(string) -> string`
+  - `filters.macToCiscoFormat("00:00:5e:00:53:01") // "0000.5e00.5301"`
+
+### `filters.macToColonFormat`
+
+normalizes a MAC address to colon-separated notation (aa:bb:cc:dd:ee:ff).
+
+- `filters.macToColonFormat(string) -> string`
+  - `filters.macToColonFormat("0000.5e00.5301") // "00:00:5e:00:53:01"`
+
+### `filters.macToWindowsFormat`
+
+normalizes a MAC address to Windows dash-separated notation (AA-BB-CC-DD-EE-FF).
+
+- `filters.macToWindowsFormat(string) -> string`
+  - `filters.macToWindowsFormat("00:00:5e:00:53:01") // "00-00-5E-00-53-01"`
+
+### `filters.netmaskToCIDR`
+
+converts a dotted-decimal netmask to its CIDR prefix length.
+
+- `filters.netmaskToCIDR(string) -> int`
+  - `filters.netmaskToCIDR("255.255.255.0") // 24`
+
 ### `filters.safeBool`
 
 parse a value as a boolean, accepting 1/t/true/yes/on and 0/f/false/no/off case
@@ -278,4 +400,62 @@ reached for as if it did.
 - `filters.safeInt(dyn, int) -> int`
   - `filters.safeInt(stat.retries, 0) > 3 // stat.retries == "7" -> 7 > 3 -> true`
   - `filters.safeInt(stat.retries, 0) // stat.retries == "abc" -> 0 (fallback)`
+
+### `filters.subnetSplit`
+
+splits a CIDR block into subnets of the given new, longer prefix length.
+
+- `filters.subnetSplit(string, int) -> list(string)`
+  - `filters.subnetSplit("10.0.0.0/24", 26) // ["10.0.0.0/26", "10.0.0.64/26", "10.0.0.128/26", "10.0.0.192/26"]`
+
+### `filters.supernet`
+
+computes the smallest CIDR block that contains every given CIDR.
+
+- `filters.supernet(list(string)) -> string`
+  - `filters.supernet(["10.0.0.0/25", "10.0.0.128/25"]) // "10.0.0.0/24"`
+
+### `filters.toIPv4MappedIPv6`
+
+converts an IPv4 address to its IPv4-mapped IPv6 form (::ffff:a.b.c.d).
+
+- `filters.toIPv4MappedIPv6(string) -> string`
+  - `filters.toIPv4MappedIPv6("10.0.0.5") // "::ffff:10.0.0.5"`
+
+### `filters.urlDomain`
+
+extracts the host (domain, without port) from a URL.
+
+- `filters.urlDomain(string) -> string`
+  - `filters.urlDomain("https://example.com:8443/path") // "example.com"`
+
+### `filters.urlPort`
+
+extracts the port from a URL, or its scheme's default port (80 for http, 443 for https) when none is written explicitly.
+
+- `filters.urlPort(string) -> int`
+  - `filters.urlPort("https://example.com/path") // 443, the https default`
+
+### `filters.validateASN`
+
+reports whether an integer is a valid 16-bit or 32-bit Autonomous System Number (1 to 4294967294; 0 and 65535 and 4294967295 are reserved and rejected).
+
+- `filters.validateASN(int) -> bool`
+  - `filters.validateASN(64512) // true`
+  - `filters.validateASN(65535) // false, reserved`
+
+### `filters.validateVLAN`
+
+reports whether an integer is a valid IEEE 802.1Q VLAN ID (1 to 4094; 0 and 4095 are reserved and rejected).
+
+- `filters.validateVLAN(int) -> bool`
+  - `filters.validateVLAN(100) // true`
+  - `filters.validateVLAN(4095) // false, reserved`
+
+### `filters.wildcardMask`
+
+converts a CIDR prefix length to its Cisco-style wildcard mask (the bitwise inverse of the netmask).
+
+- `filters.wildcardMask(string) -> string`
+  - `filters.wildcardMask("10.0.0.0/24") // "0.0.0.255"`
 
