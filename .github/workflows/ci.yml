@@ -68,5 +68,24 @@ jobs:
       # conformance/container tests dial real, ephemeral Docker containers
       # (NATS, sshd); ubuntu-latest ships Docker already, so this is not a
       # separate setup step, just a note that `make ci` genuinely needs it.
+      #
+      # internal/catalog/cloud/aws/ec2 and .../s3's own tests dial a real
+      # LocalStack container the same way, and LocalStack's own licensing
+      # requires an auth token to start even its free tier (a real,
+      # verified relicensing, not a Pro-only gate); each test's own
+      # requireLocalStack helper skips cleanly with no token rather than
+      # failing, which is what keeps a fork's pull_request run (GitHub
+      # never exposes a base repo's secrets to a fork's workflow run) from
+      # going red for a reason that has nothing to do with its own change
+      # -- it just measures those two packages without LocalStack coverage
+      # instead, matching a plain local run with no
+      # .IGNORE/.localstack.env. LOCALSTACK_AUTH_TOKEN itself is a
+      # repository secret (Settings -> Secrets and variables -> Actions),
+      # the same value .IGNORE/.localstack.env holds for a local run; a
+      # push to this repository or a same-repository pull request sees it
+      # and gets the real coverage these two packages' floors were
+      # recorded against.
       - name: ci
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
         run: make ci
