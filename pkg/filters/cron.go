@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // cronFieldBounds names the [min,max] a standard 5-field cron
@@ -22,11 +23,23 @@ var cronFieldBounds = [5][2]int{
 // cronSchedule is the parsed form of a 5-field cron expression: each
 // field expanded to its exact set of matching values. This structure,
 // not just a pass/fail bool, is what Phase 55's CronNextRun/
-// CronPreviousRun are expected to walk one candidate minute at a time
-// against; this phase's own IsValidCronExpr only needs to know
+// CronPreviousRun walk one candidate day, then one candidate minute,
+// at a time against; Phase 54's own IsValidCronExpr only needs to know
 // parseCronExpr returned no error.
+//
+// domWildcard/dowWildcard record whether the day-of-month and
+// day-of-week fields were literally "*" in the source expression, not
+// whether their expanded set happens to cover every value (a field like
+// "0-6" for day-of-week expands to the same set "*" would, but is not
+// treated as a wildcard). This is real cron's own well-known day-field
+// rule, reproduced deliberately rather than simplified away:
+// dateMatches below ORs day-of-month against day-of-week when both are
+// restricted, instead of ANDing them, matching standard cron(8)
+// behavior (a schedule of "0 0 1 * 1", every Monday OR the first of the
+// month, not only a Monday that also happens to be the first).
 type cronSchedule struct {
 	minute, hour, dayOfMonth, month, dayOfWeek map[int]bool
+	domWildcard, dowWildcard                   bool
 }
 
 // parseCronExpr parses expr as a standard 5-field cron expression
@@ -51,11 +64,13 @@ func parseCronExpr(expr string) (cronSchedule, error) {
 		sets[i] = set
 	}
 	return cronSchedule{
-		minute:     sets[0],
-		hour:       sets[1],
-		dayOfMonth: sets[2],
-		month:      sets[3],
-		dayOfWeek:  sets[4],
+		minute:      sets[0],
+		hour:        sets[1],
+		dayOfMonth:  sets[2],
+		month:       sets[3],
+		dayOfWeek:   sets[4],
+		domWildcard: fields[2] == "*",
+		dowWildcard: fields[4] == "*",
 	}, nil
 }
 
@@ -141,4 +156,132 @@ func IsValidCronExpr(expr string) bool {
 	}
 	_, err := parseCronExpr(expr)
 	return err == nil
+}
+
+// cronSearchBoundDays bounds how many days CronNextRun/CronPreviousRun
+// will search before giving up: a little over four years, generous for
+// any real schedule while still terminating an impossible one (e.g.
+// "0 0 31 2 *", day 31 in February, which no date ever satisfies)
+// instead of searching forever. BenchmarkCronNextRun_NeverMatches proves
+// the worst case is fast enough to matter in practice, not just bounded
+// in principle.
+const cronSearchBoundDays = 4*366 + 1
+
+// dateMatches reports whether t's date (month, day-of-month, day-of-
+// week) satisfies cs, applying real cron's own day-field OR rule: when
+// both day-of-month and day-of-week are restricted (neither field was a
+// literal "*"), a match on either one counts, not only a match on both.
+func (cs cronSchedule) dateMatches(t time.Time) bool {
+	if !cs.month[int(t.Month())] {
+		return false
+	}
+	domMatch := cs.dayOfMonth[t.Day()]
+	dowMatch := cs.dayOfWeek[int(t.Weekday())]
+	switch {
+	case cs.domWildcard && cs.dowWildcard:
+		return true
+	case cs.domWildcard:
+		return dowMatch
+	case cs.dowWildcard:
+		return domMatch
+	default:
+		return domMatch || dowMatch
+	}
+}
+
+// nextRun returns the earliest time strictly after from that cs
+// matches. It searches one candidate day at a time, skipping a whole
+// day in one step when dateMatches already rejects it rather than
+// walking that day's 1440 minutes individually, and only scans minutes
+// within a day whose date does match.
+func (cs cronSchedule) nextRun(from time.Time) (time.Time, bool) {
+	loc := from.Location()
+	dayStart := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, loc)
+	startMinute := from.Hour()*60 + from.Minute() + 1
+	for i := 0; i <= cronSearchBoundDays; i++ {
+		day := dayStart.AddDate(0, 0, i)
+		if !cs.dateMatches(day) {
+			continue
+		}
+		fromMinute := 0
+		if i == 0 {
+			fromMinute = startMinute
+		}
+		for m := fromMinute; m < 24*60; m++ {
+			hour, minute := m/60, m%60
+			if cs.hour[hour] && cs.minute[minute] {
+				return time.Date(day.Year(), day.Month(), day.Day(), hour, minute, 0, 0, loc), true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+// previousRun returns the latest time strictly before from that cs
+// matches, the mirror of nextRun searching backward in time.
+func (cs cronSchedule) previousRun(from time.Time) (time.Time, bool) {
+	loc := from.Location()
+	dayStart := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, loc)
+	startMinute := from.Hour()*60 + from.Minute() - 1
+	for i := 0; i <= cronSearchBoundDays; i++ {
+		day := dayStart.AddDate(0, 0, -i)
+		if !cs.dateMatches(day) {
+			continue
+		}
+		toMinute := 24*60 - 1
+		if i == 0 {
+			toMinute = startMinute
+		}
+		for m := toMinute; m >= 0; m-- {
+			hour, minute := m/60, m%60
+			if cs.hour[hour] && cs.minute[minute] {
+				return time.Date(day.Year(), day.Month(), day.Day(), hour, minute, 0, 0, loc), true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+// CronNextRun returns the next timestamp strictly after fromISO that
+// matches cronExpr, or "" if cronExpr is invalid, fromISO is malformed,
+// or no match exists within cronSearchBoundDays.
+func CronNextRun(cronExpr, fromISO string) string {
+	if len(cronExpr) > MaxInputBytes {
+		return ""
+	}
+	cs, err := parseCronExpr(cronExpr)
+	if err != nil {
+		return ""
+	}
+	from, ok := parseISO8601(fromISO)
+	if !ok {
+		return ""
+	}
+	next, ok := cs.nextRun(from)
+	if !ok {
+		return ""
+	}
+	return next.Format(time.RFC3339)
+}
+
+// CronPreviousRun returns the most recent timestamp strictly before
+// fromISO that matches cronExpr, or "" if cronExpr is invalid, fromISO
+// is malformed, or no match exists within cronSearchBoundDays.
+func CronPreviousRun(cronExpr, fromISO string) string {
+	if len(cronExpr) > MaxInputBytes {
+		return ""
+	}
+	cs, err := parseCronExpr(cronExpr)
+	if err != nil {
+		return ""
+	}
+	from, ok := parseISO8601(fromISO)
+	if !ok {
+		return ""
+	}
+	prev, ok := cs.previousRun(from)
+	if !ok {
+		return ""
+	}
+	return prev.Format(time.RFC3339)
 }

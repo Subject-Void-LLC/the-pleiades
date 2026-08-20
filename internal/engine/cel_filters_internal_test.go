@@ -466,3 +466,136 @@ func TestPhase54Bindings_RejectUnconvertibleArguments(t *testing.T) {
 		}
 	})
 }
+
+// TestPhase55Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase54Bindings_RejectUnconvertibleArguments for this phase's own
+// 25 bindings. Every Phase 55 parameter is string, int or
+// map[string]any (unlike Phase 54, none is "any"), so every conversion-
+// failure branch here has a real, constructible failing input: notString
+// (a CEL list) fails StringType, IntType and MapType conversion alike
+// (common/types/list.go's own ConvertToType supports only ListType and
+// TypeType), so it works as the universal failing value for every string
+// and int parameter below; notScalar (a bare CEL int) is used for the
+// two map-typed parameters (isBusinessHour's schedule, isMaintenanceWindow's
+// window), the same role it plays in TestPhase54Bindings_RejectUnconvertibleArguments.
+func TestPhase55Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+	notScalar := types.Int(5)
+	validStr := types.String("2024-01-01T00:00:00Z")
+
+	unaryInt := map[string]func(ref.Val) ref.Val{
+		"epochToISO8601":   epochToISO8601Binding,
+		"fileTimeToEpoch":  fileTimeToEpochBinding,
+		"epochToFileTime":  epochToFileTimeBinding,
+		"isLeapYear":       isLeapYearBinding,
+		"humanizeDuration": humanizeDurationBinding,
+	}
+	for name, fn := range unaryInt {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	unaryString := map[string]func(ref.Val) ref.Val{
+		"iso8601ToEpoch": iso8601ToEpochBinding,
+		"roundToHour":    roundToHourBinding,
+		"startOfDay":     startOfDayBinding,
+		"startOfWeek":    startOfWeekBinding,
+		"startOfMonth":   startOfMonthBinding,
+		"dayOfWeek":      dayOfWeekBinding,
+	}
+	for name, fn := range unaryString {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	binaryStringString := map[string]func(ref.Val, ref.Val) ref.Val{
+		"shiftTimezone":      shiftTimezoneBinding,
+		"isPast":             isPastBinding,
+		"isFuture":           isFutureBinding,
+		"uptimeFromBootTime": uptimeFromBootTimeBinding,
+		"cronNextRun":        cronNextRunBinding,
+		"cronPreviousRun":    cronPreviousRunBinding,
+	}
+	for name, fn := range binaryStringString {
+		t.Run(name+"_arg0", func(t *testing.T) {
+			if got := fn(notString, validStr); !types.IsError(got) {
+				t.Errorf("%sBinding(list, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg1", func(t *testing.T) {
+			if got := fn(validStr, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	binaryStringInt := map[string]func(ref.Val, ref.Val) ref.Val{
+		"addSeconds":         addSecondsBinding,
+		"bootTimeFromUptime": bootTimeFromUptimeBinding,
+	}
+	for name, fn := range binaryStringInt {
+		t.Run(name+"_arg0", func(t *testing.T) {
+			if got := fn(notString, types.Int(0)); !types.IsError(got) {
+				t.Errorf("%sBinding(list, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg1", func(t *testing.T) {
+			if got := fn(validStr, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	binaryMapString := map[string]func(ref.Val, ref.Val) ref.Val{
+		"isBusinessHour":      isBusinessHourBinding,
+		"isMaintenanceWindow": isMaintenanceWindowBinding,
+	}
+	for name, fn := range binaryMapString {
+		t.Run(name+"_map", func(t *testing.T) {
+			if got := fn(notScalar, validStr); !types.IsError(got) {
+				t.Errorf("%sBinding(scalar, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_iso", func(t *testing.T) {
+			validMap := types.NewDynamicMap(types.DefaultTypeAdapter, map[string]any{})
+			if got := fn(validMap, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	ternaryStringStringInt := map[string]func(...ref.Val) ref.Val{
+		"deltaSeconds":     deltaSecondsBinding,
+		"deltaDays":        deltaDaysBinding,
+		"isOlderThan":      isOlderThanBinding,
+		"isExpiringWithin": isExpiringWithinBinding,
+	}
+	for name, fn := range ternaryStringStringInt {
+		t.Run(name+"_wrongArity", func(t *testing.T) {
+			if got := fn(validStr, validStr); !types.IsError(got) {
+				t.Errorf("%sBinding(two args) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg0", func(t *testing.T) {
+			if got := fn(notString, validStr, types.Int(0)); !types.IsError(got) {
+				t.Errorf("%sBinding(list, _, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg1", func(t *testing.T) {
+			if got := fn(validStr, notString, types.Int(0)); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg2", func(t *testing.T) {
+			if got := fn(validStr, validStr, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, _, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+}

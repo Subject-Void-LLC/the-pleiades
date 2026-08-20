@@ -1,5 +1,66 @@
 # Handoff Document Archive
 
+## Previous session: Phase 54 (validation & business-logic predicates)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `2e705ea` for the entire
+session (the forge structural-type support and Phase 52), then moved to `3327add` when the user gave
+their own live go-ahead and committed this session's work themselves, outside the assistant's own turns
+-- the assistant itself never ran `git commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with a direct request: decide whether the forge needed tuning before Phase 54, then
+build Phase 54 itself. Two deliverables, in order: a real, load-bearing `internal/forge/filterscaffold`
+upgrade (not a "no changes needed" like Phase 53), and Phase 54 (`.SPECIFICATION/IMPLEMENTATION.md`'s
+Part XII) built through it, end to end.
+
+**A real forge gap found and fixed before writing any filter code.** Phase 54's checklist named
+`FilterListByKV`/`ExcludeListByKV`, both three-argument filters -- the second and third three-argument
+filter this codebase had ever needed, after Phase 53's `RegexExtract`. Reading
+`internal/forge/filterscaffold/generate.go`'s `bindingFunc` before writing the two Phase 54 functions by
+hand a second time surfaced a real, previously undiscovered bug: for arity three and above, the generator
+emitted a `*Binding` function signature with individual named `argN ref.Val` parameters, but
+`cel.FunctionBinding`'s real Go type is `func(...ref.Val) ref.Val`, a variadic slice -- the two signatures
+do not satisfy each other, so the generated stub would not even compile as the value `cel.FunctionBinding`
+requires, which is exactly why `RegexExtract`'s binding needed to be hand-rewritten from scratch rather
+than filled in from the scaffold. `bindingFuncFor`/`bindingFunc` were fixed to generate the real, proven
+shape for arity three and above: a real `args ...ref.Val` parameter, a generated arity check, and indexed
+access instead of individual names.
+
+**A second, smaller forge gap:** `wellKnownCELTypes` gained `"any"` -> `cel.DynType` for an arbitrary CEL
+value compared for equality against a `dyn`-typed map/list element (not a string being cast, not a
+document being walked), reusing `cel_filters.go`'s own `celToAny` (already built for Phase 52's internals,
+never exposed as a top-level well-known type before).
+
+**Phase 54: 17 validation and business-logic filters**, across four category files:
+`pkg/filters/validate.go` (`IsValidFQDN`, `IsValidEmail`, `IsValidUUID`, `IsValidBase64`, `IsValidJSON`,
+`IsValidYAML`, `IsValidPort`), `pkg/filters/collection.go` (`DropEmptyValues`, `FilterListByKV`/
+`ExcludeListByKV`, `ListContains`, `HasMandatoryTags`, `ListIntersect`/`ListDiff`, `DedupeByKey`, plus a
+shared `valuesEqual`/`toFloat64` pair for cross-type numeric equality), `pkg/filters/semver.go`
+(`CompareSemVer`, with a real, documented truncation asymmetry), and `pkg/filters/cron.go`
+(`IsValidCronExpr`, backed by a small, hand-rolled 5-field cron parser built to be reused unchanged by
+Phase 55's `CronNextRun`/`CronPreviousRun`).
+
+**A real dead-code finding during coverage work:** `parseCronField`'s own "no values matched" check after
+its main loop could never fire, since `lo<=hi` and `step>=1` were both already guaranteed by that point.
+Fixed by deletion, not by fabricating a test for unreachable code.
+
+`pkg/filters` measured 99.3%, `coverage-floor.json` raised 98.9 -> 99.2. `internal/engine` measured 94.4%,
+raised 93.2 -> 93.8 (the first time this package's floor had moved since Phase 51, since Phase 51's and
+Phase 53's own identical 94.1% reading had been left unraised because it had not moved).
+
+RULE 0: the real `pleiades` binary, built fresh, ran a scratch runbook against a real, running
+`examples/webserver_lab` SSH container, gating one real `ssh_exec` task on a five-filter combined
+`when_cel` condition (true, ran) and a second on a deliberately false one (skipped, named in the skip
+reason).
+
+Drafted commit message (the one the user ran themselves at `3327add`):
+
+```
+feat(engine,filters): Phase 54's forge tuning and 17 validation & business-logic filters
+```
+
+(Full body matched this archive's own description above; see `git show 3327add` for the exact committed
+text.)
+
 ## Previous session: Phase 53 (string, encoding & path filters)
 
 **Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `2e705ea`, the forge

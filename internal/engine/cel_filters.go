@@ -730,7 +730,7 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 		// Phase 54 (PLAN.md Section 36's Validation & Business-Logic
 		// Predicates): format validators, dict/list filtering, and the
 		// hand-rolled cron parser IsValidCronExpr shares with Phase 55's
-		// still-unbuilt CronNextRun/CronPreviousRun.
+		// CronNextRun/CronPreviousRun.
 		cel.Function("filters.isValidFQDN",
 			cel.FunctionDocs(
 				"reports whether s is a syntactically valid fully qualified domain name.",
@@ -933,6 +933,316 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 					`filters.isValidCronExpr("*/15 * * * *") // true`,
 				),
 				cel.UnaryBinding(isValidCronExprBinding),
+			),
+		),
+
+		// Phase 55 (PLAN.md Section 36's Time, Date & Scheduling
+		// Filters): epoch/ISO 8601/Windows FileTime conversion, timezone
+		// shift, date arithmetic, human-readable duration, uptime/boot-
+		// time conversion, past/future/expiry predicates, day/week/month
+		// boundaries, business-hours and maintenance-window predicates,
+		// and CronNextRun/CronPreviousRun built on Phase 54's cron
+		// parser. Every timestamp argument and result here is an RFC
+		// 3339 string, this package's own working definition of
+		// "ISO8601" (see pkg/filters/timeconvert.go's parseISO8601).
+		cel.Function("filters.epochToISO8601",
+			cel.FunctionDocs(
+				"converts a Unix epoch in seconds to an RFC 3339 timestamp string in UTC.",
+			),
+			cel.Overload("filters_epoch_to_iso8601_int_string",
+				[]*cel.Type{cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.epochToISO8601(0) // "1970-01-01T00:00:00Z"`,
+				),
+				cel.UnaryBinding(epochToISO8601Binding),
+			),
+		),
+		cel.Function("filters.iso8601ToEpoch",
+			cel.FunctionDocs(
+				"parses an RFC 3339 timestamp string into a Unix epoch in seconds, returning -1 if the input is malformed or predates 1970.",
+			),
+			cel.Overload("filters_iso8601_to_epoch_string_int",
+				[]*cel.Type{cel.StringType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.iso8601ToEpoch("1970-01-01T00:00:10Z") // 10`,
+				),
+				cel.UnaryBinding(iso8601ToEpochBinding),
+			),
+		),
+		cel.Function("filters.fileTimeToEpoch",
+			cel.FunctionDocs(
+				"converts a Windows FileTime, 100 nanosecond intervals since 1601-01-01T00:00:00Z, to a Unix epoch in whole seconds.",
+			),
+			cel.Overload("filters_file_time_to_epoch_int_int",
+				[]*cel.Type{cel.IntType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.fileTimeToEpoch(116444736000000000) // 0`,
+				),
+				cel.UnaryBinding(fileTimeToEpochBinding),
+			),
+		),
+		cel.Function("filters.epochToFileTime",
+			cel.FunctionDocs(
+				"converts a Unix epoch in seconds to a Windows FileTime, the inverse of filters.fileTimeToEpoch.",
+			),
+			cel.Overload("filters_epoch_to_file_time_int_int",
+				[]*cel.Type{cel.IntType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.epochToFileTime(0) // 116444736000000000`,
+				),
+				cel.UnaryBinding(epochToFileTimeBinding),
+			),
+		),
+		cel.Function("filters.shiftTimezone",
+			cel.FunctionDocs(
+				"reformats a timestamp in the named IANA timezone, returning an empty string if either argument is malformed.",
+			),
+			cel.Overload("filters_shift_timezone_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.shiftTimezone("2024-01-01T00:00:00Z", "America/New_York") // "2023-12-31T19:00:00-05:00"`,
+				),
+				cel.BinaryBinding(shiftTimezoneBinding),
+			),
+		),
+		cel.Function("filters.addSeconds",
+			cel.FunctionDocs(
+				"adds seconds, negative to subtract, to a timestamp, returning an empty string if the timestamp is malformed or the shift exceeds this function's own bound.",
+			),
+			cel.Overload("filters_add_seconds_string_int_string",
+				[]*cel.Type{cel.StringType, cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.addSeconds("2024-01-01T00:00:00Z", 3600) // "2024-01-01T01:00:00Z"`,
+				),
+				cel.BinaryBinding(addSecondsBinding),
+			),
+		),
+		cel.Function("filters.deltaSeconds",
+			cel.FunctionDocs(
+				"returns the whole seconds from a to b, negative if b precedes a, or fallback if either timestamp is malformed.",
+			),
+			cel.Overload("filters_delta_seconds_string_string_int_int",
+				[]*cel.Type{cel.StringType, cel.StringType, cel.IntType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.deltaSeconds("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", -1) // 60`,
+				),
+				cel.FunctionBinding(deltaSecondsBinding),
+			),
+		),
+		cel.Function("filters.deltaDays",
+			cel.FunctionDocs(
+				"returns the whole days from a to b, negative if b precedes a, or fallback if either timestamp is malformed.",
+			),
+			cel.Overload("filters_delta_days_string_string_int_int",
+				[]*cel.Type{cel.StringType, cel.StringType, cel.IntType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.deltaDays("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z", -1) // 2`,
+				),
+				cel.FunctionBinding(deltaDaysBinding),
+			),
+		),
+		cel.Function("filters.roundToHour",
+			cel.FunctionDocs(
+				"floors a timestamp to the start of its own current hour, in its own timezone, returning an empty string if the timestamp is malformed.",
+			),
+			cel.Overload("filters_round_to_hour_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.roundToHour("2024-01-01T13:45:30Z") // "2024-01-01T13:00:00Z"`,
+				),
+				cel.UnaryBinding(roundToHourBinding),
+			),
+		),
+		cel.Function("filters.humanizeDuration",
+			cel.FunctionDocs(
+				"renders a count of seconds as a compact, day-aware human-readable duration such as 1d2h3m4s.",
+			),
+			cel.Overload("filters_humanize_duration_int_string",
+				[]*cel.Type{cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.humanizeDuration(93784) // "1d2h3m4s"`,
+				),
+				cel.UnaryBinding(humanizeDurationBinding),
+			),
+		),
+		cel.Function("filters.bootTimeFromUptime",
+			cel.FunctionDocs(
+				"subtracts an uptime in seconds from a reference timestamp, returning an empty string if the timestamp is malformed or the uptime is negative.",
+			),
+			cel.Overload("filters_boot_time_from_uptime_string_int_string",
+				[]*cel.Type{cel.StringType, cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.bootTimeFromUptime("2024-01-01T01:00:00Z", 3600) // "2024-01-01T00:00:00Z"`,
+				),
+				cel.BinaryBinding(bootTimeFromUptimeBinding),
+			),
+		),
+		cel.Function("filters.uptimeFromBootTime",
+			cel.FunctionDocs(
+				"returns the whole seconds from boot to now, or -1 if either timestamp is malformed or boot is after now.",
+			),
+			cel.Overload("filters_uptime_from_boot_time_string_string_int",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.uptimeFromBootTime("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z") // 3600`,
+				),
+				cel.BinaryBinding(uptimeFromBootTimeBinding),
+			),
+		),
+		cel.Function("filters.isPast",
+			cel.FunctionDocs(
+				"reports whether a timestamp is strictly before a reference timestamp, or false if either is malformed.",
+			),
+			cel.Overload("filters_is_past_string_string_bool",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isPast("2020-01-01T00:00:00Z", "2024-01-01T00:00:00Z") // true`,
+				),
+				cel.BinaryBinding(isPastBinding),
+			),
+		),
+		cel.Function("filters.isFuture",
+			cel.FunctionDocs(
+				"reports whether a timestamp is strictly after a reference timestamp, or false if either is malformed.",
+			),
+			cel.Overload("filters_is_future_string_string_bool",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isFuture("2025-01-01T00:00:00Z", "2024-01-01T00:00:00Z") // true`,
+				),
+				cel.BinaryBinding(isFutureBinding),
+			),
+		),
+		cel.Function("filters.isOlderThan",
+			cel.FunctionDocs(
+				"reports whether a timestamp is at least thresholdSeconds before a reference timestamp, or false if either timestamp is malformed.",
+			),
+			cel.Overload("filters_is_older_than_string_string_int_bool",
+				[]*cel.Type{cel.StringType, cel.StringType, cel.IntType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isOlderThan("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z", 1800) // true`,
+				),
+				cel.FunctionBinding(isOlderThanBinding),
+			),
+		),
+		cel.Function("filters.isExpiringWithin",
+			cel.FunctionDocs(
+				"reports whether a timestamp falls within windowSeconds after a reference timestamp, an already-past timestamp does not count, or false if either timestamp is malformed.",
+			),
+			cel.Overload("filters_is_expiring_within_string_string_int_bool",
+				[]*cel.Type{cel.StringType, cel.StringType, cel.IntType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isExpiringWithin("2024-01-01T00:30:00Z", "2024-01-01T00:00:00Z", 3600) // true`,
+				),
+				cel.FunctionBinding(isExpiringWithinBinding),
+			),
+		),
+		cel.Function("filters.startOfDay",
+			cel.FunctionDocs(
+				"floors a timestamp to 00:00:00 in its own timezone, returning an empty string if the timestamp is malformed.",
+			),
+			cel.Overload("filters_start_of_day_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.startOfDay("2024-01-01T13:45:00Z") // "2024-01-01T00:00:00Z"`,
+				),
+				cel.UnaryBinding(startOfDayBinding),
+			),
+		),
+		cel.Function("filters.startOfWeek",
+			cel.FunctionDocs(
+				"floors a timestamp to 00:00:00 on the most recent Monday in its own timezone, returning an empty string if the timestamp is malformed.",
+			),
+			cel.Overload("filters_start_of_week_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.startOfWeek("2024-01-03T13:45:00Z") // "2024-01-01T00:00:00Z"`,
+				),
+				cel.UnaryBinding(startOfWeekBinding),
+			),
+		),
+		cel.Function("filters.startOfMonth",
+			cel.FunctionDocs(
+				"floors a timestamp to 00:00:00 on the first of its own month, in its own timezone, returning an empty string if the timestamp is malformed.",
+			),
+			cel.Overload("filters_start_of_month_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.startOfMonth("2024-01-15T13:45:00Z") // "2024-01-01T00:00:00Z"`,
+				),
+				cel.UnaryBinding(startOfMonthBinding),
+			),
+		),
+		cel.Function("filters.isLeapYear",
+			cel.FunctionDocs(
+				"reports whether year is a Gregorian leap year.",
+			),
+			cel.Overload("filters_is_leap_year_int_bool",
+				[]*cel.Type{cel.IntType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isLeapYear(2024) // true`,
+				),
+				cel.UnaryBinding(isLeapYearBinding),
+			),
+		),
+		cel.Function("filters.dayOfWeek",
+			cel.FunctionDocs(
+				"returns a timestamp's weekday name in its own timezone, Monday through Sunday, or an empty string if the timestamp is malformed.",
+			),
+			cel.Overload("filters_day_of_week_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.dayOfWeek("2024-01-01T00:00:00Z") // "Monday"`,
+				),
+				cel.UnaryBinding(dayOfWeekBinding),
+			),
+		),
+		cel.Function("filters.isBusinessHour",
+			cel.FunctionDocs(
+				"reports whether a timestamp falls within schedule's start and end time of day on one of schedule's days, or false if the timestamp or schedule is malformed.",
+			),
+			cel.Overload("filters_is_business_hour_map_string_any_string_bool",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isBusinessHour({"start": "09:00", "end": "17:00"}, "2024-01-01T10:00:00Z") // true, 2024-01-01 is a Monday`,
+				),
+				cel.BinaryBinding(isBusinessHourBinding),
+			),
+		),
+		cel.Function("filters.isMaintenanceWindow",
+			cel.FunctionDocs(
+				"reports whether a timestamp falls within window's start and end timestamps inclusive, or false if any of the three is malformed.",
+			),
+			cel.Overload("filters_is_maintenance_window_map_string_any_string_bool",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isMaintenanceWindow({"start": "2024-01-01T00:00:00Z", "end": "2024-01-02T00:00:00Z"}, "2024-01-01T12:00:00Z") // true`,
+				),
+				cel.BinaryBinding(isMaintenanceWindowBinding),
+			),
+		),
+		cel.Function("filters.cronNextRun",
+			cel.FunctionDocs(
+				"returns the next timestamp strictly after a reference timestamp that matches a cron expression, or an empty string if the expression or timestamp is malformed or no match exists within this function's own search bound.",
+			),
+			cel.Overload("filters_cron_next_run_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.cronNextRun("0 9 * * *", "2024-01-01T08:00:00Z") // "2024-01-01T09:00:00Z"`,
+				),
+				cel.BinaryBinding(cronNextRunBinding),
+			),
+		),
+		cel.Function("filters.cronPreviousRun",
+			cel.FunctionDocs(
+				"returns the most recent timestamp strictly before a reference timestamp that matches a cron expression, or an empty string if the expression or timestamp is malformed or no match exists within this function's own search bound.",
+			),
+			cel.Overload("filters_cron_previous_run_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.cronPreviousRun("0 9 * * *", "2024-01-02T08:00:00Z") // "2024-01-01T09:00:00Z"`,
+				),
+				cel.BinaryBinding(cronPreviousRunBinding),
 			),
 		),
 	}
@@ -1935,4 +2245,315 @@ func isValidCronExprBinding(arg0 ref.Val) ref.Val {
 		return types.NewErr("filters.isValidCronExpr: argument expr is not convertible to string")
 	}
 	return types.Bool(filters.IsValidCronExpr(goExpr))
+}
+
+// EpochToISO8601's CEL binding, registered above.
+func epochToISO8601Binding(arg0 ref.Val) ref.Val {
+	goEpoch, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.epochToISO8601: argument epoch is not convertible to int")
+	}
+	return types.String(filters.EpochToISO8601(goEpoch))
+}
+
+// ISO8601ToEpoch's CEL binding, registered above.
+func iso8601ToEpochBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.iso8601ToEpoch: argument iso is not convertible to string")
+	}
+	return types.Int(filters.ISO8601ToEpoch(goIso))
+}
+
+// FileTimeToEpoch's CEL binding, registered above.
+func fileTimeToEpochBinding(arg0 ref.Val) ref.Val {
+	goFileTime, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.fileTimeToEpoch: argument fileTime is not convertible to int")
+	}
+	return types.Int(filters.FileTimeToEpoch(goFileTime))
+}
+
+// EpochToFileTime's CEL binding, registered above.
+func epochToFileTimeBinding(arg0 ref.Val) ref.Val {
+	goEpoch, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.epochToFileTime: argument epoch is not convertible to int")
+	}
+	return types.Int(filters.EpochToFileTime(goEpoch))
+}
+
+// ShiftTimezone's CEL binding, registered above.
+func shiftTimezoneBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.shiftTimezone: argument iso is not convertible to string")
+	}
+	goTz, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.shiftTimezone: argument tz is not convertible to string")
+	}
+	return types.String(filters.ShiftTimezone(goIso, goTz))
+}
+
+// AddSeconds's CEL binding, registered above.
+func addSecondsBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.addSeconds: argument iso is not convertible to string")
+	}
+	goSeconds, ok := celToInt(arg1)
+	if !ok {
+		return types.NewErr("filters.addSeconds: argument seconds is not convertible to int")
+	}
+	return types.String(filters.AddSeconds(goIso, goSeconds))
+}
+
+// DeltaSeconds's CEL binding, registered above. This file's fourth
+// three-argument filter, following RegexExtract (Phase 53) and
+// FilterListByKV/ExcludeListByKV (Phase 54).
+func deltaSecondsBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.deltaSeconds: expected 3 arguments, got %d", len(args))
+	}
+	goA, ok := celToString(args[0])
+	if !ok {
+		return types.NewErr("filters.deltaSeconds: argument a is not convertible to string")
+	}
+	goB, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.deltaSeconds: argument b is not convertible to string")
+	}
+	goFallback, ok := celToInt(args[2])
+	if !ok {
+		return types.NewErr("filters.deltaSeconds: argument fallback is not convertible to int")
+	}
+	return types.Int(filters.DeltaSeconds(goA, goB, goFallback))
+}
+
+// DeltaDays's CEL binding, registered above.
+func deltaDaysBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.deltaDays: expected 3 arguments, got %d", len(args))
+	}
+	goA, ok := celToString(args[0])
+	if !ok {
+		return types.NewErr("filters.deltaDays: argument a is not convertible to string")
+	}
+	goB, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.deltaDays: argument b is not convertible to string")
+	}
+	goFallback, ok := celToInt(args[2])
+	if !ok {
+		return types.NewErr("filters.deltaDays: argument fallback is not convertible to int")
+	}
+	return types.Int(filters.DeltaDays(goA, goB, goFallback))
+}
+
+// RoundToHour's CEL binding, registered above.
+func roundToHourBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.roundToHour: argument iso is not convertible to string")
+	}
+	return types.String(filters.RoundToHour(goIso))
+}
+
+// HumanizeDuration's CEL binding, registered above.
+func humanizeDurationBinding(arg0 ref.Val) ref.Val {
+	goSeconds, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.humanizeDuration: argument seconds is not convertible to int")
+	}
+	return types.String(filters.HumanizeDuration(goSeconds))
+}
+
+// BootTimeFromUptime's CEL binding, registered above.
+func bootTimeFromUptimeBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goNow, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.bootTimeFromUptime: argument now is not convertible to string")
+	}
+	goUptimeSeconds, ok := celToInt(arg1)
+	if !ok {
+		return types.NewErr("filters.bootTimeFromUptime: argument uptimeSeconds is not convertible to int")
+	}
+	return types.String(filters.BootTimeFromUptime(goNow, goUptimeSeconds))
+}
+
+// UptimeFromBootTime's CEL binding, registered above.
+func uptimeFromBootTimeBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goBoot, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.uptimeFromBootTime: argument boot is not convertible to string")
+	}
+	goNow, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.uptimeFromBootTime: argument now is not convertible to string")
+	}
+	return types.Int(filters.UptimeFromBootTime(goBoot, goNow))
+}
+
+// IsPast's CEL binding, registered above.
+func isPastBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isPast: argument iso is not convertible to string")
+	}
+	goAsOf, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.isPast: argument asOf is not convertible to string")
+	}
+	return types.Bool(filters.IsPast(goIso, goAsOf))
+}
+
+// IsFuture's CEL binding, registered above.
+func isFutureBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isFuture: argument iso is not convertible to string")
+	}
+	goAsOf, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.isFuture: argument asOf is not convertible to string")
+	}
+	return types.Bool(filters.IsFuture(goIso, goAsOf))
+}
+
+// IsOlderThan's CEL binding, registered above.
+func isOlderThanBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.isOlderThan: expected 3 arguments, got %d", len(args))
+	}
+	goIso, ok := celToString(args[0])
+	if !ok {
+		return types.NewErr("filters.isOlderThan: argument iso is not convertible to string")
+	}
+	goAsOf, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.isOlderThan: argument asOf is not convertible to string")
+	}
+	goThresholdSeconds, ok := celToInt(args[2])
+	if !ok {
+		return types.NewErr("filters.isOlderThan: argument thresholdSeconds is not convertible to int")
+	}
+	return types.Bool(filters.IsOlderThan(goIso, goAsOf, goThresholdSeconds))
+}
+
+// IsExpiringWithin's CEL binding, registered above.
+func isExpiringWithinBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.isExpiringWithin: expected 3 arguments, got %d", len(args))
+	}
+	goIso, ok := celToString(args[0])
+	if !ok {
+		return types.NewErr("filters.isExpiringWithin: argument iso is not convertible to string")
+	}
+	goAsOf, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.isExpiringWithin: argument asOf is not convertible to string")
+	}
+	goWindowSeconds, ok := celToInt(args[2])
+	if !ok {
+		return types.NewErr("filters.isExpiringWithin: argument windowSeconds is not convertible to int")
+	}
+	return types.Bool(filters.IsExpiringWithin(goIso, goAsOf, goWindowSeconds))
+}
+
+// StartOfDay's CEL binding, registered above.
+func startOfDayBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.startOfDay: argument iso is not convertible to string")
+	}
+	return types.String(filters.StartOfDay(goIso))
+}
+
+// StartOfWeek's CEL binding, registered above.
+func startOfWeekBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.startOfWeek: argument iso is not convertible to string")
+	}
+	return types.String(filters.StartOfWeek(goIso))
+}
+
+// StartOfMonth's CEL binding, registered above.
+func startOfMonthBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.startOfMonth: argument iso is not convertible to string")
+	}
+	return types.String(filters.StartOfMonth(goIso))
+}
+
+// IsLeapYear's CEL binding, registered above.
+func isLeapYearBinding(arg0 ref.Val) ref.Val {
+	goYear, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.isLeapYear: argument year is not convertible to int")
+	}
+	return types.Bool(filters.IsLeapYear(goYear))
+}
+
+// DayOfWeek's CEL binding, registered above.
+func dayOfWeekBinding(arg0 ref.Val) ref.Val {
+	goIso, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.dayOfWeek: argument iso is not convertible to string")
+	}
+	return types.String(filters.DayOfWeek(goIso))
+}
+
+// IsBusinessHour's CEL binding, registered above.
+func isBusinessHourBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goSchedule, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.isBusinessHour: argument schedule is not convertible to map[string]any")
+	}
+	goIso, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.isBusinessHour: argument iso is not convertible to string")
+	}
+	return types.Bool(filters.IsBusinessHour(goSchedule, goIso))
+}
+
+// IsMaintenanceWindow's CEL binding, registered above.
+func isMaintenanceWindowBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goWindow, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.isMaintenanceWindow: argument window is not convertible to map[string]any")
+	}
+	goIso, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.isMaintenanceWindow: argument iso is not convertible to string")
+	}
+	return types.Bool(filters.IsMaintenanceWindow(goWindow, goIso))
+}
+
+// CronNextRun's CEL binding, registered above.
+func cronNextRunBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goCronExpr, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.cronNextRun: argument cronExpr is not convertible to string")
+	}
+	goFromISO, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.cronNextRun: argument fromISO is not convertible to string")
+	}
+	return types.String(filters.CronNextRun(goCronExpr, goFromISO))
+}
+
+// CronPreviousRun's CEL binding, registered above.
+func cronPreviousRunBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goCronExpr, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.cronPreviousRun: argument cronExpr is not convertible to string")
+	}
+	goFromISO, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.cronPreviousRun: argument fromISO is not convertible to string")
+	}
+	return types.String(filters.CronPreviousRun(goCronExpr, goFromISO))
 }

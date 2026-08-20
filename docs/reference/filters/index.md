@@ -240,6 +240,20 @@ perform computation on the value if present and return the result as an optional
 
 `pkg/filters`, registered under the flat `filters.` prefix, a namespace independent of a Collection's `<namespace>.<method>` FQCN (the two never cross-reference each other, so no collision is possible even in principle). Every function here is independently unit-tested as plain Go, with no dependency on CEL; `internal/engine/cel_filters.go` is the only translation between the two.
 
+### `filters.addSeconds`
+
+adds seconds, negative to subtract, to a timestamp, returning an empty string if the timestamp is malformed or the shift exceeds this function's own bound.
+
+- `filters.addSeconds(string, int) -> string`
+  - `filters.addSeconds("2024-01-01T00:00:00Z", 3600) // "2024-01-01T01:00:00Z"`
+
+### `filters.bootTimeFromUptime`
+
+subtracts an uptime in seconds from a reference timestamp, returning an empty string if the timestamp is malformed or the uptime is negative.
+
+- `filters.bootTimeFromUptime(string, int) -> string`
+  - `filters.bootTimeFromUptime("2024-01-01T01:00:00Z", 3600) // "2024-01-01T00:00:00Z"`
+
 ### `filters.broadcastAddress`
 
 computes a CIDR block's broadcast address.
@@ -283,12 +297,33 @@ compares two semantic-version-shaped strings numerically by major, minor and pat
 - `filters.compareSemVer(string, string) -> int`
   - `filters.compareSemVer("1.2.3", "1.3.0") // -1`
 
+### `filters.cronNextRun`
+
+returns the next timestamp strictly after a reference timestamp that matches a cron expression, or an empty string if the expression or timestamp is malformed or no match exists within this function's own search bound.
+
+- `filters.cronNextRun(string, string) -> string`
+  - `filters.cronNextRun("0 9 * * *", "2024-01-01T08:00:00Z") // "2024-01-01T09:00:00Z"`
+
+### `filters.cronPreviousRun`
+
+returns the most recent timestamp strictly before a reference timestamp that matches a cron expression, or an empty string if the expression or timestamp is malformed or no match exists within this function's own search bound.
+
+- `filters.cronPreviousRun(string, string) -> string`
+  - `filters.cronPreviousRun("0 9 * * *", "2024-01-02T08:00:00Z") // "2024-01-01T09:00:00Z"`
+
 ### `filters.csvToList`
 
 parses one CSV line into a list of fields, using encoding/csv for correct quote handling rather than a naive split on comma.
 
 - `filters.csvToList(string) -> list(string)`
   - `filters.csvToList("a,\"b,c\",d") // ["a", "b,c", "d"]`
+
+### `filters.dayOfWeek`
+
+returns a timestamp's weekday name in its own timezone, Monday through Sunday, or an empty string if the timestamp is malformed.
+
+- `filters.dayOfWeek(string) -> string`
+  - `filters.dayOfWeek("2024-01-01T00:00:00Z") // "Monday"`
 
 ### `filters.dedupeByKey`
 
@@ -304,6 +339,20 @@ recursively merges b into a: nested maps merge key by key, lists append, and any
 - `filters.deepMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
   - `filters.deepMerge({"a": {"x": 1}}, {"a": {"y": 2}}) // {"a": {"x": 1, "y": 2}}`
 
+### `filters.deltaDays`
+
+returns the whole days from a to b, negative if b precedes a, or fallback if either timestamp is malformed.
+
+- `filters.deltaDays(string, string, int) -> int`
+  - `filters.deltaDays("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z", -1) // 2`
+
+### `filters.deltaSeconds`
+
+returns the whole seconds from a to b, negative if b precedes a, or fallback if either timestamp is malformed.
+
+- `filters.deltaSeconds(string, string, int) -> int`
+  - `filters.deltaSeconds("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", -1) // 60`
+
 ### `filters.dropEmptyValues`
 
 returns a copy of m with every key whose value is nil, an empty string, an empty list, or an empty map removed.
@@ -311,12 +360,33 @@ returns a copy of m with every key whose value is nil, an empty string, an empty
 - `filters.dropEmptyValues(map(string, dyn)) -> map(string, dyn)`
   - `filters.dropEmptyValues({"a": "", "b": "kept"}) // {"b": "kept"}`
 
+### `filters.epochToFileTime`
+
+converts a Unix epoch in seconds to a Windows FileTime, the inverse of filters.fileTimeToEpoch.
+
+- `filters.epochToFileTime(int) -> int`
+  - `filters.epochToFileTime(0) // 116444736000000000`
+
+### `filters.epochToISO8601`
+
+converts a Unix epoch in seconds to an RFC 3339 timestamp string in UTC.
+
+- `filters.epochToISO8601(int) -> string`
+  - `filters.epochToISO8601(0) // "1970-01-01T00:00:00Z"`
+
 ### `filters.excludeListByKV`
 
 keeps only the maps in list whose key does not equal value (including every map missing key entirely).
 
 - `filters.excludeListByKV(list(map(string, dyn)), string, dyn) -> list(map(string, dyn))`
   - `filters.excludeListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "db"}]`
+
+### `filters.fileTimeToEpoch`
+
+converts a Windows FileTime, 100 nanosecond intervals since 1601-01-01T00:00:00Z, to a Unix epoch in whole seconds.
+
+- `filters.fileTimeToEpoch(int) -> int`
+  - `filters.fileTimeToEpoch(116444736000000000) // 0`
 
 ### `filters.filterListByKV`
 
@@ -381,6 +451,13 @@ parses a human-readable binary (base-1024) size back to a byte count, the invers
 - `filters.humanToBytes(string) -> int`
   - `filters.humanToBytes("1.5KiB") // 1536`
 
+### `filters.humanizeDuration`
+
+renders a count of seconds as a compact, day-aware human-readable duration such as 1d2h3m4s.
+
+- `filters.humanizeDuration(int) -> string`
+  - `filters.humanizeDuration(93784) // "1d2h3m4s"`
+
 ### `filters.intToIP`
 
 converts a 32-bit unsigned integer to its dotted-decimal IPv4 form.
@@ -416,6 +493,13 @@ reports whether path is absolute under POSIX or Windows conventions (drive-lette
 - `filters.isAbsolutePath(string) -> bool`
   - `filters.isAbsolutePath("/etc/passwd") // true`
 
+### `filters.isBusinessHour`
+
+reports whether a timestamp falls within schedule's start and end time of day on one of schedule's days, or false if the timestamp or schedule is malformed.
+
+- `filters.isBusinessHour(map(string, dyn), string) -> bool`
+  - `filters.isBusinessHour({"start": "09:00", "end": "17:00"}, "2024-01-01T10:00:00Z") // true, 2024-01-01 is a Monday`
+
 ### `filters.isCiscoReservedVLAN`
 
 reports whether a VLAN ID is one Cisco reserves by default (1, 1002 to 1005), a vendor convention, not an IEEE rule.
@@ -430,6 +514,48 @@ reports whether s is empty or contains only whitespace.
 
 - `filters.isEmptyOrWhitespace(string) -> bool`
   - `filters.isEmptyOrWhitespace("   ") // true`
+
+### `filters.isExpiringWithin`
+
+reports whether a timestamp falls within windowSeconds after a reference timestamp, an already-past timestamp does not count, or false if either timestamp is malformed.
+
+- `filters.isExpiringWithin(string, string, int) -> bool`
+  - `filters.isExpiringWithin("2024-01-01T00:30:00Z", "2024-01-01T00:00:00Z", 3600) // true`
+
+### `filters.isFuture`
+
+reports whether a timestamp is strictly after a reference timestamp, or false if either is malformed.
+
+- `filters.isFuture(string, string) -> bool`
+  - `filters.isFuture("2025-01-01T00:00:00Z", "2024-01-01T00:00:00Z") // true`
+
+### `filters.isLeapYear`
+
+reports whether year is a Gregorian leap year.
+
+- `filters.isLeapYear(int) -> bool`
+  - `filters.isLeapYear(2024) // true`
+
+### `filters.isMaintenanceWindow`
+
+reports whether a timestamp falls within window's start and end timestamps inclusive, or false if any of the three is malformed.
+
+- `filters.isMaintenanceWindow(map(string, dyn), string) -> bool`
+  - `filters.isMaintenanceWindow({"start": "2024-01-01T00:00:00Z", "end": "2024-01-02T00:00:00Z"}, "2024-01-01T12:00:00Z") // true`
+
+### `filters.isOlderThan`
+
+reports whether a timestamp is at least thresholdSeconds before a reference timestamp, or false if either timestamp is malformed.
+
+- `filters.isOlderThan(string, string, int) -> bool`
+  - `filters.isOlderThan("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z", 1800) // true`
+
+### `filters.isPast`
+
+reports whether a timestamp is strictly before a reference timestamp, or false if either is malformed.
+
+- `filters.isPast(string, string) -> bool`
+  - `filters.isPast("2020-01-01T00:00:00Z", "2024-01-01T00:00:00Z") // true`
 
 ### `filters.isPrivateASN`
 
@@ -494,6 +620,13 @@ reports whether s is syntactically valid YAML.
 
 - `filters.isValidYAML(string) -> bool`
   - `filters.isValidYAML("a: 1") // true`
+
+### `filters.iso8601ToEpoch`
+
+parses an RFC 3339 timestamp string into a Unix epoch in seconds, returning -1 if the input is malformed or predates 1970.
+
+- `filters.iso8601ToEpoch(string) -> int`
+  - `filters.iso8601ToEpoch("1970-01-01T00:00:10Z") // 10`
 
 ### `filters.jsonToYAML`
 
@@ -600,6 +733,13 @@ extracts one named capture group's match from s against pattern.
 - `filters.regexExtract(string, string, string) -> string`
   - `filters.regexExtract("host1.example.com", "^(?P<host>[^.]+)\\.", "host") // "host1"`
 
+### `filters.roundToHour`
+
+floors a timestamp to the start of its own current hour, in its own timezone, returning an empty string if the timestamp is malformed.
+
+- `filters.roundToHour(string) -> string`
+  - `filters.roundToHour("2024-01-01T13:45:30Z") // "2024-01-01T13:00:00Z"`
+
 ### `filters.safeBool`
 
 parse a value as a boolean, accepting 1/t/true/yes/on and 0/f/false/no/off case
@@ -646,12 +786,40 @@ merges b into a at the top level only: a key present in both is overwritten by b
 - `filters.shallowMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
   - `filters.shallowMerge({"a": 1}, {"a": 2, "b": 3}) // {"a": 2, "b": 3}`
 
+### `filters.shiftTimezone`
+
+reformats a timestamp in the named IANA timezone, returning an empty string if either argument is malformed.
+
+- `filters.shiftTimezone(string, string) -> string`
+  - `filters.shiftTimezone("2024-01-01T00:00:00Z", "America/New_York") // "2023-12-31T19:00:00-05:00"`
+
 ### `filters.snakeToCamel`
 
 converts a snake_case identifier to camelCase, the inverse of filters.camelToSnake.
 
 - `filters.snakeToCamel(string) -> string`
   - `filters.snakeToCamel("classify_ip") // "classifyIp"`
+
+### `filters.startOfDay`
+
+floors a timestamp to 00:00:00 in its own timezone, returning an empty string if the timestamp is malformed.
+
+- `filters.startOfDay(string) -> string`
+  - `filters.startOfDay("2024-01-01T13:45:00Z") // "2024-01-01T00:00:00Z"`
+
+### `filters.startOfMonth`
+
+floors a timestamp to 00:00:00 on the first of its own month, in its own timezone, returning an empty string if the timestamp is malformed.
+
+- `filters.startOfMonth(string) -> string`
+  - `filters.startOfMonth("2024-01-15T13:45:00Z") // "2024-01-01T00:00:00Z"`
+
+### `filters.startOfWeek`
+
+floors a timestamp to 00:00:00 on the most recent Monday in its own timezone, returning an empty string if the timestamp is malformed.
+
+- `filters.startOfWeek(string) -> string`
+  - `filters.startOfWeek("2024-01-03T13:45:00Z") // "2024-01-01T00:00:00Z"`
 
 ### `filters.stringToHex`
 
@@ -694,6 +862,13 @@ reconstructs a nested map/list structure from a flat map with dot-notation keys,
 
 - `filters.unflatten(map(string, dyn)) -> map(string, dyn)`
   - `filters.unflatten({"a.b": 1}) // {"a": {"b": 1}}`
+
+### `filters.uptimeFromBootTime`
+
+returns the whole seconds from boot to now, or -1 if either timestamp is malformed or boot is after now.
+
+- `filters.uptimeFromBootTime(string, string) -> int`
+  - `filters.uptimeFromBootTime("2024-01-01T00:00:00Z", "2024-01-01T01:00:00Z") // 3600`
 
 ### `filters.urlDecode`
 
