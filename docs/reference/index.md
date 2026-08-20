@@ -19,6 +19,7 @@ silence. They are still the one place on these pages where a human wrote the dat
 - [Capability vocabulary](capabilities.md)
 - [Device types](devices.md)
 - [Sync plugins](plugins.md)
+- [Filter reference](filters/index.md)
 - [Runbook and task keys](task-keys.md)
 - [Implementation status](implementation-status.md)
 - [CLI reference](cli.md)

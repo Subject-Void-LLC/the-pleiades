@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/ext"
 )
 
 // Evaluator defines a contract for compiling and evaluating dynamic CEL expressions.
@@ -62,34 +63,84 @@ type celProgram struct {
 	prg cel.Program
 }
 
-// NewCELEvaluator initializes a CEL execution environment.
-func NewCELEvaluator() (Evaluator, error) {
-	// 'stat' holds dynamic device/condition properties for simple,
-	// non-cross-node conditions (e.g. the Release Gate's own
-	// stat.firmware == 'v2.0' && stat.ping_ms < 50). 'nodes' holds the
-	// aggregated cross-node WorkflowContext (PLAN.md Section 27): a task's
-	// when_cel can reference an earlier task's registered result by name,
-	// e.g. nodes.precheck[""].needs_reboot. Both are declared as
-	// map(string, dyn) so any downstream field/macro access type-checks
-	// permissively; Executor.runNode currently binds both names to the
-	// identical WorkflowContext snapshot (executor.go), a deliberate,
-	// stated scope choice, not an oversight: no caller today has a reason
-	// to give 'stat' a narrower, device-only meaning distinct from 'nodes'.
-	//
-	// 'vars' holds a dispatch's own resolved launch.Resolved.ExtraVars
-	// (AWX_PARITY_ROADMAP.md Section 3b.1), an Executor-wide constant for
-	// the whole Run call rather than anything WorkflowContext accumulates:
-	// unlike 'stat'/'nodes', which grow as earlier tasks register results,
-	// 'vars' is the same map for every node from the moment Run starts.
-	// Executor.runNode binds it from Executor.extraVars (WithVariables),
-	// defaulting to an empty map so a condition can reference vars.foo
-	// even on a dag no ExecutorOption ever set it for, rather than a CEL
-	// evaluation error about a missing attribute.
-	env, err := cel.NewEnv(
+// CELVariableOptions returns the cel.EnvOption values declaring this
+// engine's three top-level activation variables. Exported (rather than
+// folded directly into NewCELEvaluator) so tools/gendocs can build the
+// identical baseline environment this package uses, then Extend it with
+// CELLibraryOptions to compute exactly which functions those libraries
+// add, instead of a hand-maintained doc table that could drift from what
+// the real Evaluator actually accepts.
+//
+// 'stat' holds dynamic device/condition properties for simple,
+// non-cross-node conditions (e.g. the Release Gate's own
+// stat.firmware == 'v2.0' && stat.ping_ms < 50). 'nodes' holds the
+// aggregated cross-node WorkflowContext (PLAN.md Section 27): a task's
+// when_cel can reference an earlier task's registered result by name,
+// e.g. nodes.precheck[""].needs_reboot. Both are declared as
+// map(string, dyn) so any downstream field/macro access type-checks
+// permissively; Executor.runNode currently binds both names to the
+// identical WorkflowContext snapshot (executor.go), a deliberate,
+// stated scope choice, not an oversight: no caller today has a reason
+// to give 'stat' a narrower, device-only meaning distinct from 'nodes'.
+//
+// 'vars' holds a dispatch's own resolved launch.Resolved.ExtraVars
+// (AWX_PARITY_ROADMAP.md Section 3b.1), an Executor-wide constant for
+// the whole Run call rather than anything WorkflowContext accumulates:
+// unlike 'stat'/'nodes', which grow as earlier tasks register results,
+// 'vars' is the same map for every node from the moment Run starts.
+// Executor.runNode binds it from Executor.extraVars (WithVariables),
+// defaulting to an empty map so a condition can reference vars.foo
+// even on a dag no ExecutorOption ever set it for, rather than a CEL
+// evaluation error about a missing attribute.
+func CELVariableOptions() []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Variable("stat", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("nodes", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
-	)
+	}
+}
+
+// CELLibraryOptions returns the cel.EnvOption values that extend this
+// engine's CEL environment beyond cel-go's own standard library (Phase 50,
+// PLAN.md Section 36's Filters Part). Exported for the same reason as
+// CELVariableOptions: tools/gendocs builds a baseline env from
+// CELVariableOptions alone and an extended env from
+// CELVariableOptions+CELLibraryOptions, then diffs the two environments'
+// Functions() by overload ID to render exactly what each library adds,
+// with no second, hand-maintained copy of the list to drift from this one.
+//
+//   - ext.Network() supplies ip()/cidr()/isIP()/isCIDR() and CIDR
+//     containment member functions, built on net/netip.
+//   - ext.Encoders() supplies base64.encode/decode and json.encode.
+//     base64.encode takes bytes and base64.decode returns bytes, not
+//     string: reach for base64.encode(bytes(x)) and
+//     string(base64.decode(x)).
+//   - cel.OptionalTypes() supplies "?." / ".orValue(default)", the
+//     missing-value case a hand-written filters.default function cannot
+//     replace (CEL evaluates call arguments eagerly, so
+//     filters.default(stat.missing, y) would still throw evaluating
+//     stat.missing before default ever ran).
+//   - filtersLib() registers every pkg/filters function under the
+//     "filters." prefix; see that function's own doc comment.
+//
+// Ordering note: ext.Network() installs a cel.CustomTypeAdapter that wraps
+// whatever type adapter is already configured on the env at the point it
+// runs. A future EnvOption that also needs cel.CustomTypeAdapter must be
+// listed before ext.Network() in this slice, or ext.Network()'s wrapping
+// silently shadows it.
+func CELLibraryOptions() []cel.EnvOption {
+	return []cel.EnvOption{
+		ext.Network(),
+		ext.Encoders(),
+		cel.OptionalTypes(),
+		filtersLib(),
+	}
+}
+
+// NewCELEvaluator initializes a CEL execution environment.
+func NewCELEvaluator() (Evaluator, error) {
+	opts := append(CELVariableOptions(), CELLibraryOptions()...)
+	env, err := cel.NewEnv(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL env: %w", err)
 	}

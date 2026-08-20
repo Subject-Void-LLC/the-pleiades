@@ -66,6 +66,7 @@ func TestRun_Idempotent(t *testing.T) {
 	assertExists(filepath.Join(outputDir, "capabilities.md"))
 	assertExists(filepath.Join(outputDir, "devices.md"))
 	assertExists(filepath.Join(outputDir, "plugins.md"))
+	assertExists(filepath.Join(outputDir, "filters", "index.md"))
 	assertExists(filepath.Join(outputDir, "task-keys.md"))
 	assertExists(filepath.Join(outputDir, "implementation-status.md"))
 	assertExists(filepath.Join(outputDir, "schemas", "runbook.schema.json"))
