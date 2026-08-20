@@ -4794,3 +4794,43 @@ than the permission that replaces it, because refusing wrongly costs an error me
 wrongly costs silence. Also: this was found by running the generator against the real repository
 and reading `git status`, not by the tests, which is the argument for running a code generator
 somewhere it can do damage you can still see.
+
+## 161. A scaffolder's placeholder for an unsupported arity emitted a function signature that could not satisfy the type it was meant to produce
+
+**Symptom.** `internal/forge/filterscaffold`'s `Reminder` renders a `*Binding` function alongside
+the `cel.Function`/`cel.Overload` block it pastes into `internal/engine/cel_filters.go`. For a
+one- or two-argument filter this compiles as-is (`cel.UnaryBinding`/`cel.BinaryBinding`, both fixed
+arity, matching the generated `func fooBinding(arg0 ref.Val) ref.Val` shape exactly). For a
+three-argument filter (`bindingFuncFor`'s documented arity-two ceiling), the generator still emitted
+individual named parameters -- `func fooBinding(arg0 ref.Val, arg1 ref.Val, arg2 ref.Val) ref.Val`
+-- registered against `cel.FunctionBinding(fooBinding)`. Phase 53's `RegexExtract`, this codebase's
+first three-argument filter, hit this and was hand-rewritten from scratch as a real
+`func(...ref.Val) ref.Val` with an arity check and indexed access, recorded at the time only as "the
+forge has no typed `OverloadOpt` past arity two," not as "the generator's own stub does not compile
+against the value it is registered as."
+
+**Root cause.** `cel.FunctionBinding`'s real Go type is `func(...ref.Val) ref.Val`, a variadic
+slice parameter, not a fixed tuple. `bindingFunc`'s per-parameter loop built `argN ref.Val` for
+every `Param` regardless of count, correct for the two typed `OverloadOpt`s (`UnaryBinding`/
+`BinaryBinding`, whose own Go types are the fixed two- and one-argument shapes the loop happens to
+produce) but silently wrong for the untyped one: three individually named `ref.Val` parameters is
+not assignable to `func(...ref.Val) ref.Val`. Nothing caught this the first time because the fix
+was applied by hand, off the template, before the generated stub was ever asked to compile as a
+`cel.FunctionBinding` value on its own.
+
+**Fix.** `bindingFuncFor` now returns `cel.FunctionBinding` (not a `/* TODO: arity */` comment) for
+arity three and above, and `bindingFunc` emits the real shape for that case: `func fooBinding(args
+...ref.Val) ref.Val`, a generated `if len(args) != N { return types.NewErr(...) }` arity check, and
+`args[i]` in place of each `argN`. Verified against `Reminder()`'s own output for a three-argument
+config, byte for byte matching `RegexExtract`'s own hand-written binding, before either of Phase
+54's two three-argument filters (`FilterListByKV`/`ExcludeListByKV`) was written.
+
+**Lesson.** A generator's placeholder for a case it cannot fully handle should still be checked
+against the real type it is meant to satisfy, not just "looks like the pattern for the cases that
+do work." The first occurrence of an unsupported shape being hand-patched off the template hid the
+question of *why* the generator couldn't produce it; only reading the generator's own source before
+writing a second and third occurrence surfaced that the gap was a real bug (a signature mismatch),
+not merely missing coverage. Three occurrences of the same one-off is the threshold this codebase
+has already used elsewhere (Phase 51's `celToStringList`, Phase 52's structural types) to decide a
+capability belongs in the tool rather than in the hand; this is the same judgment applied to a
+scaffolder's own binding-generation logic rather than to its type table.

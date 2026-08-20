@@ -123,7 +123,7 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 // A parameter or return whose GoType is not in wellKnownCELTypes gets a
 // "// TODO" conversion line instead of real code: this generator can
 // prove a well-known type's ref.Val conversion is correct by construction
-// (wellKnownCELTypes' own doc comment lists all seven and why each one
+// (wellKnownCELTypes' own doc comment lists all eight and why each one
 // qualifies), but it cannot safely guess one for an arbitrary Go type
 // like []int without risking a silently wrong translation pasted
 // straight into a hand-maintained file. A human fills those in, the same
@@ -237,15 +237,15 @@ func overloadIDFor(celName string, params []resolvedParam, ret resolvedReturn) s
 }
 
 // bindingFuncFor names the cel-go OverloadOpt matching arity: cel-go
-// ships typed bindings for exactly one and two arguments. Zero is also
-// fully supported here (cel.FunctionBinding's real signature,
-// func(...ref.Val) ref.Val, accepts being called with no arguments;
-// bindingFunc emits a real "_ ...ref.Val" parameter for it, not a
-// guess), used first by Phase 52's GenerateUUIDv4. Anything wider than
-// two still needs the variadic cel.FunctionBinding, but this generator
-// cannot pre-fill a real signature for that case beyond a TODO, since a
-// fixed arity above two has no typed OverloadOpt to target and no
-// established convention in this codebase yet to copy.
+// ships typed bindings for exactly one and two arguments. Zero and three-
+// or-more both resolve to the same untyped cel.FunctionBinding
+// (func(...ref.Val) ref.Val is the only signature cel-go offers past
+// arity two), but bindingFunc renders each shape differently: arity zero
+// as a real "_ ...ref.Val" parameter (used first by Phase 52's
+// GenerateUUIDv4), arity three-or-more as a real "args ...ref.Val"
+// parameter plus a generated arity check and indexed access (used first
+// by Phase 53's RegexExtract, generalized here once Phase 54's
+// FilterListByKV/ExcludeListByKV made it a repeat, not a one-off).
 func bindingFuncFor(arity int) string {
 	switch arity {
 	case 0:
@@ -255,7 +255,7 @@ func bindingFuncFor(arity int) string {
 	case 2:
 		return "cel.BinaryBinding"
 	default:
-		return "cel.FunctionBinding /* TODO: arity */"
+		return "cel.FunctionBinding"
 	}
 }
 
@@ -280,6 +280,8 @@ func exampleArg(goType string) string {
 		return "0"
 	case "bool":
 		return "false"
+	case "any":
+		return `"TODO"`
 	case "[]string":
 		return `["TODO"]`
 	case "map[string]any":
@@ -296,33 +298,48 @@ func exampleArg(goType string) string {
 // bindingFunc renders the *Binding function Reminder's cel.Overload
 // references: one parameter per Param, converted from ref.Val via the
 // matching wellKnownCELTypes conversion helper (celToString/celToInt/
-// celToBool/celToStringList/celToMap/celToDynList/celToMapList, all
-// defined once in internal/engine/cel_filters.go), a call into the real
-// pkg/filters function, and the result wrapped back into a ref.Val. A
-// Param or Return outside wellKnownCELTypes gets a TODO line instead of
-// guessed conversion code; see Reminder's own doc comment for why
-// guessing would be worse than an explicit gap.
+// celToBool/celToAny/celToStringList/celToMap/celToDynList/
+// celToMapList, all defined once in internal/engine/cel_filters.go), a
+// call into the real pkg/filters function, and the result wrapped back
+// into a ref.Val. A Param or Return outside wellKnownCELTypes gets a TODO
+// line instead of guessed conversion code; see Reminder's own doc
+// comment for why guessing would be worse than an explicit gap.
 //
-// A zero-Param filter (Phase 52's GenerateUUIDv4) gets the real
-// cel.FunctionBinding signature, func(...ref.Val) ref.Val, spelled as
-// "_ ...ref.Val" since nothing in bindingFuncFor's typed one/two-arg
-// case ever reaches here with an unused argument to convert.
+// Three shapes, matching bindingFuncFor's three OverloadOpt cases:
+//   - Zero params (Phase 52's GenerateUUIDv4): the real cel.FunctionBinding
+//     signature, func(...ref.Val) ref.Val, spelled as "_ ...ref.Val" since
+//     there is no argument to convert.
+//   - One or two params: cel-go's typed UnaryBinding/BinaryBinding, so the
+//     signature is fixed individual "argN ref.Val" parameters.
+//   - Three or more params: cel-go has no typed OverloadOpt past two, so
+//     this is cel.FunctionBinding again, but this time with a real
+//     argument to index into. The signature is "args ...ref.Val" plus a
+//     generated arity check, mirroring Phase 53's hand-written
+//     regexExtractBinding (this codebase's first three-argument filter,
+//     built before this generator could produce the shape itself).
 func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedReturn) string {
 	var b strings.Builder
 	fnName := celName + "Binding"
 
 	argNames := make([]string, len(params))
-	sig := make([]string, len(params))
-	for i := range params {
-		argNames[i] = fmt.Sprintf("arg%d", i)
-		sig[i] = fmt.Sprintf("%s ref.Val", argNames[i])
+	switch {
+	case len(params) == 0:
+		fmt.Fprintf(&b, "func %s(_ ...ref.Val) ref.Val {\n", fnName)
+	case len(params) >= 3:
+		fmt.Fprintf(&b, "func %s(args ...ref.Val) ref.Val {\n", fnName)
+		fmt.Fprintf(&b, "\tif len(args) != %d {\n\t\treturn types.NewErr(\"filters.%s: expected %d arguments, got %%d\", len(args))\n\t}\n",
+			len(params), celName, len(params))
+		for i := range params {
+			argNames[i] = fmt.Sprintf("args[%d]", i)
+		}
+	default:
+		sig := make([]string, len(params))
+		for i := range params {
+			argNames[i] = fmt.Sprintf("arg%d", i)
+			sig[i] = fmt.Sprintf("%s ref.Val", argNames[i])
+		}
+		fmt.Fprintf(&b, "func %s(%s) ref.Val {\n", fnName, strings.Join(sig, ", "))
 	}
-
-	sigStr := strings.Join(sig, ", ")
-	if len(params) == 0 {
-		sigStr = "_ ...ref.Val"
-	}
-	fmt.Fprintf(&b, "func %s(%s) ref.Val {\n", fnName, sigStr)
 
 	callArgs := make([]string, len(params))
 	for i, p := range params {
@@ -353,9 +370,11 @@ func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedRet
 // conversionFor returns the shared ref.Val -> Go conversion helper name
 // for a well-known Go type, all defined once in
 // internal/engine/cel_filters.go: celToString/celToInt/celToBool
-// (Phase 50/51), celToStringList (Phase 51's Supernet), and
+// (Phase 50/51), celToStringList (Phase 51's Supernet),
 // celToMap/celToDynList/celToMapList (added for Phase 52's structured-
-// data filters).
+// data filters), and celToAny (added for Phase 54's dict/list filters,
+// reusing the same recursive conversion celToMap/celToDynList/
+// celToMapList already build on, just returned unwrapped).
 func conversionFor(goType string) (string, bool) {
 	switch goType {
 	case "string":
@@ -364,6 +383,8 @@ func conversionFor(goType string) (string, bool) {
 		return "celToInt", true
 	case "bool":
 		return "celToBool", true
+	case "any":
+		return "celToAny", true
 	case "[]string":
 		return "celToStringList", true
 	case "map[string]any":

@@ -337,3 +337,132 @@ func TestPhase53Bindings_RejectUnconvertibleArguments(t *testing.T) {
 		}
 	})
 }
+
+// TestPhase54Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase53Bindings_RejectUnconvertibleArguments for this phase's own
+// 17 bindings. notString (a CEL list) still fails string/int/map
+// conversion for the same reason it did in Phase 53: common/types/
+// list.go's own ConvertToType supports only ListType and TypeType, and
+// celToMap/celToMapList's own map[string]any type assertion fails on a
+// []any value just as readily as celToAny's own recursive walk succeeds
+// converting it. notScalar (a bare CEL int) is this phase's own addition:
+// celToDynList/celToMapList both fail on it because celToAny's Mapper/
+// Lister type switch falls through to its scalar default branch, which
+// is never []any. There is no "not convertible" value for an "any"
+// parameter (filterListByKV/excludeListByKV/listContains's value):
+// celToAny's own default branch (v.Value(), true) succeeds for every
+// real ref.Val cel-go can produce, so that defensive branch, while
+// present for the same structural-uniformity reason every other binding
+// carries one, has no reachable failing input to construct here.
+func TestPhase54Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+	notScalar := types.Int(5)
+
+	unary := map[string]func(ref.Val) ref.Val{
+		"isValidFQDN":     isValidFQDNBinding,
+		"isValidEmail":    isValidEmailBinding,
+		"isValidUUID":     isValidUUIDBinding,
+		"isValidBase64":   isValidBase64Binding,
+		"isValidJSON":     isValidJSONBinding,
+		"isValidYAML":     isValidYAMLBinding,
+		"isValidPort":     isValidPortBinding,
+		"dropEmptyValues": dropEmptyValuesBinding,
+		"isValidCronExpr": isValidCronExprBinding,
+	}
+	for name, fn := range unary {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("listContains_list", func(t *testing.T) {
+		if got := listContainsBinding(notScalar, types.String("v")); !types.IsError(got) {
+			t.Errorf("listContainsBinding(scalar, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("hasMandatoryTags_m", func(t *testing.T) {
+		if got := hasMandatoryTagsBinding(notString, types.NewStringList(types.DefaultTypeAdapter, []string{"a"})); !types.IsError(got) {
+			t.Errorf("hasMandatoryTagsBinding(list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("hasMandatoryTags_requiredKeys", func(t *testing.T) {
+		if got := hasMandatoryTagsBinding(types.NewDynamicMap(types.DefaultTypeAdapter, map[string]any{}), notScalar); !types.IsError(got) {
+			t.Errorf("hasMandatoryTagsBinding(_, scalar) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("listIntersect_a", func(t *testing.T) {
+		if got := listIntersectBinding(notScalar, notString); !types.IsError(got) {
+			t.Errorf("listIntersectBinding(scalar, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("listIntersect_b", func(t *testing.T) {
+		if got := listIntersectBinding(notString, notScalar); !types.IsError(got) {
+			t.Errorf("listIntersectBinding(_, scalar) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("listDiff_a", func(t *testing.T) {
+		if got := listDiffBinding(notScalar, notString); !types.IsError(got) {
+			t.Errorf("listDiffBinding(scalar, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("listDiff_b", func(t *testing.T) {
+		if got := listDiffBinding(notString, notScalar); !types.IsError(got) {
+			t.Errorf("listDiffBinding(_, scalar) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("dedupeByKey_list", func(t *testing.T) {
+		if got := dedupeByKeyBinding(notString, types.String("k")); !types.IsError(got) {
+			t.Errorf("dedupeByKeyBinding(list-of-ints, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("dedupeByKey_key", func(t *testing.T) {
+		if got := dedupeByKeyBinding(types.NewDynamicList(types.DefaultTypeAdapter, []map[string]any{}), notString); !types.IsError(got) {
+			t.Errorf("dedupeByKeyBinding(_, list) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("compareSemVer_a", func(t *testing.T) {
+		if got := compareSemVerBinding(notString, types.String("1.0.0")); !types.IsError(got) {
+			t.Errorf("compareSemVerBinding(list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("compareSemVer_b", func(t *testing.T) {
+		if got := compareSemVerBinding(types.String("1.0.0"), notString); !types.IsError(got) {
+			t.Errorf("compareSemVerBinding(_, list) = %v, want a types.Err", got)
+		}
+	})
+
+	t.Run("filterListByKV_wrongArity", func(t *testing.T) {
+		if got := filterListByKVBinding(types.String("a")); !types.IsError(got) {
+			t.Errorf("filterListByKVBinding(one arg) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("filterListByKV_list", func(t *testing.T) {
+		if got := filterListByKVBinding(notScalar, types.String("k"), types.String("v")); !types.IsError(got) {
+			t.Errorf("filterListByKVBinding(scalar, _, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("filterListByKV_key", func(t *testing.T) {
+		emptyList := types.NewDynamicList(types.DefaultTypeAdapter, []map[string]any{})
+		if got := filterListByKVBinding(emptyList, notString, types.String("v")); !types.IsError(got) {
+			t.Errorf("filterListByKVBinding(_, list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("excludeListByKV_wrongArity", func(t *testing.T) {
+		if got := excludeListByKVBinding(types.String("a"), types.String("b"), types.String("c"), types.String("d")); !types.IsError(got) {
+			t.Errorf("excludeListByKVBinding(four args) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("excludeListByKV_list", func(t *testing.T) {
+		if got := excludeListByKVBinding(notScalar, types.String("k"), types.String("v")); !types.IsError(got) {
+			t.Errorf("excludeListByKVBinding(scalar, _, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("excludeListByKV_key", func(t *testing.T) {
+		emptyList := types.NewDynamicList(types.DefaultTypeAdapter, []map[string]any{})
+		if got := excludeListByKVBinding(emptyList, notString, types.String("v")); !types.IsError(got) {
+			t.Errorf("excludeListByKVBinding(_, list, _) = %v, want a types.Err", got)
+		}
+	})
+}

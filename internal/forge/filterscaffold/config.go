@@ -61,10 +61,21 @@ var goNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 // values as map[string]any/[]any, not the map[any]any a naive reading of
 // cel-go's own baseMap.ConvertToNative source might suggest, since the
 // call reaches a smarter reflection-based path in practice).
+//
+// "any" was added for Phase 54 (PLAN.md Section 36's dict/list filtering:
+// ListContains/FilterListByKV/ExcludeListByKV all take one arbitrary,
+// equality-comparable value alongside a list or map of dyn elements, not
+// a value already known to be a string the way Phase 50's cast filters'
+// dyn-in/string-in-Go argument was). It maps to cel.DynType and reuses
+// internal/engine/cel_filters.go's own celToAny, the same recursive
+// ref.Val->Go conversion celToMap/celToDynList/celToMapList already build
+// on, just returned unwrapped instead of asserted into a map or slice
+// shape.
 var wellKnownCELTypes = map[string]string{
 	"string":           "cel.StringType",
 	"int":              "cel.IntType",
 	"bool":             "cel.BoolType",
+	"any":              "cel.DynType",
 	"[]string":         "cel.ListType(cel.StringType)",
 	"map[string]any":   "cel.MapType(cel.StringType, cel.DynType)",
 	"[]any":            "cel.ListType(cel.DynType)",
@@ -246,5 +257,5 @@ func (c Config) PackagePath() string {
 // knownTypeList renders wellKnownCELTypes' keys for an error message,
 // sorted so the message is deterministic across runs.
 func knownTypeList() string {
-	return "string, int, bool, []string, map[string]any, []any, []map[string]any"
+	return "string, int, bool, any, []string, map[string]any, []any, []map[string]any"
 }

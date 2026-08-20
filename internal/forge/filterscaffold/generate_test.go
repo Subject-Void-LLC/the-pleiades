@@ -219,6 +219,37 @@ func TestGenerate(t *testing.T) {
 			wantSource: "func GenerateUUIDv4() string {",
 		},
 		{
+			name: "well-known any param needs no explicit CELType",
+			cfg: filterscaffold.Config{
+				GoName:   "ListContains",
+				CELName:  "listContains",
+				Category: "structured",
+				Summary:  "reports whether list contains value.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]any"},
+					{Name: "value", GoType: "any"},
+				},
+				Return: filterscaffold.Return{GoType: "bool"},
+			},
+			wantSource: "func ListContains(list []any, value any) bool {",
+		},
+		{
+			name: "three params",
+			cfg: filterscaffold.Config{
+				GoName:   "FilterListByKV",
+				CELName:  "filterListByKV",
+				Category: "structured",
+				Summary:  "keeps only the maps in list whose key equals value.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]map[string]any"},
+					{Name: "key", GoType: "string"},
+					{Name: "value", GoType: "any"},
+				},
+				Return: filterscaffold.Return{GoType: "[]map[string]any"},
+			},
+			wantSource: "func FilterListByKV(list []map[string]any, key string, value any) []map[string]any {",
+		},
+		{
 			name: "duplicate param names rejected",
 			cfg: filterscaffold.Config{
 				GoName:   "Foo",
@@ -433,6 +464,52 @@ func TestReminder(t *testing.T) {
 				`cel.FunctionBinding(generateUUIDv4Binding)`,
 				`func generateUUIDv4Binding(_ ...ref.Val) ref.Val {`,
 				`return types.String(filters.GenerateUUIDv4())`,
+			},
+		},
+		{
+			name: "any param converts via celToAny",
+			cfg: filterscaffold.Config{
+				GoName:   "ListContains",
+				CELName:  "listContains",
+				Category: "structured",
+				Summary:  "reports whether list contains value.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]any"},
+					{Name: "value", GoType: "any"},
+				},
+				Return: filterscaffold.Return{GoType: "bool"},
+			},
+			want: []string{
+				`[]*cel.Type{cel.ListType(cel.DynType), cel.DynType}, cel.BoolType,`,
+				`cel.BinaryBinding(listContainsBinding)`,
+				`goList, ok := celToDynList(arg0)`,
+				`goValue, ok := celToAny(arg1)`,
+				`return types.Bool(filters.ListContains(goList, goValue))`,
+			},
+		},
+		{
+			name: "three-or-more params uses a real variadic cel.FunctionBinding",
+			cfg: filterscaffold.Config{
+				GoName:   "FilterListByKV",
+				CELName:  "filterListByKV",
+				Category: "structured",
+				Summary:  "keeps only the maps in list whose key equals value.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]map[string]any"},
+					{Name: "key", GoType: "string"},
+					{Name: "value", GoType: "any"},
+				},
+				Return: filterscaffold.Return{GoType: "[]map[string]any"},
+			},
+			want: []string{
+				`cel.FunctionBinding(filterListByKVBinding)`,
+				`func filterListByKVBinding(args ...ref.Val) ref.Val {`,
+				`if len(args) != 3 {`,
+				`return types.NewErr("filters.filterListByKV: expected 3 arguments, got %d", len(args))`,
+				`goList, ok := celToMapList(args[0])`,
+				`goKey, ok := celToString(args[1])`,
+				`goValue, ok := celToAny(args[2])`,
+				`return wrapMapList(filters.FilterListByKV(goList, goKey, goValue))`,
 			},
 		},
 		{

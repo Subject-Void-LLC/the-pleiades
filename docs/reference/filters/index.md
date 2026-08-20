@@ -276,6 +276,13 @@ classifies an IP address as private, public, loopback, link-local, or multicast.
   - `filters.classifyIP("10.0.0.5") // "private"`
   - `filters.classifyIP("8.8.8.8") // "public"`
 
+### `filters.compareSemVer`
+
+compares two semantic-version-shaped strings numerically by major, minor and patch, returning -1, 0 or 1.
+
+- `filters.compareSemVer(string, string) -> int`
+  - `filters.compareSemVer("1.2.3", "1.3.0") // -1`
+
 ### `filters.csvToList`
 
 parses one CSV line into a list of fields, using encoding/csv for correct quote handling rather than a naive split on comma.
@@ -283,12 +290,40 @@ parses one CSV line into a list of fields, using encoding/csv for correct quote 
 - `filters.csvToList(string) -> list(string)`
   - `filters.csvToList("a,\"b,c\",d") // ["a", "b,c", "d"]`
 
+### `filters.dedupeByKey`
+
+keeps only the first map in list for each distinct value of key, preserving list's own order.
+
+- `filters.dedupeByKey(list(map(string, dyn)), string) -> list(map(string, dyn))`
+  - `filters.dedupeByKey([{"id": "1"}, {"id": "1"}], "id") // [{"id": "1"}]`
+
 ### `filters.deepMerge`
 
 recursively merges b into a: nested maps merge key by key, lists append, and any other type in b overwrites a.
 
 - `filters.deepMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
   - `filters.deepMerge({"a": {"x": 1}}, {"a": {"y": 2}}) // {"a": {"x": 1, "y": 2}}`
+
+### `filters.dropEmptyValues`
+
+returns a copy of m with every key whose value is nil, an empty string, an empty list, or an empty map removed.
+
+- `filters.dropEmptyValues(map(string, dyn)) -> map(string, dyn)`
+  - `filters.dropEmptyValues({"a": "", "b": "kept"}) // {"b": "kept"}`
+
+### `filters.excludeListByKV`
+
+keeps only the maps in list whose key does not equal value (including every map missing key entirely).
+
+- `filters.excludeListByKV(list(map(string, dyn)), string, dyn) -> list(map(string, dyn))`
+  - `filters.excludeListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "db"}]`
+
+### `filters.filterListByKV`
+
+keeps only the maps in list whose key equals value.
+
+- `filters.filterListByKV(list(map(string, dyn)), string, dyn) -> list(map(string, dyn))`
+  - `filters.filterListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "web"}]`
 
 ### `filters.flatten`
 
@@ -317,6 +352,13 @@ generates a random version-4 UUID. Unlike every other filters.* function, this o
 
 - `filters.generateUUIDv4() -> string`
   - `filters.generateUUIDv4() // e.g. "3b12f1df-5232-4804-897e-917bf397618a" (a new random UUID every call)`
+
+### `filters.hasMandatoryTags`
+
+returns the subset of requiredKeys that are absent from m, so an empty result means every mandatory key is present.
+
+- `filters.hasMandatoryTags(map(string, dyn), list(string)) -> list(string)`
+  - `filters.hasMandatoryTags({"env": "prod"}, ["env", "owner"]) // ["owner"]`
 
 ### `filters.hexToString`
 
@@ -397,12 +439,89 @@ reports whether an ASN falls in a private-use range (64512 to 65534, or 42000000
   - `filters.isPrivateASN(64512) // true`
   - `filters.isPrivateASN(30000) // false`
 
+### `filters.isValidBase64`
+
+reports whether s is valid standard, padded base64 (RFC 4648 section 4).
+
+- `filters.isValidBase64(string) -> bool`
+  - `filters.isValidBase64("aGVsbG8=") // true`
+
+### `filters.isValidCronExpr`
+
+reports whether expr parses as a standard 5-field cron expression (minute hour day-of-month month day-of-week).
+
+- `filters.isValidCronExpr(string) -> bool`
+  - `filters.isValidCronExpr("*/15 * * * *") // true`
+
+### `filters.isValidEmail`
+
+reports whether s is a syntactically valid, UPN-shaped email address (a bare user@domain address, not a decorated RFC 5322 mailbox).
+
+- `filters.isValidEmail(string) -> bool`
+  - `filters.isValidEmail("user@example.com") // true`
+
+### `filters.isValidFQDN`
+
+reports whether s is a syntactically valid fully qualified domain name.
+
+- `filters.isValidFQDN(string) -> bool`
+  - `filters.isValidFQDN("host1.example.com") // true`
+
+### `filters.isValidJSON`
+
+reports whether s is syntactically valid JSON.
+
+- `filters.isValidJSON(string) -> bool`
+  - `filters.isValidJSON("{\"a\":1}") // true`
+
+### `filters.isValidPort`
+
+reports whether port falls in the valid TCP/UDP port range, 1 through 65535.
+
+- `filters.isValidPort(int) -> bool`
+  - `filters.isValidPort(8080) // true`
+
+### `filters.isValidUUID`
+
+reports whether s parses as a valid UUID in any RFC 4122 textual form.
+
+- `filters.isValidUUID(string) -> bool`
+  - `filters.isValidUUID("123e4567-e89b-12d3-a456-426614174000") // true`
+
+### `filters.isValidYAML`
+
+reports whether s is syntactically valid YAML.
+
+- `filters.isValidYAML(string) -> bool`
+  - `filters.isValidYAML("a: 1") // true`
+
 ### `filters.jsonToYAML`
 
 converts a JSON document to its equivalent YAML text.
 
 - `filters.jsonToYAML(string) -> string`
   - `filters.jsonToYAML("{\"a\":1}") // "a: 1\n"`
+
+### `filters.listContains`
+
+reports whether list contains an element equal to value.
+
+- `filters.listContains(list(dyn), dyn) -> bool`
+  - `filters.listContains(["a", "b"], "b") // true`
+
+### `filters.listDiff`
+
+returns each element of a that does not appear in b, preserving a's own order and multiplicity.
+
+- `filters.listDiff(list(dyn), list(dyn)) -> list(dyn)`
+  - `filters.listDiff(["a", "b"], ["b"]) // ["a"]`
+
+### `filters.listIntersect`
+
+returns each element of a that also appears in b, preserving a's own order and multiplicity.
+
+- `filters.listIntersect(list(dyn), list(dyn)) -> list(dyn)`
+  - `filters.listIntersect(["a", "b"], ["b", "c"]) // ["b"]`
 
 ### `filters.listToCSV`
 

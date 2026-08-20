@@ -32,8 +32,9 @@ func (p *paramFlag) String() string {
 }
 
 // Set parses one --param value: "name:goType" or, when goType is not one
-// of filterscaffold's well-known types (string, int, bool),
-// "name:goType:celType" naming the raw cel-go type expression explicitly.
+// of filterscaffold's well-known types (see filterscaffold's own
+// wellKnownCELTypes), "name:goType:celType" naming the raw cel-go type
+// expression explicitly.
 func (p *paramFlag) Set(value string) error {
 	parts := strings.SplitN(value, ":", 3)
 	if len(parts) < 2 {

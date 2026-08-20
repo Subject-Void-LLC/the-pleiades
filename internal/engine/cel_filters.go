@@ -726,6 +726,215 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.UnaryBinding(isEmptyOrWhitespaceBinding),
 			),
 		),
+
+		// Phase 54 (PLAN.md Section 36's Validation & Business-Logic
+		// Predicates): format validators, dict/list filtering, and the
+		// hand-rolled cron parser IsValidCronExpr shares with Phase 55's
+		// still-unbuilt CronNextRun/CronPreviousRun.
+		cel.Function("filters.isValidFQDN",
+			cel.FunctionDocs(
+				"reports whether s is a syntactically valid fully qualified domain name.",
+			),
+			cel.Overload("filters_is_valid_fqdn_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidFQDN("host1.example.com") // true`,
+				),
+				cel.UnaryBinding(isValidFQDNBinding),
+			),
+		),
+		cel.Function("filters.isValidEmail",
+			cel.FunctionDocs(
+				"reports whether s is a syntactically valid, UPN-shaped email address (a bare user@domain address, not a decorated RFC 5322 mailbox).",
+			),
+			cel.Overload("filters_is_valid_email_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidEmail("user@example.com") // true`,
+				),
+				cel.UnaryBinding(isValidEmailBinding),
+			),
+		),
+		cel.Function("filters.isValidUUID",
+			cel.FunctionDocs(
+				"reports whether s parses as a valid UUID in any RFC 4122 textual form.",
+			),
+			cel.Overload("filters_is_valid_uuid_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidUUID("123e4567-e89b-12d3-a456-426614174000") // true`,
+				),
+				cel.UnaryBinding(isValidUUIDBinding),
+			),
+		),
+		cel.Function("filters.isValidBase64",
+			cel.FunctionDocs(
+				"reports whether s is valid standard, padded base64 (RFC 4648 section 4).",
+			),
+			cel.Overload("filters_is_valid_base64_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidBase64("aGVsbG8=") // true`,
+				),
+				cel.UnaryBinding(isValidBase64Binding),
+			),
+		),
+		cel.Function("filters.isValidJSON",
+			cel.FunctionDocs(
+				"reports whether s is syntactically valid JSON.",
+			),
+			cel.Overload("filters_is_valid_json_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidJSON("{\"a\":1}") // true`,
+				),
+				cel.UnaryBinding(isValidJSONBinding),
+			),
+		),
+		cel.Function("filters.isValidYAML",
+			cel.FunctionDocs(
+				"reports whether s is syntactically valid YAML.",
+			),
+			cel.Overload("filters_is_valid_yaml_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidYAML("a: 1") // true`,
+				),
+				cel.UnaryBinding(isValidYAMLBinding),
+			),
+		),
+		cel.Function("filters.isValidPort",
+			cel.FunctionDocs(
+				"reports whether port falls in the valid TCP/UDP port range, 1 through 65535.",
+			),
+			cel.Overload("filters_is_valid_port_int_bool",
+				[]*cel.Type{cel.IntType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidPort(8080) // true`,
+				),
+				cel.UnaryBinding(isValidPortBinding),
+			),
+		),
+		cel.Function("filters.dropEmptyValues",
+			cel.FunctionDocs(
+				"returns a copy of m with every key whose value is nil, an empty string, an empty list, or an empty map removed.",
+			),
+			cel.Overload("filters_drop_empty_values_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.dropEmptyValues({"a": "", "b": "kept"}) // {"b": "kept"}`,
+				),
+				cel.UnaryBinding(dropEmptyValuesBinding),
+			),
+		),
+		cel.Function("filters.filterListByKV",
+			cel.FunctionDocs(
+				"keeps only the maps in list whose key equals value.",
+			),
+			cel.Overload("filters_filter_list_by_kv_map_string_any_string_any_map_string_any",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType)), cel.StringType, cel.DynType}, cel.ListType(cel.MapType(cel.StringType, cel.DynType)),
+				cel.OverloadExamples(
+					`filters.filterListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "web"}]`,
+				),
+				cel.FunctionBinding(filterListByKVBinding),
+			),
+		),
+		cel.Function("filters.excludeListByKV",
+			cel.FunctionDocs(
+				"keeps only the maps in list whose key does not equal value (including every map missing key entirely).",
+			),
+			cel.Overload("filters_exclude_list_by_kv_map_string_any_string_any_map_string_any",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType)), cel.StringType, cel.DynType}, cel.ListType(cel.MapType(cel.StringType, cel.DynType)),
+				cel.OverloadExamples(
+					`filters.excludeListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "db"}]`,
+				),
+				cel.FunctionBinding(excludeListByKVBinding),
+			),
+		),
+		cel.Function("filters.listContains",
+			cel.FunctionDocs(
+				"reports whether list contains an element equal to value.",
+			),
+			cel.Overload("filters_list_contains_any_any_bool",
+				[]*cel.Type{cel.ListType(cel.DynType), cel.DynType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.listContains(["a", "b"], "b") // true`,
+				),
+				cel.BinaryBinding(listContainsBinding),
+			),
+		),
+		cel.Function("filters.hasMandatoryTags",
+			cel.FunctionDocs(
+				"returns the subset of requiredKeys that are absent from m, so an empty result means every mandatory key is present.",
+			),
+			cel.Overload("filters_has_mandatory_tags_map_string_any_string_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.ListType(cel.StringType)}, cel.ListType(cel.StringType),
+				cel.OverloadExamples(
+					`filters.hasMandatoryTags({"env": "prod"}, ["env", "owner"]) // ["owner"]`,
+				),
+				cel.BinaryBinding(hasMandatoryTagsBinding),
+			),
+		),
+		cel.Function("filters.listIntersect",
+			cel.FunctionDocs(
+				"returns each element of a that also appears in b, preserving a's own order and multiplicity.",
+			),
+			cel.Overload("filters_list_intersect_any_any_any",
+				[]*cel.Type{cel.ListType(cel.DynType), cel.ListType(cel.DynType)}, cel.ListType(cel.DynType),
+				cel.OverloadExamples(
+					`filters.listIntersect(["a", "b"], ["b", "c"]) // ["b"]`,
+				),
+				cel.BinaryBinding(listIntersectBinding),
+			),
+		),
+		cel.Function("filters.listDiff",
+			cel.FunctionDocs(
+				"returns each element of a that does not appear in b, preserving a's own order and multiplicity.",
+			),
+			cel.Overload("filters_list_diff_any_any_any",
+				[]*cel.Type{cel.ListType(cel.DynType), cel.ListType(cel.DynType)}, cel.ListType(cel.DynType),
+				cel.OverloadExamples(
+					`filters.listDiff(["a", "b"], ["b"]) // ["a"]`,
+				),
+				cel.BinaryBinding(listDiffBinding),
+			),
+		),
+		cel.Function("filters.dedupeByKey",
+			cel.FunctionDocs(
+				"keeps only the first map in list for each distinct value of key, preserving list's own order.",
+			),
+			cel.Overload("filters_dedupe_by_key_map_string_any_string_map_string_any",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType)), cel.StringType}, cel.ListType(cel.MapType(cel.StringType, cel.DynType)),
+				cel.OverloadExamples(
+					`filters.dedupeByKey([{"id": "1"}, {"id": "1"}], "id") // [{"id": "1"}]`,
+				),
+				cel.BinaryBinding(dedupeByKeyBinding),
+			),
+		),
+		cel.Function("filters.compareSemVer",
+			cel.FunctionDocs(
+				"compares two semantic-version-shaped strings numerically by major, minor and patch, returning -1, 0 or 1.",
+			),
+			cel.Overload("filters_compare_sem_ver_string_string_int",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.compareSemVer("1.2.3", "1.3.0") // -1`,
+				),
+				cel.BinaryBinding(compareSemVerBinding),
+			),
+		),
+		cel.Function("filters.isValidCronExpr",
+			cel.FunctionDocs(
+				"reports whether expr parses as a standard 5-field cron expression (minute hour day-of-month month day-of-week).",
+			),
+			cel.Overload("filters_is_valid_cron_expr_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isValidCronExpr("*/15 * * * *") // true`,
+				),
+				cel.UnaryBinding(isValidCronExprBinding),
+			),
+		),
 	}
 }
 
@@ -1523,4 +1732,207 @@ func isEmptyOrWhitespaceBinding(arg0 ref.Val) ref.Val {
 		return types.NewErr("filters.isEmptyOrWhitespace: argument s is not convertible to string")
 	}
 	return types.Bool(filters.IsEmptyOrWhitespace(goS))
+}
+
+// IsValidFQDN's CEL binding, registered above.
+func isValidFQDNBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidFQDN: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidFQDN(goS))
+}
+
+// IsValidEmail's CEL binding, registered above.
+func isValidEmailBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidEmail: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidEmail(goS))
+}
+
+// IsValidUUID's CEL binding, registered above.
+func isValidUUIDBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidUUID: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidUUID(goS))
+}
+
+// IsValidBase64's CEL binding, registered above.
+func isValidBase64Binding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidBase64: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidBase64(goS))
+}
+
+// IsValidJSON's CEL binding, registered above.
+func isValidJSONBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidJSON: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidJSON(goS))
+}
+
+// IsValidYAML's CEL binding, registered above.
+func isValidYAMLBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidYAML: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsValidYAML(goS))
+}
+
+// IsValidPort's CEL binding, registered above.
+func isValidPortBinding(arg0 ref.Val) ref.Val {
+	goPort, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidPort: argument port is not convertible to int")
+	}
+	return types.Bool(filters.IsValidPort(goPort))
+}
+
+// DropEmptyValues's CEL binding, registered above.
+func dropEmptyValuesBinding(arg0 ref.Val) ref.Val {
+	goM, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.dropEmptyValues: argument m is not convertible to map[string]any")
+	}
+	return wrapMap(filters.DropEmptyValues(goM))
+}
+
+// FilterListByKV's CEL binding, registered above. This is this file's
+// second three-argument filter (after RegexExtract, Phase 53), the
+// first internal/forge/filterscaffold itself generated correctly end to
+// end after Phase 54's own forge tuning gave bindingFunc a real
+// variadic-signature-plus-arity-check shape for arity three and above.
+func filterListByKVBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.filterListByKV: expected 3 arguments, got %d", len(args))
+	}
+	goList, ok := celToMapList(args[0])
+	if !ok {
+		return types.NewErr("filters.filterListByKV: argument list is not convertible to []map[string]any")
+	}
+	goKey, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.filterListByKV: argument key is not convertible to string")
+	}
+	goValue, ok := celToAny(args[2])
+	if !ok {
+		return types.NewErr("filters.filterListByKV: argument value is not convertible to any")
+	}
+	return wrapMapList(filters.FilterListByKV(goList, goKey, goValue))
+}
+
+// ExcludeListByKV's CEL binding, registered above.
+func excludeListByKVBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.excludeListByKV: expected 3 arguments, got %d", len(args))
+	}
+	goList, ok := celToMapList(args[0])
+	if !ok {
+		return types.NewErr("filters.excludeListByKV: argument list is not convertible to []map[string]any")
+	}
+	goKey, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.excludeListByKV: argument key is not convertible to string")
+	}
+	goValue, ok := celToAny(args[2])
+	if !ok {
+		return types.NewErr("filters.excludeListByKV: argument value is not convertible to any")
+	}
+	return wrapMapList(filters.ExcludeListByKV(goList, goKey, goValue))
+}
+
+// ListContains's CEL binding, registered above.
+func listContainsBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goList, ok := celToDynList(arg0)
+	if !ok {
+		return types.NewErr("filters.listContains: argument list is not convertible to []any")
+	}
+	goValue, ok := celToAny(arg1)
+	if !ok {
+		return types.NewErr("filters.listContains: argument value is not convertible to any")
+	}
+	return types.Bool(filters.ListContains(goList, goValue))
+}
+
+// HasMandatoryTags's CEL binding, registered above.
+func hasMandatoryTagsBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goM, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.hasMandatoryTags: argument m is not convertible to map[string]any")
+	}
+	goRequiredKeys, ok := celToStringList(arg1)
+	if !ok {
+		return types.NewErr("filters.hasMandatoryTags: argument requiredKeys is not convertible to []string")
+	}
+	return wrapStringList(filters.HasMandatoryTags(goM, goRequiredKeys))
+}
+
+// ListIntersect's CEL binding, registered above.
+func listIntersectBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToDynList(arg0)
+	if !ok {
+		return types.NewErr("filters.listIntersect: argument a is not convertible to []any")
+	}
+	goB, ok := celToDynList(arg1)
+	if !ok {
+		return types.NewErr("filters.listIntersect: argument b is not convertible to []any")
+	}
+	return wrapDynList(filters.ListIntersect(goA, goB))
+}
+
+// ListDiff's CEL binding, registered above.
+func listDiffBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToDynList(arg0)
+	if !ok {
+		return types.NewErr("filters.listDiff: argument a is not convertible to []any")
+	}
+	goB, ok := celToDynList(arg1)
+	if !ok {
+		return types.NewErr("filters.listDiff: argument b is not convertible to []any")
+	}
+	return wrapDynList(filters.ListDiff(goA, goB))
+}
+
+// DedupeByKey's CEL binding, registered above.
+func dedupeByKeyBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goList, ok := celToMapList(arg0)
+	if !ok {
+		return types.NewErr("filters.dedupeByKey: argument list is not convertible to []map[string]any")
+	}
+	goKey, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.dedupeByKey: argument key is not convertible to string")
+	}
+	return wrapMapList(filters.DedupeByKey(goList, goKey))
+}
+
+// CompareSemVer's CEL binding, registered above.
+func compareSemVerBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.compareSemVer: argument a is not convertible to string")
+	}
+	goB, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.compareSemVer: argument b is not convertible to string")
+	}
+	return types.Int(filters.CompareSemVer(goA, goB))
+}
+
+// IsValidCronExpr's CEL binding, registered above.
+func isValidCronExprBinding(arg0 ref.Val) ref.Val {
+	goExpr, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isValidCronExpr: argument expr is not convertible to string")
+	}
+	return types.Bool(filters.IsValidCronExpr(goExpr))
 }

@@ -1,5 +1,224 @@
 # Handoff Document Archive
 
+## Previous session: Phase 53 (string, encoding & path filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `2e705ea`, the forge
+structural-type support and Phase 52 (Structured Data Filters), committed since the prior session's
+handoff (not by that session; no live go-ahead was given that session, so it never ran `git commit`).
+Everything below was implemented, tested, and verified on top of that commit, but stayed uncommitted for
+the entire session: no such word was given.**
+
+That session opened with a direct request: "Phase 53: String, Encoding & Path Filters next." One
+deliverable: `.SPECIFICATION/IMPLEMENTATION.md`'s Part XII, Phase 53, built end to end. No forge change
+was needed that time (every one of the phase's 16 functions uses only `string`/`int`/`bool`, all already
+well-known since Phase 50), so the forge was used as-is, without modification, to scaffold every function
+before it was hand-implemented -- the same discipline the prior two sessions established, now running
+against a phase that needed nothing new from the tool.
+
+### What landed
+
+**A real Pattern Entry Gate finding, caught before writing any filter code.** The checklist's own next
+item, after the expected base64 rejection, lists "string condition predicates: starts-with, ends-with,
+contains, regex-match, is-absolute-path, is-empty-or-whitespace" as something to build. Verified directly
+against a bare `cel.NewEnv()` with no extensions and no `filtersLib()` at all: `"x".startsWith("y")`,
+`"x".endsWith("y")`, `"x".contains("y")`, and `"x".matches("y")` all compile and evaluate today, with
+zero Phase 50-53 work of any kind -- these four are part of CEL's own core standard library, not an
+extension. Building `filters.startsWith`/`endsWith`/`contains`/`regexMatch` as thin wrappers around
+methods already reachable with no `filters.` prefix at all would have been exactly the kind of redundant
+work the checklist's own base64 rejection is warning against, just unnamed. Only `IsAbsolutePath` and
+`IsEmptyOrWhitespace` -- genuinely absent from core CEL -- were built from that item;
+`TestCELFilters_Phase53StringEncodingPathFilters` includes a case proving the four native ones work with
+no filter at all, so the finding is asserted, not just narrated.
+
+**Phase 53: 16 string, encoding, and path filters, all scaffolded through the real, unmodified forge,
+then hand-implemented and fully tested**, across three category files matching the phase's own natural
+groupings: `pkg/filters/encoding.go` (`URLEncode`/`URLDecode` via `net/url.QueryEscape`/`QueryUnescape`,
+documented as encoding a space to `+` rather than `%20` since that specific choice is easy to get wrong
+silently; `StringToHex`/`HexToString`; `BytesToHuman`/`HumanToBytes`, binary base-1024, lossy above 1024
+by the same design `ls -lh`/`du -h` already are), `pkg/filters/stringutil.go` (`CamelToSnake` -- reusing
+`internal/forge/filterscaffold`'s own acronym-run algorithm verbatim, duplicated rather than imported
+since `pkg/` may not import `internal/` -- `SnakeToCamel`, `MaskSecret`, `RegexExtract` -- named capture
+group extraction, RE2 syntax throughout this codebase so a pathological pattern cannot become a
+resource-exhaustion vector the way a backtracking engine's could -- and `IsEmptyOrWhitespace`), and
+`pkg/filters/path.go` (`WindowsPathToPOSIX`/`POSIXPathToWindows` -- a bare separator swap, deliberately
+never touching a drive letter since no single POSIX convention for one exists --
+`OctalToSymbolicPerms`/`SymbolicToOctalPerms`, and `IsAbsolutePath`, which checks POSIX, Windows
+drive-absolute, and Windows UNC conventions all at once since a device fact this filter gates on may
+report either OS's path shape).
+
+`RegexExtract` needed a hand-written binding: it is this codebase's first three-argument filter, and
+`internal/forge/filterscaffold`'s `bindingFuncFor` has no typed `OverloadOpt` past arity two (documented
+in its own comment as an accepted gap, the same way arity zero was before `GenerateUUIDv4` needed it the
+session before). The forge scaffolded the real `cel.Function`/`cel.Overload` block with a
+`cel.FunctionBinding /* TODO: arity */` placeholder exactly as designed; filled in by hand as a real
+`func(...ref.Val) ref.Val` taking a length-3 slice, not invested in as a new generator capability for a
+single occurrence at the time.
+
+**Two round-trip pairs, each with one real, documented asymmetry rather than a claimed-perfect
+inverse.** `OctalToSymbolicPerms("0755")` comes back from `SymbolicToOctalPerms` as `"755"`, not
+`"0755"`: the symbolic form alone cannot distinguish "no special bit, written with a redundant leading
+zero" from "no special bit, written the canonical way," so the reverse direction always emits the
+shorter, canonical form (the same one `chmod(1)` itself prints). `BytesToHuman`/`HumanToBytes` round-trip
+exactly only for a value whose scaled form needs two decimal digits or fewer (every power of 1024, plus
+a clean fraction like 1536 bytes = "1.5KiB"); `BytesToHuman(1500)` formats as `"1.46KiB"`, and
+`HumanToBytes` of that reconstructs 1495, not 1500 -- the same lossy rounding every human-readable size
+formatter in wide use already has. Both asymmetries are stated in the functions' own doc comments and
+proven with representative inputs chosen to be exact, not hidden by only testing the exact cases.
+
+**Tests**: table-driven tests per function including the malformed/boundary cases the checklist's own
+Adversarial Pattern Justification names (`OctalToSymbolicPerms`/`SymbolicToOctalPerms` and
+`BytesToHuman`/`HumanToBytes` round-trip for ten and eight representative inputs respectively). Four
+`Fuzz` targets (`FuzzRegexExtract`, `FuzzWindowsPathToPOSIX` -- exercising both path functions and
+`IsAbsolutePath` together -- `FuzzOctalToSymbolicPerms`, `FuzzSymbolicToOctalPerms`), 8-9s each, zero
+panics across hundreds of thousands of executions.
+`internal/engine/cel_filters_stringencoding_test.go`: every one of the 16 functions proven callable
+through the real, unmodified `engine.NewCELEvaluator()`/`Program.Eval` via a compiled `when_cel`
+expression, plus a combined condition chaining five functions with a negative control.
+`internal/engine/cel_filters_internal_test.go` (whitebox) gained the same "argument not convertible"
+defensive-branch proof for all 16 new bindings, including `RegexExtract`'s own wrong-arity case.
+
+`pkg/filters` measured 99.0%; every one of the phase's 16 functions reached 100% on its own, so
+`coverage-floor.json` was **raised** (not just left alone) from 98.5 to 98.9 -- the direction this file's
+own ratchet is supposed to move, and the first time this branch's own sessions had done it rather than
+only holding steady or lowering with a justified reason. `internal/engine` measured 94.1%, the same
+number Phase 51 measured; left at its existing 93.2 floor unchanged, matching that phase's own decision
+not to bump it for an identical reading.
+
+**Documentation Gate closed with zero hand-written doc changes**, the same design bet three sessions
+running by then: `docs/reference/filters/index.md` picked up all 16 new `filters.*` entries automatically
+(55 entries total: 3 from Phase 50, 25 from Phase 51, 11 from Phase 52, these 16), and a second `gendocs`
+run produced byte-identical output.
+
+### Read this first (still true at handoff)
+
+**No commit without the user's own live word in the current conversation.**
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+
+**Before building a filter the checklist names, check whether CEL's own core standard library (not just
+`ext.Encoders`/`ext.Network`/`cel.OptionalTypes`, which Phase 50 already wired in) already provides it.**
+`startsWith`/`endsWith`/`contains`/`matches` needed no `filtersLib()` work at all. Worth checking again for
+Phase 54 onward: `ext.Strings()` (`lowerAscii`/`upperAscii`/`trim`/`split`/`replace`) is real and unwired,
+in case a later phase's checklist names something it would also make redundant.
+
+**`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run**, or two unrelated
+AWS packages read as a false regression.
+
+**The `examples/webserver_lab` `plain` SSH-container RULE 0 pattern reused cleanly a second time**:
+`docker compose ... up -d --build plain`, a scratch `pleiades init` project, `add-host`/`add-credential`,
+a scratch runbook. This is the established RULE 0 fixture for this branch's own filter phases.
+
+### Verification state at handoff
+
+`go build ./...`, `go vet ./...`, `make fmt` all passed with no output. `make gosec`: 9 pre-existing
+individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this module's own code
+or imported packages. `go test ./internal/archtest/...` passed clean. `go run ./tools/gendocs` was
+idempotent; `go run ./tools/docs-lint` passed at 182 files.
+
+RULE 0: real `pleiades` binary, real `plain` SSH container, a scratch runbook with one task gated on a
+five-filter combined `when_cel` condition (true, ran) and a second gated on a deliberately false one
+(skipped, named in the skip reason), via real `pleiades validate` and `pleiades run`.
+
+**Full-repo `go test -race ./...` ran to completion with zero failures across 128 packages.**
+
+`go run ./tools/coverage-check` reported **175 packages measured, none below their recorded floor**.
+`coverage-floor.json`: `pkg/filters` **raised** from 98.5 to 98.9 (measured 99.0). `internal/engine`
+measured 94.1%, above its existing 93.2 floor; left unchanged, matching Phase 51's own decision at the
+identical reading.
+
+### Commit message drafted that session (never run)
+
+```
+feat(engine,filters): Phase 53's 16 string, encoding & path filters
+
+Phase 53 (String, Encoding & Path Filters, PLAN.md Section 36's Part
+XII) built end to end. No forge change was needed: every one of this
+phase's functions uses only string/int/bool, all already well-known
+since Phase 50, so internal/forge/filterscaffold was used as-is to
+scaffold every function before it was hand-implemented, the same
+discipline the last two sessions established.
+
+A real Pattern Entry Gate finding, caught before writing any filter
+code: the checklist's own next item, after the expected base64
+rejection, names starts-with/ends-with/contains/regex-match as string
+condition predicates to build. Verified directly against a bare
+cel.NewEnv() with no extensions and no filtersLib() at all:
+"x".startsWith("y"), "x".endsWith("y"), "x".contains("y"), and
+"x".matches("y") all compile and evaluate today with zero Phase 50-53
+work -- these four are part of CEL's own core standard library, not an
+extension the checklist's own wording happened to flag the way it
+flagged base64. Building filters.startsWith/endsWith/contains/
+regexMatch as thin wrappers around methods already reachable with no
+filters. prefix at all would have been exactly the kind of redundant
+work the base64 rejection warns against, just unnamed. Only
+IsAbsolutePath and IsEmptyOrWhitespace, genuinely absent from core
+CEL, were built from that item; the release-gate test includes a case
+proving the four native ones work with no filter at all.
+
+The 16 functions, across three category files matching this phase's
+own natural groupings: pkg/filters/encoding.go (URLEncode/URLDecode
+via net/url.QueryEscape/QueryUnescape, documented as encoding a space
+to + rather than %20; StringToHex/HexToString; BytesToHuman/
+HumanToBytes, binary base-1024, lossy above 1024 by the same design
+ls -lh/du -h already are), pkg/filters/stringutil.go (CamelToSnake --
+reusing internal/forge/filterscaffold's own acronym-run algorithm
+verbatim, duplicated rather than imported since pkg/ may not import
+internal/ -- SnakeToCamel, MaskSecret, RegexExtract -- named capture
+group extraction, RE2 syntax so a pathological pattern cannot become a
+resource-exhaustion vector -- and IsEmptyOrWhitespace), and
+pkg/filters/path.go (WindowsPathToPOSIX/POSIXPathToWindows -- a bare
+separator swap, never touching a drive letter -- OctalToSymbolicPerms/
+SymbolicToOctalPerms, and IsAbsolutePath, checking POSIX, Windows
+drive-absolute, and Windows UNC conventions all at once).
+
+RegexExtract needed a hand-written binding: this codebase's first
+three-argument filter, and filterscaffold's bindingFuncFor has no
+typed OverloadOpt past arity two (an accepted, documented gap, the
+same way arity zero was before GenerateUUIDv4 needed it last session).
+The forge scaffolded the real cel.Function/cel.Overload block with a
+cel.FunctionBinding /* TODO: arity */ placeholder exactly as designed;
+filled in by hand as a real func(...ref.Val) ref.Val taking a
+length-3 slice.
+
+Two round-trip pairs, each with one real, documented asymmetry:
+OctalToSymbolicPerms("0755") comes back from SymbolicToOctalPerms as
+"755", not "0755" (the symbolic form cannot distinguish a redundant
+leading zero from the canonical form, so the reverse always emits the
+shorter one, the same one chmod(1) itself prints).
+BytesToHuman/HumanToBytes round-trip exactly only for a value whose
+scaled form needs two decimal digits or fewer; BytesToHuman(1500)
+formats as "1.46KiB", and HumanToBytes of that reconstructs 1495, the
+same lossy rounding every human-readable size formatter already has.
+Both are stated in the functions' own doc comments and proven with
+representative inputs chosen to be exact, not hidden.
+
+Tests: table-driven tests per function including this phase's own
+named round-trip cases. Four Fuzz targets, zero panics across hundreds
+of thousands of executions. Every function proven callable through the
+real, unmodified engine.NewCELEvaluator()/Program.Eval via a compiled
+when_cel expression, plus a five-function combined condition with a
+negative control. A whitebox test file exercises every one of the 16
+new bindings' "argument not convertible" defensive branch, including
+RegexExtract's own wrong-arity case. docs/reference/filters/index.md
+picked up all 16 new entries with zero hand-written doc changes (55
+total).
+
+coverage-floor.json: pkg/filters RAISED from 98.5 to 98.9 (measured
+99.0; every one of this phase's 16 functions reached 100% on its own).
+internal/engine measures 94.1%, the same reading Phase 51 got, left at
+its existing 93.2 floor unchanged to match that decision.
+
+go test -race ./... ran clean across all 128 packages. go run
+./tools/coverage-check reports 175 packages measured, none below
+floor, with LOCALSTACK_AUTH_TOKEN exported. make gosec: 9 pre-existing
+waived findings, zero new. make govulncheck: clean. RULE 0: the real
+pleiades binary, built fresh, ran a scratch runbook against a real,
+running examples/webserver_lab SSH container, gating one real
+ssh_exec task on a five-filter combined when_cel condition (true, ran)
+and a second on a deliberately false one (skipped, named in the skip
+reason), via real pleiades validate and pleiades run.
+```
+
 ## Previous session: forge structural-type support and Phase 52 (structured data filters)
 
 **Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `1c6549a`, the forge upgrade
