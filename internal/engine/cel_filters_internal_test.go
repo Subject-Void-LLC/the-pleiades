@@ -665,3 +665,86 @@ func TestPhase56Bindings_RejectUnconvertibleArguments(t *testing.T) {
 		})
 	}
 }
+
+// TestPhase57Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase55Bindings_RejectUnconvertibleArguments/
+// TestPhase56Bindings_RejectUnconvertibleArguments for this phase's own
+// 14 bindings.
+func TestPhase57Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+	notScalar := types.Int(5)
+	validStr := types.String("x")
+
+	unaryStringToMap := map[string]func(ref.Val) ref.Val{
+		"parseARN":             parseARNBinding,
+		"parseAzureResourceID": parseAzureResourceIDBinding,
+		"parseGCPSelfLink":     parseGCPSelfLinkBinding,
+		"parseGCPIAMMember":    parseGCPIAMMemberBinding,
+	}
+	for name, fn := range unaryStringToMap {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("normalizeCloudRegion", func(t *testing.T) {
+		if got := normalizeCloudRegionBinding(notString); !types.IsError(got) {
+			t.Errorf("normalizeCloudRegionBinding(list) = %v, want a types.Err", got)
+		}
+	})
+
+	unaryMapToString := map[string]func(ref.Val) ref.Val{
+		"buildARN":               buildARNBinding,
+		"buildAzureResourceID":   buildAzureResourceIDBinding,
+		"extractPaginationToken": extractPaginationTokenBinding,
+	}
+	for name, fn := range unaryMapToString {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notScalar); !types.IsError(got) {
+				t.Errorf("%sBinding(scalar) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("awsTagListToMap", func(t *testing.T) {
+		if got := awsTagListToMapBinding(notScalar); !types.IsError(got) {
+			t.Errorf("awsTagListToMapBinding(scalar) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("mapToAWSTagList", func(t *testing.T) {
+		if got := mapToAWSTagListBinding(notScalar); !types.IsError(got) {
+			t.Errorf("mapToAWSTagListBinding(scalar) = %v, want a types.Err", got)
+		}
+	})
+
+	binaryStringString := map[string]func(ref.Val, ref.Val) ref.Val{
+		"formatCurrency":  formatCurrencyBinding,
+		"cloudInitWrap":   cloudInitWrapBinding,
+		"iamPolicyMerger": iamPolicyMergerBinding,
+	}
+	for name, fn := range binaryStringString {
+		t.Run(name+"_arg0", func(t *testing.T) {
+			if got := fn(notString, validStr); !types.IsError(got) {
+				t.Errorf("%sBinding(list, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg1", func(t *testing.T) {
+			if got := fn(validStr, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("resourceTShirtSize_arg0", func(t *testing.T) {
+		if got := resourceTShirtSizeBinding(notString, types.Int(0)); !types.IsError(got) {
+			t.Errorf("resourceTShirtSizeBinding(list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("resourceTShirtSize_arg1", func(t *testing.T) {
+		if got := resourceTShirtSizeBinding(types.Int(0), notString); !types.IsError(got) {
+			t.Errorf("resourceTShirtSizeBinding(_, list) = %v, want a types.Err", got)
+		}
+	})
+}

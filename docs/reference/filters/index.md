@@ -247,6 +247,13 @@ adds seconds, negative to subtract, to a timestamp, returning an empty string if
 - `filters.addSeconds(string, int) -> string`
   - `filters.addSeconds("2024-01-01T00:00:00Z", 3600) // "2024-01-01T01:00:00Z"`
 
+### `filters.awsTagListToMap`
+
+converts an AWS-shaped tag list into a flat key/value map.
+
+- `filters.awsTagListToMap(list(map(string, dyn))) -> map(string, dyn)`
+  - `filters.awsTagListToMap([{"Key": "Name", "Value": "prod-web-1"}]) // {"Name": "prod-web-1"}`
+
 ### `filters.bootTimeFromUptime`
 
 subtracts an uptime in seconds from a reference timestamp, returning an empty string if the timestamp is malformed or the uptime is negative.
@@ -260,6 +267,20 @@ computes a CIDR block's broadcast address.
 
 - `filters.broadcastAddress(string) -> string`
   - `filters.broadcastAddress("10.0.0.0/24") // "10.0.0.255"`
+
+### `filters.buildARN`
+
+reconstructs an ARN string from a map shaped like filters.parseARN's own return value, its inverse.
+
+- `filters.buildARN(map(string, dyn)) -> string`
+  - `filters.buildARN({"partition": "aws", "service": "iam", "account_id": "123456789012", "resource": "role/MyRole"}) // "arn:aws:iam::123456789012:role/MyRole"`
+
+### `filters.buildAzureResourceID`
+
+reconstructs an Azure resource ID from a map shaped like filters.parseAzureResourceID's own return value, its inverse.
+
+- `filters.buildAzureResourceID(map(string, dyn)) -> string`
+  - `filters.buildAzureResourceID({"subscription_id": "sub-1", "resource_group": "my-rg", "provider": "Microsoft.Compute", "resource_types": ["virtualMachines"], "resource_names": ["my-vm"]}) // "/subscriptions/sub-1/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachines/my-vm"`
 
 ### `filters.bytesToHuman`
 
@@ -289,6 +310,13 @@ classifies an IP address as private, public, loopback, link-local, or multicast.
 - `filters.classifyIP(string) -> string`
   - `filters.classifyIP("10.0.0.5") // "private"`
   - `filters.classifyIP("8.8.8.8") // "public"`
+
+### `filters.cloudInitWrap`
+
+wraps content as a single-part base64 MIME message in cloud-init's own multi part archive shape.
+
+- `filters.cloudInitWrap(string, string) -> string`
+  - `filters.cloudInitWrap("#!/bin/bash\necho hi\n", "") // "Content-Type: multipart/mixed; boundary=\"...\"\nMIME-Version: 1.0\n\n--...\nContent-Type: text/x-shellscript; charset=\"us-ascii\"\n..."`
 
 ### `filters.compareSemVer`
 
@@ -388,6 +416,13 @@ keeps only the maps in list whose key does not equal value (including every map 
 - `filters.excludeListByKV(list(map(string, dyn)), string, dyn) -> list(map(string, dyn))`
   - `filters.excludeListByKV([{"role": "web"}, {"role": "db"}], "role", "web") // [{"role": "db"}]`
 
+### `filters.extractPaginationToken`
+
+extracts a continuation/pagination token from a response map against a small curated set of known shapes.
+
+- `filters.extractPaginationToken(map(string, dyn)) -> string`
+  - `filters.extractPaginationToken({"nextPageToken": "tok-2"}) // "tok-2"`
+
 ### `filters.fileTimeToEpoch`
 
 converts a Windows FileTime, 100 nanosecond intervals since 1601-01-01T00:00:00Z, to a Unix epoch in whole seconds.
@@ -408,6 +443,13 @@ flattens a nested map/list structure into a single-level map with dot-notation k
 
 - `filters.flatten(map(string, dyn)) -> map(string, dyn)`
   - `filters.flatten({"a": {"b": 1}}) // {"a.b": 1}`
+
+### `filters.formatCurrency`
+
+formats a decimal amount string as human-readable currency text under an ISO 4217 currency code.
+
+- `filters.formatCurrency(string, string) -> string`
+  - `filters.formatCurrency("1234.5", "USD") // "$1,234.50"`
 
 ### `filters.fqdnToHostname`
 
@@ -485,6 +527,13 @@ renders a count of seconds as a compact, day-aware human-readable duration such 
 
 - `filters.humanizeDuration(int) -> string`
   - `filters.humanizeDuration(93784) // "1d2h3m4s"`
+
+### `filters.iamPolicyMerger`
+
+merges two IAM policy documents' Statement lists by concatenation and structural deduplication.
+
+- `filters.iamPolicyMerger(string, string) -> string`
+  - `filters.iamPolicyMerger("{\"Statement\":[{\"Effect\":\"Allow\"}]}", "{\"Statement\":[]}") // "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\"}]}"`
 
 ### `filters.intToIP`
 
@@ -719,6 +768,13 @@ normalizes a MAC address to Windows dash-separated notation (AA-BB-CC-DD-EE-FF).
 - `filters.macToWindowsFormat(string) -> string`
   - `filters.macToWindowsFormat("00:00:5e:00:53:01") // "00-00-5E-00-53-01"`
 
+### `filters.mapToAWSTagList`
+
+converts a flat key/value map into an AWS-shaped tag list, the inverse of filters.awsTagListToMap.
+
+- `filters.mapToAWSTagList(map(string, dyn)) -> list(map(string, dyn))`
+  - `filters.mapToAWSTagList({"Name": "prod-web-1"}) // [{"Key": "Name", "Value": "prod-web-1"}]`
+
 ### `filters.maskPII`
 
 redacts SSN-, credit-card-, and bearer-token-shaped substrings from s; best-effort, not a compliance guarantee.
@@ -740,6 +796,13 @@ converts a dotted-decimal netmask to its CIDR prefix length.
 - `filters.netmaskToCIDR(string) -> int`
   - `filters.netmaskToCIDR("255.255.255.0") // 24`
 
+### `filters.normalizeCloudRegion`
+
+normalizes a cloud region alias to its canonical form against a small curated lookup table.
+
+- `filters.normalizeCloudRegion(string) -> string`
+  - `filters.normalizeCloudRegion("us-east") // "us-east-1"`
+
 ### `filters.octalToSymbolicPerms`
 
 converts a 3- or 4-digit octal Unix permission string to its 9-character symbolic form (rwxr-xr-x).
@@ -747,12 +810,40 @@ converts a 3- or 4-digit octal Unix permission string to its 9-character symboli
 - `filters.octalToSymbolicPerms(string) -> string`
   - `filters.octalToSymbolicPerms("755") // "rwxr-xr-x"`
 
+### `filters.parseARN`
+
+parses an AWS ARN into its partition, service, region, account ID and resource components.
+
+- `filters.parseARN(string) -> map(string, dyn)`
+  - `filters.parseARN("arn:aws:iam::123456789012:role/MyRole") // {"partition": "aws", "service": "iam", "region": "", "account_id": "123456789012", "resource": "role/MyRole", "resource_type": "role", "resource_id": "MyRole", "resource_delimiter": "/"}`
+
+### `filters.parseAzureResourceID`
+
+parses an Azure Resource Manager resource ID into its subscription, resource group, provider, and type/name path.
+
+- `filters.parseAzureResourceID(string) -> map(string, dyn)`
+  - `filters.parseAzureResourceID("/subscriptions/sub-1/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachines/my-vm") // {"subscription_id": "sub-1", "resource_group": "my-rg", "provider": "Microsoft.Compute", "resource_type": "virtualMachines", "resource_name": "my-vm", "resource_types": ["virtualMachines"], "resource_names": ["my-vm"]}`
+
 ### `filters.parseDistinguishedName`
 
 parses an Active Directory distinguished name into a map from attribute type to its values.
 
 - `filters.parseDistinguishedName(string) -> map(string, dyn)`
   - `filters.parseDistinguishedName("CN=John Doe,OU=Sales,DC=example,DC=com") // {"CN": ["John Doe"], "OU": ["Sales"], "DC": ["example", "com"]}`
+
+### `filters.parseGCPIAMMember`
+
+parses a GCP IAM policy binding member string into its type, identifier, and deletion state.
+
+- `filters.parseGCPIAMMember(string) -> map(string, dyn)`
+  - `filters.parseGCPIAMMember("user:alice@example.com") // {"type": "user", "id": "alice@example.com", "deleted": false, "uid": ""}`
+
+### `filters.parseGCPSelfLink`
+
+parses a GCP Compute Engine selfLink URL into its project, location scope, resource type and resource name.
+
+- `filters.parseGCPSelfLink(string) -> map(string, dyn)`
+  - `filters.parseGCPSelfLink("https://www.googleapis.com/compute/v1/projects/my-project/zones/us-central1-a/instances/my-vm") // {"project": "my-project", "scope": "zone", "location": "us-central1-a", "resource_type": "instances", "resource_name": "my-vm", "api": "compute/v1"}`
 
 ### `filters.parseJWTPayloadUnverified`
 
@@ -802,6 +893,13 @@ extracts one named capture group's match from s against pattern.
 
 - `filters.regexExtract(string, string, string) -> string`
   - `filters.regexExtract("host1.example.com", "^(?P<host>[^.]+)\\.", "host") // "host1"`
+
+### `filters.resourceTShirtSize`
+
+classifies a vCPU count and RAM in MB into a t-shirt size label against a small default sizing table.
+
+- `filters.resourceTShirtSize(int, int) -> string`
+  - `filters.resourceTShirtSize(4, 8192) // "M"`
 
 ### `filters.roundToHour`
 

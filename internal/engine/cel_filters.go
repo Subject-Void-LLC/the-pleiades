@@ -1432,6 +1432,174 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.UnaryBinding(snmpOIDTranslateBinding),
 			),
 		),
+		cel.Function("filters.parseARN",
+			cel.FunctionDocs(
+				"parses an AWS ARN into its partition, service, region, account ID and resource components.",
+			),
+			cel.Overload("filters_parse_arn_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseARN("arn:aws:iam::123456789012:role/MyRole") // {"partition": "aws", "service": "iam", "region": "", "account_id": "123456789012", "resource": "role/MyRole", "resource_type": "role", "resource_id": "MyRole", "resource_delimiter": "/"}`,
+				),
+				cel.UnaryBinding(parseARNBinding),
+			),
+		),
+		cel.Function("filters.buildARN",
+			cel.FunctionDocs(
+				"reconstructs an ARN string from a map shaped like filters.parseARN's own return value, its inverse.",
+			),
+			cel.Overload("filters_build_arn_map_string_any_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.buildARN({"partition": "aws", "service": "iam", "account_id": "123456789012", "resource": "role/MyRole"}) // "arn:aws:iam::123456789012:role/MyRole"`,
+				),
+				cel.UnaryBinding(buildARNBinding),
+			),
+		),
+		cel.Function("filters.parseAzureResourceID",
+			cel.FunctionDocs(
+				"parses an Azure Resource Manager resource ID into its subscription, resource group, provider, and type/name path.",
+			),
+			cel.Overload("filters_parse_azure_resource_id_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseAzureResourceID("/subscriptions/sub-1/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachines/my-vm") // {"subscription_id": "sub-1", "resource_group": "my-rg", "provider": "Microsoft.Compute", "resource_type": "virtualMachines", "resource_name": "my-vm", "resource_types": ["virtualMachines"], "resource_names": ["my-vm"]}`,
+				),
+				cel.UnaryBinding(parseAzureResourceIDBinding),
+			),
+		),
+		cel.Function("filters.buildAzureResourceID",
+			cel.FunctionDocs(
+				"reconstructs an Azure resource ID from a map shaped like filters.parseAzureResourceID's own return value, its inverse.",
+			),
+			cel.Overload("filters_build_azure_resource_id_map_string_any_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.buildAzureResourceID({"subscription_id": "sub-1", "resource_group": "my-rg", "provider": "Microsoft.Compute", "resource_types": ["virtualMachines"], "resource_names": ["my-vm"]}) // "/subscriptions/sub-1/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachines/my-vm"`,
+				),
+				cel.UnaryBinding(buildAzureResourceIDBinding),
+			),
+		),
+		cel.Function("filters.parseGCPSelfLink",
+			cel.FunctionDocs(
+				"parses a GCP Compute Engine selfLink URL into its project, location scope, resource type and resource name.",
+			),
+			cel.Overload("filters_parse_gcp_self_link_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseGCPSelfLink("https://www.googleapis.com/compute/v1/projects/my-project/zones/us-central1-a/instances/my-vm") // {"project": "my-project", "scope": "zone", "location": "us-central1-a", "resource_type": "instances", "resource_name": "my-vm", "api": "compute/v1"}`,
+				),
+				cel.UnaryBinding(parseGCPSelfLinkBinding),
+			),
+		),
+		cel.Function("filters.parseGCPIAMMember",
+			cel.FunctionDocs(
+				"parses a GCP IAM policy binding member string into its type, identifier, and deletion state.",
+			),
+			cel.Overload("filters_parse_gcpiam_member_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseGCPIAMMember("user:alice@example.com") // {"type": "user", "id": "alice@example.com", "deleted": false, "uid": ""}`,
+				),
+				cel.UnaryBinding(parseGCPIAMMemberBinding),
+			),
+		),
+		cel.Function("filters.awsTagListToMap",
+			cel.FunctionDocs(
+				"converts an AWS-shaped tag list into a flat key/value map.",
+			),
+			cel.Overload("filters_aws_tag_list_to_map_map_string_any_map_string_any",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType))}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.awsTagListToMap([{"Key": "Name", "Value": "prod-web-1"}]) // {"Name": "prod-web-1"}`,
+				),
+				cel.UnaryBinding(awsTagListToMapBinding),
+			),
+		),
+		cel.Function("filters.mapToAWSTagList",
+			cel.FunctionDocs(
+				"converts a flat key/value map into an AWS-shaped tag list, the inverse of filters.awsTagListToMap.",
+			),
+			cel.Overload("filters_map_to_aws_tag_list_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.ListType(cel.MapType(cel.StringType, cel.DynType)),
+				cel.OverloadExamples(
+					`filters.mapToAWSTagList({"Name": "prod-web-1"}) // [{"Key": "Name", "Value": "prod-web-1"}]`,
+				),
+				cel.UnaryBinding(mapToAWSTagListBinding),
+			),
+		),
+		cel.Function("filters.formatCurrency",
+			cel.FunctionDocs(
+				"formats a decimal amount string as human-readable currency text under an ISO 4217 currency code.",
+			),
+			cel.Overload("filters_format_currency_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.formatCurrency("1234.5", "USD") // "$1,234.50"`,
+				),
+				cel.BinaryBinding(formatCurrencyBinding),
+			),
+		),
+		cel.Function("filters.cloudInitWrap",
+			cel.FunctionDocs(
+				"wraps content as a single-part base64 MIME message in cloud-init's own multi part archive shape.",
+			),
+			cel.Overload("filters_cloud_init_wrap_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.cloudInitWrap("#!/bin/bash\necho hi\n", "") // "Content-Type: multipart/mixed; boundary=\"...\"\nMIME-Version: 1.0\n\n--...\nContent-Type: text/x-shellscript; charset=\"us-ascii\"\n..."`,
+				),
+				cel.BinaryBinding(cloudInitWrapBinding),
+			),
+		),
+		cel.Function("filters.extractPaginationToken",
+			cel.FunctionDocs(
+				"extracts a continuation/pagination token from a response map against a small curated set of known shapes.",
+			),
+			cel.Overload("filters_extract_pagination_token_map_string_any_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.extractPaginationToken({"nextPageToken": "tok-2"}) // "tok-2"`,
+				),
+				cel.UnaryBinding(extractPaginationTokenBinding),
+			),
+		),
+		cel.Function("filters.resourceTShirtSize",
+			cel.FunctionDocs(
+				"classifies a vCPU count and RAM in MB into a t-shirt size label against a small default sizing table.",
+			),
+			cel.Overload("filters_resource_t_shirt_size_int_int_string",
+				[]*cel.Type{cel.IntType, cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.resourceTShirtSize(4, 8192) // "M"`,
+				),
+				cel.BinaryBinding(resourceTShirtSizeBinding),
+			),
+		),
+		cel.Function("filters.normalizeCloudRegion",
+			cel.FunctionDocs(
+				"normalizes a cloud region alias to its canonical form against a small curated lookup table.",
+			),
+			cel.Overload("filters_normalize_cloud_region_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.normalizeCloudRegion("us-east") // "us-east-1"`,
+				),
+				cel.UnaryBinding(normalizeCloudRegionBinding),
+			),
+		),
+		cel.Function("filters.iamPolicyMerger",
+			cel.FunctionDocs(
+				"merges two IAM policy documents' Statement lists by concatenation and structural deduplication.",
+			),
+			cel.Overload("filters_iam_policy_merger_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.iamPolicyMerger("{\"Statement\":[{\"Effect\":\"Allow\"}]}", "{\"Statement\":[]}") // "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\"}]}"`,
+				),
+				cel.BinaryBinding(iamPolicyMergerBinding),
+			),
+		),
 	}
 }
 
@@ -2890,4 +3058,146 @@ func snmpOIDTranslateBinding(arg0 ref.Val) ref.Val {
 		return types.NewErr("filters.snmpOIDTranslate: argument oid is not convertible to string")
 	}
 	return types.String(filters.SNMPOIDTranslate(goOid))
+}
+
+// ParseARN's CEL binding, registered above.
+func parseARNBinding(arg0 ref.Val) ref.Val {
+	goArn, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseARN: argument arn is not convertible to string")
+	}
+	return wrapMap(filters.ParseARN(goArn))
+}
+
+// BuildARN's CEL binding, registered above.
+func buildARNBinding(arg0 ref.Val) ref.Val {
+	goParts, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.buildARN: argument parts is not convertible to map[string]any")
+	}
+	return types.String(filters.BuildARN(goParts))
+}
+
+// ParseAzureResourceID's CEL binding, registered above.
+func parseAzureResourceIDBinding(arg0 ref.Val) ref.Val {
+	goId, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseAzureResourceID: argument id is not convertible to string")
+	}
+	return wrapMap(filters.ParseAzureResourceID(goId))
+}
+
+// BuildAzureResourceID's CEL binding, registered above.
+func buildAzureResourceIDBinding(arg0 ref.Val) ref.Val {
+	goParts, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.buildAzureResourceID: argument parts is not convertible to map[string]any")
+	}
+	return types.String(filters.BuildAzureResourceID(goParts))
+}
+
+// ParseGCPSelfLink's CEL binding, registered above.
+func parseGCPSelfLinkBinding(arg0 ref.Val) ref.Val {
+	goSelfLink, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseGCPSelfLink: argument selfLink is not convertible to string")
+	}
+	return wrapMap(filters.ParseGCPSelfLink(goSelfLink))
+}
+
+// ParseGCPIAMMember's CEL binding, registered above.
+func parseGCPIAMMemberBinding(arg0 ref.Val) ref.Val {
+	goMember, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseGCPIAMMember: argument member is not convertible to string")
+	}
+	return wrapMap(filters.ParseGCPIAMMember(goMember))
+}
+
+// AWSTagListToMap's CEL binding, registered above.
+func awsTagListToMapBinding(arg0 ref.Val) ref.Val {
+	goTags, ok := celToMapList(arg0)
+	if !ok {
+		return types.NewErr("filters.awsTagListToMap: argument tags is not convertible to []map[string]any")
+	}
+	return wrapMap(filters.AWSTagListToMap(goTags))
+}
+
+// MapToAWSTagList's CEL binding, registered above.
+func mapToAWSTagListBinding(arg0 ref.Val) ref.Val {
+	goM, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.mapToAWSTagList: argument m is not convertible to map[string]any")
+	}
+	return wrapMapList(filters.MapToAWSTagList(goM))
+}
+
+// FormatCurrency's CEL binding, registered above.
+func formatCurrencyBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goAmount, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.formatCurrency: argument amount is not convertible to string")
+	}
+	goCurrencyCode, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.formatCurrency: argument currencyCode is not convertible to string")
+	}
+	return types.String(filters.FormatCurrency(goAmount, goCurrencyCode))
+}
+
+// CloudInitWrap's CEL binding, registered above.
+func cloudInitWrapBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goContent, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.cloudInitWrap: argument content is not convertible to string")
+	}
+	goContentType, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.cloudInitWrap: argument contentType is not convertible to string")
+	}
+	return types.String(filters.CloudInitWrap(goContent, goContentType))
+}
+
+// ExtractPaginationToken's CEL binding, registered above.
+func extractPaginationTokenBinding(arg0 ref.Val) ref.Val {
+	goResponse, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.extractPaginationToken: argument response is not convertible to map[string]any")
+	}
+	return types.String(filters.ExtractPaginationToken(goResponse))
+}
+
+// ResourceTShirtSize's CEL binding, registered above.
+func resourceTShirtSizeBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goVcpu, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.resourceTShirtSize: argument vcpu is not convertible to int")
+	}
+	goRamMB, ok := celToInt(arg1)
+	if !ok {
+		return types.NewErr("filters.resourceTShirtSize: argument ramMB is not convertible to int")
+	}
+	return types.String(filters.ResourceTShirtSize(goVcpu, goRamMB))
+}
+
+// NormalizeCloudRegion's CEL binding, registered above.
+func normalizeCloudRegionBinding(arg0 ref.Val) ref.Val {
+	goRegion, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.normalizeCloudRegion: argument region is not convertible to string")
+	}
+	return types.String(filters.NormalizeCloudRegion(goRegion))
+}
+
+// IAMPolicyMerger's CEL binding, registered above.
+func iamPolicyMergerBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goPolicyA, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.iamPolicyMerger: argument policyA is not convertible to string")
+	}
+	goPolicyB, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.iamPolicyMerger: argument policyB is not convertible to string")
+	}
+	return types.String(filters.IAMPolicyMerger(goPolicyA, goPolicyB))
 }

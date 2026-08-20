@@ -1,5 +1,66 @@
 # Handoff Document Archive
 
+## Previous session: Phase 56 (security & cryptography filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `b0eaf1f` (Phase 55) for the
+entire session, then moved to `9bc2acf` when the user gave their own live go-ahead and committed this
+session's work themselves, outside the assistant's own turns -- the assistant itself never ran `git
+commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with two direct requests in sequence: whether Phase 55's work had surfaced any further
+forge tuning need, and to move on to Phase 56: Security & Cryptography Filters.
+
+**Forge-tuning decision: no change needed, verified rather than assumed.** All 15 of Phase 56's
+argument/return shapes were run through the real `pleiades forge new-filter` CLI before any filter was
+hand-written: `string`/`int`/`bool` unary and binary overloads, and three `string -> map[string]any`
+overloads (the JWT/X.509/DN parsers). Zero errors across all 15 invocations. `internal/forge/filterscaffold`
+was untouched that session.
+
+**Phase 56: 15 security and cryptography filters**, across two new files:
+
+- `pkg/filters/security.go` (8 functions): `SHA256Hash`/`HMACGenerate` (fixed to SHA-256 only, no
+  algorithm-selection parameter); `SecureCompare` (`crypto/subtle.ConstantTimeCompare`);
+  `GenerateRandomPassword` (`crypto/rand` via `rand.Int` against the charset length, never `math/rand`,
+  never a byte-modulo that would bias the distribution); `MaskPII` (SSN/credit-card/bearer-token regex
+  redaction; an oversized input returns a fixed `[REDACTED-OVERSIZED-INPUT]` marker rather than the
+  unredacted original or `""`); `WindowsSIDToHex`/`HexToWindowsSID` (the real MS-DTYP binary SID
+  structure, hand-encoded); `SNMPOIDTranslate` (18-entry curated MIB-II table).
+- `pkg/filters/pki.go` (7 functions): `ParseJWTPayloadUnverified` (`jwt.NewParser().ParseUnverified`, doc
+  comment and test both make the non-verification unmistakable); `ParseX509Certificate` (not_before/
+  not_after formatted as this Part's own established RFC 3339 "ISO8601" convention); `PEMToDER`/`DERToPEM`
+  (base64-encoded DER); `SSHPublicKeyToPEM`/`PEMToSSHPublicKey` (`x509.MarshalPKIXPublicKey` <->
+  `ssh.NewPublicKey`); `ParseDistinguishedName` (RFC 4514-shaped, explicitly refusing a multi-valued RDN or
+  a `#`-prefixed raw hex value rather than mis-parsing either).
+
+**A real security finding.** `DERToPEM`'s doc comment originally claimed `pem.Encode` refuses a newline in
+a block's `Type` field. It does not: reading `encoding/pem`'s own source directly showed `Encode` validates
+only that a `Headers` map key contains no colon -- `Type` is written into the output completely
+unvalidated. `DERToPEM`'s caller-supplied `blockType` was therefore a real PEM-injection vector. Fixed with
+`DERToPEM`'s own `pemBlockTypePattern` validation before ever calling `pem.EncodeToMemory`, proven by a
+test constructing a real injection payload. Recorded as `FAILURE_PATTERNS.md` #162.
+
+**A second, smaller finding.** `pkg/filters/filters.go`'s own package doc comment claimed "imports the
+standard library and nothing else," false since Phase 52's YAML support and Phase 54's UUID dependency.
+Corrected to state the real invariant: no `cel-go` dependency, no `internal/` dependency.
+
+**A real gosec finding, fixed at the source rather than waived.** `make gosec` flagged two G115
+integer-narrowing findings in `WindowsSIDToHex`. Both fixed with an explicit `& 0xff` mask rather than
+added to `gosec-waivers.json`.
+
+That session's environment reset mid-session (the second in a row at that point); a partially-written test
+file from before the reset (`pkg/filters/security_test.go`) was found on disk with two real bugs in it once
+re-read carefully (a subtest-name collision, and a stray space character inside a hex literal that
+accidentally tested the wrong code path) -- both fixed.
+
+Verification: `go build ./...`/`go vet ./...`/`make fmt` clean. `make gosec`: 9 pre-existing waived
+findings, zero new. `make govulncheck`: clean. `go test ./internal/archtest/...` clean. `go run
+./tools/gendocs` idempotent; `go run ./tools/docs-lint` clean (185 files). RULE 0 against the real
+`examples/webserver_lab` `plain` SSH container: a five-filter combined `when_cel` condition ran for real,
+and a second gated on a deliberately unrecognized OID skipped with the real expression named. Full-repo `go
+test -race ./...` clean (128 packages). `go run ./tools/coverage-check`: 175 packages measured, none below
+floor. `coverage-floor.json`: `pkg/filters` recorded downward adjustment 99.4 -> 99.1 (measured 99.3);
+`internal/engine` raised 94.6 -> 95.0 (measured 95.2).
+
 ## Previous session: Phase 55 (time, date & scheduling filters)
 
 **Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `3327add` for the entire
