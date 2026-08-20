@@ -247,6 +247,20 @@ computes a CIDR block's broadcast address.
 - `filters.broadcastAddress(string) -> string`
   - `filters.broadcastAddress("10.0.0.0/24") // "10.0.0.255"`
 
+### `filters.bytesToHuman`
+
+formats a byte count as a human-readable binary (base-1024) size, e.g. 1536 -> 1.5KiB.
+
+- `filters.bytesToHuman(int) -> string`
+  - `filters.bytesToHuman(1536) // "1.5KiB"`
+
+### `filters.camelToSnake`
+
+converts a camelCase or PascalCase identifier to snake_case, treating a run of uppercase runes as one acronym.
+
+- `filters.camelToSnake(string) -> string`
+  - `filters.camelToSnake("classifyIP") // "classify_ip"`
+
 ### `filters.cidrToNetmask`
 
 converts a CIDR prefix length to its dotted-decimal netmask.
@@ -304,12 +318,26 @@ generates a random version-4 UUID. Unlike every other filters.* function, this o
 - `filters.generateUUIDv4() -> string`
   - `filters.generateUUIDv4() // e.g. "3b12f1df-5232-4804-897e-917bf397618a" (a new random UUID every call)`
 
+### `filters.hexToString`
+
+decodes a hexadecimal string back to its original string, the inverse of filters.stringToHex.
+
+- `filters.hexToString(string) -> string`
+  - `filters.hexToString("6869") // "hi"`
+
 ### `filters.hostnameToFQDN`
 
 joins a bare hostname with a domain suffix into a fully qualified domain name.
 
 - `filters.hostnameToFQDN(string, string) -> string`
   - `filters.hostnameToFQDN("host1", "example.com") // "host1.example.com"`
+
+### `filters.humanToBytes`
+
+parses a human-readable binary (base-1024) size back to a byte count, the inverse of filters.bytesToHuman.
+
+- `filters.humanToBytes(string) -> int`
+  - `filters.humanToBytes("1.5KiB") // 1536`
 
 ### `filters.intToIP`
 
@@ -339,6 +367,13 @@ converts a dotted-decimal IPv4 address to its 32-bit unsigned integer form.
 - `filters.ipToInt(string) -> int`
   - `filters.ipToInt("0.0.0.1") // 1`
 
+### `filters.isAbsolutePath`
+
+reports whether path is absolute under POSIX or Windows conventions (drive-letter or UNC).
+
+- `filters.isAbsolutePath(string) -> bool`
+  - `filters.isAbsolutePath("/etc/passwd") // true`
+
 ### `filters.isCiscoReservedVLAN`
 
 reports whether a VLAN ID is one Cisco reserves by default (1, 1002 to 1005), a vendor convention, not an IEEE rule.
@@ -346,6 +381,13 @@ reports whether a VLAN ID is one Cisco reserves by default (1, 1002 to 1005), a 
 - `filters.isCiscoReservedVLAN(int) -> bool`
   - `filters.isCiscoReservedVLAN(1002) // true`
   - `filters.isCiscoReservedVLAN(100) // false`
+
+### `filters.isEmptyOrWhitespace`
+
+reports whether s is empty or contains only whitespace.
+
+- `filters.isEmptyOrWhitespace(string) -> bool`
+  - `filters.isEmptyOrWhitespace("   ") // true`
 
 ### `filters.isPrivateASN`
 
@@ -397,6 +439,13 @@ normalizes a MAC address to Windows dash-separated notation (AA-BB-CC-DD-EE-FF).
 - `filters.macToWindowsFormat(string) -> string`
   - `filters.macToWindowsFormat("00:00:5e:00:53:01") // "00-00-5E-00-53-01"`
 
+### `filters.maskSecret`
+
+masks a secret, keeping only its last keepLast characters visible.
+
+- `filters.maskSecret(string, int) -> string`
+  - `filters.maskSecret("hunter2", 2) // "*****r2"`
+
 ### `filters.netmaskToCIDR`
 
 converts a dotted-decimal netmask to its CIDR prefix length.
@@ -404,12 +453,33 @@ converts a dotted-decimal netmask to its CIDR prefix length.
 - `filters.netmaskToCIDR(string) -> int`
   - `filters.netmaskToCIDR("255.255.255.0") // 24`
 
+### `filters.octalToSymbolicPerms`
+
+converts a 3- or 4-digit octal Unix permission string to its 9-character symbolic form (rwxr-xr-x).
+
+- `filters.octalToSymbolicPerms(string) -> string`
+  - `filters.octalToSymbolicPerms("755") // "rwxr-xr-x"`
+
 ### `filters.pluck`
 
 extracts one key's value from each map in a list, skipping a map that does not have the key.
 
 - `filters.pluck(list(map(string, dyn)), string) -> list(dyn)`
   - `filters.pluck([{"name": "a", "val": 1}, {"name": "b"}], "val") // [1]`
+
+### `filters.posixPathToWindows`
+
+reformats a POSIX-style path to use backslashes, the inverse of filters.windowsPathToPOSIX; a string transform only.
+
+- `filters.posixPathToWindows(string) -> string`
+  - `filters.posixPathToWindows("/home/foo") // "\\home\\foo"`
+
+### `filters.regexExtract`
+
+extracts one named capture group's match from s against pattern.
+
+- `filters.regexExtract(string, string, string) -> string`
+  - `filters.regexExtract("host1.example.com", "^(?P<host>[^.]+)\\.", "host") // "host1"`
 
 ### `filters.safeBool`
 
@@ -457,6 +527,20 @@ merges b into a at the top level only: a key present in both is overwritten by b
 - `filters.shallowMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
   - `filters.shallowMerge({"a": 1}, {"a": 2, "b": 3}) // {"a": 2, "b": 3}`
 
+### `filters.snakeToCamel`
+
+converts a snake_case identifier to camelCase, the inverse of filters.camelToSnake.
+
+- `filters.snakeToCamel(string) -> string`
+  - `filters.snakeToCamel("classify_ip") // "classifyIp"`
+
+### `filters.stringToHex`
+
+encodes a string as lowercase hexadecimal.
+
+- `filters.stringToHex(string) -> string`
+  - `filters.stringToHex("hi") // "6869"`
+
 ### `filters.subnetSplit`
 
 splits a CIDR block into subnets of the given new, longer prefix length.
@@ -470,6 +554,13 @@ computes the smallest CIDR block that contains every given CIDR.
 
 - `filters.supernet(list(string)) -> string`
   - `filters.supernet(["10.0.0.0/25", "10.0.0.128/25"]) // "10.0.0.0/24"`
+
+### `filters.symbolicToOctalPerms`
+
+converts a 9-character symbolic Unix permission string to its 4-digit octal form, the inverse of filters.octalToSymbolicPerms.
+
+- `filters.symbolicToOctalPerms(string) -> string`
+  - `filters.symbolicToOctalPerms("rwxr-xr-x") // "755"`
 
 ### `filters.toIPv4MappedIPv6`
 
@@ -485,12 +576,26 @@ reconstructs a nested map/list structure from a flat map with dot-notation keys,
 - `filters.unflatten(map(string, dyn)) -> map(string, dyn)`
   - `filters.unflatten({"a.b": 1}) // {"a": {"b": 1}}`
 
+### `filters.urlDecode`
+
+reverses percent-encoding applied to a URL query component, the inverse of filters.urlEncode.
+
+- `filters.urlDecode(string) -> string`
+  - `filters.urlDecode("hello+world") // "hello world"`
+
 ### `filters.urlDomain`
 
 extracts the host (domain, without port) from a URL.
 
 - `filters.urlDomain(string) -> string`
   - `filters.urlDomain("https://example.com:8443/path") // "example.com"`
+
+### `filters.urlEncode`
+
+percent-encodes a string for safe inclusion in a URL query component (space becomes +).
+
+- `filters.urlEncode(string) -> string`
+  - `filters.urlEncode("hello world") // "hello+world"`
 
 ### `filters.urlPort`
 
@@ -521,6 +626,13 @@ converts a CIDR prefix length to its Cisco-style wildcard mask (the bitwise inve
 
 - `filters.wildcardMask(string) -> string`
   - `filters.wildcardMask("10.0.0.0/24") // "0.0.0.255"`
+
+### `filters.windowsPathToPOSIX`
+
+reformats a Windows-style path to use forward slashes, a string transform only: it never opens, joins, or resolves the path.
+
+- `filters.windowsPathToPOSIX(string) -> string`
+  - `filters.windowsPathToPOSIX("C:\\Users\\foo") // "C:/Users/foo"`
 
 ### `filters.xmlToJSON`
 

@@ -268,3 +268,72 @@ func TestSafeBindings_RejectMismatchedFallbackType(t *testing.T) {
 		t.Errorf("safeBoolBinding(_, int fallback) = %v, want a types.Err", got)
 	}
 }
+
+// TestPhase53Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase51Bindings_RejectUnconvertibleArguments/
+// TestPhase52Bindings_RejectUnconvertibleArguments for Phase 53's own 16
+// string/encoding/path bindings: unreachable through the real compiled
+// CEL path for the same reason, reachable only through a direct
+// Go-level call.
+func TestPhase53Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+
+	unary := map[string]func(ref.Val) ref.Val{
+		"urlEncode":            urlEncodeBinding,
+		"urlDecode":            urlDecodeBinding,
+		"camelToSnake":         camelToSnakeBinding,
+		"snakeToCamel":         snakeToCamelBinding,
+		"stringToHex":          stringToHexBinding,
+		"hexToString":          hexToStringBinding,
+		"windowsPathToPOSIX":   windowsPathToPOSIXBinding,
+		"posixPathToWindows":   posixPathToWindowsBinding,
+		"octalToSymbolicPerms": octalToSymbolicPermsBinding,
+		"symbolicToOctalPerms": symbolicToOctalPermsBinding,
+		"humanToBytes":         humanToBytesBinding,
+		"isAbsolutePath":       isAbsolutePathBinding,
+		"isEmptyOrWhitespace":  isEmptyOrWhitespaceBinding,
+	}
+	for name, fn := range unary {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("bytesToHuman_notInt", func(t *testing.T) {
+		if got := bytesToHumanBinding(notString); !types.IsError(got) {
+			t.Errorf("bytesToHumanBinding(list) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("maskSecret_arg0", func(t *testing.T) {
+		if got := maskSecretBinding(notString, types.Int(2)); !types.IsError(got) {
+			t.Errorf("maskSecretBinding(list, 2) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("maskSecret_arg1", func(t *testing.T) {
+		if got := maskSecretBinding(types.String("s"), notString); !types.IsError(got) {
+			t.Errorf("maskSecretBinding(\"s\", list) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("regexExtract_wrongArity", func(t *testing.T) {
+		if got := regexExtractBinding(types.String("a")); !types.IsError(got) {
+			t.Errorf("regexExtractBinding(one arg) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("regexExtract_arg0", func(t *testing.T) {
+		if got := regexExtractBinding(notString, types.String("p"), types.String("g")); !types.IsError(got) {
+			t.Errorf("regexExtractBinding(list, _, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("regexExtract_arg1", func(t *testing.T) {
+		if got := regexExtractBinding(types.String("s"), notString, types.String("g")); !types.IsError(got) {
+			t.Errorf("regexExtractBinding(_, list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("regexExtract_arg2", func(t *testing.T) {
+		if got := regexExtractBinding(types.String("s"), types.String("p"), notString); !types.IsError(got) {
+			t.Errorf("regexExtractBinding(_, _, list) = %v, want a types.Err", got)
+		}
+	})
+}

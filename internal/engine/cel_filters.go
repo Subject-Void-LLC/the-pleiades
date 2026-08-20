@@ -534,6 +534,198 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.UnaryBinding(xmlToJSONBinding),
 			),
 		),
+		cel.Function("filters.urlEncode",
+			cel.FunctionDocs(
+				"percent-encodes a string for safe inclusion in a URL query component (space becomes +).",
+			),
+			cel.Overload("filters_url_encode_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.urlEncode("hello world") // "hello+world"`,
+				),
+				cel.UnaryBinding(urlEncodeBinding),
+			),
+		),
+		cel.Function("filters.urlDecode",
+			cel.FunctionDocs(
+				"reverses percent-encoding applied to a URL query component, the inverse of filters.urlEncode.",
+			),
+			cel.Overload("filters_url_decode_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.urlDecode("hello+world") // "hello world"`,
+				),
+				cel.UnaryBinding(urlDecodeBinding),
+			),
+		),
+		cel.Function("filters.camelToSnake",
+			cel.FunctionDocs(
+				"converts a camelCase or PascalCase identifier to snake_case, treating a run of uppercase runes as one acronym.",
+			),
+			cel.Overload("filters_camel_to_snake_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.camelToSnake("classifyIP") // "classify_ip"`,
+				),
+				cel.UnaryBinding(camelToSnakeBinding),
+			),
+		),
+		cel.Function("filters.snakeToCamel",
+			cel.FunctionDocs(
+				"converts a snake_case identifier to camelCase, the inverse of filters.camelToSnake.",
+			),
+			cel.Overload("filters_snake_to_camel_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.snakeToCamel("classify_ip") // "classifyIp"`,
+				),
+				cel.UnaryBinding(snakeToCamelBinding),
+			),
+		),
+		cel.Function("filters.stringToHex",
+			cel.FunctionDocs(
+				"encodes a string as lowercase hexadecimal.",
+			),
+			cel.Overload("filters_string_to_hex_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.stringToHex("hi") // "6869"`,
+				),
+				cel.UnaryBinding(stringToHexBinding),
+			),
+		),
+		cel.Function("filters.hexToString",
+			cel.FunctionDocs(
+				"decodes a hexadecimal string back to its original string, the inverse of filters.stringToHex.",
+			),
+			cel.Overload("filters_hex_to_string_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.hexToString("6869") // "hi"`,
+				),
+				cel.UnaryBinding(hexToStringBinding),
+			),
+		),
+		cel.Function("filters.regexExtract",
+			cel.FunctionDocs(
+				"extracts one named capture group's match from s against pattern.",
+			),
+			cel.Overload("filters_regex_extract_string_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.regexExtract("host1.example.com", "^(?P<host>[^.]+)\\.", "host") // "host1"`,
+				),
+				cel.FunctionBinding(regexExtractBinding),
+			),
+		),
+		cel.Function("filters.maskSecret",
+			cel.FunctionDocs(
+				"masks a secret, keeping only its last keepLast characters visible.",
+			),
+			cel.Overload("filters_mask_secret_string_int_string",
+				[]*cel.Type{cel.StringType, cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.maskSecret("hunter2", 2) // "*****r2"`,
+				),
+				cel.BinaryBinding(maskSecretBinding),
+			),
+		),
+		cel.Function("filters.windowsPathToPOSIX",
+			cel.FunctionDocs(
+				"reformats a Windows-style path to use forward slashes, a string transform only: it never opens, joins, or resolves the path.",
+			),
+			cel.Overload("filters_windows_path_to_posix_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.windowsPathToPOSIX("C:\\Users\\foo") // "C:/Users/foo"`,
+				),
+				cel.UnaryBinding(windowsPathToPOSIXBinding),
+			),
+		),
+		cel.Function("filters.posixPathToWindows",
+			cel.FunctionDocs(
+				"reformats a POSIX-style path to use backslashes, the inverse of filters.windowsPathToPOSIX; a string transform only.",
+			),
+			cel.Overload("filters_posix_path_to_windows_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.posixPathToWindows("/home/foo") // "\\home\\foo"`,
+				),
+				cel.UnaryBinding(posixPathToWindowsBinding),
+			),
+		),
+		cel.Function("filters.octalToSymbolicPerms",
+			cel.FunctionDocs(
+				"converts a 3- or 4-digit octal Unix permission string to its 9-character symbolic form (rwxr-xr-x).",
+			),
+			cel.Overload("filters_octal_to_symbolic_perms_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.octalToSymbolicPerms("755") // "rwxr-xr-x"`,
+				),
+				cel.UnaryBinding(octalToSymbolicPermsBinding),
+			),
+		),
+		cel.Function("filters.symbolicToOctalPerms",
+			cel.FunctionDocs(
+				"converts a 9-character symbolic Unix permission string to its 4-digit octal form, the inverse of filters.octalToSymbolicPerms.",
+			),
+			cel.Overload("filters_symbolic_to_octal_perms_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.symbolicToOctalPerms("rwxr-xr-x") // "755"`,
+				),
+				cel.UnaryBinding(symbolicToOctalPermsBinding),
+			),
+		),
+		cel.Function("filters.bytesToHuman",
+			cel.FunctionDocs(
+				"formats a byte count as a human-readable binary (base-1024) size, e.g. 1536 -> 1.5KiB.",
+			),
+			cel.Overload("filters_bytes_to_human_int_string",
+				[]*cel.Type{cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.bytesToHuman(1536) // "1.5KiB"`,
+				),
+				cel.UnaryBinding(bytesToHumanBinding),
+			),
+		),
+		cel.Function("filters.humanToBytes",
+			cel.FunctionDocs(
+				"parses a human-readable binary (base-1024) size back to a byte count, the inverse of filters.bytesToHuman.",
+			),
+			cel.Overload("filters_human_to_bytes_string_int",
+				[]*cel.Type{cel.StringType}, cel.IntType,
+				cel.OverloadExamples(
+					`filters.humanToBytes("1.5KiB") // 1536`,
+				),
+				cel.UnaryBinding(humanToBytesBinding),
+			),
+		),
+		cel.Function("filters.isAbsolutePath",
+			cel.FunctionDocs(
+				"reports whether path is absolute under POSIX or Windows conventions (drive-letter or UNC).",
+			),
+			cel.Overload("filters_is_absolute_path_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isAbsolutePath("/etc/passwd") // true`,
+				),
+				cel.UnaryBinding(isAbsolutePathBinding),
+			),
+		),
+		cel.Function("filters.isEmptyOrWhitespace",
+			cel.FunctionDocs(
+				"reports whether s is empty or contains only whitespace.",
+			),
+			cel.Overload("filters_is_empty_or_whitespace_string_bool",
+				[]*cel.Type{cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.isEmptyOrWhitespace("   ") // true`,
+				),
+				cel.UnaryBinding(isEmptyOrWhitespaceBinding),
+			),
+		),
 	}
 }
 
@@ -1166,4 +1358,169 @@ func xmlToJSONBinding(arg0 ref.Val) ref.Val {
 		return types.NewErr("filters.xmlToJSON: argument xmlText is not convertible to string")
 	}
 	return types.String(filters.XMLToJSON(goXmlText))
+}
+
+// URLEncode's CEL binding, registered above.
+func urlEncodeBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.urlEncode: argument s is not convertible to string")
+	}
+	return types.String(filters.URLEncode(goS))
+}
+
+// URLDecode's CEL binding, registered above.
+func urlDecodeBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.urlDecode: argument s is not convertible to string")
+	}
+	return types.String(filters.URLDecode(goS))
+}
+
+// CamelToSnake's CEL binding, registered above.
+func camelToSnakeBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.camelToSnake: argument s is not convertible to string")
+	}
+	return types.String(filters.CamelToSnake(goS))
+}
+
+// SnakeToCamel's CEL binding, registered above.
+func snakeToCamelBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.snakeToCamel: argument s is not convertible to string")
+	}
+	return types.String(filters.SnakeToCamel(goS))
+}
+
+// StringToHex's CEL binding, registered above.
+func stringToHexBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.stringToHex: argument s is not convertible to string")
+	}
+	return types.String(filters.StringToHex(goS))
+}
+
+// HexToString's CEL binding, registered above.
+func hexToStringBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.hexToString: argument s is not convertible to string")
+	}
+	return types.String(filters.HexToString(goS))
+}
+
+// RegexExtract's CEL binding, registered above. Three arguments: no
+// typed OverloadOpt in cel-go covers arity three, so this uses
+// cel.FunctionBinding directly (its real signature, func(...ref.Val)
+// ref.Val), the same escape hatch internal/forge/filterscaffold's own
+// bindingFuncFor names for anything wider than two -- a human-written
+// binding, not a generated one, since no arity-three overload has
+// existed in this codebase before this filter.
+func regexExtractBinding(args ...ref.Val) ref.Val {
+	if len(args) != 3 {
+		return types.NewErr("filters.regexExtract: expected 3 arguments, got %d", len(args))
+	}
+	goS, ok := celToString(args[0])
+	if !ok {
+		return types.NewErr("filters.regexExtract: argument s is not convertible to string")
+	}
+	goPattern, ok := celToString(args[1])
+	if !ok {
+		return types.NewErr("filters.regexExtract: argument pattern is not convertible to string")
+	}
+	goGroupName, ok := celToString(args[2])
+	if !ok {
+		return types.NewErr("filters.regexExtract: argument groupName is not convertible to string")
+	}
+	return types.String(filters.RegexExtract(goS, goPattern, goGroupName))
+}
+
+// MaskSecret's CEL binding, registered above.
+func maskSecretBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.maskSecret: argument s is not convertible to string")
+	}
+	goKeepLast, ok := celToInt(arg1)
+	if !ok {
+		return types.NewErr("filters.maskSecret: argument keepLast is not convertible to int")
+	}
+	return types.String(filters.MaskSecret(goS, goKeepLast))
+}
+
+// WindowsPathToPOSIX's CEL binding, registered above.
+func windowsPathToPOSIXBinding(arg0 ref.Val) ref.Val {
+	goPath, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.windowsPathToPOSIX: argument path is not convertible to string")
+	}
+	return types.String(filters.WindowsPathToPOSIX(goPath))
+}
+
+// POSIXPathToWindows's CEL binding, registered above.
+func posixPathToWindowsBinding(arg0 ref.Val) ref.Val {
+	goPath, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.posixPathToWindows: argument path is not convertible to string")
+	}
+	return types.String(filters.POSIXPathToWindows(goPath))
+}
+
+// OctalToSymbolicPerms's CEL binding, registered above.
+func octalToSymbolicPermsBinding(arg0 ref.Val) ref.Val {
+	goOctal, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.octalToSymbolicPerms: argument octal is not convertible to string")
+	}
+	return types.String(filters.OctalToSymbolicPerms(goOctal))
+}
+
+// SymbolicToOctalPerms's CEL binding, registered above.
+func symbolicToOctalPermsBinding(arg0 ref.Val) ref.Val {
+	goSymbolic, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.symbolicToOctalPerms: argument symbolic is not convertible to string")
+	}
+	return types.String(filters.SymbolicToOctalPerms(goSymbolic))
+}
+
+// BytesToHuman's CEL binding, registered above.
+func bytesToHumanBinding(arg0 ref.Val) ref.Val {
+	goN, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.bytesToHuman: argument n is not convertible to int")
+	}
+	return types.String(filters.BytesToHuman(goN))
+}
+
+// HumanToBytes's CEL binding, registered above.
+func humanToBytesBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.humanToBytes: argument s is not convertible to string")
+	}
+	return types.Int(filters.HumanToBytes(goS))
+}
+
+// IsAbsolutePath's CEL binding, registered above.
+func isAbsolutePathBinding(arg0 ref.Val) ref.Val {
+	goPath, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isAbsolutePath: argument path is not convertible to string")
+	}
+	return types.Bool(filters.IsAbsolutePath(goPath))
+}
+
+// IsEmptyOrWhitespace's CEL binding, registered above.
+func isEmptyOrWhitespaceBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.isEmptyOrWhitespace: argument s is not convertible to string")
+	}
+	return types.Bool(filters.IsEmptyOrWhitespace(goS))
 }
