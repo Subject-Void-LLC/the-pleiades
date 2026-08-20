@@ -6,6 +6,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/common/types/traits"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/filters"
 )
@@ -401,6 +402,138 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.UnaryBinding(urlPortBinding),
 			),
 		),
+		cel.Function("filters.flatten",
+			cel.FunctionDocs(
+				"flattens a nested map/list structure into a single-level map with dot-notation keys.",
+			),
+			cel.Overload("filters_flatten_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.flatten({"a": {"b": 1}}) // {"a.b": 1}`,
+				),
+				cel.UnaryBinding(flattenBinding),
+			),
+		),
+		cel.Function("filters.unflatten",
+			cel.FunctionDocs(
+				"reconstructs a nested map/list structure from a flat map with dot-notation keys, the inverse of filters.flatten.",
+			),
+			cel.Overload("filters_unflatten_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.unflatten({"a.b": 1}) // {"a": {"b": 1}}`,
+				),
+				cel.UnaryBinding(unflattenBinding),
+			),
+		),
+		cel.Function("filters.deepMerge",
+			cel.FunctionDocs(
+				"recursively merges b into a: nested maps merge key by key, lists append, and any other type in b overwrites a.",
+			),
+			cel.Overload("filters_deep_merge_map_string_any_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.deepMerge({"a": {"x": 1}}, {"a": {"y": 2}}) // {"a": {"x": 1, "y": 2}}`,
+				),
+				cel.BinaryBinding(deepMergeBinding),
+			),
+		),
+		cel.Function("filters.shallowMerge",
+			cel.FunctionDocs(
+				"merges b into a at the top level only: a key present in both is overwritten by b's value, with no recursion into nested maps.",
+			),
+			cel.Overload("filters_shallow_merge_map_string_any_map_string_any_map_string_any",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.shallowMerge({"a": 1}, {"a": 2, "b": 3}) // {"a": 2, "b": 3}`,
+				),
+				cel.BinaryBinding(shallowMergeBinding),
+			),
+		),
+		cel.Function("filters.csvToList",
+			cel.FunctionDocs(
+				"parses one CSV line into a list of fields, using encoding/csv for correct quote handling rather than a naive split on comma.",
+			),
+			cel.Overload("filters_csv_to_list_string_string",
+				[]*cel.Type{cel.StringType}, cel.ListType(cel.StringType),
+				cel.OverloadExamples(
+					`filters.csvToList("a,\"b,c\",d") // ["a", "b,c", "d"]`,
+				),
+				cel.UnaryBinding(csvToListBinding),
+			),
+		),
+		cel.Function("filters.listToCSV",
+			cel.FunctionDocs(
+				"encodes a list of fields as one CSV line, the inverse of filters.csvToList, quoting a field only when encoding/csv determines it needs it.",
+			),
+			cel.Overload("filters_list_to_csv_string_string",
+				[]*cel.Type{cel.ListType(cel.StringType)}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.listToCSV(["a", "b,c", "d"]) // "a,\"b,c\",d"`,
+				),
+				cel.UnaryBinding(listToCSVBinding),
+			),
+		),
+		cel.Function("filters.pluck",
+			cel.FunctionDocs(
+				"extracts one key's value from each map in a list, skipping a map that does not have the key.",
+			),
+			cel.Overload("filters_pluck_map_string_any_string_any",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType)), cel.StringType}, cel.ListType(cel.DynType),
+				cel.OverloadExamples(
+					`filters.pluck([{"name": "a", "val": 1}, {"name": "b"}], "val") // [1]`,
+				),
+				cel.BinaryBinding(pluckBinding),
+			),
+		),
+		cel.Function("filters.yamlToJSON",
+			cel.FunctionDocs(
+				"converts a YAML document to its equivalent JSON text.",
+			),
+			cel.Overload("filters_yaml_to_json_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.yamlToJSON("a: 1\n") // "{\"a\":1}"`,
+				),
+				cel.UnaryBinding(yamlToJSONBinding),
+			),
+		),
+		cel.Function("filters.jsonToYAML",
+			cel.FunctionDocs(
+				"converts a JSON document to its equivalent YAML text.",
+			),
+			cel.Overload("filters_json_to_yaml_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.jsonToYAML("{\"a\":1}") // "a: 1\n"`,
+				),
+				cel.UnaryBinding(jsonToYAMLBinding),
+			),
+		),
+		cel.Function("filters.generateUUIDv4",
+			cel.FunctionDocs(
+				"generates a random version-4 UUID. Unlike every other filters.* function, this one is not deterministic: it takes no arguments and returns a different value on every call.",
+			),
+			cel.Overload("filters_generate_uuidv4_string",
+				[]*cel.Type{}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.generateUUIDv4() // e.g. "3b12f1df-5232-4804-897e-917bf397618a" (a new random UUID every call)`,
+				),
+				cel.FunctionBinding(generateUUIDv4Binding),
+			),
+		),
+		cel.Function("filters.xmlToJSON",
+			cel.FunctionDocs(
+				"converts an XML document to JSON text using one documented, opinionated element/attribute mapping (see pkg/filters.XMLToJSON's own doc comment); XML has no canonical JSON shape.",
+			),
+			cel.Overload("filters_xml_to_json_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.xmlToJSON("<a><b>1</b></a>") // "{\"a\":{\"b\":\"1\"}}"`,
+				),
+				cel.UnaryBinding(xmlToJSONBinding),
+			),
+		),
 	}
 }
 
@@ -504,6 +637,157 @@ func celToStringList(v ref.Val) ([]string, bool) {
 // adapter.
 func wrapStringList(ss []string) ref.Val {
 	return types.NewStringList(types.DefaultTypeAdapter, ss)
+}
+
+// celToAny recursively converts an arbitrary CEL value to a plain Go
+// value shaped map[string]any/[]any/string/int64/float64/bool/nil (and
+// so on down through every nested map and list), the shared walker
+// behind celToMap/celToDynList/celToMapList.
+//
+// This does not use ref.Val's own ConvertToNative for the map/list
+// cases, and the reason is a real, verified-not-assumed divergence:
+// ConvertToNative(map[string]any{}) converts a *top-level* map's keys
+// and values correctly, but for a map built from a CEL map literal
+// (filters.flatten({"a": {"b": 1}}), not a map arriving from a plain Go
+// value already wrapped by types.NewDynamicMap), it converts a *nested*
+// map's value to native Go via cel-go's internal ConvertToNative(any)
+// path, which substitutes map[any]any instead of map[string]any at that
+// level -- verified directly with a scratch program before writing this
+// comment. A filter's own Go code (Flatten's flattenInto, in
+// particular) type-switches on map[string]any/[]any specifically, so a
+// silently different nested shape would make it treat a legitimate
+// nested map as an opaque leaf value instead of recursing into it. This
+// walker sidesteps the discrepancy entirely by always producing
+// map[string]any/[]any itself, recursively, regardless of which
+// internal representation the source ref.Val happens to use: it type-
+// switches on the traits.Mapper/traits.Lister interfaces every cel-go
+// map/list representation implements (a literal, a value wrapped from a
+// native Go map via types.NewDynamicMap, a value read out of a proto
+// struct) and only falls back to Value() -- ref.Val's own "give me the
+// underlying native representation" accessor -- for an actual scalar
+// leaf.
+func celToAny(v ref.Val) (any, bool) {
+	switch t := v.(type) {
+	case traits.Mapper:
+		it := t.Iterator()
+		m := make(map[string]any, int(t.Size().(types.Int)))
+		for it.HasNext() == types.True {
+			k := it.Next()
+			ks, ok := celToString(k)
+			if !ok {
+				return nil, false
+			}
+			ev, found := t.Find(k)
+			if !found {
+				return nil, false
+			}
+			gv, ok := celToAny(ev)
+			if !ok {
+				return nil, false
+			}
+			m[ks] = gv
+		}
+		return m, true
+	case traits.Lister:
+		it := t.Iterator()
+		list := make([]any, 0, int(t.Size().(types.Int)))
+		for it.HasNext() == types.True {
+			gv, ok := celToAny(it.Next())
+			if !ok {
+				return nil, false
+			}
+			list = append(list, gv)
+		}
+		return list, true
+	default:
+		return v.Value(), true
+	}
+}
+
+// celToMap converts a CEL map value (declared cel.MapType(cel.StringType,
+// cel.DynType) on the overloads that use it) to a Go map[string]any, for
+// Phase 52's structured-data filters (Flatten, Unflatten, DeepMerge,
+// ShallowMerge). See celToAny's own doc comment for why this walks the
+// value itself rather than calling ConvertToNative directly.
+func celToMap(v ref.Val) (map[string]any, bool) {
+	a, ok := celToAny(v)
+	if !ok {
+		return nil, false
+	}
+	m, ok := a.(map[string]any)
+	return m, ok
+}
+
+// wrapMap wraps a Go map[string]any as a CEL map value, the return side
+// of celToMap. types.NewDynamicMap mirrors wrapStringList's own use of
+// types.NewDynamicList: cel-go's exported constructor for adapting an
+// arbitrary Go value via the shared DefaultTypeAdapter, the same
+// adapter every filter overload's activation already uses for its plain
+// Go inputs. Unlike celToMap's own read side, this direction has no
+// nested-shape discrepancy to work around: the adapter re-adapts each
+// element lazily, on access, straight from the real Go value this
+// function was given, so a nested map[string]any/[]any inside m reaches
+// a caller (a subsequent when_cel comparison, a `.` field access) with
+// its shape intact.
+func wrapMap(m map[string]any) ref.Val {
+	return types.NewDynamicMap(types.DefaultTypeAdapter, m)
+}
+
+// celToDynList converts a CEL list value (declared cel.ListType(cel.DynType))
+// to a Go []any, for Phase 52's Pluck result (one key's value, of
+// whatever type each map's own value happened to be, across a list of
+// maps). See celToAny's own doc comment for why this walks the value
+// itself rather than calling ConvertToNative directly.
+func celToDynList(v ref.Val) ([]any, bool) {
+	a, ok := celToAny(v)
+	if !ok {
+		return nil, false
+	}
+	list, ok := a.([]any)
+	return list, ok
+}
+
+// wrapDynList wraps a Go []any as a CEL list value, the return side of
+// celToDynList.
+func wrapDynList(ss []any) ref.Val {
+	return types.NewDynamicList(types.DefaultTypeAdapter, ss)
+}
+
+// celToMapList converts a CEL list of maps (declared
+// cel.ListType(cel.MapType(cel.StringType, cel.DynType))) to a Go
+// []map[string]any, for Phase 52's Pluck parameter (a list of records to
+// extract one key from). See celToAny's own doc comment for why this
+// walks the value itself rather than calling ConvertToNative directly.
+func celToMapList(v ref.Val) ([]map[string]any, bool) {
+	a, ok := celToAny(v)
+	if !ok {
+		return nil, false
+	}
+	list, ok := a.([]any)
+	if !ok {
+		return nil, false
+	}
+	ms := make([]map[string]any, len(list))
+	for i, e := range list {
+		m, ok := e.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		ms[i] = m
+	}
+	return ms, true
+}
+
+// wrapMapList wraps a Go []map[string]any as a CEL list value, the
+// return side of celToMapList. Nothing in Phase 52 returns this shape
+// yet (Pluck's own result is []any, one value per map, not the maps
+// themselves), but it completes the conversionFor/wrapperFor pair
+// internal/forge/filterscaffold's wellKnownCELTypes table declares for
+// "[]map[string]any", so a future filter returning a list of records
+// (a filtered subset of Pluck's own input shape, for instance) needs no
+// new helper.
+func wrapMapList(ms []map[string]any) ref.Val {
+	return types.NewDynamicList(types.DefaultTypeAdapter, ms)
 }
 
 func safeIntBinding(value, fallback ref.Val) ref.Val {
@@ -773,4 +1057,113 @@ func urlPortBinding(arg0 ref.Val) ref.Val {
 		return types.NewErr("filters.urlPort: argument rawURL is not convertible to string")
 	}
 	return types.Int(filters.URLPort(goRawURL))
+}
+
+// Flatten's CEL binding, registered above.
+func flattenBinding(arg0 ref.Val) ref.Val {
+	goM, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.flatten: argument m is not convertible to map[string]any")
+	}
+	return wrapMap(filters.Flatten(goM))
+}
+
+// Unflatten's CEL binding, registered above.
+func unflattenBinding(arg0 ref.Val) ref.Val {
+	goM, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.unflatten: argument m is not convertible to map[string]any")
+	}
+	return wrapMap(filters.Unflatten(goM))
+}
+
+// DeepMerge's CEL binding, registered above.
+func deepMergeBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.deepMerge: argument a is not convertible to map[string]any")
+	}
+	goB, ok := celToMap(arg1)
+	if !ok {
+		return types.NewErr("filters.deepMerge: argument b is not convertible to map[string]any")
+	}
+	return wrapMap(filters.DeepMerge(goA, goB))
+}
+
+// ShallowMerge's CEL binding, registered above.
+func shallowMergeBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToMap(arg0)
+	if !ok {
+		return types.NewErr("filters.shallowMerge: argument a is not convertible to map[string]any")
+	}
+	goB, ok := celToMap(arg1)
+	if !ok {
+		return types.NewErr("filters.shallowMerge: argument b is not convertible to map[string]any")
+	}
+	return wrapMap(filters.ShallowMerge(goA, goB))
+}
+
+// CSVToList's CEL binding, registered above.
+func csvToListBinding(arg0 ref.Val) ref.Val {
+	goLine, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.csvToList: argument line is not convertible to string")
+	}
+	return wrapStringList(filters.CSVToList(goLine))
+}
+
+// ListToCSV's CEL binding, registered above.
+func listToCSVBinding(arg0 ref.Val) ref.Val {
+	goList, ok := celToStringList(arg0)
+	if !ok {
+		return types.NewErr("filters.listToCSV: argument list is not convertible to []string")
+	}
+	return types.String(filters.ListToCSV(goList))
+}
+
+// Pluck's CEL binding, registered above.
+func pluckBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goList, ok := celToMapList(arg0)
+	if !ok {
+		return types.NewErr("filters.pluck: argument list is not convertible to []map[string]any")
+	}
+	goKey, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.pluck: argument key is not convertible to string")
+	}
+	return wrapDynList(filters.Pluck(goList, goKey))
+}
+
+// YAMLToJSON's CEL binding, registered above.
+func yamlToJSONBinding(arg0 ref.Val) ref.Val {
+	goYamlText, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.yamlToJSON: argument yamlText is not convertible to string")
+	}
+	return types.String(filters.YAMLToJSON(goYamlText))
+}
+
+// JSONToYAML's CEL binding, registered above.
+func jsonToYAMLBinding(arg0 ref.Val) ref.Val {
+	goJsonText, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.jsonToYAML: argument jsonText is not convertible to string")
+	}
+	return types.String(filters.JSONToYAML(goJsonText))
+}
+
+// GenerateUUIDv4's CEL binding, registered above. Takes no arguments:
+// cel.FunctionBinding's real signature is func(...ref.Val) ref.Val,
+// which a zero-arity overload simply never calls with any.
+func generateUUIDv4Binding(_ ...ref.Val) ref.Val {
+	return types.String(filters.GenerateUUIDv4())
+}
+
+// XMLToJSON's CEL binding, registered above.
+func xmlToJSONBinding(arg0 ref.Val) ref.Val {
+	goXmlText, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.xmlToJSON: argument xmlText is not convertible to string")
+	}
+	return types.String(filters.XMLToJSON(goXmlText))
 }

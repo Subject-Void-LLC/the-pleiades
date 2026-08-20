@@ -123,12 +123,12 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 // A parameter or return whose GoType is not in wellKnownCELTypes gets a
 // "// TODO" conversion line instead of real code: this generator can
 // prove a well-known type's ref.Val conversion is correct by construction
-// (there are exactly three, and internal/engine/cel_filters.go already
-// establishes the pattern for all three), but it cannot safely guess one
-// for an arbitrary Go type like []string without risking a silently wrong
-// translation pasted straight into a hand-maintained file. A human fills
-// those in, the same way a human fills in every stub this generator (and
-// every scaffolder before it) produces.
+// (wellKnownCELTypes' own doc comment lists all seven and why each one
+// qualifies), but it cannot safely guess one for an arbitrary Go type
+// like []int without risking a silently wrong translation pasted
+// straight into a hand-maintained file. A human fills those in, the same
+// way a human fills in every stub this generator (and every scaffolder
+// before it) produces.
 func Reminder(cfg Config) (string, error) {
 	params, ret, err := cfg.validate()
 	if err != nil {
@@ -237,13 +237,19 @@ func overloadIDFor(celName string, params []resolvedParam, ret resolvedReturn) s
 }
 
 // bindingFuncFor names the cel-go OverloadOpt matching arity: cel-go
-// ships typed bindings for exactly zero, one, and two arguments;
-// anything wider needs the variadic cel.FunctionBinding instead, which
-// this generator emits but cannot pre-fill a signature for beyond a TODO,
-// since FunctionBinding's ...ref.Val has no fixed arity to template
-// against.
+// ships typed bindings for exactly one and two arguments. Zero is also
+// fully supported here (cel.FunctionBinding's real signature,
+// func(...ref.Val) ref.Val, accepts being called with no arguments;
+// bindingFunc emits a real "_ ...ref.Val" parameter for it, not a
+// guess), used first by Phase 52's GenerateUUIDv4. Anything wider than
+// two still needs the variadic cel.FunctionBinding, but this generator
+// cannot pre-fill a real signature for that case beyond a TODO, since a
+// fixed arity above two has no typed OverloadOpt to target and no
+// established convention in this codebase yet to copy.
 func bindingFuncFor(arity int) string {
 	switch arity {
+	case 0:
+		return "cel.FunctionBinding"
 	case 1:
 		return "cel.UnaryBinding"
 	case 2:
@@ -274,6 +280,14 @@ func exampleArg(goType string) string {
 		return "0"
 	case "bool":
 		return "false"
+	case "[]string":
+		return `["TODO"]`
+	case "map[string]any":
+		return `{"TODO": "TODO"}`
+	case "[]any":
+		return `["TODO"]`
+	case "[]map[string]any":
+		return `[{"TODO": "TODO"}]`
 	default:
 		return "/* TODO */"
 	}
@@ -282,11 +296,17 @@ func exampleArg(goType string) string {
 // bindingFunc renders the *Binding function Reminder's cel.Overload
 // references: one parameter per Param, converted from ref.Val via the
 // matching wellKnownCELTypes conversion helper (celToString/celToInt/
-// celToBool, all defined once in internal/engine/cel_filters.go), a call
-// into the real pkg/filters function, and the result wrapped back into a
-// ref.Val. A Param or Return outside wellKnownCELTypes gets a TODO line
-// instead of guessed conversion code; see Reminder's own doc comment for
-// why guessing would be worse than an explicit gap.
+// celToBool/celToStringList/celToMap/celToDynList/celToMapList, all
+// defined once in internal/engine/cel_filters.go), a call into the real
+// pkg/filters function, and the result wrapped back into a ref.Val. A
+// Param or Return outside wellKnownCELTypes gets a TODO line instead of
+// guessed conversion code; see Reminder's own doc comment for why
+// guessing would be worse than an explicit gap.
+//
+// A zero-Param filter (Phase 52's GenerateUUIDv4) gets the real
+// cel.FunctionBinding signature, func(...ref.Val) ref.Val, spelled as
+// "_ ...ref.Val" since nothing in bindingFuncFor's typed one/two-arg
+// case ever reaches here with an unused argument to convert.
 func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedReturn) string {
 	var b strings.Builder
 	fnName := celName + "Binding"
@@ -298,7 +318,11 @@ func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedRet
 		sig[i] = fmt.Sprintf("%s ref.Val", argNames[i])
 	}
 
-	fmt.Fprintf(&b, "func %s(%s) ref.Val {\n", fnName, strings.Join(sig, ", "))
+	sigStr := strings.Join(sig, ", ")
+	if len(params) == 0 {
+		sigStr = "_ ...ref.Val"
+	}
+	fmt.Fprintf(&b, "func %s(%s) ref.Val {\n", fnName, sigStr)
 
 	callArgs := make([]string, len(params))
 	for i, p := range params {
@@ -327,10 +351,11 @@ func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedRet
 }
 
 // conversionFor returns the shared ref.Val -> Go conversion helper name
-// for a well-known Go type, matching internal/engine/cel_filters.go's
-// existing celToString and the celToInt/celToBool this generator assumes
-// are defined alongside it (Phase 51 is expected to add them, the same
-// way it added the functions that first need them).
+// for a well-known Go type, all defined once in
+// internal/engine/cel_filters.go: celToString/celToInt/celToBool
+// (Phase 50/51), celToStringList (Phase 51's Supernet), and
+// celToMap/celToDynList/celToMapList (added for Phase 52's structured-
+// data filters).
 func conversionFor(goType string) (string, bool) {
 	switch goType {
 	case "string":
@@ -339,6 +364,14 @@ func conversionFor(goType string) (string, bool) {
 		return "celToInt", true
 	case "bool":
 		return "celToBool", true
+	case "[]string":
+		return "celToStringList", true
+	case "map[string]any":
+		return "celToMap", true
+	case "[]any":
+		return "celToDynList", true
+	case "[]map[string]any":
+		return "celToMapList", true
 	default:
 		return "", false
 	}
@@ -354,6 +387,14 @@ func wrapperFor(goType string) (string, bool) {
 		return "types.Int", true
 	case "bool":
 		return "types.Bool", true
+	case "[]string":
+		return "wrapStringList", true
+	case "map[string]any":
+		return "wrapMap", true
+	case "[]any":
+		return "wrapDynList", true
+	case "[]map[string]any":
+		return "wrapMapList", true
 	default:
 		return "", false
 	}

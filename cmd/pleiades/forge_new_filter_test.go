@@ -34,10 +34,17 @@ func TestRunForgeNewFilter(t *testing.T) {
 		{
 			name: "unknown param type with no explicit CELType rejected",
 			args: []string{
+				"Foo", "--cel-name", "foo", "--category", "network",
+				"--summary", "x.", "--param", "counts:[]int", "--return", "string",
+			},
+			wantErr: "not well-known",
+		},
+		{
+			name: "well-known []string param needs no explicit CELType",
+			args: []string{
 				"Supernet", "--cel-name", "supernet", "--category", "network",
 				"--summary", "x.", "--param", "cidrs:[]string", "--return", "string",
 			},
-			wantErr: "not well-known",
 		},
 		{
 			name: "success, single param",

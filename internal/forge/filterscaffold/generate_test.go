@@ -143,11 +143,11 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "unknown param GoType with no explicit CELType rejected",
 			cfg: filterscaffold.Config{
-				GoName:   "Supernet",
-				CELName:  "supernet",
+				GoName:   "Foo",
+				CELName:  "foo",
 				Category: "network",
-				Summary:  "computes the smallest CIDR block containing every given CIDR.",
-				Params:   []filterscaffold.Param{{Name: "cidrs", GoType: "[]string"}},
+				Summary:  "x.",
+				Params:   []filterscaffold.Param{{Name: "counts", GoType: "[]int"}},
 				Return:   filterscaffold.Return{GoType: "string"},
 			},
 			wantErr: "not well-known",
@@ -155,14 +155,68 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "unknown param GoType with explicit CELType accepted",
 			cfg: filterscaffold.Config{
+				GoName:   "Foo",
+				CELName:  "foo",
+				Category: "network",
+				Summary:  "x.",
+				Params:   []filterscaffold.Param{{Name: "counts", GoType: "[]int", CELType: "cel.ListType(cel.IntType)"}},
+				Return:   filterscaffold.Return{GoType: "string"},
+			},
+			wantSource: "func Foo(counts []int) string {",
+		},
+		{
+			name: "well-known []string param needs no explicit CELType",
+			cfg: filterscaffold.Config{
 				GoName:   "Supernet",
 				CELName:  "supernet",
 				Category: "network",
 				Summary:  "computes the smallest CIDR block containing every given CIDR.",
-				Params:   []filterscaffold.Param{{Name: "cidrs", GoType: "[]string", CELType: "cel.ListType(cel.StringType)"}},
+				Params:   []filterscaffold.Param{{Name: "cidrs", GoType: "[]string"}},
 				Return:   filterscaffold.Return{GoType: "string"},
 			},
 			wantSource: "func Supernet(cidrs []string) string {",
+		},
+		{
+			name: "well-known map[string]any param and return need no explicit CELType",
+			cfg: filterscaffold.Config{
+				GoName:   "DeepMerge",
+				CELName:  "deepMerge",
+				Category: "structured",
+				Summary:  "recursively merges b into a.",
+				Params: []filterscaffold.Param{
+					{Name: "a", GoType: "map[string]any"},
+					{Name: "b", GoType: "map[string]any"},
+				},
+				Return: filterscaffold.Return{GoType: "map[string]any"},
+			},
+			wantSource: "func DeepMerge(a map[string]any, b map[string]any) map[string]any {",
+		},
+		{
+			name: "well-known []any and []map[string]any need no explicit CELType",
+			cfg: filterscaffold.Config{
+				GoName:   "Pluck",
+				CELName:  "pluck",
+				Category: "structured",
+				Summary:  "extracts one key's value across a list of maps.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]map[string]any"},
+					{Name: "key", GoType: "string"},
+				},
+				Return: filterscaffold.Return{GoType: "[]any"},
+			},
+			wantSource: "func Pluck(list []map[string]any, key string) []any {",
+		},
+		{
+			name: "zero-param filter",
+			cfg: filterscaffold.Config{
+				GoName:   "GenerateUUIDv4",
+				CELName:  "generateUUIDv4",
+				Category: "structured",
+				Summary:  "generates a random version-4 UUID.",
+				Params:   nil,
+				Return:   filterscaffold.Return{GoType: "string"},
+			},
+			wantSource: "func GenerateUUIDv4() string {",
 		},
 		{
 			name: "duplicate param names rejected",
@@ -303,13 +357,82 @@ func TestReminder(t *testing.T) {
 					{Name: "cidr", GoType: "string"},
 					{Name: "newPrefix", GoType: "int"},
 				},
-				Return: filterscaffold.Return{GoType: "[]string", CELType: "cel.ListType(cel.StringType)"},
+				Return: filterscaffold.Return{GoType: "[]string"},
 			},
 			want: []string{
 				`cel.BinaryBinding(subnetSplitBinding)`,
 				`func subnetSplitBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {`,
 				`goNewPrefix, ok := celToInt(arg1)`,
-				`// TODO: wrap the []string result back into a ref.Val`,
+				`return wrapStringList(filters.SubnetSplit(goCidr, goNewPrefix))`,
+			},
+		},
+		{
+			name: "still-unknown type falls back to a TODO conversion",
+			cfg: filterscaffold.Config{
+				GoName:   "Foo",
+				CELName:  "foo",
+				Category: "network",
+				Summary:  "x.",
+				Params:   []filterscaffold.Param{{Name: "counts", GoType: "[]int", CELType: "cel.ListType(cel.IntType)"}},
+				Return:   filterscaffold.Return{GoType: "[]int", CELType: "cel.ListType(cel.IntType)"},
+			},
+			want: []string{
+				`// TODO: convert counts (arg0 ref.Val) to Go []int; no known conversion for this type.`,
+				`// TODO: wrap the []int result back into a ref.Val`,
+			},
+		},
+		{
+			name: "map[string]any param and return",
+			cfg: filterscaffold.Config{
+				GoName:   "DeepMerge",
+				CELName:  "deepMerge",
+				Category: "structured",
+				Summary:  "recursively merges b into a.",
+				Params: []filterscaffold.Param{
+					{Name: "a", GoType: "map[string]any"},
+					{Name: "b", GoType: "map[string]any"},
+				},
+				Return: filterscaffold.Return{GoType: "map[string]any"},
+			},
+			want: []string{
+				`[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),`,
+				`goA, ok := celToMap(arg0)`,
+				`goB, ok := celToMap(arg1)`,
+				`return wrapMap(filters.DeepMerge(goA, goB))`,
+			},
+		},
+		{
+			name: "[]any and []map[string]any",
+			cfg: filterscaffold.Config{
+				GoName:   "Pluck",
+				CELName:  "pluck",
+				Category: "structured",
+				Summary:  "extracts one key's value across a list of maps.",
+				Params: []filterscaffold.Param{
+					{Name: "list", GoType: "[]map[string]any"},
+					{Name: "key", GoType: "string"},
+				},
+				Return: filterscaffold.Return{GoType: "[]any"},
+			},
+			want: []string{
+				`goList, ok := celToMapList(arg0)`,
+				`goKey, ok := celToString(arg1)`,
+				`return wrapDynList(filters.Pluck(goList, goKey))`,
+			},
+		},
+		{
+			name: "zero-param filter uses cel.FunctionBinding",
+			cfg: filterscaffold.Config{
+				GoName:   "GenerateUUIDv4",
+				CELName:  "generateUUIDv4",
+				Category: "structured",
+				Summary:  "generates a random version-4 UUID.",
+				Return:   filterscaffold.Return{GoType: "string"},
+			},
+			want: []string{
+				`cel.FunctionBinding(generateUUIDv4Binding)`,
+				`func generateUUIDv4Binding(_ ...ref.Val) ref.Val {`,
+				`return types.String(filters.GenerateUUIDv4())`,
 			},
 		},
 		{

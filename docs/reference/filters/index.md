@@ -262,6 +262,27 @@ classifies an IP address as private, public, loopback, link-local, or multicast.
   - `filters.classifyIP("10.0.0.5") // "private"`
   - `filters.classifyIP("8.8.8.8") // "public"`
 
+### `filters.csvToList`
+
+parses one CSV line into a list of fields, using encoding/csv for correct quote handling rather than a naive split on comma.
+
+- `filters.csvToList(string) -> list(string)`
+  - `filters.csvToList("a,\"b,c\",d") // ["a", "b,c", "d"]`
+
+### `filters.deepMerge`
+
+recursively merges b into a: nested maps merge key by key, lists append, and any other type in b overwrites a.
+
+- `filters.deepMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
+  - `filters.deepMerge({"a": {"x": 1}}, {"a": {"y": 2}}) // {"a": {"x": 1, "y": 2}}`
+
+### `filters.flatten`
+
+flattens a nested map/list structure into a single-level map with dot-notation keys.
+
+- `filters.flatten(map(string, dyn)) -> map(string, dyn)`
+  - `filters.flatten({"a": {"b": 1}}) // {"a.b": 1}`
+
 ### `filters.fqdnToHostname`
 
 extracts the hostname (first label) from a fully qualified domain name.
@@ -275,6 +296,13 @@ converts an IPv4-mapped IPv6 address back to plain dotted-decimal IPv4.
 
 - `filters.fromIPv4MappedIPv6(string) -> string`
   - `filters.fromIPv4MappedIPv6("::ffff:10.0.0.5") // "10.0.0.5"`
+
+### `filters.generateUUIDv4`
+
+generates a random version-4 UUID. Unlike every other filters.* function, this one is not deterministic: it takes no arguments and returns a different value on every call.
+
+- `filters.generateUUIDv4() -> string`
+  - `filters.generateUUIDv4() // e.g. "3b12f1df-5232-4804-897e-917bf397618a" (a new random UUID every call)`
 
 ### `filters.hostnameToFQDN`
 
@@ -327,6 +355,20 @@ reports whether an ASN falls in a private-use range (64512 to 65534, or 42000000
   - `filters.isPrivateASN(64512) // true`
   - `filters.isPrivateASN(30000) // false`
 
+### `filters.jsonToYAML`
+
+converts a JSON document to its equivalent YAML text.
+
+- `filters.jsonToYAML(string) -> string`
+  - `filters.jsonToYAML("{\"a\":1}") // "a: 1\n"`
+
+### `filters.listToCSV`
+
+encodes a list of fields as one CSV line, the inverse of filters.csvToList, quoting a field only when encoding/csv determines it needs it.
+
+- `filters.listToCSV(list(string)) -> string`
+  - `filters.listToCSV(["a", "b,c", "d"]) // "a,\"b,c\",d"`
+
 ### `filters.macOUI`
 
 extracts a MAC address's OUI (organizationally unique identifier), its first three octets, colon-separated and uppercase.
@@ -361,6 +403,13 @@ converts a dotted-decimal netmask to its CIDR prefix length.
 
 - `filters.netmaskToCIDR(string) -> int`
   - `filters.netmaskToCIDR("255.255.255.0") // 24`
+
+### `filters.pluck`
+
+extracts one key's value from each map in a list, skipping a map that does not have the key.
+
+- `filters.pluck(list(map(string, dyn)), string) -> list(dyn)`
+  - `filters.pluck([{"name": "a", "val": 1}, {"name": "b"}], "val") // [1]`
 
 ### `filters.safeBool`
 
@@ -401,6 +450,13 @@ reached for as if it did.
   - `filters.safeInt(stat.retries, 0) > 3 // stat.retries == "7" -> 7 > 3 -> true`
   - `filters.safeInt(stat.retries, 0) // stat.retries == "abc" -> 0 (fallback)`
 
+### `filters.shallowMerge`
+
+merges b into a at the top level only: a key present in both is overwritten by b's value, with no recursion into nested maps.
+
+- `filters.shallowMerge(map(string, dyn), map(string, dyn)) -> map(string, dyn)`
+  - `filters.shallowMerge({"a": 1}, {"a": 2, "b": 3}) // {"a": 2, "b": 3}`
+
 ### `filters.subnetSplit`
 
 splits a CIDR block into subnets of the given new, longer prefix length.
@@ -421,6 +477,13 @@ converts an IPv4 address to its IPv4-mapped IPv6 form (::ffff:a.b.c.d).
 
 - `filters.toIPv4MappedIPv6(string) -> string`
   - `filters.toIPv4MappedIPv6("10.0.0.5") // "::ffff:10.0.0.5"`
+
+### `filters.unflatten`
+
+reconstructs a nested map/list structure from a flat map with dot-notation keys, the inverse of filters.flatten.
+
+- `filters.unflatten(map(string, dyn)) -> map(string, dyn)`
+  - `filters.unflatten({"a.b": 1}) // {"a": {"b": 1}}`
 
 ### `filters.urlDomain`
 
@@ -458,4 +521,18 @@ converts a CIDR prefix length to its Cisco-style wildcard mask (the bitwise inve
 
 - `filters.wildcardMask(string) -> string`
   - `filters.wildcardMask("10.0.0.0/24") // "0.0.0.255"`
+
+### `filters.xmlToJSON`
+
+converts an XML document to JSON text using one documented, opinionated element/attribute mapping (see pkg/filters.XMLToJSON's own doc comment); XML has no canonical JSON shape.
+
+- `filters.xmlToJSON(string) -> string`
+  - `filters.xmlToJSON("<a><b>1</b></a>") // "{\"a\":{\"b\":\"1\"}}"`
+
+### `filters.yamlToJSON`
+
+converts a YAML document to its equivalent JSON text.
+
+- `filters.yamlToJSON(string) -> string`
+  - `filters.yamlToJSON("a: 1\n") // "{\"a\":1}"`
 

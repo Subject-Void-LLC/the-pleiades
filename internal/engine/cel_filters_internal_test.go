@@ -69,6 +69,51 @@ func TestCelToXHelpers(t *testing.T) {
 	if ss, ok := celToStringList(types.NewStringList(types.DefaultTypeAdapter, []string{"a", "b"})); !ok || len(ss) != 2 {
 		t.Errorf("celToStringList([\"a\",\"b\"]) = %v, %v; want [a b], true", ss, ok)
 	}
+
+	// A scalar (not a container) has no map or list shape for celToAny's
+	// traits.Mapper/traits.Lister type switch to recognize, so it falls
+	// through to a bare Value() -- the one path celToMap/celToDynList/
+	// celToMapList all reject, since none of int64, string, bool, and so
+	// on assert to map[string]any/[]any.
+	scalar := types.Int(5)
+	if _, ok := celToMap(scalar); ok {
+		t.Error("celToMap(int) should fail, has no map[string]any conversion")
+	}
+	if _, ok := celToDynList(scalar); ok {
+		t.Error("celToDynList(int) should fail, has no []any conversion")
+	}
+	if _, ok := celToMapList(scalar); ok {
+		t.Error("celToMapList(int) should fail, has no []map[string]any conversion")
+	}
+
+	// celToMap(wrapMap(m)) round-trips m's shape (a nested map is still
+	// a nested map[string]any, not the map[any]any a naive
+	// ConvertToNative(any) call would substitute -- celToAny's own doc
+	// comment has the full story), but not m's exact scalar Go types: a
+	// leaf int comes back int64, CEL's own int width, since it was
+	// re-adapted through the environment's type system on the way out
+	// and back in.
+	m := map[string]any{"a": 1, "b": map[string]any{"c": 2}}
+	got, ok := celToMap(wrapMap(m))
+	if !ok {
+		t.Fatalf("celToMap(wrapMap(%#v)): ok = false, want true", m)
+	}
+	if got["a"] != int64(1) {
+		t.Errorf("celToMap(wrapMap(%#v))[\"a\"] = %#v, want int64(1)", m, got["a"])
+	}
+	nested, ok := got["b"].(map[string]any)
+	if !ok || nested["c"] != int64(2) {
+		t.Errorf("celToMap(wrapMap(%#v))[\"b\"] = %#v, want a nested map[string]any with c = int64(2)", m, got["b"])
+	}
+
+	dl := []any{1, "two", true}
+	if got, ok := celToDynList(wrapDynList(dl)); !ok || len(got) != 3 {
+		t.Errorf("celToDynList(wrapDynList(%#v)) = %#v, %v; want a round trip", dl, got, ok)
+	}
+	ml := []map[string]any{{"a": 1}, {"b": 2}}
+	if got, ok := celToMapList(wrapMapList(ml)); !ok || len(got) != 2 {
+		t.Errorf("celToMapList(wrapMapList(%#v)) = %#v, %v; want a round trip", ml, got, ok)
+	}
 }
 
 // TestPhase51Bindings_RejectUnconvertibleArguments directly calls every
@@ -137,6 +182,66 @@ func TestPhase51Bindings_RejectUnconvertibleArguments(t *testing.T) {
 	t.Run("hostnameToFQDN_arg1", func(t *testing.T) {
 		if got := hostnameToFQDNBinding(types.String("host1"), list); !types.IsError(got) {
 			t.Errorf("hostnameToFQDNBinding(\"host1\", list) = %v, want a types.Err", got)
+		}
+	})
+}
+
+// TestPhase52Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase51Bindings_RejectUnconvertibleArguments for Phase 52's own 11
+// structured-data bindings: unreachable through the real compiled CEL
+// path for the same reason (cel-go's own type checker already guarantees
+// argument convertibility for a statically-typed overload), reachable
+// only through a direct Go-level call.
+func TestPhase52Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	scalar := types.Int(5) // no map[string]any, []any or []map[string]any conversion.
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+
+	unary := map[string]func(ref.Val) ref.Val{
+		"flatten":    flattenBinding,
+		"unflatten":  unflattenBinding,
+		"csvToList":  csvToListBinding,
+		"listToCSV":  listToCSVBinding,
+		"yamlToJSON": yamlToJSONBinding,
+		"jsonToYAML": jsonToYAMLBinding,
+		"xmlToJSON":  xmlToJSONBinding,
+	}
+	unaryArg := map[string]ref.Val{
+		"flatten":    scalar,
+		"unflatten":  scalar,
+		"csvToList":  notString,
+		"listToCSV":  notString, // notString also has no []string conversion.
+		"yamlToJSON": notString,
+		"jsonToYAML": notString,
+		"xmlToJSON":  notString,
+	}
+	for name, fn := range unary {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(unaryArg[name]); !types.IsError(got) {
+				t.Errorf("%sBinding(%v) = %v, want a types.Err", name, unaryArg[name], got)
+			}
+		})
+	}
+
+	t.Run("deepMerge_arg0", func(t *testing.T) {
+		if got := deepMergeBinding(scalar, scalar); !types.IsError(got) {
+			t.Errorf("deepMergeBinding(int, int) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("shallowMerge_arg1", func(t *testing.T) {
+		validMap := wrapMap(map[string]any{"a": 1})
+		if got := shallowMergeBinding(validMap, scalar); !types.IsError(got) {
+			t.Errorf("shallowMergeBinding(map, int) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("pluck_arg0", func(t *testing.T) {
+		if got := pluckBinding(scalar, types.String("k")); !types.IsError(got) {
+			t.Errorf("pluckBinding(int, string) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("pluck_arg1", func(t *testing.T) {
+		validList := wrapMapList([]map[string]any{{"a": 1}})
+		if got := pluckBinding(validList, notString); !types.IsError(got) {
+			t.Errorf("pluckBinding(list, non-string) = %v, want a types.Err", got)
 		}
 	})
 }

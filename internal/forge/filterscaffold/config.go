@@ -39,15 +39,36 @@ var goNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 // end to end (it can derive a real CEL type expression, a real
 // ref.Val<->Go conversion, and a real wrapped return) to the cel-go type
 // expression a filters.<name> overload declares for it. Every other Go
-// type is still accepted (a filter is free to take or return a list, a
-// map, or anything else CEL can represent), but Generate cannot infer
-// its CEL type or write real conversion code for it, so the caller must
-// supply CELType explicitly and Reminder emits a TODO conversion in its
-// place instead of guessing.
+// type is still accepted (a filter is free to take or return anything
+// else CEL can represent), but Generate cannot infer its CEL type or
+// write real conversion code for it, so the caller must supply CELType
+// explicitly and Reminder emits a TODO conversion in its place instead
+// of guessing.
+//
+// The four structural entries ("[]string", "map[string]any", "[]any",
+// "[]map[string]any") were added for Phase 52 (PLAN.md Section 36's
+// structured-data filters: Flatten/Unflatten/DeepMerge/ShallowMerge/
+// Pluck all take or return a map or a list of maps), reusing
+// internal/engine/cel_filters.go's celToStringList/wrapStringList (added
+// for Phase 51's Supernet/SubnetSplit and, until this phase, never added
+// to this table) plus celToMap/wrapMap, celToDynList/wrapDynList and
+// celToMapList/wrapMapList (added alongside Phase 52 itself). Each is
+// safe to auto-derive for the same reason the original three are: the
+// conversion is proven correct by construction, not guessed, because
+// cel-go's own ConvertToNative already does the recursive element-by-
+// element work (verified directly against a nested map/list value before
+// relying on it -- ConvertToNative(map[string]any{}) returns nested
+// values as map[string]any/[]any, not the map[any]any a naive reading of
+// cel-go's own baseMap.ConvertToNative source might suggest, since the
+// call reaches a smarter reflection-based path in practice).
 var wellKnownCELTypes = map[string]string{
-	"string": "cel.StringType",
-	"int":    "cel.IntType",
-	"bool":   "cel.BoolType",
+	"string":           "cel.StringType",
+	"int":              "cel.IntType",
+	"bool":             "cel.BoolType",
+	"[]string":         "cel.ListType(cel.StringType)",
+	"map[string]any":   "cel.MapType(cel.StringType, cel.DynType)",
+	"[]any":            "cel.ListType(cel.DynType)",
+	"[]map[string]any": "cel.ListType(cel.MapType(cel.StringType, cel.DynType))",
 }
 
 // Param is one argument a generated filter function takes, on both the
@@ -122,8 +143,10 @@ type Config struct {
 	Summary string
 
 	// Params is this filter's ordered argument list. May be empty (a
-	// zero-argument filter, e.g. a clock read, though nothing in this
-	// codebase needs one yet).
+	// zero-argument filter, e.g. Phase 52's GenerateUUIDv4); Reminder
+	// then emits a cel.FunctionBinding taking "_ ...ref.Val" rather than
+	// cel.UnaryBinding/cel.BinaryBinding, since cel-go has no zero-arity
+	// typed OverloadOpt.
 	Params []Param
 
 	// Return is this filter's single result.
@@ -223,5 +246,5 @@ func (c Config) PackagePath() string {
 // knownTypeList renders wellKnownCELTypes' keys for an error message,
 // sorted so the message is deterministic across runs.
 func knownTypeList() string {
-	return "string, int, bool"
+	return "string, int, bool, []string, map[string]any, []any, []map[string]any"
 }
