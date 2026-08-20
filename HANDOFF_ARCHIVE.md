@@ -1,5 +1,62 @@
 # Handoff Document Archive
 
+## Previous session: Phase 55 (time, date & scheduling filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `3327add` for the entire
+session (Phase 54's forge tuning and 17 filters), then moved to `b0eaf1f` when the user gave their own
+live go-ahead and committed this session's work themselves, outside the assistant's own turns -- the
+assistant itself never ran `git commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with two direct requests in sequence: whether Phase 54 had surfaced any further forge
+tuning need, and to move on to Phase 55: Time, Date & Scheduling Filters.
+
+**Forge-tuning decision: no change needed, verified rather than assumed.** All 25 of Phase 55's
+argument/return shapes were run through the real `pleiades forge new-filter` CLI before any filter was
+hand-written: `int`/`string`/`bool` unary and binary overloads, two `map[string]any` + `string` binary
+overloads, and four arity-three `string, string, int` overloads. Zero errors, confirming Phase 54's
+arity-three-plus `bindingFunc` fix generalizes and gets reused correctly by a later phase.
+`internal/forge/filterscaffold` was untouched.
+
+**Phase 55: 25 time, date and scheduling filters**, across three files: `pkg/filters/timeconvert.go` (12:
+`EpochToISO8601`/`ISO8601ToEpoch`, `FileTimeToEpoch`/`EpochToFileTime` as deliberately total functions with
+no sentinel, `ShiftTimezone`, `AddSeconds`, `DeltaSeconds`/`DeltaDays` taking a required `fallback`
+argument, `RoundToHour` flooring via `time.Date` reconstruction rather than the proven-wrong
+`time.Time.Truncate(time.Hour)` for a non-whole-hour offset, `HumanizeDuration`, `BootTimeFromUptime`/
+`UptimeFromBootTime`), `pkg/filters/calendar.go` (11: `IsPast`/`IsFuture`/`IsOlderThan`/`IsExpiringWithin`
+each taking an explicit `asOf` reference timestamp rather than reading the wall clock per PLAN.md Section
+36's pure-function requirement, `StartOfDay`/`StartOfWeek`/`StartOfMonth`, `IsLeapYear`, `DayOfWeek`,
+`IsBusinessHour`, `IsMaintenanceWindow`), and `pkg/filters/cron.go` (extended, 2 new: `CronNextRun`/
+`CronPreviousRun` on Phase 54's parser, with new `domWildcard`/`dowWildcard` bookkeeping for real cron(8)
+day-field OR semantics and a day-then-minute bounded search terminating an unsatisfiable expression in
+microseconds).
+
+Two Adversarial Pattern Justification proofs the checklist named explicitly:
+`TestShiftTimezone_RoundTripsAcrossDSTBoundary` and `TestFileTimeToEpoch_RoundTripsAcrossLeapYearBoundary`.
+A third surfaced organically: `TestCronNextRun_DayFieldsUseCronsRealORSemantics`.
+
+`pkg/filters` measured 99.5%, `coverage-floor.json` raised 99.2 -> 99.4. `internal/engine` measured 95.0%,
+raised 93.8 -> 94.6 -- unlike Phase 54, every one of Phase 55's 25 new bindings reached 100%, since none of
+its parameters is `any`-typed.
+
+RULE 0: the real `pleiades` binary, built fresh, ran a scratch runbook against a real, running
+`examples/webserver_lab` SSH container, gating one real `ssh_exec` task on a five-filter combined
+`when_cel` condition (true, ran) and a second on a deliberately false one (skipped, named in the skip
+reason).
+
+**The environment reset mid-session** (a background `coverage-check` run and the scratch RULE 0 project
+both vanished along with the session-scratchpad directory; the docker container survived and was reused).
+Real repository file edits were unaffected. Lesson recorded: verify state directly after any gap rather
+than assuming a prior background command's result is still available.
+
+Drafted commit message (the one the user ran themselves at `b0eaf1f`):
+
+```
+feat(engine,filters): Phase 55's 25 time, date & scheduling filters
+```
+
+(Full body matched this archive's own description above; see `git show b0eaf1f` for the exact committed
+text.)
+
 ## Previous session: Phase 54 (validation & business-logic predicates)
 
 **Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `2e705ea` for the entire

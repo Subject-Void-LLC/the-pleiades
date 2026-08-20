@@ -9,11 +9,20 @@
 // inline, as a sub-expression of a larger condition.
 //
 // Every function here is plain Go over plain Go types: this package imports
-// the standard library and nothing else, so it carries no dependency on the
-// expression engine that calls it and can be unit tested as ordinary Go.
-// The translation to the engine's own value types lives in exactly one
-// place, internal/engine/cel_filters.go, which is also where each function
-// is registered under its filters. prefix.
+// no cel-go type and nothing from internal/ (internal/archtest's own
+// TestPkgNeverImportsInternal enforces the latter across every pkg/, not
+// just this one), so it carries no dependency on the expression engine
+// that calls it and can be unit tested as ordinary Go. An ordinary
+// third-party library is fine when a real function genuinely needs one
+// (github.com/google/uuid, go.yaml.in/yaml/v3, github.com/golang-jwt/
+// jwt/v5, golang.org/x/crypto/ssh, each already a dependency of this
+// module for an unrelated reason before a filter needed it too) -- the
+// invariant this package actually holds is "no engine dependency and no
+// internal/ dependency," not "stdlib only," which stopped being true as
+// of Phase 52's YAML support. The translation to the engine's own value
+// types lives in exactly one place, internal/engine/cel_filters.go,
+// which is also where each function is registered under its filters.
+// prefix.
 //
 // This package performs no I/O of any kind: no file access, no network
 // access, no subprocess execution. A filter that did any of those would be

@@ -4834,3 +4834,49 @@ not merely missing coverage. Three occurrences of the same one-off is the thresh
 has already used elsewhere (Phase 51's `celToStringList`, Phase 52's structural types) to decide a
 capability belongs in the tool rather than in the hand; this is the same judgment applied to a
 scaffolder's own binding-generation logic rather than to its type table.
+
+## 162. A doc comment assumed the stdlib PEM encoder validated its own block type, and it does not
+
+**Symptom.** Phase 56's `pkg/filters.DERToPEM(der, blockType string) string` wraps caller-supplied
+base64 bytes in a PEM block of the caller-supplied `blockType`, calling
+`pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: raw})` directly. The first version of this
+function's doc comment claimed "`pem.Encode` rejects a newline in `Type`, to prevent a caller from
+smuggling an extra PEM header or body into what looks like a single block's type line" -- written
+before checking whether that claim was actually true. It was written down as an assumption because
+Go's `encoding/pem` package does validate *something* about a `Block` before encoding it (a
+`Headers` map key containing a colon), which reads, at a glance, like the kind of package that would
+also validate `Type`. A test asserting `DERToPEM(der, "CERT\nIFICATE")` returns `""` failed: the
+function instead returned a PEM string with a literal embedded newline splitting `-----BEGIN
+CERT` from `IFICATE-----`, meaning a `blockType` containing a raw `-----END X-----\n\n-----BEGIN Y---
+--` sequence would let a caller smuggle an entire second, attacker-chosen PEM block into what a
+downstream reader (another `filters.*` call, or code outside this platform entirely) would trust as
+one clean block.
+
+**Root cause.** Reading `encoding/pem`'s own source (`src/encoding/pem/pem.go`'s `Encode`) rather
+than trusting the assumption: the function's *only* validation is `for k := range b.Headers { if
+strings.Contains(k, ":") { return error } }`. `b.Type` is written into the output completely
+unvalidated, as `out.Write([]byte(b.Type + "-----\n"))`, with no check for a newline, a null byte, or
+anything else. The doc comment's claim was invented to sound plausible rather than verified against
+the actual source, and the function that would have caught it -- a test asserting the newline case
+specifically -- had not been written yet when the doc comment was.
+
+**Fix.** `DERToPEM` now validates `blockType` itself against `pemBlockTypePattern`
+(`^[A-Z0-9 -]+$`, the character class every real PEM label this codebase has reason to produce
+already fits: `CERTIFICATE`, `PUBLIC KEY`, `RSA PRIVATE KEY`, `X509 CRL`), refusing anything outside
+it before ever calling `pem.EncodeToMemory`. The doc comment was rewritten to state what was
+actually verified, and a new test
+(`TestPEMToDER_DERToPEM_RoundTrip/der_to_pem_block_type_injection_blocked`) constructs a real
+injection payload (`"CERTIFICATE-----\n\n-----BEGIN EVIL"`) and asserts it is refused, not just that
+a bare newline is. `coverage-floor.json`'s Phase 56 entry documents the resulting `encoded == nil`
+branch in `DERToPEM`/`SSHPublicKeyToPEM` as provably unreachable now that this validation runs first
+(the only way `pem.EncodeToMemory` can still fail, a colon in a `Headers` key, is unreachable since
+neither call site ever sets `Headers`).
+
+**Lesson.** A doc comment describing what a called stdlib function does is a claim, not a fact,
+until the function's own source (or its documented contract) has actually been read. This is the
+same discipline `.AGENTS/AGENTS.md`'s LSP-over-grep mandate asks for applied one level up: querying
+the real tool (here, reading the real source) instead of narrating what a function "probably" does
+based on how safe-sounding packages usually behave. The finding surfaced only because a test was
+written for the specific case the doc comment claimed was handled; a test suite that only exercises
+the happy path (a well-formed `blockType` like `"CERTIFICATE"`) would have shipped this exact
+PEM-injection vector with a doc comment actively asserting it was closed.

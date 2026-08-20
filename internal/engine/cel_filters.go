@@ -1245,6 +1245,193 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.BinaryBinding(cronPreviousRunBinding),
 			),
 		),
+
+		// Phase 56 (PLAN.md Section 36's Security & Cryptography
+		// Filters): hashing, HMAC, constant-time comparison, a
+		// crypto/rand-backed password generator, unverified JWT/X.509/
+		// PEM/DER/SSH-key parsing and conversion, best-effort PII
+		// redaction, Windows SID conversion, Active Directory DN
+		// parsing, and a curated MIB-II OID translation table.
+		cel.Function("filters.sha256Hash",
+			cel.FunctionDocs(
+				"returns the lowercase hex-encoded SHA-256 digest of s.",
+			),
+			cel.Overload("filters_sha256_hash_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.sha256Hash("") // "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"`,
+				),
+				cel.UnaryBinding(sha256HashBinding),
+			),
+		),
+		cel.Function("filters.hmacGenerate",
+			cel.FunctionDocs(
+				"returns the lowercase hex-encoded HMAC-SHA256 of message using key.",
+			),
+			cel.Overload("filters_hmac_generate_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.hmacGenerate("The quick brown fox jumps over the lazy dog", "key") // "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"`,
+				),
+				cel.BinaryBinding(hmacGenerateBinding),
+			),
+		),
+		cel.Function("filters.secureCompare",
+			cel.FunctionDocs(
+				"reports whether a and b are equal, in constant time regardless of where they first differ.",
+			),
+			cel.Overload("filters_secure_compare_string_string_bool",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.BoolType,
+				cel.OverloadExamples(
+					`filters.secureCompare("same-secret", "same-secret") // true`,
+				),
+				cel.BinaryBinding(secureCompareBinding),
+			),
+		),
+		cel.Function("filters.generateRandomPassword",
+			cel.FunctionDocs(
+				"returns a cryptographically random password of the given length from a curated unambiguous charset. Unlike most filters.* functions, this one is not deterministic: it returns a different value on every call.",
+			),
+			cel.Overload("filters_generate_random_password_int_string",
+				[]*cel.Type{cel.IntType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.generateRandomPassword(12) // e.g. "aB3dEfGhJkLm" (a new random password every call)`,
+				),
+				cel.UnaryBinding(generateRandomPasswordBinding),
+			),
+		),
+		cel.Function("filters.parseJWTPayloadUnverified",
+			cel.FunctionDocs(
+				"decodes a JWT's payload claims without verifying its signature; never treat the result as authenticated.",
+			),
+			cel.Overload("filters_parse_jwt_payload_unverified_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseJWTPayloadUnverified("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig") // {"sub": "1234567890"}`,
+				),
+				cel.UnaryBinding(parseJWTPayloadUnverifiedBinding),
+			),
+		),
+		cel.Function("filters.parseX509Certificate",
+			cel.FunctionDocs(
+				"parses a PEM-encoded X.509 certificate into its subject, issuer, validity window and SANs.",
+			),
+			cel.Overload("filters_parse_x509_certificate_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseX509Certificate(certPEM) // {"subject": "CN=host.example.com", "issuer": "CN=host.example.com", "not_before": "2024-01-01T00:00:00Z", "not_after": "2034-01-01T00:00:00Z", "serial_number": "...", "dns_names": [...], "ip_addresses": [...]}`,
+				),
+				cel.UnaryBinding(parseX509CertificateBinding),
+			),
+		),
+		cel.Function("filters.pemToDER",
+			cel.FunctionDocs(
+				"converts a PEM block to its base64-encoded DER form.",
+			),
+			cel.Overload("filters_pem_to_der_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.pemToDER(certPEM) // "MIIB..." (base64-encoded DER)`,
+				),
+				cel.UnaryBinding(pemToDERBinding),
+			),
+		),
+		cel.Function("filters.derToPEM",
+			cel.FunctionDocs(
+				"wraps base64-encoded DER bytes as a PEM block of the named type, the inverse of filters.pemToDER.",
+			),
+			cel.Overload("filters_der_to_pem_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.derToPEM(der, "CERTIFICATE") // "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n"`,
+				),
+				cel.BinaryBinding(derToPEMBinding),
+			),
+		),
+		cel.Function("filters.sshPublicKeyToPEM",
+			cel.FunctionDocs(
+				"converts an OpenSSH authorized_keys public key line to PEM/PKIX form.",
+			),
+			cel.Overload("filters_ssh_public_key_to_pem_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.sshPublicKeyToPEM("ssh-ed25519 AAAA... user@host") // "-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"`,
+				),
+				cel.UnaryBinding(sshPublicKeyToPEMBinding),
+			),
+		),
+		cel.Function("filters.pemToSSHPublicKey",
+			cel.FunctionDocs(
+				"converts a PEM/PKIX public key to OpenSSH authorized_keys form, the inverse of filters.sshPublicKeyToPEM.",
+			),
+			cel.Overload("filters_pem_to_ssh_public_key_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.pemToSSHPublicKey(pemPublicKey) // "ssh-ed25519 AAAA..."`,
+				),
+				cel.UnaryBinding(pemToSSHPublicKeyBinding),
+			),
+		),
+		cel.Function("filters.maskPII",
+			cel.FunctionDocs(
+				"redacts SSN-, credit-card-, and bearer-token-shaped substrings from s; best-effort, not a compliance guarantee.",
+			),
+			cel.Overload("filters_mask_pii_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.maskPII("SSN is 123-45-6789 on file") // "SSN is [REDACTED-SSN] on file"`,
+				),
+				cel.UnaryBinding(maskPIIBinding),
+			),
+		),
+		cel.Function("filters.windowsSIDToHex",
+			cel.FunctionDocs(
+				"converts a Windows SID string to its little-endian binary form, hex-encoded.",
+			),
+			cel.Overload("filters_windows_sid_to_hex_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.windowsSIDToHex("S-1-5-18") // "010100000000000512000000"`,
+				),
+				cel.UnaryBinding(windowsSIDToHexBinding),
+			),
+		),
+		cel.Function("filters.hexToWindowsSID",
+			cel.FunctionDocs(
+				"converts a hex-encoded binary Windows SID to its string form, the inverse of filters.windowsSIDToHex.",
+			),
+			cel.Overload("filters_hex_to_windows_sid_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.hexToWindowsSID("010100000000000512000000") // "S-1-5-18"`,
+				),
+				cel.UnaryBinding(hexToWindowsSIDBinding),
+			),
+		),
+		cel.Function("filters.parseDistinguishedName",
+			cel.FunctionDocs(
+				"parses an Active Directory distinguished name into a map from attribute type to its values.",
+			),
+			cel.Overload("filters_parse_distinguished_name_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.parseDistinguishedName("CN=John Doe,OU=Sales,DC=example,DC=com") // {"CN": ["John Doe"], "OU": ["Sales"], "DC": ["example", "com"]}`,
+				),
+				cel.UnaryBinding(parseDistinguishedNameBinding),
+			),
+		),
+		cel.Function("filters.snmpOIDTranslate",
+			cel.FunctionDocs(
+				"translates a standard MIB-II OID (system or interfaces group) to its symbolic name.",
+			),
+			cel.Overload("filters_snmp_oid_translate_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.snmpOIDTranslate("1.3.6.1.2.1.1.1.0") // "sysDescr.0"`,
+				),
+				cel.UnaryBinding(snmpOIDTranslateBinding),
+			),
+		),
 	}
 }
 
@@ -2556,4 +2743,151 @@ func cronPreviousRunBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
 		return types.NewErr("filters.cronPreviousRun: argument fromISO is not convertible to string")
 	}
 	return types.String(filters.CronPreviousRun(goCronExpr, goFromISO))
+}
+
+// SHA256Hash's CEL binding, registered above.
+func sha256HashBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.sha256Hash: argument s is not convertible to string")
+	}
+	return types.String(filters.SHA256Hash(goS))
+}
+
+// HMACGenerate's CEL binding, registered above.
+func hmacGenerateBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goMessage, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.hmacGenerate: argument message is not convertible to string")
+	}
+	goKey, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.hmacGenerate: argument key is not convertible to string")
+	}
+	return types.String(filters.HMACGenerate(goMessage, goKey))
+}
+
+// SecureCompare's CEL binding, registered above.
+func secureCompareBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goA, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.secureCompare: argument a is not convertible to string")
+	}
+	goB, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.secureCompare: argument b is not convertible to string")
+	}
+	return types.Bool(filters.SecureCompare(goA, goB))
+}
+
+// GenerateRandomPassword's CEL binding, registered above.
+func generateRandomPasswordBinding(arg0 ref.Val) ref.Val {
+	goLength, ok := celToInt(arg0)
+	if !ok {
+		return types.NewErr("filters.generateRandomPassword: argument length is not convertible to int")
+	}
+	return types.String(filters.GenerateRandomPassword(goLength))
+}
+
+// ParseJWTPayloadUnverified's CEL binding, registered above.
+func parseJWTPayloadUnverifiedBinding(arg0 ref.Val) ref.Val {
+	goToken, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseJWTPayloadUnverified: argument token is not convertible to string")
+	}
+	return wrapMap(filters.ParseJWTPayloadUnverified(goToken))
+}
+
+// ParseX509Certificate's CEL binding, registered above.
+func parseX509CertificateBinding(arg0 ref.Val) ref.Val {
+	goPemCert, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseX509Certificate: argument pemCert is not convertible to string")
+	}
+	return wrapMap(filters.ParseX509Certificate(goPemCert))
+}
+
+// PEMToDER's CEL binding, registered above.
+func pemToDERBinding(arg0 ref.Val) ref.Val {
+	goPem, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.pemToDER: argument pem is not convertible to string")
+	}
+	return types.String(filters.PEMToDER(goPem))
+}
+
+// DERToPEM's CEL binding, registered above.
+func derToPEMBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goDer, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.derToPEM: argument der is not convertible to string")
+	}
+	goBlockType, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.derToPEM: argument blockType is not convertible to string")
+	}
+	return types.String(filters.DERToPEM(goDer, goBlockType))
+}
+
+// SSHPublicKeyToPEM's CEL binding, registered above.
+func sshPublicKeyToPEMBinding(arg0 ref.Val) ref.Val {
+	goAuthorizedKey, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.sshPublicKeyToPEM: argument authorizedKey is not convertible to string")
+	}
+	return types.String(filters.SSHPublicKeyToPEM(goAuthorizedKey))
+}
+
+// PEMToSSHPublicKey's CEL binding, registered above.
+func pemToSSHPublicKeyBinding(arg0 ref.Val) ref.Val {
+	goPem, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.pemToSSHPublicKey: argument pem is not convertible to string")
+	}
+	return types.String(filters.PEMToSSHPublicKey(goPem))
+}
+
+// MaskPII's CEL binding, registered above.
+func maskPIIBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.maskPII: argument s is not convertible to string")
+	}
+	return types.String(filters.MaskPII(goS))
+}
+
+// WindowsSIDToHex's CEL binding, registered above.
+func windowsSIDToHexBinding(arg0 ref.Val) ref.Val {
+	goSid, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.windowsSIDToHex: argument sid is not convertible to string")
+	}
+	return types.String(filters.WindowsSIDToHex(goSid))
+}
+
+// HexToWindowsSID's CEL binding, registered above.
+func hexToWindowsSIDBinding(arg0 ref.Val) ref.Val {
+	goHexSID, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.hexToWindowsSID: argument hexSID is not convertible to string")
+	}
+	return types.String(filters.HexToWindowsSID(goHexSID))
+}
+
+// ParseDistinguishedName's CEL binding, registered above.
+func parseDistinguishedNameBinding(arg0 ref.Val) ref.Val {
+	goDn, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.parseDistinguishedName: argument dn is not convertible to string")
+	}
+	return wrapMap(filters.ParseDistinguishedName(goDn))
+}
+
+// SNMPOIDTranslate's CEL binding, registered above.
+func snmpOIDTranslateBinding(arg0 ref.Val) ref.Val {
+	goOid, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.snmpOIDTranslate: argument oid is not convertible to string")
+	}
+	return types.String(filters.SNMPOIDTranslate(goOid))
 }

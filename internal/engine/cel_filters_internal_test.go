@@ -599,3 +599,69 @@ func TestPhase55Bindings_RejectUnconvertibleArguments(t *testing.T) {
 		})
 	}
 }
+
+// TestPhase56Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase55Bindings_RejectUnconvertibleArguments for this phase's own
+// 15 bindings. Every Phase 56 parameter is string, int or bool, and
+// every return is string, bool or map[string]any -- no "any" parameter
+// again this phase, so every branch here has a real, constructible
+// failing input the same way Phase 55's did.
+func TestPhase56Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+	validStr := types.String("x")
+
+	unaryStringToString := map[string]func(ref.Val) ref.Val{
+		"sha256Hash":        sha256HashBinding,
+		"pemToDER":          pemToDERBinding,
+		"sshPublicKeyToPEM": sshPublicKeyToPEMBinding,
+		"pemToSSHPublicKey": pemToSSHPublicKeyBinding,
+		"maskPII":           maskPIIBinding,
+		"windowsSIDToHex":   windowsSIDToHexBinding,
+		"hexToWindowsSID":   hexToWindowsSIDBinding,
+		"snmpOIDTranslate":  snmpOIDTranslateBinding,
+	}
+	for name, fn := range unaryStringToString {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	unaryStringToMap := map[string]func(ref.Val) ref.Val{
+		"parseJWTPayloadUnverified": parseJWTPayloadUnverifiedBinding,
+		"parseX509Certificate":      parseX509CertificateBinding,
+		"parseDistinguishedName":    parseDistinguishedNameBinding,
+	}
+	for name, fn := range unaryStringToMap {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("generateRandomPassword", func(t *testing.T) {
+		if got := generateRandomPasswordBinding(notString); !types.IsError(got) {
+			t.Errorf("generateRandomPasswordBinding(list) = %v, want a types.Err", got)
+		}
+	})
+
+	binaryStringString := map[string]func(ref.Val, ref.Val) ref.Val{
+		"hmacGenerate":  hmacGenerateBinding,
+		"derToPEM":      derToPEMBinding,
+		"secureCompare": secureCompareBinding,
+	}
+	for name, fn := range binaryStringString {
+		t.Run(name+"_arg0", func(t *testing.T) {
+			if got := fn(notString, validStr); !types.IsError(got) {
+				t.Errorf("%sBinding(list, _) = %v, want a types.Err", name, got)
+			}
+		})
+		t.Run(name+"_arg1", func(t *testing.T) {
+			if got := fn(validStr, notString); !types.IsError(got) {
+				t.Errorf("%sBinding(_, list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+}

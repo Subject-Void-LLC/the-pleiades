@@ -353,6 +353,13 @@ returns the whole seconds from a to b, negative if b precedes a, or fallback if 
 - `filters.deltaSeconds(string, string, int) -> int`
   - `filters.deltaSeconds("2024-01-01T00:00:00Z", "2024-01-01T00:01:00Z", -1) // 60`
 
+### `filters.derToPEM`
+
+wraps base64-encoded DER bytes as a PEM block of the named type, the inverse of filters.pemToDER.
+
+- `filters.derToPEM(string, string) -> string`
+  - `filters.derToPEM(der, "CERTIFICATE") // "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n"`
+
 ### `filters.dropEmptyValues`
 
 returns a copy of m with every key whose value is nil, an empty string, an empty list, or an empty map removed.
@@ -416,6 +423,13 @@ converts an IPv4-mapped IPv6 address back to plain dotted-decimal IPv4.
 - `filters.fromIPv4MappedIPv6(string) -> string`
   - `filters.fromIPv4MappedIPv6("::ffff:10.0.0.5") // "10.0.0.5"`
 
+### `filters.generateRandomPassword`
+
+returns a cryptographically random password of the given length from a curated unambiguous charset. Unlike most filters.* functions, this one is not deterministic: it returns a different value on every call.
+
+- `filters.generateRandomPassword(int) -> string`
+  - `filters.generateRandomPassword(12) // e.g. "aB3dEfGhJkLm" (a new random password every call)`
+
 ### `filters.generateUUIDv4`
 
 generates a random version-4 UUID. Unlike every other filters.* function, this one is not deterministic: it takes no arguments and returns a different value on every call.
@@ -436,6 +450,20 @@ decodes a hexadecimal string back to its original string, the inverse of filters
 
 - `filters.hexToString(string) -> string`
   - `filters.hexToString("6869") // "hi"`
+
+### `filters.hexToWindowsSID`
+
+converts a hex-encoded binary Windows SID to its string form, the inverse of filters.windowsSIDToHex.
+
+- `filters.hexToWindowsSID(string) -> string`
+  - `filters.hexToWindowsSID("010100000000000512000000") // "S-1-5-18"`
+
+### `filters.hmacGenerate`
+
+returns the lowercase hex-encoded HMAC-SHA256 of message using key.
+
+- `filters.hmacGenerate(string, string) -> string`
+  - `filters.hmacGenerate("The quick brown fox jumps over the lazy dog", "key") // "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"`
 
 ### `filters.hostnameToFQDN`
 
@@ -691,6 +719,13 @@ normalizes a MAC address to Windows dash-separated notation (AA-BB-CC-DD-EE-FF).
 - `filters.macToWindowsFormat(string) -> string`
   - `filters.macToWindowsFormat("00:00:5e:00:53:01") // "00-00-5E-00-53-01"`
 
+### `filters.maskPII`
+
+redacts SSN-, credit-card-, and bearer-token-shaped substrings from s; best-effort, not a compliance guarantee.
+
+- `filters.maskPII(string) -> string`
+  - `filters.maskPII("SSN is 123-45-6789 on file") // "SSN is [REDACTED-SSN] on file"`
+
 ### `filters.maskSecret`
 
 masks a secret, keeping only its last keepLast characters visible.
@@ -711,6 +746,41 @@ converts a 3- or 4-digit octal Unix permission string to its 9-character symboli
 
 - `filters.octalToSymbolicPerms(string) -> string`
   - `filters.octalToSymbolicPerms("755") // "rwxr-xr-x"`
+
+### `filters.parseDistinguishedName`
+
+parses an Active Directory distinguished name into a map from attribute type to its values.
+
+- `filters.parseDistinguishedName(string) -> map(string, dyn)`
+  - `filters.parseDistinguishedName("CN=John Doe,OU=Sales,DC=example,DC=com") // {"CN": ["John Doe"], "OU": ["Sales"], "DC": ["example", "com"]}`
+
+### `filters.parseJWTPayloadUnverified`
+
+decodes a JWT's payload claims without verifying its signature; never treat the result as authenticated.
+
+- `filters.parseJWTPayloadUnverified(string) -> map(string, dyn)`
+  - `filters.parseJWTPayloadUnverified("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig") // {"sub": "1234567890"}`
+
+### `filters.parseX509Certificate`
+
+parses a PEM-encoded X.509 certificate into its subject, issuer, validity window and SANs.
+
+- `filters.parseX509Certificate(string) -> map(string, dyn)`
+  - `filters.parseX509Certificate(certPEM) // {"subject": "CN=host.example.com", "issuer": "CN=host.example.com", "not_before": "2024-01-01T00:00:00Z", "not_after": "2034-01-01T00:00:00Z", "serial_number": "...", "dns_names": [...], "ip_addresses": [...]}`
+
+### `filters.pemToDER`
+
+converts a PEM block to its base64-encoded DER form.
+
+- `filters.pemToDER(string) -> string`
+  - `filters.pemToDER(certPEM) // "MIIB..." (base64-encoded DER)`
+
+### `filters.pemToSSHPublicKey`
+
+converts a PEM/PKIX public key to OpenSSH authorized_keys form, the inverse of filters.sshPublicKeyToPEM.
+
+- `filters.pemToSSHPublicKey(string) -> string`
+  - `filters.pemToSSHPublicKey(pemPublicKey) // "ssh-ed25519 AAAA..."`
 
 ### `filters.pluck`
 
@@ -779,6 +849,20 @@ reached for as if it did.
   - `filters.safeInt(stat.retries, 0) > 3 // stat.retries == "7" -> 7 > 3 -> true`
   - `filters.safeInt(stat.retries, 0) // stat.retries == "abc" -> 0 (fallback)`
 
+### `filters.secureCompare`
+
+reports whether a and b are equal, in constant time regardless of where they first differ.
+
+- `filters.secureCompare(string, string) -> bool`
+  - `filters.secureCompare("same-secret", "same-secret") // true`
+
+### `filters.sha256Hash`
+
+returns the lowercase hex-encoded SHA-256 digest of s.
+
+- `filters.sha256Hash(string) -> string`
+  - `filters.sha256Hash("") // "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"`
+
 ### `filters.shallowMerge`
 
 merges b into a at the top level only: a key present in both is overwritten by b's value, with no recursion into nested maps.
@@ -799,6 +883,20 @@ converts a snake_case identifier to camelCase, the inverse of filters.camelToSna
 
 - `filters.snakeToCamel(string) -> string`
   - `filters.snakeToCamel("classify_ip") // "classifyIp"`
+
+### `filters.snmpOIDTranslate`
+
+translates a standard MIB-II OID (system or interfaces group) to its symbolic name.
+
+- `filters.snmpOIDTranslate(string) -> string`
+  - `filters.snmpOIDTranslate("1.3.6.1.2.1.1.1.0") // "sysDescr.0"`
+
+### `filters.sshPublicKeyToPEM`
+
+converts an OpenSSH authorized_keys public key line to PEM/PKIX form.
+
+- `filters.sshPublicKeyToPEM(string) -> string`
+  - `filters.sshPublicKeyToPEM("ssh-ed25519 AAAA... user@host") // "-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"`
 
 ### `filters.startOfDay`
 
@@ -927,6 +1025,13 @@ reformats a Windows-style path to use forward slashes, a string transform only: 
 
 - `filters.windowsPathToPOSIX(string) -> string`
   - `filters.windowsPathToPOSIX("C:\\Users\\foo") // "C:/Users/foo"`
+
+### `filters.windowsSIDToHex`
+
+converts a Windows SID string to its little-endian binary form, hex-encoded.
+
+- `filters.windowsSIDToHex(string) -> string`
+  - `filters.windowsSIDToHex("S-1-5-18") // "010100000000000512000000"`
 
 ### `filters.xmlToJSON`
 

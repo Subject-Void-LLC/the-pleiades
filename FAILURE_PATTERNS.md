@@ -162,6 +162,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 159. netsh converting an adapter to the address it already holds by DHCP leaves it with no address at all
 160. A "skip what already exists" flag applied per file resurrected fifteen stub tests underneath real implementations
 161. A scaffolder's placeholder for an unsupported arity emitted a function signature that could not satisfy the type it was meant to produce
+162. A doc comment assumed the stdlib PEM encoder validated its own block type, and it does not
 
 ---
 
