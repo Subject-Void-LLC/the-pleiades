@@ -2,6 +2,7 @@ package remoteexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 )
+
+// errCircuitOpen is the sentinel dialWithRetry's own retryable predicate
+// checks for: a circuit open refusal must stop the loop immediately,
+// never be treated as just another failed-dial attempt worth retrying.
+var errCircuitOpen = errors.New("circuit open")
 
 // dialFunc dials addr and returns a fully handshaken SSH client, or an
 // error if the TCP connection or the SSH handshake failed.
@@ -76,7 +82,12 @@ func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.
 
 // dialWithRetry attempts to dial addr up to r.opts.MaxRetries times,
 // sleeping a jittered exponential backoff (pkg/retry.Backoff) between
-// attempts.
+// attempts. The loop and the sleep are pkg/retry.Do's, shared with
+// internal/lock's own retry loops rather than hand-rolled a third time
+// (PLAN.md Section 1379's Build-Once table); this function supplies only
+// what is specific to a dial attempt: the breaker check, the dial call
+// itself, and which of a dial attempt's failures should stop the loop
+// outright versus be retried.
 //
 // It wraps the dial phase ONLY: r.dial either succeeds with a fully
 // handshaken client or fails outright, and nothing here ever re-attempts
@@ -85,40 +96,33 @@ func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.
 //
 // Every failed attempt is recorded against the circuit breaker
 // immediately, not just the final one, and Allow is re-checked before
-// every attempt. A circuit that opens partway through this loop
-// (possible whenever MaxRetries is at least BreakerThreshold) stops
-// dialing at once instead of exhausting the remaining attempts.
+// every attempt (each call into fn below is one attempt). A circuit that
+// opens partway through this loop (possible whenever MaxRetries is at
+// least BreakerThreshold) stops dialing at once instead of exhausting the
+// remaining attempts: errCircuitOpen is the one error retryable reports
+// false for, so retry.Do returns immediately rather than sleeping and
+// trying again.
 func (r *Runner) dialWithRetry(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-	var lastErr error
-	for attempt := 0; attempt < r.opts.MaxRetries; attempt++ {
+	fn := func(ctx context.Context) (*ssh.Client, error) {
 		if !r.breaker.Allow(addr) {
-			return nil, fmt.Errorf("circuit open for %s, too many recent failures", addr)
+			return nil, fmt.Errorf("%w for %s, too many recent failures", errCircuitOpen, addr)
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
 		client, err := r.dial(ctx, addr, config)
-		if err == nil {
-			return client, nil
+		if err != nil {
+			r.breaker.RecordFailure(addr)
+			return nil, err
 		}
-		lastErr = err
-		r.breaker.RecordFailure(addr)
-
-		// Do not sleep after the final attempt; there is nothing left to
-		// wait for.
-		if attempt == r.opts.MaxRetries-1 {
-			break
-		}
-
-		wait := retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, fmt.Errorf("%w (last dial error: %v)", ctx.Err(), lastErr)
-		case <-timer.C:
-		}
+		return client, nil
 	}
-	return nil, fmt.Errorf("dial failed after %d attempt(s): %w", r.opts.MaxRetries, lastErr)
+
+	delay := func(attempt int) time.Duration {
+		return retry.Backoff(defaultBackoffBase, defaultBackoffMax, attempt)
+	}
+	retryable := func(err error) bool { return !errors.Is(err, errCircuitOpen) }
+
+	return retry.Do(ctx, delay, r.opts.MaxRetries, retryable, fn)
 }

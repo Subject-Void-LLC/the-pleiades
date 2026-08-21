@@ -274,7 +274,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 				// failure above and this Get: itemID may be free again,
 				// so retry the whole attempt (top of loop) rather than
 				// reporting contention that may no longer be real.
-				if waitErr := sleepForRetry(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
+				if waitErr := retry.Sleep(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
 					return nil, waitErr
 				}
 				continue
@@ -310,22 +310,9 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 		// modification (another join or a release): retry with fresh
 		// state rather than failing a request the lock fundamentally
 		// permits.
-		if waitErr := sleepForRetry(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
+		if waitErr := retry.Sleep(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
 			return nil, waitErr
 		}
-	}
-}
-
-// sleepForRetry waits out a jittered backoff delay (pkg/retry.Backoff) or
-// returns ctx's own error if ctx is done first.
-func sleepForRetry(ctx context.Context, base, max time.Duration, attempt int) error {
-	timer := time.NewTimer(retry.Backoff(base, max, attempt))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
 	}
 }
 
@@ -413,7 +400,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 		if !errors.Is(err, jetstream.ErrKeyExists) {
 			return fmt.Errorf("failed to keep alive lease %s: %w", l.itemID, err)
 		}
-		if waitErr := sleepForRetry(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
+		if waitErr := retry.Sleep(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
 			return waitErr
 		}
 	}
@@ -460,7 +447,7 @@ func (l *natsLease) Release(ctx context.Context) error {
 			if !errors.Is(err, jetstream.ErrKeyExists) {
 				return fmt.Errorf("failed to release lease %s: %w", l.itemID, err)
 			}
-			if waitErr := sleepForRetry(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
+			if waitErr := retry.Sleep(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
 				return waitErr
 			}
 			continue
@@ -474,7 +461,7 @@ func (l *natsLease) Release(ctx context.Context) error {
 			if !errors.Is(err, jetstream.ErrKeyExists) {
 				return fmt.Errorf("failed to release lease %s: %w", l.itemID, err)
 			}
-			if waitErr := sleepForRetry(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
+			if waitErr := retry.Sleep(ctx, sharedJoinRetryBase, sharedJoinRetryMax, attempt); waitErr != nil {
 				return waitErr
 			}
 			continue
