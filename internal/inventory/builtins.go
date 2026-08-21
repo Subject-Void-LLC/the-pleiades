@@ -4,7 +4,8 @@ package inventory
 // own init() registration (see devices/cisco/router.go,
 // devices/cisco/switch.go, devices/linux/server.go,
 // devices/windows/server.go, devices/aws/account.go,
-// devices/catalyst/center.go) into the shared record.Types registry.
+// devices/catalyst/center.go, devices/container/host.go) into the shared
+// record.Types registry.
 // factory.go itself no longer imports either package by name: a new
 // in-tree device type is added by writing its package and adding one
 // blank import here, never by editing NewItemFactory's logic.
@@ -15,6 +16,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/catalyst"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/cisco"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/container"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/linux"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/windows"
 )

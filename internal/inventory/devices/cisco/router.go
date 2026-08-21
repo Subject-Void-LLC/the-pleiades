@@ -45,7 +45,7 @@ type Router struct {
 // than a bespoke dedup loop here).
 func NewRouter(rec record.Record) (inventory.InventoryItem, error) {
 	caps := policy.UnionSlices(
-		[]capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS},
+		[]capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS, capability.NameNetworkAddressable},
 		rec.Capabilities,
 	)
 	base := record.NewBase(rec, caps)
@@ -70,6 +70,14 @@ func (c *Router) SSHPort() int {
 		return port
 	}
 	return 22
+}
+
+// IPAddress returns this router's reachable network address, the same
+// value SSHHost reports. Phase 73 added this accessor
+// (capability.NetworkAddressableCapable) so pleiades.builtin.wait.port
+// could dispatch against a real device at all -- see FAILURE_PATTERNS.md.
+func (c *Router) IPAddress() string {
+	return c.SSHHost()
 }
 
 // IOSVersion returns the detected or configured IOS firmware version.

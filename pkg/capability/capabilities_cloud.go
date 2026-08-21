@@ -5,12 +5,25 @@ const (
 	NameAWSAPI Name = "AWSAPICapable"
 )
 
+// SocketAddress identifies a local IPC endpoint: a Unix domain socket
+// path on POSIX, or a Windows named pipe (e.g.
+// "npipe:////./pipe/docker_engine"). It is a named string type per
+// AGENTS.md's "prefer a named string type over a raw string" rule,
+// specifically so a caller cannot silently pass it to path/filepath: on
+// Windows the value is not a filesystem path at all, and even on POSIX
+// it names a socket, not a file whose contents are ever opened, joined,
+// or cleaned as one.
+type SocketAddress string
+
 // DockerCapable is satisfied by devices that can run containers via
 // Docker.
 type DockerCapable interface {
-	// DockerSocketPath returns the path to the Docker control socket
-	// (e.g. "/var/run/docker.sock").
-	DockerSocketPath() string
+	// DockerEndpoint returns the address of the Docker control socket:
+	// a Unix socket path on POSIX (e.g. "/var/run/docker.sock") or a
+	// Windows named pipe (e.g. "npipe:////./pipe/docker_engine"). The
+	// value is opaque and must never be parsed, joined, or validated as
+	// a POSIX path — doing so is exactly wrong for the Windows case.
+	DockerEndpoint() SocketAddress
 }
 
 // AWSAPICapable is satisfied by resources addressable through the AWS

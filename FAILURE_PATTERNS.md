@@ -170,6 +170,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 167. A view's create form rendered no controls at all because every field omitted `InForm`, and the whole conformance suite still passed
 168. A hop chain's `Connect` kept closing only its last leg, leaking every earlier hop's connection
 169. A goleak check's baseline depended on which other tests happened to run first in the same binary
+170. Three `StatusImplemented` Collection methods required a capability zero device types could structurally satisfy
+171. A guard built for one capability gap found two more the same way, and three others already disclosed
 
 ---
 

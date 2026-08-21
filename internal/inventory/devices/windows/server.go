@@ -74,6 +74,7 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 			capability.Name("WinRMCapable"),
 			capability.Name("WindowsServiceCapable"),
 			capability.Name("WindowsFeatureCapable"),
+			capability.NameNetworkAddressable,
 		},
 		rec.Capabilities,
 	)
@@ -107,6 +108,14 @@ func (w *Server) WinRMPort() int {
 		return port
 	}
 	return 5985
+}
+
+// IPAddress returns this server's reachable network address, the same
+// value WinRMHost reports. Phase 73 added this accessor
+// (capability.NetworkAddressableCapable) so pleiades.builtin.wait.port
+// could dispatch against a real device at all -- see FAILURE_PATTERNS.md.
+func (w *Server) IPAddress() string {
+	return w.WinRMHost()
 }
 
 // WindowsEdition returns the detected Windows edition (e.g. "Server 2022

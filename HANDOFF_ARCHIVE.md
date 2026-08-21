@@ -1,5 +1,152 @@
 # Handoff Document Archive
 
+## Previous session: Phase 23 (The RRULE Scheduler)
+
+**Branch `feature/Phase-23-RRULE-Scheduler`, off `main`. HEAD is `17757a0` (the Filter
+Infrastructure merge). Everything below is implemented, tested and verified on top of that commit,
+but UNCOMMITTED: no live go-ahead has been given this session, so this session never ran
+`git commit`. A commit message is provided at the end of this section, per Phase 23's own final
+checklist item.**
+
+This session implemented **Phase 23: The RRULE Scheduler** end to end.
+
+### What landed
+
+**The recurrence engine (`internal/schedule/rrule`), hand-rolled, no new dependency.** Follows
+`pkg/filters/cron.go`'s precedent. A deliberately bounded constraint set (FREQ MINUTELY..YEARLY,
+INTERVAL, COUNT, UNTIL, WKST, BYDAY with ordinals, BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE, BYSETPOS)
+with everything else refused at parse: SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND, RDATE, INTERVAL=0,
+COUNT above a cap, an ordinal BYDAY under a frequency where it means nothing, BYSETPOS with nothing
+to select from. Two typed errors so "you wrote this wrong" and "this is valid iCalendar and we still
+will not run it" are distinguishable. EXRULE/EXDATE in `exclude.go`, with TZID honoured.
+
+**AWX parity is EARNED, not asserted.** `tools/genrrulefixtures/gen.py` expands 36 rules with
+python-dateutil (the library AWX schedules on) into a committed
+`internal/schedule/rrule/testdata/awx_parity.json`. **Python is not a build or CI dependency** and
+nothing in `make ci` runs it; regeneration is manual, like `go generate ./internal/ent`. This caught
+two real defects a hand-written test would not have (see FAILURE_PATTERNS #164, #165 and
+LESSONS_LEARNED #151): sub-daily frequencies took their time of day from DTSTART so `FREQ=HOURLY`
+expanded every period to the same instant, and the walk originally ran in the target zone so DST
+normalisation fed back into the iteration. The fix for the second was structural -- the walk now runs
+in civil time and localises only at emission, reproducing PEP 495 fold=0, which is where Go and
+dateutil genuinely disagree.
+
+**Persistence.** Two ent entities. `Schedule` splits AWX's single rrule blob into rrule, timezone and
+dtstart so the zone and anchor are queryable without parsing the rule. `ScheduleOccurrence` is the
+audit trail AND the duplicate-fire guard: a unique index on (schedule, occurrence_at), claimed by an
+insert BEFORE anything launches. `outcome` has three values, not two -- `claimed` is a real state so
+a controller that dies mid-launch leaves something visible rather than nothing. Migrations generated
+for BOTH dialects (sqlite 0016, postgres 0013); `go generate ./internal/ent` alone would have shipped
+tables that never exist in a real deployment.
+
+**The scanner** (`internal/schedule/scanner.go`) is shaped exactly like `dispatch.Reaper`: a
+leader-gated ticker taking `isLeader func() bool`, so `internal/schedule` imports neither
+`internal/election` nor `internal/lock`. It finally gates the `pleiades-scheduler-leader` lease
+`cmd/controller` has elected and ignored since Phase 4. Missed runs COALESCE: one job for the most
+recent missed occurrence, a durable skipped row for each earlier one, and a single counted row beyond
+a cap so a recovery cannot become its own outage.
+
+**Firing reuses the manual launch path completely.** `api.Dispatcher.LaunchScheduled` satisfies a
+one-method `schedule.Launcher` port, so a scheduled run gets the same template resolution, credential
+binding, job creation and JetStream publication a person pressing Launch gets. It refuses a template
+bound to a prompted credential and refuses to replay a saved survey password -- both never stored, and
+replaying one unattended forever is a larger version of what already stops a relaunch doing it once.
+
+**API and UI.** Eight routes (`/schedules` CRUD, `/schedules/{id}/occurrences`,
+`/schedules/preview`, `/zoneinfo`), new `schedule:read`/`schedule:write` scopes kept separate from
+both `template:write` and `runbook:execute`. Preview returns each occurrence in local AND UTC.
+`/zoneinfo` is served from a GENERATED allowlist (`tools/genzoneinfo`, 554 zones) built from the same
+archive `time/tzdata` embeds, so a zone offered is a zone that loads; the allowlist is also the
+save-time validator, checked before `time.LoadLocation` ever sees an operator string.
+`internal/ui/resources/schedules` moved from `StatusDeclared` to `StatusImplemented`.
+
+### Verification
+
+- `TestReleaseGate_ExclusionAcrossDaylightSaving` asserts the gate's literal wording, and refuses to
+  pass vacuously (it fails if the offset does not actually change across the ten occurrences).
+- `cmd/controller/scheduler_release_gate_test.go`: **three real controller OS processes**, a real NATS
+  container and one shared database, given one overdue schedule, produce exactly one job. ~70s.
+- `TestSweepCoalescesMissedRuns`: a five-hour outage on an hourly schedule gives one job and four
+  durable skipped rows.
+- `TestConcurrentSweepsFireOnce`: eight concurrent scanners, one winner. Its fixture had to move from
+  shared-cache in-memory SQLite to a WAL file, because the former made most workers fail on
+  `SQLITE_LOCKED` before reaching the claim -- the test was passing for the wrong reason
+  (FAILURE_PATTERNS #166).
+- Fuzzing: ~10.5M executions across `FuzzParse` and `FuzzParseRuleSet`, no crash, no hang.
+- **RULE 0 for the UI: the pages were rendered and read, not merely asserted to return 200.** That
+  is what found the third bug below; a `200` proves a page did not crash, not that it contains
+  anything.
+
+### Three real bugs these gates found, all fixed
+
+1. `Scanner.due` compared `LastFired` to `DTStart` with a strict `After`, so a schedule whose first
+   occurrence IS its DTStart re-selected that occurrence forever.
+2. **The Schedules create form rendered zero controls.** All eight fields declared `InList` and
+   none declared `InForm`, so `Field.Writable()` was false for every one. The page returned 200 with
+   a heading and a working Save button over nothing, and the entire conformance suite passed --
+   `TestViewConformance_FormsRenderAccessibly` loops over `FormFields()`, which was empty, so every
+   assertion in it passed vacuously. Fixed, and then closed permanently: that test now fails when a
+   view offering Create declares no form fields, negative-controlled by reintroducing the bug and
+   confirming it fails. FAILURE_PATTERNS.md #167.
+3. The new uncascaded Template→Schedule edge made `DELETE /templates/{id}` answer an opaque 500 for
+   a scheduled template. Now `launch.ErrInUse` and a 409 that names what is holding it.
+- `internal/archtest/scheduler_test.go`: three structural assertions that election was consumed, not
+  rebuilt, including that the controller actually wires it (FAILURE_PATTERNS #52's shape).
+- `go test ./...` clean; `go test -race ./internal/schedule/...` clean; `make gosec` 9 pre-existing
+  waived findings and **zero new** (two findings in the new generator were fixed at source, by giving
+  it a fixed output path instead of one from argv, rather than waived); `make coverage` passes with
+  new floors recorded for the three new packages; `make docs-lint` clean.
+
+### One honest caveat
+
+`make docs-gen-check` diffs the regenerated tree against **committed** HEAD, so it necessarily fails
+while this work is uncommitted. The generated output itself is correct and idempotent: `gendocs` was
+run, all eight routes are present in `docs/reference/schemas/openapi.json` and
+`internal/api/wellknown/openapi.json`, and running it a second time produces byte-identical files
+(verified by md5). It will pass on the commit.
+
+### Commit message
+
+```
+feat(scheduler): Phase 23's RFC 5545 scheduler, proven against AWX's own recurrence library
+
+Adds internal/schedule: an RFC 5545 recurrence attached to a template, evaluated by
+exactly one controller replica, launching through the same dispatch path a manual
+launch uses.
+
+The recurrence engine is hand-rolled rather than a new dependency, following
+pkg/filters/cron.go's precedent, over a deliberately bounded constraint set refused
+at save time rather than at run time -- an unbounded rule reaching the scan loop
+stalls every schedule in the deployment, not just its own.
+
+Parity with AWX is earned rather than claimed: tools/genrrulefixtures expands 36
+representative rules with python-dateutil, the library AWX itself schedules on, into
+a committed golden file the tests assert exact instant equality against. Python is
+not a build or CI dependency. Those fixtures caught two real defects no hand-written
+test would have produced: sub-daily frequencies taking their time of day from DTSTART,
+and DST normalisation feeding back into the expansion's own iteration state. The
+second is fixed structurally, by walking in civil time and localising only at
+emission, which also reproduces the PEP 495 fold=0 semantics where Go's time.Date and
+dateutil genuinely disagree.
+
+A schedule fires at most once per occurrence, and the guarantee is a unique index on
+(schedule, occurrence_at) claimed before anything launches -- not leader election,
+which runs a two-second lease with no fencing token and cannot promise it. Election
+is consumed rather than rebuilt: the Scanner takes an isLeader function, exactly as
+dispatch.Reaper already did, and internal/archtest asserts the package cannot even
+see internal/election. This finally gates the pleiades-scheduler-leader lease
+cmd/controller has elected and ignored since Phase 4.
+
+Occurrences missed while nothing was leading are coalesced to one run, with a durable
+skipped row for each that did not happen, so a four-hour outage does not become
+sixteen simultaneous jobs and does not become a silent gap either.
+
+Release gates: a recurrence with an exclusion rule produces the same ten occurrences
+as AWX across a daylight saving boundary; three real controller processes against one
+shared database produce exactly one job for one overdue schedule; a five-hour
+simulated outage produces one job and four skipped rows.
+```
+
 ## Previous session: Phase 58 (File, Text & Log Filters)
 
 **Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `e31dbe2` (the CI

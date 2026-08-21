@@ -4,6 +4,120 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
+**Branch `feature/Phase-73-Serial-Bastion-Docker-TFTP`, created off
+`feature/Transport-Foundation-the-Circuit-Breaker`'s HEAD (`70db86f`) at the start of this session,
+since Phase 72's own branch was still unmerged and Phase 73 is a large, independently-reviewable
+body of work. HEAD is still `70db86f`: **nothing from this session is committed** — no live
+go-ahead was given, matching the standing rule. This is a genuine mid-task checkpoint, not a
+phase-complete handoff: only Workstream A of Phase 73's eight (see the plan at
+`/root/.claude/plans/jaunty-roaming-lampson.md`) is done this session.**
+
+This session began planning **Phase 73: Serial, the Bastion Proof, Container Exec and TFTP**, found
+its spec checklist had drifted materially from the real code (see the plan's own "Verified drift"
+table — `internal/transport/ssh` is one file, not five; 34 methods are implemented, not 4; WinRM
+already landed as `pkg/winrmexec`, contradicting the checklist's `internal/transport/winrm`
+placement), got the user's decisions on three forks (both `pkg/` + `internal/transport/*` layers;
+build the whole phase in one gate; fix the Docker defect with a systemic guard first), then
+implemented **Workstream A** in full.
+
+### What landed (Workstream A only)
+
+**The live defect**: `container.docker.run/stop/remove` were `StatusImplemented`, fully coded and
+tested, requiring `capability.NameDocker` — but **zero device types anywhere in the module
+implemented it**, so `engine.checkMethodCapabilities` would refuse every real invocation. Confirmed
+empirically with a throwaway probe (since removed) against a real `linux.Server`, with a real
+capability it does satisfy as a non-vacuous control. The method's own tests never caught it because
+they build their device as `inventorytest.Stub`, which deliberately skips the structural assertion
+`HasCapability` performs on a real type — RULE 0's exact thesis. Fixed: `DockerCapable.DockerSocketPath()
+string` renamed to `DockerEndpoint() capability.SocketAddress` (a new named string type, since the
+value may be a Windows named pipe, never a POSIX path); a real `container.Host` device type
+scaffolded through the actual `pleiades forge new-device` CLI, hand-completed with
+`SSHHost`/`SSHPort`/`DockerEndpoint`/`IPAddress`, wired into `internal/inventory/builtins.go`.
+
+**The systemic guard**: `internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable`
+fails the build if any `StatusImplemented` Collection method's `RequiredCapabilities` names a
+capability no registered device type structurally implements — proven to catch the exact class of
+bug above by a real negative control (temporarily un-wiring the device type reproduces the three
+Docker failures verbatim).
+
+**Running the new guard for real surfaced five more unsatisfiable capabilities**, not just Docker's.
+Four (`PackageManagerCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, covering 15
+methods) turned out to already be honestly disclosed as "settled, intentional architecture" in their
+own implementing package's doc comment (`apt.go`, `dnf.go`, `identity/user/user.go`,
+`identity/group/group.go`) — genuinely per-distro or not-yet-collected classification data. These
+were allowlisted in a new `acceptedUnsatisfiableCapabilities` map, matching `gosec-waivers.json`'s
+established per-entry-reason convention, each entry citing the exact disclosure. A companion test,
+`TestAcceptedUnsatisfiableCapabilitiesAreNotStale`, fails if any allowlisted capability ever becomes
+satisfiable for real (also negative-controlled). The fifth and sixth were **not** disclosed anywhere
+— the same undocumented shape Docker had. `FirewalldCapable` (`fw.firewalld.*`, 3 methods) was
+documented (the same "capability this cannot reach yet" section added to `firewalld.go`, matching
+`apt.go`'s precedent — firewalld really is optional per-distro software) and allowlisted.
+`NetworkAddressableCapable` (`pleiades.builtin.wait.port`, 1 method) was **fixed for real**: it is
+trivial, already-known data on every network-reachable device type (an `IPAddress()` accessor
+delegating to each type's existing host field), so there was no honest architectural reason to leave
+it unsatisfiable. Added to `linux.Server`, `windows.Server`, `cisco.Router`, `cisco.Switch`, and the
+new `container.Host`, in each type's baseline capability set (not classification-only, since this is
+universal, not per-vendor, data).
+
+### Two real findings, recorded
+
+`FAILURE_PATTERNS.md`/`FAILURE_PATTERNS_ARCHIVE.md` #170 (the Docker satisfiability gap itself) and
+#171 (the guard's own first real run surfacing five more capabilities, four already accepted, two
+not).
+
+### Read this first
+
+**A methodology bug was caught before it shipped, not after.** The first draft of
+`satisfiableCapabilities` (the sweep's shared helper) checked `item.HasCapability(name)` against a
+probe `Record` with no classification data. For a capability meant to be classification-only by
+design (all four of the "accepted" ones above), `Declares` would be permanently false regardless of
+whether the structural half was ever fixed — silently defeating
+`TestAcceptedUnsatisfiableCapabilitiesAreNotStale` for exactly the four entries it exists to guard.
+Caught by reasoning through what the staleness test would actually need to observe, before running
+anything, and fixed by hydrating every probe with **every** registered capability name as
+classification data, so only the structural half is under test — closer to "could classification
+ever make this true" than "did classification run."
+
+**A `git checkout --` used mid-negative-control wiped legitimate work, caught immediately.** While
+negative-controlling the staleness guard, `git checkout -- internal/archtest/registry_sweep_test.go`
+was used to discard a temporary stale-probe edit — but the file had uncommitted legitimate changes
+(this session's own new tests) with nothing else to fall back to, so the command reverted **all** of
+it back to HEAD, not just the probe. Caught immediately by checking `git diff --stat` after, which
+showed zero diff where substantial new test code should have been. Recovered by re-authoring the
+same edits from this conversation's own record (not from git, since nothing was committed) and, for
+the second negative control, switched to a copy-to-scratchpad-and-restore-from-backup approach
+instead of `git checkout --`, verified byte-exact via `diff` afterward. Lesson for next time:
+`git stash` (not `checkout --`) is the safe tool for "discard this one temporary edit, then get
+everything back," since a stash pop restores by patch rather than by wholesale revert to HEAD.
+
+**No commit without the user's own live word in the current conversation.** Held throughout.
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Held throughout — Ultracode was active this session and every exploration, edit and verification was
+done directly.
+
+### Verification state
+
+`go build ./...`, `go vet ./...`, `gofmt -l` all clean. `go test ./internal/archtest/...` clean (full
+suite, not just the two new tests). `go test ./internal/inventory/... ./internal/catalog/...
+./pkg/capability/... ./internal/engine/...` clean. Both new archtest rules negative-controlled in
+both directions against real code changes (not reasoned about): un-wiring `container.Host` reproduces
+the three original Docker failures verbatim; allowlisting the now-fixed `NetworkAddressableCapable`
+makes the staleness test fail immediately. `make ci`/`make push-gate` not yet re-run this session
+(Workstream A's own surface is fully covered by the targeted runs above; a full gate run is more
+useful once more of Phase 73 has landed).
+
+### Next steps
+
+Workstreams B through H of Phase 73 (the `transport.Endpoint` sealed interface and exit-status
+signal; the new capabilities; the serial family; RFC 2217/Telnet; Docker exec/TFTP; the bastion proof
+plus chaos/fuzz/adversarial; hardening/docs/coverage) are not started. Full detail and dependency
+order in the approved plan file. Nothing here is a commit-message-ready unit yet — the natural
+commit boundary is either "Workstream A alone" (small, already a coherent real fix + guard) or "the
+whole phase" per the user's own "build the whole phase" scope decision; ask which before drafting one.
+
+## Previous session (Phase 72: Transport Foundation)
+
 **Branch `feature/Transport-Foundation-the-Circuit-Breaker`, off `main`. HEAD is `dc8e2df`. All of
 Phase 72's actual code is committed, across two commits the user made themselves (no live go-ahead
 was ever given to the assistant this session, so the assistant itself never ran `git commit`,
@@ -165,149 +279,3 @@ read this section before assuming any of their own scope from `.SPECIFICATION/IM
 alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
 current code first.
 
-## Previous session (Phase 23: The RRULE Scheduler)
-
-**Branch `feature/Phase-23-RRULE-Scheduler`, off `main`. HEAD is `17757a0` (the Filter
-Infrastructure merge). Everything below is implemented, tested and verified on top of that commit,
-but UNCOMMITTED: no live go-ahead has been given this session, so this session never ran
-`git commit`. A commit message is provided at the end of this section, per Phase 23's own final
-checklist item.**
-
-This session implemented **Phase 23: The RRULE Scheduler** end to end.
-
-### What landed
-
-**The recurrence engine (`internal/schedule/rrule`), hand-rolled, no new dependency.** Follows
-`pkg/filters/cron.go`'s precedent. A deliberately bounded constraint set (FREQ MINUTELY..YEARLY,
-INTERVAL, COUNT, UNTIL, WKST, BYDAY with ordinals, BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE, BYSETPOS)
-with everything else refused at parse: SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND, RDATE, INTERVAL=0,
-COUNT above a cap, an ordinal BYDAY under a frequency where it means nothing, BYSETPOS with nothing
-to select from. Two typed errors so "you wrote this wrong" and "this is valid iCalendar and we still
-will not run it" are distinguishable. EXRULE/EXDATE in `exclude.go`, with TZID honoured.
-
-**AWX parity is EARNED, not asserted.** `tools/genrrulefixtures/gen.py` expands 36 rules with
-python-dateutil (the library AWX schedules on) into a committed
-`internal/schedule/rrule/testdata/awx_parity.json`. **Python is not a build or CI dependency** and
-nothing in `make ci` runs it; regeneration is manual, like `go generate ./internal/ent`. This caught
-two real defects a hand-written test would not have (see FAILURE_PATTERNS #164, #165 and
-LESSONS_LEARNED #151): sub-daily frequencies took their time of day from DTSTART so `FREQ=HOURLY`
-expanded every period to the same instant, and the walk originally ran in the target zone so DST
-normalisation fed back into the iteration. The fix for the second was structural -- the walk now runs
-in civil time and localises only at emission, reproducing PEP 495 fold=0, which is where Go and
-dateutil genuinely disagree.
-
-**Persistence.** Two ent entities. `Schedule` splits AWX's single rrule blob into rrule, timezone and
-dtstart so the zone and anchor are queryable without parsing the rule. `ScheduleOccurrence` is the
-audit trail AND the duplicate-fire guard: a unique index on (schedule, occurrence_at), claimed by an
-insert BEFORE anything launches. `outcome` has three values, not two -- `claimed` is a real state so
-a controller that dies mid-launch leaves something visible rather than nothing. Migrations generated
-for BOTH dialects (sqlite 0016, postgres 0013); `go generate ./internal/ent` alone would have shipped
-tables that never exist in a real deployment.
-
-**The scanner** (`internal/schedule/scanner.go`) is shaped exactly like `dispatch.Reaper`: a
-leader-gated ticker taking `isLeader func() bool`, so `internal/schedule` imports neither
-`internal/election` nor `internal/lock`. It finally gates the `pleiades-scheduler-leader` lease
-`cmd/controller` has elected and ignored since Phase 4. Missed runs COALESCE: one job for the most
-recent missed occurrence, a durable skipped row for each earlier one, and a single counted row beyond
-a cap so a recovery cannot become its own outage.
-
-**Firing reuses the manual launch path completely.** `api.Dispatcher.LaunchScheduled` satisfies a
-one-method `schedule.Launcher` port, so a scheduled run gets the same template resolution, credential
-binding, job creation and JetStream publication a person pressing Launch gets. It refuses a template
-bound to a prompted credential and refuses to replay a saved survey password -- both never stored, and
-replaying one unattended forever is a larger version of what already stops a relaunch doing it once.
-
-**API and UI.** Eight routes (`/schedules` CRUD, `/schedules/{id}/occurrences`,
-`/schedules/preview`, `/zoneinfo`), new `schedule:read`/`schedule:write` scopes kept separate from
-both `template:write` and `runbook:execute`. Preview returns each occurrence in local AND UTC.
-`/zoneinfo` is served from a GENERATED allowlist (`tools/genzoneinfo`, 554 zones) built from the same
-archive `time/tzdata` embeds, so a zone offered is a zone that loads; the allowlist is also the
-save-time validator, checked before `time.LoadLocation` ever sees an operator string.
-`internal/ui/resources/schedules` moved from `StatusDeclared` to `StatusImplemented`.
-
-### Verification
-
-- `TestReleaseGate_ExclusionAcrossDaylightSaving` asserts the gate's literal wording, and refuses to
-  pass vacuously (it fails if the offset does not actually change across the ten occurrences).
-- `cmd/controller/scheduler_release_gate_test.go`: **three real controller OS processes**, a real NATS
-  container and one shared database, given one overdue schedule, produce exactly one job. ~70s.
-- `TestSweepCoalescesMissedRuns`: a five-hour outage on an hourly schedule gives one job and four
-  durable skipped rows.
-- `TestConcurrentSweepsFireOnce`: eight concurrent scanners, one winner. Its fixture had to move from
-  shared-cache in-memory SQLite to a WAL file, because the former made most workers fail on
-  `SQLITE_LOCKED` before reaching the claim -- the test was passing for the wrong reason
-  (FAILURE_PATTERNS #166).
-- Fuzzing: ~10.5M executions across `FuzzParse` and `FuzzParseRuleSet`, no crash, no hang.
-- **RULE 0 for the UI: the pages were rendered and read, not merely asserted to return 200.** That
-  is what found the third bug below; a `200` proves a page did not crash, not that it contains
-  anything.
-
-### Three real bugs these gates found, all fixed
-
-1. `Scanner.due` compared `LastFired` to `DTStart` with a strict `After`, so a schedule whose first
-   occurrence IS its DTStart re-selected that occurrence forever.
-2. **The Schedules create form rendered zero controls.** All eight fields declared `InList` and
-   none declared `InForm`, so `Field.Writable()` was false for every one. The page returned 200 with
-   a heading and a working Save button over nothing, and the entire conformance suite passed --
-   `TestViewConformance_FormsRenderAccessibly` loops over `FormFields()`, which was empty, so every
-   assertion in it passed vacuously. Fixed, and then closed permanently: that test now fails when a
-   view offering Create declares no form fields, negative-controlled by reintroducing the bug and
-   confirming it fails. FAILURE_PATTERNS.md #167.
-3. The new uncascaded Template→Schedule edge made `DELETE /templates/{id}` answer an opaque 500 for
-   a scheduled template. Now `launch.ErrInUse` and a 409 that names what is holding it.
-- `internal/archtest/scheduler_test.go`: three structural assertions that election was consumed, not
-  rebuilt, including that the controller actually wires it (FAILURE_PATTERNS #52's shape).
-- `go test ./...` clean; `go test -race ./internal/schedule/...` clean; `make gosec` 9 pre-existing
-  waived findings and **zero new** (two findings in the new generator were fixed at source, by giving
-  it a fixed output path instead of one from argv, rather than waived); `make coverage` passes with
-  new floors recorded for the three new packages; `make docs-lint` clean.
-
-### One honest caveat
-
-`make docs-gen-check` diffs the regenerated tree against **committed** HEAD, so it necessarily fails
-while this work is uncommitted. The generated output itself is correct and idempotent: `gendocs` was
-run, all eight routes are present in `docs/reference/schemas/openapi.json` and
-`internal/api/wellknown/openapi.json`, and running it a second time produces byte-identical files
-(verified by md5). It will pass on the commit.
-
-### Commit message
-
-```
-feat(scheduler): Phase 23's RFC 5545 scheduler, proven against AWX's own recurrence library
-
-Adds internal/schedule: an RFC 5545 recurrence attached to a template, evaluated by
-exactly one controller replica, launching through the same dispatch path a manual
-launch uses.
-
-The recurrence engine is hand-rolled rather than a new dependency, following
-pkg/filters/cron.go's precedent, over a deliberately bounded constraint set refused
-at save time rather than at run time -- an unbounded rule reaching the scan loop
-stalls every schedule in the deployment, not just its own.
-
-Parity with AWX is earned rather than claimed: tools/genrrulefixtures expands 36
-representative rules with python-dateutil, the library AWX itself schedules on, into
-a committed golden file the tests assert exact instant equality against. Python is
-not a build or CI dependency. Those fixtures caught two real defects no hand-written
-test would have produced: sub-daily frequencies taking their time of day from DTSTART,
-and DST normalisation feeding back into the expansion's own iteration state. The
-second is fixed structurally, by walking in civil time and localising only at
-emission, which also reproduces the PEP 495 fold=0 semantics where Go's time.Date and
-dateutil genuinely disagree.
-
-A schedule fires at most once per occurrence, and the guarantee is a unique index on
-(schedule, occurrence_at) claimed before anything launches -- not leader election,
-which runs a two-second lease with no fencing token and cannot promise it. Election
-is consumed rather than rebuilt: the Scanner takes an isLeader function, exactly as
-dispatch.Reaper already did, and internal/archtest asserts the package cannot even
-see internal/election. This finally gates the pleiades-scheduler-leader lease
-cmd/controller has elected and ignored since Phase 4.
-
-Occurrences missed while nothing was leading are coalesced to one run, with a durable
-skipped row for each that did not happen, so a four-hour outage does not become
-sixteen simultaneous jobs and does not become a silent gap either.
-
-Release gates: a recurrence with an exclusion rule produces the same ten occurrences
-as AWX across a daylight saving boundary; three real controller processes against one
-shared database produce exactly one job for one overdue schedule; a five-hour
-simulated outage produces one job and four skipped rows.
-```

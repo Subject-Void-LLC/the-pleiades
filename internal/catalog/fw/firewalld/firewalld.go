@@ -27,6 +27,31 @@
 // reload is the only one of the three that applies a permanent change to
 // the runtime configuration; allow and deny never fold that in
 // themselves.
+//
+// # The capability this cannot reach yet
+//
+// capability.FirewalldCapable exists (pkg/capability/capabilities_service.go)
+// and is what RequiredCapabilities below names, but no device type in
+// this repository structurally implements it today, the same gap
+// pkg/apt/apt.go documents for capability.AptCapable: FirewalldZone has
+// no real accessor anywhere. That is the same settled, intentional
+// architecture as AptCapable/DnfCapable -- not every Linux server runs
+// firewalld (some run iptables or ufw directly), so it cannot be part of
+// linux.Server's unconditional baseline the way SystemdCapable is;
+// wiring it needs real classification data this platform does not
+// collect yet. Phase 73's archtest satisfiability sweep
+// (internal/archtest/registry_sweep_test.go) found this undocumented
+// until now and this comment is the fix, mirroring apt.go's own
+// disclosure rather than leaving allow/deny/reload's own gap unstated
+// the way container.docker.run/stop/remove's was before that same
+// sweep found it too. See FAILURE_PATTERNS.md.
+//
+// The practical consequence: fw.firewalld.allow, fw.firewalld.deny and
+// fw.firewalld.reload are implemented and tested here, against a real
+// SSH server with a fake firewall-cmd on PATH, exactly the tier
+// pkg.apt.* is accepted at. They are not yet reachable against any real
+// inventory device through the platform end to end. Wiring a device type
+// to FirewalldCapable is separate, deliberate follow-up work.
 package firewalld
 
 import (

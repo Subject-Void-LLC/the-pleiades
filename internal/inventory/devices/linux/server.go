@@ -59,6 +59,7 @@ func NewServer(rec record.Record) (inventory.InventoryItem, error) {
 			capability.NameSystemd,
 			capability.NamePOSIXFileSystem,
 			capability.NameFactGatherer,
+			capability.NameNetworkAddressable,
 		},
 		rec.Capabilities,
 	)
@@ -84,6 +85,16 @@ func (l *Server) SSHPort() int {
 		return port
 	}
 	return 22
+}
+
+// IPAddress returns this server's reachable network address, the same
+// value SSHHost reports: a Linux server managed over SSH has exactly one
+// address this platform knows about today. Phase 73 added this accessor
+// (capability.NetworkAddressableCapable) so pleiades.builtin.wait.port,
+// StatusImplemented since before this Part, could dispatch against a
+// real device at all -- see FAILURE_PATTERNS.md.
+func (l *Server) IPAddress() string {
+	return l.SSHHost()
 }
 
 // RootPath returns the filesystem root.

@@ -5135,3 +5135,132 @@ snapshot needs either a guarantee that the populating call always runs first
 its own setup, the same way this fix landed. "It passed in the full suite"
 is not evidence a leak check is correct; run the specific test alone before
 trusting it.
+
+## 170. Three `StatusImplemented` Collection methods required a capability zero device types could structurally satisfy
+
+**Symptom.** `container.docker.run`, `container.docker.stop` and
+`container.docker.remove` were `StatusImplemented`, fully coded, fully
+tested, and their own `RequiredCapabilities` correctly named
+`capability.NameDocker` (`internal/catalog/container/docker/{run,stop,remove}.go`).
+Every real invocation of any of the three, against any real device in this
+repository, would nonetheless have been refused by
+`engine.checkMethodCapabilities` before the task ever ran.
+
+**Root cause.** `checkMethodCapabilities` (`internal/engine/collection_action.go:106`)
+calls `device.HasCapability(required)`, which is `Declares(name) &&
+capability.Implements(item, name)` on every concrete device type
+(`linux.Server.HasCapability`, and its siblings, all the identical
+one-liner). `capability.Implements` is a plain Go type assertion against
+the interface `DockerCapable` binds to
+(`_, ok := item.(DockerCapable)`), and `DockerCapable.DockerSocketPath()
+string` (its name before this fix) had **zero implementers anywhere in the
+module** -- confirmed empirically with a throwaway probe against a real
+`linux.Server`, with a real capability it does implement
+(`SSHTransportCapable`) as a non-vacuous control:
+`HasCapability(DockerCapable) = false`,
+`HasCapability(SSHTransportCapable) = true`. Every real Linux, Windows,
+Cisco, AWS or Catalyst Center device in the codebase would fail the same
+way.
+
+**Why it was not caught earlier.** `docker_test.go`'s own suite built its
+target device as `&inventorytest.Stub{Caps:
+[]capability.Name{capability.NameDocker}}`, and `Stub.HasCapability` (`pkg/inventory/inventorytest/stub.go`)
+deliberately skips the structural half of the check -- its own doc comment
+says a test double declaring a capability "is asserting the behavior it
+wants, not classifying a real device." So every test exercised exactly the
+one code path that could never actually fail this way, which is RULE 0's
+own thesis stated as a bug instead of a warning.
+`linux/server.go:89-99`'s own comment already recorded the identical class
+of defect happening once before, for `POSIXFileSystemCapable` and
+`FactGathererCapable` (fifteen working methods silently refused until the
+gap was declared); Docker was simply the next capability nobody had
+audited against a real device type.
+
+**Fix.** `DockerCapable.DockerSocketPath() string` renamed to
+`DockerEndpoint() capability.SocketAddress` (a new named string type, so a
+Windows named pipe can never be mistaken for a POSIX path). A real
+container-host device type, `container.Host` (scaffolded through the real
+`pleiades forge new-device` CLI, then hand-completed with `SSHHost`/
+`SSHPort`/`DockerEndpoint`/`IPAddress`), wired into
+`internal/inventory/builtins.go`. A new systemic guard,
+`internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable`,
+now fails the build if any `StatusImplemented` Collection method's
+`RequiredCapabilities` names a capability no registered device type
+structurally implements -- proven to actually catch this exact defect by a
+negative control (temporarily un-wiring the new device type reproduces the
+three failures verbatim).
+
+**Lesson.** A capability manifest and a capability-satisfying device type
+are two independent claims, and nothing before this connected them except
+a runtime check every existing test bypassed. `RequiredCapabilities` being
+well-formed (`TestCollectionManifestsNameKnownCapabilities`, which only
+checks the name is registered) is not the same claim as
+`RequiredCapabilities` being satisfiable, and a `StatusImplemented` badge
+on a method proves neither. See [[171]] for what the same new guard found
+next.
+
+## 171. A guard built for one capability gap found two more the same way, and three others already disclosed
+
+**Symptom.** Running the new `TestImplementedCollectionCapabilitiesAreSatisfiable`
+sweep (entry 170) for the first time did not report one failure, it
+reported nineteen, across six capabilities: `PackageManagerCapable`,
+`AptCapable`, `DnfCapable`, `PosixAccountCapable`, `FirewalldCapable`, and
+`NetworkAddressableCapable`.
+
+**Root cause.** Four of the six were not new information: `pkg/apt/apt.go`,
+`pkg/dnf/dnf.go`, `internal/catalog/identity/user/user.go` and
+`identity/group/group.go` each already carried an honest "the capability
+this cannot reach yet" section in their own package doc comment, calling
+the gap "settled, intentional architecture" (package-manager family and
+POSIX account management are genuinely per-distro/not-yet-collected
+classification data, unlike a service manager, which has a safe universal
+default). The other two were not disclosed anywhere.
+`fw.firewalld.{allow,deny,reload}` required `FirewalldCapable`
+(`FirewalldZone() string`, structurally unimplemented by any type) with no
+caveat in `internal/catalog/fw/firewalld/firewalld.go` at all.
+`pleiades.builtin.wait.port` required `NetworkAddressableCapable`
+(`IPAddress() string`) with no caveat either, despite that accessor being
+trivial, already-known data every network-reachable device type already
+stores under its own name (`SSHHost`, `WinRMHost`).
+
+**Why it was not caught earlier.** Same as entry 170: every method's own
+tests used `inventorytest.Stub`, and nothing before this sweep ever
+constructed a fully classified instance of every real device type and
+asked whether each one's own `HasCapability` could ever return true.
+
+**Fix.** Split by whether the gap was genuinely architectural.
+`NetworkAddressableCapable` was fixed for real: `IPAddress()` added to
+`linux.Server`, `windows.Server`, `cisco.Router`, `cisco.Switch` and the
+new `container.Host` (each delegating to its existing host accessor), and
+`capability.NameNetworkAddressable` added to each type's baseline
+capability set, since this is universal data, not an optional per-vendor
+choice -- there was no honest architectural reason to leave it
+unsatisfiable. `FirewalldCapable` was documented rather than fixed,
+matching the `AptCapable`/`DnfCapable` precedent exactly (firewalld is
+genuinely optional per-distro software; not every Linux server runs it,
+so it cannot join the unconditional baseline the way `SystemdCapable`
+did): `firewalld.go` gained the identical "capability this cannot reach
+yet" section `apt.go` already carries. All five genuinely-architectural
+capabilities (`PackageManagerCapable`, `AptCapable`, `DnfCapable`,
+`PosixAccountCapable`, `FirewalldCapable`) were then added to a new
+`acceptedUnsatisfiableCapabilities` allowlist in
+`internal/archtest/registry_sweep_test.go`, each entry citing the exact
+doc comment that discloses it -- matching `gosec-waivers.json`'s
+established per-entry-reason convention rather than a blanket
+suppression. A companion test,
+`TestAcceptedUnsatisfiableCapabilitiesAreNotStale`, fails if any
+allowlisted capability ever becomes satisfiable for real, so the
+exemption cannot silently outlive its own justification (proven by a
+negative control: temporarily allowlisting the now-fixed
+`NetworkAddressableCapable` makes the staleness test fail immediately).
+
+**Lesson.** A systemic guard built to catch one specific, already-known
+bug should be run for real before assuming its blast radius is exactly
+one bug wide -- this one surfaced a whole capability-satisfiability class
+at once, most of it already honestly accounted for in source, some of it
+not. And an allowlist for a real, accepted exception needs the same
+per-entry-reason discipline and the same staleness guard `gosec-waivers.json`
+and `flaky-packages.json` already established for this project's other two
+waiver mechanisms -- a bare list of exempted names, with no citation and
+no drift check, would have been a second, unaudited way for exactly this
+class of bug to hide again.
