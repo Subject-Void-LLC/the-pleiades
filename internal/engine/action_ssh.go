@@ -65,18 +65,42 @@ func SSHTarget(item inventory.InventoryItem) (transport.Target, bool) {
 type transportActionExecutor struct {
 	bindings    map[string]TransportBinding
 	credentials credential.Store
+	inventory   hopChainInventory
 	fallback    ActionExecutor
 }
 
 // NewTransportActionExecutor returns an ActionExecutor that dispatches
 // each task's fqcn through bindings to a real transport.Transport,
-// looking up credentials by device name via credentials, and delegating
-// any fqcn not present in bindings to fallback unchanged. This is the
-// seam action.go's own doc comment names Phase W6 as replacing: dispatch
-// over a device's transport capability, once the device is resolved and
-// its capability checked.
-func NewTransportActionExecutor(bindings map[string]TransportBinding, credentials credential.Store, fallback ActionExecutor) ActionExecutor {
-	return &transportActionExecutor{bindings: bindings, credentials: credentials, fallback: fallback}
+// looking up credentials by device name via credentials, resolving each
+// dispatched device's own configured hop chain (if any) via inventoryRepo
+// (Phase 72: ResolveRoute, hopChainInventory), and delegating any fqcn
+// not present in bindings to fallback unchanged. This is the seam
+// action.go's own doc comment names Phase W6 as replacing: dispatch over
+// a device's transport capability, once the device is resolved and its
+// capability checked.
+//
+// inventoryRepo may be nil, in which case hop-chain resolution is
+// skipped entirely and every dispatch behaves exactly as it did before
+// Phase 72: a nil route is exactly a direct connection.
+// internal/adapters/native's per-task subprocess composition root passes
+// nil today, stated once here rather than at that call site, for two
+// compounding reasons rather than one. First, structurally: that
+// Adapter has no inventory.Repository at all (internal/adapters/native/
+// adapter.go's own Adapter struct holds bus, runbooks, bindings, ipc and
+// logger, nothing that reaches a real database), because a Collection
+// method there runs inside a per-task subprocess reached only by the
+// wire.DispatchPayload the Controller sent over NATS, with no live
+// connection of its own to resolve against. Second, even if it had one,
+// its credential.Store is a StaticStore scoped to the one target
+// device's own secret from that same payload (payload.Secrets), so a
+// configured hop's own credential.Store.Lookup would fail regardless of
+// whether the route resolved. Wiring the Controller to also resolve and
+// attach each hop's credential to the dispatch payload (widening the
+// JetStream exposure this module's own docs already flag for the single
+// target credential) is real, undone work, not a defect in this
+// constructor.
+func NewTransportActionExecutor(bindings map[string]TransportBinding, credentials credential.Store, inventoryRepo hopChainInventory, fallback ActionExecutor) ActionExecutor {
+	return &transportActionExecutor{bindings: bindings, credentials: credentials, inventory: inventoryRepo, fallback: fallback}
 }
 
 // Execute implements ActionExecutor.
@@ -126,6 +150,26 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	// this codebase actually surfaces (event.Bus, cmd/pleiades/run.go's
 	// printed output). FAILURE_PATTERNS.md #22.
 	secrets := []string{cred.Password, string(cred.PrivateKeyPEM), cred.Passphrase}
+
+	// A device's configured hop chain, if any (Phase 72: nil e.inventory
+	// skips this entirely, exactly a direct connection, per
+	// NewTransportActionExecutor's own doc comment). Every hop's own
+	// secrets join the masking set below alongside the target's: a route
+	// is new attacker-influenceable structure, but the credential
+	// material flowing through it is exactly as sensitive as the
+	// target's own, and an error path that masked only the target's
+	// would leak a bastion's password the moment that hop's own dial or
+	// auth failed.
+	if e.inventory != nil {
+		hops, err := ResolveRoute(ctx, e.inventory, e.credentials, device)
+		if err != nil {
+			return ActionResult{}, fmt.Errorf("fqcn %q: %w", task.FQCN, err)
+		}
+		target.Route = hops
+		for _, hop := range hops {
+			secrets = append(secrets, hop.Credential.Password, string(hop.Credential.PrivateKeyPEM), hop.Credential.Passphrase)
+		}
+	}
 
 	result, err := binding.Transport.Exec(ctx, target, cred, command)
 	if err != nil {

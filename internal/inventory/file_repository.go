@@ -126,6 +126,18 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 	return &fileIterator{items: items}, nil
 }
 
+// GroupAncestry always returns a nil slice and a nil error. hosts.yaml
+// models a flat list of hosts with no nested Group or Inventory entities
+// at all (those are ent schema concepts, internal/ent/schema/group.go and
+// inventory.go, that this Walk-tier storage format has no equivalent
+// of), so there is no hierarchy to walk. A nil, nil result is the honest
+// answer this Repository.GroupAncestry's own doc comment already
+// documents for exactly this case ("a Repository with no such hierarchy
+// at all"), not a stub standing in for unfinished work.
+func (r *fileRepository) GroupAncestry(_ context.Context, _ string) ([]HierarchyLayer, error) {
+	return nil, nil
+}
+
 // GetByName returns a single host by its unique name, together with its
 // full audit trail loaded from the sidecar. This is the read counterpart
 // to Save: it is how a caller reloads after ErrVersionConflict, and how

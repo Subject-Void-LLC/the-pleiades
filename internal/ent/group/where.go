@@ -215,6 +215,16 @@ func NameContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldName, v))
 }
 
+// PropertiesIsNil applies the IsNil predicate on the "properties" field.
+func PropertiesIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldProperties))
+}
+
+// PropertiesNotNil applies the NotNil predicate on the "properties" field.
+func PropertiesNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldProperties))
+}
+
 // HasDevices applies the HasEdge predicate on the "devices" edge.
 func HasDevices() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {

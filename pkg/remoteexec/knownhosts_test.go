@@ -16,7 +16,7 @@ import (
 // generateTestHostKey returns a real ed25519 ssh.Signer, suitable for
 // formatting into a known_hosts line, the same shape a real sshd's host
 // key takes.
-func generateTestHostKey(t *testing.T) ssh.Signer {
+func generateTestHostKey(t testing.TB) ssh.Signer {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

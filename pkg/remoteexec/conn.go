@@ -27,7 +27,22 @@ import (
 // nothing here serializes two callers building sessions on it, and no
 // caller in this codebase needs that today.
 type Conn struct {
+	// client is the final, target-reaching connection: what Run and
+	// RunWithStdin actually open a session on.
 	client *ssh.Client
+
+	// chain is every client dialed to reach client, in dial order
+	// (chain[0] is the first hop, or client itself when there are no
+	// hops; chain[len(chain)-1] is always client). Close walks this in
+	// REVERSE, because a hop's client owns the tunneled connection the
+	// NEXT client in the chain is built on: closing hop 1 out from under
+	// a still-open hop 2 (or the target) is what tears the whole chain
+	// down cleanly, but doing it in dial order would sever a connection
+	// while something is still layered on top of it.
+	//
+	// A zero-hop Conn still has a one-element chain (just client), so
+	// Close needs no separate zero-hop case.
+	chain []*ssh.Client
 
 	// addr is kept only to name the target in error messages, so a
 	// failure says which device it happened against.
@@ -165,8 +180,21 @@ func (c *Conn) RunWithStdin(ctx context.Context, command string, stdin io.Reader
 	return result, nil
 }
 
-// Close closes the underlying SSH connection. It is safe to call once;
-// a Conn is not reusable afterward.
+// Close closes every connection in the chain that reaches this Conn's
+// target, innermost (the target, or the last hop) first, walking back out
+// to the first hop, so each layer shuts down cleanly before the
+// connection tunneling it is torn away. It is safe to call once; a Conn
+// is not reusable afterward.
+//
+// The first error encountered is returned, but every client is still
+// closed regardless: a failure closing one connection must never leave
+// an earlier hop in the chain leaked.
 func (c *Conn) Close() error {
-	return c.client.Close()
+	var firstErr error
+	for i := len(c.chain) - 1; i >= 0; i-- {
+		if err := c.chain[i].Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

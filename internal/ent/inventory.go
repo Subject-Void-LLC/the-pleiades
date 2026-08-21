@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -28,6 +29,8 @@ type Inventory struct {
 	Description string `json:"description,omitempty"`
 	// Owner holds the value of the "owner" field.
 	Owner string `json:"owner,omitempty"`
+	// Properties holds the value of the "properties" field.
+	Properties map[string]interface{} `json:"properties,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the InventoryQuery when eager-loading is set.
 	Edges                    InventoryEdges `json:"edges"`
@@ -93,6 +96,8 @@ func (*Inventory) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case inventory.FieldProperties:
+			values[i] = new([]byte)
 		case inventory.FieldID:
 			values[i] = new(sql.NullInt64)
 		case inventory.FieldName, inventory.FieldDescription, inventory.FieldOwner:
@@ -151,6 +156,14 @@ func (_m *Inventory) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field owner", values[i])
 			} else if value.Valid {
 				_m.Owner = value.String
+			}
+		case inventory.FieldProperties:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field properties", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Properties); err != nil {
+					return fmt.Errorf("unmarshal field properties: %w", err)
+				}
 			}
 		case inventory.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -229,6 +242,9 @@ func (_m *Inventory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("owner=")
 	builder.WriteString(_m.Owner)
+	builder.WriteString(", ")
+	builder.WriteString("properties=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Properties))
 	builder.WriteByte(')')
 	return builder.String()
 }

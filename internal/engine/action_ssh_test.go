@@ -113,6 +113,7 @@ func TestTransportActionExecutor_DelegatesUnknownFQCNToFallback(t *testing.T) {
 	actions := engine.NewTransportActionExecutor(
 		map[string]engine.TransportBinding{},
 		fakeCredentialStore{},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 
@@ -134,6 +135,7 @@ func TestTransportActionExecutor_RequiresCapableDevice(t *testing.T) {
 	actions := engine.NewTransportActionExecutor(
 		map[string]engine.TransportBinding{"ssh_exec": sshBinding(nil)},
 		fakeCredentialStore{},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 
@@ -163,6 +165,7 @@ func TestTransportActionExecutor_RejectsCapabilityWithNoTargetAccessor(t *testin
 	actions := engine.NewTransportActionExecutor(
 		map[string]engine.TransportBinding{"ssh_exec": sshBinding(nil)},
 		fakeCredentialStore{},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 
@@ -184,6 +187,7 @@ func TestTransportActionExecutor_RequiresCommandParam(t *testing.T) {
 	actions := engine.NewTransportActionExecutor(
 		map[string]engine.TransportBinding{"ssh_exec": sshBinding(nil)},
 		fakeCredentialStore{},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -214,6 +218,7 @@ func TestTransportActionExecutor_CredentialLookupFailure(t *testing.T) {
 			return transport.Result{}, nil
 		})},
 		fakeCredentialStore{err: credential.ErrNotFound},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -249,6 +254,7 @@ func TestTransportActionExecutor_MasksSecretsInStats(t *testing.T) {
 			}, nil
 		})},
 		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: secretPassword}},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -283,6 +289,7 @@ func TestTransportActionExecutor_ChangedDefaultsTrue(t *testing.T) {
 				return transport.Result{Stdout: "ok", ExitCode: 0}, nil
 			})},
 			fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: "x"}},
+			nil,
 			engine.NewBuiltinActionExecutor(),
 		)
 	}
@@ -319,6 +326,7 @@ func TestTransportActionExecutor_NonZeroExitIsError(t *testing.T) {
 			return transport.Result{Stderr: "auth used " + secretPassword + ": command not found", ExitCode: 127}, nil
 		})},
 		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: secretPassword}},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -353,6 +361,7 @@ func TestTransportActionExecutor_MasksSecretsInTransportError(t *testing.T) {
 			return transport.Result{}, fmt.Errorf("dial failed: auth rejected for password %s", secretPassword)
 		})},
 		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: secretPassword}},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -380,6 +389,7 @@ func TestTransportActionExecutor_TransportErrorIsSurfaced(t *testing.T) {
 			return transport.Result{}, errors.New("dial tcp 10.0.0.1:22: connection refused")
 		})},
 		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: "x"}},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 	dev := newSSHDevice("router1", "10.0.0.1", 22)
@@ -454,6 +464,7 @@ func TestTransportActionExecutor_DispatchesToASecondUnrelatedProtocol(t *testing
 	actions := engine.NewTransportActionExecutor(
 		bindings,
 		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: "x"}},
+		nil,
 		engine.NewBuiltinActionExecutor(),
 	)
 

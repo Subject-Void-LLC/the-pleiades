@@ -139,7 +139,7 @@ func Ping(ctx context.Context, rc sdk.RunbookContext, device inventory.Inventory
 	// author-supplied value can contain any byte sequence, including shell
 	// metacharacters, and must come back as one argument rather than as a
 	// second command.
-	result, err := runner.Run(ctx, target, auth, "echo "+remoteexec.QuoteArg(data))
+	result, err := runner.Run(ctx, nil, target, auth, "echo "+remoteexec.QuoteArg(data))
 	if err != nil {
 		return collection.Result{}, fmt.Errorf("net.ssh.ping: %w", err)
 	}

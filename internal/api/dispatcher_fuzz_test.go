@@ -122,6 +122,10 @@ func (r fuzzSingleDeviceRepository) Retire(_ context.Context, _ string) error {
 	return errors.New("fuzzSingleDeviceRepository.Retire is not implemented for this fuzz target")
 }
 
+func (r fuzzSingleDeviceRepository) GroupAncestry(_ context.Context, _ string) ([]inventory.HierarchyLayer, error) {
+	return nil, nil
+}
+
 // fuzzSingleDeviceIterator yields device exactly once, the same
 // Next/Item/Error/Close shape every other Iterator double in this module
 // implements.

@@ -130,6 +130,45 @@ type Repository interface {
 	// port would silently void the simulate-first guarantee for the one
 	// operation that is hardest to undo.
 	Retire(ctx context.Context, name string) error
+
+	// GroupAncestry returns every group and inventory deviceName is
+	// reachable through, transitively, ordered least specific (nearer a
+	// root of the DAG) to most specific (deviceName's own direct group
+	// membership) last. It exists so a caller can fold the chain through
+	// pkg/policy.Resolve to answer "what does the hierarchy say for this
+	// device," Phase 72's first consumer being a device's configured
+	// bastion/hop-chain route (AGENTS.md's hierarchical policy
+	// principle: the most specific level wins).
+	//
+	// Group nesting and group/inventory membership are both DAG-shaped,
+	// not tree-shaped (a group can have more than one parent, and can
+	// belong to more than one inventory), so there is no single natural
+	// linear order. See entRepository's own implementation for the exact
+	// ordering and tiebreak rule it uses; a caller needs only the
+	// contract that the result is deterministic and least-to-most
+	// specific.
+	//
+	// A device reachable through no group or inventory (or a Repository
+	// with no such hierarchy at all, as the Walk-tier file-backed
+	// implementation is) returns a nil slice and a nil error: "nothing
+	// configured at any level" is a normal outcome, not a failure,
+	// matching pkg/policy.Resolve's own empty-layers contract.
+	GroupAncestry(ctx context.Context, deviceName string) ([]HierarchyLayer, error)
+}
+
+// HierarchyLayer is one named level in a device's group/inventory
+// ancestry (see Repository.GroupAncestry), carrying that level's own
+// Properties bag (internal/ent/schema's Group.properties or
+// Inventory.properties) for a caller to fold through pkg/policy.Resolve.
+type HierarchyLayer struct {
+	// Name identifies the group or inventory this layer came from, for
+	// pkg/policy.Result.Layers reporting and for error messages.
+	Name string
+
+	// Properties is that group's or inventory's own settings bag,
+	// exactly as stored (possibly nil, when the level exists but has no
+	// properties configured).
+	Properties map[string]interface{}
 }
 
 // versioned is satisfied by any item that can report the version it was

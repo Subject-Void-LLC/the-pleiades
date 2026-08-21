@@ -72,6 +72,18 @@ func (_u *InventoryUpdate) ClearDescription() *InventoryUpdate {
 	return _u
 }
 
+// SetProperties sets the "properties" field.
+func (_u *InventoryUpdate) SetProperties(v map[string]interface{}) *InventoryUpdate {
+	_u.mutation.SetProperties(v)
+	return _u
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (_u *InventoryUpdate) ClearProperties() *InventoryUpdate {
+	_u.mutation.ClearProperties()
+	return _u
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_u *InventoryUpdate) SetOrganizationID(id int) *InventoryUpdate {
 	_u.mutation.SetOrganizationID(id)
@@ -277,6 +289,12 @@ func (_u *InventoryUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.OwnerCleared() {
 		_spec.ClearField(inventory.FieldOwner, field.TypeString)
+	}
+	if value, ok := _u.mutation.Properties(); ok {
+		_spec.SetField(inventory.FieldProperties, field.TypeJSON, value)
+	}
+	if _u.mutation.PropertiesCleared() {
+		_spec.ClearField(inventory.FieldProperties, field.TypeJSON)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -499,6 +517,18 @@ func (_u *InventoryUpdateOne) SetNillableDescription(v *string) *InventoryUpdate
 // ClearDescription clears the value of the "description" field.
 func (_u *InventoryUpdateOne) ClearDescription() *InventoryUpdateOne {
 	_u.mutation.ClearDescription()
+	return _u
+}
+
+// SetProperties sets the "properties" field.
+func (_u *InventoryUpdateOne) SetProperties(v map[string]interface{}) *InventoryUpdateOne {
+	_u.mutation.SetProperties(v)
+	return _u
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (_u *InventoryUpdateOne) ClearProperties() *InventoryUpdateOne {
+	_u.mutation.ClearProperties()
 	return _u
 }
 
@@ -737,6 +767,12 @@ func (_u *InventoryUpdateOne) sqlSave(ctx context.Context) (_node *Inventory, er
 	}
 	if _u.mutation.OwnerCleared() {
 		_spec.ClearField(inventory.FieldOwner, field.TypeString)
+	}
+	if value, ok := _u.mutation.Properties(); ok {
+		_spec.SetField(inventory.FieldProperties, field.TypeJSON, value)
+	}
+	if _u.mutation.PropertiesCleared() {
+		_spec.ClearField(inventory.FieldProperties, field.TypeJSON)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{

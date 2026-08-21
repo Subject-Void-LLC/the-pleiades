@@ -80,16 +80,24 @@ func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.
 	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
-// dialWithRetry attempts to dial addr up to r.opts.MaxRetries times,
-// sleeping a jittered exponential backoff (pkg/retry.Backoff) between
-// attempts. The loop and the sleep are pkg/retry.Do's, shared with
+// dialWithRetry attempts to dial addr, using dial, up to r.opts.MaxRetries
+// times, sleeping a jittered exponential backoff (pkg/retry.Backoff)
+// between attempts. The loop and the sleep are pkg/retry.Do's, shared with
 // internal/lock's own retry loops rather than hand-rolled a third time
 // (PLAN.md Section 1379's Build-Once table); this function supplies only
 // what is specific to a dial attempt: the breaker check, the dial call
 // itself, and which of a dial attempt's failures should stop the loop
 // outright versus be retried.
 //
-// It wraps the dial phase ONLY: r.dial either succeeds with a fully
+// dial is an explicit parameter, not always r.dial, because a hop chain's
+// first leg is dialed directly (r.dial: a real TCP connect, or this
+// package's own tests' substitute) while every leg after it is reached by
+// tunneling through the previous leg's already-authenticated connection
+// (dialThroughHop). Both need the identical retry, backoff and
+// circuit-breaker treatment, keyed by that leg's own address; only the
+// underlying "how do bytes reach this address at all" mechanism differs.
+//
+// It wraps the dial phase ONLY: dial either succeeds with a fully
 // handshaken client or fails outright, and nothing here ever re-attempts
 // a command that has already been sent over an established session. See
 // this package's own doc comment for why that boundary is load-bearing.
@@ -102,7 +110,7 @@ func realDial(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.
 // remaining attempts: errCircuitOpen is the one error retryable reports
 // false for, so retry.Do returns immediately rather than sleeping and
 // trying again.
-func (r *Runner) dialWithRetry(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+func (r *Runner) dialWithRetry(ctx context.Context, dial dialFunc, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	fn := func(ctx context.Context) (*ssh.Client, error) {
 		if !r.breaker.Allow(addr) {
 			return nil, fmt.Errorf("%w for %s, too many recent failures", errCircuitOpen, addr)
@@ -111,7 +119,7 @@ func (r *Runner) dialWithRetry(ctx context.Context, addr string, config *ssh.Cli
 			return nil, err
 		}
 
-		client, err := r.dial(ctx, addr, config)
+		client, err := dial(ctx, addr, config)
 		if err != nil {
 			r.breaker.RecordFailure(addr)
 			return nil, err

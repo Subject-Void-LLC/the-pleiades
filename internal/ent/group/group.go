@@ -20,6 +20,8 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
+	// FieldProperties holds the string denoting the properties field in the database.
+	FieldProperties = "properties"
 	// EdgeDevices holds the string denoting the devices edge name in mutations.
 	EdgeDevices = "devices"
 	// EdgeParents holds the string denoting the parents edge name in mutations.
@@ -52,6 +54,7 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldName,
+	FieldProperties,
 }
 
 var (

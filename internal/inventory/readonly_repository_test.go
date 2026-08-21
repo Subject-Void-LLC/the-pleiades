@@ -83,6 +83,10 @@ func TestReadOnlyRepository_ReadsPassThrough(t *testing.T) {
 			if seen == 0 {
 				t.Error("GetGroup through the read-only wrapper yielded nothing")
 			}
+
+			if _, err := repo.GroupAncestry(ctx, conformanceHostName); err != nil {
+				t.Errorf("GroupAncestry through the read-only wrapper: %v", err)
+			}
 		})
 	}
 }

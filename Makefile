@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix test test-race test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix test test-race test-no-docker test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -163,6 +163,58 @@ test:
 
 test-race:
 	go test -race -timeout $(GO_TEST_TIMEOUT) ./...
+
+# DOCKER_DEPENDENT_PACKAGES is every package whose test files import
+# testcontainers-go directly (a real, ephemeral Docker container: NATS,
+# sshd, LocalStack, Postgres), verified by grepping every .go file in the
+# module for that import rather than assumed or guessed from directory
+# names. Phase 72's CI matrix (.github/workflows/ci.yml) added macOS and
+# Windows legs, and GitHub's runners for both ship no Docker daemon.
+#
+# This is a named list, not a glob or a directory-name pattern, on
+# purpose: a fragile pattern (skip anything under a path containing
+# "container", say) can silently stop covering a package it was never
+# meant to exclude, or silently start excluding a new package that
+# never needed to be. A named list fails the opposite, safer way. A new
+# container-backed test added later and not added here FAILS LOUDLY on
+# the non-Docker legs (a real, visible CI failure demanding this list be
+# updated) rather than silently never running there at all.
+DOCKER_DEPENDENT_PACKAGES := \
+	github.com/Subject-Void-LLC/the-pleiades/cmd/controller \
+	github.com/Subject-Void-LLC/the-pleiades/cmd/pleiades \
+	github.com/Subject-Void-LLC/the-pleiades/cmd/runner \
+	github.com/Subject-Void-LLC/the-pleiades/internal/adapters/legacy \
+	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
+	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
+	github.com/Subject-Void-LLC/the-pleiades/internal/election \
+	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
+	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
+	github.com/Subject-Void-LLC/the-pleiades/internal/event \
+	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
+	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \
+	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
+	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
+	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
+	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
+	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
+
+# test-no-docker is what the CI matrix's macOS and Windows legs run
+# instead of test-race: build and vet already ran identically on every
+# leg, so this proves every package NOT in DOCKER_DEPENDENT_PACKAGES
+# genuinely executes for real on that OS, not merely compiles. It is
+# still real conformance evidence where it runs (pkg/remoteexec's own
+# suite uses an in-process, real-TCP, real-SSH-protocol fake server, no
+# Docker required, so it is not merely a unit test in disguise); the
+# packages this excludes are exactly the ones whose real evidence stays
+# ubuntu-only, per test-race.
+test-no-docker:
+	@packages="$$(go list ./...)"; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		packages="$$(echo "$$packages" | grep -v "^$$pkg$$")"; \
+	done; \
+	go test -race -timeout $(GO_TEST_TIMEOUT) $$packages
 
 # test-integration runs everything behind the `integration` build tag:
 # the Grand Integration Test (the real controller and runner binaries

@@ -30,7 +30,20 @@ import (
 // caller may have changed. The repeated stat and parse cost is nothing
 // next to a real network round trip.
 func hostKeyCallback(opts Options) (ssh.HostKeyCallback, error) {
-	if opts.InsecureSkipHostKeyVerify {
+	return hostKeyCallbackFor(opts, opts.InsecureSkipHostKeyVerify)
+}
+
+// hostKeyCallbackFor is hostKeyCallback with the skip-verification
+// decision taken as an explicit parameter rather than always read from
+// opts.InsecureSkipHostKeyVerify, so a Hop's own
+// InsecureSkipHostKeyVerify can override it for just that hop's leg of a
+// chain without disturbing the Runner-wide default (or, in the more
+// dangerous direction, without a lab bastion's own opt-out silently
+// reaching the production device tunneled through it: each leg of
+// Connect's loop calls this with its own leg's decision, never the
+// Runner's).
+func hostKeyCallbackFor(opts Options, insecureSkipHostKeyVerify bool) (ssh.HostKeyCallback, error) {
+	if insecureSkipHostKeyVerify {
 		// Reachable only through this explicit, loud opt-in. Never the
 		// default, and never silently substituted for a broken
 		// known_hosts source below.

@@ -73,3 +73,10 @@ func (r *readOnlyRepository) Save(_ context.Context, item inventory.InventoryIte
 func (r *readOnlyRepository) Retire(_ context.Context, name string) error {
 	return fmt.Errorf("refusing to retire %s: %w", name, ErrInventoryReadOnly)
 }
+
+// GroupAncestry reads through to the wrapped repository, exactly like
+// GetGroup and GetByName: it is a read, so a non-mutating run has nothing
+// to refuse here.
+func (r *readOnlyRepository) GroupAncestry(ctx context.Context, deviceName string) ([]HierarchyLayer, error) {
+	return r.inner.GroupAncestry(ctx, deviceName)
+}

@@ -7,9 +7,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,8 +94,11 @@ func newFakeSSHServer(t *testing.T, handler func(command string) (stdout, stderr
 }
 
 // serveOneFakeConnection completes the server side of one SSH handshake
-// over conn and dispatches every resulting session channel to
-// handleFakeSession.
+// over conn and dispatches every resulting channel: a "session" channel to
+// handleFakeSession, a "direct-tcpip" channel to forwardDirectTCPIP (this
+// is what makes this fake server usable as a bastion in hop_test.go's own
+// tests, forwarding a genuine TCP connection exactly as a real sshd -R/-L
+// would), and anything else rejected outright.
 func serveOneFakeConnection(conn net.Conn, config *ssh.ServerConfig, handler func(string) (string, string, int)) {
 	sConn, chans, reqs, err := ssh.NewServerConn(conn, config)
 	if err != nil {
@@ -105,16 +111,87 @@ func serveOneFakeConnection(conn net.Conn, config *ssh.ServerConfig, handler fun
 	defer sConn.Close()
 	go ssh.DiscardRequests(reqs)
 	for newChannel := range chans {
-		if newChannel.ChannelType() != "session" {
-			newChannel.Reject(ssh.UnknownChannelType, "only session channels supported")
-			continue
+		switch newChannel.ChannelType() {
+		case "session":
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				continue
+			}
+			go handleFakeSession(channel, requests, handler)
+
+		case "direct-tcpip":
+			handleFakeDirectTCPIP(newChannel)
+
+		default:
+			newChannel.Reject(ssh.UnknownChannelType, "only session and direct-tcpip channels supported")
 		}
-		channel, requests, err := newChannel.Accept()
-		if err != nil {
-			continue
-		}
-		go handleFakeSession(channel, requests, handler)
 	}
+}
+
+// directTCPIPPayload is RFC 4254 SS7.2's direct-tcpip channel open
+// payload: the address and port the client asked to reach, followed by
+// the client's own originating address and port (both read, per the RFC's
+// wire format, but only the destination is needed to forward).
+type directTCPIPPayload struct {
+	DestAddr string
+	DestPort uint32
+	OrigAddr string
+	OrigPort uint32
+}
+
+// handleFakeDirectTCPIP mirrors a real sshd's own forwarding behavior: it
+// dials the requested destination FIRST, and only Accepts the channel once
+// that dial has actually succeeded, Rejecting it otherwise. Accepting
+// unconditionally and only discovering the destination is unreachable
+// afterward (from inside the forwarding goroutine) would be a materially
+// different, less realistic behavior than a real bastion's, and would
+// make an unreachable destination surface to the client as a channel that
+// opens and then silently closes rather than as ssh.NewChannel.Reject's
+// own, real "could not connect" outcome, which is what
+// (*ssh.Client).DialContext itself turns into a returned error.
+func handleFakeDirectTCPIP(newChannel ssh.NewChannel) {
+	var payload directTCPIPPayload
+	if err := ssh.Unmarshal(newChannel.ExtraData(), &payload); err != nil {
+		newChannel.Reject(ssh.ConnectionFailed, "malformed direct-tcpip payload")
+		return
+	}
+
+	conn, err := net.Dial("tcp", net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort))))
+	if err != nil {
+		newChannel.Reject(ssh.ConnectionFailed, err.Error())
+		return
+	}
+
+	channel, requests, err := newChannel.Accept()
+	if err != nil {
+		conn.Close()
+		return
+	}
+	go ssh.DiscardRequests(requests)
+	go forwardDirectTCPIP(channel, conn)
+}
+
+// forwardDirectTCPIP genuinely forwards channel to conn, an already-dialed
+// real TCP connection to the requested destination: this is what makes
+// the fake bastion in hop_test.go a real proof of dialThroughHop's
+// tunneling mechanism (a real SSH channel carrying real bytes to a real
+// second listener) rather than a mock that only asserts a function was
+// called.
+func forwardDirectTCPIP(channel ssh.Channel, conn net.Conn) {
+	defer channel.Close()
+	defer conn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		io.Copy(conn, channel) //nolint:errcheck // best-effort forwarding; the other goroutine's Copy reports the direction that matters to callers
+	}()
+	go func() {
+		defer wg.Done()
+		io.Copy(channel, conn) //nolint:errcheck // see above
+	}()
+	wg.Wait()
 }
 
 // handleFakeSession answers exactly one "exec" request on channel with
@@ -183,7 +260,7 @@ func TestRun_Success(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	result, err := r.Run(context.Background(), testTarget, testAuth, "echo hello")
+	result, err := r.Run(context.Background(), nil, testTarget, testAuth, "echo hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,7 +284,7 @@ func TestRun_NonZeroExitCode(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	result, err := r.Run(context.Background(), testTarget, testAuth, "exit 7")
+	result, err := r.Run(context.Background(), nil, testTarget, testAuth, "exit 7")
 	if err != nil {
 		t.Fatalf("expected no error for a non-zero remote exit code, got: %v", err)
 	}
@@ -227,7 +304,7 @@ func TestRun_SeparatesStdoutAndStderr(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	result, err := r.Run(context.Background(), testTarget, testAuth, "noop")
+	result, err := r.Run(context.Background(), nil, testTarget, testAuth, "noop")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +329,7 @@ func TestRun_CommandRunsVerbatim(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	if _, err := r.Run(context.Background(), testTarget, testAuth, want); err != nil {
+	if _, err := r.Run(context.Background(), nil, testTarget, testAuth, want); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != want {
@@ -272,7 +349,7 @@ func TestRun_UnusableAuthRefusedBeforeDialing(t *testing.T) {
 	}
 	r := newTestRunner(dial, Options{})
 
-	_, err := r.Run(context.Background(), testTarget, Auth{}, "echo hi")
+	_, err := r.Run(context.Background(), nil, testTarget, Auth{}, "echo hi")
 	if err == nil {
 		t.Fatal("expected an error for an Auth carrying no authentication method")
 	}
@@ -308,7 +385,7 @@ func TestRun_RetryOnlyWrapsDialPhase(t *testing.T) {
 
 	r := newTestRunner(flakyDial, Options{MaxRetries: 3})
 
-	result, err := r.Run(context.Background(), testTarget, testAuth, "echo hi")
+	result, err := r.Run(context.Background(), nil, testTarget, testAuth, "echo hi")
 	if err != nil {
 		t.Fatalf("expected the third dial attempt to succeed, got error: %v", err)
 	}
@@ -337,7 +414,7 @@ func TestRun_DialRetryExhaustedThenBreakerOpens(t *testing.T) {
 	}
 	r := newTestRunner(failingDial, Options{MaxRetries: 3, BreakerThreshold: 3, BreakerCooldown: time.Hour})
 
-	_, err := r.Run(context.Background(), testTarget, testAuth, "echo hi")
+	_, err := r.Run(context.Background(), nil, testTarget, testAuth, "echo hi")
 	if err == nil {
 		t.Fatal("expected an error once retries are exhausted")
 	}
@@ -346,7 +423,7 @@ func TestRun_DialRetryExhaustedThenBreakerOpens(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = r.Run(context.Background(), testTarget, testAuth, "echo hi")
+	_, err = r.Run(context.Background(), nil, testTarget, testAuth, "echo hi")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("expected the now-open breaker to reject this call")
@@ -377,7 +454,7 @@ func TestRun_ContextCanceledDuringBackoff(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := r.Run(ctx, testTarget, testAuth, "echo hi")
+	_, err := r.Run(ctx, nil, testTarget, testAuth, "echo hi")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("expected an error when the context is canceled mid-retry")
@@ -425,7 +502,7 @@ func TestRun_SessionFailureIsNeverRetried(t *testing.T) {
 
 	r := newTestRunner(dial, Options{MaxRetries: 3})
 
-	_, err := r.Run(context.Background(), testTarget, testAuth, "echo hi")
+	_, err := r.Run(context.Background(), nil, testTarget, testAuth, "echo hi")
 	if err == nil {
 		t.Fatal("expected an error when the session cannot be established")
 	}
@@ -565,7 +642,7 @@ func TestConnect_OpenCircuitFailsBeforeAnyOtherWork(t *testing.T) {
 	// One failure reaches a threshold of one, so the circuit is open.
 	r.breaker.RecordFailure(testTarget.Addr())
 
-	_, err := r.Connect(context.Background(), testTarget, testAuth)
+	_, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err == nil {
 		t.Fatal("expected the open circuit to reject this call")
 	}
@@ -615,7 +692,7 @@ func TestConnect_ProbeSurvivesToTheDial(t *testing.T) {
 	r := newTestRunner(dial, Options{MaxRetries: 1, BreakerThreshold: 1, BreakerCooldown: cooldown})
 
 	// One failure opens the circuit.
-	if _, err := r.Connect(context.Background(), testTarget, testAuth); err == nil {
+	if _, err := r.Connect(context.Background(), nil, testTarget, testAuth); err == nil {
 		t.Fatal("expected the first dial to fail")
 	}
 	if got := atomic.LoadInt32(&dialCalls); got != 1 {
@@ -624,7 +701,7 @@ func TestConnect_ProbeSurvivesToTheDial(t *testing.T) {
 
 	// Inside the cooldown: fast fail with no dial, which is the breaker
 	// working correctly.
-	if _, err := r.Connect(context.Background(), testTarget, testAuth); err == nil {
+	if _, err := r.Connect(context.Background(), nil, testTarget, testAuth); err == nil {
 		t.Fatal("expected an open circuit to reject a call inside its cooldown")
 	}
 	if got := atomic.LoadInt32(&dialCalls); got != 1 {
@@ -635,7 +712,7 @@ func TestConnect_ProbeSurvivesToTheDial(t *testing.T) {
 	// assertion the wedge failed.
 	time.Sleep(cooldown + 20*time.Millisecond)
 	succeed.Store(true)
-	if _, err := r.Connect(context.Background(), testTarget, testAuth); err == nil {
+	if _, err := r.Connect(context.Background(), nil, testTarget, testAuth); err == nil {
 		t.Fatal("expected an error from this test's non-completing dial")
 	}
 	if got := atomic.LoadInt32(&dialCalls); got != 2 {
@@ -645,7 +722,7 @@ func TestConnect_ProbeSurvivesToTheDial(t *testing.T) {
 	// And the failed probe left the circuit in a state a later cooldown
 	// can still get out of, rather than latched.
 	time.Sleep(cooldown + 20*time.Millisecond)
-	if _, err := r.Connect(context.Background(), testTarget, testAuth); err == nil {
+	if _, err := r.Connect(context.Background(), nil, testTarget, testAuth); err == nil {
 		t.Fatal("expected an error from this test's non-completing dial")
 	}
 	if got := atomic.LoadInt32(&dialCalls); got != 3 {
@@ -703,7 +780,7 @@ func TestConnect_HostKeySourceFailureIsReported(t *testing.T) {
 		dial:    dial,
 	}
 
-	_, err := r.Connect(context.Background(), testTarget, testAuth)
+	_, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err == nil {
 		t.Fatal("expected a missing known_hosts source to refuse the connection")
 	}
@@ -732,7 +809,7 @@ func TestDialWithRetry_StopsWhenTheCircuitOpensMidLoop(t *testing.T) {
 	// Five attempts allowed, but the circuit opens after two failures.
 	r := newTestRunner(failing, Options{MaxRetries: 5, BreakerThreshold: 2, BreakerCooldown: time.Hour})
 
-	_, err := r.Connect(context.Background(), testTarget, testAuth)
+	_, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err == nil {
 		t.Fatal("expected the dial to fail")
 	}
@@ -757,7 +834,7 @@ func TestDialWithRetry_AlreadyCanceledContextNeverDials(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := r.Connect(ctx, testTarget, testAuth)
+	_, err := r.Connect(ctx, nil, testTarget, testAuth)
 	if err == nil {
 		t.Fatal("expected an already-canceled context to refuse the connection")
 	}

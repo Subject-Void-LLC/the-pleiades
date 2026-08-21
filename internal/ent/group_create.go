@@ -56,6 +56,12 @@ func (_c *GroupCreate) SetName(v string) *GroupCreate {
 	return _c
 }
 
+// SetProperties sets the "properties" field.
+func (_c *GroupCreate) SetProperties(v map[string]interface{}) *GroupCreate {
+	_c.mutation.SetProperties(v)
+	return _c
+}
+
 // AddDeviceIDs adds the "devices" edge to the Device entity by IDs.
 func (_c *GroupCreate) AddDeviceIDs(ids ...int) *GroupCreate {
 	_c.mutation.AddDeviceIDs(ids...)
@@ -214,6 +220,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
 		_node.Name = value
+	}
+	if value, ok := _c.mutation.Properties(); ok {
+		_spec.SetField(group.FieldProperties, field.TypeJSON, value)
+		_node.Properties = value
 	}
 	if nodes := _c.mutation.DevicesIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

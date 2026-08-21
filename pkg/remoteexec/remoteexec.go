@@ -49,6 +49,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Default tuning values, applied by applyDefaults to any Options field
@@ -277,19 +279,20 @@ func Shared(opts Options) *Runner {
 	return r
 }
 
-// Run connects to target, runs command, and closes the connection.
+// Run dials through hops (if any) to target, runs command, and closes the
+// connection.
 //
 // It is the whole-operation convenience for a caller that needs exactly
 // one command. A caller that needs several against the same device
 // should use Connect and reuse the returned Conn, which pays for one
-// handshake instead of one per command.
+// chain of handshakes instead of one per command.
 //
 // command is sent VERBATIM. Nothing here wraps it in a local shell or
 // concatenates it with the target address, and the caller is solely
 // responsible for what it contains. QuoteArg and QuoteCommand are how a
 // caller builds one safely from untrusted parts.
-func (r *Runner) Run(ctx context.Context, target Target, auth Auth, command string) (Result, error) {
-	conn, err := r.Connect(ctx, target, auth)
+func (r *Runner) Run(ctx context.Context, hops []Hop, target Target, auth Auth, command string) (Result, error) {
+	conn, err := r.Connect(ctx, hops, target, auth)
 	if err != nil {
 		return Result{}, err
 	}
@@ -298,56 +301,108 @@ func (r *Runner) Run(ctx context.Context, target Target, auth Auth, command stri
 	return conn.Run(ctx, command)
 }
 
-// Connect dials target and completes the SSH handshake, returning a live
-// connection the caller must Close.
+// connectLeg is one address this Runner authenticates to on the way to a
+// caller's requested target: either one of hops, in order, or the target
+// itself, always last.
+type connectLeg struct {
+	addr                      string
+	auth                      Auth
+	insecureSkipHostKeyVerify bool
+}
+
+// Connect dials through hops, in order, then to target, completing an
+// independent SSH handshake at every leg, and returns a live connection to
+// target the caller must Close. hops may be nil or empty, in which case
+// this is exactly a direct connection to target: every existing caller
+// keeps working unedited by passing nil.
 //
-// The circuit breaker is consulted before any network I/O, so a target
-// with too many recent consecutive failures costs nothing at all. Every
-// failed attempt is recorded against the breaker immediately, and a
-// successful connection clears that target's failure streak.
-func (r *Runner) Connect(ctx context.Context, target Target, auth Auth) (*Conn, error) {
-	addr := target.Addr()
+// Each leg past the first is reached by tunneling through the previous
+// leg's already-authenticated connection (see dialThroughHop); the target
+// is always the LAST leg dialed, so a bastion sees only ciphertext for
+// everything past its own hop. The circuit breaker, retry and backoff are
+// applied identically to every leg, keyed by that leg's own address, via
+// the same dialWithRetry a direct (zero-hop) connection already used.
+//
+// The circuit breaker is consulted before any network I/O for each leg, so
+// a leg with too many recent consecutive failures costs nothing at all.
+// Every failed attempt is recorded against that leg's own breaker entry
+// immediately, and a successful connection clears its failure streak.
+func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Auth) (conn *Conn, err error) {
+	legs := make([]connectLeg, 0, len(hops)+1)
+	for _, h := range hops {
+		legs = append(legs, connectLeg{addr: h.Target.Addr(), auth: h.Auth, insecureSkipHostKeyVerify: h.InsecureSkipHostKeyVerify})
+	}
+	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify})
 
-	if !auth.usable() {
-		// Refused before any dial. Proceeding with no authentication
-		// would let a device with no stored credential silently attempt
-		// an unauthenticated login, which is never what the caller meant.
-		return nil, fmt.Errorf("remoteexec: no usable authentication method for %s", addr)
+	chain := make([]*ssh.Client, 0, len(legs))
+	// A failure on a later leg must never leak an already-authenticated
+	// earlier one: if this function is about to return a non-nil error,
+	// close every client already established first, innermost (most
+	// recently dialed) first, the same order Conn.Close itself uses and
+	// for the identical reason (a hop's client owns the tunneled
+	// connection the next one was built on).
+	defer func() {
+		if err != nil {
+			for i := len(chain) - 1; i >= 0; i-- {
+				_ = chain[i].Close()
+			}
+		}
+	}()
+
+	for i, leg := range legs {
+		if !leg.auth.usable() {
+			// Refused before any dial. Proceeding with no authentication
+			// would let a device with no stored credential silently
+			// attempt an unauthenticated login, which is never what the
+			// caller meant. Checked per leg: a hop with no credential
+			// must refuse naming that hop, never fall through to
+			// whatever the target's own Auth happens to be.
+			return nil, fmt.Errorf("remoteexec: no usable authentication method for %s", leg.addr)
+		}
+
+		// Step 1: fail fast on an open circuit, with zero network I/O and
+		// no host key work performed.
+		//
+		// Permitted, never Allow. Allow is a transaction that consumes
+		// the half-open probe, and calling it here as well as inside the
+		// retry loop below wedged a recovering target permanently: this
+		// call took the probe, the loop's own call then saw a probe
+		// already in flight and refused, so nothing dialed, no outcome
+		// was recorded, and the circuit never left half-open. The loop
+		// is where the dial happens, so the loop is where the probe is
+		// claimed.
+		if !r.breaker.Permitted(leg.addr) {
+			return nil, fmt.Errorf("remoteexec: circuit open for %s, too many recent failures", leg.addr)
+		}
+
+		// Step 2: build this leg's own host key check. A host key source
+		// that cannot be loaded is a hard error here; this never
+		// proceeds with verification silently skipped for any leg,
+		// including a hop.
+		hostKeyCB, hkErr := hostKeyCallbackFor(r.opts, leg.insecureSkipHostKeyVerify)
+		if hkErr != nil {
+			return nil, fmt.Errorf("remoteexec: host key verification unavailable for %s: %w", leg.addr, hkErr)
+		}
+
+		config := leg.auth.clientConfig(hostKeyCB, r.opts.DialTimeout)
+
+		// Step 3: dial with retry and backoff, scoped to the dial phase
+		// only. The first leg dials directly (r.dial); every leg after
+		// it tunnels through the previous leg's own client, chain[i-1].
+		dial := r.dial
+		if i > 0 {
+			dial = dialThroughHop(chain[i-1])
+		}
+		next, dialErr := r.dialWithRetry(ctx, dial, leg.addr, config)
+		if dialErr != nil {
+			return nil, fmt.Errorf("remoteexec: dial %s: %w", leg.addr, dialErr)
+		}
+
+		// Step 4: a successful dial closes the circuit, or completes a
+		// half-open probe successfully, for this leg.
+		r.breaker.RecordSuccess(leg.addr)
+		chain = append(chain, next)
 	}
 
-	// Step 1: fail fast on an open circuit, with zero network I/O and no
-	// host key work performed.
-	//
-	// Permitted, never Allow. Allow is a transaction that consumes the
-	// half-open probe, and calling it here as well as inside the retry
-	// loop below wedged a recovering target permanently: this call took
-	// the probe, the loop's own call then saw a probe already in flight
-	// and refused, so nothing dialed, no outcome was recorded, and the
-	// circuit never left half-open. The loop is where the dial happens,
-	// so the loop is where the probe is claimed.
-	if !r.breaker.Permitted(addr) {
-		return nil, fmt.Errorf("remoteexec: circuit open for %s, too many recent failures", addr)
-	}
-
-	// Step 2: build the host key check. A host key source that cannot be
-	// loaded is a hard error here; this never proceeds with verification
-	// silently skipped.
-	hostKeyCB, err := hostKeyCallback(r.opts)
-	if err != nil {
-		return nil, fmt.Errorf("remoteexec: host key verification unavailable: %w", err)
-	}
-
-	config := auth.clientConfig(hostKeyCB, r.opts.DialTimeout)
-
-	// Step 3: dial with retry and backoff, scoped to the dial phase only.
-	client, err := r.dialWithRetry(ctx, addr, config)
-	if err != nil {
-		return nil, fmt.Errorf("remoteexec: dial %s: %w", addr, err)
-	}
-
-	// Step 4: a successful dial closes the circuit, or completes a
-	// half-open probe successfully.
-	r.breaker.RecordSuccess(addr)
-
-	return &Conn{client: client, addr: addr}, nil
+	return &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}, nil
 }
