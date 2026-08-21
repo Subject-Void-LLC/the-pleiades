@@ -5043,3 +5043,95 @@ carries a control for each field it means to collect -- an empty form is the
 UI's version of the shipped-but-unreachable failure this repository has
 recorded repeatedly, and it passes every test that only inspects what is
 present.
+
+## 168. A hop chain's `Connect` kept closing only its last leg, leaking every earlier hop's connection
+
+**Symptom.** A real-container goleak test for the new N-hop SSH mechanism
+(`TestSSHContainer_HopChain_EmptyRouteIsUnchanged`) failed with a background
+`golang.org/x/crypto/ssh` goroutine still running after the test's own `Conn`
+was closed: a `(*handshakeTransport).kexLoop`, `(*mux).loop`, and
+`(*Client).handleChannelOpens` set, the exact shape a live, never-closed
+`*ssh.Client` leaves behind.
+
+**Root cause.** `pkg/remoteexec.Runner.Connect`'s per-hop loop dialed each leg
+in turn, holding only the single most recently dialed `*ssh.Client` in a local
+variable that got overwritten on every iteration
+(`client = next`). The returned `Conn` wrapped that one, final client and
+nothing else, so `Conn.Close()` closed only the target's own connection. Every
+earlier hop's client (the bastion, and any jump host nested behind it) was
+still a fully live, authenticated SSH connection with its own background
+goroutines, referenced by nothing after `Connect` returned, and therefore
+never closed by anything.
+
+**Why it was not caught earlier.** The mechanism's own happy-path tests
+(dialing through a bastion, running a command, checking the result) all
+passed, because a leaked client still forwards traffic correctly for the
+tunneled connection built on top of it -- the bug has no effect on
+correctness, only on cleanup. It surfaced only because a goleak check was
+added to the same test, specifically because Phase 72's own Release Gate
+required proving a torn-down hop chain leaves no goroutine behind.
+
+**Fix.** `Conn` gained a `chain []*ssh.Client` field (every client dialed to
+reach the target, in dial order), and `Close` walks it in REVERSE:
+innermost (target, or the last hop) first, then back out to the first hop.
+Reverse order matters, not just completeness -- a hop's client owns the
+tunneled connection the next hop was built on, so closing the first hop while
+a later one is still "open" at the Go object level would sever a connection
+out from under something still using it. `Connect` itself also gained a
+`defer` that closes every already-dialed client in the same reverse order if
+a LATER leg's dial fails, so a chain that fails partway through does not leak
+the legs that succeeded before the failure.
+
+**Lesson.** A multi-resource acquire-in-a-loop (N connections dialed one at a
+time, where each later one depends on an earlier one staying open) needs a
+single owner that tracks the WHOLE chain, not just the most recent success --
+"keep the latest thing in a variable" is a pattern built for a single
+resource, and silently drops every earlier one the moment a second resource
+enters the picture. Whenever a loop dials, opens, or acquires more than once
+before returning success, ask specifically what closes the N-1 things that
+were NOT the last one, and prove it with a leak check against something the
+loop actually iterates more than once, not just a single-hop case.
+
+## 169. A goleak check's baseline depended on which other tests happened to run first in the same binary
+
+**Symptom.** A new real-container chaos test
+(`TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError`)
+passed when run as part of the package's full test suite, but failed with a
+`net/http.(*Transport).dialConn`-owned goroutine leak when run alone via `go
+test -run TestSSHHopChain`.
+
+**Root cause.** The test called the package's existing `verifyNoLeaks(t)`
+helper, which checks against a package-level `sharedContainerGoleak`
+variable: a `goleak.IgnoreCurrent()` snapshot populated once, by
+`sync.Once`, inside `requireSSHContainer` -- a function this new test never
+called, because it built its own dedicated container and network rather than
+using the package's shared one. When some OTHER test in the same binary had
+already called `requireSSHContainer` first, `sharedContainerGoleak` held a
+real baseline and the check passed. When this test ran alone, nothing had
+ever populated it, so `goleak.VerifyNone` ran with no baseline exceptions at
+all and correctly, but uselessly, flagged testcontainers-go's own background
+HTTP transport goroutines (idle keep-alive connections to the Docker daemon
+and, in this test, the toxiproxy control API) as if the test's own SSH code
+had leaked them.
+
+**Why it was not caught immediately.** The full-package run order happened to
+put a `requireSSHContainer`-calling test first, so the bug was invisible
+until the new test was run in isolation, which is exactly how a developer
+iterating on one new test, or CI running `-run` against a single package,
+would actually invoke it.
+
+**Fix.** The test takes its OWN local `goleak.IgnoreCurrent()` snapshot,
+after its own container, network, and proxy are already up and a baseline
+connection has already completed a full dial-and-close cycle, and verifies
+against that local snapshot rather than the package-level shared one.
+
+**Lesson.** A shared, `sync.Once`-populated test baseline is only a
+correctness dependency, not just a convenience, for every test that reads it
+-- and a test that does not itself run the code path that populates it is
+implicitly depending on some OTHER test having already run first in the same
+binary. Any goleak (or similar) check taken against a package-level shared
+snapshot needs either a guarantee that the populating call always runs first
+(order-independent, e.g. `TestMain`), or its own local snapshot taken after
+its own setup, the same way this fix landed. "It passed in the full suite"
+is not evidence a leak check is correct; run the specific test alone before
+trusting it.
