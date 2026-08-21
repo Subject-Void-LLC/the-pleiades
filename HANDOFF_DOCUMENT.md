@@ -4,307 +4,232 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `60dae0d`, `cloud.aws.*` plus the `aws`
-sync plugin (committed with the user's own live go-ahead). Everything below — the four Windows
-capability accessors on `windows.Server`, `svc.windows.*`/`win.feature.*` (7 methods) and the
-`windows_server` classification rule — is implemented, tested, and verified on top of that commit,
-but uncommitted: no such word has been given yet this session.**
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `e31dbe2` (the CI
+`LOCALSTACK_AUTH_TOKEN` wiring fix), committed by the user themselves between sessions (not by the
+assistant; no live go-ahead has been given this session, so this session never ran `git commit`).
+Everything below is implemented, tested, and verified on top of that commit, but uncommitted: no such
+word has been given yet this session.**
 
-This session opened with "what's the next batch?" `HANDOFF_DOCUMENT.md`'s own "remainder, in
-order" list named items 3 and 4 (the `windows_server` classification rule, and
-`svc.windows.*`/`win.feature.*`) as next. A plan for both together was written, approved, and
-implemented — one batch rather than two, because the classification rule only matters once
-`windows_server` is a device type real methods can run against, the same reasoning that made
-`cloud.aws.*` and the `aws` plugin one combined commit even though they were planned separately.
+This session opened with the same two-part request as the last several: whether Phase 57's work had
+surfaced any further forge tuning need, and to move on to Phase 58: File, Text & Log Filters.
 
 ### What landed
 
-**`windows.Server` gained four real accessors**, closing the TODO its own doc comment named since
-the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback — purely
-descriptive, nothing gates on it, the same restraint `linux.Server.Distribution` applies to its own
-detected fact), `ServiceManagerName()` (property `service_manager`, defaulting to `"windows_scm"`,
-the exact mirror of `linux.Server.ServiceManagerName`'s shape — this is what makes
-`internal/catalog/svc.managerNamespace`'s pre-existing `"windows_scm" -> "svc.windows"` mapping
-resolve for real for the first time), `WindowsServiceStartMode()` (property
-`windows_service_start_mode`, defaulting to `"Automatic"`, informational like
-`SystemdUnitPath` — no method reads it, it satisfies the capability's structural contract) and
-`DISMLogPath()` (property `dism_log_path`, defaulting to the real Windows default,
-`C:\Windows\Logs\DISM\dism.log`).
+**Forge-tuning decision: one real, needed addition, verified rather than assumed.** Phase 58 needed
+`GzipCompress(content string) []byte` and `GzipDecompress(data []byte) string` -- CEL bytes, not a CEL
+string, since gzip's compressed output is arbitrary binary data, not necessarily valid UTF-8. `[]byte`/
+`cel.BytesType` was not yet a well-known shape: running both directions through the real
+`pleiades forge new-filter` CLI before writing any code produced unfilled `// TODO` conversion/wrap
+stubs on both sides, exactly the same pre-tuning gap Phases 52 and 54 found for their own new shapes.
+Added `"[]byte": "cel.BytesType"` to `internal/forge/filterscaffold`'s `wellKnownCELTypes` table, plus
+matching cases in `conversionFor`/`wrapperFor`/`exampleArg`, and a new `celToBytes`/`wrapBytes` pair in
+`internal/engine/cel_filters.go` mirroring `celToStringList`/`wrapStringList`'s own shape. Verified
+against the real CLI a second time afterward: both directions now generate complete code with zero
+TODOs. Also verified directly against cel-go's own source (`common/types/provider.go`'s `NativeToValue`
+switch, `bytes.go`'s `Bytes.ConvertToNative`) before relying on either conversion direction, rather than
+assuming a Go `[]byte` round-trips through `types.DefaultTypeAdapter` correctly. Every other function
+this phase needed (`PathJoin` returning `[]string -> string`, `SyslogParse` returning
+`string -> map[string]any`, `PayloadChunker` returning `[]any -> []any` with each element itself a
+`[]any` chunk) reused an already-well-known shape; `PayloadChunker`'s own nested-list case was verified
+directly against a real `cel.Program` (indexing and `.size()` at both list levels) before relying on it,
+since no prior phase had put a `[]any` *inside* a `[]any` before.
 
-**Two new `pkg/` packages, mirroring `pkg/remotesvc` for a transport with no persistent
-connection.** `pkg/winrmsvc` (Service Control Manager state) and `pkg/winrmdism` (DISM feature
-state) are both built on the existing `pkg/winrmexec`, which dials fresh per call rather than
-holding a `Conn` (the credential is a call argument to `winrmexec.Run`, not package state), so both
-take an explicit `Session{Target, Auth, Options}` config bundle instead of a live connection.
-`pkg/winrmsvc.Status` reads a service's existence, run state and start type in one PowerShell round
-trip (`Get-Service -ErrorAction SilentlyContinue` plus `ConvertTo-Json`), the same "one round trip,
-decide from real reported state" rule `pkg/remotesvc.Status` already applies. `pkg/winrmdism`
-shells out to `dism.exe` directly rather than the `ServerManager` PowerShell module
-(`Install-WindowsFeature`), deliberately: `windows.Server.DISMLogPath` already commits this design
-to DISM, and `dism.exe /online` works on every Windows SKU while `ServerManager` is Server-only. A
-real, non-obvious gotcha surfaced building it: calling a native executable from a PowerShell script
-does not make the script's own exit code reflect the executable's, so every script this package
-sends ends with an explicit `exit $LASTEXITCODE` line — without it, `Result.ExitCode` would read
-success regardless of what `dism.exe` actually reported. DISM's real exit codes are applied
-directly: `0` success, `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) success-needs-restart (surfaced as
-a new `reboot_required` stat rather than folded into `changed`), `87`
-(`ERROR_INVALID_PARAMETER`) an unrecognized feature name (surfaced as `Exists: false`, not an
-error — the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
-applies to a systemd unit).
+**Phase 58: 8 file, text & log filters**, across three files:
 
-**`svc.windows.*` (5 methods: `start`/`stop`/`restart`/`enable`/`disable`)** mirrors
-`svc/systemd`'s own `unitOp`/`runUnitOp` shared-body shape exactly (`serviceOp`/`runServiceOp`
-here). No `daemon_reload` counterpart: the Service Control Manager has no "reread unit files from
-disk" operation to expose. `enable`/`disable`'s inverse is genuinely more careful than
-`svc.systemd`'s own: Windows services have three start types
-(`Automatic`/`Manual`/`Disabled`), and this namespace's `enable`/`disable` only ever set the first
-and third. A service found `Manual` that `enable` moves to `Automatic` has no exact reverse through
-`disable` (which sets `Disabled`, not `Manual`) — that specific transition emits no inverse at all
-rather than one that would over-correct a rollback, which is documented on each method's own
-`Reversibility.Notes` and verified directly by driving the real, registered `Enable`/`Disable`
-functions with seams swapped, not a hand-copied stand-in for their inverse logic.
+- `pkg/filters/logtext.go` (new, 4 functions): `SyslogParse` (RFC 5424 and legacy RFC 3164, sharing one
+  key set across both formats -- `format`, `facility`, `severity`, `version`, `timestamp`, `hostname`,
+  `app_name`, `proc_id`, `msg_id`, `structured_data`, `message` -- with only the `<PRI>` prefix as a hard
+  parse gate; everything after it degrades field by field rather than failing the whole line, since RFC
+  3164 is a legacy, loosely followed convention in real logs. RFC 5424's own NILVALUE `"-"` is passed
+  through verbatim, never translated to `""`. STRUCTURED-DATA comes back as raw bracketed text, not
+  decoded into SD-PARAM pairs -- the checklist names RFC 5424 parsing, not a second grammar on top of
+  it); `LineEndingConvert` (lf/crlf, case-insensitive style); `TrimNormalizeWhitespace`; `PayloadChunker`
+  (see the forge-tuning note above for its `[]any`-of-`[]any` shape).
+- `pkg/filters/compress.go` (new, 2 functions): `GzipCompress`/`GzipDecompress`, stdlib `compress/gzip`,
+  strictly in-memory (`bytes.Buffer`/`bytes.Reader`, never a temp file). `GzipDecompress` caps its own
+  *output*, not just its input -- see the real finding below.
+- `pkg/filters/path.go` (2 functions appended to the existing file): `PathJoin` (POSIX-style, via stdlib
+  `path.Join` rather than `path/filepath.Join`, so the result cannot vary by the platform pleiades
+  itself was compiled for -- the same reasoning `IsAbsolutePath`'s own doc comment already gives for
+  avoiding `path/filepath.IsAbs`); `PathExtractExtension` (matches stdlib `path.Ext`'s own semantics
+  exactly, including its "a dotfile's whole name is its extension" edge case, deliberately not
+  reinvented as a different convention).
 
-**`win.feature.install`/`remove`** mirror the same read-decide-act-read-back shape over
-`pkg/winrmdism`. Unlike `svc.windows`'s enable/disable, this inverse is unconditional on the state
-found before: DISM's feature states have no third state this namespace manages around the way
-`Manual` complicates services, so `Enabled`/`Disabled` are exact complements for the transitions
-`install`/`remove` make. `install` passes `/all` (also enabling required parent features, matching
-what the Windows GUI's own "Add roles and features" does by default); `remove` deliberately does
-not, so removing a feature never silently removes the parents it depended on.
+**A real Schema/Injection Hardening finding, fixed and recorded, not just checked off.** A first-draft
+`GzipDecompress` bounded its own input (`MaxStructuredInputBytes`, reused rather than a new phase-
+specific bound -- this is document-shaped content, the same reasoning that constant's own doc comment
+already gives) but not its *output*. Gzip allows extreme compression ratios for pathological input, so a
+small, well-within-cap compressed value can still decompress into an unbounded allocation -- a
+decompression bomb. Caught by a deliberate adversarial test
+(`TestGzipDecompress/decompression_bomb_refused`, a real 64 MiB payload compressing to well under the 1
+MiB input cap), fixed with a new `maxGzipDecompressedBytes` (16 MiB) cap enforced via `io.LimitReader`,
+and recorded as `FAILURE_PATTERNS.md` entry 163 before the Schema/Injection Hardening box was checked.
 
-**The `windows_server` classification rule** (`internal/classification/default_ruleset.go`), added
-at its own root — agentless, `configure_polling`, the same four capabilities
-`windows.NewServer`'s baseline already grants — the same pattern `aws_account`/`catalyst_center`
-were each added under when the plugin or batch that needed them was built. The one real, direct
-consumer: the `aws` sync plugin's `Classify` no longer quarantines a discovered Windows EC2
-instance (`Platform: "windows"`) — it resolves to `windows_server` — while a `Platform` value this
-tree still has no rule for continues to quarantine honestly. `aws_localstack_test.go`'s own
-`TestClassify_WindowsInstance_Quarantines` (proving the old, now-false behavior) was replaced with
-`TestClassify_WindowsInstance` plus a new `TestClassify_UnrecognizedPlatform_Quarantines`
-preserving direct coverage of the real quarantine path; `conformance_test.go`'s `aws` backend's own
-`unclassifiableUnsupported` explanation was updated to stop citing the retired test by name.
-
-**A real regression, caught and fixed, in code from an earlier session, not new to this batch.**
-`internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed` depended on
-`svc.windows.start` staying declared forever, and both concrete namespaces
-`svc.managerNamespace` maps to are now fully implemented, so there is no longer any real
-device/verb combination reachable from outside the package that exercises `dispatch`'s own
-"declared but not implemented" branch. `LESSONS_LEARNED.md` #150 generalizes this. Fixed with a new
-whitebox test (`internal/catalog/svc/dispatch_internal_test.go`) registering one throwaway,
-uniquely-named `StatusDeclared` fixture purely to prove the branch, and a new black-box
-`TestDispatchesToWindows` (mirroring `TestDispatchesToSystemd`) proving real dispatch resolves to
-`svc.windows.start` against an unreachable address. The identical regression class
-`cmd/pleiades/doc_test.go` has hit every prior session that flips a fixture FQCN from declared to
-implemented recurred here too, fixed the same way: the fixture moved to `file.template`, the one
-FQCN this document already commits to staying declared.
-
-### Testing posture: `pkg/winrmexec`'s, not `cloud.aws.*`'s LocalStack precedent
-
-There is no WinRM emulator the way LocalStack emulates the AWS wire protocol, and `pkg/winrmexec`'s
-own package doc already states and accepts that constraint rather than building a stub server that
-"would only prove this package agrees with the stub." Every new package and Collection method hits
-**100% coverage on everything reachable without a live host**: `pkg/winrmsvc`/`pkg/winrmdism`'s
-script construction, quoting and state parsing against canned input; `internal/catalog/svc/windows`
-and `internal/catalog/win/feature`'s full decision logic (converged/refusal/inverse, including every
-downstream failure-wrapping branch) via `statusFunc`/`startFunc`/`stopFunc`/`restartFunc`/
-`enableFunc`/`disableFunc` seams swapped to canned answers — the same role `remoteexectest`'s fake
-systemctl plays for `pkg/remotesvc`'s own tests, adapted to a transport with no in-process fake
-worth building. `pkg/winrmsvc`/`pkg/winrmdism` themselves sit at 77.5%/73.3% (no recorded floor,
-the same "informational" bucket `pkg/winrmexec` itself already sits in): the remaining gap is the
-one thing that genuinely needs a live host, a real command's real output coming back, which is
-exactly what `pkg/winrmexec`'s own tests document as unfakeable. That one thing gets a new,
-env-gated Release Gate, `cmd/pleiades/winrm_service_feature_release_gate_test.go`, reusing
-`winrm_static_ip_release_gate_test.go`'s existing host/user/password env vars and adding its own
-(`PLEIADES_WINRM_TEST_SERVICE`, `PLEIADES_WINRM_TEST_FEATURE`). It reports **skipped** in this
-environment, the same honest status the static-IP gate has carried every session that has touched
-WinRM.
+**Coverage needed no floor adjustment this phase -- a genuine change from every prior phase in this
+Part.** The initial full run measured `pkg/filters` at 98.8%, just under the 98.9% floor Phase 57 had
+recorded. Six real, reachable branches were missing a test case (a short RFC 5424 line missing trailing
+fields, no content after MSGID, a malformed line with no SD marker at all, an RFC 3164 line with no
+`": "` tag/message separator, plus the two SD-scanner branches for an empty tail and a non-bracket,
+non-dash tail) -- all six got real new test cases. What remained after that is exactly one documented,
+source-verified-unreachable guard: `strconv.Atoi` on `rfc5424VersionPattern`'s own capture group
+(`[1-9][0-9]{0,2}`, 1-3 digits, max value 999) can never actually fail. Measured 99.0% after the real
+fixes, comfortably above the existing 98.9% floor -- `coverage-floor.json` was **not** touched.
+`internal/engine` measured 95.5%, also comfortably above its existing 95.2% floor, likewise untouched.
 
 ### Read this first
 
-**Module names are `xxx.xxx.xxx`.** FAILURE_PATTERNS #158; still the rule, still not violated here.
-
-**No commit without the user's own live word in the current conversation.** Unchanged. `60dae0d`
-landed because the user gave that word; nothing below has been asked for yet.
+**No commit without the user's own live word in the current conversation.** Unchanged.
 
 **Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
-Unchanged (`pleiades_no_unrequested_delegation`). Held again this session, including through the
-plan-mode transition for this batch.
+Unchanged. Held again this session: every forge check, filter, test, and doc change was written
+directly.
 
-**Before flipping the last `StatusDeclared` entry a generic dispatcher can resolve to, grep that
-dispatcher's own tests for the specific FQCN literal, not just for the word "declared."**
-`LESSONS_LEARNED.md` #150, new this session. `svc.managerNamespace` only ever mapped two names
-(`systemd`, `windows_scm`); once both concrete namespaces were fully implemented, the dispatcher's
-"declared but not implemented" refusal branch had no real example left to exercise it through the
-public API at all, which a naive "the test still compiles and the error is still non-nil" glance
-would not have caught. The fix (a throwaway registered-but-declared fixture in a new whitebox test
-file) is the reusable pattern; watch for the same shape in `net.cli`/`net.netconf` once every
-`net.*` vendor namespace is eventually implemented too.
+**A genuinely new CEL shape (`[]byte`) is worth adding to `wellKnownCELTypes` for real, not leaving as a
+per-call `:celType` override.** The same judgment call Phases 52 and 54 made for their own new shapes:
+when a shape recurs (here, twice in one phase -- both Gzip directions), teach the scaffolder the real
+conversion/wrap helpers rather than accepting a hand-written TODO stub every time it comes up again.
 
-**Calling a native executable from a PowerShell script does not propagate its exit code
-automatically.** New this session, in `pkg/winrmdism`'s own package doc: `$LASTEXITCODE` holds the
-value, and a script that never reads it leaves the host process's own exit status at whatever it
-would otherwise be, typically 0, regardless of what the executable actually reported. Every script
-`pkg/winrmdism` builds ends with an explicit `exit $LASTEXITCODE` line for exactly this reason;
-worth checking for in any future package that shells out to a native `.exe` over WinRM the way this
-one shells out to `dism.exe`.
+**An engine-side conversion helper claim (`NativeToValue([]byte)` -> `types.Bytes`, not a per-element CEL
+list) is worth a real, scratch-program check against cel-go's own source before the doc comment states
+it as fact.** This session's own version of the discipline entry 162 in `FAILURE_PATTERNS.md` already
+records for a stdlib claim: read `common/types/provider.go`'s `NativeToValue` switch and `bytes.go`'s
+`Bytes.ConvertToNative` directly, then write what was actually verified.
 
-**Docker was unreachable from this session's shell partway through**
-(`docker: command not found in this WSL 2 distro`), and was confirmed clean and reachable again
-before this session ended: the user isolated the host crashes this session's earlier segment
-discussed to running Docker and Hyper-V at the same time, and a re-check after that fix landed
-found `docker ps` answering normally. Every check that needed it was re-run for real at that point
-(see "Verification state" below); nothing here is inferred from the earlier Docker-unavailable
-window.
+**A cap on a function's input length is not the same control as a cap on its output length**, and a
+decompression function is exactly the shape where the two diverge on purpose (that is the whole point
+of compression). `FAILURE_PATTERNS.md` entry 163 has the full story; the short version is: whenever a
+filter's own job is to expand a value rather than transform it in place, its input-length cap does not
+protect the caller, and a second, output-side cap needs its own separate justification.
+
+**`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run, or unrelated
+packages report false regressions; it must also be a real repository secret in
+`.github/workflows/ci.yml` for CI specifically.** Unchanged from last session's own fix (`e31dbe2`);
+this session's own full local run, with the token exported, showed zero regressions anywhere in the
+repository outside this phase's own two packages, both of which were closed for real (see above).
+
+**The `examples/webserver_lab` `plain` SSH-container RULE 0 pattern reused cleanly a seventh time.**
 
 ### The remainder, in order
 
-1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
-2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ — done, committed at `60dae0d`.
-3. ~~A `windows_server` classification rule~~ — done this session.
-4. ~~`svc.windows.*`/`win.feature.*` (7)~~ — done this session.
-5. **`net.cli`/`ios`/`eos`/`junos`/`netconf` (6)** is blocked on a NETCONF transport that does not
-   exist yet. The next natural batch by this list's own ordering, and the last real transport gap
-   in the catalog.
-6. **`file.template`** stays declared: the render engine is `internal/render`, unreachable from a
-   Collection, and is a stable test fixture in `internal/validate` (and now also
-   `cmd/pleiades/doc_test.go`) precisely because it is expected to stay declared for a while.
-7. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to `svc.systemd.start`
-   (and, as of this session, `svc.windows.start`). Unchanged from prior sessions: a design step,
-   not a port, still not done.
-8. **`file.directory` still has its own mode validator**, unreconciled with `attributes.go`. Also
-   unchanged from prior sessions.
-9. **Supplementary group membership and account passwords**, deliberately out of scope for
-   `identity.user.*`. Unchanged from prior sessions.
-10. **The four pre-existing private int-param parsers** could migrate to `sdk.IntParam`. Unchanged
-    from prior sessions: deliberately not done, mechanical once started.
-11. **Wire `FirewalldCapable`/`DockerCapable`** (and, from a prior session, `PosixAccountCapable`)
-    onto a real device type. `FirewalldCapable` specifically needs a per-instance property (like
-    `service_manager`) rather than a baseline declare, since firewalld isn't universal the way
-    `LinuxCapable`/`SystemdCapable` are.
-12. **An S3 object-level primitive** (`PutObject` at minimum) was deliberately not added to
-    `pkg/awscloud`. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
-
-With items 3 and 4 done, the module catalog now has **70 of 77** methods at
-`collection.StatusImplemented` in the working tree (63 committed at `60dae0d`, plus these seven),
-confirmed via `internal/archtest`'s `TestEveryImplementedMethodAnswersReversibility`, which logs
-the count.
+Phase 58 is done. This closes out Part XII (PLAN.md Section 36, the Filter Library) -- every phase from
+50 through 58 is now built, tested, wired, and documented. Part XIII (PLAN.md Section 36's own next
+section, the Chart Collection, Phases 59 through however many chart-type phases it names) is the next
+work in this roadmap, but was not requested this session and has not been started. Skim its own intro
+(the ECharts dependency decision, the `pkg/charts` + `pleiades chart` CLI shape, the "generated Collection
+stub stays honestly inert until Phase 16's dispatcher reaches it" caveat) before assuming a one-line
+summary is the whole scope, the same discipline every phase in this Part has needed.
 
 ### Verification state
 
-**Every package this batch actually touched, verified individually and cleanly**: `go build
-./...`, `go vet ./...`, `make fmt`, `go test -race` (each touched package: `pkg/winrmsvc`,
-`pkg/winrmdism`, `internal/catalog/svc/...`, `internal/catalog/win/feature`,
-`internal/inventory/devices/windows`, `internal/classification`, `internal/inventory/plugins/aws`,
-`cmd/pleiades`), `go test ./internal/archtest/...` (full suite clean, including
-`TestCatalogPackagesImportOnlyPkg` proving the two new `pkg/` packages are layered correctly,
-`TestCatalogDataDocsMatchTheRegistry` after hand-syncing `internal/forge/catalogdata`'s two files,
-and `TestEveryImplementedMethodAnswersReversibility` reporting 70), `make gosec` (the same 9
-pre-existing individually-waived findings, zero new ones), `go run ./tools/docs-lint` (clean),
-`go run ./tools/govulncheck`/`make govulncheck` (clean — 0 vulnerabilities affecting this code, an
-improvement on the `lib/pq` CVEs prior sessions noted; worth re-confirming next session rather than
-assuming), and `go generate ./internal/forge/catalogdata` plus `go run ./tools/gendocs` (both
-confirmed idempotent, a second run of each produces no further diff).
+`go build ./...`, `go vet ./...`, `make fmt` all pass with no output. `make gosec`: 9 pre-existing
+individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this module's own code
+or imported packages (3 unrelated vulnerabilities in required-but-unused modules, unaffected). `go test
+./internal/archtest/...` passes clean. `go run ./tools/gendocs` is idempotent; `go run ./tools/docs-lint`
+passes clean (187 files scanned).
 
-**Full-repo verification completed cleanly once Docker came back**, and every earlier caveat about
-it is superseded by this: `go test -race ./...` (whole repo, real containers — real LocalStack,
-real sshd, real NATS) ran to completion with **zero failures across 126 packages**. `go run
-./tools/coverage-check`, run non-tolerant with `LOCALSTACK_AUTH_TOKEN` sourced from
-`.IGNORE/.localstack.env` (needed separately from Docker itself — the first run after Docker came
-back still showed `cloud.aws.ec2`/`s3` "regressed," and the actual cause was this token not yet
-being exported in the fresh shell, not Docker), reports **173 packages measured, none below their
-recorded floor**. `pkg/awscloud` (95.6%), `internal/inventory/plugins/aws` (99.0%), and every other
-LocalStack-dependent number matches exactly what the prior `cloud.aws.*` session recorded, with no
-drift. `make gosec` and `go run ./tools/docs-lint` were both re-run clean after Docker returned too.
-The one loose end from the Docker-unavailable window is worth still naming rather than dropping:
-`internal/catalog/pleiades/builtin/wait`'s `TestPort_UsesTheBashProber` failed once under
-full-suite load during that earlier pass and passed cleanly in isolation immediately after and
-again during this clean full run; this session touched nothing in or near that package, and it is
-not yet added to `flaky-packages.json` — worth watching for a repeat before deciding whether it
-belongs there.
+RULE 0: built the real `pleiades` binary fresh, brought up `examples/webserver_lab`'s `plain` SSH
+container for real, ran `pleiades init`/`add-host`/`add-credential` into a scratch project, wrote a
+runbook with one task gated on a six-filter combined `when_cel` condition (`syslogParse`,
+`pathExtractExtension`, `pathJoin`, a `gzipCompress`/`gzipDecompress` round trip, `trimNormalizeWhitespace`,
+`payloadChunker`) and a second gated on a deliberately wrong `lineEndingConvert` comparison;
+`pleiades validate` passed clean, `pleiades run` executed the real task over real SSH ("changed") and
+skipped the second with the real expression named in the skip reason. Container torn down afterward; the
+example's own committed files were never touched (confirmed via `git status --porcelain`). One real
+mistake caught and fixed along the way: the scratch inventory's first attempt used `ssh_host`/`ssh_port`
+property keys, which `internal/inventory/devices/linux/server.go` does not read (it reads `host`/`port`);
+the run failed dialing `:22` on an empty host, corrected by rebuilding the scratch inventory with the
+right keys before re-running.
 
-`make docs-gen-check` "fails" for the same non-defect reason as every prior session: its own `git
-diff --exit-code` compares the regenerated tree against `60dae0d`, and this session's work is real,
-intentional, uncommitted content in `docs/reference` and `internal/api/wellknown`. Resolves on its
-own the moment this is committed.
+**Full-repo `go test -race ./...` ran to completion with zero failures (128 packages, confirmed by
+reading the log directly rather than trusting a piped exit code).**
+
+`go run ./tools/coverage-check`, run with `LOCALSTACK_AUTH_TOKEN` exported: **175 packages measured, zero
+below their recorded floor** -- this phase's own two packages (`pkg/filters` at 99.0% against a 98.9%
+floor, `internal/engine` at 95.5% against a 95.2% floor) both cleared their existing floors with real
+margin, so `coverage-floor.json` needed no edit at all this phase, unlike every phase before it in this
+Part.
 
 ### Commit message
 
-Drafted, not run; nothing is committed except `60dae0d`.
+Drafted, not run; nothing beyond `e31dbe2` is committed.
 
 ```
-feat(catalog): svc.windows.* and win.feature.*, the windows_server classification rule (70 of 77)
+feat(engine,filters): Phase 58's forge tuning and 8 file, text & log filters
 
-windows.Server gains four real accessors (WindowsEdition,
-ServiceManagerName, WindowsServiceStartMode, DISMLogPath), closing the
-TODO its own doc comment has named since the type was first generated
-and structurally implementing the three capabilities svc.windows.*/
-win.feature.* need. ServiceManagerName defaults to "windows_scm",
-which is what makes svc.*'s pre-existing "windows_scm" -> "svc.windows"
-dispatch mapping resolve for real for the first time.
+Two deliverables, per this session's own opening request: decide
+whether Phase 57's work left anything further to do before Phase 58,
+then build Phase 58 (PLAN.md Section 36's Part XII, File, Text & Log
+Filters) end to end. This closes out Part XII: every phase from 50
+through 58 is now built, tested, wired, and documented.
 
-pkg/winrmsvc and pkg/winrmdism are new, mirroring pkg/remotesvc for a
-transport (WinRM) with no persistent connection to hold: both take an
-explicit Session{Target, Auth, Options} bundle rather than a live
-conn, since pkg/winrmexec dials fresh per call. pkg/winrmdism shells
-out to dism.exe directly rather than the ServerManager PowerShell
-module, since dism.exe works on every Windows SKU and
-windows.Server.DISMLogPath already commits this design to DISM; every
-script it builds ends with an explicit "exit $LASTEXITCODE" line,
-without which a native executable's real exit code never reaches
-Result.ExitCode at all. DISM's own exit codes are applied directly:
-3010 (reboot required) is success, surfaced as a new reboot_required
-stat rather than folded into changed; 87 (invalid parameter) on
-/get-featureinfo means an unrecognized feature name, surfaced as
-Exists: false rather than an error.
+Forge check: GzipCompress/GzipDecompress needed CEL bytes (gzip's
+compressed output is not necessarily valid UTF-8, so a CEL string
+would be silently wrong), a shape no prior phase had used. Running
+both directions through the real pleiades forge new-filter CLI before
+writing any code produced unfilled TODO conversion/wrap stubs on both
+sides. Added "[]byte" -> cel.BytesType to
+internal/forge/filterscaffold's wellKnownCELTypes table plus matching
+conversionFor/wrapperFor/exampleArg cases, and a new
+celToBytes/wrapBytes pair in internal/engine/cel_filters.go mirroring
+celToStringList/wrapStringList. Re-ran the CLI afterward: both
+directions now generate complete code with zero TODOs. Both
+directions verified against cel-go's own common/types/provider.go and
+bytes.go source before relying on them, not assumed.
 
-svc.windows.* (start/stop/restart/enable/disable) mirrors
-svc/systemd's own shared unitOp/runUnitOp shape. enable/disable's
-inverse is more careful than svc.systemd's own: a service found with
-start type Manual that enable moves to Automatic has no exact reverse
-through disable (which sets Disabled, not Manual), so that specific
-transition emits no inverse at all rather than one that would
-over-correct a rollback. win.feature.install/remove mirror the same
-read-decide-act-read-back shape over pkg/winrmdism; install passes
-/all (also enabling required parent features), remove deliberately
-does not.
+The 8 functions, across three files. pkg/filters/logtext.go (4, new):
+SyslogParse (RFC 5424 and legacy RFC 3164, one shared key set across
+both formats, only the <PRI> prefix as a hard parse gate, everything
+else degrading field by field); LineEndingConvert (lf/crlf);
+TrimNormalizeWhitespace; PayloadChunker (splits a list into
+fixed-size chunks, each chunk itself a nested []any -- verified
+directly against a real cel.Program that nested lists round-trip
+correctly through wrapDynList/celToAny before relying on it, no new
+well-known shape needed).
 
-The windows_server classification rule (internal/classification/
-default_ruleset.go) is what lets the aws sync plugin's Classify
-resolve a discovered Windows EC2 instance instead of quarantining it,
-the one real consumer this session wired: Classify now resolves
-Platform "windows" to windows_server and "" to linux_server, still
-quarantining any Platform value neither names.
+pkg/filters/compress.go (2, new): GzipCompress/GzipDecompress, stdlib
+compress/gzip, strictly in-memory. A first-draft GzipDecompress capped
+its own input but not its output; gzip's own extreme compression
+ratios mean a small, well-within-cap compressed value can still
+decompress unboundedly (a decompression bomb). Caught by a deliberate
+adversarial test, fixed with a new maxGzipDecompressedBytes (16 MiB)
+output cap via io.LimitReader, recorded as FAILURE_PATTERNS.md entry
+163.
 
-A real regression in code from an earlier session, not new to this
-batch: internal/catalog/svc/svc_test.go's
-TestDeclaredButNotImplementedTargetIsNamed depended on
-svc.windows.start staying declared forever, and both concrete
-namespaces svc.managerNamespace maps to are now fully implemented, so
-dispatch's own "declared but not implemented" branch had no real
-example left reachable from outside the package. Fixed with a new
-whitebox test registering one throwaway declared-only fixture purely
-to prove the branch, and a new black-box TestDispatchesToWindows
-proving real dispatch to svc.windows.start against an unreachable
-address. cmd/pleiades/doc_test.go's own recurring fixture regression
-(every prior session that flips a declared FQCN to implemented has hit
-this) recurred here too; its two "still declared" fixtures moved to
-file.template, the one FQCN this document already commits to staying
-declared.
+pkg/filters/path.go (2, appended to the existing file): PathJoin
+(POSIX-style via stdlib path.Join, not path/filepath.Join, so the
+result cannot vary by build platform); PathExtractExtension (matches
+stdlib path.Ext's own semantics exactly).
 
-Coverage: pkg/winrmsvc/pkg/winrmdism 77.5%/73.3% (no recorded floor,
-the same informational bucket pkg/winrmexec itself already sits in --
-the remaining gap is the one thing that genuinely needs a live
-Windows host, which pkg/winrmexec's own tests already document as
-unfakeable). Every Collection method and the windows.Server accessors
-hit 100% coverage on everything reachable without one, via
-statusFunc/startFunc/stopFunc/restartFunc/enableFunc/disableFunc seams
-swapped to canned answers. cmd/pleiades/
-winrm_service_feature_release_gate_test.go is the new, env-gated
-Release Gate for the one thing that does need a live host; it reports
-skipped in every environment without one, the same honest status
-winrm_static_ip_release_gate_test.go has carried every session that
-has touched WinRM.
+Tests: table-driven per function. Fuzz targets for SyslogParse,
+PathJoin, PathExtractExtension (this phase's own named checklist
+requirement) plus GzipDecompress (parses untrusted binary input,
+matching this Part's "every non-trivial parser gets a fuzz target"
+convention). A benchmark file. Every function proven callable through
+the real, unmodified engine.NewCELEvaluator()/Program.Eval via a
+compiled when_cel expression, plus a combined condition against a
+realistic log-processing stat payload with a negative control. A
+whitebox test file exercises every new binding's "argument not
+convertible" defensive branch, including celToBytes/wrapBytes
+directly.
 
-The module catalog now has 70 of 77 methods implemented in the
-working tree (63 committed, plus these seven).
+The initial coverage run surfaced six real, reachable branches missing
+a test case; all six got real new test cases. What remained is one
+documented, source-verified-unreachable strconv.Atoi guard. Measured
+99.0% for pkg/filters (98.9% floor) and 95.5% for internal/engine
+(95.2% floor) -- both comfortably above their existing floors, so
+coverage-floor.json needed no edit this phase, a first for this Part.
+
+docs/reference/filters/index.md picked up all 8 new entries with zero
+hand-written doc changes.
+
+go test -race ./... ran clean across the whole repository (128
+packages). go run ./tools/coverage-check: 175 packages measured, zero
+below their recorded floor. make gosec: 9 pre-existing waived
+findings, zero new. make govulncheck: clean. RULE 0: the real
+pleiades binary, built fresh, ran a scratch runbook against a real,
+running examples/webserver_lab SSH container, gating one real
+exec.command task on a six-filter combined when_cel condition (true,
+ran) and a second on a deliberately wrong lineEndingConvert comparison
+(skipped, named in the skip reason), via real pleiades validate and
+pleiades run.
 ```

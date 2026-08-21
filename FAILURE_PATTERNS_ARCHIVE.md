@@ -4794,3 +4794,134 @@ than the permission that replaces it, because refusing wrongly costs an error me
 wrongly costs silence. Also: this was found by running the generator against the real repository
 and reading `git status`, not by the tests, which is the argument for running a code generator
 somewhere it can do damage you can still see.
+
+## 161. A scaffolder's placeholder for an unsupported arity emitted a function signature that could not satisfy the type it was meant to produce
+
+**Symptom.** `internal/forge/filterscaffold`'s `Reminder` renders a `*Binding` function alongside
+the `cel.Function`/`cel.Overload` block it pastes into `internal/engine/cel_filters.go`. For a
+one- or two-argument filter this compiles as-is (`cel.UnaryBinding`/`cel.BinaryBinding`, both fixed
+arity, matching the generated `func fooBinding(arg0 ref.Val) ref.Val` shape exactly). For a
+three-argument filter (`bindingFuncFor`'s documented arity-two ceiling), the generator still emitted
+individual named parameters -- `func fooBinding(arg0 ref.Val, arg1 ref.Val, arg2 ref.Val) ref.Val`
+-- registered against `cel.FunctionBinding(fooBinding)`. Phase 53's `RegexExtract`, this codebase's
+first three-argument filter, hit this and was hand-rewritten from scratch as a real
+`func(...ref.Val) ref.Val` with an arity check and indexed access, recorded at the time only as "the
+forge has no typed `OverloadOpt` past arity two," not as "the generator's own stub does not compile
+against the value it is registered as."
+
+**Root cause.** `cel.FunctionBinding`'s real Go type is `func(...ref.Val) ref.Val`, a variadic
+slice parameter, not a fixed tuple. `bindingFunc`'s per-parameter loop built `argN ref.Val` for
+every `Param` regardless of count, correct for the two typed `OverloadOpt`s (`UnaryBinding`/
+`BinaryBinding`, whose own Go types are the fixed two- and one-argument shapes the loop happens to
+produce) but silently wrong for the untyped one: three individually named `ref.Val` parameters is
+not assignable to `func(...ref.Val) ref.Val`. Nothing caught this the first time because the fix
+was applied by hand, off the template, before the generated stub was ever asked to compile as a
+`cel.FunctionBinding` value on its own.
+
+**Fix.** `bindingFuncFor` now returns `cel.FunctionBinding` (not a `/* TODO: arity */` comment) for
+arity three and above, and `bindingFunc` emits the real shape for that case: `func fooBinding(args
+...ref.Val) ref.Val`, a generated `if len(args) != N { return types.NewErr(...) }` arity check, and
+`args[i]` in place of each `argN`. Verified against `Reminder()`'s own output for a three-argument
+config, byte for byte matching `RegexExtract`'s own hand-written binding, before either of Phase
+54's two three-argument filters (`FilterListByKV`/`ExcludeListByKV`) was written.
+
+**Lesson.** A generator's placeholder for a case it cannot fully handle should still be checked
+against the real type it is meant to satisfy, not just "looks like the pattern for the cases that
+do work." The first occurrence of an unsupported shape being hand-patched off the template hid the
+question of *why* the generator couldn't produce it; only reading the generator's own source before
+writing a second and third occurrence surfaced that the gap was a real bug (a signature mismatch),
+not merely missing coverage. Three occurrences of the same one-off is the threshold this codebase
+has already used elsewhere (Phase 51's `celToStringList`, Phase 52's structural types) to decide a
+capability belongs in the tool rather than in the hand; this is the same judgment applied to a
+scaffolder's own binding-generation logic rather than to its type table.
+
+## 162. A doc comment assumed the stdlib PEM encoder validated its own block type, and it does not
+
+**Symptom.** Phase 56's `pkg/filters.DERToPEM(der, blockType string) string` wraps caller-supplied
+base64 bytes in a PEM block of the caller-supplied `blockType`, calling
+`pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: raw})` directly. The first version of this
+function's doc comment claimed "`pem.Encode` rejects a newline in `Type`, to prevent a caller from
+smuggling an extra PEM header or body into what looks like a single block's type line" -- written
+before checking whether that claim was actually true. It was written down as an assumption because
+Go's `encoding/pem` package does validate *something* about a `Block` before encoding it (a
+`Headers` map key containing a colon), which reads, at a glance, like the kind of package that would
+also validate `Type`. A test asserting `DERToPEM(der, "CERT\nIFICATE")` returns `""` failed: the
+function instead returned a PEM string with a literal embedded newline splitting `-----BEGIN
+CERT` from `IFICATE-----`, meaning a `blockType` containing a raw `-----END X-----\n\n-----BEGIN Y---
+--` sequence would let a caller smuggle an entire second, attacker-chosen PEM block into what a
+downstream reader (another `filters.*` call, or code outside this platform entirely) would trust as
+one clean block.
+
+**Root cause.** Reading `encoding/pem`'s own source (`src/encoding/pem/pem.go`'s `Encode`) rather
+than trusting the assumption: the function's *only* validation is `for k := range b.Headers { if
+strings.Contains(k, ":") { return error } }`. `b.Type` is written into the output completely
+unvalidated, as `out.Write([]byte(b.Type + "-----\n"))`, with no check for a newline, a null byte, or
+anything else. The doc comment's claim was invented to sound plausible rather than verified against
+the actual source, and the function that would have caught it -- a test asserting the newline case
+specifically -- had not been written yet when the doc comment was.
+
+**Fix.** `DERToPEM` now validates `blockType` itself against `pemBlockTypePattern`
+(`^[A-Z0-9 -]+$`, the character class every real PEM label this codebase has reason to produce
+already fits: `CERTIFICATE`, `PUBLIC KEY`, `RSA PRIVATE KEY`, `X509 CRL`), refusing anything outside
+it before ever calling `pem.EncodeToMemory`. The doc comment was rewritten to state what was
+actually verified, and a new test
+(`TestPEMToDER_DERToPEM_RoundTrip/der_to_pem_block_type_injection_blocked`) constructs a real
+injection payload (`"CERTIFICATE-----\n\n-----BEGIN EVIL"`) and asserts it is refused, not just that
+a bare newline is. `coverage-floor.json`'s Phase 56 entry documents the resulting `encoded == nil`
+branch in `DERToPEM`/`SSHPublicKeyToPEM` as provably unreachable now that this validation runs first
+(the only way `pem.EncodeToMemory` can still fail, a colon in a `Headers` key, is unreachable since
+neither call site ever sets `Headers`).
+
+**Lesson.** A doc comment describing what a called stdlib function does is a claim, not a fact,
+until the function's own source (or its documented contract) has actually been read. This is the
+same discipline `.AGENTS/AGENTS.md`'s LSP-over-grep mandate asks for applied one level up: querying
+the real tool (here, reading the real source) instead of narrating what a function "probably" does
+based on how safe-sounding packages usually behave. The finding surfaced only because a test was
+written for the specific case the doc comment claimed was handled; a test suite that only exercises
+the happy path (a well-formed `blockType` like `"CERTIFICATE"`) would have shipped this exact
+PEM-injection vector with a doc comment actively asserting it was closed.
+
+## 163. A first-draft `GzipDecompress` had an input cap but no output cap, so a 1 KiB compressed value could allocate 64 MiB
+
+**Symptom.** Phase 58's `pkg/filters.GzipDecompress(data []byte) string` bounds its own *input*
+(`len(data) > MaxStructuredInputBytes`, 1 MiB) before ever calling `gzip.NewReader`, matching every
+other function in this package's own "bound input length before parsing" invariant
+(`pkg/filters/filters.go`'s package doc). The first draft then decompressed with a bare
+`io.ReadAll(gzipReader)`, trusting that input cap to also bound the *output*. It does not: gzip's own
+format allows extreme compression ratios for pathological input (a long run of one repeated byte
+compresses to a few hundred bytes regardless of how long the run is), so a compressed value
+comfortably under the 1 MiB input cap can still decompress to tens or hundreds of megabytes. This
+phase's own Schema/Injection Hardening checklist item ("bounds input length before parsing... no
+unbounded allocation") was written broadly enough to cover this, and a deliberate test
+(`TestGzipDecompress/decompression_bomb_refused`, constructing a real 64 MiB payload of one repeated
+byte and confirming its compressed form is well under the input cap before asserting it gets refused)
+caught the gap during this phase's own audit pass, not in review of someone else's code.
+
+**Root cause.** `MaxStructuredInputBytes` (and `MaxInputBytes` before it) was designed for exactly
+one shape of risk: a caller-supplied *flat* value whose byte length is invisible to the CEL engine's
+own per-call cost accounting (`pkg/filters/filters.go`'s own justification for why the cap has to
+live in the function, not the engine). Gzip decompression is a second, structurally different risk
+neither cap addresses: the *decoded* size is not proportional to the *encoded* size at all, so
+capping the thing you can see (the compressed bytes) says nothing about the thing you cannot see yet
+(the decompressed bytes) until decompression has already happened.
+
+**Fix.** A new, separate constant, `maxGzipDecompressedBytes = 16 << 20` (16 MiB), wraps the
+`gzip.Reader` in `io.LimitReader(r, maxGzipDecompressedBytes+1)` before `io.ReadAll`, and the result
+is checked against the cap a second time after reading (the `+1` distinguishes "read exactly the cap"
+from "there was more data past it," since `io.ReadAll` against a `LimitReader` cannot itself report
+which case occurred). Exceeding the cap returns `""`, this package's own established sentinel for
+malformed/refused input, rather than a partial, silently truncated string. The value (16 MiB) was
+chosen as generous headroom over any ratio real log or config text achieves against a 1 MiB
+compressed input, while still refusing to allocate without bound for a crafted one; the constant's
+own doc comment records this reasoning and cites this entry.
+
+**Lesson.** An input-length cap and an output-length cap are not the same control, and a function
+whose stated job is decompression is exactly the shape where conflating them is dangerous: the
+premise of the tool is that a small input legitimately produces a large output, which is precisely
+what a decompression-bomb check has to catch without also breaking the legitimate case. This is a
+general instance of PLAN.md Section 36's own decision to give Phase 52's document-shaped filters
+their own separately-justified `MaxStructuredInputBytes` rather than reusing the flat-scalar
+`MaxInputBytes` unchanged: a new function whose risk shape genuinely differs from every existing cap
+needs its own cap, not a reuse-by-default of whichever one is already in scope. The catch came from
+writing an adversarial test for the checklist's own stated concern (unbounded allocation) rather than
+only testing the round-trip happy path, the same lesson entry #162 draws from a different angle.

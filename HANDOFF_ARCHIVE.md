@@ -1,5 +1,1492 @@
 # Handoff Document Archive
 
+## Previous session: Phase 57 (cloud provider data filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `9bc2acf` (Phase 56) for
+the entire session, then moved to `2070cb9` when the user gave their own live go-ahead and committed
+this session's work themselves, outside the assistant's own turns -- the assistant itself never ran
+`git commit` this session, per the standing no-autonomous-commit rule. A follow-on request arrived
+mid-turn after Phase 57 landed: `.github/workflows/ci.yml` had never wired `LOCALSTACK_AUTH_TOKEN` into
+the `ci` job's environment, so `internal/catalog/cloud/aws/ec2`/`s3`'s LocalStack-backed tests silently
+skipped in real GitHub Actions and their coverage regressed below the recorded floor there (never
+locally, since a local run exports the token from `.IGNORE/.localstack.env`). Fixed by wiring the secret
+through (`env: LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}`); the user added the actual
+GitHub Actions secret themselves and committed the fix as `e31dbe2`, again outside the assistant's own
+turns.**
+
+That session opened with the same two-part request as the last several: whether Phase 56's work had
+surfaced any further forge tuning need, and to move on to Phase 57: Cloud Provider Data Filters.
+
+**Forge-tuning decision: no change needed, verified rather than assumed.** Phase 57 needed four
+argument/return shapes no prior phase had used: `map[string]any -> string`,
+`[]map[string]any -> map[string]any`, `map[string]any -> []map[string]any`, and `(int, int) -> string`.
+All four were run through the real `pleiades forge new-filter` CLI before any filter was hand-written.
+All four generated correct code with no tuning needed. The one hiccup along the way was self-inflicted,
+not a forge defect: an initial test invocation passed a redundant `--return string:string` (intending it
+as a no-op) and got the literal text `string` pasted into the generated overload instead of
+`cel.StringType`, because an explicit `:celType` override is used verbatim rather than re-resolved
+through the well-known-type table. Re-running the same shape with the celType suffix simply omitted
+produced the correct code. `internal/forge/filterscaffold` was untouched that session.
+
+**Phase 57: 14 cloud provider data filters**, across two new files:
+
+- `pkg/filters/cloudid.go` (6 functions): `ParseARN`/`BuildARN` (resource split at its first `/` or `:`,
+  with the raw unsplit `resource` field always retained so `BuildARN` reconstructs byte-exact);
+  `ParseAzureResourceID`/`BuildAzureResourceID` (type/name segment pairs as parallel lists, so a nested
+  child resource like a subnet under a virtual network round-trips too); `ParseGCPSelfLink` (zone/
+  region/global scope); `ParseGCPIAMMember` (the four typed members, the two no-identifier singletons, a
+  `deleted:` prefix and a `?uid=` suffix). The GCP functions are one-way only -- the spec names inverse
+  builders only for ARN and Azure ID, not GCP.
+- `pkg/filters/cloudops.go` (8 functions): `AWSTagListToMap`/`MapToAWSTagList` (sorted-by-key output for
+  determinism); `FormatCurrency` (amount as a decimal **string**, not `double` -- no prior phase had
+  declared a primary `double`-typed CEL argument, and money must never round-trip through binary
+  float64, parsed exactly via `math/big.Rat`); `CloudInitWrap` (a single base64 Content-Transfer-Encoding
+  MIME part inside a `multipart/mixed` envelope, RFC 2045-wrapped at 76 characters); `ExtractPaginationToken`
+  (checks `next_token`/`nextPageToken`/`NextToken`/`@odata.nextLink` with `$skiptoken`/`$skip` query
+  extraction/a curated `headers` sub-map, in priority order); `ResourceTShirtSize` (RAM as **MB, an int**,
+  for the same reason as `FormatCurrency`); `NormalizeCloudRegion`; `IAMPolicyMerger` (canonical-JSON
+  structural dedupe, explicitly syntactic not semantic).
+
+**A real coverage gap closed properly, not floored past.** The initial full run measured `pkg/filters` at
+98.5%, half a point below the 99.1 floor Phase 56 had recorded. Six of the uncovered branches were real,
+reachable code paths simply missing a test case; all six got real new test cases. What was left after
+that (three functions, each carrying one documented, source-verified-unreachable stdlib-failure guard)
+is the same class of gap Phases 51/52/56 already established a precedent for. Measured 99.0% after the
+real fixes; `coverage-floor.json` recorded a further, smaller downward adjustment (99.1 -> 98.9) with
+full reasoning. `internal/engine` was raised from 95.0 to 95.2 (measured 95.4).
+
+**RULE 0.** Built the real `pleiades` binary fresh, brought up `examples/webserver_lab`'s `plain` SSH
+container for real, wrote a runbook with one task gated on a three-filter combined `when_cel` condition
+(`parseARN`, `normalizeCloudRegion`, `resourceTShirtSize`) and a second gated on a deliberately wrong tag
+value; `pleiades validate` passed clean, `pleiades run` executed the real task over real SSH ("changed")
+and skipped the second with the real expression named in the skip reason. Container torn down afterward.
+
+**Read this first, carried forward:** no commit without the user's own live word in the current
+conversation; never use Agent/Workflow to delegate without being asked, even with Ultracode on; an
+explicit `:celType` override to `pleiades forge new-filter` is used verbatim, not re-resolved (omit the
+suffix whenever the Go type is already well-known); a design decision made before writing code (money as
+a string, not a `double`) beats a narrowing noticed afterward; `LOCALSTACK_AUTH_TOKEN` must be exported
+before a full `coverage-check`/`-race` run or unrelated packages report false regressions -- and, as of
+this session's own follow-on fix, must also be wired into `.github/workflows/ci.yml` as a repository
+secret or the same two packages regress in real CI specifically, silently, for a reason unrelated to
+whatever phase happens to be landing at the time.
+
+## Previous session: Phase 56 (security & cryptography filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `b0eaf1f` (Phase 55) for the
+entire session, then moved to `9bc2acf` when the user gave their own live go-ahead and committed this
+session's work themselves, outside the assistant's own turns -- the assistant itself never ran `git
+commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with two direct requests in sequence: whether Phase 55's work had surfaced any further
+forge tuning need, and to move on to Phase 56: Security & Cryptography Filters.
+
+**Forge-tuning decision: no change needed, verified rather than assumed.** All 15 of Phase 56's
+argument/return shapes were run through the real `pleiades forge new-filter` CLI before any filter was
+hand-written: `string`/`int`/`bool` unary and binary overloads, and three `string -> map[string]any`
+overloads (the JWT/X.509/DN parsers). Zero errors across all 15 invocations. `internal/forge/filterscaffold`
+was untouched that session.
+
+**Phase 56: 15 security and cryptography filters**, across two new files:
+
+- `pkg/filters/security.go` (8 functions): `SHA256Hash`/`HMACGenerate` (fixed to SHA-256 only, no
+  algorithm-selection parameter); `SecureCompare` (`crypto/subtle.ConstantTimeCompare`);
+  `GenerateRandomPassword` (`crypto/rand` via `rand.Int` against the charset length, never `math/rand`,
+  never a byte-modulo that would bias the distribution); `MaskPII` (SSN/credit-card/bearer-token regex
+  redaction; an oversized input returns a fixed `[REDACTED-OVERSIZED-INPUT]` marker rather than the
+  unredacted original or `""`); `WindowsSIDToHex`/`HexToWindowsSID` (the real MS-DTYP binary SID
+  structure, hand-encoded); `SNMPOIDTranslate` (18-entry curated MIB-II table).
+- `pkg/filters/pki.go` (7 functions): `ParseJWTPayloadUnverified` (`jwt.NewParser().ParseUnverified`, doc
+  comment and test both make the non-verification unmistakable); `ParseX509Certificate` (not_before/
+  not_after formatted as this Part's own established RFC 3339 "ISO8601" convention); `PEMToDER`/`DERToPEM`
+  (base64-encoded DER); `SSHPublicKeyToPEM`/`PEMToSSHPublicKey` (`x509.MarshalPKIXPublicKey` <->
+  `ssh.NewPublicKey`); `ParseDistinguishedName` (RFC 4514-shaped, explicitly refusing a multi-valued RDN or
+  a `#`-prefixed raw hex value rather than mis-parsing either).
+
+**A real security finding.** `DERToPEM`'s doc comment originally claimed `pem.Encode` refuses a newline in
+a block's `Type` field. It does not: reading `encoding/pem`'s own source directly showed `Encode` validates
+only that a `Headers` map key contains no colon -- `Type` is written into the output completely
+unvalidated. `DERToPEM`'s caller-supplied `blockType` was therefore a real PEM-injection vector. Fixed with
+`DERToPEM`'s own `pemBlockTypePattern` validation before ever calling `pem.EncodeToMemory`, proven by a
+test constructing a real injection payload. Recorded as `FAILURE_PATTERNS.md` #162.
+
+**A second, smaller finding.** `pkg/filters/filters.go`'s own package doc comment claimed "imports the
+standard library and nothing else," false since Phase 52's YAML support and Phase 54's UUID dependency.
+Corrected to state the real invariant: no `cel-go` dependency, no `internal/` dependency.
+
+**A real gosec finding, fixed at the source rather than waived.** `make gosec` flagged two G115
+integer-narrowing findings in `WindowsSIDToHex`. Both fixed with an explicit `& 0xff` mask rather than
+added to `gosec-waivers.json`.
+
+That session's environment reset mid-session (the second in a row at that point); a partially-written test
+file from before the reset (`pkg/filters/security_test.go`) was found on disk with two real bugs in it once
+re-read carefully (a subtest-name collision, and a stray space character inside a hex literal that
+accidentally tested the wrong code path) -- both fixed.
+
+Verification: `go build ./...`/`go vet ./...`/`make fmt` clean. `make gosec`: 9 pre-existing waived
+findings, zero new. `make govulncheck`: clean. `go test ./internal/archtest/...` clean. `go run
+./tools/gendocs` idempotent; `go run ./tools/docs-lint` clean (185 files). RULE 0 against the real
+`examples/webserver_lab` `plain` SSH container: a five-filter combined `when_cel` condition ran for real,
+and a second gated on a deliberately unrecognized OID skipped with the real expression named. Full-repo `go
+test -race ./...` clean (128 packages). `go run ./tools/coverage-check`: 175 packages measured, none below
+floor. `coverage-floor.json`: `pkg/filters` recorded downward adjustment 99.4 -> 99.1 (measured 99.3);
+`internal/engine` raised 94.6 -> 95.0 (measured 95.2).
+
+## Previous session: Phase 55 (time, date & scheduling filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `3327add` for the entire
+session (Phase 54's forge tuning and 17 filters), then moved to `b0eaf1f` when the user gave their own
+live go-ahead and committed this session's work themselves, outside the assistant's own turns -- the
+assistant itself never ran `git commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with two direct requests in sequence: whether Phase 54 had surfaced any further forge
+tuning need, and to move on to Phase 55: Time, Date & Scheduling Filters.
+
+**Forge-tuning decision: no change needed, verified rather than assumed.** All 25 of Phase 55's
+argument/return shapes were run through the real `pleiades forge new-filter` CLI before any filter was
+hand-written: `int`/`string`/`bool` unary and binary overloads, two `map[string]any` + `string` binary
+overloads, and four arity-three `string, string, int` overloads. Zero errors, confirming Phase 54's
+arity-three-plus `bindingFunc` fix generalizes and gets reused correctly by a later phase.
+`internal/forge/filterscaffold` was untouched.
+
+**Phase 55: 25 time, date and scheduling filters**, across three files: `pkg/filters/timeconvert.go` (12:
+`EpochToISO8601`/`ISO8601ToEpoch`, `FileTimeToEpoch`/`EpochToFileTime` as deliberately total functions with
+no sentinel, `ShiftTimezone`, `AddSeconds`, `DeltaSeconds`/`DeltaDays` taking a required `fallback`
+argument, `RoundToHour` flooring via `time.Date` reconstruction rather than the proven-wrong
+`time.Time.Truncate(time.Hour)` for a non-whole-hour offset, `HumanizeDuration`, `BootTimeFromUptime`/
+`UptimeFromBootTime`), `pkg/filters/calendar.go` (11: `IsPast`/`IsFuture`/`IsOlderThan`/`IsExpiringWithin`
+each taking an explicit `asOf` reference timestamp rather than reading the wall clock per PLAN.md Section
+36's pure-function requirement, `StartOfDay`/`StartOfWeek`/`StartOfMonth`, `IsLeapYear`, `DayOfWeek`,
+`IsBusinessHour`, `IsMaintenanceWindow`), and `pkg/filters/cron.go` (extended, 2 new: `CronNextRun`/
+`CronPreviousRun` on Phase 54's parser, with new `domWildcard`/`dowWildcard` bookkeeping for real cron(8)
+day-field OR semantics and a day-then-minute bounded search terminating an unsatisfiable expression in
+microseconds).
+
+Two Adversarial Pattern Justification proofs the checklist named explicitly:
+`TestShiftTimezone_RoundTripsAcrossDSTBoundary` and `TestFileTimeToEpoch_RoundTripsAcrossLeapYearBoundary`.
+A third surfaced organically: `TestCronNextRun_DayFieldsUseCronsRealORSemantics`.
+
+`pkg/filters` measured 99.5%, `coverage-floor.json` raised 99.2 -> 99.4. `internal/engine` measured 95.0%,
+raised 93.8 -> 94.6 -- unlike Phase 54, every one of Phase 55's 25 new bindings reached 100%, since none of
+its parameters is `any`-typed.
+
+RULE 0: the real `pleiades` binary, built fresh, ran a scratch runbook against a real, running
+`examples/webserver_lab` SSH container, gating one real `ssh_exec` task on a five-filter combined
+`when_cel` condition (true, ran) and a second on a deliberately false one (skipped, named in the skip
+reason).
+
+**The environment reset mid-session** (a background `coverage-check` run and the scratch RULE 0 project
+both vanished along with the session-scratchpad directory; the docker container survived and was reused).
+Real repository file edits were unaffected. Lesson recorded: verify state directly after any gap rather
+than assuming a prior background command's result is still available.
+
+Drafted commit message (the one the user ran themselves at `b0eaf1f`):
+
+```
+feat(engine,filters): Phase 55's 25 time, date & scheduling filters
+```
+
+(Full body matched this archive's own description above; see `git show b0eaf1f` for the exact committed
+text.)
+
+## Previous session: Phase 54 (validation & business-logic predicates)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD was `2e705ea` for the entire
+session (the forge structural-type support and Phase 52), then moved to `3327add` when the user gave
+their own live go-ahead and committed this session's work themselves, outside the assistant's own turns
+-- the assistant itself never ran `git commit` this session, per the standing no-autonomous-commit rule.**
+
+That session opened with a direct request: decide whether the forge needed tuning before Phase 54, then
+build Phase 54 itself. Two deliverables, in order: a real, load-bearing `internal/forge/filterscaffold`
+upgrade (not a "no changes needed" like Phase 53), and Phase 54 (`.SPECIFICATION/IMPLEMENTATION.md`'s
+Part XII) built through it, end to end.
+
+**A real forge gap found and fixed before writing any filter code.** Phase 54's checklist named
+`FilterListByKV`/`ExcludeListByKV`, both three-argument filters -- the second and third three-argument
+filter this codebase had ever needed, after Phase 53's `RegexExtract`. Reading
+`internal/forge/filterscaffold/generate.go`'s `bindingFunc` before writing the two Phase 54 functions by
+hand a second time surfaced a real, previously undiscovered bug: for arity three and above, the generator
+emitted a `*Binding` function signature with individual named `argN ref.Val` parameters, but
+`cel.FunctionBinding`'s real Go type is `func(...ref.Val) ref.Val`, a variadic slice -- the two signatures
+do not satisfy each other, so the generated stub would not even compile as the value `cel.FunctionBinding`
+requires, which is exactly why `RegexExtract`'s binding needed to be hand-rewritten from scratch rather
+than filled in from the scaffold. `bindingFuncFor`/`bindingFunc` were fixed to generate the real, proven
+shape for arity three and above: a real `args ...ref.Val` parameter, a generated arity check, and indexed
+access instead of individual names.
+
+**A second, smaller forge gap:** `wellKnownCELTypes` gained `"any"` -> `cel.DynType` for an arbitrary CEL
+value compared for equality against a `dyn`-typed map/list element (not a string being cast, not a
+document being walked), reusing `cel_filters.go`'s own `celToAny` (already built for Phase 52's internals,
+never exposed as a top-level well-known type before).
+
+**Phase 54: 17 validation and business-logic filters**, across four category files:
+`pkg/filters/validate.go` (`IsValidFQDN`, `IsValidEmail`, `IsValidUUID`, `IsValidBase64`, `IsValidJSON`,
+`IsValidYAML`, `IsValidPort`), `pkg/filters/collection.go` (`DropEmptyValues`, `FilterListByKV`/
+`ExcludeListByKV`, `ListContains`, `HasMandatoryTags`, `ListIntersect`/`ListDiff`, `DedupeByKey`, plus a
+shared `valuesEqual`/`toFloat64` pair for cross-type numeric equality), `pkg/filters/semver.go`
+(`CompareSemVer`, with a real, documented truncation asymmetry), and `pkg/filters/cron.go`
+(`IsValidCronExpr`, backed by a small, hand-rolled 5-field cron parser built to be reused unchanged by
+Phase 55's `CronNextRun`/`CronPreviousRun`).
+
+**A real dead-code finding during coverage work:** `parseCronField`'s own "no values matched" check after
+its main loop could never fire, since `lo<=hi` and `step>=1` were both already guaranteed by that point.
+Fixed by deletion, not by fabricating a test for unreachable code.
+
+`pkg/filters` measured 99.3%, `coverage-floor.json` raised 98.9 -> 99.2. `internal/engine` measured 94.4%,
+raised 93.2 -> 93.8 (the first time this package's floor had moved since Phase 51, since Phase 51's and
+Phase 53's own identical 94.1% reading had been left unraised because it had not moved).
+
+RULE 0: the real `pleiades` binary, built fresh, ran a scratch runbook against a real, running
+`examples/webserver_lab` SSH container, gating one real `ssh_exec` task on a five-filter combined
+`when_cel` condition (true, ran) and a second on a deliberately false one (skipped, named in the skip
+reason).
+
+Drafted commit message (the one the user ran themselves at `3327add`):
+
+```
+feat(engine,filters): Phase 54's forge tuning and 17 validation & business-logic filters
+```
+
+(Full body matched this archive's own description above; see `git show 3327add` for the exact committed
+text.)
+
+## Previous session: Phase 53 (string, encoding & path filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `2e705ea`, the forge
+structural-type support and Phase 52 (Structured Data Filters), committed since the prior session's
+handoff (not by that session; no live go-ahead was given that session, so it never ran `git commit`).
+Everything below was implemented, tested, and verified on top of that commit, but stayed uncommitted for
+the entire session: no such word was given.**
+
+That session opened with a direct request: "Phase 53: String, Encoding & Path Filters next." One
+deliverable: `.SPECIFICATION/IMPLEMENTATION.md`'s Part XII, Phase 53, built end to end. No forge change
+was needed that time (every one of the phase's 16 functions uses only `string`/`int`/`bool`, all already
+well-known since Phase 50), so the forge was used as-is, without modification, to scaffold every function
+before it was hand-implemented -- the same discipline the prior two sessions established, now running
+against a phase that needed nothing new from the tool.
+
+### What landed
+
+**A real Pattern Entry Gate finding, caught before writing any filter code.** The checklist's own next
+item, after the expected base64 rejection, lists "string condition predicates: starts-with, ends-with,
+contains, regex-match, is-absolute-path, is-empty-or-whitespace" as something to build. Verified directly
+against a bare `cel.NewEnv()` with no extensions and no `filtersLib()` at all: `"x".startsWith("y")`,
+`"x".endsWith("y")`, `"x".contains("y")`, and `"x".matches("y")` all compile and evaluate today, with
+zero Phase 50-53 work of any kind -- these four are part of CEL's own core standard library, not an
+extension. Building `filters.startsWith`/`endsWith`/`contains`/`regexMatch` as thin wrappers around
+methods already reachable with no `filters.` prefix at all would have been exactly the kind of redundant
+work the checklist's own base64 rejection is warning against, just unnamed. Only `IsAbsolutePath` and
+`IsEmptyOrWhitespace` -- genuinely absent from core CEL -- were built from that item;
+`TestCELFilters_Phase53StringEncodingPathFilters` includes a case proving the four native ones work with
+no filter at all, so the finding is asserted, not just narrated.
+
+**Phase 53: 16 string, encoding, and path filters, all scaffolded through the real, unmodified forge,
+then hand-implemented and fully tested**, across three category files matching the phase's own natural
+groupings: `pkg/filters/encoding.go` (`URLEncode`/`URLDecode` via `net/url.QueryEscape`/`QueryUnescape`,
+documented as encoding a space to `+` rather than `%20` since that specific choice is easy to get wrong
+silently; `StringToHex`/`HexToString`; `BytesToHuman`/`HumanToBytes`, binary base-1024, lossy above 1024
+by the same design `ls -lh`/`du -h` already are), `pkg/filters/stringutil.go` (`CamelToSnake` -- reusing
+`internal/forge/filterscaffold`'s own acronym-run algorithm verbatim, duplicated rather than imported
+since `pkg/` may not import `internal/` -- `SnakeToCamel`, `MaskSecret`, `RegexExtract` -- named capture
+group extraction, RE2 syntax throughout this codebase so a pathological pattern cannot become a
+resource-exhaustion vector the way a backtracking engine's could -- and `IsEmptyOrWhitespace`), and
+`pkg/filters/path.go` (`WindowsPathToPOSIX`/`POSIXPathToWindows` -- a bare separator swap, deliberately
+never touching a drive letter since no single POSIX convention for one exists --
+`OctalToSymbolicPerms`/`SymbolicToOctalPerms`, and `IsAbsolutePath`, which checks POSIX, Windows
+drive-absolute, and Windows UNC conventions all at once since a device fact this filter gates on may
+report either OS's path shape).
+
+`RegexExtract` needed a hand-written binding: it is this codebase's first three-argument filter, and
+`internal/forge/filterscaffold`'s `bindingFuncFor` has no typed `OverloadOpt` past arity two (documented
+in its own comment as an accepted gap, the same way arity zero was before `GenerateUUIDv4` needed it the
+session before). The forge scaffolded the real `cel.Function`/`cel.Overload` block with a
+`cel.FunctionBinding /* TODO: arity */` placeholder exactly as designed; filled in by hand as a real
+`func(...ref.Val) ref.Val` taking a length-3 slice, not invested in as a new generator capability for a
+single occurrence at the time.
+
+**Two round-trip pairs, each with one real, documented asymmetry rather than a claimed-perfect
+inverse.** `OctalToSymbolicPerms("0755")` comes back from `SymbolicToOctalPerms` as `"755"`, not
+`"0755"`: the symbolic form alone cannot distinguish "no special bit, written with a redundant leading
+zero" from "no special bit, written the canonical way," so the reverse direction always emits the
+shorter, canonical form (the same one `chmod(1)` itself prints). `BytesToHuman`/`HumanToBytes` round-trip
+exactly only for a value whose scaled form needs two decimal digits or fewer (every power of 1024, plus
+a clean fraction like 1536 bytes = "1.5KiB"); `BytesToHuman(1500)` formats as `"1.46KiB"`, and
+`HumanToBytes` of that reconstructs 1495, not 1500 -- the same lossy rounding every human-readable size
+formatter in wide use already has. Both asymmetries are stated in the functions' own doc comments and
+proven with representative inputs chosen to be exact, not hidden by only testing the exact cases.
+
+**Tests**: table-driven tests per function including the malformed/boundary cases the checklist's own
+Adversarial Pattern Justification names (`OctalToSymbolicPerms`/`SymbolicToOctalPerms` and
+`BytesToHuman`/`HumanToBytes` round-trip for ten and eight representative inputs respectively). Four
+`Fuzz` targets (`FuzzRegexExtract`, `FuzzWindowsPathToPOSIX` -- exercising both path functions and
+`IsAbsolutePath` together -- `FuzzOctalToSymbolicPerms`, `FuzzSymbolicToOctalPerms`), 8-9s each, zero
+panics across hundreds of thousands of executions.
+`internal/engine/cel_filters_stringencoding_test.go`: every one of the 16 functions proven callable
+through the real, unmodified `engine.NewCELEvaluator()`/`Program.Eval` via a compiled `when_cel`
+expression, plus a combined condition chaining five functions with a negative control.
+`internal/engine/cel_filters_internal_test.go` (whitebox) gained the same "argument not convertible"
+defensive-branch proof for all 16 new bindings, including `RegexExtract`'s own wrong-arity case.
+
+`pkg/filters` measured 99.0%; every one of the phase's 16 functions reached 100% on its own, so
+`coverage-floor.json` was **raised** (not just left alone) from 98.5 to 98.9 -- the direction this file's
+own ratchet is supposed to move, and the first time this branch's own sessions had done it rather than
+only holding steady or lowering with a justified reason. `internal/engine` measured 94.1%, the same
+number Phase 51 measured; left at its existing 93.2 floor unchanged, matching that phase's own decision
+not to bump it for an identical reading.
+
+**Documentation Gate closed with zero hand-written doc changes**, the same design bet three sessions
+running by then: `docs/reference/filters/index.md` picked up all 16 new `filters.*` entries automatically
+(55 entries total: 3 from Phase 50, 25 from Phase 51, 11 from Phase 52, these 16), and a second `gendocs`
+run produced byte-identical output.
+
+### Read this first (still true at handoff)
+
+**No commit without the user's own live word in the current conversation.**
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+
+**Before building a filter the checklist names, check whether CEL's own core standard library (not just
+`ext.Encoders`/`ext.Network`/`cel.OptionalTypes`, which Phase 50 already wired in) already provides it.**
+`startsWith`/`endsWith`/`contains`/`matches` needed no `filtersLib()` work at all. Worth checking again for
+Phase 54 onward: `ext.Strings()` (`lowerAscii`/`upperAscii`/`trim`/`split`/`replace`) is real and unwired,
+in case a later phase's checklist names something it would also make redundant.
+
+**`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run**, or two unrelated
+AWS packages read as a false regression.
+
+**The `examples/webserver_lab` `plain` SSH-container RULE 0 pattern reused cleanly a second time**:
+`docker compose ... up -d --build plain`, a scratch `pleiades init` project, `add-host`/`add-credential`,
+a scratch runbook. This is the established RULE 0 fixture for this branch's own filter phases.
+
+### Verification state at handoff
+
+`go build ./...`, `go vet ./...`, `make fmt` all passed with no output. `make gosec`: 9 pre-existing
+individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this module's own code
+or imported packages. `go test ./internal/archtest/...` passed clean. `go run ./tools/gendocs` was
+idempotent; `go run ./tools/docs-lint` passed at 182 files.
+
+RULE 0: real `pleiades` binary, real `plain` SSH container, a scratch runbook with one task gated on a
+five-filter combined `when_cel` condition (true, ran) and a second gated on a deliberately false one
+(skipped, named in the skip reason), via real `pleiades validate` and `pleiades run`.
+
+**Full-repo `go test -race ./...` ran to completion with zero failures across 128 packages.**
+
+`go run ./tools/coverage-check` reported **175 packages measured, none below their recorded floor**.
+`coverage-floor.json`: `pkg/filters` **raised** from 98.5 to 98.9 (measured 99.0). `internal/engine`
+measured 94.1%, above its existing 93.2 floor; left unchanged, matching Phase 51's own decision at the
+identical reading.
+
+### Commit message drafted that session (never run)
+
+```
+feat(engine,filters): Phase 53's 16 string, encoding & path filters
+
+Phase 53 (String, Encoding & Path Filters, PLAN.md Section 36's Part
+XII) built end to end. No forge change was needed: every one of this
+phase's functions uses only string/int/bool, all already well-known
+since Phase 50, so internal/forge/filterscaffold was used as-is to
+scaffold every function before it was hand-implemented, the same
+discipline the last two sessions established.
+
+A real Pattern Entry Gate finding, caught before writing any filter
+code: the checklist's own next item, after the expected base64
+rejection, names starts-with/ends-with/contains/regex-match as string
+condition predicates to build. Verified directly against a bare
+cel.NewEnv() with no extensions and no filtersLib() at all:
+"x".startsWith("y"), "x".endsWith("y"), "x".contains("y"), and
+"x".matches("y") all compile and evaluate today with zero Phase 50-53
+work -- these four are part of CEL's own core standard library, not an
+extension the checklist's own wording happened to flag the way it
+flagged base64. Building filters.startsWith/endsWith/contains/
+regexMatch as thin wrappers around methods already reachable with no
+filters. prefix at all would have been exactly the kind of redundant
+work the base64 rejection warns against, just unnamed. Only
+IsAbsolutePath and IsEmptyOrWhitespace, genuinely absent from core
+CEL, were built from that item; the release-gate test includes a case
+proving the four native ones work with no filter at all.
+
+The 16 functions, across three category files matching this phase's
+own natural groupings: pkg/filters/encoding.go (URLEncode/URLDecode
+via net/url.QueryEscape/QueryUnescape, documented as encoding a space
+to + rather than %20; StringToHex/HexToString; BytesToHuman/
+HumanToBytes, binary base-1024, lossy above 1024 by the same design
+ls -lh/du -h already are), pkg/filters/stringutil.go (CamelToSnake --
+reusing internal/forge/filterscaffold's own acronym-run algorithm
+verbatim, duplicated rather than imported since pkg/ may not import
+internal/ -- SnakeToCamel, MaskSecret, RegexExtract -- named capture
+group extraction, RE2 syntax so a pathological pattern cannot become a
+resource-exhaustion vector -- and IsEmptyOrWhitespace), and
+pkg/filters/path.go (WindowsPathToPOSIX/POSIXPathToWindows -- a bare
+separator swap, never touching a drive letter -- OctalToSymbolicPerms/
+SymbolicToOctalPerms, and IsAbsolutePath, checking POSIX, Windows
+drive-absolute, and Windows UNC conventions all at once).
+
+RegexExtract needed a hand-written binding: this codebase's first
+three-argument filter, and filterscaffold's bindingFuncFor has no
+typed OverloadOpt past arity two (an accepted, documented gap, the
+same way arity zero was before GenerateUUIDv4 needed it last session).
+The forge scaffolded the real cel.Function/cel.Overload block with a
+cel.FunctionBinding /* TODO: arity */ placeholder exactly as designed;
+filled in by hand as a real func(...ref.Val) ref.Val taking a
+length-3 slice.
+
+Two round-trip pairs, each with one real, documented asymmetry:
+OctalToSymbolicPerms("0755") comes back from SymbolicToOctalPerms as
+"755", not "0755" (the symbolic form cannot distinguish a redundant
+leading zero from the canonical form, so the reverse always emits the
+shorter one, the same one chmod(1) itself prints).
+BytesToHuman/HumanToBytes round-trip exactly only for a value whose
+scaled form needs two decimal digits or fewer; BytesToHuman(1500)
+formats as "1.46KiB", and HumanToBytes of that reconstructs 1495, the
+same lossy rounding every human-readable size formatter already has.
+Both are stated in the functions' own doc comments and proven with
+representative inputs chosen to be exact, not hidden.
+
+Tests: table-driven tests per function including this phase's own
+named round-trip cases. Four Fuzz targets, zero panics across hundreds
+of thousands of executions. Every function proven callable through the
+real, unmodified engine.NewCELEvaluator()/Program.Eval via a compiled
+when_cel expression, plus a five-function combined condition with a
+negative control. A whitebox test file exercises every one of the 16
+new bindings' "argument not convertible" defensive branch, including
+RegexExtract's own wrong-arity case. docs/reference/filters/index.md
+picked up all 16 new entries with zero hand-written doc changes (55
+total).
+
+coverage-floor.json: pkg/filters RAISED from 98.5 to 98.9 (measured
+99.0; every one of this phase's 16 functions reached 100% on its own).
+internal/engine measures 94.1%, the same reading Phase 51 got, left at
+its existing 93.2 floor unchanged to match that decision.
+
+go test -race ./... ran clean across all 128 packages. go run
+./tools/coverage-check reports 175 packages measured, none below
+floor, with LOCALSTACK_AUTH_TOKEN exported. make gosec: 9 pre-existing
+waived findings, zero new. make govulncheck: clean. RULE 0: the real
+pleiades binary, built fresh, ran a scratch runbook against a real,
+running examples/webserver_lab SSH container, gating one real
+ssh_exec task on a five-filter combined when_cel condition (true, ran)
+and a second on a deliberately false one (skipped, named in the skip
+reason), via real pleiades validate and pleiades run.
+```
+
+## Previous session: forge structural-type support and Phase 52 (structured data filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `1c6549a`, the forge upgrade
+and Phase 51 (Network & Addressing Filters), committed since the prior session's handoff (not by this
+session; no live go-ahead was given this session, so this session never ran `git commit`). Everything
+below is implemented, tested, and verified on top of that commit, but uncommitted: no such word has been
+given yet this session.**
+
+This session opened with a direct request: "update the forge if needed and build Phase 52: Structured
+Data Filters." Two deliverables, in order: extending `internal/forge/filterscaffold` to handle
+structured (map/list) types, which it could not before, and Phase 52
+(`.SPECIFICATION/IMPLEMENTATION.md`'s Part XII) built through it, end to end.
+
+### What landed
+
+**`internal/forge/filterscaffold` upgraded to know four structural Go types**, not just
+`string`/`int`/`bool`: `[]string`, `map[string]any`, `[]any`, `[]map[string]any`. `wellKnownCELTypes`,
+`conversionFor`, `wrapperFor` and `exampleArg` all gained the four entries; `[]string` reuses Phase 51's
+existing `celToStringList`/`wrapStringList` (which existed but had never been wired into this table,
+since `Supernet`/`SubnetSplit` needed an explicit `CELType` at the time); the other three needed new
+shared helpers in `internal/engine/cel_filters.go` (`celToMap`/`wrapMap`, `celToDynList`/`wrapDynList`,
+`celToMapList`/`wrapMapList`). `bindingFuncFor`/`bindingFunc` also gained real, non-TODO support for a
+zero-`Param` filter (`cel.FunctionBinding` with a `_ ...ref.Val` signature, since that constructor's
+real type is `func(...ref.Val) ref.Val`, not the arity-zero function a naive template might guess), first
+needed by `GenerateUUIDv4`.
+
+**A real correctness bug in the naive approach, caught by testing through the real CEL environment, not
+assumed from the native-Go-map case that worked fine.** `celToMap`/`celToDynList`/`celToMapList`'s first
+implementation called `ref.Val.ConvertToNative` directly, mirroring Phase 51's own
+`celToStringList`. That is correct for a *flat* list of scalars, but wrong for a *nested* map: verified
+directly with a scratch program, `ConvertToNative(map[string]any{})` converts a top-level CEL map's
+values correctly, but for a *nested* map's value it takes cel-go's internal `ConvertToNative(any)` path,
+which substitutes `map[any]any` instead of `map[string]any` at that level -- and only when the source is
+a CEL map *literal* (`filters.flatten({"a": {"b": 1}})`), not a map wrapped from a native Go value via
+`types.NewDynamicMap` (which was the only shape the first round of scratch verification tested, before
+Phase 52 needed nested literals at all). `Flatten`'s own Go code type-switches on `map[string]any`
+specifically, so a silently different nested shape made it treat a legitimate nested map as an opaque
+leaf instead of recursing into it -- caught by `TestCELFilters_Phase52StructuredFilters`'s `flatten` and
+`deep_merge` cases failing (not `unflatten`/`shallow_merge`, since those cases' test data never handed
+CEL a nested map for the outer call, an asymmetry that made the bug's shape informative rather than just
+"some tests fail"). Fixed by replacing the `ConvertToNative` calls with `celToAny`, a walker over the
+`traits.Mapper`/`traits.Lister` interfaces every cel-go map/list representation implements (a literal, a
+wrapped native Go value, a proto struct field), falling back to `ref.Val.Value()` only for an actual
+scalar leaf -- correct regardless of which internal representation the source happens to use, rather
+than depending on one specific one.
+
+**Phase 52: 11 structured-data filters, all scaffolded through the real upgraded CLI, then
+hand-implemented and fully tested**, in one consolidated `pkg/filters/structured.go` (the phase's own
+checklist groups these as one category, unlike Phase 51's five natural sub-categories): `Flatten`/
+`Unflatten` (dot-notation keys, a list element's index as a numeric segment), `DeepMerge` (nested maps
+merge key by key, lists append, anything else in `b` overwrites `a`, never drops a key from either
+input), `ShallowMerge` (top-level overwrite only), `CSVToList`/`ListToCSV` (one CSV line via stdlib
+`encoding/csv`, correct quote handling), `Pluck` (skips a map missing the key rather than padding the
+result with a placeholder), `YAMLToJSON`/`JSONToYAML` (`go.yaml.in/yaml/v3`, round-tripping through
+`interface{}`), `GenerateUUIDv4` (`github.com/google/uuid`, crypto/rand-backed -- this package's one
+deliberate exception to "pure, deterministic transform of its arguments," documented as such rather than
+left looking like an oversight), and `XMLToJSON` (one documented, opinionated element/attribute
+convention: `@name` for an attribute, `#text` for non-empty text alongside one, a single value or an
+array in document order for a repeated child tag; a namespace declaration, `xmlns=`/`xmlns:ns=`, is
+dropped everywhere rather than leaking through as a meaningless `@xmlns`/`@ns` key, verified directly
+against `encoding/xml`'s own `Attr` shape after a first version leaked it).
+
+Two new package-level constants carry this phase's own bounds, both named and justified rather than
+reusing Phase 50's: `MaxStructuredInputBytes` (1 MiB, every raw JSON/YAML/XML document or CSV line this
+phase parses, deliberately larger than Phase 50's flat-scalar `MaxInputBytes`) and `maxStructuredDepth`
+(32, every function that walks a nested structure -- `Flatten`, `Unflatten`, `DeepMerge`, and the tree
+`YAMLToJSON`/`JSONToYAML`/`XMLToJSON` decode before re-encoding -- verified against a real 50-level-deep
+input for each rather than assumed). A related finding verified directly rather than assumed: a
+self-referential YAML anchor (`a: &x\n  b: *x`) is rejected by `yaml.Unmarshal` itself with a real error,
+not silently decoded into a cyclic Go value that would hang the depth-walker's own recursion.
+
+**Tests**: table-driven tests per function including the malformed/boundary cases the checklist's own
+Adversarial Pattern Justification names by value (`Flatten`/`Unflatten` round-trip losslessly for a
+representative structure, with the one real, inherent ambiguity this scheme carries -- a map whose own
+keys genuinely are `"0"`, `"1"` is indistinguishable from a two-element list once flattened -- documented
+with a passing test rather than hidden; `DeepMerge` never drops a key from either input, proven by
+iterating both inputs directly, not by example). Five `Fuzz` targets (`FuzzCSVToList`, `FuzzListToCSV`,
+`FuzzYAMLToJSON`, `FuzzJSONToYAML`, `FuzzXMLToJSON`), 8-9s each, zero panics across tens to hundreds of
+thousands of executions. `internal/engine/cel_filters_structured_test.go`: every one of the 11 functions
+proven callable through the real, unmodified `engine.NewCELEvaluator()`/`Program.Eval` via a compiled
+`when_cel` expression, plus a combined condition chaining five functions against a realistic device
+`stat` payload with a negative control. `internal/engine/cel_filters_internal_test.go` (whitebox) gained
+direct tests for `celToMap`/`celToDynList`/`celToMapList`'s own branches and every one of the 11 new
+bindings' "argument not convertible" defensive branch, the same unreachable-through-real-CEL class Phase
+51's own whitebox tests already established.
+
+`pkg/filters` measures 98.6% (down from Phase 51's 99.6%, `coverage-floor.json` moved from 99.5 to 98.5
+with a written reason: five branches across four functions, all provably unreachable for the same class
+of reason `URLPort`'s own existing gap is -- `ListToCSV`'s `csv.Writer.Write`/`Error` checks against a
+`strings.Builder` sink that never errors, and the `json.Marshal`/`yaml.Marshal` calls ending
+`YAMLToJSON`/`JSONToYAML`/`XMLToJSON`, each of which only ever receives a value shape its own target
+encoder already knows how to encode without error). `internal/engine` measures 93.8%, above its existing
+93.2 floor; no change needed there.
+
+**Documentation Gate closed with zero hand-written doc changes**, the same design bet Phase 50 made and
+Phase 51 already validated once: `docs/reference/filters/index.md` picked up all 11 new `filters.*`
+entries automatically (39 entries total: 3 from Phase 50, 25 from Phase 51, these 11), and a second
+`gendocs` run produces byte-identical output.
+
+**A stale CLI-level test broke, found only by running the full `-race` suite, not by this session's own
+narrower `pkg/filters`/`internal/engine` runs.** `cmd/pleiades/forge_new_filter_test.go`'s "unknown param
+type with no explicit CELType rejected" case asserted `--param cidrs:[]string` was rejected -- true before
+this session's forge upgrade, false after. Fixed to use a genuinely-still-unknown type (`[]int`), with a
+new case added proving `[]string` now needs no explicit `CELType`. A reminder that a scaffolder's own
+unit tests and its CLI wrapper's tests can drift out of sync silently when the scaffolder's accepted-type
+set grows, since nothing enforces they stay in lockstep.
+
+### Commit message (drafted, not run)
+
+```
+feat(forge,engine,filters): forge structural-type support, and Phase 52's 11 structured-data filters
+
+Two deliverables: upgrading internal/forge/filterscaffold to handle
+map/list types, which it could not before, and Phase 52 (Structured
+Data Filters, PLAN.md Section 36's Part XII) built through it end to
+end.
+
+internal/forge/filterscaffold's wellKnownCELTypes table gained four
+structural entries: []string, map[string]any, []any, []map[string]any.
+[]string reuses Phase 51's own celToStringList/wrapStringList, which
+existed in internal/engine/cel_filters.go but had never been wired into
+this table (Supernet/SubnetSplit needed an explicit CELType at the
+time). The other three needed new shared conversion helpers
+(celToMap/wrapMap, celToDynList/wrapDynList, celToMapList/wrapMapList).
+bindingFuncFor/bindingFunc also gained real support for a zero-Param
+filter (cel.FunctionBinding's real signature is func(...ref.Val)
+ref.Val, spelled "_ ...ref.Val", not the arity-zero function a naive
+template might guess), first needed by GenerateUUIDv4.
+
+Running the upgraded forge against all 11 of this phase's own
+functions before hand-implementing any of them surfaced a real
+correctness bug, not in the scaffolder's generated code but in the
+shared CEL conversion helpers it referenced. celToMap/celToDynList/
+celToMapList's first implementation called ref.Val.ConvertToNative
+directly, mirroring celToStringList's own established pattern -- correct
+for a flat list of scalars, wrong for a nested map. Verified directly
+with a scratch program: ConvertToNative(map[string]any{}) converts a
+top-level CEL map correctly, but a nested map's value takes cel-go's
+internal ConvertToNative(any) path, which substitutes map[any]any
+instead of map[string]any at that level, and only when the source is a
+CEL map literal (filters.flatten({"a": {"b": 1}})), not a map wrapped
+from a native Go value. Flatten's own Go code type-switches on
+map[string]any specifically, so the wrong nested shape made it treat a
+legitimate nested map as an opaque leaf instead of recursing into it --
+caught by the CEL-level integration tests, not the Go-level unit tests,
+since those construct their own native Go maps directly and never
+exercise a CEL literal's own map representation. Fixed by replacing
+ConvertToNative with celToAny, a walker over the traits.Mapper/
+traits.Lister interfaces every cel-go map/list representation
+implements (a literal, a wrapped native Go value, a proto struct
+field), falling back to ref.Val.Value() only for an actual scalar leaf.
+
+Phase 52 itself, one consolidated pkg/filters/structured.go: Flatten/
+Unflatten (dot-notation keys), DeepMerge (nested maps merge key by
+key, lists append, never drops a key from either input) and
+ShallowMerge (top-level overwrite only), CSVToList/ListToCSV (one CSV
+line via encoding/csv, correct quote handling), Pluck (skips a map
+missing the key rather than padding the result), YAMLToJSON/
+JSONToYAML (go.yaml.in/yaml/v3, round-tripping through interface{}),
+GenerateUUIDv4 (github.com/google/uuid, crypto/rand-backed -- this
+package's one deliberate exception to "pure, deterministic transform
+of its arguments"), and XMLToJSON (one documented, opinionated
+element/attribute convention: @name for an attribute, #text for
+non-empty text, a single value or a document-order array for a
+repeated child tag; a namespace declaration is dropped everywhere
+rather than leaking through as a meaningless @xmlns/@ns key). Two new
+bounds: MaxStructuredInputBytes (1 MiB, every raw document/CSV line
+this phase parses) and maxStructuredDepth (32, every function that
+walks a nested structure), both verified against real oversized/deep
+inputs rather than assumed, including that a self-referential YAML
+anchor is rejected by yaml.Unmarshal itself rather than decoding into
+a cyclic value that would hang the depth walker.
+
+Tests: table-driven tests per function including this phase's own
+named adversarial cases (Flatten/Unflatten round-trip losslessly for a
+representative structure, with the one real ambiguity this scheme
+carries documented by a passing test rather than hidden; DeepMerge
+never drops a key from either input, proven directly). Five Fuzz
+targets, zero panics. Every function proven callable through the real,
+unmodified engine.NewCELEvaluator()/Program.Eval via a compiled
+when_cel expression, plus a five-function combined condition with a
+negative control. A whitebox test file exercises every one of the 11
+new bindings' "argument not convertible" defensive branch, unreachable
+through the real compiled CEL path and provable only by calling the
+unexported binding function directly. docs/reference/filters/index.md
+picked up all 11 new entries with zero hand-written doc changes (39
+total). A stale CLI-level test in cmd/pleiades/forge_new_filter_test.go
+asserted []string was rejected as unknown; fixed to use a
+genuinely-still-unknown type, with a new case proving []string now
+needs no explicit CELType.
+
+coverage-floor.json: pkg/filters moves from 99.5 to 98.5 (measured
+98.6, five branches provably unreachable: ListToCSV's csv.Writer
+error checks against a strings.Builder sink that never errors, and
+the json.Marshal/yaml.Marshal calls ending YAMLToJSON/JSONToYAML/
+XMLToJSON, each of which only ever receives a value shape its target
+encoder already knows how to encode). internal/engine measures 93.8%,
+above its existing 93.2 floor.
+
+go test -race ./... ran clean across all 128 packages. go run
+./tools/coverage-check reports 175 packages measured, none below
+floor, with LOCALSTACK_AUTH_TOKEN exported (a token-less first attempt
+misreported two unrelated AWS packages as regressed; confirmed
+environmental, not a regression, by reproducing their exact floor
+values once the token was set). make gosec: 9 pre-existing waived
+findings, zero new. make govulncheck: clean. RULE 0: the real
+pleiades binary, built fresh, ran a scratch runbook against a real,
+running examples/webserver_lab SSH container, gating one real
+ssh_exec task on a five-filter combined when_cel condition (true, ran)
+and a second on a deliberately false one (skipped, named in the skip
+reason), via real pleiades validate and pleiades run.
+```
+
+## Previous session: forge upgrade and Phase 51 (network & addressing filters)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `bc4ab37`, Phase 50 (Filter
+Infrastructure & CEL Wiring), committed since the prior session's handoff (not by this session; no live
+go-ahead was given this session, so this session never ran `git commit`). Everything below is
+implemented, tested, and verified on top of that commit, but uncommitted: no such word has been given
+yet this session.**
+
+This session opened with a direct request: rate the prior session's own delivery, then "upgrade the
+forge and use it to build phase 51." Two deliverables, in order: a fourth `pleiades forge` scaffolder
+for `pkg/filters` functions, and Phase 51 (Network & Addressing Filters,
+`.SPECIFICATION/IMPLEMENTATION.md`'s Part XII) built through it, end to end.
+
+### What landed
+
+**`internal/forge/filterscaffold`** (new), the Forge's fourth scaffolder after `collectionscaffold`/
+`pluginscaffold`/`viewscaffold`. `Config` carries two independent names (`GoName`, e.g.
+`"CIDRToNetmask"`; `CELName`, e.g. `"cidrToNetmask"`) rather than deriving one from the other, since Go
+and CEL naming diverge on acronym casing in a way no mechanical rule can safely reverse. `Generate`
+writes one new file per filter (`pkg/filters/<snake_case CELName>.go` plus `_test.go`), not a shared
+per-category file: every other scaffolder in this family writes a brand-new file and refuses to
+overwrite, and `pkg/filters` has no per-entity directory the way a Collection method or plugin does to
+make an append-to-existing-file story safe. `Reminder` renders the CEL registration block (a
+`cel.Function`/`cel.Overload`/`FunctionDocs`/`OverloadExamples` block plus a `*Binding` function) a
+human pastes into `internal/engine/cel_filters.go`, mirroring `viewscaffold.Reminder`'s own "the one
+step no generator can perform" pattern: `cel_filters.go` is one hand-maintained file, not a directory a
+blank import can wire in. Wired into the CLI as `pleiades forge new-filter` (`cmd/pleiades/
+forge_new_filter.go`), reusing the shared `forge_scaffold_io.go` helpers (`writeGeneratedFile`,
+`firstExistingFile`) every other subcommand already uses, and into `internal/clispec/clispec.go` so
+`docs/reference/cli.md` documents it too.
+
+**Tests**: `internal/forge/filterscaffold/generate_test.go` (table-driven, every accepted case's output
+proven to parse as real Go via `go/parser`), `generate_fuzz_test.go` (`FuzzGenerate`/`FuzzReminder`, 15s
+each, zero panics), `release_gate_test.go` (`TestGenerate_ReleaseGate`: writes generated output as a
+real, process-unique temp file directly into `pkg/filters/`, itself an unavoidable divergence from
+`collectionscaffold`'s own scratch-subpackage release gate, since every filter shares one flat package
+rather than getting its own; runs the real `go build`/`go test` toolchain against it, cleans up via
+`t.Cleanup`). `cmd/pleiades/forge_new_filter_test.go` mirrors `forge_new_plugin_test.go`'s shape
+(missing-flag errors, a successful generation, `--skip-existing`, refuses-to-overwrite).
+`internal/archtest/render_test.go`'s `templateEngineAllowlist` gained this package's entry, the same
+allowlist the other three scaffolders already carry (`text/template` for code generation is not the
+Section 25 template-renderer primitive `internal/render` owns).
+
+**A real defect the tool's own first real use caught, before it ever reached Phase 52.** The first
+`camelToSnake` implementation inserted an underscore before every uppercase letter, so an
+acronym-heavy CEL name split letter by letter: `"classifyIP"` became `"classify_i_p"`,
+`"macOUI"` became `"mac_o_u_i"`, mangling both the generated file name and the CEL overload ID. Caught
+by literally running `pleiades forge new-filter` for all 25 of this phase's functions and reading the
+output, not by a unit test written in advance. Fixed to treat a run of uppercase runes as one acronym
+(an underscore only at a lowercase-to-uppercase transition, or at the last letter of an uppercase run
+immediately followed by a lowercase one), re-verified against every one of this phase's own names, with
+a regression test (`TestGenerate_FileNamesForAcronymHeavyNames`) pinning the fix. One known, documented,
+accepted residual: a name mixing an acronym directly against a version-style suffix
+(`ToIPv4MappedIPv6`) still splits awkwardly (`to_i_pv4_mapped_i_pv6` before a manual rename to
+`to_ipv4_mapped_ipv6.go`), because no purely mechanical rule can tell "IPv4" (one token) from
+"IPServer" (two) without a dictionary. Documented in the function's own doc comment as a known
+limitation, not silently worked around.
+
+**Phase 51: 25 network and addressing filters, all scaffolded through the real CLI, then hand-implemented
+and fully tested.** `pkg/filters/network.go` (CIDR/netmask/wildcard-mask conversion, broadcast address,
+subnet split, supernet, IP-to-int and back, IPv4-mapped-IPv6 conversion, IP classification, 11
+functions), `mac.go` (Cisco/colon/Windows MAC normalization, OUI extraction, 4), `vlanasn.go` (VLAN/ASN
+validators, 4), `interfacename.go` (Cisco IOS short/long form, 2), `dns.go` (FQDN/hostname, URL
+domain/port, 4). Every function is IPv4-scoped and returns a documented sentinel on malformed input
+(`""` or `-1`, since none of `pkg/filters`' functions carry an error return) rather than throwing.
+`internal/engine/cel_filters.go` gained `celToInt`/`celToBool` (mirroring the existing `celToString`)
+plus `celToStringList`/`wrapStringList` (for `Supernet`'s `[]string` parameter and `SubnetSplit`'s
+`[]string` result, using `ref.Val.ConvertToNative` and `types.NewStringList`/`types.DefaultTypeAdapter`,
+cel-go's own generic native-conversion path and exported default adapter), and all 25 `cel.Function`
+registrations.
+
+**Tests**: table-driven tests per function (including a MAC/VLAN/ASN/CIDR-shaped adversarial case for
+every function this phase's own checklist names by value: a malformed MAC, an out-of-range CIDR prefix,
+`ValidateVLAN(-1)`/`ValidateVLAN(99999)`, `ValidateASN(0)`, an interface name with an embedded NUL
+byte), round-trip tests (`IPToInt`/`IntToIP`, `ToIPv4MappedIPv6`/`FromIPv4MappedIPv6`,
+`InterfaceShortForm`/`InterfaceLongForm`, `HostnameToFQDN`/`FQDNToHostname`), one `Fuzz` target per
+parsing-shaped function family (`network_fuzz_test.go`, `mac_fuzz_test.go`,
+`interfacename_fuzz_test.go`, 8-15s each, zero panics). `internal/engine/cel_filters_network_test.go`:
+every one of the 25 functions proven callable through the real, unmodified
+`engine.NewCELEvaluator()`/`Program.Eval` via a compiled `when_cel` expression, plus the checklist's own
+explicit combined-condition requirement (`TestCELFilters_Phase51CombinedCondition`, chaining five
+functions against a realistic device `stat` payload with a negative control). `internal/engine/
+cel_filters_internal_test.go` (whitebox, `package engine`): direct tests for `celToString`/`celToInt`/
+`celToBool`/`celToStringList`'s own branches and every one of the 25 bindings' "argument not
+convertible" defensive branch, which is unreachable through the real compiled CEL path (cel-go's own
+type checker already guarantees convertibility for a statically-typed overload before any binding
+runs) and so only provable by calling the unexported binding function directly. `pkg/filters` measures
+99.6% coverage (one provably unreachable branch: `URLPort`'s `strconv.Atoi` error path, since
+`net/url.Parse` itself only ever accepts an all-digit port); `internal/engine` measures 94.1%, above its
+recorded floor.
+
+**Documentation Gate closed with zero hand-written doc changes**, exactly validating Phase 50's own
+design bet: `docs/reference/filters/index.md` picked up all 25 new `filters.*` entries automatically
+from `go run ./tools/gendocs` (which diffs the live CEL environment, not a hand-maintained table), and
+`docs/reference/cli.md` picked up `forge new-filter` from the `internal/clispec` addition. `go generate
+./... && git diff --exit-code` regenerates clean.
+
+### Read this first
+
+**A real gosec finding, fixed rather than waived.** `uint32ToIP4`'s original
+`[4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}` construction tripped G115 (integer
+overflow conversion `uint32 -> byte`) three times on one line. Rewritten to use
+`encoding/binary.BigEndian.PutUint32`, which performs the identical byte extraction without an explicit
+narrowing conversion gosec's heuristic flags, closing the finding rather than adding a ninth
+`gosec-waivers.json` entry for what was correct-by-construction code in the first place. `make gosec`
+still reports the same 9 pre-existing waived findings, zero new.
+
+**A real, acknowledged-flaky test, not a regression.** The first full `go run ./tools/coverage-check`
+attempt failed on `internal/runner`'s `TestAgent_ReportResult_SuccessfulExecutionFlushesToWAL`
+(10-second timeout under the full-suite's parallel load). `internal/runner` is listed in
+`flaky-packages.json` with a prior, dated, directly-observed flake under this exact sandboxed
+environment's parallel load (`FAILURE_PATTERNS.md` #61's class). Confirmed, not assumed: the same test
+passed in 0.02s run in isolation. A second full `coverage-check` run passed clean. Nothing in this
+session's own changes touches `internal/runner`.
+
+**Module names are `xxx.xxx.xxx`.** `FAILURE_PATTERNS.md` #158; unaffected, `filters.*` stays a
+different, expression-engine-function namespace.
+
+**No commit without the user's own live word in the current conversation.** Unchanged. This session was
+asked, mid-turn, to show the drafted Phase 50 commit message rather than run it; Phase 50 was committed
+by the user's own separate action afterward, not by this session. Nothing below has been asked for yet.
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Unchanged. Held again this session: every filter, test, and scaffolder file was written directly, not
+delegated, despite the large surface (25 functions plus a new scaffolder package).
+
+**Using a newly-built code generator against its own first real workload is worth doing before trusting
+it.** New finding this session, worth carrying forward explicitly: `filterscaffold`'s `camelToSnake` bug
+was invisible in isolated unit tests written alongside the generator itself (which used simple,
+non-acronym names as fixtures) and was only caught by actually running `pleiades forge new-filter`
+against all 25 of Phase 51's real, acronym-heavy names and reading the output. A future session adding a
+fifth scaffolder, or extending this one, should run it against a realistic batch of real names before
+trusting its output, not just its own narrower unit tests.
+
+### Commit message (drafted, not run)
+
+```
+feat(forge,catalog): pleiades forge new-filter, and Phase 51's 25 network/addressing filters
+
+Two deliverables: a fourth Forge scaffolder for pkg/filters functions,
+and Phase 51 (Network & Addressing Filters, PLAN.md Section 36's Part
+XII) built through it end to end, proving the tool against a real,
+acronym-heavy 25-function workload rather than only its own narrower
+unit tests.
+
+internal/forge/filterscaffold generates one new pkg/filters function's
+stub, starter test, and a paste-ready CEL registration block for
+internal/engine/cel_filters.go, mirroring collectionscaffold/
+pluginscaffold/viewscaffold's shape (text/template + go/format.Source,
+zero filesystem I/O, paths relative to the repo root) where it fits and
+diverging where PLAN.md Section 36 forces it to: every filter shares
+one flat pkg/filters package, so Generate writes one new file per
+filter rather than a shared per-category file, and cel_filters.go is a
+hand-maintained file a Reminder() block is pasted into, not a directory
+a blank import can wire in. Config carries GoName and CELName as two
+independent, explicit fields rather than deriving one from the other,
+since Go and CEL naming diverge on acronym casing (CIDRToNetmask vs.
+cidrToNetmask) in a way no mechanical rule can safely reverse. Wired in
+as `pleiades forge new-filter`, reusing the shared forge_scaffold_io.go
+helpers every other subcommand already uses.
+
+Running the new tool against all 25 of Phase 51's own real,
+acronym-heavy filter names (ClassifyIP, MACOUI, ValidateVLAN,
+ValidateASN, and so on) caught a real defect before it reached Phase
+52: camelToSnake inserted an underscore before every uppercase letter,
+mangling an acronym into "classify_i_p" instead of "classify_ip". Fixed
+to treat a run of uppercase runes as one acronym, with a regression
+test pinning every one of this phase's own names. One residual,
+documented rather than silently worked around: a name mixing an
+acronym directly against a version-style suffix (ToIPv4MappedIPv6)
+still splits awkwardly, since no purely mechanical rule can tell "IPv4"
+from "IPServer" without a dictionary.
+
+Phase 51 itself: pkg/filters/network.go (CIDR/netmask/wildcard-mask
+conversion, subnet split, supernet, IP-to-int, IPv4-mapped-IPv6
+conversion, IP classification), mac.go (Cisco/colon/Windows MAC
+normalization, OUI extraction), vlanasn.go (VLAN/ASN validators),
+interfacename.go (Cisco IOS short/long form), dns.go (FQDN/hostname,
+URL domain/port). Every function is IPv4-scoped and returns a
+documented sentinel on malformed input rather than throwing, since none
+of pkg/filters' functions carry an error return; URLDomain/URLPort
+additionally refuse a schemeless input rather than guessing one, since
+net/url.Parse itself silently misparses a bare "host:port/path" string
+into an empty host. cel_filters.go gained celToInt/celToBool
+(mirroring the existing celToString) and celToStringList/
+wrapStringList for the two list-shaped signatures (Supernet's
+[]string parameter, SubnetSplit's []string result), using
+ref.Val.ConvertToNative and types.NewStringList/DefaultTypeAdapter.
+
+Tests: table-driven and fuzz coverage per function (one Fuzz target per
+parsing-shaped function family, matching this phase's own checklist
+item), round-trip tests, and every function proven callable through the
+real, unmodified engine.NewCELEvaluator()/Program.Eval via a compiled
+when_cel expression, including the checklist's own explicit
+combined-condition requirement chaining five functions with a negative
+control. A whitebox test file directly exercises every one of the 25
+bindings' "argument not convertible" defensive branch, unreachable
+through the real compiled CEL path (cel-go's own type checker already
+guarantees convertibility for a statically-typed overload) and provable
+only by calling the unexported binding function directly.
+docs/reference/filters/index.md picked up all 25 new entries with zero
+hand-written doc changes, validating Phase 50's own
+diff-the-live-environment generator design.
+
+A real gosec G115 finding (uint32 -> byte narrowing in uint32ToIP4) was
+fixed at the source with encoding/binary.BigEndian.PutUint32 rather
+than waived. coverage-floor.json: pkg/filters moves from 100.0 to 99.5
+(measured 99.6, the one gap provably unreachable: net/url.Parse only
+ever accepts an all-digit port); internal/forge/filterscaffold enters
+as a new package at 88.0 (measured 89.3).
+
+go test -race ./... ran clean across all 128 packages. go run
+./tools/coverage-check reports 175 packages measured, none below
+floor, on the second attempt (the first hit internal/runner's
+documented, acknowledged flaky WAL test under full-suite parallel
+load, confirmed by an isolated pass in 0.02s, unrelated to this
+change). make gosec: 9 pre-existing waived findings, zero new. make
+govulncheck: clean. RULE 0: the real pleiades binary, built fresh, ran
+a scratch runbook exercising four of this phase's filters through
+pleiades validate and pleiades run.
+```
+
+## Previous session: filter infrastructure and CEL wiring (Phase 50)
+
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `5de3f89`, the merge of
+PR #19 (`feature/Catalog-First-Tier`, 70 of 77 catalog methods). Everything below is implemented,
+tested, and verified on top of that commit, but uncommitted: no such word has been given yet this
+session.**
+
+This session opened with a direct pointer at `.SPECIFICATION/IMPLEMENTATION.md`'s Phase 50 ("Filter
+Infrastructure & CEL Wiring", Part XII: The Filter Library), on a fresh branch cut for exactly this
+task. This is a new initiative, not a continuation of `feature/Catalog-First-Tier`'s own module-catalog
+remainder: that branch's PR merged and its own remainder list (S3 object primitives, `DockerCapable`'s
+Phase 73 rename, and so on) stays exactly where the prior HANDOFF entries left it, unrelated to what
+follows here. Plan mode was used before any code: the Part XII intro and Phase 50's own checklist were
+read in full, then the real tree was grepped and read against every claim the checklist makes, per this
+project's own standing "check the spec before wiring an interface literally" discipline.
+
+### What the spec check found before writing any code
+
+Four verified deviations from the checklist's own literal wording, none of them a scope narrowing (the
+checklist's substance is unchanged), each recorded in `.SPECIFICATION/IMPLEMENTATION.md`'s own Phase 50
+closing notes:
+
+1. **The real CEL env declares three variables (`stat`, `nodes`, `vars`), not the one the checklist's
+   own prose names.** All three are retained unchanged; `NewCELEvaluator`'s option list was refactored
+   into two new exported functions (`CELVariableOptions()`, `CELLibraryOptions()`) rather than touched
+   in place.
+2. **`base64.encode` takes `bytes` and returns `string`; `base64.decode` takes `string` and returns
+   `bytes`.** Both cel-go extension functions are real and reachable, but not symmetric the way their
+   names suggest. Documented explicitly on the generated filter reference, since cel-go's own godoc
+   does not surface at runtime and nothing else would have caught this for a runbook author.
+3. **`ext.Network()` installs a `cel.CustomTypeAdapter` that wraps whatever adapter is already
+   configured.** Recorded as an ordering comment in `cel.go`: any future `EnvOption` that also needs a
+   custom type adapter must be listed ahead of `ext.Network()` in `CELLibraryOptions()`, or its own
+   wrapping gets silently shadowed.
+4. **cel-go ships machine-readable function documentation** (`common/decls.FunctionDecl.Documentation()`),
+   populated richly by `cel.OptionalTypes()` and not at all by `ext.Network`/`ext.Encoders` as of
+   `v0.30.0`. This is what made a zero-hand-typed generated filter reference possible at all; see below.
+
+### What landed
+
+**`pkg/filters`** (`filters.go`, `cast.go`): `SafeInt`/`SafeFloat`/`SafeBool`, each behind a shared
+`MaxInputBytes = 4096` cap checked before any parse (justified in its own doc comment against the
+widest scalar any later Part XII phase parses, an FQDN at 253 bytes). `SafeBool` accepts
+`strconv.ParseBool`'s vocabulary case-insensitively plus `yes`/`no`/`on`/`off`, matching YAML 1.1/
+Ansible truthiness and real device CLI output. `SafeFloat` additionally refuses a parsed NaN or
+infinity into the fallback, a deliberate divergence from `strconv.ParseFloat` (a NaN silently makes
+every downstream comparison false, the opposite of "safe"). All three trim whitespace first (captured
+CLI output routinely carries a trailing `\r`). Zero `cel-go` import, zero `internal/` import, matching
+`pkg/policy`/`pkg/retry`'s existing shape; `internal/archtest`'s pre-existing
+`TestPkgNeverImportsInternal` covers it automatically. 100.0% test coverage.
+
+**`internal/engine/cel_filters.go`**: `filtersLib() cel.EnvOption`, a named `cel.SingletonLibrary`
+(`"pleiades.filters"`) registering `filters.safeInt`/`safeFloat`/`safeBool`. Real, verified deviation
+from the checklist's own plain-`string`-typed description: the CEL declaration types the first argument
+`dyn`, not `string`, converting to a CEL string via `ConvertToType` inside the binding before ever
+calling into `pkg/filters` (whose exported Go signatures stay exactly `string`-typed as specified). This
+was necessary, not a preference: `stat`/`nodes`/`vars` are all `map(string, dyn)`, so a `string`-typed
+declaration would throw a no-such-overload evaluation error the moment a device reported the same field
+as a native int on one firmware and a string on the next, defeating the entire premise of a "safe" cast.
+
+**`internal/engine/cel.go`**: `NewCELEvaluator` now builds its `cel.EnvOption` list from
+`CELVariableOptions()` (the three pre-existing variable declarations, unchanged) and
+`CELLibraryOptions()` (`ext.Network()`, `ext.Encoders()`, `cel.OptionalTypes()`, `filtersLib()`, in that
+order), both newly exported so `tools/gendocs` can build the identical environment rather than a
+hand-copied one. `Program.Eval`'s bool-only contract is unchanged; a filter is always a sub-expression
+feeding a boolean condition.
+
+**`tools/gendocs/filters.go`** (new `generateFilters` step): builds the real baseline `cel.Env` from
+`CELVariableOptions()` alone, extends it one `CELLibraryOptions()` entry at a time, and diffs
+`cel.Env.Functions()`/`cel.Env.Macros()` **by overload ID, not function name**, after each step. This
+matters concretely: `ext.Network()` adds two new overloads to the standard library's own pre-existing
+`"string"` conversion function; a name-level diff would have missed both entirely. Every function name,
+signature, and example on the generated page (`docs/reference/filters/index.md`) comes from the live,
+diffed environment, including `filters.safeInt`/`safeFloat`/`safeBool`'s own `cel.FunctionDocs`/
+`cel.OverloadExamples` — there is no second, hand-maintained table anywhere to drift from the real
+registration. `docs/reference/index.md` and `docs/reference/task-keys.md`'s `when`/`when_cel` rows now
+link to it. Two internal-spec citations (`` `PLAN.md` Section 36 ``) that leaked into the generated
+page's own hand-written prose were caught by `docs-lint` and rewritten out before this was done — worth
+noting since it is exactly the kind of leak this repository's own lint exists to catch, and it did.
+
+**Tests**: `pkg/filters/cast_test.go` (table-driven), `cast_fuzz_test.go` (`FuzzSafeInt`/`FuzzSafeFloat`/
+`FuzzSafeBool`, each asserting the real invariant — fallback or exactly what `strconv` parses, not just
+"no panic" — 15s each, zero failures), `cast_bench_test.go`. `internal/engine/cel_filters_test.go`:
+every cast filter and every inherited cel-go function proven callable through the real, unmodified
+`engine.NewCELEvaluator()`/`Program.Eval` via compiled `when_cel`-shaped expressions, not bare Go calls;
+a collision-freedom test paired with a genuine negative control (see below); a cost-limit stress case
+chaining filters inside the same nested-comprehension shape `TestCELEngine_RejectsExpensiveComprehension`
+already uses, with a positive control proving a realistic filter-chained condition stays well under
+`defaultCELCostLimit`; an over-length (5MB) input falling back promptly. `tools/gendocs/filters_test.go`:
+a positional-coupling guard (`filterStageLabels()` must match `CELLibraryOptions()`'s own length) and a
+content-presence check on the generated page.
+
+**RULE 0 end-to-end proof, beyond the test suite.** Built the real `cmd/pleiades` binary, ran `pleiades
+init` into a scratch project, and wrote a runbook with four `when_cel` tasks exercising
+`filters.safeInt`, `filters.safeBool`, `cidr()/ip()` (`ext.Network`), and `.orValue()`
+(`cel.OptionalTypes`). `pleiades validate` passed clean; `pleiades run` executed it for real:
+`tasks[0]: ok`, `tasks[2]: ok`, `tasks[3]: ok`, and `tasks[1]` skipped, reporting the exact expression
+responsible: `filters.safeBool("maybe", false)` evaluated false, `"maybe"` correctly falling back to the
+caller's own `false` rather than any built-in default. This is the actual path a user takes, not only a
+package test.
+
+**A real finding from writing the negative control, worth carrying forward.** The first attempt at the
+collision test registered `filters.safeInt`'s exact overload ID a second time and expected `cel.NewEnv`
+to reject it — it did not. Reading `common/decls.FunctionDecl.AddOverload` directly showed why:
+re-registering the *identical* overload ID with an *identical* signature is cel-go's own documented
+idempotent redefinition, not a collision, which is exactly what lets a `SingletonLibrary` be composed
+safely. The real collision shape is an *overlapping* signature under a *different* ID, which is what the
+test now actually constructs. A control that had not been checked against the real behavior first would
+have passed while proving nothing, which is precisely the failure mode `.AGENTS/AGENTS.md`'s "always run
+a control first" rule (written for `gopls` queries) also protects against here.
+
+### Read this first
+
+**A branch cut mid-history can reset files that look monotonic.** `HANDOFF_DOCUMENT.md` and
+`coverage-floor.json` on this branch reflect the state at PR #19's merge point (through `c21b253`, 70 of
+77 methods), not the later, still-uncommitted state a prior session's own HANDOFF entry described (it
+mentioned `net.cli.*`/`net.ios.config` at `5003d9a` and a `coverage-floor.json` correction for
+`internal/catalog/net/cli`/`net/ios`, neither of which is present here). Nothing is wrong: PR #19 simply
+did not include those later, still-uncommitted commits, and this branch was cut from `main` after the
+merge. The stale `HANDOFF_DOCUMENT.md` Current Status this session found on disk (the Windows
+`svc.windows.*`/`win.feature.*` batch) has been archived to `HANDOFF_ARCHIVE.md` as a new "Previous
+session" entry, per `.AGENTS/AGENTS.md`'s own rule, rather than overwritten. A future session resuming
+catalog work (as opposed to filter work) should re-check `net.cli`/`net.ios`'s recorded
+`coverage-floor.json` values against a fresh measurement rather than assuming that prior correction
+still needs applying, since it is not clear from this branch alone whether it landed elsewhere or was
+lost.
+
+**Module names are `xxx.xxx.xxx`.** `FAILURE_PATTERNS.md` #158; unaffected here, `filters.*` is a
+different, expression-engine-function namespace from an FQCN, and `PLAN.md` Section 36 is explicit that
+the two never cross-reference each other.
+
+**No commit without the user's own live word in the current conversation.** Unchanged. Nothing below has
+been asked for yet.
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Unchanged (`pleiades_no_unrequested_delegation`). Held again this session.
+
+**Check the spec before wiring an interface literally.** Held a third time this branch (after the prior
+sessions' NETCONF-vs-interactive-CLI and `DockerCapable` corrections): this session's own four verified
+findings above are the same pattern, just inside a third-party dependency's real behavior instead of
+this repository's own spec tree. The lesson generalizes past `.SPECIFICATION/`: before wiring against
+any interface (this repository's own, or a dependency's), read the real declaration, not the checklist's
+summary of it.
+
+### The remainder, in order
+
+Phase 50 is done; every phase in Part XII from here depends on it and none of them are started. In the
+order `.SPECIFICATION/IMPLEMENTATION.md` lists them:
+
+1. **Phase 51: Network & Addressing Filters.** CIDR/netmask/wildcard-mask conversion, subnet split and
+   summarization, `ClassifyIP` (the confirmed `ext.Network` gap: no `isPrivate` anywhere in it), MAC
+   address normalization, VLAN/ASN validation, Cisco IOS interface short/long form only (explicitly not
+   Junos/Arista: no device type implements either capability today).
+2. **Phase 52: Structured Data Filters.** JSON flatten/unflatten, deep/shallow merge, CSV via
+   `encoding/csv`, `Pluck`, YAML/JSON conversion, one opinionated XML-to-JSON mapping, `GenerateUUIDv4`.
+3. **Phase 53: String, Encoding & Path Filters.**
+4. **Phase 54: Validation & Business-Logic Predicate Filters.**
+5. **Phase 55: Time, Date & Scheduling Filters.**
+6. **Phase 56: Security & Cryptography Filters.**
+7. **Phase 57: Cloud Provider Data Filters.**
+8. **Phase 58: File, Text & Log Filters.**
+
+Every one of these consumes `filtersLib()` unchanged (no new pattern expected per each phase's own
+Pattern Entry Gate) and registers into the same aggregation point this phase built. Skim each phase's
+own header before starting it rather than assuming the one-line summary above is the whole scope, per
+the discipline restated above.
+
+### Verification state
+
+`go build ./...`, `go vet ./...`, `make fmt` (gofmt-clean) all pass with no output. `make gosec`: 9
+pre-existing individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this
+module's own code or the packages it imports (3 unrelated vulnerabilities exist in required-but-unused
+modules, unaffected). `go test ./internal/archtest/...` passes clean, confirming `pkg/filters` carries
+no `internal/` dependency. `go run ./tools/gendocs` is idempotent (verified by running it three times
+and hashing output); `git status --porcelain docs/reference` shows only the expected diff (the new
+`filters/` page, the reference index link, the two `task-keys.md` rows). `go run ./tools/docs-lint`:
+179 files scanned, clean, after the two internal-citation leaks above were fixed.
+
+**Full-repo `go test -race ./...` ran to completion with zero failures across 127 packages** (57 more
+report no test files), real containers included (`LOCALSTACK_AUTH_TOKEN` sourced correctly via
+`export LOCALSTACK_AUTH_TOKEN=$(cut -d= -f2 .IGNORE/.localstack.env)`, per
+`host_system_crashes.md`'s own documented gotcha: the file's key is `token`, not
+`LOCALSTACK_AUTH_TOKEN`, and a plain `source`+`export` silently skips every gated test instead of
+failing).
+
+`go run ./tools/coverage-check` reports **174 packages measured, none below their recorded floor**.
+`pkg/filters` (this session's new package, entered in `coverage-floor.json` at 100.0) is among them, not
+in the "no floor recorded yet" informational list; every package in that list is pre-existing, unrelated
+to this session's own changes. `internal/engine` measures 93.2%, exactly its recorded floor, no
+regression.
+
+### Commit message
+
+Drafted, not run; nothing beyond `5de3f89` is committed.
+
+```
+feat(engine): filter infrastructure and CEL wiring (Phase 50)
+
+Every execution primitive this roadmap has built targets a device: a
+Collection is a namespaced, capability-gated Task.FQCN dispatched
+against an inventory item. There has been no pure value transform
+anywhere, no deterministic function of plain arguments with no
+device, no capability and no execution context. PLAN.md Section 36
+names this gap; this closes the foundation every later filter phase
+(51-58) will register into.
+
+CEL is the only reachable path for this: internal/engine/action.go's
+builtinActionExecutor.Execute is still a hardcoded two-case switch,
+so a Collection-shaped filter family would be exactly as unreachable
+as http.request already is. when/when_or/when_cel all compile
+through engine.NewCELEvaluator and run today.
+
+pkg/filters (stdlib only, zero cel-go import, zero internal/ import,
+matching pkg/policy/pkg/retry's existing shape) adds SafeInt/
+SafeFloat/SafeBool: a value that is present but malformed returns a
+caller-supplied fallback instead of throwing, the one real gap
+cel.OptionalTypes() does not cover (that solves the different,
+already-solved missing-value case via ?./.orValue()). All three
+share a MaxInputBytes cap checked before parsing, since a custom
+cel.Function with no registered cost estimator is charged a flat
+cost of one per call regardless of argument size and so cannot be
+relied on to catch an attacker-sized string. No hand-written
+default/mandatory filter was built: CEL evaluates call arguments
+eagerly, so filters.default(stat.missing, y) would still throw
+evaluating stat.missing before default ever ran.
+
+internal/engine/cel_filters.go is the sole translation layer,
+registering filters.safeInt/safeFloat/safeBool as (dyn, T) -> T CEL
+functions: dyn, not the plain string the pkg/filters Go signatures
+use, because stat/nodes/vars are all map(string, dyn) and a
+string-typed declaration would throw a no-such-overload error the
+moment a device reported a field as a native int on one firmware and
+a string on the next. internal/engine/cel.go's NewCELEvaluator now
+builds its option list from two new exported functions,
+CELVariableOptions() and CELLibraryOptions() (ext.Network(),
+ext.Encoders(), cel.OptionalTypes(), filtersLib()), so
+tools/gendocs can build the identical environment rather than a
+hand-copied one.
+
+tools/gendocs/filters.go generates docs/reference/filters/index.md
+by diffing the real CEL environment against a bare baseline one
+library at a time, by overload ID rather than function name (ext.
+Network adds new overloads to the standard library's own
+pre-existing "string" function, which a name-level diff would have
+missed). Every function name, signature and example on the page
+comes from the live, diffed environment, including this phase's own
+cel.FunctionDocs/cel.OverloadExamples -- nothing here is a second,
+hand-maintained copy that could drift from the real registration.
+
+Tests mirror this package's own established shape: table-driven and
+fuzz tests for the three cast functions (100.0% coverage), and
+release-gate proof through the real, unmodified engine.
+NewCELEvaluator()/Program.Eval via compiled when_cel expressions, not
+bare Go calls, for every cast filter and every inherited cel-go
+function (ext.Network, ext.Encoders, cel.OptionalTypes). The
+collision-freedom test is paired with a genuine negative control: an
+identical overload ID re-registered with an identical signature is
+cel-go's own documented idempotent redefinition (confirmed by
+reading common/decls.FunctionDecl.AddOverload), not a collision, so
+the control instead constructs an overlapping signature under a
+different ID, the real shape AddOverload's own collision check
+exists to catch. A cost-limit stress case chains filters inside the
+same nested-comprehension shape TestCELEngine_
+RejectsExpensiveComprehension already uses, with a positive control
+proving a realistic filter-chained condition stays well under
+defaultCELCostLimit.
+
+go test -race ./... ran clean across all 127 packages with real
+containers included. go run ./tools/gendocs is idempotent and
+git status shows only the expected diff. go run ./tools/docs-lint
+passes at 179 files after two internal-spec citations that leaked
+into the generated page's own prose were caught and rewritten. make
+gosec: 9 pre-existing waived findings, zero new. make govulncheck:
+clean.
+```
+
+## Previous session: windows_server classification rule, svc.windows.*/win.feature.* (7 methods)
+
+**Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `60dae0d`, `cloud.aws.*` plus the `aws`
+sync plugin (committed with the user's own live go-ahead). Everything below — the four Windows
+capability accessors on `windows.Server`, `svc.windows.*`/`win.feature.*` (7 methods) and the
+`windows_server` classification rule — is implemented, tested, and verified on top of that commit,
+but uncommitted: no such word has been given yet this session.**
+
+This session opened with "what's the next batch?" `HANDOFF_DOCUMENT.md`'s own "remainder, in
+order" list named items 3 and 4 (the `windows_server` classification rule, and
+`svc.windows.*`/`win.feature.*`) as next. A plan for both together was written, approved, and
+implemented — one batch rather than two, because the classification rule only matters once
+`windows_server` is a device type real methods can run against, the same reasoning that made
+`cloud.aws.*` and the `aws` plugin one combined commit even though they were planned separately.
+
+### What landed
+
+**`windows.Server` gained four real accessors**, closing the TODO its own doc comment named since
+the type was first generated: `WindowsEdition()` (property `windows_edition`, no fallback — purely
+descriptive, nothing gates on it, the same restraint `linux.Server.Distribution` applies to its own
+detected fact), `ServiceManagerName()` (property `service_manager`, defaulting to `"windows_scm"`,
+the exact mirror of `linux.Server.ServiceManagerName`'s shape — this is what makes
+`internal/catalog/svc.managerNamespace`'s pre-existing `"windows_scm" -> "svc.windows"` mapping
+resolve for real for the first time), `WindowsServiceStartMode()` (property
+`windows_service_start_mode`, defaulting to `"Automatic"`, informational like
+`SystemdUnitPath` — no method reads it, it satisfies the capability's structural contract) and
+`DISMLogPath()` (property `dism_log_path`, defaulting to the real Windows default,
+`C:\Windows\Logs\DISM\dism.log`).
+
+**Two new `pkg/` packages, mirroring `pkg/remotesvc` for a transport with no persistent
+connection.** `pkg/winrmsvc` (Service Control Manager state) and `pkg/winrmdism` (DISM feature
+state) are both built on the existing `pkg/winrmexec`, which dials fresh per call rather than
+holding a `Conn` (the credential is a call argument to `winrmexec.Run`, not package state), so both
+take an explicit `Session{Target, Auth, Options}` config bundle instead of a live connection.
+`pkg/winrmsvc.Status` reads a service's existence, run state and start type in one PowerShell round
+trip (`Get-Service -ErrorAction SilentlyContinue` plus `ConvertTo-Json`), the same "one round trip,
+decide from real reported state" rule `pkg/remotesvc.Status` already applies. `pkg/winrmdism`
+shells out to `dism.exe` directly rather than the `ServerManager` PowerShell module
+(`Install-WindowsFeature`), deliberately: `windows.Server.DISMLogPath` already commits this design
+to DISM, and `dism.exe /online` works on every Windows SKU while `ServerManager` is Server-only. A
+real, non-obvious gotcha surfaced building it: calling a native executable from a PowerShell script
+does not make the script's own exit code reflect the executable's, so every script this package
+sends ends with an explicit `exit $LASTEXITCODE` line — without it, `Result.ExitCode` would read
+success regardless of what `dism.exe` actually reported. DISM's real exit codes are applied
+directly: `0` success, `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) success-needs-restart (surfaced as
+a new `reboot_required` stat rather than folded into `changed`), `87`
+(`ERROR_INVALID_PARAMETER`) an unrecognized feature name (surfaced as `Exists: false`, not an
+error — the identical "a name the platform has never heard of is an answer" rule `pkg/remotesvc`
+applies to a systemd unit).
+
+**`svc.windows.*` (5 methods: `start`/`stop`/`restart`/`enable`/`disable`)** mirrors
+`svc/systemd`'s own `unitOp`/`runUnitOp` shared-body shape exactly (`serviceOp`/`runServiceOp`
+here). No `daemon_reload` counterpart: the Service Control Manager has no "reread unit files from
+disk" operation to expose. `enable`/`disable`'s inverse is genuinely more careful than
+`svc.systemd`'s own: Windows services have three start types
+(`Automatic`/`Manual`/`Disabled`), and this namespace's `enable`/`disable` only ever set the first
+and third. A service found `Manual` that `enable` moves to `Automatic` has no exact reverse through
+`disable` (which sets `Disabled`, not `Manual`) — that specific transition emits no inverse at all
+rather than one that would over-correct a rollback, which is documented on each method's own
+`Reversibility.Notes` and verified directly by driving the real, registered `Enable`/`Disable`
+functions with seams swapped, not a hand-copied stand-in for their inverse logic.
+
+**`win.feature.install`/`remove`** mirror the same read-decide-act-read-back shape over
+`pkg/winrmdism`. Unlike `svc.windows`'s enable/disable, this inverse is unconditional on the state
+found before: DISM's feature states have no third state this namespace manages around the way
+`Manual` complicates services, so `Enabled`/`Disabled` are exact complements for the transitions
+`install`/`remove` make. `install` passes `/all` (also enabling required parent features, matching
+what the Windows GUI's own "Add roles and features" does by default); `remove` deliberately does
+not, so removing a feature never silently removes the parents it depended on.
+
+**The `windows_server` classification rule** (`internal/classification/default_ruleset.go`), added
+at its own root — agentless, `configure_polling`, the same four capabilities
+`windows.NewServer`'s baseline already grants — the same pattern `aws_account`/`catalyst_center`
+were each added under when the plugin or batch that needed them was built. The one real, direct
+consumer: the `aws` sync plugin's `Classify` no longer quarantines a discovered Windows EC2
+instance (`Platform: "windows"`) — it resolves to `windows_server` — while a `Platform` value this
+tree still has no rule for continues to quarantine honestly. `aws_localstack_test.go`'s own
+`TestClassify_WindowsInstance_Quarantines` (proving the old, now-false behavior) was replaced with
+`TestClassify_WindowsInstance` plus a new `TestClassify_UnrecognizedPlatform_Quarantines`
+preserving direct coverage of the real quarantine path; `conformance_test.go`'s `aws` backend's own
+`unclassifiableUnsupported` explanation was updated to stop citing the retired test by name.
+
+**A real regression, caught and fixed, in code from an earlier session, not new to this batch.**
+`internal/catalog/svc/svc_test.go`'s `TestDeclaredButNotImplementedTargetIsNamed` depended on
+`svc.windows.start` staying declared forever, and both concrete namespaces
+`svc.managerNamespace` maps to are now fully implemented, so there is no longer any real
+device/verb combination reachable from outside the package that exercises `dispatch`'s own
+"declared but not implemented" branch. `LESSONS_LEARNED.md` #150 generalizes this. Fixed with a new
+whitebox test (`internal/catalog/svc/dispatch_internal_test.go`) registering one throwaway,
+uniquely-named `StatusDeclared` fixture purely to prove the branch, and a new black-box
+`TestDispatchesToWindows` (mirroring `TestDispatchesToSystemd`) proving real dispatch resolves to
+`svc.windows.start` against an unreachable address. The identical regression class
+`cmd/pleiades/doc_test.go` has hit every prior session that flips a fixture FQCN from declared to
+implemented recurred here too, fixed the same way: the fixture moved to `file.template`, the one
+FQCN this document already commits to staying declared.
+
+### Testing posture: `pkg/winrmexec`'s, not `cloud.aws.*`'s LocalStack precedent
+
+There is no WinRM emulator the way LocalStack emulates the AWS wire protocol, and `pkg/winrmexec`'s
+own package doc already states and accepts that constraint rather than building a stub server that
+"would only prove this package agrees with the stub." Every new package and Collection method hits
+**100% coverage on everything reachable without a live host**: `pkg/winrmsvc`/`pkg/winrmdism`'s
+script construction, quoting and state parsing against canned input; `internal/catalog/svc/windows`
+and `internal/catalog/win/feature`'s full decision logic (converged/refusal/inverse, including every
+downstream failure-wrapping branch) via `statusFunc`/`startFunc`/`stopFunc`/`restartFunc`/
+`enableFunc`/`disableFunc` seams swapped to canned answers — the same role `remoteexectest`'s fake
+systemctl plays for `pkg/remotesvc`'s own tests, adapted to a transport with no in-process fake
+worth building. `pkg/winrmsvc`/`pkg/winrmdism` themselves sit at 77.5%/73.3% (no recorded floor,
+the same "informational" bucket `pkg/winrmexec` itself already sits in): the remaining gap is the
+one thing that genuinely needs a live host, a real command's real output coming back, which is
+exactly what `pkg/winrmexec`'s own tests document as unfakeable. That one thing gets a new,
+env-gated Release Gate, `cmd/pleiades/winrm_service_feature_release_gate_test.go`, reusing
+`winrm_static_ip_release_gate_test.go`'s existing host/user/password env vars and adding its own
+(`PLEIADES_WINRM_TEST_SERVICE`, `PLEIADES_WINRM_TEST_FEATURE`). It reports **skipped** in this
+environment, the same honest status the static-IP gate has carried every session that has touched
+WinRM.
+
+### Read this first
+
+**Module names are `xxx.xxx.xxx`.** FAILURE_PATTERNS #158; still the rule, still not violated here.
+
+**No commit without the user's own live word in the current conversation.** Unchanged. `60dae0d`
+landed because the user gave that word; nothing below has been asked for yet.
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Unchanged (`pleiades_no_unrequested_delegation`). Held again this session, including through the
+plan-mode transition for this batch.
+
+**Before flipping the last `StatusDeclared` entry a generic dispatcher can resolve to, grep that
+dispatcher's own tests for the specific FQCN literal, not just for the word "declared."**
+`LESSONS_LEARNED.md` #150, new this session. `svc.managerNamespace` only ever mapped two names
+(`systemd`, `windows_scm`); once both concrete namespaces were fully implemented, the dispatcher's
+"declared but not implemented" refusal branch had no real example left to exercise it through the
+public API at all, which a naive "the test still compiles and the error is still non-nil" glance
+would not have caught. The fix (a throwaway registered-but-declared fixture in a new whitebox test
+file) is the reusable pattern; watch for the same shape in `net.cli`/`net.netconf` once every
+`net.*` vendor namespace is eventually implemented too.
+
+**Calling a native executable from a PowerShell script does not propagate its exit code
+automatically.** New this session, in `pkg/winrmdism`'s own package doc: `$LASTEXITCODE` holds the
+value, and a script that never reads it leaves the host process's own exit status at whatever it
+would otherwise be, typically 0, regardless of what the executable actually reported. Every script
+`pkg/winrmdism` builds ends with an explicit `exit $LASTEXITCODE` line for exactly this reason;
+worth checking for in any future package that shells out to a native `.exe` over WinRM the way this
+one shells out to `dism.exe`.
+
+**Docker was unreachable from this session's shell partway through**
+(`docker: command not found in this WSL 2 distro`), and was confirmed clean and reachable again
+before this session ended: the user isolated the host crashes this session's earlier segment
+discussed to running Docker and Hyper-V at the same time, and a re-check after that fix landed
+found `docker ps` answering normally. Every check that needed it was re-run for real at that point
+(see "Verification state" below); nothing here is inferred from the earlier Docker-unavailable
+window.
+
+### The remainder, in order
+
+1. ~~`fs.*`/`archive.*` and `fw.*`/`container.*`~~ — done, committed at `93a7818`.
+2. ~~`cloud.aws.*` (4) and the `aws` sync plugin~~ — done, committed at `60dae0d`.
+3. ~~A `windows_server` classification rule~~ — done this session.
+4. ~~`svc.windows.*`/`win.feature.*` (7)~~ — done this session.
+5. **`net.cli`/`ios`/`eos`/`junos`/`netconf` (6)** is blocked on a NETCONF transport that does not
+   exist yet. The next natural batch by this list's own ordering, and the last real transport gap
+   in the catalog.
+6. **`file.template`** stays declared: the render engine is `internal/render`, unreachable from a
+   Collection, and is a stable test fixture in `internal/validate` (and now also
+   `cmd/pleiades/doc_test.go`) precisely because it is expected to stay declared for a while.
+7. **Make `exec.shell` dispatch on capability**, the way `svc.start` resolves to `svc.systemd.start`
+   (and, as of this session, `svc.windows.start`). Unchanged from prior sessions: a design step,
+   not a port, still not done.
+8. **`file.directory` still has its own mode validator**, unreconciled with `attributes.go`. Also
+   unchanged from prior sessions.
+9. **Supplementary group membership and account passwords**, deliberately out of scope for
+   `identity.user.*`. Unchanged from prior sessions.
+10. **The four pre-existing private int-param parsers** could migrate to `sdk.IntParam`. Unchanged
+    from prior sessions: deliberately not done, mechanical once started.
+11. **Wire `FirewalldCapable`/`DockerCapable`** (and, from a prior session, `PosixAccountCapable`)
+    onto a real device type. `FirewalldCapable` specifically needs a per-instance property (like
+    `service_manager`) rather than a baseline declare, since firewalld isn't universal the way
+    `LinuxCapable`/`SystemdCapable` are.
+12. **An S3 object-level primitive** (`PutObject` at minimum) was deliberately not added to
+    `pkg/awscloud`. Only worth building if a real `cloud.aws.s3.*` object method is ever wanted.
+
+With items 3 and 4 done, the module catalog now has **70 of 77** methods at
+`collection.StatusImplemented` in the working tree (63 committed at `60dae0d`, plus these seven),
+confirmed via `internal/archtest`'s `TestEveryImplementedMethodAnswersReversibility`, which logs
+the count.
+
+### Verification state
+
+**Every package this batch actually touched, verified individually and cleanly**: `go build
+./...`, `go vet ./...`, `make fmt`, `go test -race` (each touched package: `pkg/winrmsvc`,
+`pkg/winrmdism`, `internal/catalog/svc/...`, `internal/catalog/win/feature`,
+`internal/inventory/devices/windows`, `internal/classification`, `internal/inventory/plugins/aws`,
+`cmd/pleiades`), `go test ./internal/archtest/...` (full suite clean, including
+`TestCatalogPackagesImportOnlyPkg` proving the two new `pkg/` packages are layered correctly,
+`TestCatalogDataDocsMatchTheRegistry` after hand-syncing `internal/forge/catalogdata`'s two files,
+and `TestEveryImplementedMethodAnswersReversibility` reporting 70), `make gosec` (the same 9
+pre-existing individually-waived findings, zero new ones), `go run ./tools/docs-lint` (clean),
+`go run ./tools/govulncheck`/`make govulncheck` (clean — 0 vulnerabilities affecting this code, an
+improvement on the `lib/pq` CVEs prior sessions noted; worth re-confirming next session rather than
+assuming), and `go generate ./internal/forge/catalogdata` plus `go run ./tools/gendocs` (both
+confirmed idempotent, a second run of each produces no further diff).
+
+**Full-repo verification completed cleanly once Docker came back**, and every earlier caveat about
+it is superseded by this: `go test -race ./...` (whole repo, real containers — real LocalStack,
+real sshd, real NATS) ran to completion with **zero failures across 126 packages**. `go run
+./tools/coverage-check`, run non-tolerant with `LOCALSTACK_AUTH_TOKEN` sourced from
+`.IGNORE/.localstack.env` (needed separately from Docker itself — the first run after Docker came
+back still showed `cloud.aws.ec2`/`s3` "regressed," and the actual cause was this token not yet
+being exported in the fresh shell, not Docker), reports **173 packages measured, none below their
+recorded floor**. `pkg/awscloud` (95.6%), `internal/inventory/plugins/aws` (99.0%), and every other
+LocalStack-dependent number matches exactly what the prior `cloud.aws.*` session recorded, with no
+drift. `make gosec` and `go run ./tools/docs-lint` were both re-run clean after Docker returned too.
+The one loose end from the Docker-unavailable window is worth still naming rather than dropping:
+`internal/catalog/pleiades/builtin/wait`'s `TestPort_UsesTheBashProber` failed once under
+full-suite load during that earlier pass and passed cleanly in isolation immediately after and
+again during this clean full run; this session touched nothing in or near that package, and it is
+not yet added to `flaky-packages.json` — worth watching for a repeat before deciding whether it
+belongs there.
+
+`make docs-gen-check` "fails" for the same non-defect reason as every prior session: its own `git
+diff --exit-code` compares the regenerated tree against `60dae0d`, and this session's work is real,
+intentional, uncommitted content in `docs/reference` and `internal/api/wellknown`. Resolves on its
+own the moment this is committed.
+
+### Commit message
+
+Drafted, not run; nothing is committed except `60dae0d`.
+
+```
+feat(catalog): svc.windows.* and win.feature.*, the windows_server classification rule (70 of 77)
+
+windows.Server gains four real accessors (WindowsEdition,
+ServiceManagerName, WindowsServiceStartMode, DISMLogPath), closing the
+TODO its own doc comment has named since the type was first generated
+and structurally implementing the three capabilities svc.windows.*/
+win.feature.* need. ServiceManagerName defaults to "windows_scm",
+which is what makes svc.*'s pre-existing "windows_scm" -> "svc.windows"
+dispatch mapping resolve for real for the first time.
+
+pkg/winrmsvc and pkg/winrmdism are new, mirroring pkg/remotesvc for a
+transport (WinRM) with no persistent connection to hold: both take an
+explicit Session{Target, Auth, Options} bundle rather than a live
+conn, since pkg/winrmexec dials fresh per call. pkg/winrmdism shells
+out to dism.exe directly rather than the ServerManager PowerShell
+module, since dism.exe works on every Windows SKU and
+windows.Server.DISMLogPath already commits this design to DISM; every
+script it builds ends with an explicit "exit $LASTEXITCODE" line,
+without which a native executable's real exit code never reaches
+Result.ExitCode at all. DISM's own exit codes are applied directly:
+3010 (reboot required) is success, surfaced as a new reboot_required
+stat rather than folded into changed; 87 (invalid parameter) on
+/get-featureinfo means an unrecognized feature name, surfaced as
+Exists: false rather than an error.
+
+svc.windows.* (start/stop/restart/enable/disable) mirrors
+svc/systemd's own shared unitOp/runUnitOp shape. enable/disable's
+inverse is more careful than svc.systemd's own: a service found with
+start type Manual that enable moves to Automatic has no exact reverse
+through disable (which sets Disabled, not Manual), so that specific
+transition emits no inverse at all rather than one that would
+over-correct a rollback. win.feature.install/remove mirror the same
+read-decide-act-read-back shape over pkg/winrmdism; install passes
+/all (also enabling required parent features), remove deliberately
+does not.
+
+The windows_server classification rule (internal/classification/
+default_ruleset.go) is what lets the aws sync plugin's Classify
+resolve a discovered Windows EC2 instance instead of quarantining it,
+the one real consumer this session wired: Classify now resolves
+Platform "windows" to windows_server and "" to linux_server, still
+quarantining any Platform value neither names.
+
+A real regression in code from an earlier session, not new to this
+batch: internal/catalog/svc/svc_test.go's
+TestDeclaredButNotImplementedTargetIsNamed depended on
+svc.windows.start staying declared forever, and both concrete
+namespaces svc.managerNamespace maps to are now fully implemented, so
+dispatch's own "declared but not implemented" branch had no real
+example left reachable from outside the package. Fixed with a new
+whitebox test registering one throwaway declared-only fixture purely
+to prove the branch, and a new black-box TestDispatchesToWindows
+proving real dispatch to svc.windows.start against an unreachable
+address. cmd/pleiades/doc_test.go's own recurring fixture regression
+(every prior session that flips a declared FQCN to implemented has hit
+this) recurred here too; its two "still declared" fixtures moved to
+file.template, the one FQCN this document already commits to staying
+declared.
+
+Coverage: pkg/winrmsvc/pkg/winrmdism 77.5%/73.3% (no recorded floor,
+the same informational bucket pkg/winrmexec itself already sits in --
+the remaining gap is the one thing that genuinely needs a live
+Windows host, which pkg/winrmexec's own tests already document as
+unfakeable). Every Collection method and the windows.Server accessors
+hit 100% coverage on everything reachable without one, via
+statusFunc/startFunc/stopFunc/restartFunc/enableFunc/disableFunc seams
+swapped to canned answers. cmd/pleiades/
+winrm_service_feature_release_gate_test.go is the new, env-gated
+Release Gate for the one thing that does need a live host; it reports
+skipped in every environment without one, the same honest status
+winrm_static_ip_release_gate_test.go has carried every session that
+has touched WinRM.
+
+The module catalog now has 70 of 77 methods implemented in the
+working tree (63 committed, plus these seven).
+```
+
 ## Previous session: fs.*, archive.*, fw.firewalld.* and container.docker.*, ten more methods
 
 **Branch `feature/Catalog-First-Tier`, off `main`. HEAD is `7d3638a`, the six `identity.*` methods
