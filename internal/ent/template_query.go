@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -33,6 +34,7 @@ type TemplateQuery struct {
 	withSurveyQuestions *SurveyQuestionQuery
 	withSavedConfigs    *SavedLaunchConfigQuery
 	withCredentials     *CredentialQuery
+	withSchedules       *ScheduleQuery
 	withFKs             bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -173,6 +175,28 @@ func (_q *TemplateQuery) QueryCredentials() *CredentialQuery {
 			sqlgraph.From(template.Table, template.FieldID, selector),
 			sqlgraph.To(credential.Table, credential.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, false, template.CredentialsTable, template.CredentialsPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySchedules chains the current query on the "schedules" edge.
+func (_q *TemplateQuery) QuerySchedules() *ScheduleQuery {
+	query := (&ScheduleClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(template.Table, template.FieldID, selector),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, template.SchedulesTable, template.SchedulesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -377,6 +401,7 @@ func (_q *TemplateQuery) Clone() *TemplateQuery {
 		withSurveyQuestions: _q.withSurveyQuestions.Clone(),
 		withSavedConfigs:    _q.withSavedConfigs.Clone(),
 		withCredentials:     _q.withCredentials.Clone(),
+		withSchedules:       _q.withSchedules.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -435,6 +460,17 @@ func (_q *TemplateQuery) WithCredentials(opts ...func(*CredentialQuery)) *Templa
 		opt(query)
 	}
 	_q.withCredentials = query
+	return _q
+}
+
+// WithSchedules tells the query-builder to eager-load the nodes that are connected to
+// the "schedules" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *TemplateQuery) WithSchedules(opts ...func(*ScheduleQuery)) *TemplateQuery {
+	query := (&ScheduleClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSchedules = query
 	return _q
 }
 
@@ -517,12 +553,13 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 		nodes       = []*Template{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
 			_q.withOrganization != nil,
 			_q.withInventory != nil,
 			_q.withSurveyQuestions != nil,
 			_q.withSavedConfigs != nil,
 			_q.withCredentials != nil,
+			_q.withSchedules != nil,
 		}
 	)
 	if _q.withOrganization != nil || _q.withInventory != nil {
@@ -579,6 +616,13 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 		if err := _q.loadCredentials(ctx, query, nodes,
 			func(n *Template) { n.Edges.Credentials = []*Credential{} },
 			func(n *Template, e *Credential) { n.Edges.Credentials = append(n.Edges.Credentials, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSchedules; query != nil {
+		if err := _q.loadSchedules(ctx, query, nodes,
+			func(n *Template) { n.Edges.Schedules = []*Schedule{} },
+			func(n *Template, e *Schedule) { n.Edges.Schedules = append(n.Edges.Schedules, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -769,6 +813,37 @@ func (_q *TemplateQuery) loadCredentials(ctx context.Context, query *CredentialQ
 		for kn := range nodes {
 			assign(kn, n)
 		}
+	}
+	return nil
+}
+func (_q *TemplateQuery) loadSchedules(ctx context.Context, query *ScheduleQuery, nodes []*Template, init func(*Template), assign func(*Template, *Schedule)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Template)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Schedule(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(template.SchedulesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.template_schedules
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "template_schedules" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "template_schedules" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

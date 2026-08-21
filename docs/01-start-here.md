@@ -123,6 +123,39 @@ The one-credential-per-kind binding rule, with vault credentials exempted while 
 carries a distinct identifier, is enforced by the application and not by the database.
 A writer going straight to SQL can still violate it.
 
+**The scheduler is real.** A schedule is an RFC 5545 recurrence attached to a
+template, carrying its own IANA time zone, its own anchor, and any number of exclusion
+rules. Exactly one controller replica evaluates due schedules at a time, and a
+scheduled run reaches devices through the identical dispatch path a person pressing
+Launch goes through: the same template resolution, credential binding, durable
+JetStream delivery, per-device locking and audit trail.
+
+Recurrence matches AWX rather than approximating it. The engine is tested against
+occurrence vectors generated from `dateutil`, the library AWX itself schedules on,
+across daylight saving transitions in both hemispheres, a half-hour-offset zone, leap
+days, month-end rules, ordinal weekdays and exclusion rules that straddle a transition.
+`POST /schedules/preview` expands a rule without saving it and returns each occurrence
+in both local and UTC time, so intent can be confirmed before a schedule goes live.
+
+Three limits are worth knowing.
+
+The recurrence grammar is a bounded subset, refused at the write rather than at the
+run: `SECONDLY`, `BYWEEKNO`, `BYYEARDAY`, `BYSECOND` and `RDATE` are not supported, and
+neither is a rule naming a date that never occurs. The refusal is deliberate — an
+unbounded or impossible rule reaching the scan loop would affect every schedule in the
+deployment, not just its own.
+
+Occurrences missed while nothing was running are coalesced rather than replayed:
+exactly one run happens on recovery, and every earlier missed occurrence is recorded as
+skipped with a reason. That avoids a recovery launching sixteen jobs at once, at the
+cost of not running work whose moment has passed. A very large backlog is collapsed
+further into a single counted record rather than written row by row.
+
+A schedule fires at most once per occurrence, and the guarantee comes from a unique
+database index rather than from leader election, which cannot provide it: the lease has
+no fencing token, so two replicas can briefly both believe they lead. Three real
+controller processes against one shared database are what proves it.
+
 **Six credential types ship with the platform, and sixteen more are named as gaps.**
 Machine, Vault, Network, Amazon Web Services, Red Hat Ansible Automation Platform and
 HCP Terraform are installed on every controller start under the same namespaces AWX
@@ -225,7 +258,7 @@ Things a real Ansible user will look for and not currently find:
 - No `handlers` / `notify`, no `tags`, no `become`, no `serial`, no `roles`, no
   `ignore_errors`, no `changed_when` / `failed_when`.
 - No `group_vars` / `host_vars`, and no inventory-level `vars` at all.
-- No scheduler, no notifications, no webhooks, no surveys, no approval workflows, no
+- No notifications, no webhooks, no surveys, no approval workflows, no
   execution environments.
 - No Vault, KMS or other external secrets manager as a first-class integration.
   Credential types can read an input from a file on the Controller, which covers a

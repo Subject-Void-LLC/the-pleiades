@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -65,6 +66,12 @@ type Deps struct {
 	// Templates is the saved definitions this platform launches, and the
 	// one port the Templates view both reads and writes.
 	Templates launch.Store
+
+	// Schedules is when those definitions run without anybody pressing
+	// launch. The same store value the controller hands its scheduler,
+	// narrowed here to the administration half: this side can describe
+	// when a schedule should fire and cannot fire one.
+	Schedules schedule.Store
 
 	// Catalog is every definition the deployment can launch, feeding the
 	// Templates form's RUNS picker. The same value the template store

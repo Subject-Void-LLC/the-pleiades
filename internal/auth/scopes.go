@@ -137,4 +137,27 @@ const (
 	// not thereby acquire the right to point one at the domain admin
 	// credential.
 	ScopeCredentialWrite Scope = "credential:write"
+
+	// ScopeScheduleRead grants the right to see schedules, their upcoming
+	// occurrences, and the history of what they have and have not run.
+	ScopeScheduleRead Scope = "schedule:read"
+
+	// ScopeScheduleWrite grants create, update, enable, disable and delete
+	// of schedules.
+	//
+	// It is deliberately NOT folded into ScopeRunbookExecute, even though
+	// the visible effect of a schedule is that things run. The two are
+	// different privileges: execute lets somebody run a template once, now,
+	// under their own name and their own judgement, whereas this lets
+	// somebody arrange for it to run repeatedly, unattended, after they
+	// have stopped watching. The second is the larger grant, and the same
+	// reasoning ScopeCredentialWrite already applies to binding applies
+	// here -- deciding that something runs forever is a bigger decision
+	// than deciding it runs once.
+	//
+	// Nor is it folded into ScopeTemplateWrite. Authoring what a template
+	// does and deciding when it fires are separately useful: a release
+	// engineer may own the definitions while an operations team owns the
+	// calendar.
+	ScopeScheduleWrite Scope = "schedule:write"
 )

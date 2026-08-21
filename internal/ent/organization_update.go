@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -310,6 +311,21 @@ func (_u *OrganizationUpdate) AddTemplates(v ...*Template) *OrganizationUpdate {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
+func (_u *OrganizationUpdate) AddScheduleIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.AddScheduleIDs(ids...)
+	return _u
+}
+
+// AddSchedules adds the "schedules" edges to the Schedule entity.
+func (_u *OrganizationUpdate) AddSchedules(v ...*Schedule) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddScheduleIDs(ids...)
+}
+
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
 func (_u *OrganizationUpdate) AddCredentialTypeIDs(ids ...int) *OrganizationUpdate {
 	_u.mutation.AddCredentialTypeIDs(ids...)
@@ -457,6 +473,27 @@ func (_u *OrganizationUpdate) RemoveTemplates(v ...*Template) *OrganizationUpdat
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearSchedules clears all "schedules" edges to the Schedule entity.
+func (_u *OrganizationUpdate) ClearSchedules() *OrganizationUpdate {
+	_u.mutation.ClearSchedules()
+	return _u
+}
+
+// RemoveScheduleIDs removes the "schedules" edge to Schedule entities by IDs.
+func (_u *OrganizationUpdate) RemoveScheduleIDs(ids ...int) *OrganizationUpdate {
+	_u.mutation.RemoveScheduleIDs(ids...)
+	return _u
+}
+
+// RemoveSchedules removes "schedules" edges to Schedule entities.
+func (_u *OrganizationUpdate) RemoveSchedules(v ...*Schedule) *OrganizationUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveScheduleIDs(ids...)
 }
 
 // ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
@@ -837,6 +874,51 @@ func (_u *OrganizationUpdate) sqlSave(ctx context.Context) (_node int, err error
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSchedulesIDs(); len(nodes) > 0 && !_u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SchedulesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -1318,6 +1400,21 @@ func (_u *OrganizationUpdateOne) AddTemplates(v ...*Template) *OrganizationUpdat
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
+func (_u *OrganizationUpdateOne) AddScheduleIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.AddScheduleIDs(ids...)
+	return _u
+}
+
+// AddSchedules adds the "schedules" edges to the Schedule entity.
+func (_u *OrganizationUpdateOne) AddSchedules(v ...*Schedule) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddScheduleIDs(ids...)
+}
+
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
 func (_u *OrganizationUpdateOne) AddCredentialTypeIDs(ids ...int) *OrganizationUpdateOne {
 	_u.mutation.AddCredentialTypeIDs(ids...)
@@ -1465,6 +1562,27 @@ func (_u *OrganizationUpdateOne) RemoveTemplates(v ...*Template) *OrganizationUp
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearSchedules clears all "schedules" edges to the Schedule entity.
+func (_u *OrganizationUpdateOne) ClearSchedules() *OrganizationUpdateOne {
+	_u.mutation.ClearSchedules()
+	return _u
+}
+
+// RemoveScheduleIDs removes the "schedules" edge to Schedule entities by IDs.
+func (_u *OrganizationUpdateOne) RemoveScheduleIDs(ids ...int) *OrganizationUpdateOne {
+	_u.mutation.RemoveScheduleIDs(ids...)
+	return _u
+}
+
+// RemoveSchedules removes "schedules" edges to Schedule entities.
+func (_u *OrganizationUpdateOne) RemoveSchedules(v ...*Schedule) *OrganizationUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveScheduleIDs(ids...)
 }
 
 // ClearCredentialTypes clears all "credential_types" edges to the CredentialType entity.
@@ -1875,6 +1993,51 @@ func (_u *OrganizationUpdateOne) sqlSave(ctx context.Context) (_node *Organizati
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSchedulesIDs(); len(nodes) > 0 && !_u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SchedulesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

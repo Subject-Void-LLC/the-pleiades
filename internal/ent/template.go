@@ -62,9 +62,11 @@ type TemplateEdges struct {
 	SavedConfigs []*SavedLaunchConfig `json:"saved_configs,omitempty"`
 	// Credentials holds the value of the credentials edge.
 	Credentials []*Credential `json:"credentials,omitempty"`
+	// Schedules holds the value of the schedules edge.
+	Schedules []*Schedule `json:"schedules,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [6]bool
 }
 
 // OrganizationOrErr returns the Organization value or an error if the edge
@@ -114,6 +116,15 @@ func (e TemplateEdges) CredentialsOrErr() ([]*Credential, error) {
 		return e.Credentials, nil
 	}
 	return nil, &NotLoadedError{edge: "credentials"}
+}
+
+// SchedulesOrErr returns the Schedules value or an error if the edge
+// was not loaded in eager-loading.
+func (e TemplateEdges) SchedulesOrErr() ([]*Schedule, error) {
+	if e.loadedTypes[5] {
+		return e.Schedules, nil
+	}
+	return nil, &NotLoadedError{edge: "schedules"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -278,6 +289,11 @@ func (_m *Template) QuerySavedConfigs() *SavedLaunchConfigQuery {
 // QueryCredentials queries the "credentials" edge of the Template entity.
 func (_m *Template) QueryCredentials() *CredentialQuery {
 	return NewTemplateClient(_m.config).QueryCredentials(_m)
+}
+
+// QuerySchedules queries the "schedules" edge of the Template entity.
+func (_m *Template) QuerySchedules() *ScheduleQuery {
+	return NewTemplateClient(_m.config).QuerySchedules(_m)
 }
 
 // Update returns a builder for updating this Template.

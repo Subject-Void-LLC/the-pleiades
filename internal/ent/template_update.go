@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -231,6 +232,21 @@ func (_u *TemplateUpdate) AddCredentials(v ...*Credential) *TemplateUpdate {
 	return _u.AddCredentialIDs(ids...)
 }
 
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
+func (_u *TemplateUpdate) AddScheduleIDs(ids ...int) *TemplateUpdate {
+	_u.mutation.AddScheduleIDs(ids...)
+	return _u
+}
+
+// AddSchedules adds the "schedules" edges to the Schedule entity.
+func (_u *TemplateUpdate) AddSchedules(v ...*Schedule) *TemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddScheduleIDs(ids...)
+}
+
 // Mutation returns the TemplateMutation object of the builder.
 func (_u *TemplateUpdate) Mutation() *TemplateMutation {
 	return _u.mutation
@@ -309,6 +325,27 @@ func (_u *TemplateUpdate) RemoveCredentials(v ...*Credential) *TemplateUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveCredentialIDs(ids...)
+}
+
+// ClearSchedules clears all "schedules" edges to the Schedule entity.
+func (_u *TemplateUpdate) ClearSchedules() *TemplateUpdate {
+	_u.mutation.ClearSchedules()
+	return _u
+}
+
+// RemoveScheduleIDs removes the "schedules" edge to Schedule entities by IDs.
+func (_u *TemplateUpdate) RemoveScheduleIDs(ids ...int) *TemplateUpdate {
+	_u.mutation.RemoveScheduleIDs(ids...)
+	return _u
+}
+
+// RemoveSchedules removes "schedules" edges to Schedule entities.
+func (_u *TemplateUpdate) RemoveSchedules(v ...*Schedule) *TemplateUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveScheduleIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -622,6 +659,51 @@ func (_u *TemplateUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSchedulesIDs(); len(nodes) > 0 && !_u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SchedulesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{template.Label}
@@ -839,6 +921,21 @@ func (_u *TemplateUpdateOne) AddCredentials(v ...*Credential) *TemplateUpdateOne
 	return _u.AddCredentialIDs(ids...)
 }
 
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
+func (_u *TemplateUpdateOne) AddScheduleIDs(ids ...int) *TemplateUpdateOne {
+	_u.mutation.AddScheduleIDs(ids...)
+	return _u
+}
+
+// AddSchedules adds the "schedules" edges to the Schedule entity.
+func (_u *TemplateUpdateOne) AddSchedules(v ...*Schedule) *TemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddScheduleIDs(ids...)
+}
+
 // Mutation returns the TemplateMutation object of the builder.
 func (_u *TemplateUpdateOne) Mutation() *TemplateMutation {
 	return _u.mutation
@@ -917,6 +1014,27 @@ func (_u *TemplateUpdateOne) RemoveCredentials(v ...*Credential) *TemplateUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveCredentialIDs(ids...)
+}
+
+// ClearSchedules clears all "schedules" edges to the Schedule entity.
+func (_u *TemplateUpdateOne) ClearSchedules() *TemplateUpdateOne {
+	_u.mutation.ClearSchedules()
+	return _u
+}
+
+// RemoveScheduleIDs removes the "schedules" edge to Schedule entities by IDs.
+func (_u *TemplateUpdateOne) RemoveScheduleIDs(ids ...int) *TemplateUpdateOne {
+	_u.mutation.RemoveScheduleIDs(ids...)
+	return _u
+}
+
+// RemoveSchedules removes "schedules" edges to Schedule entities.
+func (_u *TemplateUpdateOne) RemoveSchedules(v ...*Schedule) *TemplateUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveScheduleIDs(ids...)
 }
 
 // Where appends a list predicates to the TemplateUpdate builder.
@@ -1253,6 +1371,51 @@ func (_u *TemplateUpdateOne) sqlSave(ctx context.Context) (_node *Template, err 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(credential.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSchedulesIDs(); len(nodes) > 0 && !_u.mutation.SchedulesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SchedulesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   template.SchedulesTable,
+			Columns: []string{template.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

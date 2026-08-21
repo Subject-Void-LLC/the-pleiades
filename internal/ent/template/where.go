@@ -610,6 +610,29 @@ func HasCredentialsWith(preds ...predicate.Credential) predicate.Template {
 	})
 }
 
+// HasSchedules applies the HasEdge predicate on the "schedules" edge.
+func HasSchedules() predicate.Template {
+	return predicate.Template(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSchedulesWith applies the HasEdge predicate on the "schedules" edge with a given conditions (other predicates).
+func HasSchedulesWith(preds ...predicate.Schedule) predicate.Template {
+	return predicate.Template(func(s *sql.Selector) {
+		step := newSchedulesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Template) predicate.Template {
 	return predicate.Template(sql.AndPredicates(predicates...))

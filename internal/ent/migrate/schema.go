@@ -529,6 +529,102 @@ var (
 			},
 		},
 	}
+	// SchedulesColumns holds the columns for the "schedules" table.
+	SchedulesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "schedule_id", Type: field.TypeString, Unique: true},
+		{Name: "name", Type: field.TypeString},
+		{Name: "description", Type: field.TypeString, Nullable: true},
+		{Name: "enabled", Type: field.TypeBool, Default: true},
+		{Name: "rrule", Type: field.TypeString},
+		{Name: "exclusions", Type: field.TypeJSON, Nullable: true},
+		{Name: "timezone", Type: field.TypeString, Default: "UTC"},
+		{Name: "dtstart", Type: field.TypeTime},
+		{Name: "dtend", Type: field.TypeTime, Nullable: true},
+		{Name: "next_run", Type: field.TypeTime, Nullable: true},
+		{Name: "last_fired", Type: field.TypeTime, Nullable: true},
+		{Name: "organization_schedules", Type: field.TypeInt},
+		{Name: "schedule_saved_config", Type: field.TypeInt, Nullable: true},
+		{Name: "template_schedules", Type: field.TypeInt},
+	}
+	// SchedulesTable holds the schema information for the "schedules" table.
+	SchedulesTable = &schema.Table{
+		Name:       "schedules",
+		Columns:    SchedulesColumns,
+		PrimaryKey: []*schema.Column{SchedulesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "schedules_organizations_schedules",
+				Columns:    []*schema.Column{SchedulesColumns[14]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "schedules_saved_launch_configs_saved_config",
+				Columns:    []*schema.Column{SchedulesColumns[15]},
+				RefColumns: []*schema.Column{SavedLaunchConfigsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "schedules_templates_schedules",
+				Columns:    []*schema.Column{SchedulesColumns[16]},
+				RefColumns: []*schema.Column{TemplatesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "schedule_name_organization_schedules",
+				Unique:  true,
+				Columns: []*schema.Column{SchedulesColumns[4], SchedulesColumns[14]},
+			},
+			{
+				Name:    "schedule_enabled_next_run_schedule_id",
+				Unique:  false,
+				Columns: []*schema.Column{SchedulesColumns[6], SchedulesColumns[12], SchedulesColumns[3]},
+			},
+		},
+	}
+	// ScheduleOccurrencesColumns holds the columns for the "schedule_occurrences" table.
+	ScheduleOccurrencesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "occurrence_at", Type: field.TypeTime},
+		{Name: "outcome", Type: field.TypeEnum, Enums: []string{"claimed", "fired", "skipped"}, Default: "claimed"},
+		{Name: "reason", Type: field.TypeString, Nullable: true},
+		{Name: "suppressed_count", Type: field.TypeInt, Default: 0},
+		{Name: "job_id", Type: field.TypeString, Nullable: true},
+		{Name: "schedule_occurrences", Type: field.TypeInt},
+	}
+	// ScheduleOccurrencesTable holds the schema information for the "schedule_occurrences" table.
+	ScheduleOccurrencesTable = &schema.Table{
+		Name:       "schedule_occurrences",
+		Columns:    ScheduleOccurrencesColumns,
+		PrimaryKey: []*schema.Column{ScheduleOccurrencesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "schedule_occurrences_schedules_occurrences",
+				Columns:    []*schema.Column{ScheduleOccurrencesColumns[8]},
+				RefColumns: []*schema.Column{SchedulesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "scheduleoccurrence_occurrence_at_schedule_occurrences",
+				Unique:  true,
+				Columns: []*schema.Column{ScheduleOccurrencesColumns[3], ScheduleOccurrencesColumns[8]},
+			},
+			{
+				Name:    "scheduleoccurrence_schedule_occurrences",
+				Unique:  false,
+				Columns: []*schema.Column{ScheduleOccurrencesColumns[8]},
+			},
+		},
+	}
 	// SessionsColumns holds the columns for the "sessions" table.
 	SessionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -864,6 +960,8 @@ var (
 		RevisionsTable,
 		RoleBindingsTable,
 		SavedLaunchConfigsTable,
+		SchedulesTable,
+		ScheduleOccurrencesTable,
 		SessionsTable,
 		SurveyQuestionsTable,
 		TeamsTable,
@@ -894,6 +992,10 @@ func init() {
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
 	SavedLaunchConfigsTable.ForeignKeys[0].RefTable = TemplatesTable
+	SchedulesTable.ForeignKeys[0].RefTable = OrganizationsTable
+	SchedulesTable.ForeignKeys[1].RefTable = SavedLaunchConfigsTable
+	SchedulesTable.ForeignKeys[2].RefTable = TemplatesTable
+	ScheduleOccurrencesTable.ForeignKeys[0].RefTable = SchedulesTable
 	SurveyQuestionsTable.ForeignKeys[0].RefTable = TemplatesTable
 	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	TemplatesTable.ForeignKeys[0].RefTable = InventoriesTable

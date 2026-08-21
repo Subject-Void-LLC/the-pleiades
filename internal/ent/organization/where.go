@@ -1017,6 +1017,29 @@ func HasTemplatesWith(preds ...predicate.Template) predicate.Organization {
 	})
 }
 
+// HasSchedules applies the HasEdge predicate on the "schedules" edge.
+func HasSchedules() predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSchedulesWith applies the HasEdge predicate on the "schedules" edge with a given conditions (other predicates).
+func HasSchedulesWith(preds ...predicate.Schedule) predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := newSchedulesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasCredentialTypes applies the HasEdge predicate on the "credential_types" edge.
 func HasCredentialTypes() predicate.Organization {
 	return predicate.Organization(func(s *sql.Selector) {

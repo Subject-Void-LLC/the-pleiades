@@ -341,6 +341,21 @@ func TestViewConformance_FormsRenderAccessibly(t *testing.T) {
 			body := w.Body.String()
 			assertAccessibleDocument(t, body)
 
+			// A view that offers Create must have something to collect.
+			//
+			// This guard exists because the loop below is over FormFields,
+			// and a view whose fields all forgot Field.InForm has none --
+			// so every assertion in it passes vacuously and the suite
+			// reports a form that renders no controls at all as conformant.
+			// That is not hypothetical: it shipped exactly once, in the
+			// Schedules view, whose eight fields declared InList and not
+			// InForm (FAILURE_PATTERNS.md #167). The page returned 200 and
+			// rendered a heading and a Save button over nothing.
+			if len(d.FormFields()) == 0 {
+				t.Fatalf("view %q offers a Create endpoint but declares no form fields; "+
+					"every field is missing Field.InForm, so the form renders no controls", name)
+			}
+
 			// Every writable field must have rendered a control.
 			for _, f := range d.FormFields() {
 				if !strings.Contains(body, `name="`+f.Name+`"`) {

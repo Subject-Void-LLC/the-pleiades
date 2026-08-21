@@ -280,11 +280,108 @@ plainly rather than implying a rough match exists.
 | Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
 | Survey | none | `design`, not built |
 | Approval node | none | `design`, not built |
-| Schedule (RRULE) | none | `design`, not built |
+| Schedule (RRULE) | A Schedule, attached to a template | `beta`: RFC 5545 recurrence with exclusion rules, time zones and a preview endpoint, proven against AWX's own recurrence library. See [Migrating schedules](#migrating-schedules) below |
 | Notification template | none | `design`, not built |
 | Execution environment | none | `design`, not built. The static binary is the point; see [Start here](01-start-here.md)'s FAQ |
 | Instance group | none | `design`, not built. No capacity/admission control exists yet |
 | RBAC (organizations, teams, roles) | The control plane's own RBAC | `beta`, real and tested, but the object model has not been checked against AWX's own for parity |
+
+## Migrating schedules
+
+An AWX schedule and a Pleiades schedule are the same object with the parts unpacked.
+AWX stores one `rrule` string with `DTSTART` and `TZID` folded inside it; Pleiades
+stores the recurrence, the anchor and the zone as three fields, so each is queryable,
+editable in a form, and visible without parsing the rule.
+
+Given an AWX schedule:
+
+```json
+{
+  "name": "nightly patching",
+  "rrule": "DTSTART;TZID=America/New_York:20240308T020000 RRULE:FREQ=DAILY;INTERVAL=1",
+  "unified_job_template": 42,
+  "extra_data": {"limit": "edge-*"}
+}
+```
+
+the equivalent here is:
+
+```bash
+curl -X POST https://controller.example.com/api/v1/schedules \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "name":     "nightly patching",
+        "template": 42,
+        "rrule":    "FREQ=DAILY;INTERVAL=1",
+        "timezone": "America/New_York",
+        "dtstart":  "2024-03-08T02:00:00-05:00"
+      }'
+```
+
+Three mechanical rules cover the conversion:
+
+- **Split the `rrule`.** Everything after `RRULE:` becomes `rrule`. The `TZID` becomes
+  `timezone`. The `DTSTART` becomes `dtstart`, as RFC 3339 rather than iCalendar basic
+  format.
+- **`extra_data` becomes a saved launch configuration.** It is the same bundle this
+  platform already stores for relaunch. Create it against the template, then name it as
+  the schedule's `saved_config`.
+- **`unified_job_template` becomes `template`.** A schedule attaches to a template, and
+  the template carries its own kind, so a runbook and a playbook are scheduled
+  identically.
+
+Exclusions are a separate field rather than extra lines in the rule:
+
+```json
+{"exclusions": ["FREQ=WEEKLY;BYDAY=SA,SU", "EXDATE:20241225T000000Z"]}
+```
+
+### What is refused, and why
+
+The recurrence grammar is a deliberately bounded subset, validated when the schedule is
+saved rather than when it runs. `FREQ`, `INTERVAL`, `COUNT`, `UNTIL`, `WKST`, `BYDAY`
+(including ordinals such as `-1FR`), `BYMONTHDAY`, `BYMONTH`, `BYHOUR`, `BYMINUTE` and
+`BYSETPOS` are accepted. `SECONDLY`, `BYWEEKNO`, `BYYEARDAY`, `BYSECOND` and `RDATE` are
+refused, as is any rule that names a date which never occurs — 30 February parses
+cleanly and would otherwise become a schedule that silently never fires.
+
+A rule outside the set is refused at the write with a message naming the part, so an
+import surfaces the problem while somebody is still looking at it.
+
+### Checking a converted schedule before saving it
+
+`POST /schedules/preview` expands a recurrence without storing anything and returns the
+next occurrences in both the named zone and UTC:
+
+```bash
+curl -X POST https://controller.example.com/api/v1/schedules/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"rrule":"FREQ=DAILY","timezone":"America/New_York","dtstart":"2024-03-08T09:00:00-05:00"}'
+```
+
+Both readings are returned because either alone hides the case worth checking. Across a
+daylight saving transition a daily rule keeps its local hour and moves its UTC hour, so
+two consecutive runs are 23 or 25 hours apart rather than 24. That is the same behaviour
+AWX has — the recurrence engine is tested against vectors generated from `dateutil`, the
+library AWX itself schedules on — and the preview is how you confirm it before a
+schedule goes live.
+
+`GET /zoneinfo` lists every zone a schedule may name.
+
+### Differences worth knowing before you migrate
+
+- **Missed runs are coalesced, not replayed.** If no controller was running when
+  occurrences passed, exactly one run happens on recovery, for the most recent missed
+  occurrence, and every earlier one is recorded as `skipped` with the reason
+  `missed_window`. An hourly job that missed four hours launches once, not four times,
+  and `GET /schedules/{id}/occurrences` shows what did not run.
+- **A prompted credential input cannot be scheduled.** The value is never stored, so
+  there is nothing to replay unattended. Such a schedule is refused rather than left to
+  fail at 3am.
+- **A saved survey password is not replayed either**, for the same reason a relaunch
+  will not replay one.
 
 ## Migrating credentials
 

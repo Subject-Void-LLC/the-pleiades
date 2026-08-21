@@ -208,6 +208,7 @@ being told.
 | Views | Jobs | Real | List and open jobs, and watch a running job's live output. A job is launched from a Template, so this view has no launch form of its own. |
 | Views | Activity Stream | Real | Who changed which managed object, and when. Append-only: it offers no way to edit or remove what it says. |
 | Resources | Templates | Real | The saved definitions this platform launches: what to run, where, and how. What it runs is picked from the deployment's own catalog (runbooks, and playbooks when `PLAYBOOK_DIR` is configured), never typed, and the kind badge is derived from that choice. Create, edit, copy, delete and launch, with the survey a launch is asked and the jobs it has run on the record itself. |
+| Resources | Schedules | Real | When a template runs without somebody pressing launch. Create, edit, enable, disable and delete an RFC 5545 recurrence, with its time zone, its exclusion rules and its next run. Times are entered and shown in the schedule's own zone, not the browser's, because that is the zone the recurrence is read in. |
 | Resources | Credentials | Declared | Unbuilt. Note that it will not become a browsable catalog of credential names: see the absences below. |
 | Resources | Runbooks | Real | Read-only catalog of what can be dispatched, with each runbook's required capabilities. Its one action saves a runbook as a template rather than launching it. |
 | Resources | Inventories | Real | Create, read, update and delete the shareable device sets a dispatch targets. |

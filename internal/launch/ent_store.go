@@ -216,6 +216,12 @@ func (s *entStore) Delete(ctx context.Context, id int) error {
 		if ent.IsNotFound(err) {
 			return fmt.Errorf("%w: template %d", ErrNotFound, id)
 		}
+		if ent.IsConstraintError(err) {
+			// Something still references this template. Surveys and saved
+			// configurations cascade, so the only edge that can refuse is
+			// Schedule's, which is deliberately uncascaded; see ErrInUse.
+			return fmt.Errorf("%w: template %d is scheduled", ErrInUse, id)
+		}
 		return fmt.Errorf("launch: deleting template %d: %w", id, err)
 	}
 	return nil

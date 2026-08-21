@@ -601,6 +601,13 @@ func (h *TemplateHandler) respondStoreError(w http.ResponseWriter, r *http.Reque
 		RespondError(w, r, http.StatusNotFound, "template not found")
 	case errors.Is(err, launch.ErrExists):
 		RespondError(w, r, http.StatusConflict, "a template with that name already exists in this organization")
+	case errors.Is(err, launch.ErrInUse):
+		// 409 rather than 500: the request is well formed and the caller is
+		// entitled to make it; the platform is refusing because something
+		// else depends on the record. The message names what, because
+		// "conflict" alone leaves an operator hunting.
+		RespondError(w, r, http.StatusConflict,
+			"a schedule still launches this template; delete or disable the schedule first")
 	case errors.Is(err, launch.ErrCrossTenant):
 		// 403 rather than 400, matching inventories.go: the submission is
 		// well formed and the caller is authenticated, they are simply not

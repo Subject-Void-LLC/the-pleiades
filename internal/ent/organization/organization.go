@@ -48,6 +48,8 @@ const (
 	EdgeInventories = "inventories"
 	// EdgeTemplates holds the string denoting the templates edge name in mutations.
 	EdgeTemplates = "templates"
+	// EdgeSchedules holds the string denoting the schedules edge name in mutations.
+	EdgeSchedules = "schedules"
 	// EdgeCredentialTypes holds the string denoting the credential_types edge name in mutations.
 	EdgeCredentialTypes = "credential_types"
 	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
@@ -86,6 +88,13 @@ const (
 	TemplatesInverseTable = "templates"
 	// TemplatesColumn is the table column denoting the templates relation/edge.
 	TemplatesColumn = "organization_templates"
+	// SchedulesTable is the table that holds the schedules relation/edge.
+	SchedulesTable = "schedules"
+	// SchedulesInverseTable is the table name for the Schedule entity.
+	// It exists in this package in order to avoid circular dependency with the "schedule" package.
+	SchedulesInverseTable = "schedules"
+	// SchedulesColumn is the table column denoting the schedules relation/edge.
+	SchedulesColumn = "organization_schedules"
 	// CredentialTypesTable is the table that holds the credential_types relation/edge.
 	CredentialTypesTable = "credential_types"
 	// CredentialTypesInverseTable is the table name for the CredentialType entity.
@@ -286,6 +295,20 @@ func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// BySchedulesCount orders the results by schedules count.
+func BySchedulesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSchedulesStep(), opts...)
+	}
+}
+
+// BySchedules orders the results by schedules terms.
+func BySchedules(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSchedulesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByCredentialTypesCount orders the results by credential_types count.
 func ByCredentialTypesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -367,6 +390,13 @@ func newTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
+	)
+}
+func newSchedulesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SchedulesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SchedulesTable, SchedulesColumn),
 	)
 }
 func newCredentialTypesStep() *sqlgraph.Step {

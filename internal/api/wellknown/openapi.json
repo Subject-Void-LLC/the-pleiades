@@ -6396,6 +6396,1110 @@
         "x-link-relation": "self"
       }
     },
+    "/schedules": {
+      "get": {
+        "description": "Returns a page of this organization's schedules, by name.",
+        "operationId": "list_schedules",
+        "parameters": [
+          {
+            "description": "Keyset cursor: the id of the last schedule on the previous page.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum schedules to return. Defaults to 50, capped at 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "schedules": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "created_at": {
+                            "description": "RFC 3339.",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "What this schedule is for.",
+                            "type": "string"
+                          },
+                          "dtend": {
+                            "description": "When the schedule stops, RFC 3339 in UTC. Absent for an open-ended schedule.",
+                            "type": "string"
+                          },
+                          "dtstart": {
+                            "description": "The recurrence anchor, RFC 3339 in UTC. RFC 5545 takes from it every field the rule leaves unspecified, so it is part of what the recurrence means.",
+                            "type": "string"
+                          },
+                          "enabled": {
+                            "description": "A disabled schedule is kept rather than deleted, so its occurrence history survives. Disabling clears next_run: a schedule that will not run must not advertise a time.",
+                            "type": "boolean"
+                          },
+                          "exclusions": {
+                            "description": "EXRULE recurrences and EXDATE instants subtracted from the rule's occurrences.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "id": {
+                            "description": "Stable opaque identifier. A UUID, and the value every other endpoint takes.",
+                            "type": "string"
+                          },
+                          "last_fired": {
+                            "description": "The occurrence time of the most recent firing, RFC 3339 in UTC.",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "Unique within its organization, not globally.",
+                            "type": "string"
+                          },
+                          "next_run": {
+                            "description": "The next occurrence, RFC 3339 in UTC. Absent when there are no further occurrences.",
+                            "type": "string"
+                          },
+                          "next_run_local": {
+                            "description": "The same instant in the schedule's own zone, which is the reading an operator recognises. Both are returned because either alone is ambiguous to somebody.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "description": "The tenancy boundary, derived from the template and never submitted.",
+                            "type": "integer"
+                          },
+                          "rrule": {
+                            "description": "The RFC 5545 recurrence, within this scheduler's supported set. FREQ, INTERVAL, COUNT, UNTIL, WKST, BYDAY (with ordinals), BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE and BYSETPOS are accepted; SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND and RDATE are refused.",
+                            "type": "string"
+                          },
+                          "saved_config": {
+                            "description": "The saved launch configuration this runs with, if any.",
+                            "type": "integer"
+                          },
+                          "template": {
+                            "description": "The template this launches.",
+                            "type": "integer"
+                          },
+                          "template_name": {
+                            "description": "That template's name, carried so a list does not render a bare foreign key.",
+                            "type": "string"
+                          },
+                          "timezone": {
+                            "description": "An IANA zone name. Carried beside the rule rather than inside it, because it is what decides the rule's meaning: a daily rule preserves its wall-clock hour across a daylight saving transition, so two consecutive runs can be 23 or 25 hours apart.",
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "description": "RFC 3339.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of schedules."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "limit is not a valid integer."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:read"
+            ]
+          }
+        ],
+        "summary": "List schedules",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Saves a recurrence against a template. The organization is derived from that template and cannot be submitted. The recurrence is validated here, not at run time: a rule outside the supported set, naming an unknown zone, or naming a date that never occurs is refused at the write, because a schedule that can never fire is indistinguishable from one that simply has not fired yet.",
+        "operationId": "create_schedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "What this schedule is for.",
+                    "type": "string"
+                  },
+                  "dtend": {
+                    "description": "RFC 3339. Omit for an open-ended schedule.",
+                    "type": "string"
+                  },
+                  "dtstart": {
+                    "description": "RFC 3339. The recurrence anchor.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Defaults to true on create.",
+                    "type": "boolean"
+                  },
+                  "exclusions": {
+                    "description": "EXRULE recurrences and EXDATE instants. An unprefixed line is read as an EXRULE, which is the shape a rule copied out of AWX has.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "description": "Unique within the organization the template belongs to.",
+                    "type": "string"
+                  },
+                  "rrule": {
+                    "description": "The RFC 5545 recurrence. Validated at save time, never at run time.",
+                    "type": "string"
+                  },
+                  "saved_config": {
+                    "description": "A saved launch configuration belonging to that same template.",
+                    "type": "integer"
+                  },
+                  "template": {
+                    "description": "The template to launch. Its organization becomes the schedule's.",
+                    "type": "integer"
+                  },
+                  "timezone": {
+                    "description": "An IANA zone name. Defaults to UTC. Must be one GET /zoneinfo lists.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "template",
+                  "rrule",
+                  "dtstart"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "created_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "What this schedule is for.",
+                      "type": "string"
+                    },
+                    "dtend": {
+                      "description": "When the schedule stops, RFC 3339 in UTC. Absent for an open-ended schedule.",
+                      "type": "string"
+                    },
+                    "dtstart": {
+                      "description": "The recurrence anchor, RFC 3339 in UTC. RFC 5545 takes from it every field the rule leaves unspecified, so it is part of what the recurrence means.",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "A disabled schedule is kept rather than deleted, so its occurrence history survives. Disabling clears next_run: a schedule that will not run must not advertise a time.",
+                      "type": "boolean"
+                    },
+                    "exclusions": {
+                      "description": "EXRULE recurrences and EXDATE instants subtracted from the rule's occurrences.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "description": "Stable opaque identifier. A UUID, and the value every other endpoint takes.",
+                      "type": "string"
+                    },
+                    "last_fired": {
+                      "description": "The occurrence time of the most recent firing, RFC 3339 in UTC.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "next_run": {
+                      "description": "The next occurrence, RFC 3339 in UTC. Absent when there are no further occurrences.",
+                      "type": "string"
+                    },
+                    "next_run_local": {
+                      "description": "The same instant in the schedule's own zone, which is the reading an operator recognises. Both are returned because either alone is ambiguous to somebody.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary, derived from the template and never submitted.",
+                      "type": "integer"
+                    },
+                    "rrule": {
+                      "description": "The RFC 5545 recurrence, within this scheduler's supported set. FREQ, INTERVAL, COUNT, UNTIL, WKST, BYDAY (with ordinals), BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE and BYSETPOS are accepted; SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND and RDATE are refused.",
+                      "type": "string"
+                    },
+                    "saved_config": {
+                      "description": "The saved launch configuration this runs with, if any.",
+                      "type": "integer"
+                    },
+                    "template": {
+                      "description": "The template this launches.",
+                      "type": "integer"
+                    },
+                    "template_name": {
+                      "description": "That template's name, carried so a list does not render a bare foreign key.",
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "description": "An IANA zone name. Carried beside the rule rather than inside it, because it is what decides the rule's meaning: a daily rule preserves its wall-clock hour across a daylight saving transition, so two consecutive runs can be 23 or 25 hours apart.",
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The created schedule."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, the recurrence is not supported, the zone is unknown, or the recurrence names no real instant."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The named template belongs to another organization."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A schedule with that name already exists in that organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:write"
+            ]
+          }
+        ],
+        "summary": "Create a schedule",
+        "x-link-relation": "create"
+      }
+    },
+    "/schedules/preview": {
+      "post": {
+        "description": "Expands a recurrence without saving it, returning upcoming occurrences in both the named zone and UTC so an operator can confirm intent before committing. Both readings are returned because either alone hides the case that matters: a daily rule across a daylight saving transition keeps its local hour while its UTC hour moves, and that is exactly the behaviour somebody is checking for. It is a POST rather than a GET because a recurrence, its exclusions and its anchor do not fit comfortably or unambiguously in a query string, not because it changes anything: it writes nothing.",
+        "operationId": "preview_schedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "count": {
+                    "description": "How many occurrences to return. Defaults to 10, capped at 100.",
+                    "type": "integer"
+                  },
+                  "dtend": {
+                    "description": "RFC 3339. Occurrences after it are not returned.",
+                    "type": "string"
+                  },
+                  "dtstart": {
+                    "description": "RFC 3339. The recurrence anchor.",
+                    "type": "string"
+                  },
+                  "exclusions": {
+                    "description": "EXRULE and EXDATE lines.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "from": {
+                    "description": "RFC 3339. Where to start listing. Defaults to now.",
+                    "type": "string"
+                  },
+                  "rrule": {
+                    "description": "The recurrence to expand.",
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "description": "An IANA zone name. Defaults to UTC.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "rrule",
+                  "dtstart"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "occurrences": {
+                      "items": {
+                        "properties": {
+                          "local": {
+                            "description": "RFC 3339 in the named zone, with its offset. The offset changes across a daylight saving transition, which is the point.",
+                            "type": "string"
+                          },
+                          "utc": {
+                            "description": "RFC 3339 in UTC. The same instant.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "timezone": {
+                      "description": "The zone the local readings are in.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The upcoming occurrences."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The recurrence is malformed or unsupported, the zone is unknown, or the recurrence names no real instant."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:read"
+            ]
+          }
+        ],
+        "summary": "Preview a recurrence",
+        "x-link-relation": "collection"
+      }
+    },
+    "/schedules/{id}": {
+      "delete": {
+        "description": "Removes a schedule and its occurrence history. To stop a schedule while keeping that history, set enabled to false instead.",
+        "operationId": "delete_schedule",
+        "parameters": [
+          {
+            "description": "The schedule's opaque id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No schedule with that id in this organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:write"
+            ]
+          }
+        ],
+        "summary": "Delete a schedule",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Returns one schedule with its next run in both UTC and its own zone.",
+        "operationId": "get_schedule",
+        "parameters": [
+          {
+            "description": "The schedule's opaque id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "created_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "What this schedule is for.",
+                      "type": "string"
+                    },
+                    "dtend": {
+                      "description": "When the schedule stops, RFC 3339 in UTC. Absent for an open-ended schedule.",
+                      "type": "string"
+                    },
+                    "dtstart": {
+                      "description": "The recurrence anchor, RFC 3339 in UTC. RFC 5545 takes from it every field the rule leaves unspecified, so it is part of what the recurrence means.",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "A disabled schedule is kept rather than deleted, so its occurrence history survives. Disabling clears next_run: a schedule that will not run must not advertise a time.",
+                      "type": "boolean"
+                    },
+                    "exclusions": {
+                      "description": "EXRULE recurrences and EXDATE instants subtracted from the rule's occurrences.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "description": "Stable opaque identifier. A UUID, and the value every other endpoint takes.",
+                      "type": "string"
+                    },
+                    "last_fired": {
+                      "description": "The occurrence time of the most recent firing, RFC 3339 in UTC.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "next_run": {
+                      "description": "The next occurrence, RFC 3339 in UTC. Absent when there are no further occurrences.",
+                      "type": "string"
+                    },
+                    "next_run_local": {
+                      "description": "The same instant in the schedule's own zone, which is the reading an operator recognises. Both are returned because either alone is ambiguous to somebody.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary, derived from the template and never submitted.",
+                      "type": "integer"
+                    },
+                    "rrule": {
+                      "description": "The RFC 5545 recurrence, within this scheduler's supported set. FREQ, INTERVAL, COUNT, UNTIL, WKST, BYDAY (with ordinals), BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE and BYSETPOS are accepted; SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND and RDATE are refused.",
+                      "type": "string"
+                    },
+                    "saved_config": {
+                      "description": "The saved launch configuration this runs with, if any.",
+                      "type": "integer"
+                    },
+                    "template": {
+                      "description": "The template this launches.",
+                      "type": "integer"
+                    },
+                    "template_name": {
+                      "description": "That template's name, carried so a list does not render a bare foreign key.",
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "description": "An IANA zone name. Carried beside the rule rather than inside it, because it is what decides the rule's meaning: a daily rule preserves its wall-clock hour across a daylight saving transition, so two consecutive runs can be 23 or 25 hours apart.",
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The schedule."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No schedule with that id in this organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:read"
+            ]
+          }
+        ],
+        "summary": "Get one schedule",
+        "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Replaces the supplied fields and recomputes the next run. next_run is always recomputed and never accepted from the caller: every field an edit can touch changes what it should be, so a stale form post could otherwise pin a schedule to a time its own rule no longer produces.",
+        "operationId": "update_schedule",
+        "parameters": [
+          {
+            "description": "The schedule's opaque id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "What this schedule is for.",
+                    "type": "string"
+                  },
+                  "dtend": {
+                    "description": "RFC 3339. Omit for an open-ended schedule.",
+                    "type": "string"
+                  },
+                  "dtstart": {
+                    "description": "RFC 3339. The recurrence anchor.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Defaults to true on create.",
+                    "type": "boolean"
+                  },
+                  "exclusions": {
+                    "description": "EXRULE recurrences and EXDATE instants. An unprefixed line is read as an EXRULE, which is the shape a rule copied out of AWX has.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "description": "Unique within the organization the template belongs to.",
+                    "type": "string"
+                  },
+                  "rrule": {
+                    "description": "The RFC 5545 recurrence. Validated at save time, never at run time.",
+                    "type": "string"
+                  },
+                  "saved_config": {
+                    "description": "A saved launch configuration belonging to that same template.",
+                    "type": "integer"
+                  },
+                  "template": {
+                    "description": "The template to launch. Its organization becomes the schedule's.",
+                    "type": "integer"
+                  },
+                  "timezone": {
+                    "description": "An IANA zone name. Defaults to UTC. Must be one GET /zoneinfo lists.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "template",
+                  "rrule",
+                  "dtstart"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "created_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "What this schedule is for.",
+                      "type": "string"
+                    },
+                    "dtend": {
+                      "description": "When the schedule stops, RFC 3339 in UTC. Absent for an open-ended schedule.",
+                      "type": "string"
+                    },
+                    "dtstart": {
+                      "description": "The recurrence anchor, RFC 3339 in UTC. RFC 5545 takes from it every field the rule leaves unspecified, so it is part of what the recurrence means.",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "A disabled schedule is kept rather than deleted, so its occurrence history survives. Disabling clears next_run: a schedule that will not run must not advertise a time.",
+                      "type": "boolean"
+                    },
+                    "exclusions": {
+                      "description": "EXRULE recurrences and EXDATE instants subtracted from the rule's occurrences.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "description": "Stable opaque identifier. A UUID, and the value every other endpoint takes.",
+                      "type": "string"
+                    },
+                    "last_fired": {
+                      "description": "The occurrence time of the most recent firing, RFC 3339 in UTC.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "next_run": {
+                      "description": "The next occurrence, RFC 3339 in UTC. Absent when there are no further occurrences.",
+                      "type": "string"
+                    },
+                    "next_run_local": {
+                      "description": "The same instant in the schedule's own zone, which is the reading an operator recognises. Both are returned because either alone is ambiguous to somebody.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary, derived from the template and never submitted.",
+                      "type": "integer"
+                    },
+                    "rrule": {
+                      "description": "The RFC 5545 recurrence, within this scheduler's supported set. FREQ, INTERVAL, COUNT, UNTIL, WKST, BYDAY (with ordinals), BYMONTHDAY, BYMONTH, BYHOUR, BYMINUTE and BYSETPOS are accepted; SECONDLY, BYWEEKNO, BYYEARDAY, BYSECOND and RDATE are refused.",
+                      "type": "string"
+                    },
+                    "saved_config": {
+                      "description": "The saved launch configuration this runs with, if any.",
+                      "type": "integer"
+                    },
+                    "template": {
+                      "description": "The template this launches.",
+                      "type": "integer"
+                    },
+                    "template_name": {
+                      "description": "That template's name, carried so a list does not render a bare foreign key.",
+                      "type": "string"
+                    },
+                    "timezone": {
+                      "description": "An IANA zone name. Carried beside the rule rather than inside it, because it is what decides the rule's meaning: a daily rule preserves its wall-clock hour across a daylight saving transition, so two consecutive runs can be 23 or 25 hours apart.",
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "description": "RFC 3339.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated schedule."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed or the recurrence is not valid."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No schedule with that id in this organization."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Another schedule in this organization already has that name."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:write"
+            ]
+          }
+        ],
+        "summary": "Update a schedule",
+        "x-link-relation": "update"
+      }
+    },
+    "/schedules/{id}/occurrences": {
+      "get": {
+        "description": "Returns what this schedule has and has not run, most recent first. An occurrence that did not run is a row rather than a gap, which is what makes the history auditable: a missing row and a row reading skipped/missed_window are the same absence of a job and completely different answers.",
+        "operationId": "list_schedule_occurrences",
+        "parameters": [
+          {
+            "description": "The schedule's opaque id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum occurrences to return. Defaults to 50, capped at 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "occurrences": {
+                      "items": {
+                        "properties": {
+                          "job": {
+                            "description": "The job this occurrence launched, for a fired one.",
+                            "type": "string"
+                          },
+                          "occurrence_at": {
+                            "description": "The recurrence instant this row is about, RFC 3339 in UTC. Not the moment the row was written: after an outage the two differ by the length of the outage.",
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "description": "fired, skipped, or claimed. A row left at claimed means a controller won the right to run this occurrence and stopped before recording what happened; it is shown rather than hidden because only an operator can decide whether to re-run it.",
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Why a skipped occurrence did not run: missed_window, missed_window_truncated, or launch_failed.",
+                            "type": "string"
+                          },
+                          "suppressed_count": {
+                            "description": "How many further occurrences a truncated row stands for. Non-zero only when a backlog was too large to record one row each.",
+                            "type": "integer"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A page of occurrences."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No schedule with that id in this organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:read"
+            ]
+          }
+        ],
+        "summary": "List a schedule's occurrences",
+        "x-link-relation": "collection"
+      }
+    },
     "/teams": {
       "get": {
         "description": "Returns teams, keyset-paged. Each is a group of users, and the only thing a role is ever granted to.",
@@ -9820,6 +10924,66 @@
         ],
         "summary": "Update a user",
         "x-link-relation": "update"
+      }
+    },
+    "/zoneinfo": {
+      "get": {
+        "description": "Returns every IANA zone a schedule may name, plus a short list of common ones to offer first. The list is generated from the same archive this binary embeds, so a zone it offers is a zone that will load -- a picker that could offer a zone the server then refuses is worse than no picker.",
+        "operationId": "list_zoneinfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "common": {
+                      "description": "A short list to offer above the full one.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "zones": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The zones."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "schedule:read"
+            ]
+          }
+        ],
+        "summary": "List time zones",
+        "x-link-relation": "collection"
       }
     }
   },

@@ -764,3 +764,75 @@ func (d *Dispatcher) publishRequested(ctx context.Context, actor, jobID string, 
 
 	return nil
 }
+
+// LaunchScheduled launches templateID on behalf of a schedule, optionally
+// reusing a saved launch configuration, and returns the new job's id.
+//
+// It satisfies schedule.Launcher, which is how internal/schedule reaches
+// the dispatch plane without importing internal/api: the scheduler declares
+// the one-method port it needs and this is the adapter. A scheduled run
+// therefore goes through the identical path a person clicking Launch goes
+// through -- template resolution, credential binding, job creation,
+// JetStream publication, the activity stream -- rather than a parallel one
+// that could drift.
+//
+// It is a sibling of Relaunch rather than a wrapper over it, because the
+// two answer different questions: Relaunch asks "run what that job ran",
+// which starts from a Job, and this asks "run what this schedule says",
+// which starts from a Template. They share the refusal below for the same
+// reason, and reach LaunchTemplate by the same call.
+//
+// actor is supplied by the caller rather than derived here, and is
+// schedule.ScheduleActor's "scheduler:<id>" string. That is deliberate and
+// is what internal/access's audited store asks for: it refuses an
+// unattributed write outright, and its doc comment prescribes exactly this
+// shape for an unattended run -- a constant actor supplied visibly at the
+// composition root, naming which schedule so a reader can get from an
+// unexpected job back to its cause.
+func (d *Dispatcher) LaunchScheduled(ctx context.Context, actor string, templateID, savedConfigID int) (string, error) {
+	if d.templates == nil {
+		return "", fmt.Errorf("launching by template is not wired on this controller")
+	}
+
+	tmpl, err := d.templates.Get(ctx, templateID)
+	if err != nil {
+		return "", fmt.Errorf("resolve template %d: %w", templateID, err)
+	}
+
+	// A credential whose type prompts for an input at launch cannot be run
+	// on a schedule, the same refusal Relaunch makes and for a stronger
+	// version of the same reason: a prompted input is never stored, so
+	// there is nobody to ask and nothing to replay. Refusing here, at save
+	// time's mirror, is what stops a schedule that could only ever fail.
+	if err := d.refuseUnrepeatableCredentials(ctx, tmpl); err != nil {
+		return "", err
+	}
+
+	var cfg launch.Config
+	if savedConfigID != 0 {
+		stored, err := d.savedConfigFor(ctx, templateID, savedConfigID)
+		if err != nil {
+			return "", err
+		}
+
+		// A stored survey password is not replayed, which is the same
+		// refusal configFor makes for a relaunch and which matters MORE
+		// here, not less. There the value would be reused once, by a
+		// person who chose to press the button; here it would be reused
+		// unattended, on every occurrence, indefinitely, under no
+		// individual's decision at all.
+		for _, name := range tmpl.Survey.SecretVariables() {
+			if _, answered := stored.Answers[name]; answered {
+				return "", fmt.Errorf(
+					"%w: its saved configuration answers %q, which this platform will not replay on a schedule",
+					ErrNotRelaunchable, name)
+			}
+		}
+		cfg = stored.Config()
+	}
+
+	// No prompted credential inputs, and there cannot be any: every
+	// credential that would need one was refused above.
+	jobID, _, err := d.LaunchTemplate(ctx, actor, templateID, cfg, nil)
+	return jobID, err
+}

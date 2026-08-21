@@ -201,6 +201,30 @@ func (f SavedLaunchConfigFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SavedLaunchConfigMutation", m)
 }
 
+// The ScheduleFunc type is an adapter to allow the use of ordinary
+// function as Schedule mutator.
+type ScheduleFunc func(context.Context, *ent.ScheduleMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ScheduleFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ScheduleMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ScheduleMutation", m)
+}
+
+// The ScheduleOccurrenceFunc type is an adapter to allow the use of ordinary
+// function as ScheduleOccurrence mutator.
+type ScheduleOccurrenceFunc func(context.Context, *ent.ScheduleOccurrenceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ScheduleOccurrenceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ScheduleOccurrenceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ScheduleOccurrenceMutation", m)
+}
+
 // The SessionFunc type is an adapter to allow the use of ordinary
 // function as Session mutator.
 type SessionFunc func(context.Context, *ent.SessionMutation) (ent.Value, error)

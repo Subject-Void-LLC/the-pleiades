@@ -3004,3 +3004,48 @@ resolve and invoke the correct concrete method for a device — with a black-box
 address nothing answers, asserting on the failure having reached the network with the right FQCN
 named in it, the same "assert on the failure mode, not a live host" pattern
 `pkg/winrmexec`'s own tests already use for the identical missing-real-backend constraint.
+
+
+## 151. Generate the oracle from the implementation you must match, rather than hand-writing expectations for it
+
+**Context.** Phase 23 hand-rolled an RFC 5545 recurrence engine rather than
+taking a dependency, following this repository's established preference. The
+release gate is bug-for-bug agreement with AWX across a daylight saving
+boundary. The obvious risk with hand-rolling is not an outright bug -- those
+show up -- but silent divergence on a case nobody thought to write down.
+
+**What happened.** Rather than hand-writing expected occurrence lists, a small
+Python script expanded 36 representative rules with `dateutil.rrule` (the
+library AWX itself schedules on) into a committed JSON golden file, and the Go
+tests assert exact instant equality against it. 34 of the 36 passed on the
+first run. The two failures were both real defects that no hand-written test in
+this codebase would have produced, because both required knowing what dateutil
+does rather than what RFC 5545 says:
+
+1. Sub-daily frequencies took their time of day from DTSTART instead of from
+   the period being walked, so `FREQ=HOURLY` expanded every period to the same
+   instant. A schedule that fires once and then never again, silently.
+2. The expansion ran in the target time zone, so Go's `time.Date` normalisation
+   of a spring-forward gap fed back into the iteration state and an hourly rule
+   crossing the gap collapsed onto one repeated instant. The fix was
+   structural: walk in civil (wall-clock) time and localise only at emission.
+
+A third finding was not a bug but would have been mistaken for one: for a
+wall-clock reading that does not exist, Go's `time.Date` picks the
+post-transition offset while PEP 495's `fold=0` -- which dateutil follows --
+keeps the wall clock and applies the PRE-transition offset. The two produce
+different instants. Nothing in the standard library documentation says this;
+it was established by running both.
+
+**The rule.** When the acceptance criterion is "matches implementation X",
+generate the test oracle from X. Commit the generated artifact so the foreign
+toolchain is never a build or CI dependency, and say so where somebody might
+otherwise wire it in. Hand-written expectations encode what the author believed
+the target does, which is exactly the belief under test.
+
+**The corollary.** This only works if the generated fixtures cover the places
+the two implementations can plausibly disagree, not the happy path. The cases
+that earned their place here were daylight saving transitions in both
+hemispheres, a half-hour-offset zone with no DST at all, leap days, month-end
+rules over short months, ordinal weekdays, BYSETPOS, WKST changing which weeks
+an interval selects, and exclusion rules straddling a transition.

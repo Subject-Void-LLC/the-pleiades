@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -260,6 +261,21 @@ func (_c *OrganizationCreate) AddTemplates(v ...*Template) *OrganizationCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTemplateIDs(ids...)
+}
+
+// AddScheduleIDs adds the "schedules" edge to the Schedule entity by IDs.
+func (_c *OrganizationCreate) AddScheduleIDs(ids ...int) *OrganizationCreate {
+	_c.mutation.AddScheduleIDs(ids...)
+	return _c
+}
+
+// AddSchedules adds the "schedules" edges to the Schedule entity.
+func (_c *OrganizationCreate) AddSchedules(v ...*Schedule) *OrganizationCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddScheduleIDs(ids...)
 }
 
 // AddCredentialTypeIDs adds the "credential_types" edge to the CredentialType entity by IDs.
@@ -525,6 +541,22 @@ func (_c *OrganizationCreate) createSpec() (*Organization, *sqlgraph.CreateSpec)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SchedulesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   organization.SchedulesTable,
+			Columns: []string{organization.SchedulesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(schedule.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

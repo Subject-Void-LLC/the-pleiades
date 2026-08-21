@@ -28,6 +28,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
@@ -93,27 +95,29 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			activityentry.Table:     activityentry.ValidColumn,
-			announcement.Table:      announcement.ValidColumn,
-			contact.Table:           contact.ValidColumn,
-			credential.Table:        credential.ValidColumn,
-			credentialtype.Table:    credentialtype.ValidColumn,
-			device.Table:            device.ValidColumn,
-			fact.Table:              fact.ValidColumn,
-			group.Table:             group.ValidColumn,
-			inventory.Table:         inventory.ValidColumn,
-			job.Table:               job.ValidColumn,
-			jobtask.Table:           jobtask.ValidColumn,
-			localcredential.Table:   localcredential.ValidColumn,
-			organization.Table:      organization.ValidColumn,
-			revision.Table:          revision.ValidColumn,
-			rolebinding.Table:       rolebinding.ValidColumn,
-			savedlaunchconfig.Table: savedlaunchconfig.ValidColumn,
-			session.Table:           session.ValidColumn,
-			surveyquestion.Table:    surveyquestion.ValidColumn,
-			team.Table:              team.ValidColumn,
-			template.Table:          template.ValidColumn,
-			user.Table:              user.ValidColumn,
+			activityentry.Table:      activityentry.ValidColumn,
+			announcement.Table:       announcement.ValidColumn,
+			contact.Table:            contact.ValidColumn,
+			credential.Table:         credential.ValidColumn,
+			credentialtype.Table:     credentialtype.ValidColumn,
+			device.Table:             device.ValidColumn,
+			fact.Table:               fact.ValidColumn,
+			group.Table:              group.ValidColumn,
+			inventory.Table:          inventory.ValidColumn,
+			job.Table:                job.ValidColumn,
+			jobtask.Table:            jobtask.ValidColumn,
+			localcredential.Table:    localcredential.ValidColumn,
+			organization.Table:       organization.ValidColumn,
+			revision.Table:           revision.ValidColumn,
+			rolebinding.Table:        rolebinding.ValidColumn,
+			savedlaunchconfig.Table:  savedlaunchconfig.ValidColumn,
+			schedule.Table:           schedule.ValidColumn,
+			scheduleoccurrence.Table: scheduleoccurrence.ValidColumn,
+			session.Table:            session.ValidColumn,
+			surveyquestion.Table:     surveyquestion.ValidColumn,
+			team.Table:               team.ValidColumn,
+			template.Table:           template.ValidColumn,
+			user.Table:               user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)
