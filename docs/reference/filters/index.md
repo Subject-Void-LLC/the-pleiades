@@ -479,6 +479,20 @@ generates a random version-4 UUID. Unlike every other filters.* function, this o
 - `filters.generateUUIDv4() -> string`
   - `filters.generateUUIDv4() // e.g. "3b12f1df-5232-4804-897e-917bf397618a" (a new random UUID every call)`
 
+### `filters.gzipCompress`
+
+compresses content with gzip, returning the raw compressed bytes.
+
+- `filters.gzipCompress(string) -> bytes`
+  - `filters.gzipCompress("hello") // 29 bytes of gzip-compressed data (RFC 1952); round-trips via filters.gzipDecompress`
+
+### `filters.gzipDecompress`
+
+decompresses gzip-compressed bytes back to the original string content.
+
+- `filters.gzipDecompress(bytes) -> string`
+  - `filters.gzipDecompress(filters.gzipCompress("hello")) // "hello"`
+
 ### `filters.hasMandatoryTags`
 
 returns the subset of requiredKeys that are absent from m, so an empty result means every mandatory key is present.
@@ -712,6 +726,13 @@ converts a JSON document to its equivalent YAML text.
 - `filters.jsonToYAML(string) -> string`
   - `filters.jsonToYAML("{\"a\":1}") // "a: 1\n"`
 
+### `filters.lineEndingConvert`
+
+normalizes every line ending in content to the requested style, lf or crlf.
+
+- `filters.lineEndingConvert(string, string) -> string`
+  - `filters.lineEndingConvert("a\r\nb\nc", "lf") // "a\nb\nc"`
+
 ### `filters.listContains`
 
 reports whether list contains an element equal to value.
@@ -858,6 +879,27 @@ parses a PEM-encoded X.509 certificate into its subject, issuer, validity window
 
 - `filters.parseX509Certificate(string) -> map(string, dyn)`
   - `filters.parseX509Certificate(certPEM) // {"subject": "CN=host.example.com", "issuer": "CN=host.example.com", "not_before": "2024-01-01T00:00:00Z", "not_after": "2034-01-01T00:00:00Z", "serial_number": "...", "dns_names": [...], "ip_addresses": [...]}`
+
+### `filters.pathExtractExtension`
+
+returns path's file extension, the suffix starting at the final dot in its final path-separated element.
+
+- `filters.pathExtractExtension(string) -> string`
+  - `filters.pathExtractExtension("archive.tar.gz") // ".gz"`
+
+### `filters.pathJoin`
+
+joins parts into a single POSIX-style path, cleaning . and .. segments.
+
+- `filters.pathJoin(list(string)) -> string`
+  - `filters.pathJoin(["a", "b", "..", "c"]) // "a/c"`
+
+### `filters.payloadChunker`
+
+splits items into consecutive chunks of at most size elements each.
+
+- `filters.payloadChunker(list(dyn), int) -> list(dyn)`
+  - `filters.payloadChunker([1, 2, 3, 4, 5], 2) // [[1, 2], [3, 4], [5]]`
 
 ### `filters.pemToDER`
 
@@ -1045,12 +1087,26 @@ converts a 9-character symbolic Unix permission string to its 4-digit octal form
 - `filters.symbolicToOctalPerms(string) -> string`
   - `filters.symbolicToOctalPerms("rwxr-xr-x") // "755"`
 
+### `filters.syslogParse`
+
+parses one syslog line, RFC 5424 or legacy RFC 3164, into its component fields.
+
+- `filters.syslogParse(string) -> map(string, dyn)`
+  - `filters.syslogParse("<34>1 2003-10-11T22:14:15Z host su - ID47 - login ok") // {"format": "rfc5424", "facility": 4, "severity": 2, "version": 1, "timestamp": "2003-10-11T22:14:15Z", "hostname": "host", "app_name": "su", "proc_id": "-", "msg_id": "ID47", "structured_data": "-", "message": "login ok"}`
+
 ### `filters.toIPv4MappedIPv6`
 
 converts an IPv4 address to its IPv4-mapped IPv6 form (::ffff:a.b.c.d).
 
 - `filters.toIPv4MappedIPv6(string) -> string`
   - `filters.toIPv4MappedIPv6("10.0.0.5") // "::ffff:10.0.0.5"`
+
+### `filters.trimNormalizeWhitespace`
+
+collapses every run of whitespace in s into a single space and trims the result.
+
+- `filters.trimNormalizeWhitespace(string) -> string`
+  - `filters.trimNormalizeWhitespace("  a   b\tc\n") // "a b c"`
 
 ### `filters.unflatten`
 

@@ -4,229 +4,232 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `9bc2acf`, Phase 56's 15
-security & cryptography filters, committed by the user themselves between sessions (not by the assistant;
-no live go-ahead has been given this session, so this session never ran `git commit`). Everything below is
-implemented, tested, and verified on top of that commit, but uncommitted: no such word has been given yet
-this session.**
+**Branch `feature/Filter-Infrastructure-n-CEL-Wiring`, off `main`. HEAD is `e31dbe2` (the CI
+`LOCALSTACK_AUTH_TOKEN` wiring fix), committed by the user themselves between sessions (not by the
+assistant; no live go-ahead has been given this session, so this session never ran `git commit`).
+Everything below is implemented, tested, and verified on top of that commit, but uncommitted: no such
+word has been given yet this session.**
 
-This session opened with the same two-part request as the last several: whether Phase 56's work had
-surfaced any further forge tuning need, and to move on to Phase 57: Cloud Provider Data Filters.
+This session opened with the same two-part request as the last several: whether Phase 57's work had
+surfaced any further forge tuning need, and to move on to Phase 58: File, Text & Log Filters.
 
 ### What landed
 
-**Forge-tuning decision: no change needed, verified rather than assumed.** Phase 57 needed four argument/
-return shapes no prior phase had used: `map[string]any -> string`, `[]map[string]any -> map[string]any`,
-`map[string]any -> []map[string]any`, and `(int, int) -> string`. All four were run through the real
-`pleiades forge new-filter` CLI before any filter was hand-written. All four generated correct code with no
-tuning needed. The one hiccup along the way was self-inflicted, not a forge defect: an initial test
-invocation passed a redundant `--return string:string` (intending it as a no-op) and got the literal text
-`string` pasted into the generated overload instead of `cel.StringType`, because an explicit `:celType`
-override is used verbatim rather than re-resolved through the well-known-type table. Re-running the same
-shape with the celType suffix simply omitted (the correct, minimal invocation for an already-well-known Go
-type) produced the correct code. `internal/forge/filterscaffold` is untouched this session.
+**Forge-tuning decision: one real, needed addition, verified rather than assumed.** Phase 58 needed
+`GzipCompress(content string) []byte` and `GzipDecompress(data []byte) string` -- CEL bytes, not a CEL
+string, since gzip's compressed output is arbitrary binary data, not necessarily valid UTF-8. `[]byte`/
+`cel.BytesType` was not yet a well-known shape: running both directions through the real
+`pleiades forge new-filter` CLI before writing any code produced unfilled `// TODO` conversion/wrap
+stubs on both sides, exactly the same pre-tuning gap Phases 52 and 54 found for their own new shapes.
+Added `"[]byte": "cel.BytesType"` to `internal/forge/filterscaffold`'s `wellKnownCELTypes` table, plus
+matching cases in `conversionFor`/`wrapperFor`/`exampleArg`, and a new `celToBytes`/`wrapBytes` pair in
+`internal/engine/cel_filters.go` mirroring `celToStringList`/`wrapStringList`'s own shape. Verified
+against the real CLI a second time afterward: both directions now generate complete code with zero
+TODOs. Also verified directly against cel-go's own source (`common/types/provider.go`'s `NativeToValue`
+switch, `bytes.go`'s `Bytes.ConvertToNative`) before relying on either conversion direction, rather than
+assuming a Go `[]byte` round-trips through `types.DefaultTypeAdapter` correctly. Every other function
+this phase needed (`PathJoin` returning `[]string -> string`, `SyslogParse` returning
+`string -> map[string]any`, `PayloadChunker` returning `[]any -> []any` with each element itself a
+`[]any` chunk) reused an already-well-known shape; `PayloadChunker`'s own nested-list case was verified
+directly against a real `cel.Program` (indexing and `.size()` at both list levels) before relying on it,
+since no prior phase had put a `[]any` *inside* a `[]any` before.
 
-**Phase 57: 14 cloud provider data filters**, across two new files:
+**Phase 58: 8 file, text & log filters**, across three files:
 
-- `pkg/filters/cloudid.go` (6 functions): `ParseARN`/`BuildARN` (resource split at its first `/` or `:`,
-  with the raw unsplit `resource` field always retained so `BuildARN` reconstructs byte-exact from
-  `ParseARN`'s own output); `ParseAzureResourceID`/`BuildAzureResourceID` (type/name segment pairs as
-  parallel lists, so a nested child resource like a subnet under a virtual network round-trips too);
-  `ParseGCPSelfLink` (zone/region/global scope); `ParseGCPIAMMember` (the four typed members, the two
-  no-identifier singletons, a `deleted:` prefix and a `?uid=` suffix). The GCP functions are one-way only
-  -- the spec names inverse builders only for ARN and Azure ID, not GCP.
-- `pkg/filters/cloudops.go` (8 functions): `AWSTagListToMap`/`MapToAWSTagList` (sorted-by-key output for
-  determinism, since a Go map has no order of its own); `FormatCurrency`; `CloudInitWrap` (a single
-  base64-Content-Transfer-Encoding MIME part inside a `multipart/mixed` envelope, RFC 2045-wrapped at 76
-  characters -- satisfying "base64" and "MIME" as one coherent design rather than two); `ExtractPaginationToken`
-  (checks `next_token`/`nextPageToken`/`NextToken`/`@odata.nextLink` with `$skiptoken`/`$skip` query
-  extraction/a curated `headers` sub-map, in that priority order); `ResourceTShirtSize`; `NormalizeCloudRegion`;
-  `IAMPolicyMerger` (canonical-JSON structural dedupe of a concatenated `Statement` list, explicitly
-  syntactic not semantic, accepting a single-object `Statement` as well as an array).
+- `pkg/filters/logtext.go` (new, 4 functions): `SyslogParse` (RFC 5424 and legacy RFC 3164, sharing one
+  key set across both formats -- `format`, `facility`, `severity`, `version`, `timestamp`, `hostname`,
+  `app_name`, `proc_id`, `msg_id`, `structured_data`, `message` -- with only the `<PRI>` prefix as a hard
+  parse gate; everything after it degrades field by field rather than failing the whole line, since RFC
+  3164 is a legacy, loosely followed convention in real logs. RFC 5424's own NILVALUE `"-"` is passed
+  through verbatim, never translated to `""`. STRUCTURED-DATA comes back as raw bracketed text, not
+  decoded into SD-PARAM pairs -- the checklist names RFC 5424 parsing, not a second grammar on top of
+  it); `LineEndingConvert` (lf/crlf, case-insensitive style); `TrimNormalizeWhitespace`; `PayloadChunker`
+  (see the forge-tuning note above for its `[]any`-of-`[]any` shape).
+- `pkg/filters/compress.go` (new, 2 functions): `GzipCompress`/`GzipDecompress`, stdlib `compress/gzip`,
+  strictly in-memory (`bytes.Buffer`/`bytes.Reader`, never a temp file). `GzipDecompress` caps its own
+  *output*, not just its input -- see the real finding below.
+- `pkg/filters/path.go` (2 functions appended to the existing file): `PathJoin` (POSIX-style, via stdlib
+  `path.Join` rather than `path/filepath.Join`, so the result cannot vary by the platform pleiades
+  itself was compiled for -- the same reasoning `IsAbsolutePath`'s own doc comment already gives for
+  avoiding `path/filepath.IsAbs`); `PathExtractExtension` (matches stdlib `path.Ext`'s own semantics
+  exactly, including its "a dotfile's whole name is its extension" edge case, deliberately not
+  reinvented as a different convention).
 
-**Two real design decisions made before writing any code, not narrowings found afterward.**
-`FormatCurrency` takes its amount as a decimal **string**, not a `double`: no prior phase has ever declared
-a primary `double`-typed CEL argument (verified by direct audit of the other 125 functions' overloads
-before choosing this), and money specifically must never round-trip through binary float64 -- the string
-contract sidesteps both the novel-shape risk and the precision risk at once, parsed exactly via
-`math/big.Rat`. `ResourceTShirtSize` takes RAM in **MB as an int**, not GB as a `double`, for the identical
-reason. Neither is a scope narrowing against the checklist: the checklist names the functions, not their
-argument types, and both choices are documented in the functions' own doc comments.
+**A real Schema/Injection Hardening finding, fixed and recorded, not just checked off.** A first-draft
+`GzipDecompress` bounded its own input (`MaxStructuredInputBytes`, reused rather than a new phase-
+specific bound -- this is document-shaped content, the same reasoning that constant's own doc comment
+already gives) but not its *output*. Gzip allows extreme compression ratios for pathological input, so a
+small, well-within-cap compressed value can still decompress into an unbounded allocation -- a
+decompression bomb. Caught by a deliberate adversarial test
+(`TestGzipDecompress/decompression_bomb_refused`, a real 64 MiB payload compressing to well under the 1
+MiB input cap), fixed with a new `maxGzipDecompressedBytes` (16 MiB) cap enforced via `io.LimitReader`,
+and recorded as `FAILURE_PATTERNS.md` entry 163 before the Schema/Injection Hardening box was checked.
 
-**A real coverage gap closed properly, not floored past.** The initial full run measured `pkg/filters` at
-98.5%, half a point below the 99.1 floor Phase 56 had recorded. Six of the uncovered branches were real,
-reachable code paths simply missing a test case (an explicit-empty `resource_delimiter`, `BuildAzureResourceID`
-given a wrong-shaped `resource_types`, `ParseGCPSelfLink`'s `global` scope with too few segments,
-`groupThousands`' exact-multiple-of-three digit count, `ExtractPaginationToken`'s `$skip` fallback and its
-header-loop `continue`, and `IAMPolicyMerger` given a malformed policy B specifically, plus its own
-depth-cap) -- all six got real new test cases rather than being waved off. What was left after that (three
-functions, each carrying one documented, source-verified-unreachable stdlib-failure guard -- `FormatCurrency`'s
-`big.Rat.SetString` check, `CloudInitWrap`'s shared `mime/multipart` write-error checks, `IAMPolicyMerger`'s
-two `json.Marshal` checks) is the same class of gap Phases 51/52/56 already established a precedent for,
-each with its own comment explaining why it stays despite being unreachable today. Measured 99.0% after the
-real fixes; `coverage-floor.json` recorded a further, smaller downward adjustment (99.1 -> 98.9) with full
-reasoning.
+**Coverage needed no floor adjustment this phase -- a genuine change from every prior phase in this
+Part.** The initial full run measured `pkg/filters` at 98.8%, just under the 98.9% floor Phase 57 had
+recorded. Six real, reachable branches were missing a test case (a short RFC 5424 line missing trailing
+fields, no content after MSGID, a malformed line with no SD marker at all, an RFC 3164 line with no
+`": "` tag/message separator, plus the two SD-scanner branches for an empty tail and a non-bracket,
+non-dash tail) -- all six got real new test cases. What remained after that is exactly one documented,
+source-verified-unreachable guard: `strconv.Atoi` on `rfc5424VersionPattern`'s own capture group
+(`[1-9][0-9]{0,2}`, 1-3 digits, max value 999) can never actually fail. Measured 99.0% after the real
+fixes, comfortably above the existing 98.9% floor -- `coverage-floor.json` was **not** touched.
+`internal/engine` measured 95.5%, also comfortably above its existing 95.2% floor, likewise untouched.
 
 ### Read this first
 
 **No commit without the user's own live word in the current conversation.** Unchanged.
 
 **Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
-Unchanged. Held again this session: every forge check, filter, test, and doc change was written directly.
+Unchanged. Held again this session: every forge check, filter, test, and doc change was written
+directly.
 
-**An explicit `:celType` override to `pleiades forge new-filter` is used verbatim, not re-resolved.**
-This session's own self-caught mistake: passing `--return string:string` for an already-well-known Go type
-does not resolve to `cel.StringType` the way omitting the `:celType` suffix entirely does -- it pastes the
-literal text given, which is only correct when overriding for a genuinely *not*-well-known type. Omit the
-suffix whenever the Go type is already one of `wellKnownCELTypes`' eight entries; only supply an explicit
-`:celType` for something outside that table.
+**A genuinely new CEL shape (`[]byte`) is worth adding to `wellKnownCELTypes` for real, not leaving as a
+per-call `:celType` override.** The same judgment call Phases 52 and 54 made for their own new shapes:
+when a shape recurs (here, twice in one phase -- both Gzip directions), teach the scaffolder the real
+conversion/wrap helpers rather than accepting a hand-written TODO stub every time it comes up again.
 
-**A design decision made before writing code beats a narrowing noticed afterward.** `FormatCurrency` and
-`ResourceTShirtSize` could each have taken a `double` argument (an amount, a RAM size in GB) and matched
-the checklist's wording just as literally. Auditing every existing overload first (no prior phase had ever
-declared a primary `double` parameter) surfaced both the untested-shape risk and, independently, the
-float-precision risk money specifically carries -- reason enough to choose string/int instead, documented
-in the functions' own doc comments rather than left implicit.
+**An engine-side conversion helper claim (`NativeToValue([]byte)` -> `types.Bytes`, not a per-element CEL
+list) is worth a real, scratch-program check against cel-go's own source before the doc comment states
+it as fact.** This session's own version of the discipline entry 162 in `FAILURE_PATTERNS.md` already
+records for a stdlib claim: read `common/types/provider.go`'s `NativeToValue` switch and `bytes.go`'s
+`Bytes.ConvertToNative` directly, then write what was actually verified.
+
+**A cap on a function's input length is not the same control as a cap on its output length**, and a
+decompression function is exactly the shape where the two diverge on purpose (that is the whole point
+of compression). `FAILURE_PATTERNS.md` entry 163 has the full story; the short version is: whenever a
+filter's own job is to expand a value rather than transform it in place, its input-length cap does not
+protect the caller, and a second, output-side cap needs its own separate justification.
 
 **`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run, or unrelated
-packages report false regressions.** This session's own `coverage-check` run without the token exported
-showed `internal/catalog/cloud/aws/ec2`/`s3` "regressing" to ~49%; re-checked and confirmed by direct
-source read (`ec2_test.go`/`s3_test.go` both `t.Skip` without the token) to be a pre-existing,
-environment-only condition, not something this phase's own work touched or caused. Neither package appears
-in this session's diff.
+packages report false regressions; it must also be a real repository secret in
+`.github/workflows/ci.yml` for CI specifically.** Unchanged from last session's own fix (`e31dbe2`);
+this session's own full local run, with the token exported, showed zero regressions anywhere in the
+repository outside this phase's own two packages, both of which were closed for real (see above).
 
-**The `examples/webserver_lab` `plain` SSH-container RULE 0 pattern reused cleanly a sixth time.**
+**The `examples/webserver_lab` `plain` SSH-container RULE 0 pattern reused cleanly a seventh time.**
 
 ### The remainder, in order
 
-Phase 57 is done. Every phase in Part XII from here still depends only on Phase 50's `filtersLib()`
-aggregation point:
-
-1. **Phase 58: File, Text & Log Filters.** Explicitly excludes a text-diff generator; that is a separate
-   future decision, not this phase's tail end. `PathJoin` is named as the one function in this entire Part
-   that legitimately produces a filesystem-path-shaped string -- its own Schema/Injection Hardening item
-   requires confirming directly that it (and nothing else in the Part) ever reaches a real filesystem call.
-
-Skim each phase's own header before starting it rather than assuming a one-line summary is the whole scope
--- and check whether the forge needs tuning for the new phase's own argument/return shapes before assuming
-"probably fine" a second time in a row (this session's own check surfaced a real self-inflicted invocation
-mistake, not a forge defect, but only because the check was actually run).
+Phase 58 is done. This closes out Part XII (PLAN.md Section 36, the Filter Library) -- every phase from
+50 through 58 is now built, tested, wired, and documented. Part XIII (PLAN.md Section 36's own next
+section, the Chart Collection, Phases 59 through however many chart-type phases it names) is the next
+work in this roadmap, but was not requested this session and has not been started. Skim its own intro
+(the ECharts dependency decision, the `pkg/charts` + `pleiades chart` CLI shape, the "generated Collection
+stub stays honestly inert until Phase 16's dispatcher reaches it" caveat) before assuming a one-line
+summary is the whole scope, the same discipline every phase in this Part has needed.
 
 ### Verification state
 
 `go build ./...`, `go vet ./...`, `make fmt` all pass with no output. `make gosec`: 9 pre-existing
-individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this module's own code or
-imported packages (3 unrelated vulnerabilities in required-but-unused modules, unaffected). `go test
+individually-waived findings, zero new. `make govulncheck`: 0 vulnerabilities in this module's own code
+or imported packages (3 unrelated vulnerabilities in required-but-unused modules, unaffected). `go test
 ./internal/archtest/...` passes clean. `go run ./tools/gendocs` is idempotent; `go run ./tools/docs-lint`
 passes clean (187 files scanned).
 
-RULE 0: built the real `pleiades` binary fresh, brought up `examples/webserver_lab`'s `plain` SSH container
-for real, ran `pleiades init`/`add-host`/`add-credential` into a scratch project, wrote a runbook with one
-task gated on a three-filter combined `when_cel` condition (`parseARN`, `normalizeCloudRegion`,
-`resourceTShirtSize`) and a second gated on a deliberately wrong tag value; `pleiades validate` passed
-clean, `pleiades run` executed the real task over real SSH ("changed") and skipped the second with the
-real expression named in the skip reason. Container torn down afterward; the example's own committed files
-were never touched.
+RULE 0: built the real `pleiades` binary fresh, brought up `examples/webserver_lab`'s `plain` SSH
+container for real, ran `pleiades init`/`add-host`/`add-credential` into a scratch project, wrote a
+runbook with one task gated on a six-filter combined `when_cel` condition (`syslogParse`,
+`pathExtractExtension`, `pathJoin`, a `gzipCompress`/`gzipDecompress` round trip, `trimNormalizeWhitespace`,
+`payloadChunker`) and a second gated on a deliberately wrong `lineEndingConvert` comparison;
+`pleiades validate` passed clean, `pleiades run` executed the real task over real SSH ("changed") and
+skipped the second with the real expression named in the skip reason. Container torn down afterward; the
+example's own committed files were never touched (confirmed via `git status --porcelain`). One real
+mistake caught and fixed along the way: the scratch inventory's first attempt used `ssh_host`/`ssh_port`
+property keys, which `internal/inventory/devices/linux/server.go` does not read (it reads `host`/`port`);
+the run failed dialing `:22` on an empty host, corrected by rebuilding the scratch inventory with the
+right keys before re-running.
 
-**Full-repo `go test -race ./...` ran to completion with zero failures (128 packages, confirmed by reading
-the log directly rather than trusting a piped exit code).**
+**Full-repo `go test -race ./...` ran to completion with zero failures (128 packages, confirmed by
+reading the log directly rather than trusting a piped exit code).**
 
-`go run ./tools/coverage-check`, run with `LOCALSTACK_AUTH_TOKEN` exported: this phase's own two packages
-(`pkg/filters`, `internal/engine`) both pass. The run's only two remaining regressions
-(`internal/catalog/cloud/aws/ec2`/`s3`) are pre-existing and unrelated to this phase -- see "Read this
-first" above. Two `coverage-floor.json` changes, each recorded with a written reason in the file's own
-`_comment`: `pkg/filters` **recorded downward adjustment** from 99.1 to 98.9 (measured 99.0); `internal/engine`
-**raised** from 95.0 to 95.2 (measured 95.4; every one of this phase's 14 new bindings reached 100%, since,
-like Phases 55 and 56, no Phase 57 parameter is `any`-typed).
+`go run ./tools/coverage-check`, run with `LOCALSTACK_AUTH_TOKEN` exported: **175 packages measured, zero
+below their recorded floor** -- this phase's own two packages (`pkg/filters` at 99.0% against a 98.9%
+floor, `internal/engine` at 95.5% against a 95.2% floor) both cleared their existing floors with real
+margin, so `coverage-floor.json` needed no edit at all this phase, unlike every phase before it in this
+Part.
 
 ### Commit message
 
-Drafted, not run; nothing beyond `9bc2acf` is committed.
+Drafted, not run; nothing beyond `e31dbe2` is committed.
 
 ```
-feat(engine,filters): Phase 57's 14 cloud provider data filters
+feat(engine,filters): Phase 58's forge tuning and 8 file, text & log filters
 
 Two deliverables, per this session's own opening request: decide
-whether Phase 56's work left anything further to do before Phase 57,
-then build Phase 57 (PLAN.md Section 36's Part XII, Cloud Provider
-Data Filters) end to end.
+whether Phase 57's work left anything further to do before Phase 58,
+then build Phase 58 (PLAN.md Section 36's Part XII, File, Text & Log
+Filters) end to end. This closes out Part XII: every phase from 50
+through 58 is now built, tested, wired, and documented.
 
-Forge check: four genuinely new argument/return shapes this phase
-needed (map[string]any->string, []map[string]any->map[string]any,
-map[string]any->[]map[string]any, (int,int)->string) were run
-through the real pleiades forge new-filter CLI before any filter was
-hand-written. All four generated correct code with no tuning
-needed; the one hiccup was a self-inflicted test-invocation mistake
-(a redundant --return string:string instead of the bare well-known
---return string), not a forge defect. internal/forge/filterscaffold
-is untouched.
+Forge check: GzipCompress/GzipDecompress needed CEL bytes (gzip's
+compressed output is not necessarily valid UTF-8, so a CEL string
+would be silently wrong), a shape no prior phase had used. Running
+both directions through the real pleiades forge new-filter CLI before
+writing any code produced unfilled TODO conversion/wrap stubs on both
+sides. Added "[]byte" -> cel.BytesType to
+internal/forge/filterscaffold's wellKnownCELTypes table plus matching
+conversionFor/wrapperFor/exampleArg cases, and a new
+celToBytes/wrapBytes pair in internal/engine/cel_filters.go mirroring
+celToStringList/wrapStringList. Re-ran the CLI afterward: both
+directions now generate complete code with zero TODOs. Both
+directions verified against cel-go's own common/types/provider.go and
+bytes.go source before relying on them, not assumed.
 
-The 14 functions, across two new files. pkg/filters/cloudid.go (6):
-ParseARN/BuildARN (resource split at its first "/" or ":", the raw
-unsplit resource field kept so BuildARN reconstructs byte-exact);
-ParseAzureResourceID/BuildAzureResourceID (type/name pairs as
-parallel lists, supporting a nested child resource); ParseGCPSelfLink
-(zone/region/global scope, one-way only per the spec's own naming);
-ParseGCPIAMMember (typed members, singletons, deleted:/?uid=
-handling, one-way only).
+The 8 functions, across three files. pkg/filters/logtext.go (4, new):
+SyslogParse (RFC 5424 and legacy RFC 3164, one shared key set across
+both formats, only the <PRI> prefix as a hard parse gate, everything
+else degrading field by field); LineEndingConvert (lf/crlf);
+TrimNormalizeWhitespace; PayloadChunker (splits a list into
+fixed-size chunks, each chunk itself a nested []any -- verified
+directly against a real cel.Program that nested lists round-trip
+correctly through wrapDynList/celToAny before relying on it, no new
+well-known shape needed).
 
-pkg/filters/cloudops.go (8): AWSTagListToMap/MapToAWSTagList
-(sorted-by-key for determinism); FormatCurrency (amount taken as a
-decimal STRING, not a double -- no prior phase had used a primary
-double-typed CEL argument, and money must never round-trip through
-binary float64; parsed exactly via math/big.Rat); CloudInitWrap (one
-base64 Content-Transfer-Encoding MIME part inside a multipart/mixed
-envelope); ExtractPaginationToken (next_token/nextPageToken/
-NextToken/@odata.nextLink with $skiptoken/$skip extraction/a headers
-sub-map, in priority order); ResourceTShirtSize (RAM taken as MB, an
-int, for the same reason as FormatCurrency); NormalizeCloudRegion;
-IAMPolicyMerger (canonical-JSON structural Statement-list dedupe,
-explicitly syntactic not semantic, single-object or array Statement
-both accepted).
+pkg/filters/compress.go (2, new): GzipCompress/GzipDecompress, stdlib
+compress/gzip, strictly in-memory. A first-draft GzipDecompress capped
+its own input but not its output; gzip's own extreme compression
+ratios mean a small, well-within-cap compressed value can still
+decompress unboundedly (a decompression bomb). Caught by a deliberate
+adversarial test, fixed with a new maxGzipDecompressedBytes (16 MiB)
+output cap via io.LimitReader, recorded as FAILURE_PATTERNS.md entry
+163.
 
-Tests: table-driven per function, including
-TestParseARN_BuildARN_RoundTrip and
-TestParseAzureResourceID_BuildAzureResourceID_RoundTrip, this
-phase's own named Adversarial Pattern Justification requirement.
-Eight Fuzz targets (the three identifier parsers named by the
-checklist, plus BuildARN/ParseGCPIAMMember/FormatCurrency/
-CloudInitWrap/IAMPolicyMerger, matching this Part's "every
-non-trivial parser gets a fuzz target" convention), zero panics
-across tens of thousands of executions each. A benchmark file. Every
-function proven callable through the real, unmodified
-engine.NewCELEvaluator()/Program.Eval via a compiled when_cel
-expression, plus a combined condition against a realistic cloud
-stat payload with a negative control. A whitebox test file
-exercises every new binding's "argument not convertible" defensive
-branch; every one of the 14 reaches 100%, since no Phase 57
-parameter is any-typed.
+pkg/filters/path.go (2, appended to the existing file): PathJoin
+(POSIX-style via stdlib path.Join, not path/filepath.Join, so the
+result cannot vary by build platform); PathExtractExtension (matches
+stdlib path.Ext's own semantics exactly).
 
-The initial coverage run surfaced six real, reachable branches
-missing a test case (not documented-unreachable ones); all six got
-real new test cases rather than a floor adjustment covering for
-them. What remained after that -- three functions each carrying one
-documented, source-verified-unreachable stdlib-failure guard, the
-same class Phases 51/52/56 already established -- is what the
-coverage-floor.json adjustment below actually covers.
+Tests: table-driven per function. Fuzz targets for SyslogParse,
+PathJoin, PathExtractExtension (this phase's own named checklist
+requirement) plus GzipDecompress (parses untrusted binary input,
+matching this Part's "every non-trivial parser gets a fuzz target"
+convention). A benchmark file. Every function proven callable through
+the real, unmodified engine.NewCELEvaluator()/Program.Eval via a
+compiled when_cel expression, plus a combined condition against a
+realistic log-processing stat payload with a negative control. A
+whitebox test file exercises every new binding's "argument not
+convertible" defensive branch, including celToBytes/wrapBytes
+directly.
 
-docs/reference/filters/index.md picked up all 14 new entries with
-zero hand-written doc changes.
+The initial coverage run surfaced six real, reachable branches missing
+a test case; all six got real new test cases. What remained is one
+documented, source-verified-unreachable strconv.Atoi guard. Measured
+99.0% for pkg/filters (98.9% floor) and 95.5% for internal/engine
+(95.2% floor) -- both comfortably above their existing floors, so
+coverage-floor.json needed no edit this phase, a first for this Part.
 
-coverage-floor.json: pkg/filters RECORDED DOWNWARD ADJUSTMENT from
-99.1 to 98.9 (measured 99.0, full reasoning in the file's own
-_comment). internal/engine RAISED from 95.0 to 95.2 (measured 95.4).
+docs/reference/filters/index.md picked up all 8 new entries with zero
+hand-written doc changes.
 
 go test -race ./... ran clean across the whole repository (128
-packages). go run ./tools/coverage-check: this phase's own two
-packages pass; the run's only two remaining regressions
-(internal/catalog/cloud/aws/ec2/s3) are pre-existing,
-LOCALSTACK_AUTH_TOKEN-gated, and unrelated to this phase (confirmed
-by direct source read, neither package touched by this diff). make
-gosec: 9 pre-existing waived findings, zero new. make govulncheck:
-clean. RULE 0: the real pleiades binary, built fresh, ran a scratch
-runbook against a real, running examples/webserver_lab SSH
-container, gating one real exec.command task on a three-filter
-combined when_cel condition (true, ran) and a second on a
-deliberately wrong tag value (skipped, named in the skip reason),
-via real pleiades validate and pleiades run.
+packages). go run ./tools/coverage-check: 175 packages measured, zero
+below their recorded floor. make gosec: 9 pre-existing waived
+findings, zero new. make govulncheck: clean. RULE 0: the real
+pleiades binary, built fresh, ran a scratch runbook against a real,
+running examples/webserver_lab SSH container, gating one real
+exec.command task on a six-filter combined when_cel condition (true,
+ran) and a second on a deliberately wrong lineEndingConvert comparison
+(skipped, named in the skip reason), via real pleiades validate and
+pleiades run.
 ```

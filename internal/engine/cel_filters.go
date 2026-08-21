@@ -1600,6 +1600,102 @@ func (filtersLibrary) CompileOptions() []cel.EnvOption {
 				cel.BinaryBinding(iamPolicyMergerBinding),
 			),
 		),
+		cel.Function("filters.syslogParse",
+			cel.FunctionDocs(
+				"parses one syslog line, RFC 5424 or legacy RFC 3164, into its component fields.",
+			),
+			cel.Overload("filters_syslog_parse_string_map_string_any",
+				[]*cel.Type{cel.StringType}, cel.MapType(cel.StringType, cel.DynType),
+				cel.OverloadExamples(
+					`filters.syslogParse("<34>1 2003-10-11T22:14:15Z host su - ID47 - login ok") // {"format": "rfc5424", "facility": 4, "severity": 2, "version": 1, "timestamp": "2003-10-11T22:14:15Z", "hostname": "host", "app_name": "su", "proc_id": "-", "msg_id": "ID47", "structured_data": "-", "message": "login ok"}`,
+				),
+				cel.UnaryBinding(syslogParseBinding),
+			),
+		),
+		cel.Function("filters.lineEndingConvert",
+			cel.FunctionDocs(
+				"normalizes every line ending in content to the requested style, lf or crlf.",
+			),
+			cel.Overload("filters_line_ending_convert_string_string_string",
+				[]*cel.Type{cel.StringType, cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.lineEndingConvert("a\r\nb\nc", "lf") // "a\nb\nc"`,
+				),
+				cel.BinaryBinding(lineEndingConvertBinding),
+			),
+		),
+		cel.Function("filters.pathJoin",
+			cel.FunctionDocs(
+				"joins parts into a single POSIX-style path, cleaning . and .. segments.",
+			),
+			cel.Overload("filters_path_join_string_string",
+				[]*cel.Type{cel.ListType(cel.StringType)}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.pathJoin(["a", "b", "..", "c"]) // "a/c"`,
+				),
+				cel.UnaryBinding(pathJoinBinding),
+			),
+		),
+		cel.Function("filters.pathExtractExtension",
+			cel.FunctionDocs(
+				"returns path's file extension, the suffix starting at the final dot in its final path-separated element.",
+			),
+			cel.Overload("filters_path_extract_extension_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.pathExtractExtension("archive.tar.gz") // ".gz"`,
+				),
+				cel.UnaryBinding(pathExtractExtensionBinding),
+			),
+		),
+		cel.Function("filters.gzipCompress",
+			cel.FunctionDocs(
+				"compresses content with gzip, returning the raw compressed bytes.",
+			),
+			cel.Overload("filters_gzip_compress_string_byte",
+				[]*cel.Type{cel.StringType}, cel.BytesType,
+				cel.OverloadExamples(
+					`filters.gzipCompress("hello") // 29 bytes of gzip-compressed data (RFC 1952); round-trips via filters.gzipDecompress`,
+				),
+				cel.UnaryBinding(gzipCompressBinding),
+			),
+		),
+		cel.Function("filters.gzipDecompress",
+			cel.FunctionDocs(
+				"decompresses gzip-compressed bytes back to the original string content.",
+			),
+			cel.Overload("filters_gzip_decompress_byte_string",
+				[]*cel.Type{cel.BytesType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.gzipDecompress(filters.gzipCompress("hello")) // "hello"`,
+				),
+				cel.UnaryBinding(gzipDecompressBinding),
+			),
+		),
+		cel.Function("filters.payloadChunker",
+			cel.FunctionDocs(
+				"splits items into consecutive chunks of at most size elements each.",
+			),
+			cel.Overload("filters_payload_chunker_any_int_any",
+				[]*cel.Type{cel.ListType(cel.DynType), cel.IntType}, cel.ListType(cel.DynType),
+				cel.OverloadExamples(
+					`filters.payloadChunker([1, 2, 3, 4, 5], 2) // [[1, 2], [3, 4], [5]]`,
+				),
+				cel.BinaryBinding(payloadChunkerBinding),
+			),
+		),
+		cel.Function("filters.trimNormalizeWhitespace",
+			cel.FunctionDocs(
+				"collapses every run of whitespace in s into a single space and trims the result.",
+			),
+			cel.Overload("filters_trim_normalize_whitespace_string_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.OverloadExamples(
+					`filters.trimNormalizeWhitespace("  a   b\tc\n") // "a b c"`,
+				),
+				cel.UnaryBinding(trimNormalizeWhitespaceBinding),
+			),
+		),
 	}
 }
 
@@ -1703,6 +1799,34 @@ func celToStringList(v ref.Val) ([]string, bool) {
 // adapter.
 func wrapStringList(ss []string) ref.Val {
 	return types.NewStringList(types.DefaultTypeAdapter, ss)
+}
+
+// celToBytes converts a CEL bytes value (declared cel.BytesType on the
+// overloads that use it) to a Go []byte, for Phase 58's GzipDecompress
+// parameter. cel-go's bytes type is distinct from its string type at the
+// type-checker level specifically because a byte string need not be
+// valid UTF-8 -- gzip's own compressed output never is, generally -- so
+// this mirrors celToStringList's ConvertToNative shape rather than
+// celToString's ConvertToType one: a bytes value's native Go
+// representation is []byte directly, with no per-element loop needed.
+func celToBytes(v ref.Val) ([]byte, bool) {
+	converted, err := v.ConvertToNative(reflect.TypeOf([]byte{}))
+	if err != nil {
+		return nil, false
+	}
+	b, ok := converted.([]byte)
+	if !ok {
+		return nil, false
+	}
+	return b, true
+}
+
+// wrapBytes wraps a Go []byte as a CEL bytes value, the return side of
+// celToBytes, for Phase 58's GzipCompress result. types.DefaultTypeAdapter
+// mirrors wrapStringList's own choice: the same adapter every filter
+// overload's activation already uses for its plain Go inputs.
+func wrapBytes(b []byte) ref.Val {
+	return types.DefaultTypeAdapter.NativeToValue(b)
 }
 
 // celToAny recursively converts an arbitrary CEL value to a plain Go
@@ -3200,4 +3324,84 @@ func iamPolicyMergerBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
 		return types.NewErr("filters.iamPolicyMerger: argument policyB is not convertible to string")
 	}
 	return types.String(filters.IAMPolicyMerger(goPolicyA, goPolicyB))
+}
+
+// SyslogParse's CEL binding, registered above.
+func syslogParseBinding(arg0 ref.Val) ref.Val {
+	goLine, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.syslogParse: argument line is not convertible to string")
+	}
+	return wrapMap(filters.SyslogParse(goLine))
+}
+
+// LineEndingConvert's CEL binding, registered above.
+func lineEndingConvertBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goContent, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.lineEndingConvert: argument content is not convertible to string")
+	}
+	goStyle, ok := celToString(arg1)
+	if !ok {
+		return types.NewErr("filters.lineEndingConvert: argument style is not convertible to string")
+	}
+	return types.String(filters.LineEndingConvert(goContent, goStyle))
+}
+
+// PathJoin's CEL binding, registered above.
+func pathJoinBinding(arg0 ref.Val) ref.Val {
+	goParts, ok := celToStringList(arg0)
+	if !ok {
+		return types.NewErr("filters.pathJoin: argument parts is not convertible to []string")
+	}
+	return types.String(filters.PathJoin(goParts))
+}
+
+// PathExtractExtension's CEL binding, registered above.
+func pathExtractExtensionBinding(arg0 ref.Val) ref.Val {
+	goPath, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.pathExtractExtension: argument path is not convertible to string")
+	}
+	return types.String(filters.PathExtractExtension(goPath))
+}
+
+// GzipCompress's CEL binding, registered above.
+func gzipCompressBinding(arg0 ref.Val) ref.Val {
+	goContent, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.gzipCompress: argument content is not convertible to string")
+	}
+	return wrapBytes(filters.GzipCompress(goContent))
+}
+
+// GzipDecompress's CEL binding, registered above.
+func gzipDecompressBinding(arg0 ref.Val) ref.Val {
+	goData, ok := celToBytes(arg0)
+	if !ok {
+		return types.NewErr("filters.gzipDecompress: argument data is not convertible to []byte")
+	}
+	return types.String(filters.GzipDecompress(goData))
+}
+
+// PayloadChunker's CEL binding, registered above.
+func payloadChunkerBinding(arg0 ref.Val, arg1 ref.Val) ref.Val {
+	goItems, ok := celToDynList(arg0)
+	if !ok {
+		return types.NewErr("filters.payloadChunker: argument items is not convertible to []any")
+	}
+	goSize, ok := celToInt(arg1)
+	if !ok {
+		return types.NewErr("filters.payloadChunker: argument size is not convertible to int")
+	}
+	return wrapDynList(filters.PayloadChunker(goItems, goSize))
+}
+
+// TrimNormalizeWhitespace's CEL binding, registered above.
+func trimNormalizeWhitespaceBinding(arg0 ref.Val) ref.Val {
+	goS, ok := celToString(arg0)
+	if !ok {
+		return types.NewErr("filters.trimNormalizeWhitespace: argument s is not convertible to string")
+	}
+	return types.String(filters.TrimNormalizeWhitespace(goS))
 }

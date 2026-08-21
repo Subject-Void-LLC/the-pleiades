@@ -163,6 +163,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 160. A "skip what already exists" flag applied per file resurrected fifteen stub tests underneath real implementations
 161. A scaffolder's placeholder for an unsupported arity emitted a function signature that could not satisfy the type it was meant to produce
 162. A doc comment assumed the stdlib PEM encoder validated its own block type, and it does not
+163. A first-draft `GzipDecompress` had an input cap but no output cap, so a 1 KiB compressed value could allocate 64 MiB
 
 ---
 

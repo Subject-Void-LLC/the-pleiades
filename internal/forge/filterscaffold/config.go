@@ -71,6 +71,19 @@ var goNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 // ref.Val->Go conversion celToMap/celToDynList/celToMapList already build
 // on, just returned unwrapped instead of asserted into a map or slice
 // shape.
+//
+// "[]byte" was added for Phase 58 (PLAN.md Section 36's file/text/log
+// filtering: GzipCompress/GzipDecompress round-trip through stdlib
+// compress/gzip, whose output is arbitrary binary data, not necessarily
+// valid UTF-8 -- cel-go's own StringType requires valid UTF-8, so a Go
+// string return would be silently wrong for compressed output the way no
+// prior phase's return type ever was). It maps to cel.BytesType, cel-go's
+// own byte-string type distinct from StringType at the type-checker
+// level, and reuses internal/engine/cel_filters.go's new celToBytes/
+// wrapBytes pair, mirroring celToStringList/wrapStringList's own
+// ConvertToNative-based shape exactly (a CEL bytes value's native Go
+// representation is []byte, with no recursive element-by-element case to
+// worry about the way celToAny's map/list walk needs).
 var wellKnownCELTypes = map[string]string{
 	"string":           "cel.StringType",
 	"int":              "cel.IntType",
@@ -80,6 +93,7 @@ var wellKnownCELTypes = map[string]string{
 	"map[string]any":   "cel.MapType(cel.StringType, cel.DynType)",
 	"[]any":            "cel.ListType(cel.DynType)",
 	"[]map[string]any": "cel.ListType(cel.MapType(cel.StringType, cel.DynType))",
+	"[]byte":           "cel.BytesType",
 }
 
 // Param is one argument a generated filter function takes, on both the
@@ -257,5 +271,5 @@ func (c Config) PackagePath() string {
 // knownTypeList renders wellKnownCELTypes' keys for an error message,
 // sorted so the message is deterministic across runs.
 func knownTypeList() string {
-	return "string, int, bool, any, []string, map[string]any, []any, []map[string]any"
+	return "string, int, bool, any, []string, map[string]any, []any, []map[string]any, []byte"
 }

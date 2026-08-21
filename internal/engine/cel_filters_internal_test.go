@@ -114,6 +114,23 @@ func TestCelToXHelpers(t *testing.T) {
 	if got, ok := celToMapList(wrapMapList(ml)); !ok || len(got) != 2 {
 		t.Errorf("celToMapList(wrapMapList(%#v)) = %#v, %v; want a round trip", ml, got, ok)
 	}
+
+	// celToBytes/wrapBytes, added for Phase 58's GzipCompress/
+	// GzipDecompress: a scalar has no []byte conversion (the same
+	// ConvertToNative-failure shape celToStringList(types.Int(5)) already
+	// exercises above), and wrapBytes's own result round-trips back
+	// through celToBytes exactly, since cel-go's DefaultTypeAdapter wraps
+	// a Go []byte as a real types.Bytes value rather than a per-element
+	// CEL list of ints (verified directly against
+	// common/types/provider.go's NativeToValue switch before relying on
+	// it in wrapBytes's own doc comment).
+	if _, ok := celToBytes(types.Int(5)); ok {
+		t.Error("celToBytes(int) should fail, has no []byte conversion")
+	}
+	b := []byte("hello")
+	if got, ok := celToBytes(wrapBytes(b)); !ok || string(got) != "hello" {
+		t.Errorf("celToBytes(wrapBytes(%q)) = %q, %v; want a round trip", b, got, ok)
+	}
 }
 
 // TestPhase51Bindings_RejectUnconvertibleArguments directly calls every
@@ -745,6 +762,80 @@ func TestPhase57Bindings_RejectUnconvertibleArguments(t *testing.T) {
 	t.Run("resourceTShirtSize_arg1", func(t *testing.T) {
 		if got := resourceTShirtSizeBinding(types.Int(0), notString); !types.IsError(got) {
 			t.Errorf("resourceTShirtSizeBinding(_, list) = %v, want a types.Err", got)
+		}
+	})
+}
+
+// TestPhase58Bindings_RejectUnconvertibleArguments mirrors
+// TestPhase56Bindings_RejectUnconvertibleArguments/
+// TestPhase57Bindings_RejectUnconvertibleArguments for this phase's own
+// 8 bindings. notBytesOrList is a scalar, the same shape notScalar
+// already exercises, used here to reject celToBytes/celToStringList/
+// celToDynList's own []byte/[]string/[]any conversions (verified
+// directly against cel-go's real ConvertToNative before relying on it:
+// types.Int(5).ConvertToNative(reflect.TypeOf([]byte{})) and its
+// []string equivalent both return a real conversion error, not a
+// silent zero value).
+func TestPhase58Bindings_RejectUnconvertibleArguments(t *testing.T) {
+	notString := types.NewDynamicList(types.DefaultTypeAdapter, []int{1, 2, 3})
+	notScalar := types.Int(5)
+	validStr := types.String("x")
+
+	unaryStringToMap := map[string]func(ref.Val) ref.Val{
+		"syslogParse": syslogParseBinding,
+	}
+	for name, fn := range unaryStringToMap {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	unaryStringToString := map[string]func(ref.Val) ref.Val{
+		"pathExtractExtension":    pathExtractExtensionBinding,
+		"gzipCompress":            gzipCompressBinding,
+		"trimNormalizeWhitespace": trimNormalizeWhitespaceBinding,
+	}
+	for name, fn := range unaryStringToString {
+		t.Run(name, func(t *testing.T) {
+			if got := fn(notString); !types.IsError(got) {
+				t.Errorf("%sBinding(list) = %v, want a types.Err", name, got)
+			}
+		})
+	}
+
+	t.Run("pathJoin", func(t *testing.T) {
+		if got := pathJoinBinding(notScalar); !types.IsError(got) {
+			t.Errorf("pathJoinBinding(scalar) = %v, want a types.Err", got)
+		}
+	})
+
+	t.Run("gzipDecompress", func(t *testing.T) {
+		if got := gzipDecompressBinding(notScalar); !types.IsError(got) {
+			t.Errorf("gzipDecompressBinding(scalar) = %v, want a types.Err", got)
+		}
+	})
+
+	t.Run("lineEndingConvert_arg0", func(t *testing.T) {
+		if got := lineEndingConvertBinding(notString, validStr); !types.IsError(got) {
+			t.Errorf("lineEndingConvertBinding(list, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("lineEndingConvert_arg1", func(t *testing.T) {
+		if got := lineEndingConvertBinding(validStr, notString); !types.IsError(got) {
+			t.Errorf("lineEndingConvertBinding(_, list) = %v, want a types.Err", got)
+		}
+	})
+
+	t.Run("payloadChunker_arg0", func(t *testing.T) {
+		if got := payloadChunkerBinding(notScalar, types.Int(2)); !types.IsError(got) {
+			t.Errorf("payloadChunkerBinding(scalar, _) = %v, want a types.Err", got)
+		}
+	})
+	t.Run("payloadChunker_arg1", func(t *testing.T) {
+		if got := payloadChunkerBinding(notString, notString); !types.IsError(got) {
+			t.Errorf("payloadChunkerBinding(_, list) = %v, want a types.Err", got)
 		}
 	})
 }

@@ -2,6 +2,7 @@ package filters
 
 import (
 	"fmt"
+	stdpath "path"
 	"regexp"
 	"strings"
 )
@@ -194,4 +195,61 @@ func SymbolicToOctalPerms(symbolic string) string {
 		return fmt.Sprintf("%d%d%d", ownerDigit, groupDigit, otherDigit)
 	}
 	return fmt.Sprintf("%d%d%d%d", special, ownerDigit, groupDigit, otherDigit)
+}
+
+// PathJoin joins parts into a single POSIX-style ("/"-separated) path,
+// cleaning any ".", ".." and duplicate separators along the way via the
+// stdlib path package's own Join -- not path/filepath, whose own Join is
+// OS-dependent, the same reasoning IsAbsolutePath's own doc comment
+// gives for avoiding path/filepath.IsAbs: this filter's result must not
+// vary depending on the platform pleiades itself happens to be compiled
+// for. A caller who needs a Windows-style result can follow this with
+// filters.POSIXPathToWindows.
+//
+// This never touches a real filesystem (no os.Open, no resolution
+// against a base directory) -- it is a string join only, the one
+// function in this Part that legitimately produces a filesystem-path-
+// shaped string, per this phase's own Schema/Injection Hardening
+// checklist item. An embedded ".." segment is therefore not a path-
+// traversal risk here; it becomes one only if some other, separate
+// piece of code later passes this function's result to a real
+// filesystem call, which nothing in pkg/filters or
+// internal/engine/cel_filters.go does.
+//
+// Returns "" if any part exceeds MaxInputBytes; an empty parts list
+// returns "" too, matching path.Join's own behavior for zero arguments.
+func PathJoin(parts []string) string {
+	for _, p := range parts {
+		if len(p) > MaxInputBytes {
+			return ""
+		}
+	}
+	return stdpath.Join(parts...)
+}
+
+// PathExtractExtension returns path's file extension: the suffix
+// starting at the final "." in the final path-separated element,
+// exactly matching the stdlib path.Ext's own semantics (empty if there
+// is no such dot). Both "/" and "\" are treated as separators (unlike
+// stdlib path.Ext, which only recognizes "/"): a device fact this
+// filter gates on may report either a POSIX or a Windows path, and a
+// runbook author should not need to know which in advance, the same
+// reasoning IsAbsolutePath already applies to path style.
+//
+// A leading-dot "hidden file" name with no other dot (".bashrc") comes
+// back in full (".bashrc", not ""): path.Ext's own scan finds that
+// leading dot and treats everything from it onward as the extension,
+// since nothing in its grammar special-cases a dot at position zero.
+// This filter intentionally does not diverge from that stdlib behavior
+// (a splitext-style "no extension for a dotfile" rule, as some other
+// languages' standard libraries choose, would be a second, silently
+// different convention layered on top of one that already has a clear,
+// well-tested definition).
+//
+// Returns "" if path exceeds MaxInputBytes.
+func PathExtractExtension(path string) string {
+	if len(path) > MaxInputBytes {
+		return ""
+	}
+	return stdpath.Ext(strings.ReplaceAll(path, `\`, "/"))
 }

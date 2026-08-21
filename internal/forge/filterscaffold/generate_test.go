@@ -207,6 +207,18 @@ func TestGenerate(t *testing.T) {
 			wantSource: "func Pluck(list []map[string]any, key string) []any {",
 		},
 		{
+			name: "well-known []byte param and return need no explicit CELType",
+			cfg: filterscaffold.Config{
+				GoName:   "GzipCompress",
+				CELName:  "gzipCompress",
+				Category: "fileio",
+				Summary:  "compresses content with gzip, returning the raw compressed bytes.",
+				Params:   []filterscaffold.Param{{Name: "content", GoType: "string"}},
+				Return:   filterscaffold.Return{GoType: "[]byte"},
+			},
+			wantSource: "func GzipCompress(content string) []byte {",
+		},
+		{
 			name: "zero-param filter",
 			cfg: filterscaffold.Config{
 				GoName:   "GenerateUUIDv4",
@@ -449,6 +461,23 @@ func TestReminder(t *testing.T) {
 				`goList, ok := celToMapList(arg0)`,
 				`goKey, ok := celToString(arg1)`,
 				`return wrapDynList(filters.Pluck(goList, goKey))`,
+			},
+		},
+		{
+			name: "[]byte param and return use celToBytes/wrapBytes",
+			cfg: filterscaffold.Config{
+				GoName:   "GzipCompress",
+				CELName:  "gzipCompress",
+				Category: "fileio",
+				Summary:  "compresses content with gzip, returning the raw compressed bytes.",
+				Params:   []filterscaffold.Param{{Name: "content", GoType: "string"}},
+				Return:   filterscaffold.Return{GoType: "[]byte"},
+			},
+			want: []string{
+				`[]*cel.Type{cel.StringType}, cel.BytesType,`,
+				`cel.UnaryBinding(gzipCompressBinding)`,
+				`goContent, ok := celToString(arg0)`,
+				`return wrapBytes(filters.GzipCompress(goContent))`,
 			},
 		},
 		{

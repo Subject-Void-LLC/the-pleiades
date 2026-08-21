@@ -290,6 +290,8 @@ func exampleArg(goType string) string {
 		return `["TODO"]`
 	case "[]map[string]any":
 		return `[{"TODO": "TODO"}]`
+	case "[]byte":
+		return `b"TODO"`
 	default:
 		return "/* TODO */"
 	}
@@ -372,9 +374,12 @@ func bindingFunc(goName, celName string, params []resolvedParam, ret resolvedRet
 // internal/engine/cel_filters.go: celToString/celToInt/celToBool
 // (Phase 50/51), celToStringList (Phase 51's Supernet),
 // celToMap/celToDynList/celToMapList (added for Phase 52's structured-
-// data filters), and celToAny (added for Phase 54's dict/list filters,
+// data filters), celToAny (added for Phase 54's dict/list filters,
 // reusing the same recursive conversion celToMap/celToDynList/
-// celToMapList already build on, just returned unwrapped).
+// celToMapList already build on, just returned unwrapped), and
+// celToBytes (added for Phase 58's GzipDecompress, mirroring
+// celToStringList's own ConvertToNative shape for cel.BytesType's native
+// []byte representation).
 func conversionFor(goType string) (string, bool) {
 	switch goType {
 	case "string":
@@ -393,13 +398,16 @@ func conversionFor(goType string) (string, bool) {
 		return "celToDynList", true
 	case "[]map[string]any":
 		return "celToMapList", true
+	case "[]byte":
+		return "celToBytes", true
 	default:
 		return "", false
 	}
 }
 
 // wrapperFor returns the Go -> ref.Val wrapper for a well-known return
-// type.
+// type. wrapBytes was added for Phase 58's GzipCompress, mirroring
+// wrapStringList's own types.DefaultTypeAdapter-backed shape.
 func wrapperFor(goType string) (string, bool) {
 	switch goType {
 	case "string":
@@ -416,6 +424,8 @@ func wrapperFor(goType string) (string, bool) {
 		return "wrapDynList", true
 	case "[]map[string]any":
 		return "wrapMapList", true
+	case "[]byte":
+		return "wrapBytes", true
 	default:
 		return "", false
 	}

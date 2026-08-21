@@ -4880,3 +4880,48 @@ based on how safe-sounding packages usually behave. The finding surfaced only be
 written for the specific case the doc comment claimed was handled; a test suite that only exercises
 the happy path (a well-formed `blockType` like `"CERTIFICATE"`) would have shipped this exact
 PEM-injection vector with a doc comment actively asserting it was closed.
+
+## 163. A first-draft `GzipDecompress` had an input cap but no output cap, so a 1 KiB compressed value could allocate 64 MiB
+
+**Symptom.** Phase 58's `pkg/filters.GzipDecompress(data []byte) string` bounds its own *input*
+(`len(data) > MaxStructuredInputBytes`, 1 MiB) before ever calling `gzip.NewReader`, matching every
+other function in this package's own "bound input length before parsing" invariant
+(`pkg/filters/filters.go`'s package doc). The first draft then decompressed with a bare
+`io.ReadAll(gzipReader)`, trusting that input cap to also bound the *output*. It does not: gzip's own
+format allows extreme compression ratios for pathological input (a long run of one repeated byte
+compresses to a few hundred bytes regardless of how long the run is), so a compressed value
+comfortably under the 1 MiB input cap can still decompress to tens or hundreds of megabytes. This
+phase's own Schema/Injection Hardening checklist item ("bounds input length before parsing... no
+unbounded allocation") was written broadly enough to cover this, and a deliberate test
+(`TestGzipDecompress/decompression_bomb_refused`, constructing a real 64 MiB payload of one repeated
+byte and confirming its compressed form is well under the input cap before asserting it gets refused)
+caught the gap during this phase's own audit pass, not in review of someone else's code.
+
+**Root cause.** `MaxStructuredInputBytes` (and `MaxInputBytes` before it) was designed for exactly
+one shape of risk: a caller-supplied *flat* value whose byte length is invisible to the CEL engine's
+own per-call cost accounting (`pkg/filters/filters.go`'s own justification for why the cap has to
+live in the function, not the engine). Gzip decompression is a second, structurally different risk
+neither cap addresses: the *decoded* size is not proportional to the *encoded* size at all, so
+capping the thing you can see (the compressed bytes) says nothing about the thing you cannot see yet
+(the decompressed bytes) until decompression has already happened.
+
+**Fix.** A new, separate constant, `maxGzipDecompressedBytes = 16 << 20` (16 MiB), wraps the
+`gzip.Reader` in `io.LimitReader(r, maxGzipDecompressedBytes+1)` before `io.ReadAll`, and the result
+is checked against the cap a second time after reading (the `+1` distinguishes "read exactly the cap"
+from "there was more data past it," since `io.ReadAll` against a `LimitReader` cannot itself report
+which case occurred). Exceeding the cap returns `""`, this package's own established sentinel for
+malformed/refused input, rather than a partial, silently truncated string. The value (16 MiB) was
+chosen as generous headroom over any ratio real log or config text achieves against a 1 MiB
+compressed input, while still refusing to allocate without bound for a crafted one; the constant's
+own doc comment records this reasoning and cites this entry.
+
+**Lesson.** An input-length cap and an output-length cap are not the same control, and a function
+whose stated job is decompression is exactly the shape where conflating them is dangerous: the
+premise of the tool is that a small input legitimately produces a large output, which is precisely
+what a decompression-bomb check has to catch without also breaking the legitimate case. This is a
+general instance of PLAN.md Section 36's own decision to give Phase 52's document-shaped filters
+their own separately-justified `MaxStructuredInputBytes` rather than reusing the flat-scalar
+`MaxInputBytes` unchanged: a new function whose risk shape genuinely differs from every existing cap
+needs its own cap, not a reuse-by-default of whichever one is already in scope. The catch came from
+writing an adversarial test for the checklist's own stated concern (unbounded allocation) rather than
+only testing the round-trip happy path, the same lesson entry #162 draws from a different angle.

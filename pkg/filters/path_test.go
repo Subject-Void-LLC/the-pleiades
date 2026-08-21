@@ -139,3 +139,50 @@ func TestPermsRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestPathJoin(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want string
+	}{
+		{"simple", []string{"a", "b", "c"}, "a/b/c"},
+		{"dot_dot_cleaned", []string{"a", "b", "..", "c"}, "a/c"},
+		{"leading_dot_dot_kept", []string{"..", "..", "etc", "passwd"}, "../../etc/passwd"},
+		{"dot_segment_dropped", []string{"a", ".", "b"}, "a/b"},
+		{"absolute_first_part", []string{"/etc", "passwd"}, "/etc/passwd"},
+		{"empty_parts_dropped", []string{"a", "", "b"}, "a/b"},
+		{"single_part", []string{"only"}, "only"},
+		{"no_parts", nil, ""},
+		{"over_cap_part", []string{strings.Repeat("a", filters.MaxInputBytes+1)}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := filters.PathJoin(tc.in); got != tc.want {
+				t.Errorf("PathJoin(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPathExtractExtension(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"simple", "archive.tar.gz", ".gz"},
+		{"single_extension", "report.pdf", ".pdf"},
+		{"no_extension", "README", ""},
+		{"dotfile", ".bashrc", ".bashrc"},
+		{"dot_in_directory_only", "a.b/c", ""},
+		{"posix_path", "/var/log/syslog.1", ".1"},
+		{"windows_path", `C:\Users\a\archive.tar.gz`, ".gz"},
+		{"trailing_dot", "file.", "."},
+		{"empty", "", ""},
+		{"over_cap", strings.Repeat("a", filters.MaxInputBytes+1), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := filters.PathExtractExtension(tc.in); got != tc.want {
+				t.Errorf("PathExtractExtension(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
