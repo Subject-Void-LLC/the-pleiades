@@ -21,6 +21,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schema"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
@@ -457,6 +459,64 @@ func init() {
 	savedlaunchconfig.DefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.Default.(func() time.Time)
 	// savedlaunchconfig.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	savedlaunchconfig.UpdateDefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.UpdateDefault.(func() time.Time)
+	scheduleMixin := schema.Schedule{}.Mixin()
+	scheduleMixinFields0 := scheduleMixin[0].Fields()
+	_ = scheduleMixinFields0
+	scheduleFields := schema.Schedule{}.Fields()
+	_ = scheduleFields
+	// scheduleDescCreatedAt is the schema descriptor for created_at field.
+	scheduleDescCreatedAt := scheduleMixinFields0[0].Descriptor()
+	// schedule.DefaultCreatedAt holds the default value on creation for the created_at field.
+	schedule.DefaultCreatedAt = scheduleDescCreatedAt.Default.(func() time.Time)
+	// scheduleDescUpdatedAt is the schema descriptor for updated_at field.
+	scheduleDescUpdatedAt := scheduleMixinFields0[1].Descriptor()
+	// schedule.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	schedule.DefaultUpdatedAt = scheduleDescUpdatedAt.Default.(func() time.Time)
+	// schedule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	schedule.UpdateDefaultUpdatedAt = scheduleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// scheduleDescScheduleID is the schema descriptor for schedule_id field.
+	scheduleDescScheduleID := scheduleFields[0].Descriptor()
+	// schedule.DefaultScheduleID holds the default value on creation for the schedule_id field.
+	schedule.DefaultScheduleID = scheduleDescScheduleID.Default.(func() string)
+	// schedule.ScheduleIDValidator is a validator for the "schedule_id" field. It is called by the builders before save.
+	schedule.ScheduleIDValidator = scheduleDescScheduleID.Validators[0].(func(string) error)
+	// scheduleDescName is the schema descriptor for name field.
+	scheduleDescName := scheduleFields[1].Descriptor()
+	// schedule.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	schedule.NameValidator = scheduleDescName.Validators[0].(func(string) error)
+	// scheduleDescEnabled is the schema descriptor for enabled field.
+	scheduleDescEnabled := scheduleFields[3].Descriptor()
+	// schedule.DefaultEnabled holds the default value on creation for the enabled field.
+	schedule.DefaultEnabled = scheduleDescEnabled.Default.(bool)
+	// scheduleDescRrule is the schema descriptor for rrule field.
+	scheduleDescRrule := scheduleFields[4].Descriptor()
+	// schedule.RruleValidator is a validator for the "rrule" field. It is called by the builders before save.
+	schedule.RruleValidator = scheduleDescRrule.Validators[0].(func(string) error)
+	// scheduleDescTimezone is the schema descriptor for timezone field.
+	scheduleDescTimezone := scheduleFields[6].Descriptor()
+	// schedule.DefaultTimezone holds the default value on creation for the timezone field.
+	schedule.DefaultTimezone = scheduleDescTimezone.Default.(string)
+	// schedule.TimezoneValidator is a validator for the "timezone" field. It is called by the builders before save.
+	schedule.TimezoneValidator = scheduleDescTimezone.Validators[0].(func(string) error)
+	scheduleoccurrenceMixin := schema.ScheduleOccurrence{}.Mixin()
+	scheduleoccurrenceMixinFields0 := scheduleoccurrenceMixin[0].Fields()
+	_ = scheduleoccurrenceMixinFields0
+	scheduleoccurrenceFields := schema.ScheduleOccurrence{}.Fields()
+	_ = scheduleoccurrenceFields
+	// scheduleoccurrenceDescCreatedAt is the schema descriptor for created_at field.
+	scheduleoccurrenceDescCreatedAt := scheduleoccurrenceMixinFields0[0].Descriptor()
+	// scheduleoccurrence.DefaultCreatedAt holds the default value on creation for the created_at field.
+	scheduleoccurrence.DefaultCreatedAt = scheduleoccurrenceDescCreatedAt.Default.(func() time.Time)
+	// scheduleoccurrenceDescUpdatedAt is the schema descriptor for updated_at field.
+	scheduleoccurrenceDescUpdatedAt := scheduleoccurrenceMixinFields0[1].Descriptor()
+	// scheduleoccurrence.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	scheduleoccurrence.DefaultUpdatedAt = scheduleoccurrenceDescUpdatedAt.Default.(func() time.Time)
+	// scheduleoccurrence.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	scheduleoccurrence.UpdateDefaultUpdatedAt = scheduleoccurrenceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// scheduleoccurrenceDescSuppressedCount is the schema descriptor for suppressed_count field.
+	scheduleoccurrenceDescSuppressedCount := scheduleoccurrenceFields[3].Descriptor()
+	// scheduleoccurrence.DefaultSuppressedCount holds the default value on creation for the suppressed_count field.
+	scheduleoccurrence.DefaultSuppressedCount = scheduleoccurrenceDescSuppressedCount.Default.(int)
 	sessionMixin := schema.Session{}.Mixin()
 	sessionMixinFields0 := sessionMixin[0].Fields()
 	_ = sessionMixinFields0

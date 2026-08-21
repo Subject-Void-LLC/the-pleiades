@@ -164,6 +164,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 161. A scaffolder's placeholder for an unsupported arity emitted a function signature that could not satisfy the type it was meant to produce
 162. A doc comment assumed the stdlib PEM encoder validated its own block type, and it does not
 163. A first-draft `GzipDecompress` had an input cap but no output cap, so a 1 KiB compressed value could allocate 64 MiB
+164. A recurrence walk that ran in the target time zone let DST normalisation feed back into its own iteration state
+165. Go's `time.Date` and PEP 495 `fold=0` resolve a nonexistent wall clock to different instants
+166. A concurrency test passed because most of its workers crashed before reaching the code under test
+167. A view's create form rendered no controls at all because every field omitted `InForm`, and the whole conformance suite still passed
 
 ---
 

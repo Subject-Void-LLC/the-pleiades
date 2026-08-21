@@ -75,11 +75,30 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   the concrete reversing instruction via `sdk.RecordInverse` as an `inverse` stat holding an FQCN
   and resolved params. Nothing performs a rollback yet; the recording exists because only the
   forward run can capture the values an undo needs.
+- **The scheduler is real (Phase 23).** A schedule is an RFC 5545 recurrence attached to a
+  Template, so one mechanism covers every `Launchable` kind. `internal/schedule/rrule` is a
+  hand-rolled, deliberately bounded engine (no new dependency, following `pkg/filters/cron.go`),
+  and its AWX parity is *earned rather than claimed*: `tools/genrrulefixtures` generates golden
+  occurrence vectors from python-dateutil, the library AWX itself schedules on, and Python is
+  never a build or CI dependency. `internal/schedule.Scanner` gates on the
+  `pleiades-scheduler-leader` lease `cmd/controller` had elected and ignored since Phase 4, taking
+  `isLeader func() bool` exactly as `dispatch.Reaper` does, so the package imports neither
+  `internal/election` nor `internal/lock` (asserted by `internal/archtest`). Firing goes through
+  `api.Dispatcher.LaunchScheduled`, the same path a manual launch takes. Four things are worth
+  knowing before describing it: the recurrence grammar is a bounded subset refused at *save* time,
+  not run time; missed runs are **coalesced** to one, with a durable `skipped` row for each that
+  did not happen; a schedule fires once because of a unique index on
+  `(schedule, occurrence_at)` claimed before launching, **not** because of leader election, whose
+  two-second fencing-token-less lease cannot promise it; and a template bound to a prompted
+  credential, or a saved configuration answering a survey password, is refused outright, because
+  neither value is stored and replaying one unattended forever is worse than doing it once.
 - **Plan-time capability checking is a two-entry table** (`internal/engine/action_capability.go`,
   covering only `ssh_exec` and `ios_backup`). `pleiades validate` will pass a runbook whose
   capability mismatch only surfaces at run time.
 - **The web UI (`web/`) is a mockup.** Five of six routes render hardcoded content; the
-  sixth (SSE log viewer) has three defects that stop it reaching a real Controller.
+  sixth (SSE log viewer) has three defects that stop it reaching a real Controller. This is a
+  different thing from `internal/ui`, the server-rendered view registry the Controller actually
+  serves, where most views are real; do not conflate the two when describing UI status.
 
 When touching any of the above, do not describe it as more finished than it is — see
 `docs/01-start-here.md#implementation-status` for the generated, current matrix.
@@ -164,6 +183,18 @@ go generate ./internal/ent
 
 A schema edit without regenerating is a silent no-op that still compiles — the worst
 failure shape available.
+
+Regenerating is only half of it. The runtime applies **versioned migration files**, not
+`Schema.Create`, so a new entity also needs one per dialect or its tables never exist in a real
+deployment (the generated Go client compiles and every unit test using `enttest` passes anyway,
+because `enttest` does run `Schema.Create`):
+
+```bash
+go run internal/ent/migrate/gen/main.go sqlite   <name>
+go run internal/ent/migrate/gen/main.go postgres <name>   # starts an ephemeral container
+```
+
+`internal/ent/migrate/parity_test.go` is what catches a dialect left behind.
 
 ### Catalog code generation
 

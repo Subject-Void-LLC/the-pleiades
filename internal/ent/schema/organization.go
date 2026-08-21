@@ -106,6 +106,13 @@ func (Organization) Edges() []ent.Edge {
 		// the same posture its inventories get.
 		edge.To("templates", Template.Type),
 
+		// The schedules this tenant owns. Not cascaded, same posture as
+		// templates and inventories: deleting an organization that still
+		// schedules work is refused rather than silently stopping that
+		// work, which is a change nobody would see until the run that did
+		// not happen.
+		edge.To("schedules", Schedule.Type),
+
 		// The credential types this tenant defined. A MANAGED type has no
 		// organization at all (the edge is optional on the other side), so
 		// this holds only the custom ones somebody here wrote. Not

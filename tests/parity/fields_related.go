@@ -118,28 +118,30 @@ var CredentialTypeFields = []Field{
 
 // ScheduleFields classifies AWX's schedule.
 //
-// Nothing here exists. The one entry that is not a gap is the interesting
-// one: extra_data is a launch-time override bundle, which is precisely the
-// SavedLaunchConfig this platform already built and currently uses only
-// for relaunch. The entity that would consume it arrives with C2.
+// Every field now exists. The shape differs in one deliberate way and it is
+// worth stating rather than reading as a gap: AWX carries DTSTART and TZID
+// folded inside the rrule string, and this platform stores rrule, timezone
+// and dtstart as three columns. The information is identical; splitting it
+// makes the zone and the anchor queryable and editable without parsing the
+// rule, and makes rrule mean exactly one thing.
 var ScheduleFields = []Field{
 	{Name: "id", Status: Metadata},
 	{Name: "type", Status: Metadata},
 	{Name: "url", Status: Metadata},
 
-	{Name: "name", Status: Gap, Phase: "C2 Schedules"},
-	{Name: "enabled", Status: Gap, Phase: "C2 Schedules", Note: "a disabled schedule is kept rather than deleted, the same distinction Survey.Enabled draws"},
-	{Name: "rrule", Status: Gap, Phase: "C2 Schedules", Note: "RFC5545. The whole feature: parsing, expansion, and a preview endpoint so an author can see the next occurrences before saving."},
-	{Name: "dtstart", Status: Gap, Phase: "C2 Schedules"},
-	{Name: "dtend", Status: Gap, Phase: "C2 Schedules", Note: "null for an open-ended schedule"},
-	{Name: "next_run", Status: Gap, Phase: "C2 Schedules", Note: "computed rather than stored, and the field an operator actually reads"},
+	{Name: "name", Status: Represented, Ours: "schedule.Schedule.Name"},
+	{Name: "enabled", Status: Represented, Ours: "schedule.Schedule.Enabled", Note: "a disabled schedule is kept rather than deleted, the same distinction Survey.Enabled draws. Disabling clears next_run: a schedule that will not run must not advertise a time."},
+	{Name: "rrule", Status: Represented, Ours: "schedule.Schedule.RRule", Note: `RFC5545, parsed and expanded by internal/schedule/rrule against a deliberately bounded constraint set, with a preview endpoint so an author sees the next occurrences before saving. Parity with AWX is earned rather than claimed: the engine is tested against occurrence vectors generated from python-dateutil, the library AWX itself schedules on, across daylight saving transitions in both hemispheres, leap days, ordinal weekdays, BYSETPOS and exclusion rules straddling a transition. EXRULE and EXDATE live in their own exclusions field rather than inside the rule.`},
+	{Name: "dtstart", Status: Represented, Ours: "schedule.Schedule.DTStart", Note: "its own column rather than folded into the rrule, since RFC5545 takes from it every field the rule leaves unspecified"},
+	{Name: "dtend", Status: Represented, Ours: "schedule.Schedule.DTEnd", Note: "nil for an open-ended schedule. Separate from the rule's own UNTIL: that is part of what an author wrote, this is an operator saying stop after then."},
+	{Name: "next_run", Status: Represented, Ours: "schedule.Schedule.NextRun", Note: "AWX computes it per response; here it is a materialised cache, recomputed from the rule on every write and after every fire. A keyset-paginated due scan cannot index a value that exists only in a response body, and the rrule remains the source of truth."},
 	{
-		Name: "timezone", Status: Gap, Phase: "C2 Schedules",
-		Note: `carried beside the rrule rather than inside it. "America/New_York" with a daily rule is exactly the DST case the phase gate is written around: the wall-clock hour is preserved across the transition, so the interval between two runs is not always 24 hours.`,
+		Name: "timezone", Status: Represented, Ours: "schedule.Schedule.Timezone",
+		Note: `carried beside the rrule rather than inside it. "America/New_York" with a daily rule is exactly the DST case the phase gate is written around: the wall-clock hour is preserved across the transition, so the interval between two runs is not always 24 hours. Validated at save time against a generated allowlist built from the same time zone archive the binary embeds, so a zone the picker offers is a zone the server can load.`,
 	},
 	{
 		Name: "extra_data", Status: Convertible, Ours: "launch.SavedConfig.Fields",
-		Conversion: "the same launch-override bundle we already store for relaunch, keyed the same way. An import writes it as a SavedLaunchConfig; only the schedule that points at it is missing.",
+		Conversion: "the same launch-override bundle we already store for relaunch, keyed the same way. An import writes it as a SavedLaunchConfig and the schedule points at it through its own saved_config edge.",
 	},
 }
 

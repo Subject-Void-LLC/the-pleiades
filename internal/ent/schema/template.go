@@ -168,6 +168,18 @@ func (Template) Edges() []ent.Edge {
 		// only when a template binds none. That keeps every Walk-tier
 		// dispatch and every pre-existing Crawl dispatch working unchanged.
 		edge.To("credentials", Credential.Type),
+
+		// The schedules that launch this template.
+		//
+		// Deliberately NOT cascaded, unlike survey_questions and
+		// saved_configs above, and the difference is the point: those two
+		// are parts of the template and meaningless without it, whereas a
+		// schedule is an independent object an operator created and can
+		// see in its own list. Deleting a template out from under a
+		// schedule should be refused, not silently take the schedule with
+		// it -- the deletion is the moment to tell somebody that automation
+		// they rely on is about to stop.
+		edge.To("schedules", Schedule.Type),
 	}
 }
 

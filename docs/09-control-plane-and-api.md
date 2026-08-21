@@ -118,9 +118,131 @@ Every list route is keyset paged, never offset. An offset over a table being wri
 to skips and repeats rows, which on an inventory list means a device silently missing
 from one page while another is shown twice. Pass the previous page's cursor back as
 `?after=`: a job id for the job list, since job ids are UUIDv7 and therefore
-time-ordered, and the last numeric id for everything keyed on one. The page size is
+time-ordered, a schedule id for the schedule list, for the same reason, and the last
+numeric id for everything keyed on one. The page size is
 the server's to cap, so `?limit=100000` is not a supported way to ask it to hold an
 entire fleet in memory.
+
+## Schedules
+
+A schedule is an RFC 5545 recurrence attached to a template: when automation runs
+without somebody pressing launch. The full request and response shapes are in the
+generated document; what follows is the part that is not obvious from a schema.
+
+### The object is deliberately not one `rrule` string
+
+AWX folds `DTSTART` and `TZID` into the rule. Here they are three separate fields:
+
+| Field | Why it is its own field |
+|---|---|
+| `rrule` | The recurrence, and nothing else. |
+| `timezone` | An IANA name. It decides what the rule *means*, so it must be readable and queryable without parsing the rule. |
+| `dtstart` | The anchor, RFC 3339. RFC 5545 takes from it every field the rule leaves unspecified, including the time of day, so it is part of the recurrence rather than a creation timestamp. |
+
+`exclusions` is a list of `EXRULE` recurrences and `EXDATE` instants subtracted from
+the rule. `dtend` bounds the schedule from outside the rule — an operator saying "stop
+after then" without editing what an author wrote.
+
+### The grammar is a bounded subset, refused at the write
+
+Accepted: `FREQ` (`MINUTELY` through `YEARLY`), `INTERVAL`, `COUNT`, `UNTIL`, `WKST`,
+`BYDAY` (including ordinals such as `-1FR`), `BYMONTHDAY`, `BYMONTH`, `BYHOUR`,
+`BYMINUTE`, `BYSETPOS`.
+
+Refused with a `400`: `SECONDLY`, `BYWEEKNO`, `BYYEARDAY`, `BYSECOND`, `RDATE`,
+`INTERVAL=0`, a `COUNT` above the server's cap, and any rule that names a date which
+never occurs (`FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30` parses cleanly and would otherwise
+become a schedule that silently never fires).
+
+The refusal happens when the schedule is saved, never when it runs. A recurrence is
+operator-supplied input that the scheduler later expands inside its own loop, so an
+unbounded rule reaching that loop is not one broken schedule but a stall affecting
+every schedule in the deployment.
+
+The error names the field at fault (`rrule`, `exclusions`, `timezone`, `dtstart`,
+`dtend`), so a form can attach it to the control it came from.
+
+### Preview and zoneinfo
+
+`POST /schedules/preview` expands a recurrence without storing anything and returns
+occurrences in **both** the named zone and UTC:
+
+```json
+{
+  "timezone": "America/New_York",
+  "occurrences": [
+    {"local": "2024-03-08T09:00:00-05:00", "utc": "2024-03-08T14:00:00Z"},
+    {"local": "2024-03-11T09:00:00-04:00", "utc": "2024-03-11T13:00:00Z"}
+  ]
+}
+```
+
+Both readings are returned because either alone hides the case worth checking. Across
+a daylight saving transition a daily rule keeps its local hour and its UTC hour moves,
+so the interval between two runs is 23 or 25 hours rather than 24. It is a `POST`
+because a rule, its exclusions and its anchor do not fit unambiguously in a query
+string; it writes nothing and requires only `schedule:read`.
+
+`GET /zoneinfo` lists every zone a schedule may name, plus a shorter `common` list to
+offer first. The list is generated from the same time zone archive the binary embeds,
+so a zone it offers is a zone the server can load.
+
+### Occurrences: what ran, and what did not
+
+`GET /schedules/{id}/occurrences` returns one row per occurrence, most recent first,
+with an `outcome`:
+
+| `outcome` | Meaning |
+|---|---|
+| `fired` | A job was created and published. `job` names it. |
+| `skipped` | It did not run. `reason` says why: `missed_window`, `missed_window_truncated`, or `launch_failed`. |
+| `claimed` | A controller won the right to run this occurrence and stopped before recording what happened. |
+
+An occurrence that did not run is a **row**, not a gap. A missing row and a row reading
+`skipped`/`missed_window` describe the same absence of a job and are completely
+different answers, and only the second is auditable.
+
+A `claimed` row is shown rather than hidden because only a person can safely resolve
+it: re-running risks doing the work twice, abandoning it risks not doing it at all.
+
+### Missed runs are coalesced
+
+If occurrences pass while no controller is running, exactly one run happens on
+recovery — the most recent missed occurrence — and every earlier one is recorded as
+`skipped`/`missed_window`. An hourly job that missed four hours launches once, not
+four times.
+
+A backlog larger than the server's cap collapses into one row with
+`missed_window_truncated` and a `suppressed_count`, rather than writing half a million
+rows and turning a recovery into an outage of its own. The count is there so the
+truncation is visible: a silent cap would make an incomplete history look complete.
+
+### Firing exactly once
+
+Exactly one controller replica evaluates due schedules at a time, elected through the
+same leader-election primitive the rest of the control plane uses. That bounds query
+load; it is **not** what makes a schedule fire once. The lease is short and carries no
+fencing token, so during a failover two replicas can briefly both believe they lead.
+
+What guarantees single firing is a unique database index on the pair
+(schedule, occurrence time). The occurrence is claimed by an insert *before* anything
+is launched, so a second claimant loses on a constraint rather than on timing.
+
+### Deleting a template a schedule uses
+
+`DELETE /templates/{id}` answers `409` while any schedule still launches it, naming the
+reason. A schedule is not a part of a template the way its survey is: it is an
+independent object somebody created and can see in its own list, so removing the
+template underneath one would silently stop automation that is relied on. Delete or
+disable the schedule first, or disable the schedule and keep its history.
+
+### What cannot be scheduled
+
+A template bound to a credential whose type prompts for an input at launch is refused,
+and so is a saved configuration answering a survey password. Neither value is ever
+stored, so there is nothing to replay — and replaying a secret unattended, on every
+occurrence, under nobody's decision, is a larger version of the concern that already
+stops a relaunch from doing it once.
 
 ## The SSE job log stream
 

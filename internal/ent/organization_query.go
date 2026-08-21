@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
@@ -35,6 +36,7 @@ type OrganizationQuery struct {
 	withTeams           *TeamQuery
 	withInventories     *InventoryQuery
 	withTemplates       *TemplateQuery
+	withSchedules       *ScheduleQuery
 	withCredentialTypes *CredentialTypeQuery
 	withCredentials     *CredentialQuery
 	withAnnouncements   *AnnouncementQuery
@@ -156,6 +158,28 @@ func (_q *OrganizationQuery) QueryTemplates() *TemplateQuery {
 			sqlgraph.From(organization.Table, organization.FieldID, selector),
 			sqlgraph.To(template.Table, template.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, organization.TemplatesTable, organization.TemplatesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySchedules chains the current query on the "schedules" edge.
+func (_q *OrganizationQuery) QuerySchedules() *ScheduleQuery {
+	query := (&ScheduleClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.SchedulesTable, organization.SchedulesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -447,6 +471,7 @@ func (_q *OrganizationQuery) Clone() *OrganizationQuery {
 		withTeams:           _q.withTeams.Clone(),
 		withInventories:     _q.withInventories.Clone(),
 		withTemplates:       _q.withTemplates.Clone(),
+		withSchedules:       _q.withSchedules.Clone(),
 		withCredentialTypes: _q.withCredentialTypes.Clone(),
 		withCredentials:     _q.withCredentials.Clone(),
 		withAnnouncements:   _q.withAnnouncements.Clone(),
@@ -498,6 +523,17 @@ func (_q *OrganizationQuery) WithTemplates(opts ...func(*TemplateQuery)) *Organi
 		opt(query)
 	}
 	_q.withTemplates = query
+	return _q
+}
+
+// WithSchedules tells the query-builder to eager-load the nodes that are connected to
+// the "schedules" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithSchedules(opts ...func(*ScheduleQuery)) *OrganizationQuery {
+	query := (&ScheduleClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSchedules = query
 	return _q
 }
 
@@ -623,11 +659,12 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Organization{}
 		_spec       = _q.querySpec()
-		loadedTypes = [8]bool{
+		loadedTypes = [9]bool{
 			_q.withDevices != nil,
 			_q.withTeams != nil,
 			_q.withInventories != nil,
 			_q.withTemplates != nil,
+			_q.withSchedules != nil,
 			_q.withCredentialTypes != nil,
 			_q.withCredentials != nil,
 			_q.withAnnouncements != nil,
@@ -677,6 +714,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		if err := _q.loadTemplates(ctx, query, nodes,
 			func(n *Organization) { n.Edges.Templates = []*Template{} },
 			func(n *Organization, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSchedules; query != nil {
+		if err := _q.loadSchedules(ctx, query, nodes,
+			func(n *Organization) { n.Edges.Schedules = []*Schedule{} },
+			func(n *Organization, e *Schedule) { n.Edges.Schedules = append(n.Edges.Schedules, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -830,6 +874,37 @@ func (_q *OrganizationQuery) loadTemplates(ctx context.Context, query *TemplateQ
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "organization_templates" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadSchedules(ctx context.Context, query *ScheduleQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *Schedule)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Schedule(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.SchedulesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_schedules
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_schedules" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_schedules" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

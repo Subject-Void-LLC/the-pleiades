@@ -92,6 +92,23 @@ import (
 	"syscall"
 	"time"
 
+	// The IANA time zone database, compiled into the binary.
+	//
+	// Every schedule is read in a named zone, so a zone that will not load
+	// is a schedule that cannot run. Without this, that depends on the host
+	// carrying /usr/share/zoneinfo. Today it does -- Dockerfile.controller
+	// runs on gcr.io/distroless/base-debian12, which ships tzdata, and that
+	// is stated in the Dockerfile -- so this fixes no present bug.
+	//
+	// It is here because the coupling is invisible and the failure is not
+	// local: somebody swapping the base image for distroless/static, or
+	// running the binary on a minimal host, would break every scheduled
+	// job in a way whose cause is nowhere near its symptom. Roughly 450KB
+	// buys the guarantee that a zone this build offers is a zone it can
+	// load, which is the same property internal/schedule/zoneinfo's
+	// generated allowlist is built from.
+	_ "time/tzdata"
+
 	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/activity"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/announce"
@@ -115,6 +132,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	// The built-in launch kinds. A blank import because their init()
 	// functions are the only thing that populates internal/launch's
 	// registry, and a template is validated against its kind's descriptor at the write, so a Controller that did not import this would refuse every template as an unknown kind
@@ -867,6 +885,46 @@ func main() {
 		// value.
 		api.WithCredentialReader(credentialStore))
 	templates := api.NewTemplateHandler(templateStore, logger)
+
+	// Schedules: the administration surface and the store the scanner
+	// below shares with it. One store value, two consumers with different
+	// reach -- api.ScheduleStore is the administration half and omits
+	// ListDue/ClaimOccurrence/ResolveOccurrence/MarkFired entirely, so
+	// nothing reachable from an HTTP request can claim or fire an
+	// occurrence directly.
+	scheduleStore := schedule.NewEntStore(client)
+	schedules := api.NewScheduleHandler(scheduleStore, logger)
+	// The scheduler, and the first thing ever to gate real work on the
+	// scheduler lease elector above has held since Phase 4. Until now that
+	// election ran, logged "Acquired Scheduler Lease" and decided nothing;
+	// this is what it was reserved for.
+	//
+	// The Scanner is handed elector.IsLeader, not the elector, which is the
+	// same seam dispatch.Reaper.Run takes one call above. internal/schedule
+	// therefore does not import internal/election at all, and
+	// internal/archtest asserts that absence -- Phase 23's pattern gate
+	// asks for proof that election was consumed rather than rebuilt, and a
+	// package that cannot see the primitive cannot have rebuilt it.
+	//
+	// Leadership bounds how many replicas SCAN. It does not make firing
+	// unique, and must not be mistaken for doing so: the lease is two
+	// seconds with a half-second poll and carries no fencing token, so two
+	// replicas can briefly both believe they lead. What actually makes a
+	// schedule fire once is the unique index on (schedule, occurrence_at),
+	// claimed before anything is launched.
+	//
+	// It shares the one Dispatcher the HTTP launch path uses, so a
+	// scheduled run resolves its template, binds its credentials, creates
+	// its job and reaches JetStream by exactly the same code a person
+	// clicking Launch does.
+	scanner := schedule.NewScanner(scheduleStore, dispatcher,
+		schedule.WithLogger(logger))
+	scannerDone := make(chan struct{})
+	go func() {
+		defer close(scannerDone)
+		scanner.Run(ctx, elector.IsLeader)
+	}()
+
 	// WithBindingTemplates is what lets a binding be refused at the moment
 	// an operator makes it, rather than at the first launch afterwards,
 	// when the template's execution path cannot honour the credential
@@ -972,15 +1030,23 @@ func main() {
 		// line the scopes split on: administering one is the TemplateHandler
 		// under template:read/template:write, running one is the Dispatcher
 		// under runbook:execute.
-		apispec.ListTemplates.Name:        templates.List,
-		apispec.GetTemplate.Name:          templates.Get,
-		apispec.CreateTemplate.Name:       templates.Create,
-		apispec.UpdateTemplate.Name:       templates.Update,
-		apispec.DeleteTemplate.Name:       templates.Delete,
-		apispec.CopyTemplate.Name:         templates.Copy,
-		apispec.LaunchTemplate.Name:       dispatcher.LaunchFromTemplate,
-		apispec.ListTemplateConfigs.Name:  templates.ListConfigs,
-		apispec.CreateTemplateConfig.Name: templates.CreateConfig,
+		apispec.ListSchedules.Name:           schedules.List,
+		apispec.GetSchedule.Name:             schedules.Get,
+		apispec.CreateSchedule.Name:          schedules.Create,
+		apispec.UpdateSchedule.Name:          schedules.Update,
+		apispec.DeleteSchedule.Name:          schedules.Delete,
+		apispec.ListScheduleOccurrences.Name: schedules.ListOccurrences,
+		apispec.PreviewSchedule.Name:         schedules.Preview,
+		apispec.ListZoneinfo.Name:            schedules.Zoneinfo,
+		apispec.ListTemplates.Name:           templates.List,
+		apispec.GetTemplate.Name:             templates.Get,
+		apispec.CreateTemplate.Name:          templates.Create,
+		apispec.UpdateTemplate.Name:          templates.Update,
+		apispec.DeleteTemplate.Name:          templates.Delete,
+		apispec.CopyTemplate.Name:            templates.Copy,
+		apispec.LaunchTemplate.Name:          dispatcher.LaunchFromTemplate,
+		apispec.ListTemplateConfigs.Name:     templates.ListConfigs,
+		apispec.CreateTemplateConfig.Name:    templates.CreateConfig,
 
 		// The credential surface. Every one of these handlers holds
 		// credentials (the credstore.Store projection) and never the
@@ -1061,15 +1127,20 @@ func main() {
 	// controller that cannot build its own UI must not start and then
 	// serve broken pages.
 	if err := resources.RegisterAll(resources.Deps{
-		Access:     accessStore,
-		Activity:   activityStream,
-		Inventory:  repo,
-		Sets:       sets,
-		Announce:   announce.NewEntStore(client),
-		Factory:    inventory.NewItemFactory(),
-		Jobs:       jobStore,
-		Runbooks:   runbooks,
-		Templates:  templateStore,
+		Access:    accessStore,
+		Activity:  activityStream,
+		Inventory: repo,
+		Sets:      sets,
+		Announce:  announce.NewEntStore(client),
+		Factory:   inventory.NewItemFactory(),
+		Jobs:      jobStore,
+		Runbooks:  runbooks,
+		Templates: templateStore,
+		// The same store value the Scanner above runs on, so what the
+		// Schedules view saves is exactly what the scheduler reads. Two
+		// stores over one database would be two places for the next_run
+		// computation to live.
+		Schedules:  scheduleStore,
 		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
 		// The redacted credential store, never the resolver: the UI's
@@ -1311,10 +1382,14 @@ func main() {
 	// of its own (Reaper.Run's only cleanup is its ticker, stopped via a
 	// deferred call), but is waited on here too so no goroutine this
 	// composition root started is still running, and possibly still
-	// logging, after main returns.
+	// logging, after main returns. scannerDone is waited on for the same
+	// reason and matters slightly more: a sweep in flight is doing database
+	// work and may be mid-launch, so returning from main while one runs
+	// could leave a claimed occurrence with nothing recorded against it.
 	<-electorDone
 	<-reaperElectorDone
 	<-reaperDone
+	<-scannerDone
 	if err := lockMgr.Close(); err != nil {
 		slog.Error("lock manager close failed", slog.String("error", err.Error()))
 	}

@@ -44,6 +44,10 @@ type Tx struct {
 	RoleBinding *RoleBindingClient
 	// SavedLaunchConfig is the client for interacting with the SavedLaunchConfig builders.
 	SavedLaunchConfig *SavedLaunchConfigClient
+	// Schedule is the client for interacting with the Schedule builders.
+	Schedule *ScheduleClient
+	// ScheduleOccurrence is the client for interacting with the ScheduleOccurrence builders.
+	ScheduleOccurrence *ScheduleOccurrenceClient
 	// Session is the client for interacting with the Session builders.
 	Session *SessionClient
 	// SurveyQuestion is the client for interacting with the SurveyQuestion builders.
@@ -201,6 +205,8 @@ func (tx *Tx) init() {
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)
 	tx.SavedLaunchConfig = NewSavedLaunchConfigClient(tx.config)
+	tx.Schedule = NewScheduleClient(tx.config)
+	tx.ScheduleOccurrence = NewScheduleOccurrenceClient(tx.config)
 	tx.Session = NewSessionClient(tx.config)
 	tx.SurveyQuestion = NewSurveyQuestionClient(tx.config)
 	tx.Team = NewTeamClient(tx.config)

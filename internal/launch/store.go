@@ -28,6 +28,22 @@ var ErrExists = errors.New("launch: a template with that name already exists in 
 // records.
 var ErrCrossTenant = errors.New("launch: template and inventory belong to different organizations")
 
+// ErrInUse is returned when a template cannot be deleted because something
+// still points at it.
+//
+// The only thing that can today is a Schedule, whose edge is deliberately
+// NOT cascaded: a schedule is an independent object an operator created and
+// can see in its own list, so deleting a template out from under one should
+// be refused rather than silently stop automation somebody relies on. The
+// deletion attempt is the moment to say so.
+//
+// It exists as a typed error rather than being left to the database's own
+// constraint failure because that failure reaches an HTTP handler as an
+// opaque 500, which tells an operator that the server is broken when in
+// fact they asked for something reasonable that is being refused for a
+// reason they can act on.
+var ErrInUse = errors.New("launch: template is still referenced")
+
 // Query is a list request over templates.
 type Query struct {
 	// After is a keyset cursor: the highest id already seen.

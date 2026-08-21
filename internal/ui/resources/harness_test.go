@@ -71,6 +71,10 @@ func registerViews(t *testing.T) {
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
 			Templates: newTestTemplateStore(t),
+			// Built after the template store, and the order matters: a
+			// schedule requires a template to attach to, and the fixture
+			// seeds one by reading what that store just created.
+			Schedules: newTestScheduleStore(t),
 			// The credential pair: the store whose projection cannot carry
 			// a plaintext value, and the one render engine, so the
 			// Credential Types view's Test action renders an injector
@@ -105,7 +109,8 @@ var (
 		Role:    auth.RoleAdmin,
 		Scopes: []auth.Scope{auth.ScopeInventoryWrite, auth.ScopeInventoryRead, auth.ScopeJobRead,
 			auth.ScopeRunbookRead, auth.ScopeRunbookExecute, auth.ScopeAccessRead, auth.ScopeAccessWrite,
-			auth.ScopeTemplateRead, auth.ScopeTemplateWrite},
+			auth.ScopeTemplateRead, auth.ScopeTemplateWrite,
+			auth.ScopeScheduleRead, auth.ScopeScheduleWrite},
 	}
 	viewerIdentity = &auth.Identity{
 		Subject: "conformance-viewer",

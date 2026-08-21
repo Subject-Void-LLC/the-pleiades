@@ -4925,3 +4925,121 @@ their own separately-justified `MaxStructuredInputBytes` rather than reusing the
 needs its own cap, not a reuse-by-default of whichever one is already in scope. The catch came from
 writing an adversarial test for the checklist's own stated concern (unbounded allocation) rather than
 only testing the round-trip happy path, the same lesson entry #162 draws from a different angle.
+
+
+## 164. A recurrence walk that ran in the target time zone let DST normalisation feed back into its own iteration state
+
+**Symptom.** `FREQ=HOURLY` anchored just before a spring-forward transition
+produced the same instant over and over: `00:00`, `01:00`, then `01:00`,
+`01:00`, `01:00`... forever. The rule appeared to fire, then to stall.
+
+**Root cause.** The expansion walked candidate periods by constructing each
+next period with `time.Date(..., loc)` from the previous one's calendar fields.
+For a wall-clock reading inside a daylight saving gap, `time.Date` does not
+return that reading -- it normalises to a real instant, whose wall clock is a
+different hour. That normalised hour was then read back out and used to build
+the next period, so the walk got stuck at the transition instead of stepping
+through it. The bug is not in the arithmetic; it is that the iteration state
+passed through a lossy transformation on every step.
+
+**Fix.** Walk in civil (wall-clock) time, carried as a `time.Time` anchored in
+UTC because UTC has no transitions and therefore no normalisation, and convert
+to a real instant only at the moment of emission. The location is now consulted
+exactly once per occurrence, at a point where its result cannot influence
+anything downstream.
+
+**Lesson.** A value that a zone-aware constructor may silently adjust must not
+be fed back into the loop that produced it. Keep zone-naive arithmetic and
+zone-aware resolution in separate phases, with the conversion at the boundary.
+
+## 165. Go's time.Date and PEP 495 fold=0 resolve a nonexistent wall clock to different instants
+
+**Symptom.** A daily rule at a time inside a spring-forward gap produced an
+instant one hour earlier than the same rule expanded by python-dateutil, which
+is what AWX uses. Every other case in a 36-case parity corpus agreed exactly.
+
+**Root cause.** For a wall-clock reading that does not exist, the two
+implementations pick opposite offsets. Go's `time.Date` uses the
+POST-transition offset, which moves the resulting wall clock backwards (02:30
+in New York on 2024-03-10 comes back as 01:30 EST, 06:30Z). PEP 495's `fold=0`,
+which `zoneinfo` and `dateutil` follow, keeps the wall clock and applies the
+PRE-transition offset, yielding 07:30Z, which renders as 03:30 EDT. Neither is
+wrong; they are different documented conventions, and nothing in either
+standard library's documentation puts them side by side.
+
+**Fix.** An explicit `localize` step that detects the gap by round-tripping the
+wall clock, and on a mismatch recovers the pre-transition offset (by asking what
+the same wall clock meant a day earlier) and places the instant accordingly.
+Asserted against the generated dateutil corpus rather than reasoned about.
+
+**Lesson.** When matching another implementation's date arithmetic, the gap and
+fold cases are where the conventions differ, and the difference is invisible in
+every other test. Establish the target's behaviour by running it, not by
+reading a specification both implementations claim to follow. Also note the
+consequence for display: a nonexistent local reading like `02:30-0500` can be
+represented by Python and cannot be represented by a Go `time.Time` at all, so
+a parity test comparing formatted local strings must compare instants instead
+and treat the rendering difference as expected.
+
+## 166. A concurrency test passed because most of its workers crashed before reaching the code under test
+
+**Symptom.** A test driving eight concurrent scanners at one schedule asserted
+exactly one job was launched, and passed. Its log was full of
+`database table is locked` errors.
+
+**Root cause.** The fixture used SQLite's shared-cache in-memory mode, which
+answers a contending writer with `SQLITE_LOCKED` immediately. `_busy_timeout`
+retries `SQLITE_BUSY` and does not cover `SQLITE_LOCKED`, so seven of the eight
+workers failed before ever attempting the claim. The assertion held because
+only one worker got far enough to launch -- not because the unique index that
+is the actual duplicate-fire guard adjudicated anything. The test would have
+passed with the guard removed entirely.
+
+**Fix.** Move the fixture to a file-backed database in WAL mode, where writers
+queue instead of failing, so the workers genuinely contend. Then strengthen the
+assertion beyond the launch count: check that the occurrence exists exactly once
+and that no occurrence was left in the intermediate `claimed` state, so a
+future regression to lock-failure cannot pass again.
+
+**Lesson.** A concurrency test that passes is not evidence until you have
+confirmed the workers actually reached the contended operation. Read the test's
+own log output on a passing run; errors on a green test are a signal that the
+assertion may be measuring something other than what it names.
+
+
+## 167. A view's create form rendered no controls at all because every field omitted `InForm`, and the whole conformance suite still passed
+
+**Symptom.** A newly implemented view's list rendered correctly, with real rows
+and real data. Its create page returned 200 and rendered the page chrome, the
+heading, and working Save and Cancel buttons -- and not one form control. Eight
+declared fields, zero inputs.
+
+**Root cause.** `view.Field` gates form rendering on an explicit `InForm bool`,
+separately from `InList`. The new view set `InList` on the fields it wanted as
+columns and never set `InForm` on any of them, so `Field.Writable()` returned
+false for all eight and the renderer omitted every control. The declaration
+read as complete because the fields, kinds, labels, help text, validation
+bounds and option sources were all present and correct; the one flag that makes
+any of it appear was the one absent thing.
+
+**Why the tests did not catch it.** Nothing in the conformance suite asserts
+that a writable resource renders any controls. `TestViewConformance_EveryViewRendersItsList`
+renders the list, which was fine. The edit-form conformance test checks the
+properties of controls that ARE rendered, so a form with none vacuously
+satisfied it. `view.Register` accepts a descriptor whose Handlers are writable
+but whose fields are all non-form, because that is a legitimate shape for a
+resource written entirely through an action rather than a form. Every layer was
+individually correct and the composite was useless.
+
+**How it was actually found.** By rendering the page and reading it -- RULE 0
+applied to the UI rather than to an executor. A grep for `<input|<select|
+<textarea` in the returned HTML found only the CSRF hidden fields.
+
+**Fix.** Set `InForm: true` on every field the form should carry.
+
+**Lesson.** A "renders 200" assertion proves a page did not crash, not that it
+contains anything. For any writable view, assert that the create form actually
+carries a control for each field it means to collect -- an empty form is the
+UI's version of the shipped-but-unreachable failure this repository has
+recorded repeatedly, and it passes every test that only inspects what is
+present.

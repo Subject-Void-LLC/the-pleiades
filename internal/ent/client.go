@@ -31,6 +31,8 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
@@ -75,6 +77,10 @@ type Client struct {
 	RoleBinding *RoleBindingClient
 	// SavedLaunchConfig is the client for interacting with the SavedLaunchConfig builders.
 	SavedLaunchConfig *SavedLaunchConfigClient
+	// Schedule is the client for interacting with the Schedule builders.
+	Schedule *ScheduleClient
+	// ScheduleOccurrence is the client for interacting with the ScheduleOccurrence builders.
+	ScheduleOccurrence *ScheduleOccurrenceClient
 	// Session is the client for interacting with the Session builders.
 	Session *SessionClient
 	// SurveyQuestion is the client for interacting with the SurveyQuestion builders.
@@ -112,6 +118,8 @@ func (c *Client) init() {
 	c.Revision = NewRevisionClient(c.config)
 	c.RoleBinding = NewRoleBindingClient(c.config)
 	c.SavedLaunchConfig = NewSavedLaunchConfigClient(c.config)
+	c.Schedule = NewScheduleClient(c.config)
+	c.ScheduleOccurrence = NewScheduleOccurrenceClient(c.config)
 	c.Session = NewSessionClient(c.config)
 	c.SurveyQuestion = NewSurveyQuestionClient(c.config)
 	c.Team = NewTeamClient(c.config)
@@ -207,29 +215,31 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:               ctx,
-		config:            cfg,
-		ActivityEntry:     NewActivityEntryClient(cfg),
-		Announcement:      NewAnnouncementClient(cfg),
-		Contact:           NewContactClient(cfg),
-		Credential:        NewCredentialClient(cfg),
-		CredentialType:    NewCredentialTypeClient(cfg),
-		Device:            NewDeviceClient(cfg),
-		Fact:              NewFactClient(cfg),
-		Group:             NewGroupClient(cfg),
-		Inventory:         NewInventoryClient(cfg),
-		Job:               NewJobClient(cfg),
-		JobTask:           NewJobTaskClient(cfg),
-		LocalCredential:   NewLocalCredentialClient(cfg),
-		Organization:      NewOrganizationClient(cfg),
-		Revision:          NewRevisionClient(cfg),
-		RoleBinding:       NewRoleBindingClient(cfg),
-		SavedLaunchConfig: NewSavedLaunchConfigClient(cfg),
-		Session:           NewSessionClient(cfg),
-		SurveyQuestion:    NewSurveyQuestionClient(cfg),
-		Team:              NewTeamClient(cfg),
-		Template:          NewTemplateClient(cfg),
-		User:              NewUserClient(cfg),
+		ctx:                ctx,
+		config:             cfg,
+		ActivityEntry:      NewActivityEntryClient(cfg),
+		Announcement:       NewAnnouncementClient(cfg),
+		Contact:            NewContactClient(cfg),
+		Credential:         NewCredentialClient(cfg),
+		CredentialType:     NewCredentialTypeClient(cfg),
+		Device:             NewDeviceClient(cfg),
+		Fact:               NewFactClient(cfg),
+		Group:              NewGroupClient(cfg),
+		Inventory:          NewInventoryClient(cfg),
+		Job:                NewJobClient(cfg),
+		JobTask:            NewJobTaskClient(cfg),
+		LocalCredential:    NewLocalCredentialClient(cfg),
+		Organization:       NewOrganizationClient(cfg),
+		Revision:           NewRevisionClient(cfg),
+		RoleBinding:        NewRoleBindingClient(cfg),
+		SavedLaunchConfig:  NewSavedLaunchConfigClient(cfg),
+		Schedule:           NewScheduleClient(cfg),
+		ScheduleOccurrence: NewScheduleOccurrenceClient(cfg),
+		Session:            NewSessionClient(cfg),
+		SurveyQuestion:     NewSurveyQuestionClient(cfg),
+		Team:               NewTeamClient(cfg),
+		Template:           NewTemplateClient(cfg),
+		User:               NewUserClient(cfg),
 	}, nil
 }
 
@@ -247,29 +257,31 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:               ctx,
-		config:            cfg,
-		ActivityEntry:     NewActivityEntryClient(cfg),
-		Announcement:      NewAnnouncementClient(cfg),
-		Contact:           NewContactClient(cfg),
-		Credential:        NewCredentialClient(cfg),
-		CredentialType:    NewCredentialTypeClient(cfg),
-		Device:            NewDeviceClient(cfg),
-		Fact:              NewFactClient(cfg),
-		Group:             NewGroupClient(cfg),
-		Inventory:         NewInventoryClient(cfg),
-		Job:               NewJobClient(cfg),
-		JobTask:           NewJobTaskClient(cfg),
-		LocalCredential:   NewLocalCredentialClient(cfg),
-		Organization:      NewOrganizationClient(cfg),
-		Revision:          NewRevisionClient(cfg),
-		RoleBinding:       NewRoleBindingClient(cfg),
-		SavedLaunchConfig: NewSavedLaunchConfigClient(cfg),
-		Session:           NewSessionClient(cfg),
-		SurveyQuestion:    NewSurveyQuestionClient(cfg),
-		Team:              NewTeamClient(cfg),
-		Template:          NewTemplateClient(cfg),
-		User:              NewUserClient(cfg),
+		ctx:                ctx,
+		config:             cfg,
+		ActivityEntry:      NewActivityEntryClient(cfg),
+		Announcement:       NewAnnouncementClient(cfg),
+		Contact:            NewContactClient(cfg),
+		Credential:         NewCredentialClient(cfg),
+		CredentialType:     NewCredentialTypeClient(cfg),
+		Device:             NewDeviceClient(cfg),
+		Fact:               NewFactClient(cfg),
+		Group:              NewGroupClient(cfg),
+		Inventory:          NewInventoryClient(cfg),
+		Job:                NewJobClient(cfg),
+		JobTask:            NewJobTaskClient(cfg),
+		LocalCredential:    NewLocalCredentialClient(cfg),
+		Organization:       NewOrganizationClient(cfg),
+		Revision:           NewRevisionClient(cfg),
+		RoleBinding:        NewRoleBindingClient(cfg),
+		SavedLaunchConfig:  NewSavedLaunchConfigClient(cfg),
+		Schedule:           NewScheduleClient(cfg),
+		ScheduleOccurrence: NewScheduleOccurrenceClient(cfg),
+		Session:            NewSessionClient(cfg),
+		SurveyQuestion:     NewSurveyQuestionClient(cfg),
+		Team:               NewTeamClient(cfg),
+		Template:           NewTemplateClient(cfg),
+		User:               NewUserClient(cfg),
 	}, nil
 }
 
@@ -301,8 +313,8 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
 		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session,
-		c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
+		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -314,8 +326,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
 		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Session,
-		c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
+		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -356,6 +368,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.RoleBinding.mutate(ctx, m)
 	case *SavedLaunchConfigMutation:
 		return c.SavedLaunchConfig.mutate(ctx, m)
+	case *ScheduleMutation:
+		return c.Schedule.mutate(ctx, m)
+	case *ScheduleOccurrenceMutation:
+		return c.ScheduleOccurrence.mutate(ctx, m)
 	case *SessionMutation:
 		return c.Session.mutate(ctx, m)
 	case *SurveyQuestionMutation:
@@ -2571,6 +2587,22 @@ func (c *OrganizationClient) QueryTemplates(_m *Organization) *TemplateQuery {
 	return query
 }
 
+// QuerySchedules queries the schedules edge of a Organization.
+func (c *OrganizationClient) QuerySchedules(_m *Organization) *ScheduleQuery {
+	query := (&ScheduleClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, id),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.SchedulesTable, organization.SchedulesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryCredentialTypes queries the credential_types edge of a Organization.
 func (c *OrganizationClient) QueryCredentialTypes(_m *Organization) *CredentialTypeQuery {
 	query := (&CredentialTypeClient{config: c.config}).Query()
@@ -3104,6 +3136,352 @@ func (c *SavedLaunchConfigClient) mutate(ctx context.Context, m *SavedLaunchConf
 		return (&SavedLaunchConfigDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown SavedLaunchConfig mutation op: %q", m.Op())
+	}
+}
+
+// ScheduleClient is a client for the Schedule schema.
+type ScheduleClient struct {
+	config
+}
+
+// NewScheduleClient returns a client for the Schedule from the given config.
+func NewScheduleClient(c config) *ScheduleClient {
+	return &ScheduleClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `schedule.Hooks(f(g(h())))`.
+func (c *ScheduleClient) Use(hooks ...Hook) {
+	c.hooks.Schedule = append(c.hooks.Schedule, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `schedule.Intercept(f(g(h())))`.
+func (c *ScheduleClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Schedule = append(c.inters.Schedule, interceptors...)
+}
+
+// Create returns a builder for creating a Schedule entity.
+func (c *ScheduleClient) Create() *ScheduleCreate {
+	mutation := newScheduleMutation(c.config, OpCreate)
+	return &ScheduleCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Schedule entities.
+func (c *ScheduleClient) CreateBulk(builders ...*ScheduleCreate) *ScheduleCreateBulk {
+	return &ScheduleCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ScheduleClient) MapCreateBulk(slice any, setFunc func(*ScheduleCreate, int)) *ScheduleCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ScheduleCreateBulk{err: fmt.Errorf("calling to ScheduleClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ScheduleCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ScheduleCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Schedule.
+func (c *ScheduleClient) Update() *ScheduleUpdate {
+	mutation := newScheduleMutation(c.config, OpUpdate)
+	return &ScheduleUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ScheduleClient) UpdateOne(_m *Schedule) *ScheduleUpdateOne {
+	mutation := newScheduleMutation(c.config, OpUpdateOne, withSchedule(_m))
+	return &ScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ScheduleClient) UpdateOneID(id int) *ScheduleUpdateOne {
+	mutation := newScheduleMutation(c.config, OpUpdateOne, withScheduleID(id))
+	return &ScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Schedule.
+func (c *ScheduleClient) Delete() *ScheduleDelete {
+	mutation := newScheduleMutation(c.config, OpDelete)
+	return &ScheduleDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ScheduleClient) DeleteOne(_m *Schedule) *ScheduleDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ScheduleClient) DeleteOneID(id int) *ScheduleDeleteOne {
+	builder := c.Delete().Where(schedule.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ScheduleDeleteOne{builder}
+}
+
+// Query returns a query builder for Schedule.
+func (c *ScheduleClient) Query() *ScheduleQuery {
+	return &ScheduleQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeSchedule},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Schedule entity by its id.
+func (c *ScheduleClient) Get(ctx context.Context, id int) (*Schedule, error) {
+	return c.Query().Where(schedule.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ScheduleClient) GetX(ctx context.Context, id int) *Schedule {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryOrganization queries the organization edge of a Schedule.
+func (c *ScheduleClient) QueryOrganization(_m *Schedule) *OrganizationQuery {
+	query := (&OrganizationClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(schedule.Table, schedule.FieldID, id),
+			sqlgraph.To(organization.Table, organization.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, schedule.OrganizationTable, schedule.OrganizationColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTemplate queries the template edge of a Schedule.
+func (c *ScheduleClient) QueryTemplate(_m *Schedule) *TemplateQuery {
+	query := (&TemplateClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(schedule.Table, schedule.FieldID, id),
+			sqlgraph.To(template.Table, template.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, schedule.TemplateTable, schedule.TemplateColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySavedConfig queries the saved_config edge of a Schedule.
+func (c *ScheduleClient) QuerySavedConfig(_m *Schedule) *SavedLaunchConfigQuery {
+	query := (&SavedLaunchConfigClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(schedule.Table, schedule.FieldID, id),
+			sqlgraph.To(savedlaunchconfig.Table, savedlaunchconfig.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, schedule.SavedConfigTable, schedule.SavedConfigColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOccurrences queries the occurrences edge of a Schedule.
+func (c *ScheduleClient) QueryOccurrences(_m *Schedule) *ScheduleOccurrenceQuery {
+	query := (&ScheduleOccurrenceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(schedule.Table, schedule.FieldID, id),
+			sqlgraph.To(scheduleoccurrence.Table, scheduleoccurrence.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, schedule.OccurrencesTable, schedule.OccurrencesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ScheduleClient) Hooks() []Hook {
+	return c.hooks.Schedule
+}
+
+// Interceptors returns the client interceptors.
+func (c *ScheduleClient) Interceptors() []Interceptor {
+	return c.inters.Schedule
+}
+
+func (c *ScheduleClient) mutate(ctx context.Context, m *ScheduleMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ScheduleCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ScheduleUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ScheduleDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Schedule mutation op: %q", m.Op())
+	}
+}
+
+// ScheduleOccurrenceClient is a client for the ScheduleOccurrence schema.
+type ScheduleOccurrenceClient struct {
+	config
+}
+
+// NewScheduleOccurrenceClient returns a client for the ScheduleOccurrence from the given config.
+func NewScheduleOccurrenceClient(c config) *ScheduleOccurrenceClient {
+	return &ScheduleOccurrenceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `scheduleoccurrence.Hooks(f(g(h())))`.
+func (c *ScheduleOccurrenceClient) Use(hooks ...Hook) {
+	c.hooks.ScheduleOccurrence = append(c.hooks.ScheduleOccurrence, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `scheduleoccurrence.Intercept(f(g(h())))`.
+func (c *ScheduleOccurrenceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ScheduleOccurrence = append(c.inters.ScheduleOccurrence, interceptors...)
+}
+
+// Create returns a builder for creating a ScheduleOccurrence entity.
+func (c *ScheduleOccurrenceClient) Create() *ScheduleOccurrenceCreate {
+	mutation := newScheduleOccurrenceMutation(c.config, OpCreate)
+	return &ScheduleOccurrenceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ScheduleOccurrence entities.
+func (c *ScheduleOccurrenceClient) CreateBulk(builders ...*ScheduleOccurrenceCreate) *ScheduleOccurrenceCreateBulk {
+	return &ScheduleOccurrenceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ScheduleOccurrenceClient) MapCreateBulk(slice any, setFunc func(*ScheduleOccurrenceCreate, int)) *ScheduleOccurrenceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ScheduleOccurrenceCreateBulk{err: fmt.Errorf("calling to ScheduleOccurrenceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ScheduleOccurrenceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ScheduleOccurrenceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ScheduleOccurrence.
+func (c *ScheduleOccurrenceClient) Update() *ScheduleOccurrenceUpdate {
+	mutation := newScheduleOccurrenceMutation(c.config, OpUpdate)
+	return &ScheduleOccurrenceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ScheduleOccurrenceClient) UpdateOne(_m *ScheduleOccurrence) *ScheduleOccurrenceUpdateOne {
+	mutation := newScheduleOccurrenceMutation(c.config, OpUpdateOne, withScheduleOccurrence(_m))
+	return &ScheduleOccurrenceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ScheduleOccurrenceClient) UpdateOneID(id int) *ScheduleOccurrenceUpdateOne {
+	mutation := newScheduleOccurrenceMutation(c.config, OpUpdateOne, withScheduleOccurrenceID(id))
+	return &ScheduleOccurrenceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ScheduleOccurrence.
+func (c *ScheduleOccurrenceClient) Delete() *ScheduleOccurrenceDelete {
+	mutation := newScheduleOccurrenceMutation(c.config, OpDelete)
+	return &ScheduleOccurrenceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ScheduleOccurrenceClient) DeleteOne(_m *ScheduleOccurrence) *ScheduleOccurrenceDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ScheduleOccurrenceClient) DeleteOneID(id int) *ScheduleOccurrenceDeleteOne {
+	builder := c.Delete().Where(scheduleoccurrence.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ScheduleOccurrenceDeleteOne{builder}
+}
+
+// Query returns a query builder for ScheduleOccurrence.
+func (c *ScheduleOccurrenceClient) Query() *ScheduleOccurrenceQuery {
+	return &ScheduleOccurrenceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeScheduleOccurrence},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ScheduleOccurrence entity by its id.
+func (c *ScheduleOccurrenceClient) Get(ctx context.Context, id int) (*ScheduleOccurrence, error) {
+	return c.Query().Where(scheduleoccurrence.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ScheduleOccurrenceClient) GetX(ctx context.Context, id int) *ScheduleOccurrence {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySchedule queries the schedule edge of a ScheduleOccurrence.
+func (c *ScheduleOccurrenceClient) QuerySchedule(_m *ScheduleOccurrence) *ScheduleQuery {
+	query := (&ScheduleClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(scheduleoccurrence.Table, scheduleoccurrence.FieldID, id),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, scheduleoccurrence.ScheduleTable, scheduleoccurrence.ScheduleColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ScheduleOccurrenceClient) Hooks() []Hook {
+	return c.hooks.ScheduleOccurrence
+}
+
+// Interceptors returns the client interceptors.
+func (c *ScheduleOccurrenceClient) Interceptors() []Interceptor {
+	return c.inters.ScheduleOccurrence
+}
+
+func (c *ScheduleOccurrenceClient) mutate(ctx context.Context, m *ScheduleOccurrenceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ScheduleOccurrenceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ScheduleOccurrenceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ScheduleOccurrenceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ScheduleOccurrenceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ScheduleOccurrence mutation op: %q", m.Op())
 	}
 }
 
@@ -3774,6 +4152,22 @@ func (c *TemplateClient) QueryCredentials(_m *Template) *CredentialQuery {
 	return query
 }
 
+// QuerySchedules queries the schedules edge of a Template.
+func (c *TemplateClient) QuerySchedules(_m *Template) *ScheduleQuery {
+	query := (&ScheduleClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(template.Table, template.FieldID, id),
+			sqlgraph.To(schedule.Table, schedule.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, template.SchedulesTable, template.SchedulesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *TemplateClient) Hooks() []Hook {
 	return c.hooks.Template
@@ -3969,13 +4363,13 @@ type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
 		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
-		RoleBinding, SavedLaunchConfig, Session, SurveyQuestion, Team, Template,
-		User []ent.Hook
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, Team, Template, User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
 		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
-		RoleBinding, SavedLaunchConfig, Session, SurveyQuestion, Team, Template,
-		User []ent.Interceptor
+		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
+		SurveyQuestion, Team, Template, User []ent.Interceptor
 	}
 )

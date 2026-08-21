@@ -23,9 +23,9 @@ ever carry.
 | `credential_types` | 7/7 | 7 | 0 | 0 | 0 |
 | `survey_specs` | 1/3 | 0 | 1 | 2 | 0 |
 | `survey_questions` | 9/9 | 5 | 4 | 0 | 0 |
-| `schedules` | 1/8 | 0 | 1 | 7 | 0 |
+| `schedules` | 8/8 | 7 | 1 | 0 | 0 |
 | `activity_stream` | 5/6 | 1 | 4 | 1 | 0 |
-| **total** | **45/119** | 21 | 24 | 72 | 2 |
+| **total** | **52/119** | 28 | 24 | 65 | 2 |
 
 Corpus: 16 object(s) across 10 resource types.
 
@@ -47,7 +47,7 @@ are gone from this list.
 | B2 List metadata | 1 | `job_template_summary_fields.recent_jobs` |
 | B3 Labels | 2 | `job_template_summary_fields.labels`, `job_templates.ask_labels_on_launch` |
 | C1 Launchable | 4 | `project_updates.failed`, `project_updates.finished`, `project_updates.started`, `project_updates.status` |
-| C2 Schedules | 8 | `job_template_related.schedules`, `schedules.dtend`, `schedules.dtstart`, `schedules.enabled`, `schedules.name`, `schedules.next_run`, `schedules.rrule`, `schedules.timezone` |
+| C2 Schedules | 1 | `job_template_related.schedules` |
 | C3 Notifications | 3 | `job_template_related.notification_templates_error`, `job_template_related.notification_templates_started`, `job_template_related.notification_templates_success` |
 | D1 Capacity and Instance Groups | 3 | `job_template_summary_fields.instance_groups`, `job_templates.ask_instance_groups_on_launch`, `job_templates.prevent_instance_group_fallback` |
 | D4 Webhook launch | 4 | `job_template_related.webhook_key`, `job_template_related.webhook_receiver`, `job_templates.webhook_credential`, `job_templates.webhook_service` |
@@ -336,25 +336,25 @@ are gone from this list.
 
 ## `schedules`
 
-1 of 8 meaningful fields carried. Corpus: nightly-git-sync.json.
-
-### Gaps (7)
-
-| Field | Owning phase | Notes |
-|---|---|---|
-| `dtend` | C2 Schedules | null for an open-ended schedule |
-| `dtstart` | C2 Schedules | none |
-| `enabled` | C2 Schedules | a disabled schedule is kept rather than deleted, the same distinction Survey.Enabled draws |
-| `name` | C2 Schedules | none |
-| `next_run` | C2 Schedules | computed rather than stored, and the field an operator actually reads |
-| `rrule` | C2 Schedules | RFC5545. The whole feature: parsing, expansion, and a preview endpoint so an author can see the next occurrences before saving. |
-| `timezone` | C2 Schedules | carried beside the rrule rather than inside it. "America/New_York" with a daily rule is exactly the DST case the phase gate is written around: the wall-clock hour is preserved across the transition, so the interval between two runs is not always 24 hours. |
+8 of 8 meaningful fields carried. Corpus: nightly-git-sync.json.
 
 ### Convertible (1)
 
 | Field | Lands in | Conversion required |
 |---|---|---|
-| `extra_data` | `launch.SavedConfig.Fields` | the same launch-override bundle we already store for relaunch, keyed the same way. An import writes it as a SavedLaunchConfig; only the schedule that points at it is missing. |
+| `extra_data` | `launch.SavedConfig.Fields` | the same launch-override bundle we already store for relaunch, keyed the same way. An import writes it as a SavedLaunchConfig and the schedule points at it through its own saved_config edge. |
+
+### Represented (7)
+
+| Field | Lands in | Notes |
+|---|---|---|
+| `dtend` | `schedule.Schedule.DTEnd` | nil for an open-ended schedule. Separate from the rule's own UNTIL: that is part of what an author wrote, this is an operator saying stop after then. |
+| `dtstart` | `schedule.Schedule.DTStart` | its own column rather than folded into the rrule, since RFC5545 takes from it every field the rule leaves unspecified |
+| `enabled` | `schedule.Schedule.Enabled` | a disabled schedule is kept rather than deleted, the same distinction Survey.Enabled draws. Disabling clears next_run: a schedule that will not run must not advertise a time. |
+| `name` | `schedule.Schedule.Name` | none |
+| `next_run` | `schedule.Schedule.NextRun` | AWX computes it per response; here it is a materialised cache, recomputed from the rule on every write and after every fire. A keyset-paginated due scan cannot index a value that exists only in a response body, and the rrule remains the source of truth. |
+| `rrule` | `schedule.Schedule.RRule` | RFC5545, parsed and expanded by internal/schedule/rrule against a deliberately bounded constraint set, with a preview endpoint so an author sees the next occurrences before saving. Parity with AWX is earned rather than claimed: the engine is tested against occurrence vectors generated from python-dateutil, the library AWX itself schedules on, across daylight saving transitions in both hemispheres, leap days, ordinal weekdays, BYSETPOS and exclusion rules straddling a transition. EXRULE and EXDATE live in their own exclusions field rather than inside the rule. |
+| `timezone` | `schedule.Schedule.Timezone` | carried beside the rrule rather than inside it. "America/New_York" with a daily rule is exactly the DST case the phase gate is written around: the wall-clock hour is preserved across the transition, so the interval between two runs is not always 24 hours. Validated at save time against a generated allowlist built from the same time zone archive the binary embeds, so a zone the picker offers is a zone the server can load. |
 
 ### AWX REST envelope (3)
 

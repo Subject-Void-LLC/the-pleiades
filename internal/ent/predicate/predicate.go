@@ -54,6 +54,12 @@ type RoleBinding func(*sql.Selector)
 // SavedLaunchConfig is the predicate function for savedlaunchconfig builders.
 type SavedLaunchConfig func(*sql.Selector)
 
+// Schedule is the predicate function for schedule builders.
+type Schedule func(*sql.Selector)
+
+// ScheduleOccurrence is the predicate function for scheduleoccurrence builders.
+type ScheduleOccurrence func(*sql.Selector)
+
 // Session is the predicate function for session builders.
 type Session func(*sql.Selector)
 
