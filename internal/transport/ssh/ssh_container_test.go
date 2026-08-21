@@ -88,6 +88,28 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 				"USER_NAME":       containerSSHUser,
 				"USER_PASSWORD":   containerSSHPassword,
 			},
+			// This image's own default sshd_config ships
+			// AllowTcpForwarding no, which TestSSHContainer_HopChain_*
+			// needs enabled to open a direct-tcpip channel through the
+			// shared container at all ("administratively prohibited"
+			// otherwise, verified directly against a throwaway container
+			// before writing this). The image's own init script
+			// (init-openssh-server-config/run) only turns on
+			// `Include /config/sshd/sshd_config.d/*.conf` in the
+			// GENERATED /config/sshd/sshd_config when that directory
+			// exists, so this drops one real config snippet there before
+			// the container's own init runs, rather than fighting the
+			// generated file after the fact. OpenSSH's sshd_config takes
+			// the FIRST occurrence of a keyword, and the Include line sits
+			// near the top of the generated file, ahead of the later
+			// AllowTcpForwarding no, so the included "yes" wins; confirmed
+			// with a real ssh -L against a throwaway container, not
+			// assumed from directive order alone.
+			Files: []testcontainers.ContainerFile{{
+				Reader:            strings.NewReader("AllowTcpForwarding yes\n"),
+				ContainerFilePath: "/config/sshd/sshd_config.d/allow-tcp-forwarding.conf",
+				FileMode:          0o644,
+			}},
 			// "[ls.io-init] done." is this image's own real final
 			// startup log line, confirmed against the actual image,
 			// logged only once sshd is already listening. A fixed sleep
@@ -275,6 +297,113 @@ func TestSSHContainer_HostKeyVerification(t *testing.T) {
 	trBad := New(Options{KnownHostsPath: badPath, DialTimeout: 5 * time.Second, MaxRetries: 1})
 	if _, err := trBad.Exec(context.Background(), target, containerCred(), "echo hello"); err == nil {
 		t.Fatal("expected Exec to be rejected against a known_hosts file with a forged host key")
+	}
+}
+
+// TestSSHContainer_HopChain_TunnelsThroughItself is this phase's
+// deliberately modest Release Gate proof against a REAL, independent
+// sshd: the shared container acts as its own bastion, and the "target" is
+// the identical sshd reached a SECOND time, by tunneling through itself.
+// From inside the container's own network namespace its sshd listens on
+// 127.0.0.1:2222, so asking the bastion to forward there reaches the
+// identical server again over a genuinely independent second handshake,
+// through a real direct-tcpip channel opened against a real,
+// independent implementation's own forwarding code (not this package's
+// own fake). That is a real proof of the mechanism with only the one
+// container this phase already shares; a genuinely separate,
+// network-isolated target and a hostile bastion are Phase 73's job, not
+// claimed here.
+//
+// Per-hop host key verification is exercised for real, not bypassed: a
+// hop's own InsecureSkipHostKeyVerify is independent of the Runner-wide
+// Options.InsecureSkipHostKeyVerify (which applies only to the final,
+// direct-connection case, never silently to a hop), and
+// internal/transport/ssh's own hopsFrom translation never sets it. So
+// this captures the container's real host key once (the same bootstrap
+// pattern TestSSHContainer_HostKeyVerification already uses) and records
+// it under BOTH addresses the two independent handshakes present it as:
+// the external host:port for the bastion leg, and 127.0.0.1:2222 for the
+// tunneled leg back to the same sshd.
+func TestSSHContainer_HopChain_TunnelsThroughItself(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSH container integration test in short mode")
+	}
+	host, port := requireSSHContainer(t)
+	defer verifyNoLeaks(t)
+
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+
+	var capturedKey ssh.PublicKey
+	recordingConfig := &ssh.ClientConfig{
+		User: containerSSHUser,
+		Auth: []ssh.AuthMethod{ssh.Password(containerSSHPassword)},
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			capturedKey = key
+			return nil
+		},
+		Timeout: 5 * time.Second,
+	}
+	bootstrapClient, err := ssh.Dial("tcp", addr, recordingConfig)
+	if err != nil {
+		t.Fatalf("bootstrap dial to capture the real host key failed: %v", err)
+	}
+	bootstrapClient.Close()
+	if capturedKey == nil {
+		t.Fatal("expected to capture a real host key from the container")
+	}
+
+	knownHostsPath := writeMultiKnownHosts(t, map[string]ssh.PublicKey{
+		addr:             capturedKey,
+		"127.0.0.1:2222": capturedKey,
+	})
+
+	bastion := transport.Hop{
+		Host:       host,
+		Port:       port,
+		DeviceName: "bastion",
+		Credential: containerCred(),
+	}
+	target := transport.Target{
+		Host:  "127.0.0.1",
+		Port:  2222,
+		Route: []transport.Hop{bastion},
+	}
+
+	tr := New(Options{KnownHostsPath: knownHostsPath, DialTimeout: 5 * time.Second})
+
+	result, err := tr.Exec(context.Background(), target, containerCred(), "echo tunneled-hi")
+	if err != nil {
+		t.Fatalf("hop-chain Exec through the real container failed: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", result.ExitCode)
+	}
+	if !strings.Contains(result.Stdout, "tunneled-hi") {
+		t.Errorf("expected stdout to contain %q, got %q", "tunneled-hi", result.Stdout)
+	}
+}
+
+// TestSSHContainer_HopChain_EmptyRouteIsUnchanged proves a Target with an
+// empty Route behaves exactly as it did before Route existed: the same
+// direct connection, no hop-chain machinery invoked at all. Every
+// pre-Phase-72 test in this file already proves this implicitly (none of
+// them set Route), so this is a single, explicit regression pin rather
+// than new coverage.
+func TestSSHContainer_HopChain_EmptyRouteIsUnchanged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SSH container integration test in short mode")
+	}
+	target := containerTarget(t)
+	defer verifyNoLeaks(t)
+
+	tr := New(Options{InsecureSkipHostKeyVerify: true, DialTimeout: 5 * time.Second})
+
+	result, err := tr.Exec(context.Background(), target, containerCred(), "echo hello")
+	if err != nil {
+		t.Fatalf("unexpected error with an empty Route: %v", err)
+	}
+	if !strings.Contains(result.Stdout, "hello") {
+		t.Errorf("expected stdout to contain %q, got %q", "hello", result.Stdout)
 	}
 }
 

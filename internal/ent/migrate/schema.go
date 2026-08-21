@@ -271,6 +271,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "name", Type: field.TypeString, Unique: true},
+		{Name: "properties", Type: field.TypeJSON, Nullable: true},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{
@@ -286,6 +287,7 @@ var (
 		{Name: "name", Type: field.TypeString},
 		{Name: "description", Type: field.TypeString, Nullable: true},
 		{Name: "owner", Type: field.TypeString, Nullable: true},
+		{Name: "properties", Type: field.TypeJSON, Nullable: true},
 		{Name: "organization_inventories", Type: field.TypeInt},
 	}
 	// InventoriesTable holds the schema information for the "inventories" table.
@@ -296,7 +298,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "inventories_organizations_inventories",
-				Columns:    []*schema.Column{InventoriesColumns[6]},
+				Columns:    []*schema.Column{InventoriesColumns[7]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -305,7 +307,7 @@ var (
 			{
 				Name:    "inventory_name_organization_inventories",
 				Unique:  true,
-				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[6]},
+				Columns: []*schema.Column{InventoriesColumns[3], InventoriesColumns[7]},
 			},
 		},
 	}

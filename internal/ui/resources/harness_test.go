@@ -557,6 +557,9 @@ func (r *fakeRepository) Create(_ context.Context, item pkginventory.InventoryIt
 
 func (r *fakeRepository) Save(context.Context, pkginventory.InventoryItem) error { return nil }
 func (r *fakeRepository) Retire(context.Context, string) error                   { return nil }
+func (r *fakeRepository) GroupAncestry(context.Context, string) ([]inventory.HierarchyLayer, error) {
+	return nil, nil
+}
 
 // sliceIterator adapts a slice to the repository's streaming iterator, so
 // the view's own paging code runs unchanged against it.

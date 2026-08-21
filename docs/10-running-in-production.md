@@ -608,6 +608,50 @@ that until recently this was the only thing that worked inside the shipped runne
 image, so a runbook inherited from that period may be carrying it for a reason that
 no longer exists.
 
+### Bastions and hop chains
+
+A device that is only reachable through a jump host does not need a second
+transport or a special task parameter. Configure a `route` on whichever level of
+the hierarchy the bastion actually applies to: a single device, a group of
+devices, or a whole inventory. Most specific wins, the same rule every other
+layered setting in Pleiades follows (a group-level bastion with a per-device
+override behaves exactly like a group-level anything else with a per-device
+override). The value is an ordered list of device names, nearest hop first:
+
+```yaml
+properties:
+  route:
+    - jump-host-1
+    - jump-host-2
+```
+
+Each name in that list must be a real, separately inventoried device with its
+own SSH capability and its own stored credential. That is not a convenience
+default, it is deliberate: a bastion's account and the production device's
+account are almost never the same, so a hop's credential is looked up
+independently under its own device name, never inherited from the target and
+never falling back to it. A hop with no stored credential of its own fails the
+task, naming that hop, rather than silently trying the target's password
+against it. If you see a task fail with an error naming a device you did not
+expect, that device is a hop in the resolved route, and the fix is to store a
+credential for it like any other device.
+
+**Every hop gets its own host key check.** The tunneled connection to hop two
+is a second, fully independent SSH handshake carried inside the encrypted
+channel hop one already established, and it is verified against `known_hosts`
+exactly like a direct connection would be: an unrecognized or mismatched key
+at any hop refuses the connection and names that hop specifically. This is
+what actually defends against a compromised bastion. A jump host that can see
+your traffic sees ciphertext only, past its own hop, and a bastion that tried
+to redirect the tunneled connection somewhere else would be caught by that
+next hop's own key check, not by anything the bastion itself could suppress.
+
+A route may name at most sixteen hops. Real bastion topologies are one or two
+layers deep; the bound exists so a misconfigured or attacker-influenced
+`route` value fails immediately, before any inventory or credential lookup for
+any of its entries, rather than resolving into a chain long enough to make a
+single task pay for dozens of failed dials one at a time.
+
 ### PKI and TLS
 
 Two different things, at different stages, and it is worth not confusing them.

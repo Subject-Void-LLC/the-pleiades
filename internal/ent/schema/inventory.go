@@ -55,6 +55,17 @@ func (Inventory) Fields() []ent.Field {
 		// RoleBinding (PLAN.md Section 18.2), so owning an inventory
 		// confers no permission over it.
 		field.String("owner").Optional().Immutable(),
+		// properties holds arbitrary inventory-level settings, the same
+		// dynamic JSON shape Device.properties already uses. Phase 72
+		// (Transport Foundation) is its first real consumer: an
+		// inventory-level bastion/hop-chain route, resolved through
+		// pkg/policy.Resolve alongside Group.properties and a device's
+		// own override, most specific wins (AGENTS.md's hierarchical
+		// policy principle). Kept as an untyped bag rather than a
+		// dedicated "route" column for the identical reason
+		// Group.properties is: the natural home for whatever the next
+		// layered, inventory-level setting turns out to be.
+		field.JSON("properties", map[string]interface{}{}).Optional(),
 	}
 }
 

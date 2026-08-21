@@ -86,6 +86,12 @@ func (_c *InventoryCreate) SetNillableOwner(v *string) *InventoryCreate {
 	return _c
 }
 
+// SetProperties sets the "properties" field.
+func (_c *InventoryCreate) SetProperties(v map[string]interface{}) *InventoryCreate {
+	_c.mutation.SetProperties(v)
+	return _c
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_c *InventoryCreate) SetOrganizationID(id int) *InventoryCreate {
 	_c.mutation.SetOrganizationID(id)
@@ -251,6 +257,10 @@ func (_c *InventoryCreate) createSpec() (*Inventory, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Owner(); ok {
 		_spec.SetField(inventory.FieldOwner, field.TypeString, value)
 		_node.Owner = value
+	}
+	if value, ok := _c.mutation.Properties(); ok {
+		_spec.SetField(inventory.FieldProperties, field.TypeJSON, value)
+		_node.Properties = value
 	}
 	if nodes := _c.mutation.OrganizationIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

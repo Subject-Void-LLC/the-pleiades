@@ -4,12 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
@@ -146,6 +148,19 @@ func runRunbook(args []string) error {
 	// to the dispatch payload.
 	credentials := credential.NewLazyFileStore(*dir)
 
+	// A second, independent inventory.Repository from the same on-disk
+	// inventory.yaml loadWorld already read (never the []InventoryItem
+	// slice loadWorld returned: hopChainInventory needs GetByName and
+	// GroupAncestry, which a plain slice cannot answer). Cheap to build a
+	// second time: NewFileRepository wraps a path, it does not read the
+	// file until asked. fileRepository.GroupAncestry always reports "no
+	// hierarchy" (Walk tier's hosts.yaml has no Group/Inventory nesting
+	// to walk), so a bastion configured at Device level still resolves
+	// end to end here; only a Group- or Inventory-level route needs
+	// Crawl tier's ent-backed Repository.
+	inventoryPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
+	inventoryRepo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
+
 	// The executor chain, innermost fallback last: a registered Collection
 	// method wins, then a transport-backed legacy fqcn, then the two engine
 	// keywords. Ordering matters only in that the Collection registry is
@@ -156,6 +171,7 @@ func runRunbook(args []string) error {
 		engine.NewTransportActionExecutor(
 			bindings,
 			credentials,
+			inventoryRepo,
 			engine.NewBuiltinActionExecutor(),
 		),
 		engine.NewCredentialRunbookContext(credentials),

@@ -7,7 +7,62 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Phase 72's cross-platform matrix (Transport Foundation: the Circuit
+    # Breaker, retry.Do, and the Hop Chain). Before this, CI was a single
+    # ubuntu-latest job; the module had zero platform build tags and zero
+    # runtime.GOOS references, so nothing had ever proven this codebase
+    # compiles, let alone runs, anywhere else. PLAN.md's own platform
+    # requirement: Pleiades must run on Linux, and SHOULD run on macOS;
+    # running the controller on Windows is a stretch goal this Part is
+    # allowed to miss.
+    #
+    # ubuntu-latest is the ONLY leg with a Docker daemon, so it alone
+    # keeps running the full `make ci` (build vet fmt test-race gosec
+    # govulncheck coverage docs-lint docs-gen-check), including every
+    # real-container conformance test (internal/lock, internal/event,
+    # internal/transport/ssh's own sshd container, the LocalStack-backed
+    # AWS tests). macOS is BLOCKING, matching the SHOULD-run requirement:
+    # build, vet, and `make test-no-docker` (every package except the
+    # ones Makefile's own DOCKER_DEPENDENT_PACKAGES list names).
+    # Windows is ADVISORY: build and vet only, reported via
+    # continue-on-error rather than required, because running the
+    # controller on Windows is a goal this Part is allowed to miss, and a
+    # red required check for it would train everyone to ignore red
+    # checks generally.
+    #
+    # Be exact about what a green macOS or Windows leg proves and does
+    # not: compilation, and (macOS only) non-container unit correctness.
+    # Docker-backed testcontainers do not run on GitHub's macOS or
+    # Windows runners at all, so neither leg is evidence of "works
+    # against a real device" -- that conformance evidence stays
+    # ubuntu-only. pkg/remoteexec's own suite is a partial exception
+    # worth naming: it uses an in-process, real-TCP, real-SSH-protocol
+    # fake server (no Docker required), so the macOS leg exercises real
+    # network and protocol behavior there, not merely a compiled stub.
+    #
+    # This matrix is also the guard against the platform-suffix filename
+    # trap this project has already been bitten by once
+    # (FAILURE_PATTERNS.md #51): Go silently reads a `_windows`,
+    # `_linux`, or `_darwin` filename suffix as an implicit GOOS build
+    # constraint, and pkg/capability/capabilities_windows.go had
+    # therefore never compiled on Linux since the phase that wrote it. A
+    # single-OS job cannot see that bug; this three-OS one can. Watch for
+    # exactly this shape in any file Part XV's later phases add
+    # (serial_linux.go, socket_windows.go, transport_darwin.go are all
+    # names an author would reach for -- Phase 73, which owns local
+    # serial, is the one most likely to want one).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            required: true
+          - os: macos-latest
+            required: true
+          - os: windows-latest
+            required: false
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.required }}
     steps:
       - uses: actions/checkout@v4
 
@@ -18,7 +73,8 @@ jobs:
       # gopls is part of AGENTS.md's own required tooling for anyone
       # editing this repository, but is not something CI itself invokes;
       # gosec and govulncheck are the two CI actually runs (Makefile's
-      # `ci` target), so only those two are installed here.
+      # `ci` target), so only those two are installed here, and only on
+      # the leg that runs `make ci`.
       #
       # The versions deliberately are not named here. `make tools`
       # installs the ones pinned in the Makefile (GOSEC_VERSION,
@@ -34,13 +90,15 @@ jobs:
       # and is kept only so that a tool installation failure shows up as
       # its own red step rather than inside the ci step's output.
       - name: Install pinned gosec and govulncheck
+        if: runner.os == 'Linux'
         run: make tools
 
       # `make helm-lint` (tools/helm-lint) shells out to a real helm binary to
       # render helm/the-pleiades and to prove the configurations that chart
       # refuses really are refused. ubuntu-latest does not ship one, and the
       # tool fails rather than skipping when helm is missing, so it has to be
-      # installed here.
+      # installed here. Only the ubuntu leg runs make ci (and therefore
+      # helm-lint), so only it needs this.
       #
       # Downloaded and checksummed rather than pulled in through a third-party
       # action, and pinned to an exact version rather than a channel, for the
@@ -52,6 +110,7 @@ jobs:
       # tampered or truncated download fails this step instead of quietly
       # linting with something else.
       - name: Install pinned Helm
+        if: runner.os == 'Linux'
         env:
           HELM_VERSION: v4.2.4
           HELM_SHA256: c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3
@@ -86,6 +145,37 @@ jobs:
       # and gets the real coverage these two packages' floors were
       # recorded against.
       - name: ci
+        if: runner.os == 'Linux'
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
         run: make ci
+
+      # macOS: no Docker daemon on this runner at all, so the full `make
+      # ci` cannot run here. build and vet run unconditionally; make
+      # test-no-docker (a real `make` ships with macOS's Xcode Command
+      # Line Tools) then runs every package NOT in the Makefile's own
+      # DOCKER_DEPENDENT_PACKAGES list, for real, under -race.
+      - name: build + vet + non-Docker tests (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          go build ./...
+          go vet ./...
+          make test-no-docker
+
+      # Windows: build and vet only, deliberately. GitHub's
+      # windows-latest runner ships neither Docker nor GNU Make, and
+      # duplicating Makefile's DOCKER_DEPENDENT_PACKAGES exclusion logic
+      # a second time in PowerShell here would be exactly the kind of
+      # second copy that drifts from the first and nobody notices,
+      # for an advisory leg whose main value is catching the
+      # platform-suffix filename trap this comment block's own top-level
+      # note explains -- a compile-time concern, which build and vet
+      # already prove without running a single test. Running the
+      # controller on Windows at all is a stretch goal this Part is
+      # allowed to miss; go test ./... coverage there can follow if that
+      # goal is ever picked up for real.
+      - name: build + vet (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          go build ./...
+          go vet ./...

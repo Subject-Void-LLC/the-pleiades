@@ -15,18 +15,55 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 )
 
-// Target identifies where to connect: a host and a port, nothing more.
-// Target deliberately carries no knowledge of inventory devices or
-// capabilities (no DeviceID, no capability.Name); translating a device
-// into a Target is internal/engine's job, not this package's. Keeping
-// Target this narrow is what lets Phase 16's runner mesh reuse this exact
-// type, and every Adapter built against it, unchanged.
+// Target identifies where to connect: a host and a port, nothing more,
+// plus an optional Route of intermediate hops reached first. Target
+// deliberately carries no knowledge of inventory devices or capabilities
+// (no DeviceID, no capability.Name) beyond what a Hop names for its own
+// credential lookup; translating a device (and its configured bastion
+// chain, if any) into a Target is internal/engine's job, not this
+// package's. Keeping Target this narrow is what lets Phase 16's runner
+// mesh reuse this exact type, and every Adapter built against it,
+// unchanged.
 type Target struct {
 	// Host is the address or hostname to connect to.
 	Host string
 
 	// Port is the TCP port to connect to.
 	Port int
+
+	// Route is an ordered list of hops to dial through before Host:Port
+	// itself, first to last (a bastion, then a second jump host nested
+	// behind it, and so on). An empty or nil Route is exactly a direct
+	// connection: every Adapter built before Phase 72 keeps working
+	// unedited, since a zero-value Target already has a nil Route.
+	Route []Hop
+}
+
+// Hop is one intermediate connection reached before a Target's own
+// Host:Port: a bastion, a jump host, a management-network console server.
+// A Hop is a real device with its own address and its own credential,
+// never inherited from the Target it is reached on behalf of (a bastion's
+// account and a production device's account are almost never the same,
+// and treating them as interchangeable would risk sending the wrong
+// secret to the wrong host).
+type Hop struct {
+	// Host is the hop's own address or hostname.
+	Host string
+
+	// Port is the hop's own TCP port.
+	Port int
+
+	// DeviceName identifies which device this hop's Credential was
+	// resolved from (internal/credential.Store.Lookup, under this name),
+	// so an error naming a hop names a real, addressable inventory item
+	// rather than a bare address.
+	DeviceName string
+
+	// Credential authenticates to this hop. It is resolved independently
+	// of the Target's own credential, by internal/engine, before this
+	// Target is built: a hop with no stored credential of its own must
+	// fail naming that hop, never silently fall back to the Target's.
+	Credential credential.Credential
 }
 
 // Result is what running one command against one Target produced.

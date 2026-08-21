@@ -59,7 +59,7 @@ func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 		InsecureSkipHostKeyVerify: BoolParam(params, ParamInsecureSkipHostKeyVerify),
 	})
 
-	conn, err := runner.Connect(ctx, remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, auth)
+	conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, auth)
 	if err != nil {
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}

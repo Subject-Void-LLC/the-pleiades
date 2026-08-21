@@ -50,6 +50,18 @@ func (_u *GroupUpdate) SetNillableName(v *string) *GroupUpdate {
 	return _u
 }
 
+// SetProperties sets the "properties" field.
+func (_u *GroupUpdate) SetProperties(v map[string]interface{}) *GroupUpdate {
+	_u.mutation.SetProperties(v)
+	return _u
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (_u *GroupUpdate) ClearProperties() *GroupUpdate {
+	_u.mutation.ClearProperties()
+	return _u
+}
+
 // AddDeviceIDs adds the "devices" edge to the Device entity by IDs.
 func (_u *GroupUpdate) AddDeviceIDs(ids ...int) *GroupUpdate {
 	_u.mutation.AddDeviceIDs(ids...)
@@ -262,6 +274,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Properties(); ok {
+		_spec.SetField(group.FieldProperties, field.TypeJSON, value)
+	}
+	if _u.mutation.PropertiesCleared() {
+		_spec.ClearField(group.FieldProperties, field.TypeJSON)
 	}
 	if _u.mutation.DevicesCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -480,6 +498,18 @@ func (_u *GroupUpdateOne) SetNillableName(v *string) *GroupUpdateOne {
 	if v != nil {
 		_u.SetName(*v)
 	}
+	return _u
+}
+
+// SetProperties sets the "properties" field.
+func (_u *GroupUpdateOne) SetProperties(v map[string]interface{}) *GroupUpdateOne {
+	_u.mutation.SetProperties(v)
+	return _u
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (_u *GroupUpdateOne) ClearProperties() *GroupUpdateOne {
+	_u.mutation.ClearProperties()
 	return _u
 }
 
@@ -725,6 +755,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Properties(); ok {
+		_spec.SetField(group.FieldProperties, field.TypeJSON, value)
+	}
+	if _u.mutation.PropertiesCleared() {
+		_spec.ClearField(group.FieldProperties, field.TypeJSON)
 	}
 	if _u.mutation.DevicesCleared() {
 		edge := &sqlgraph.EdgeSpec{

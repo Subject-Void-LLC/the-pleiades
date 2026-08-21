@@ -34,7 +34,7 @@ func connect(t *testing.T) *remoteexec.Conn {
 	if err != nil {
 		t.Fatalf("building auth: %v", err)
 	}
-	conn, err := runner.Connect(context.Background(), remoteexec.Target{Host: srv.Host, Port: srv.Port}, auth)
+	conn, err := runner.Connect(context.Background(), nil, remoteexec.Target{Host: srv.Host, Port: srv.Port}, auth)
 	if err != nil {
 		t.Fatalf("connecting: %v", err)
 	}

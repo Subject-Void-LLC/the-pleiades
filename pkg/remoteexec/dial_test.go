@@ -20,7 +20,7 @@ import (
 // TCP dial followed by a genuine SSH handshake, with no Docker
 // dependency (this is loopback-only, not the real, independent sshd
 // internal/transport/ssh dials in a container).
-func startFakeSSHListener(t *testing.T, handler func(command string) (stdout, stderr string, exitCode int)) (addr string, hostKey ssh.PublicKey) {
+func startFakeSSHListener(t testing.TB, handler func(command string) (stdout, stderr string, exitCode int)) (addr string, hostKey ssh.PublicKey) {
 	t.Helper()
 	hostSigner := generateTestHostKey(t)
 

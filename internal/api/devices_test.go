@@ -69,6 +69,10 @@ func (s *stubDeviceRepo) Retire(_ context.Context, name string) error {
 	return s.retireErr
 }
 
+func (s *stubDeviceRepo) GroupAncestry(_ context.Context, _ string) ([]inventory.HierarchyLayer, error) {
+	return nil, nil
+}
+
 // stubIterator walks a fixed slice, matching the real iterators' contract:
 // Next reports whether an item is available, and a cancelled context stops
 // the walk rather than yielding items the caller no longer wants.

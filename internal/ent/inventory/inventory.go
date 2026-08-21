@@ -24,6 +24,8 @@ const (
 	FieldDescription = "description"
 	// FieldOwner holds the string denoting the owner field in the database.
 	FieldOwner = "owner"
+	// FieldProperties holds the string denoting the properties field in the database.
+	FieldProperties = "properties"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
@@ -68,6 +70,7 @@ var Columns = []string{
 	FieldName,
 	FieldDescription,
 	FieldOwner,
+	FieldProperties,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "inventories"

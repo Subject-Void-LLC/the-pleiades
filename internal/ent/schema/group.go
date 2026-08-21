@@ -26,6 +26,17 @@ func (Group) Mixin() []ent.Mixin {
 func (Group) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").Unique().NotEmpty(),
+		// properties holds arbitrary group-level settings, the same
+		// dynamic JSON shape Device.properties already uses. Phase 72
+		// (Transport Foundation) is its first real consumer: a group-level
+		// bastion/hop-chain route, resolved through pkg/policy.Resolve
+		// alongside Inventory.properties and a device's own override, most
+		// specific wins (AGENTS.md's hierarchical policy principle). Kept
+		// as an untyped bag rather than a dedicated "route" column because
+		// the same field is the natural home for whatever the next
+		// layered, group-level setting turns out to be, matching
+		// Inventory.properties and Device.properties.
+		field.JSON("properties", map[string]interface{}{}).Optional(),
 	}
 }
 

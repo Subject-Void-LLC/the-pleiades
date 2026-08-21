@@ -86,7 +86,12 @@ func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred c
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
 
-	result, err := t.runner.Run(ctx, remoteexec.Target{Host: target.Host, Port: target.Port}, auth, command)
+	hops, err := hopsFrom(target.Route)
+	if err != nil {
+		return transport.Result{}, fmt.Errorf("ssh: %w", err)
+	}
+
+	result, err := t.runner.Run(ctx, hops, remoteexec.Target{Host: target.Host, Port: target.Port}, auth, command)
 	if err != nil {
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
@@ -96,4 +101,35 @@ func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred c
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
 	}, nil
+}
+
+// hopsFrom translates transport.Target's Route into the remoteexec-level
+// hop chain, converting each hop's already-resolved credential.Credential
+// into exactly one remoteexec.Auth: the same conversion Exec already
+// applies to the final target's own credential above, just looped. A hop
+// whose credential cannot produce a usable authentication method is a
+// hard error before any network I/O, naming that hop's own device rather
+// than reporting a generic authentication failure once dialing already
+// started.
+//
+// An empty route returns a nil hop slice, exactly remoteexec.Runner.Run's
+// own "nil means a direct connection" contract, so a Target with no Route
+// costs nothing extra and behaves exactly as it did before Route existed.
+func hopsFrom(route []transport.Hop) ([]remoteexec.Hop, error) {
+	if len(route) == 0 {
+		return nil, nil
+	}
+
+	hops := make([]remoteexec.Hop, len(route))
+	for i, hop := range route {
+		auth, err := remoteexec.AuthFrom(hop.Credential.Username, hop.Credential.Password, hop.Credential.PrivateKeyPEM, hop.Credential.Passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("hop %q: %w", hop.DeviceName, err)
+		}
+		hops[i] = remoteexec.Hop{
+			Target: remoteexec.Target{Host: hop.Host, Port: hop.Port},
+			Auth:   auth,
+		}
+	}
+	return hops, nil
 }

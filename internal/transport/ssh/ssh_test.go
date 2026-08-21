@@ -63,6 +63,25 @@ func writeKnownHosts(t testing.TB, hostPort string, key ssh.PublicKey) string {
 	return path
 }
 
+// writeMultiKnownHosts is writeKnownHosts for more than one entry at
+// once, needed by ssh_container_test.go's hop-chain test: a bastion leg
+// and a tunneled leg present the same real host key under two different
+// addresses (the external host:port and the container's own internal
+// loopback), and both need a known_hosts line.
+func writeMultiKnownHosts(t testing.TB, entries map[string]ssh.PublicKey) string {
+	t.Helper()
+	var b strings.Builder
+	for hostPort, key := range entries {
+		b.WriteString(knownhosts.Line([]string{hostPort}, key))
+		b.WriteString("\n")
+	}
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatalf("failed to write known_hosts file: %v", err)
+	}
+	return path
+}
+
 // loopbackServer is a real SSH server on a loopback socket, accepting
 // any credential and answering one exec request per session with
 // handler's result.

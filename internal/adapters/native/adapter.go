@@ -132,7 +132,12 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	device := newWireDevice(payload)
 	credentials := credential.NewStaticStore(payload.Secrets)
 	actions := engine.NewCollectionActionExecutor(
-		engine.NewTransportActionExecutor(a.bindings, credentials, engine.NewBuiltinActionExecutor()),
+		// nil inventory.Repository: this per-task subprocess has no live
+		// database connection of its own (see
+		// engine.NewTransportActionExecutor's own doc comment for the
+		// full reasoning), so hop-chain resolution is skipped entirely
+		// here, exactly a direct connection.
+		engine.NewTransportActionExecutor(a.bindings, credentials, nil, engine.NewBuiltinActionExecutor()),
 		newDeviceRunbookContext,
 		engine.WithCollectionInvoker(a.ipc.invoke),
 	)

@@ -168,6 +168,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 165. Go's `time.Date` and PEP 495 `fold=0` resolve a nonexistent wall clock to different instants
 166. A concurrency test passed because most of its workers crashed before reaching the code under test
 167. A view's create form rendered no controls at all because every field omitted `InForm`, and the whole conformance suite still passed
+168. A hop chain's `Connect` kept closing only its last leg, leaking every earlier hop's connection
+169. A goleak check's baseline depended on which other tests happened to run first in the same binary
 
 ---
 

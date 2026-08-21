@@ -375,6 +375,16 @@ func OwnerContainsFold(v string) predicate.Inventory {
 	return predicate.Inventory(sql.FieldContainsFold(FieldOwner, v))
 }
 
+// PropertiesIsNil applies the IsNil predicate on the "properties" field.
+func PropertiesIsNil() predicate.Inventory {
+	return predicate.Inventory(sql.FieldIsNull(FieldProperties))
+}
+
+// PropertiesNotNil applies the NotNil predicate on the "properties" field.
+func PropertiesNotNil() predicate.Inventory {
+	return predicate.Inventory(sql.FieldNotNull(FieldProperties))
+}
+
 // HasOrganization applies the HasEdge predicate on the "organization" edge.
 func HasOrganization() predicate.Inventory {
 	return predicate.Inventory(func(s *sql.Selector) {

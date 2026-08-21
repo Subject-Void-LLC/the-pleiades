@@ -30,7 +30,7 @@ func TestConn_ReusesOneConnectionForManyCommands(t *testing.T) {
 	}
 	r := newTestRunner(counting, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestConn_RunWithStdinPipesInputToTheRemoteCommand(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestConn_RunHonorsContextCancellation(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestConn_CloseIsReportedOnce(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestConn_SessionOpenFailureIsReported(t *testing.T) {
 	}
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestConn_StdinTheRemoteNeverReadsIsNotAFailure(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestConn_StdinFailureDoesNotMaskARealExitStatus(t *testing.T) {
 	})
 	r := newTestRunner(dial, Options{})
 
-	conn, err := r.Connect(context.Background(), testTarget, testAuth)
+	conn, err := r.Connect(context.Background(), nil, testTarget, testAuth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

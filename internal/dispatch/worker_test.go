@@ -73,6 +73,10 @@ func (r *fakeRepository) Retire(_ context.Context, _ string) error {
 	return errors.New("fakeRepository.Retire is not implemented for these tests")
 }
 
+func (r *fakeRepository) GroupAncestry(_ context.Context, _ string) ([]inventory.HierarchyLayer, error) {
+	return nil, nil
+}
+
 // fakeIterator streams Devices in order, the same Next/Item/Error/Close
 // shape internal/inventory.Iterator requires and
 // internal/api/dispatcher_test.go's MockIterator already demonstrates.

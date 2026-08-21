@@ -6587,6 +6587,7 @@ type GroupMutation struct {
 	created_at         *time.Time
 	updated_at         *time.Time
 	name               *string
+	properties         *map[string]interface{}
 	clearedFields      map[string]struct{}
 	devices            map[int]struct{}
 	removeddevices     map[int]struct{}
@@ -6809,6 +6810,55 @@ func (m *GroupMutation) OldName(ctx context.Context) (v string, err error) {
 // ResetName resets all changes to the "name" field.
 func (m *GroupMutation) ResetName() {
 	m.name = nil
+}
+
+// SetProperties sets the "properties" field.
+func (m *GroupMutation) SetProperties(value map[string]interface{}) {
+	m.properties = &value
+}
+
+// Properties returns the value of the "properties" field in the mutation.
+func (m *GroupMutation) Properties() (r map[string]interface{}, exists bool) {
+	v := m.properties
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProperties returns the old "properties" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldProperties(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProperties is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProperties requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProperties: %w", err)
+	}
+	return oldValue.Properties, nil
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (m *GroupMutation) ClearProperties() {
+	m.properties = nil
+	m.clearedFields[group.FieldProperties] = struct{}{}
+}
+
+// PropertiesCleared returns if the "properties" field was cleared in this mutation.
+func (m *GroupMutation) PropertiesCleared() bool {
+	_, ok := m.clearedFields[group.FieldProperties]
+	return ok
+}
+
+// ResetProperties resets all changes to the "properties" field.
+func (m *GroupMutation) ResetProperties() {
+	m.properties = nil
+	delete(m.clearedFields, group.FieldProperties)
 }
 
 // AddDeviceIDs adds the "devices" edge to the Device entity by ids.
@@ -7061,7 +7111,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 3)
+	fields := make([]string, 0, 4)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -7070,6 +7120,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.name != nil {
 		fields = append(fields, group.FieldName)
+	}
+	if m.properties != nil {
+		fields = append(fields, group.FieldProperties)
 	}
 	return fields
 }
@@ -7085,6 +7138,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case group.FieldName:
 		return m.Name()
+	case group.FieldProperties:
+		return m.Properties()
 	}
 	return nil, false
 }
@@ -7100,6 +7155,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldUpdatedAt(ctx)
 	case group.FieldName:
 		return m.OldName(ctx)
+	case group.FieldProperties:
+		return m.OldProperties(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -7130,6 +7187,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetName(v)
 		return nil
+	case group.FieldProperties:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProperties(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
 }
@@ -7159,7 +7223,11 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *GroupMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(group.FieldProperties) {
+		fields = append(fields, group.FieldProperties)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -7172,6 +7240,11 @@ func (m *GroupMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *GroupMutation) ClearField(name string) error {
+	switch name {
+	case group.FieldProperties:
+		m.ClearProperties()
+		return nil
+	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
 }
 
@@ -7187,6 +7260,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldName:
 		m.ResetName()
+		return nil
+	case group.FieldProperties:
+		m.ResetProperties()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
@@ -7365,6 +7441,7 @@ type InventoryMutation struct {
 	name                *string
 	description         *string
 	owner               *string
+	properties          *map[string]interface{}
 	clearedFields       map[string]struct{}
 	organization        *int
 	clearedorganization bool
@@ -7686,6 +7763,55 @@ func (m *InventoryMutation) ResetOwner() {
 	delete(m.clearedFields, inventory.FieldOwner)
 }
 
+// SetProperties sets the "properties" field.
+func (m *InventoryMutation) SetProperties(value map[string]interface{}) {
+	m.properties = &value
+}
+
+// Properties returns the value of the "properties" field in the mutation.
+func (m *InventoryMutation) Properties() (r map[string]interface{}, exists bool) {
+	v := m.properties
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProperties returns the old "properties" field's value of the Inventory entity.
+// If the Inventory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *InventoryMutation) OldProperties(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProperties is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProperties requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProperties: %w", err)
+	}
+	return oldValue.Properties, nil
+}
+
+// ClearProperties clears the value of the "properties" field.
+func (m *InventoryMutation) ClearProperties() {
+	m.properties = nil
+	m.clearedFields[inventory.FieldProperties] = struct{}{}
+}
+
+// PropertiesCleared returns if the "properties" field was cleared in this mutation.
+func (m *InventoryMutation) PropertiesCleared() bool {
+	_, ok := m.clearedFields[inventory.FieldProperties]
+	return ok
+}
+
+// ResetProperties resets all changes to the "properties" field.
+func (m *InventoryMutation) ResetProperties() {
+	m.properties = nil
+	delete(m.clearedFields, inventory.FieldProperties)
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by id.
 func (m *InventoryMutation) SetOrganizationID(id int) {
 	m.organization = &id
@@ -7921,7 +8047,7 @@ func (m *InventoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *InventoryMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, inventory.FieldCreatedAt)
 	}
@@ -7936,6 +8062,9 @@ func (m *InventoryMutation) Fields() []string {
 	}
 	if m.owner != nil {
 		fields = append(fields, inventory.FieldOwner)
+	}
+	if m.properties != nil {
+		fields = append(fields, inventory.FieldProperties)
 	}
 	return fields
 }
@@ -7955,6 +8084,8 @@ func (m *InventoryMutation) Field(name string) (ent.Value, bool) {
 		return m.Description()
 	case inventory.FieldOwner:
 		return m.Owner()
+	case inventory.FieldProperties:
+		return m.Properties()
 	}
 	return nil, false
 }
@@ -7974,6 +8105,8 @@ func (m *InventoryMutation) OldField(ctx context.Context, name string) (ent.Valu
 		return m.OldDescription(ctx)
 	case inventory.FieldOwner:
 		return m.OldOwner(ctx)
+	case inventory.FieldProperties:
+		return m.OldProperties(ctx)
 	}
 	return nil, fmt.Errorf("unknown Inventory field %s", name)
 }
@@ -8018,6 +8151,13 @@ func (m *InventoryMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetOwner(v)
 		return nil
+	case inventory.FieldProperties:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProperties(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Inventory field %s", name)
 }
@@ -8054,6 +8194,9 @@ func (m *InventoryMutation) ClearedFields() []string {
 	if m.FieldCleared(inventory.FieldOwner) {
 		fields = append(fields, inventory.FieldOwner)
 	}
+	if m.FieldCleared(inventory.FieldProperties) {
+		fields = append(fields, inventory.FieldProperties)
+	}
 	return fields
 }
 
@@ -8073,6 +8216,9 @@ func (m *InventoryMutation) ClearField(name string) error {
 		return nil
 	case inventory.FieldOwner:
 		m.ClearOwner()
+		return nil
+	case inventory.FieldProperties:
+		m.ClearProperties()
 		return nil
 	}
 	return fmt.Errorf("unknown Inventory nullable field %s", name)
@@ -8096,6 +8242,9 @@ func (m *InventoryMutation) ResetField(name string) error {
 		return nil
 	case inventory.FieldOwner:
 		m.ResetOwner()
+		return nil
+	case inventory.FieldProperties:
+		m.ResetProperties()
 		return nil
 	}
 	return fmt.Errorf("unknown Inventory field %s", name)
