@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory/inventorytest"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
 )
 
 // sshStub wraps inventorytest.Stub (the repo's shared InventoryItem test
@@ -94,13 +95,151 @@ func TestSSHTarget(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ok for a device implementing SSHTransportCapable")
 	}
-	if target.Host != "10.0.0.1" || target.Port != 2222 {
-		t.Errorf("expected Target{10.0.0.1, 2222}, got %+v", target)
+	ep, ok := target.Endpoint.(transport.NetworkEndpoint)
+	if !ok || ep.Host != "10.0.0.1" || ep.Port != 2222 {
+		t.Errorf("expected NetworkEndpoint{10.0.0.1, 2222}, got %+v", target)
 	}
 
 	plain := &inventorytest.Stub{StubName: "plain"}
 	if _, ok := engine.SSHTarget(plain); ok {
 		t.Error("expected ok=false for a device not implementing SSHTransportCapable")
+	}
+}
+
+// serialStub wraps inventorytest.Stub with the two accessors
+// capability.SerialCapable requires.
+type serialStub struct {
+	*inventorytest.Stub
+	device serialline.Device
+	line   serialline.Config
+}
+
+func (s *serialStub) SerialDevice() serialline.Device { return s.device }
+func (s *serialStub) SerialLine() serialline.Config   { return s.line }
+
+// newSerialDevice returns an InventoryItem that declares
+// capability.NameSerial and implements capability.SerialCapable, the
+// shape SerialTarget and a binding's Capability check both expect.
+func newSerialDevice(name string, device serialline.Device, line serialline.Config) *serialStub {
+	return &serialStub{
+		Stub: &inventorytest.Stub{
+			StubName: name,
+			Caps:     []capability.Name{capability.NameSerial},
+		},
+		device: device,
+		line:   line,
+	}
+}
+
+// TestSerialTarget confirms SerialTarget extracts the device path and
+// line configuration from a device implementing capability.SerialCapable,
+// and reports false for one that does not.
+func TestSerialTarget(t *testing.T) {
+	line := serialline.Config{BaudRate: 115200, DataBits: 8, Parity: serialline.ParityEven, StopBits: serialline.StopBitsTwo}
+	dev := newSerialDevice("console1", "/dev/ttyUSB0", line)
+	target, ok := engine.SerialTarget(dev)
+	if !ok {
+		t.Fatal("expected ok for a device implementing SerialCapable")
+	}
+	ep, ok := target.Endpoint.(transport.SerialEndpoint)
+	if !ok || ep.Device != "/dev/ttyUSB0" || ep.Line != line {
+		t.Errorf("expected SerialEndpoint{/dev/ttyUSB0, %+v}, got %+v", line, target)
+	}
+
+	plain := &inventorytest.Stub{StubName: "plain"}
+	if _, ok := engine.SerialTarget(plain); ok {
+		t.Error("expected ok=false for a device not implementing SerialCapable")
+	}
+}
+
+// rawPassthroughStub wraps inventorytest.Stub with the two accessors
+// capability.RawPassthroughCapable requires.
+type rawPassthroughStub struct {
+	*inventorytest.Stub
+	host string
+	port int
+}
+
+func (s *rawPassthroughStub) RawPassthroughHost() string { return s.host }
+func (s *rawPassthroughStub) RawPassthroughPort() int    { return s.port }
+
+// newRawPassthroughDevice returns an InventoryItem that declares
+// capability.NameRawPassthrough and implements
+// capability.RawPassthroughCapable, the shape RawPassthroughTarget and a
+// binding's Capability check both expect.
+func newRawPassthroughDevice(name, host string, port int) *rawPassthroughStub {
+	return &rawPassthroughStub{
+		Stub: &inventorytest.Stub{
+			StubName: name,
+			Caps:     []capability.Name{capability.NameRawPassthrough},
+		},
+		host: host,
+		port: port,
+	}
+}
+
+// TestRawPassthroughTarget confirms RawPassthroughTarget extracts host
+// and port from a device implementing capability.RawPassthroughCapable,
+// and reports false for one that does not.
+func TestRawPassthroughTarget(t *testing.T) {
+	dev := newRawPassthroughDevice("console-server1", "10.0.0.5", 7001)
+	target, ok := engine.RawPassthroughTarget(dev)
+	if !ok {
+		t.Fatal("expected ok for a device implementing RawPassthroughCapable")
+	}
+	ep, ok := target.Endpoint.(transport.NetworkEndpoint)
+	if !ok || ep.Host != "10.0.0.5" || ep.Port != 7001 {
+		t.Errorf("expected NetworkEndpoint{10.0.0.5, 7001}, got %+v", target)
+	}
+
+	plain := &inventorytest.Stub{StubName: "plain"}
+	if _, ok := engine.RawPassthroughTarget(plain); ok {
+		t.Error("expected ok=false for a device not implementing RawPassthroughCapable")
+	}
+}
+
+// telnetStub wraps inventorytest.Stub with the two accessors
+// capability.TelnetCapable requires.
+type telnetStub struct {
+	*inventorytest.Stub
+	host string
+	port int
+}
+
+func (s *telnetStub) TelnetHost() string { return s.host }
+func (s *telnetStub) TelnetPort() int    { return s.port }
+
+// newTelnetDevice returns an InventoryItem that declares
+// capability.NameTelnet and implements capability.TelnetCapable, the
+// shape TelnetTarget and a binding's Capability check both expect.
+func newTelnetDevice(name, host string, port int) *telnetStub {
+	return &telnetStub{
+		Stub: &inventorytest.Stub{
+			StubName: name,
+			Caps:     []capability.Name{capability.NameTelnet},
+		},
+		host: host,
+		port: port,
+	}
+}
+
+// TestTelnetTarget confirms TelnetTarget extracts host and port from a
+// device implementing capability.TelnetCapable, and reports false for
+// one that does not.
+func TestTelnetTarget(t *testing.T) {
+	dev := newTelnetDevice("console-server2", "10.0.0.6", 23)
+	target, ok := engine.TelnetTarget(dev)
+	if !ok {
+		t.Fatal("expected ok for a device implementing TelnetCapable")
+	}
+	ep, ok := target.Endpoint.(transport.NetworkEndpoint)
+	if !ok || ep.Host != "10.0.0.6" || ep.Port != 23 {
+		t.Errorf("expected NetworkEndpoint{10.0.0.6, 23}, got %+v", target)
+	}
+
+	plain := &inventorytest.Stub{StubName: "plain"}
+	if _, ok := engine.TelnetTarget(plain); ok {
+		t.Error("expected ok=false for a device not implementing TelnetCapable")
 	}
 }
 
@@ -178,6 +317,70 @@ func TestTransportActionExecutor_RejectsCapabilityWithNoTargetAccessor(t *testin
 	if _, err := actions.Execute(context.Background(), task, claimsCapabilityOnly); err == nil {
 		t.Error("expected an error for a device that declares the capability but does not implement its Target accessor")
 	}
+}
+
+// TestTransportActionExecutor_RequireOptInParamGatesDispatch is this
+// phase's own proof of TransportBinding.RequireOptInParam: a binding
+// naming one refuses to dispatch at all -- no Target resolution, no
+// Transport.Exec call -- unless the task's own params carry that name
+// set to true, and dispatches normally once it is. Uses a fake
+// transport that would panic if ever called, so this is a genuine "was
+// the transport reached" proof, not just an error-string check.
+func TestTransportActionExecutor_RequireOptInParamGatesDispatch(t *testing.T) {
+	var execCalled bool
+	binding := engine.TransportBinding{
+		Capability: capability.NameRawPassthrough,
+		Transport: &fakeTransport{exec: func(context.Context, transport.Target, credential.Credential, string) (transport.Result, error) {
+			execCalled = true
+			return transport.Result{}, nil
+		}},
+		Target:            engine.RawPassthroughTarget,
+		RequireOptInParam: engine.ParamInsecureRawPassthrough,
+	}
+	actions := engine.NewTransportActionExecutor(
+		map[string]engine.TransportBinding{"serialtcp_exec": binding},
+		fakeCredentialStore{cred: credential.Credential{Username: "admin"}},
+		nil,
+		engine.NewBuiltinActionExecutor(),
+	)
+	dev := newRawPassthroughDevice("console-server1", "10.0.0.5", 7001)
+
+	t.Run("refused without the opt-in", func(t *testing.T) {
+		execCalled = false
+		task := &engine.Task{FQCN: "serialtcp_exec", Params: map[string]interface{}{"command": "show version"}}
+		_, err := actions.Execute(context.Background(), task, dev)
+		if err == nil {
+			t.Fatal("expected an error when the opt-in param is absent")
+		}
+		if !strings.Contains(err.Error(), engine.ParamInsecureRawPassthrough) {
+			t.Errorf("expected the error to name %q, got: %v", engine.ParamInsecureRawPassthrough, err)
+		}
+		if execCalled {
+			t.Error("expected Transport.Exec to never be called without the opt-in")
+		}
+	})
+
+	t.Run("refused when the opt-in is explicitly false", func(t *testing.T) {
+		execCalled = false
+		task := &engine.Task{FQCN: "serialtcp_exec", Params: map[string]interface{}{"command": "show version", engine.ParamInsecureRawPassthrough: false}}
+		if _, err := actions.Execute(context.Background(), task, dev); err == nil {
+			t.Error("expected an error when the opt-in param is explicitly false")
+		}
+		if execCalled {
+			t.Error("expected Transport.Exec to never be called when the opt-in is false")
+		}
+	})
+
+	t.Run("dispatches once opted in", func(t *testing.T) {
+		execCalled = false
+		task := &engine.Task{FQCN: "serialtcp_exec", Params: map[string]interface{}{"command": "show version", engine.ParamInsecureRawPassthrough: true}}
+		if _, err := actions.Execute(context.Background(), task, dev); err != nil {
+			t.Fatalf("expected success once opted in, got: %v", err)
+		}
+		if !execCalled {
+			t.Error("expected Transport.Exec to be called once opted in")
+		}
+	})
 }
 
 // TestTransportActionExecutor_RequiresCommandParam confirms a bound fqcn
@@ -344,6 +547,43 @@ func TestTransportActionExecutor_NonZeroExitIsError(t *testing.T) {
 	}
 }
 
+// TestTransportActionExecutor_ExitStatusUnknownIsNeverTreatedAsFailure is
+// this phase's regression proof for the gap transport.Result.
+// ExitStatusUnknown exists to close: a byte-stream transport with no real
+// exit code (Phase 73: a serial console, a raw TCP byte pipe, bare
+// Telnet) has nothing meaningful in ExitCode at all, and treating its
+// zero-value as success would be an accident, not a guarantee. This test
+// deliberately returns a NON-zero ExitCode alongside ExitStatusUnknown:
+// true, so the only way it can pass is if the executor genuinely ignores
+// ExitCode rather than merely happening to see a zero.
+func TestTransportActionExecutor_ExitStatusUnknownIsNeverTreatedAsFailure(t *testing.T) {
+	actions := engine.NewTransportActionExecutor(
+		map[string]engine.TransportBinding{"ssh_exec": sshBinding(func(context.Context, transport.Target, credential.Credential, string) (transport.Result, error) {
+			return transport.Result{
+				Stdout:            "% Invalid input detected at '^' marker.",
+				ExitCode:          1,
+				ExitStatusUnknown: true,
+			}, nil
+		})},
+		fakeCredentialStore{cred: credential.Credential{Username: "admin", Password: "irrelevant"}},
+		nil,
+		engine.NewBuiltinActionExecutor(),
+	)
+	dev := newSSHDevice("router1", "10.0.0.1", 22)
+	task := &engine.Task{FQCN: "ssh_exec", Params: map[string]interface{}{"command": "show version"}}
+
+	result, err := actions.Execute(context.Background(), task, dev)
+	if err != nil {
+		t.Fatalf("expected ExitStatusUnknown to suppress the exit-code failure, got: %v", err)
+	}
+	if got := result.Stats["exit_status_unknown"]; got != true {
+		t.Errorf("Stats[\"exit_status_unknown\"] = %v, want true", got)
+	}
+	if got := result.Stats["stdout"]; got != "% Invalid input detected at '^' marker." {
+		t.Errorf("Stats[\"stdout\"] = %v, want the captured output, so a caller can judge it", got)
+	}
+}
+
 // TestTransportActionExecutor_MasksSecretsInTransportError is a
 // regression test for FAILURE_PATTERNS.md #22, found by Phase W6's own
 // Schema/Injection Hardening audit: an earlier draft masked only the
@@ -427,7 +667,7 @@ func fakeProtocolTarget(item inventory.InventoryItem) (transport.Target, bool) {
 	if !ok {
 		return transport.Target{}, false
 	}
-	return transport.Target{Host: dev.FakeAddr(), Port: 9999}, true
+	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: dev.FakeAddr(), Port: 9999}}, true
 }
 
 // TestTransportActionExecutor_DispatchesToASecondUnrelatedProtocol is
@@ -453,8 +693,9 @@ func TestTransportActionExecutor_DispatchesToASecondUnrelatedProtocol(t *testing
 			Capability: fakeProtocolCapability,
 			Transport: &fakeTransport{exec: func(_ context.Context, target transport.Target, _ credential.Credential, _ string) (transport.Result, error) {
 				fakeCalled = true
-				if target.Host != "fake-host" {
-					t.Errorf("expected the fake protocol's own Target accessor to run, got host %q", target.Host)
+				ep, ok := target.Endpoint.(transport.NetworkEndpoint)
+				if !ok || ep.Host != "fake-host" {
+					t.Errorf("expected the fake protocol's own Target accessor to run, got endpoint %+v", target.Endpoint)
 				}
 				return transport.Result{ExitCode: 0}, nil
 			}},

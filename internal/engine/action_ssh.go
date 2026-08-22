@@ -11,6 +11,25 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 )
 
+// ParamInsecureRawPassthrough is the RequireOptInParam name for the
+// serialtcp_exec binding: raw TCP passthrough to a console server offers
+// no authentication and no encryption at the protocol level, so a task
+// must set this to true, next to the command it applies to, before it
+// will be dispatched at all. Mirrors
+// sdk.ParamInsecureSkipHostKeyVerify's own naming and reasoning.
+const ParamInsecureRawPassthrough = "insecure_raw_passthrough"
+
+// ParamInsecureTelnet is the RequireOptInParam name for the telnet_exec
+// binding: bare Telnet sends everything, credentials included, in
+// cleartext with no encryption at any layer, so a task must set this to
+// true, next to the command it applies to, before it will be dispatched
+// at all. A distinct constant from ParamInsecureRawPassthrough rather
+// than the same param reused across both bindings: each fqcn's opt-in is
+// its own explicit, named decision, and reusing one param across two
+// unrelated transports would let opting into one silently opt into the
+// other.
+const ParamInsecureTelnet = "insecure_telnet"
+
 // TransportBinding is one fqcn's binding to a real transport.Transport:
 // which capability a target device must declare, which Transport actually
 // runs the command, and how to turn a resolved device into the
@@ -41,6 +60,18 @@ type TransportBinding struct {
 	// check above should already have ruled this out for any device that
 	// reached this point honestly.
 	Target func(inventory.InventoryItem) (transport.Target, bool)
+
+	// RequireOptInParam, if non-empty, names a boolean task parameter
+	// that must be explicitly true before TransportActionExecutor will
+	// dispatch to this binding at all. It exists for a transport whose
+	// own protocol offers no authentication and no encryption (raw TCP
+	// passthrough, Phase 73): the binding itself is not reachable by
+	// default, the same "explicit, loud opt-in ... never a fallback
+	// silently taken" shape sdk.ParamInsecureSkipHostKeyVerify already
+	// established for SSH's own escape hatch
+	// (pkg/sdk/connect.go). Empty means no gate, which every binding
+	// before Phase 73 keeps unedited.
+	RequireOptInParam string
 }
 
 // SSHTarget is the TransportBinding.Target function for any fqcn bound to
@@ -53,7 +84,46 @@ func SSHTarget(item inventory.InventoryItem) (transport.Target, bool) {
 	if !ok {
 		return transport.Target{}, false
 	}
-	return transport.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, true
+	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}}, true
+}
+
+// SerialTarget is the TransportBinding.Target function for any fqcn
+// bound to capability.NameSerial: it extracts the device path and line
+// configuration a capability.SerialCapable device advertises.
+func SerialTarget(item inventory.InventoryItem) (transport.Target, bool) {
+	serialDev, ok := item.(capability.SerialCapable)
+	if !ok {
+		return transport.Target{}, false
+	}
+	return transport.Target{Endpoint: transport.SerialEndpoint{Device: serialDev.SerialDevice(), Line: serialDev.SerialLine()}}, true
+}
+
+// RawPassthroughTarget is the TransportBinding.Target function for any
+// fqcn bound to capability.NameRawPassthrough: it extracts the console
+// server's host and port a capability.RawPassthroughCapable device
+// advertises. Raw passthrough uses transport.NetworkEndpoint, the same
+// shape SSHTarget above uses, because what it dials is a plain
+// host:port pair — only the protocol spoken once connected differs.
+func RawPassthroughTarget(item inventory.InventoryItem) (transport.Target, bool) {
+	rawDev, ok := item.(capability.RawPassthroughCapable)
+	if !ok {
+		return transport.Target{}, false
+	}
+	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: rawDev.RawPassthroughHost(), Port: rawDev.RawPassthroughPort()}}, true
+}
+
+// TelnetTarget is the TransportBinding.Target function for any fqcn
+// bound to capability.NameTelnet: it extracts the device's host and port
+// a capability.TelnetCapable device advertises. Bare Telnet uses
+// transport.NetworkEndpoint, the same shape SSHTarget and
+// RawPassthroughTarget above use, because what it dials is a plain
+// host:port pair — only the protocol spoken once connected differs.
+func TelnetTarget(item inventory.InventoryItem) (transport.Target, bool) {
+	telnetDev, ok := item.(capability.TelnetCapable)
+	if !ok {
+		return transport.Target{}, false
+	}
+	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: telnetDev.TelnetHost(), Port: telnetDev.TelnetPort()}}, true
 }
 
 // transportActionExecutor is the ActionExecutor that dispatches a task to
@@ -118,6 +188,21 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	// capability.
 	if device == nil || !device.HasCapability(binding.Capability) {
 		return ActionResult{}, fmt.Errorf("fqcn %q requires a target device declaring capability %s", task.FQCN, binding.Capability)
+	}
+
+	// A named, loud opt-in gate: see TransportBinding.RequireOptInParam's
+	// own doc comment. Checked before Target resolution or any network
+	// I/O, since an unauthenticated, unencrypted transport must never be
+	// reached even to fail cleanly without the runbook author having
+	// written the opt-in down.
+	if binding.RequireOptInParam != "" {
+		optedIn, _ := task.Params[binding.RequireOptInParam].(bool)
+		if !optedIn {
+			return ActionResult{}, fmt.Errorf(
+				"fqcn %q requires params.%s set to true: this transport offers no authentication and no encryption at the protocol level, so it is never reached without an explicit opt-in",
+				task.FQCN, binding.RequireOptInParam,
+			)
+		}
 	}
 
 	target, ok := binding.Target(device)
@@ -185,7 +270,19 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	stdout := redact.Text(secrets, result.Stdout)
 	stderr := redact.Text(secrets, result.Stderr)
 
-	if result.ExitCode != 0 {
+	// A non-zero ExitCode means failure ONLY when the transport actually
+	// has a concept of one. Phase 73 adds transports with none at all (a
+	// serial console, a raw TCP byte pipe, a bare Telnet session): for
+	// those, ExitStatusUnknown is true and ExitCode carries no
+	// information, so treating a zero there as success would report a
+	// command that printed "% Invalid input detected" as having
+	// succeeded, the worst failure shape transport.Result's own doc
+	// comment warns against. This executor does not attempt to judge
+	// such output itself; it reports the transport step as having
+	// completed, stdout/stderr are recorded either way, and a caller
+	// (a runbook's own when/when_cel assertion, or a future
+	// Collection-level judgment) decides pass or fail from that text.
+	if !result.ExitStatusUnknown && result.ExitCode != 0 {
 		return ActionResult{}, fmt.Errorf(
 			"fqcn %q on device %q: command exited %d\nstdout: %s\nstderr: %s",
 			task.FQCN, device.Name(), result.ExitCode, stdout, stderr,
@@ -207,9 +304,10 @@ func (e *transportActionExecutor) Execute(ctx context.Context, task *Task, devic
 	return ActionResult{
 		Changed: changed,
 		Stats: map[string]interface{}{
-			"stdout":    stdout,
-			"stderr":    stderr,
-			"exit_code": result.ExitCode,
+			"stdout":              stdout,
+			"stderr":              stderr,
+			"exit_code":           result.ExitCode,
+			"exit_status_unknown": result.ExitStatusUnknown,
 		},
 	}, nil
 }

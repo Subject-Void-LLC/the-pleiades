@@ -8,11 +8,12 @@ Every registered inventory device type, its vendor package, and the capabilities
 
 | Type | Vendor | Capabilities | Origin |
 | --- | --- | --- | --- |
-| `cisco_router` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable` | hand-written, predates the Forge |
-| `linux_server` | `linux` | `SSHTransportCapable`, `LinuxCapable`, `ShellExecCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable` | hand-written, predates the Forge |
-| `windows_server` | `windows` | `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, `WindowsFeatureCapable` | generated |
+| `cisco_router` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkAddressableCapable` | hand-written, predates the Forge |
+| `linux_server` | `linux` | `SSHTransportCapable`, `LinuxCapable`, `ShellExecCapable`, `POSIXFileSystemCapable`, `FactGathererCapable`, `SystemdCapable`, `NetworkAddressableCapable` | hand-written, predates the Forge |
+| `windows_server` | `windows` | `WindowsCapable`, `WinRMCapable`, `WindowsServiceCapable`, `WindowsFeatureCapable`, `NetworkAddressableCapable` | generated |
 | `aws_account` | `aws` | `AWSAPICapable` | generated |
 | `catalyst_center` | `catalyst` | `CatalystAPICapable` | generated |
-| `cisco_switch` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkCLICapable` | generated |
+| `cisco_switch` | `cisco` | `SSHTransportCapable`, `CiscoIOSCapable`, `NetworkCLICapable`, `NetworkAddressableCapable` | generated |
+| `container_host` | `container` | `SSHTransportCapable`, `DockerCapable`, `NetworkAddressableCapable` | generated |
 
-6 device types registered.
+7 device types registered.

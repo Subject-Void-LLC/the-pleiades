@@ -29,10 +29,11 @@ var handWrittenDevices = []struct {
 	TypeKey      string
 	Capabilities []string
 }{
-	{Vendor: "cisco", TypeKey: "cisco_router", Capabilities: []string{"SSHTransportCapable", "CiscoIOSCapable"}},
+	{Vendor: "cisco", TypeKey: "cisco_router", Capabilities: []string{"SSHTransportCapable", "CiscoIOSCapable", "NetworkAddressableCapable"}},
 	{Vendor: "linux", TypeKey: "linux_server", Capabilities: []string{
 		"SSHTransportCapable", "LinuxCapable", "ShellExecCapable",
 		"POSIXFileSystemCapable", "FactGathererCapable", "SystemdCapable",
+		"NetworkAddressableCapable",
 	}},
 }
 

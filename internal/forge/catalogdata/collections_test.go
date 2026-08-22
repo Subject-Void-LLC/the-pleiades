@@ -32,9 +32,12 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// StatusImplemented Release Gate method. Part XV's WinRM work added
 	// the 77th, exec.winrm.shell, the Windows counterpart of exec.shell
 	// and the first method reaching a device over a transport other than
-	// SSH or HTTPS. This test pins the number down so a future accidental
-	// entry loss or duplication is a build failure, not a silent gap.
-	const wantCollections = 77
+	// SSH or HTTPS. Phase 73's Workstream F added the 78th,
+	// container.docker.exec, the first method to reach a device over a
+	// raw Docker daemon socket instead of SSH, WinRM, or HTTPS. This test
+	// pins the number down so a future accidental entry loss or
+	// duplication is a build failure, not a silent gap.
+	const wantCollections = 78
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

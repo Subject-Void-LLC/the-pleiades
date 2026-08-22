@@ -320,6 +320,31 @@ var extendedCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:              "container.docker.exec",
+		Capabilities:      []capability.Name{capability.NameDocker},
+		Transports:        []string{"docker"},
+		RequiresElevation: false,
+		EngineVersion:     engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Runs one command inside a running Docker container, reached directly through the daemon socket.",
+			Description: "Runs cmd inside the container named name, through /bin/sh -c on the daemon's own exec endpoints (pkg/dockerexec), never over SSH. The container must already be running; this method does not start one (see container.docker.run). Reports the command's real exit code, stdout and stderr. A non-zero exit is an error, not a result to inspect, the same line exec.command draws.",
+			Params: []collection.Param{
+				{Name: "name", Type: "string", Required: true, Description: "The running container to exec into."},
+				{Name: "cmd", Type: "string", Required: true, Description: "The command line, run inside the container's own /bin/sh -c. Pipes, redirects and quoting all work, because the container's shell sees them."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "name", Type: "string", Returned: "always", Description: "The container this task acted on."},
+				{Name: "exit_code", Type: "int", Returned: "always", Description: "The command's real exit status, reported by the Docker daemon."},
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the command wrote to standard output."},
+				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error."},
+			},
+			Examples: []collection.Example{
+				{Name: "Check a running container's own view of a file", RunbookYAML: "- name: Read the app's version file\n  fqcn: container.docker.exec\n  params:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"},
+			},
+			SeeAlso: []string{"container.docker.run", "container.docker.stop", "container.docker.remove", "exec.shell"},
+		},
+	},
+	{
 		Name:          "cloud.aws.ec2.create",
 		Capabilities:  []capability.Name{capability.NameAWSAPI},
 		EngineVersion: engineVersion,

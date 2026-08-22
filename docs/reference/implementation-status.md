@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**70 of 77 methods are implemented.**
+**71 of 78 methods are implemented.**
 
 ## Implemented
 
@@ -71,6 +71,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [container.docker.run](modules/container/docker/run.md)
 - [container.docker.stop](modules/container/docker/stop.md)
 - [container.docker.remove](modules/container/docker/remove.md)
+- [container.docker.exec](modules/container/docker/exec.md)
 - [cloud.aws.ec2.create](modules/cloud/aws/ec2/create.md)
 - [cloud.aws.ec2.terminate](modules/cloud/aws/ec2/terminate.md)
 - [cloud.aws.s3.create_bucket](modules/cloud/aws/s3/create_bucket.md)

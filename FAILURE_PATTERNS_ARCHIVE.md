@@ -5264,3 +5264,281 @@ and `flaky-packages.json` already established for this project's other two
 waiver mechanisms -- a bare list of exempted names, with no citation and
 no drift check, would have been a second, unaudited way for exactly this
 class of bug to hide again.
+
+## 172. A byte-stream "read until quiet" loop treated a closed connection as a hard failure instead of a valid end of output
+
+**Symptom.** `pkg/serialtcp.Exec`'s own real test suite, run against a
+real local TCP server (`net.Listen`), failed three of six tests with
+`serialtcp: EOF` the first time it ran: `TestExec_RoundTripsThroughARealTCPConnection`,
+`TestExec_ConnectionLifecycleOpensAndClosesCleanly`, and
+`TestExec_DefaultsWhenOptionsIsZeroValue`.
+
+**Root cause.** `readUntilQuiet` accumulated bytes from `net.Conn.Read`
+until one call returned a `net.Error` with `Timeout() == true` -- the
+documented signal a per-call `SetReadDeadline` had elapsed with nothing
+new to read, meaning "no more output is coming for now." The test
+double's own handler (`echoServer`'s callback) wrote its canned response
+and then returned, which ran its `defer conn.Close()` almost
+immediately. The client's second `Read` call, made to see whether more
+output was coming, therefore saw `io.EOF` (the far end closed the
+connection) rather than a timeout, and `readUntilQuiet` treated any
+non-timeout error, `io.EOF` included, as a hard failure.
+
+**Why it was not caught before running the real tests.** The design was
+reasoned out and written directly from the analogous, already-verified
+`pkg/serialexec` shape (a local serial line's termios-based `(0, nil)`
+timeout contract), and the difference between the two protocols' actual
+"no more data" signals was assumed to be only the shape of a timeout
+(`net.Error.Timeout()` versus `(0, nil)`), not that TCP has a SECOND,
+equally normal termination signal — the far end closing the
+connection — that a local serial line has no equivalent of at all. A
+real socat PTY pair was used to verify `pkg/serialexec`'s identical
+timeout logic before writing any code (see `pkg/serialexec`'s own doc
+comment), but `pkg/serialtcp`'s design was written from that verified
+precedent by analogy rather than independently checked against a real
+TCP connection first — the gap was found only once the real tests, which
+happened to write a test double that closes promptly (a realistic
+console-server behavior, not a contrived one), were actually run.
+
+**Fix.** `readUntilQuiet` now treats `io.EOF` identically to a read
+timeout: both mean "stop reading, return what was accumulated," not an
+error. A raw byte pipe has no session semantics to say whether the far
+end closing the connection was deliberate, and `transport.Result.ExitStatusUnknown`'s
+whole premise is that this package cannot know more than "here is what
+came back before it stopped" — an EOF is exactly as valid an answer to
+that question as a quiet period is.
+
+**Lesson.** Porting a verified design from one protocol to a sibling
+protocol by analogy is not the same as verifying the port itself: two
+protocols that share a shape (write-then-read-until-quiet) can still
+disagree about which underlying signals mean "quiet," and the honest
+move is to write the real test for the NEW protocol and run it before
+trusting the port, not just to reuse the reasoning that verified the
+original. This is also a second instance of a shape this project's own
+`FAILURE_PATTERNS.md` already knows: a test double's realistic behavior
+(closing the connection promptly, which a real console server or web
+server might well do) found a real production bug a less realistic
+double (one that kept the connection open forever) would have hidden.
+
+## 173. Two shipped Adapter packages carried real logic at 0.0% test coverage, hidden one layer below a fully-tested primitive
+
+**Symptom.** While building `internal/transport/telnet` (Phase 73
+Workstream E) and reaching for the same "thin `internal/transport/*`
+Adapter over a `pkg/` primitive" shape `internal/transport/ssh`,
+`internal/transport/serial`, and `internal/transport/serialtcp` already
+established, a routine `go test ./internal/transport/serial/...
+./internal/transport/serialtcp/... -cover` check (done before writing
+the new package's own test, to see what the established bar actually
+was) showed both existing packages at `0.0% of statements` — not "low,"
+zero. Neither had a test file at all.
+
+**Root cause.** Workstream D (the phase immediately before this one)
+built exhaustive, real, non-mocked RULE 0 evidence for the two `pkg/`
+primitives underneath these adapters (`pkg/serialexec` at 96.3%,
+`pkg/serialtcp` at 95.0%, both against real fixtures: a socat PTY pair
+and a real `net.Listen` server respectively) and treated that as
+sufficient, because the adapter's own job — a type assertion on
+`transport.Target.Endpoint` plus a field-for-field translation of the
+result — looked too thin to need its own test. It was still real,
+reachable, untested code: the type assertion's failure branch (a
+binding-configuration bug reaching the wrong `Endpoint` kind) and the
+error-wrapping branch (a real `pkg/` failure reaching the caller) had
+never executed under `go test` at all, only been read and reasoned
+about.
+
+**Why it was not caught at the time.** Workstream D's own verification
+sweep ran `go build ./...`, `go vet ./...`, `gofmt -l`, and a full `go
+test ./...` pass, and all of it stayed green — a missing test file
+produces no build error, no vet warning, and no failing test, only a
+silent gap in a coverage percentage nobody explicitly checked for those
+two specific packages in isolation. The full-repo test run's own summary
+line reports `[no test files]` for a package with none, easy to
+overlook among 140-plus other package lines that legitimately say `ok`.
+
+**Fix.** Added `internal/transport/serial/serial_test.go` and
+`internal/transport/serialtcp/serialtcp_test.go`, each proving three
+things the pkg/ layer's own tests cannot: a real round trip through
+`New(...).Exec(...)` (not the pkg/ function directly) against the same
+real fixtures Workstream D already established (a local copy of the
+socat-PTY helper for serial, a real `net.Listen` server for serialtcp),
+the type-assertion error path (an `Endpoint` kind the Adapter does not
+understand fails with a clear, named type error, not a panic), and the
+error-wrapping path (a real underlying failure reaches the caller
+wrapped, not silently absorbed). Both packages went from 0.0% to 100.0%
+coverage. `internal/transport/telnet`, built alongside this fix, got the
+identical three-test shape from the start rather than repeating the gap
+a third time.
+
+**Lesson.** "The layer underneath is exhaustively tested" is not
+evidence that a thin wrapper above it is tested — a delegation function
+still has its own branches (the type assertion, the error wrap), and
+each one is reachable code that can be wrong independently of whatever
+it delegates to. Before treating a new package as done, run `go test
+-cover` on it *and* on every sibling package the same session's own
+work sits beside, not just the new one being written — this gap would
+have been caught a full workstream earlier by the same one-line check
+that found it here.
+
+## 174. A frame's announced size was allocated before it was checked against the output cap
+
+**Symptom.** None yet observed in production — found during Phase 73
+Workstream H's own Schema/Injection Hardening audit, reading
+`pkg/dockerexec`'s `readDemux` deliberately rather than in response to a
+failure. `TestReadDemux_NeverPanicsOnAdversarialInput`'s own existing
+adversarial case, `{1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF}` ("announces
+~4GiB payload, delivers none"), was passing — but only because
+`make([]byte, size)` for a ~4 GiB `size` happened to succeed against
+this environment's available virtual address space rather than because
+the package actually prevented the attempt.
+
+**Root cause.** `readDemux` parses Docker's own exec-attach stream
+framing: an 8-byte header (stream type, 3 reserved bytes, a 4-byte
+big-endian payload length) followed by that many payload bytes, read in
+a loop until a clean EOF. The pre-fix code read `size` off the wire and
+immediately called `payload := make([]byte, size)`, THEN read the
+payload, THEN appended it and only checked the accumulated total against
+`maxOutput` afterward. `size` is remote-controlled (nominally by the
+Docker daemon, which this package presumes non-hostile, but a corrupted
+or truncated stream produces the identical bytes a hostile one would),
+so a single frame naming a size near `math.MaxUint32` forced a
+multi-gigabyte allocation attempt regardless of `maxOutput`, before the
+cap this package exists to enforce ever ran.
+
+**Why it was not caught building the feature.** The cap was written and
+tested from the accumulation side — "does the running total exceed
+`maxOutput` after this frame" — which is the natural way to reason about
+a *stream* of many small frames arriving over time (the realistic case
+this package's own real-daemon tests exercise). A single frame whose
+*announced* size alone already exceeds the whole cap is a different
+shape of the same threat, easy to miss when the check is written as "the
+total so far" rather than "the total this frame could possibly add."
+
+**Fix.** The `maxOutput` check now runs against `len(stdout) +
+len(stderr) + size` BEFORE `make([]byte, size)` is called, so a frame
+whose announced size alone would exceed the cap is refused without ever
+allocating or attempting to read its payload. Added
+`TestReadDemux_RefusesAnAnnouncedSizeExceedingTheCapBeforeAllocating`,
+which proves this by supplying a reader that has the 8-byte header and
+nothing else: the old code would have surfaced a truncated-payload read
+error (proof it tried to read the payload), while the fixed code
+surfaces the output-exceeded error immediately.
+
+**Lesson.** This is the same shape `pkg/filters.GzipDecompress` already
+taught this codebase once (an input cap with no matching output cap
+allowing decompression bombs) applied to a different mechanism: a cap
+checked only against what has already been accumulated, never against
+what one single unit of remote-controlled input claims it is about to
+add, leaves the allocation-before-validation gap wide open no matter how
+tight the accumulated-total check is. Any loop that reads a
+remote-controlled length field and then allocates based on it needs the
+bound check before the allocation, not after.
+
+## 175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
+
+**Symptom.** None yet observed in production — found during the same
+Phase 73 Workstream H audit that found #174, by asking the identical
+question ("is there a remote-controlled loop here that grows without
+bound") of `pkg/rfc2217`'s COM-PORT-OPTION subnegotiation parser
+(`iacFilter.feed`) once #174 had already shown the general shape was
+worth checking for elsewhere in the same phase's new packages.
+
+**Root cause.** RFC 2217 subnegotiation frames are `IAC SB <option>
+<payload...> IAC SE` — delimited by a terminator, not a length prefix,
+so at first read this looked like it could not have #174's exact defect
+(there is no length field to allocate against). But `iacFilter.feed`
+accumulated every non-IAC byte between `SB` and `SE` into `sbPayload`
+with no upper bound at all: a subnegotiation that simply never sent its
+own `IAC SE` — a compromised or malfunctioning access server, or a
+machine-in-the-middle — would grow `sbPayload` for as long as the
+caller's own `Options.ReadTimeout` window allowed a byte stream to keep
+arriving, which on a fast local network is enough time to accumulate a
+meaningful amount of memory before the deadline ends the call.
+
+**Why it was not caught building the feature.** `FuzzIACFilter`'s own
+doc comment already (incorrectly) described this framing as
+"length-prefixed," apparently written by analogy to the plan's own
+language for this boundary rather than checked against what the parser
+actually does — RFC 2217 has no length field anywhere in this framing.
+That mischaracterization meant the fix this doc comment implied
+(validate a length field before trusting it) did not exist and could
+not, since there is no such field; the REAL risk — an attacker
+withholding the terminator instead of lying about a length — was a
+different question nobody had asked yet, because the doc comment's own
+wrong premise made it look already covered.
+
+**Fix.** Added `maxSBPayload` (256 bytes — every real COM-PORT-OPTION
+payload this protocol defines is at most 4 bytes, so this is headroom,
+not a tight fit) and a bound check at both places `sbPayload` grows (the
+plain-byte path and the escaped-`0xFF` path), returning a genuine error
+the moment the cap is exceeded rather than continuing to accumulate.
+Added `TestClient_UnterminatedSubnegotiationPayloadFailsClosedRatherThanGrowingWithoutBound`
+and a new fuzz seed exercising a long, unterminated payload past the
+cap. Corrected `FuzzIACFilter`'s own doc comment to state plainly that
+this framing is terminator-delimited, not length-prefixed, so the next
+reader is not misled into thinking a length-field check already covers
+this class of risk here.
+
+**Lesson.** "This protocol has no length field, so it cannot have the
+length-field bug" is too narrow a defense: an unbounded accumulator
+reachable by withholding a terminator is the identical resource-risk
+shape as one reachable by lying about a length, just triggered by an
+absence instead of a false value. When auditing a parser for one
+package's version of a known bug shape, check every sibling parser added
+in the same phase for the shape itself, not for the literal mechanism
+(a length field) the first instance happened to use.
+
+## 176. A named integer type built specifically to prevent one silent-misread class still allowed a different silent-truncation class
+
+**Symptom.** `make gosec` reported three unwaived G115 (integer overflow
+conversion) findings in `pkg/rfc2217/rfc2217.go`: `uint32(baud)` at two
+call sites in `setBaudRate`, and `byte(dataBits)` in `setDataSize`. Found
+running the phase's own release-gate tooling, not by manual review.
+
+**Root cause.** `serialline.BaudRate` is `type BaudRate int` — a named
+type whose own doc comment states its purpose is "a device property
+misread as a port number cannot silently become a line rate," but
+nothing about the named type itself bounds its value, and RFC 2217
+sends a baud rate as a 4-byte wire value: `uint32(baud)` for a negative
+`BaudRate` (or one exceeding `math.MaxUint32`, reachable on a 64-bit
+build where `int` is 64 bits) wraps to an unrelated positive value
+instead of failing. `Config.DataBits` is a plain `int` sent as one wire
+byte; `byte(dataBits)` for any value outside 0-255 truncates silently
+the same way. Both values are hydrated from `pkg/inventory.Properties`
+(a device's own configured line settings), which rejects a value that
+fails to *parse* as an integer but enforces no range — so a
+misconfigured or malicious property value reaches these conversions
+unbounded.
+
+**Why it was not caught building the feature.** `Parity` and `StopBits`
+(the same package, same file) both ship a `Valid()` method precisely
+because their own wire encodings have a small, fixed set of legal
+values — the pattern was already established for the two fields where
+it was obvious. `BaudRate` and `DataBits` have no comparable fixed
+vocabulary (the package's own doc comment says so explicitly for
+`DataBits`: "no fixed vocabulary of named values fits it"), which made
+it easy to reason that they therefore needed no bound at all, rather
+than recognizing they still need a *range* bound even without a fixed
+*set* of legal values.
+
+**Fix.** `setBaudRate` refuses `baud <= 0 || baud > math.MaxUint32`
+before constructing the wire value; `setDataSize` refuses `dataBits < 0
+|| dataBits > 255` before the `byte()` conversion. Both return a clear
+error naming the offending value rather than silently sending whatever
+the conversion happened to produce. Added
+`TestClient_SetLine_RefusesOutOfRangeBaudRate` and
+`TestClient_SetLine_RefusesOutOfRangeDataBits`, each proving the
+refusal happens before any subnegotiation is sent (a fake access server
+that would hang forever if actually asked to negotiate).
+
+**Lesson.** A named type with a doc comment about preventing one kind of
+mistake is not the same as a validated type: `BaudRate`'s own doc
+comment is about a Go-level type-confusion mistake (a port number in a
+baud-rate field), not about the value's own numeric range once it
+reaches a specific wire encoding. Every named integer type that gets
+converted to a narrower wire representation (a byte, a uint32) needs
+that conversion's own bound checked at the conversion site, regardless
+of whether the type's own documentation already claims to prevent a
+different, adjacent class of mistake — `make gosec`'s G115 rule is what
+actually catches the gap between "has a named type" and "is validated
+for this specific narrowing," and running it before considering hardening
+work finished is what closed it here.
