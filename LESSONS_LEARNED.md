@@ -159,6 +159,8 @@ story, per `.AGENTS/AGENTS.md`.
 151. **When the acceptance criterion is "matches implementation X", generate the test oracle from X rather than hand-writing expectations for it, and commit the generated artifact so the foreign toolchain never becomes a build dependency — hand-written expectations encode what the author believed the target does, which is precisely the belief under test; the two defects this caught in a hand-rolled RFC 5545 engine were both invisible to anyone reasoning from the specification rather than from the reference implementation's actual behavior.**
 ---
 
+152. **A `file:line` citation is unverifiable by any tool here and rots silently; cite the greppable SYMBOL and re-derive a line number at writing time, because copying one forward into a new document multiplies the rot into false corroboration rather than inheriting a verified fact -- and the same holds for a measured count, which needs its counting method recorded beside it and a dated correction rather than a retcon.**
+
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered rule here. Never renumber an existing entry.

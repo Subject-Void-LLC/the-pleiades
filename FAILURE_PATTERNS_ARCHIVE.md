@@ -5593,3 +5593,92 @@ fixture, not just recorded for whoever happens to hit the failure and go
 looking. Grepping this file for "listening" or "released" before writing
 a new such fixture is cheap; discovering the recurrence via a
 nondeterministic CI-equivalent failure is not.
+
+## 178. Stream shape is re-asserted by three composition roots from compile-time constants, so the least-qualified process silently wins
+
+**Symptom (latent -- found by inspection while designing Phase 96, not by an
+observed failure; there is no test that would catch it and no log line that
+would report it).** Any operator-chosen JetStream retention setting -- the
+dedup window, `MaxAge`, replicas -- is silently reverted the next time a
+Runner process starts, with no error surfaced anywhere and no way to tell
+from the outside that it happened.
+
+**Root cause.** Stream configuration is not written once at provisioning
+time. `internal/topology.EnsureStream` calls
+`js.CreateOrUpdateStream(ctx, StreamConfig())` (`internal/topology/stream.go`),
+and `StreamConfig()` returns **compile-time constants**
+(`streamMaxAge`, `streamDuplicateWindow`, `Replicas: 1`). Three separate
+composition roots reach that function on every process start, each through
+`event.NewNatsBus`: `cmd/controller`, `cmd/runner` and `cmd/demo`. So the
+stream's shape is whatever the most recently started binary was compiled to
+believe, which is last-writer-wins over shared infrastructure with no owner.
+
+The ordering makes it worse rather than better. The Runner is the binary most
+likely to be an older build, deployed at the edge and upgraded last --
+precisely the process whose opinion about fleet-wide retention should carry
+the least weight, and precisely the one that will restart most often on an
+unstable link.
+
+This was invisible for as long as the constants were the only source of
+truth, because every writer agreed. It only becomes a defect the moment
+anything makes retention configurable, which is what Phase 96 does -- so it
+is a pre-existing latent defect promoted to a load-bearing one, not a defect
+that phase introduces.
+
+**Fix.** Give the stream exactly one owner. The Controller keeps
+`CreateOrUpdateStream`; Runners **attach** with `js.Stream(ctx, StreamName)`
+and fail loudly when it is absent. That converts the failure mode from
+"silently reshaped by whoever restarted last" into "stream missing, refuse to
+start", which is the same fail-closed instinct
+`internal/transport/ssh/known_hosts.go` already applies to a missing
+`known_hosts` file. Guard it with an `internal/archtest` rule so a
+non-owning root cannot regain the ability to reshape the stream. Filed as
+checklist items in Phase 96.
+
+**Lesson.** An idempotent-looking provisioning call
+(`CreateOrUpdate*`, `Ensure*`, `migrate`, `seed`) reachable from more than one
+composition root is not idempotent -- it is last-writer-wins, and the fact
+that every writer currently agrees is a property of them sharing a compile,
+not a property of the design. Before making any such value configurable, ask
+which single process owns it and make every other process a reader.
+
+## 179. Two fully-built shared primitives had zero production callers, and both had been "finished" for phases
+
+**Symptom.** While looking for somewhere to put a longer deduplication
+window, `grep -rn "NewIdempotentBus" --include="*.go" .` returned only the
+symbol's own definition and three doc-comment mentions. No composition root
+called it. The same question asked of `pkg/policy` found the answer written
+into the package's own doc comment: "This is written down here, not built,
+because no phase consuming it exists yet."
+
+**Root cause.** Both are Section 25 "shared primitive" contracts, built ahead
+of a consumer on the reasonable theory that a later phase would need them.
+`event.NewIdempotentBus` ships with its `DedupStore` port and **both**
+adapters (`dedup_inprocess.go`, `dedup_nats.go`), full doc comments and
+tests. `pkg/policy` ships the whole hierarchical System -> Inventory -> Group
+-> Device resolver with `Override`/`UnionSlices`/`IntersectSlices`, plus fuzz
+and benchmark tests. Everything about both reads as complete, and a
+maintainer searching for "do we have deduplication" or "do we have a policy
+resolver" gets a confident yes.
+
+The tests are what hid it. Each package's own tests exercise its API
+thoroughly, so coverage is high and CI is green, and neither `go vet`,
+`make coverage` nor `internal/archtest` has any notion of "exported, tested,
+and reached by nothing that ships". A port with no callers is invisible to
+every automated gate this repository runs.
+
+**Fix.** No code change for either yet; both are now filed against the phases
+that would consume them -- `pkg/policy` as Phase 102's explicit first
+consumer ("do not invent a second resolver"), and `NewIdempotentBus` as a
+named finding in Phase 96, including the further catch that the Runner pulls
+dispatch from a raw `jetstream.Consumer` rather than through
+`Bus.Subscribe`, so the decorator would not cover the dispatch path even once
+wired.
+
+**Lesson.** Gate 2 already says it -- "a port with no callers is not an
+implemented pattern, it is a decoration" -- and it still happened twice,
+because a build-ahead primitive passes every check a real one does. When
+consuming a shared primitive, verify it has at least one existing production
+caller before assuming the mechanism works; when building one ahead of its
+consumer, say so in the package doc the way `pkg/policy` honourably did, so
+the next reader is not misled by its completeness.
