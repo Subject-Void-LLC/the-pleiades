@@ -107,6 +107,9 @@ func TestServer_Accessors(t *testing.T) {
 	if got := server.SSHHost(); got != "10.0.0.2" {
 		t.Errorf("SSHHost() = %q, want %q", got, "10.0.0.2")
 	}
+	if got := server.IPAddress(); got != "10.0.0.2" {
+		t.Errorf("IPAddress() = %q, want %q", got, "10.0.0.2")
+	}
 	if got := server.SSHPort(); got != 2222 {
 		t.Errorf("SSHPort() = %d, want %d", got, 2222)
 	}

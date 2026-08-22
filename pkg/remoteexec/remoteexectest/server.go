@@ -1,6 +1,8 @@
 // Package remoteexectest provides a real SSH server, in the calling
 // process, that hands every command it receives to a real POSIX shell on
-// the local machine.
+// the local machine, and also genuinely forwards a direct-tcpip channel
+// to whatever real destination the client asks for, so this same Server
+// doubles as a bastion.
 //
 // Neither half of that is a mock. The SSH side is
 // golang.org/x/crypto/ssh doing a genuine key exchange, a genuine
@@ -9,7 +11,15 @@
 // behave exactly as they do on a device. That is what makes it usable
 // under RULE 0 for testing what a Collection method BUILDS and how it
 // reads the answer: a stand-in that returned canned bytes would only
-// prove the canned bytes were canned.
+// prove the canned bytes were canned. The forwarding half is the
+// identical dial-first-accept-second-then-genuinely-pump-bytes shape
+// pkg/remoteexec's own internal test fixture (runner_test.go's
+// handleFakeDirectTCPIP/forwardDirectTCPIP) already established for that
+// package's own hop-chain tests; it moved here, unmodified in substance,
+// the moment a second and third package (internal/transport/serialtcp,
+// internal/transport/telnet, Phase 73's own Route wiring) needed a real
+// bastion in their own tests and could not reach that package's
+// unexported fixture.
 //
 // What it is NOT is a remote machine. A method's Release Gate covers
 // that, against a real independent sshd in a container reached over a
@@ -39,8 +49,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -222,24 +234,102 @@ func serveConn(conn net.Conn, config *cryptossh.ServerConfig, remaining *int64) 
 	defer sessions.Wait()
 
 	for newChannel := range chans {
-		if newChannel.ChannelType() != "session" {
-			_ = newChannel.Reject(cryptossh.UnknownChannelType, "only sessions")
-			continue
+		switch newChannel.ChannelType() {
+		case "session":
+			if !claimSession(remaining) {
+				_ = newChannel.Reject(cryptossh.Prohibited, "session budget exhausted")
+				continue
+			}
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				return
+			}
+			sessions.Add(1)
+			go func() {
+				defer sessions.Done()
+				serveSession(channel, requests)
+			}()
+
+		case "direct-tcpip":
+			sessions.Add(1)
+			go func() {
+				defer sessions.Done()
+				serveDirectTCPIP(newChannel)
+			}()
+
+		default:
+			_ = newChannel.Reject(cryptossh.UnknownChannelType, "only session and direct-tcpip channels supported")
 		}
-		if !claimSession(remaining) {
-			_ = newChannel.Reject(cryptossh.Prohibited, "session budget exhausted")
-			continue
-		}
-		channel, requests, err := newChannel.Accept()
-		if err != nil {
-			return
-		}
-		sessions.Add(1)
-		go func() {
-			defer sessions.Done()
-			serveSession(channel, requests)
-		}()
 	}
+}
+
+// directTCPIPPayload is RFC 4254 §7.2's direct-tcpip channel open
+// payload: the address and port the client asked to reach, followed by
+// the client's own originating address and port (both read, per the
+// RFC's wire format, but only the destination is needed to forward).
+type directTCPIPPayload struct {
+	DestAddr string
+	DestPort uint32
+	OrigAddr string
+	OrigPort uint32
+}
+
+// serveDirectTCPIP mirrors a real sshd's own forwarding behavior: it
+// dials the requested destination FIRST, and only Accepts the channel
+// once that dial has actually succeeded, Rejecting it otherwise.
+// Accepting unconditionally and only discovering the destination is
+// unreachable afterward would be a materially different, less realistic
+// behavior than a real bastion's, and would make an unreachable
+// destination surface to the client as a channel that opens and then
+// silently closes rather than as ssh.NewChannel.Reject's own, real
+// "could not connect" outcome, which is what
+// (*ssh.Client).DialContext itself turns into a returned error — the
+// exact distinction internal/transport/ssh's own hop-chain tests
+// (TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError)
+// depend on.
+func serveDirectTCPIP(newChannel cryptossh.NewChannel) {
+	var payload directTCPIPPayload
+	if err := cryptossh.Unmarshal(newChannel.ExtraData(), &payload); err != nil {
+		_ = newChannel.Reject(cryptossh.ConnectionFailed, "malformed direct-tcpip payload")
+		return
+	}
+
+	conn, err := net.Dial("tcp", net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort))))
+	if err != nil {
+		_ = newChannel.Reject(cryptossh.ConnectionFailed, err.Error())
+		return
+	}
+
+	channel, requests, err := newChannel.Accept()
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	go cryptossh.DiscardRequests(requests)
+	forwardDirectTCPIP(channel, conn)
+}
+
+// forwardDirectTCPIP genuinely forwards channel to conn, an
+// already-dialed real TCP connection to the requested destination: real
+// bytes cross a real SSH channel to a real second listener, not a mock
+// that only asserts a function was called. Returns once both directions
+// have finished (either side closing ends both, since each io.Copy's own
+// Read then fails).
+func forwardDirectTCPIP(channel cryptossh.Channel, conn net.Conn) {
+	defer func() { _ = channel.Close() }()
+	defer func() { _ = conn.Close() }()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(conn, channel)
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(channel, conn)
+	}()
+	wg.Wait()
 }
 
 // serveSession answers one exec request by running the command through

@@ -80,6 +80,7 @@ func NewSwitch(rec record.Record) (inventory.InventoryItem, error) {
 			capability.Name("SSHTransportCapable"),
 			capability.Name("CiscoIOSCapable"),
 			capability.Name("NetworkCLICapable"),
+			capability.NameNetworkAddressable,
 		},
 		rec.Capabilities,
 	)
@@ -105,6 +106,14 @@ func (c *Switch) SSHPort() int {
 		return port
 	}
 	return 22
+}
+
+// IPAddress returns this switch's reachable network address, the same
+// value SSHHost reports. Phase 73 added this accessor
+// (capability.NetworkAddressableCapable) so pleiades.builtin.wait.port
+// could dispatch against a real device at all -- see FAILURE_PATTERNS.md.
+func (c *Switch) IPAddress() string {
+	return c.SSHHost()
 }
 
 // IOSVersion returns the detected or configured IOS firmware version.

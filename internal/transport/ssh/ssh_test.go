@@ -131,14 +131,15 @@ func startLoopbackServer(t *testing.T, handler func(command string) (stdout, std
 		t.Fatalf("listener address %T is not TCP", listener.Addr())
 	}
 	return loopbackServer{
-		target:  transport.Target{Host: "127.0.0.1", Port: tcpAddr.Port},
+		target:  transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: tcpAddr.Port}},
 		hostKey: hostSigner.PublicKey(),
 	}
 }
 
 // addr is the "host:port" a known_hosts line is written against.
 func (s loopbackServer) addr() string {
-	return net.JoinHostPort(s.target.Host, strconv.Itoa(s.target.Port))
+	ep := s.target.Endpoint.(transport.NetworkEndpoint)
+	return net.JoinHostPort(ep.Host, strconv.Itoa(ep.Port))
 }
 
 // serveLoopbackConnection completes one server-side handshake and serves
@@ -385,7 +386,7 @@ func TestExec_ContextCancellationReachesTheCall(t *testing.T) {
 
 	// TEST-NET-1 (RFC 5737) is reserved for documentation and not routed,
 	// so a dial here would otherwise sit until the timeout.
-	target := transport.Target{Host: "192.0.2.1", Port: 22}
+	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "192.0.2.1", Port: 22}}
 	tr := New(Options{InsecureSkipHostKeyVerify: true, DialTimeout: 30 * time.Second})
 
 	done := make(chan error, 1)

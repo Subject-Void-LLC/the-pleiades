@@ -170,6 +170,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 167. A view's create form rendered no controls at all because every field omitted `InForm`, and the whole conformance suite still passed
 168. A hop chain's `Connect` kept closing only its last leg, leaking every earlier hop's connection
 169. A goleak check's baseline depended on which other tests happened to run first in the same binary
+170. Three `StatusImplemented` Collection methods required a capability zero device types could structurally satisfy
+171. A guard built for one capability gap found two more the same way, and three others already disclosed
+172. A byte-stream "read until quiet" loop treated a closed connection as a hard failure instead of a valid end of output
+173. Two shipped Adapter packages carried real logic at 0.0% test coverage, hidden one layer below a fully-tested primitive
+174. A frame's announced size was allocated before it was checked against the output cap
+175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
+176. A named integer type built specifically to prevent one silent-misread class still allowed a different silent-truncation class
+177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
 
 ---
 

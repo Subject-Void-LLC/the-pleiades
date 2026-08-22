@@ -29,13 +29,17 @@ What a device *can do*, not what it *is*. A Collection method declares which cap
 | `POSIXFileSystemCapable` | - | - |
 | `PackageManagerCapable` | - | `AptCapable`, `DnfCapable` |
 | `PosixAccountCapable` | - | - |
+| `RFC2217Capable` | - | - |
+| `RawPassthroughCapable` | - | - |
 | `SSHTransportCapable` | - | - |
+| `SerialCapable` | - | - |
 | `ServiceManagerCapable` | - | `SystemdCapable`, `WindowsServiceCapable` |
 | `ShellExecCapable` | `CommandExecCapable` | - |
 | `SystemdCapable` | `ServiceManagerCapable` | `FirewalldCapable` |
+| `TelnetCapable` | - | - |
 | `WinRMCapable` | - | - |
 | `WindowsCapable` | - | - |
 | `WindowsFeatureCapable` | - | - |
 | `WindowsServiceCapable` | `ServiceManagerCapable` | - |
 
-27 capabilities registered.
+31 capabilities registered.

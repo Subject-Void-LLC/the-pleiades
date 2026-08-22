@@ -29,6 +29,7 @@ import (
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
@@ -123,6 +124,170 @@ func TestCollectionManifestsNameKnownCapabilities(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestImplementedCollectionCapabilitiesAreSatisfiable proves every
+// StatusImplemented Collection method's RequiredCapabilities can actually
+// be satisfied by at least one registered device type -- not just that
+// the capability NAME exists in the vocabulary
+// (TestCollectionManifestsNameKnownCapabilities already covers that), but
+// that some concrete type structurally implements it, via the same
+// HasCapability check engine.checkMethodCapabilities runs before ever
+// dispatching a task.
+//
+// This is the gap Phase 73 found and closed: container.docker.run/stop/
+// remove shipped StatusImplemented with RequiredCapabilities naming
+// DockerCapable while zero device types implemented it, so
+// engine.checkMethodCapabilities refused every real invocation.
+// docker_test.go's own suite never caught it, because it builds its
+// device as an inventorytest.Stub, which deliberately skips the
+// structural assertion HasCapability performs on a real type (its own
+// doc comment says so) -- RULE 0's exact thesis, and
+// linux/server.go:89-99's own comment records the identical class of gap
+// happening once before for POSIXFileSystemCapable/FactGathererCapable.
+// See FAILURE_PATTERNS.md.
+//
+// Running this for the first time also found five capabilities besides
+// DockerCapable that no device type satisfies. Four of the five
+// (acceptedUnsatisfiableCapabilities below) turned out to already be
+// disclosed, settled, intentional architecture in their own implementing
+// package's doc comment -- genuinely per-distro or not-yet-collected
+// classification data, the same reasoning AptCapable's own doc comment
+// gives. The fifth, FirewalldCapable, was not disclosed anywhere until
+// this sweep found it, and got the same disclosure added
+// (internal/catalog/fw/firewalld/firewalld.go) rather than a silent
+// exemption. A sixth, NetworkAddressableCapable, was fixed for real
+// instead of allowlisted: IPAddress() is trivial, already-known data on
+// every network-reachable device type, unlike AptCapable's genuinely
+// exclusive per-distro choice, so there was no honest architectural
+// reason to leave it unsatisfiable.
+func TestImplementedCollectionCapabilitiesAreSatisfiable(t *testing.T) {
+	satisfiable := satisfiableCapabilities(t)
+
+	var checked int
+	for _, cfg := range catalogdata.Collections {
+		desc, ok := collection.Lookup(cfg.Name)
+		if !ok {
+			// TestCollectionManifestsNameKnownCapabilities already fails
+			// loudly on this; this test's own dimension is satisfiability,
+			// not reachability, so it does not duplicate that error.
+			continue
+		}
+		if desc.Manifest.Status != collection.StatusImplemented {
+			continue
+		}
+		checked++
+		for _, name := range desc.Manifest.RequiredCapabilities {
+			if satisfiable[name] {
+				continue
+			}
+			if _, accepted := acceptedUnsatisfiableCapabilities[name]; accepted {
+				continue
+			}
+			t.Errorf("collection %q is StatusImplemented and requires capability %q, but no registered device type structurally implements it, so engine.checkMethodCapabilities would refuse every real invocation of it -- either wire a device type to it, or add it to acceptedUnsatisfiableCapabilities with a citation to an honest disclosure in its implementing package's own doc comment", cfg.Name, name)
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("no StatusImplemented collection methods were checked, so this test proved nothing")
+	}
+}
+
+// acceptedUnsatisfiableCapabilities is this sweep's allowlist, matching
+// gosec-waivers.json's established convention: a per-entry reason, no
+// blanket suppression by rule or package. Every entry here cites a real
+// disclosure already written into the implementing package's own doc
+// comment -- this map does not invent a new exemption, it points at one
+// that already exists in source, so removing the map and reading the
+// cited comment directly would tell the same story.
+//
+// TestAcceptedUnsatisfiableCapabilitiesAreNotStale (below) is this
+// allowlist's own drift guard, the same role
+// TestAdapterAllowlistHasNoStaleEntries and TestResolverConsumerAllowlistHasNoStaleEntries
+// play for their allowlists: an entry that quietly stopped being true
+// (because a device type was later wired to it for real) must be
+// removed, not left to accumulate.
+var acceptedUnsatisfiableCapabilities = map[capability.Name]string{
+	capability.NamePackageManager: `pkg/pkg.go's pkg.install/remove/upgrade dispatch onto pkg.apt.*/pkg.dnf.*, which carry this same exemption below; there is no separate disclosure needed for the generic dispatcher.`,
+	capability.NameApt:            `internal/catalog/pkg/apt/apt.go's own package doc: "no device type in this repository structurally implements it today ... That is settled, intentional architecture (package-manager family is genuinely per-distro data, unlike a service manager which has a safe universal default), not an oversight."`,
+	capability.NameDnf:            `internal/catalog/pkg/dnf/dnf.go's own package doc: "structurally implemented by no device type in this repository yet," citing apt.go's identical reasoning.`,
+	capability.NamePosixAccount:   `internal/catalog/identity/user/user.go and identity/group/group.go's own package docs: "no device type in this repository structurally implements it today, the same gap pkg/apt/apt.go documents ... That is settled, intentional architecture."`,
+	capability.NameFirewalld:      `internal/catalog/fw/firewalld/firewalld.go's own package doc, added by this same sweep after finding this one undocumented (unlike the four entries above, it was NOT previously disclosed anywhere -- see FAILURE_PATTERNS.md): firewalld is genuinely per-distro optional software, the same reasoning AptCapable/DnfCapable already establish, so it is documented rather than force-fit into linux.Server's unconditional baseline.`,
+}
+
+// TestAcceptedUnsatisfiableCapabilitiesAreNotStale proves every entry in
+// acceptedUnsatisfiableCapabilities is still genuinely unsatisfiable. An
+// exemption that silently stopped applying is exactly as wrong as one
+// that was never justified, just in the opposite direction: it would
+// hide that a real fix landed and the doc comment it cites is now false.
+func TestAcceptedUnsatisfiableCapabilitiesAreNotStale(t *testing.T) {
+	satisfiable := satisfiableCapabilities(t)
+	for name := range acceptedUnsatisfiableCapabilities {
+		if satisfiable[name] {
+			t.Errorf("capability %q is allowlisted as unsatisfiable in acceptedUnsatisfiableCapabilities, but a registered device type now structurally implements it -- remove the stale entry and the doc comment it cites", name)
+		}
+	}
+}
+
+// satisfiableCapabilities constructs one instance of every registered
+// device type and returns the set of capability names at least one of
+// them structurally satisfies via HasCapability -- the exact check
+// engine.checkMethodCapabilities performs before dispatch, not merely a
+// name lookup in the vocabulary.
+//
+// Every probe Record is hydrated with EVERY registered capability name
+// as classification data (Capabilities: allNames), not left empty. This
+// matters, and getting it wrong would defeat this sweep's own purpose: a
+// capability this codebase intends to be classification-only (AptCapable,
+// DnfCapable, PosixAccountCapable, FirewalldCapable -- all four say so in
+// their own implementing package's doc comment) is never in any type's
+// static baseline, so HasCapability against an unclassified probe would
+// report every one of them permanently unsatisfiable regardless of
+// whether a real accessor exists -- which would make
+// TestAcceptedUnsatisfiableCapabilitiesAreNotStale unable to ever detect
+// that one of those four genuinely got fixed, silently defeating the one
+// test that exists to catch a stale allowlist entry. Declaring every
+// name up front makes HasCapability's Declares half trivially true for
+// every device, so what remains under test is exactly the structural
+// half (capability.Implements, called through each type's own
+// HasCapability override rather than around it), which is the question
+// this sweep actually needs answered: not "did classification run,"
+// but "could classification ever make this true."
+func satisfiableCapabilities(t *testing.T) map[capability.Name]bool {
+	t.Helper()
+
+	types := record.AllTypes()
+	if len(types) == 0 {
+		t.Fatal("record.AllTypes() returned no device types, so this test proved nothing")
+	}
+
+	all := capability.All()
+	if len(all) == 0 {
+		t.Fatal("capability.All() returned no capabilities, which means pkg/capability was not linked in")
+	}
+	allNames := make([]capability.Name, 0, len(all))
+	for name := range all {
+		allNames = append(allNames, name)
+	}
+
+	satisfiable := make(map[capability.Name]bool)
+	for typeKey, ctor := range types {
+		item, err := ctor(record.Record{
+			ID:           "archtest-probe",
+			Name:         "archtest-probe",
+			Type:         typeKey,
+			Capabilities: allNames,
+		})
+		if err != nil {
+			t.Fatalf("constructing a fully classified %q device failed: %v", typeKey, err)
+		}
+		for name := range all {
+			if item.HasCapability(name) {
+				satisfiable[name] = true
+			}
+		}
+	}
+	return satisfiable
 }
 
 // TestCollectionNamesAreNamespacedAndUnique proves PLAN.md Section 2's

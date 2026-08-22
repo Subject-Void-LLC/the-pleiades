@@ -151,7 +151,7 @@ func requireSSHContainer(tb testing.TB) (string, int) {
 // container, starting it first if this is the first test to need it.
 func containerTarget(tb testing.TB) transport.Target {
 	host, port := requireSSHContainer(tb)
-	return transport.Target{Host: host, Port: port}
+	return transport.Target{Endpoint: transport.NetworkEndpoint{Host: host, Port: port}}
 }
 
 // containerCred returns the shared SSH container's real password
@@ -257,7 +257,8 @@ func TestSSHContainer_HostKeyVerification(t *testing.T) {
 	target := containerTarget(t)
 	defer verifyNoLeaks(t)
 
-	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
+	targetEndpoint := target.Endpoint.(transport.NetworkEndpoint)
+	addr := net.JoinHostPort(targetEndpoint.Host, strconv.Itoa(targetEndpoint.Port))
 
 	// Bootstrap dial: capture the container's REAL host key using a
 	// callback that only records it rather than verifying it, the same
@@ -364,9 +365,8 @@ func TestSSHContainer_HopChain_TunnelsThroughItself(t *testing.T) {
 		Credential: containerCred(),
 	}
 	target := transport.Target{
-		Host:  "127.0.0.1",
-		Port:  2222,
-		Route: []transport.Hop{bastion},
+		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 2222},
+		Route:    []transport.Hop{bastion},
 	}
 
 	tr := New(Options{KnownHostsPath: knownHostsPath, DialTimeout: 5 * time.Second})
@@ -454,7 +454,7 @@ func TestSSHContainer_StoppedContainerRetriesThenBreakerOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get mapped port: %v", err)
 	}
-	target := transport.Target{Host: host, Port: int(mapped.Num())}
+	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: host, Port: int(mapped.Num())}}
 
 	tr := New(Options{
 		InsecureSkipHostKeyVerify: true,

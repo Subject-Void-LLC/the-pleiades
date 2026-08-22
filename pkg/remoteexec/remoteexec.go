@@ -334,13 +334,27 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 	}
 	legs = append(legs, connectLeg{addr: target.Addr(), auth: auth, insecureSkipHostKeyVerify: r.opts.InsecureSkipHostKeyVerify})
 
-	chain := make([]*ssh.Client, 0, len(legs))
-	// A failure on a later leg must never leak an already-authenticated
-	// earlier one: if this function is about to return a non-nil error,
-	// close every client already established first, innermost (most
-	// recently dialed) first, the same order Conn.Close itself uses and
-	// for the identical reason (a hop's client owns the tunneled
-	// connection the next one was built on).
+	chain, err := r.dialChain(ctx, legs)
+	if err != nil {
+		return nil, err
+	}
+	return &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}, nil
+}
+
+// dialChain dials through legs, in order, completing an independent SSH
+// handshake at each one, tunneling every leg past the first through the
+// previous leg's already-authenticated connection (dialThroughHop). It is
+// Connect's own per-leg loop, extracted so DialThroughHops (tunnel.go) can
+// reuse the identical circuit-breaker, retry, backoff, and host-key
+// machinery for its own hops-only chain, with target handled differently.
+//
+// On any failure it closes every client already established, innermost
+// (most recently dialed) first, the same order Conn.Close itself uses and
+// for the identical reason (a hop's client owns the tunneled connection
+// the next one was built on), so a partial chain is never left dangling
+// for the caller to notice only when something later breaks.
+func (r *Runner) dialChain(ctx context.Context, legs []connectLeg) (chain []*ssh.Client, err error) {
+	chain = make([]*ssh.Client, 0, len(legs))
 	defer func() {
 		if err != nil {
 			for i := len(chain) - 1; i >= 0; i-- {
@@ -404,5 +418,5 @@ func (r *Runner) Connect(ctx context.Context, hops []Hop, target Target, auth Au
 		chain = append(chain, next)
 	}
 
-	return &Conn{client: chain[len(chain)-1], chain: chain, addr: legs[len(legs)-1].addr}, nil
+	return chain, nil
 }

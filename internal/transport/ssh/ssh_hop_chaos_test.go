@@ -175,8 +175,7 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 	}
 
 	target := transport.Target{
-		Host: "127.0.0.1",
-		Port: 2222,
+		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 2222},
 		Route: []transport.Hop{{
 			Host:       bastionHost,
 			Port:       bastionPort,

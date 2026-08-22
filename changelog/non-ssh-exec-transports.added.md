@@ -1,0 +1,1 @@
+Added `serial_exec`, `serialtcp_exec`, and `telnet_exec` task types for local serial lines, console-server byte pipes, and bare Telnet, plus `container.docker.exec` for running a command in a container directly through the Docker daemon. The three console-facing transports also tunnel through a device's configured bastion route, exactly like SSH already does.

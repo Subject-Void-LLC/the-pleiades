@@ -14,8 +14,15 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
+	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	telnettransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/validate"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
 )
 
 // runRunbook loads the inventory and a runbook, validates them, prints
@@ -125,7 +132,12 @@ func runRunbook(args []string) error {
 	// from (Phase 16, Native Go Execution Adapter), so this codebase has
 	// exactly one capability-keyed transport-binding table, not two
 	// independently maintained copies.
-	bindings := engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All()
+	bindings := engine.NewDefaultTransportBindings(
+		sshtransport.New(sshtransport.Options{}),
+		serialtransport.New(serialexec.Options{}),
+		serialtcptransport.New(serialtcp.Options{}, remoteexec.Options{}),
+		telnettransport.New(telnetexec.Options{}, remoteexec.Options{}),
+	).All()
 	// The chain audit's fqcn-table finding (IMPLEMENTATION.md Phase W3):
 	// this map and validate.CapabilityRule's table had drifted before
 	// engine.ActionCapability unified them. This check is what stops a

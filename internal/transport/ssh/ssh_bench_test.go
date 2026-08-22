@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/transport"
 )
 
 // BenchmarkSSHExec measures this package's real per-call overhead
@@ -75,9 +77,10 @@ func BenchmarkAnsiblePlaybookComparableSSH(b *testing.B) {
 	// comparison focused on raw connect+exec cost, the same scope
 	// BenchmarkSSHExec above measures (InsecureSkipHostKeyVerify: true);
 	// neither benchmark is measuring host key verification cost here.
+	targetEndpoint := target.Endpoint.(transport.NetworkEndpoint)
 	inventory := fmt.Sprintf(
 		"target ansible_host=%s ansible_port=%d ansible_user=%s ansible_ssh_pass=%s ansible_connection=ssh ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n",
-		target.Host, target.Port, containerSSHUser, containerSSHPassword,
+		targetEndpoint.Host, targetEndpoint.Port, containerSSHUser, containerSSHPassword,
 	)
 	inventoryPath := filepath.Join(b.TempDir(), "inventory.ini")
 	if err := os.WriteFile(inventoryPath, []byte(inventory), 0o644); err != nil {

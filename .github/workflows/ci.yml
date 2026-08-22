@@ -109,6 +109,21 @@ jobs:
       # at https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz.sha256sum, so a
       # tampered or truncated download fails this step instead of quietly
       # linting with something else.
+      # pkg/serialexec's own RULE 0 test suite (Phase 73) proves the
+      # local-serial Adapter against a real socat PTY pair, not a mock.
+      # ubuntu-latest does not ship socat, and that test's own skip path
+      # (exec.LookPath) means a missing binary here would silently skip
+      # real evidence rather than fail the build -- exactly the trap this
+      # project's LOCALSTACK_AUTH_TOKEN and flaky-packages.json own
+      # comments already warn about elsewhere. Installed via apt so the
+      # distribution's own package signing is the trust mechanism, the
+      # same as every other apt-installed tool this runner image already
+      # trusts; unlike Helm below, socat has no single canonical upstream
+      # binary release to pin and checksum instead.
+      - name: Install socat (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y socat
+
       - name: Install pinned Helm
         if: runner.os == 'Linux'
         env:
@@ -149,6 +164,16 @@ jobs:
         env:
           LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
         run: make ci
+
+      # pkg/serialexec's real socat PTY test needs socat here too:
+      # macos-latest ships Homebrew but not socat itself, and it is not a
+      # DOCKER_DEPENDENT_PACKAGES exclusion (a PTY pair needs no Docker
+      # daemon at all), so without this step that package's own RULE 0
+      # evidence would silently skip on this leg exactly as it would on
+      # Linux without the apt step above.
+      - name: Install socat (macOS)
+        if: runner.os == 'macOS'
+        run: brew install socat
 
       # macOS: no Docker daemon on this runner at all, so the full `make
       # ci` cannot run here. build and vet run unconditionally; make

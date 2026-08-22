@@ -19,21 +19,29 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
+	serialtcptransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serialtcp"
 	sshtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh"
+	telnettransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/telnet"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialexec"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/telnetexec"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
 // Adapter implements runner.ExecutionAdapter for the native Go execution
-// path. bindings is built once, at construction, from a real SSH
-// transport: internal/transport/transport.go's own doc comment states
+// path. bindings is built once, at construction, from the real
+// transports: internal/transport/transport.go's own doc comment states
 // this explicitly ("Phase 16 places the same transport behind the runner
 // mesh; it does not own the transport itself"), so this package
-// constructs no transport of its own beyond wiring sshtransport.New(...)
-// into the one shared, Registry-backed constructor
-// (engine.NewDefaultTransportBindings) cmd/pleiades/run.go also builds
-// from.
+// constructs no transport of its own beyond wiring sshtransport.New(...),
+// serialtransport.New(...), serialtcptransport.New(...), and
+// telnettransport.New(...) (Phase 73) into the one shared,
+// Registry-backed constructor (engine.NewDefaultTransportBindings)
+// cmd/pleiades/run.go also builds from.
 type Adapter struct {
 	bus      event.Bus
 	runbooks runbook.Source
@@ -66,9 +74,14 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 	return &Adapter{
 		bus:      bus,
 		runbooks: runbooks,
-		bindings: engine.NewDefaultTransportBindings(sshtransport.New(sshtransport.Options{})).All(),
-		ipc:      ipc,
-		logger:   logger,
+		bindings: engine.NewDefaultTransportBindings(
+			sshtransport.New(sshtransport.Options{}),
+			serialtransport.New(serialexec.Options{}),
+			serialtcptransport.New(serialtcp.Options{}, remoteexec.Options{}),
+			telnettransport.New(telnetexec.Options{}, remoteexec.Options{}),
+		).All(),
+		ipc:    ipc,
+		logger: logger,
 	}, nil
 }
 

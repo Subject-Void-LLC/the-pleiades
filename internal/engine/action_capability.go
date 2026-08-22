@@ -21,8 +21,11 @@ import (
 // for action metadata generally; until it exists, this table plus
 // CheckActionCapabilityBindings is enough.
 var ActionCapability = map[string]capability.Name{
-	"ssh_exec":   capability.NameSSHTransport,
-	"ios_backup": capability.NameCiscoIOS,
+	"ssh_exec":       capability.NameSSHTransport,
+	"ios_backup":     capability.NameCiscoIOS,
+	"serial_exec":    capability.NameSerial,
+	"serialtcp_exec": capability.NameRawPassthrough,
+	"telnet_exec":    capability.NameTelnet,
 }
 
 // CheckActionCapabilityBindings verifies that bindings, a composition

@@ -652,6 +652,120 @@ layers deep; the bound exists so a misconfigured or attacker-influenced
 any of its entries, rather than resolving into a chain long enough to make a
 single task pay for dozens of failed dials one at a time.
 
+**A `route` reaches a non-SSH endpoint too.** `serial_exec`, `serialtcp_exec`,
+and `telnet_exec` (below) tunnel through the identical hop chain: every hop is
+still a real, independent SSH connection with its own host key check and its
+own credential, and only the final leg speaks the target protocol instead of
+SSH. A console server on a management network behind a jump host needs
+nothing beyond the same `route` property this section already describes.
+
+### Serial, console servers, Telnet and TFTP
+
+These transports reach a target that is not "a device with SSH on it": a
+directly attached serial line, a console or terminal server proxying one over
+TCP, genuinely old gear with nothing but Telnet, or a file moved by TFTP
+instead of a command run over a session. Each one trades away something SSH
+gives you for free — authentication, encryption, or both — and each one says
+so loudly rather than quietly, through a task parameter that has to be set on
+purpose next to the command it applies to.
+
+**Local serial (`serial_exec`).** A device declaring `SerialCapable`
+advertises a serial port identifier (`/dev/ttyUSB0` on Linux,
+`/dev/tty.usbserial-*` on macOS, `COM3` on Windows) and a line configuration
+— baud rate, data bits, parity, stop bits. That identifier is opaque: it is
+never parsed, joined, or validated as a filesystem path, because `COM3` is
+not one and even the POSIX names are an identifier the operating system
+assigns, not a path Pleiades constructs. This is the one transport in this
+section requiring no opt-in, because a directly attached serial line has the
+same physical-access trust model a local console does.
+
+**Console servers: two genuinely different claims about the same wire.** A
+console or terminal server (Digi, Opengear, Lantronix, Perle,
+Avocent/Cyclades) proxies a serial line as a TCP port, and it does so in one
+of two ways that Pleiades treats as separate capabilities rather than a
+flag, because they are different claims about what the target can do:
+
+| Capability | Task fqcn | What it offers | Opt-in |
+|---|---|---|---|
+| `RawPassthroughCapable` | `serialtcp_exec` | A bare byte pipe: zero framing, zero authentication, zero encryption at the protocol level. No line control at all — no baud rate, no DTR/RTS, no break. | `insecure_raw_passthrough: true` |
+| `RFC2217Capable` | *(none yet — see below)* | A real control channel (RFC 2217, the Telnet Com Port Control Option) negotiating baud rate, data bits, parity, stop bits, and asserting DTR/RTS/break, layered onto a Telnet session. | *(not yet reachable from a runbook)* |
+
+`serialtcp_exec` is refused outright without `insecure_raw_passthrough: true`
+set as a task parameter, checked before any network I/O — the same "explicit,
+loud opt-in, never a fallback silently taken" shape
+`insecure_skip_host_key_verify` already established above. There is nothing
+this transport can do to make the connection itself safer; the opt-in exists
+so that decision is visible in the runbook, not buried in a device property
+nobody reviews.
+
+**RFC 2217 is a real, tested client with no runbook task yet.** The
+negotiation, line-setting, and modem-control logic lives in `pkg/rfc2217` and
+is proven against a real `ser2net` access server, including a genuine
+observed baud change and a genuine observed break condition on the far side
+— the one thing that actually distinguishes RFC 2217 from raw passthrough.
+What does not exist yet is an `engine.TransportBinding` for it: "assert DTR"
+and "send a break" are not command strings, so this capability is reachable
+today only by a future Collection method built directly against the library,
+not by a task fqcn in a runbook. If you are looking for that fqcn, it is not
+missing by oversight — it is not built yet.
+
+**Telnet (`telnet_exec`).** Genuinely ancient gear with no SSH at all still
+exists, and Ansible ships `ansible.netcommon.telnet` for exactly the reason
+stated in its own documentation: to enable SSH on a device that only has
+Telnet enabled by default. A device declaring `TelnetCapable` is reachable
+the same way, behind its own `insecure_telnet: true` opt-in — Telnet sends
+everything, credentials included, in cleartext, with no encryption at any
+layer. Use it to bootstrap SSH onto a device and stop using it once that is
+done.
+
+**Every one of these three reports `exit_status_unknown: true`.** A serial
+console, a raw byte pipe, and a bare Telnet session have no concept of a
+process exit code — only a real shell session does, and none of these is
+one. `stdout`/`stderr` are captured and recorded either way, but nothing in
+Pleiades infers success from a non-zero code that was never there in the
+first place; a `when` or `when_cel` assertion against the captured text is
+how a runbook judges whether a serial command actually succeeded.
+
+**TFTP.** `pkg/tftpxfer` moves a file to or from a TFTP server (RFC 1350,
+plus RFC 2347/2348 negotiated options). Say the same thing about it that this
+section says about raw passthrough: **no authentication and no encryption at
+the protocol level, ever** — any host that can reach the server's UDP port
+can read or write any file the server's own filesystem mapping allows, and
+nothing in this package can fix that. A remote filename containing `..`, an
+absolute path, or a Windows drive letter is refused before a request is ever
+sent, which defends against an accidentally or maliciously constructed
+traversal on the *remote* filename; it says nothing about the *local* side,
+since this package only ever writes to a caller-supplied `io.Writer` and
+never constructs a local path itself. Like RFC 2217, this is a library
+(`FileTransferCapable`) with no runbook task wired to it yet.
+
+**Docker exec is different from all of the above, deliberately.**
+`container.docker.exec` (see the [module reference](reference/modules/container/docker/exec.md))
+is a real fqcn with a real Manifest, reached over the Docker daemon's own
+control socket. Unlike the byte-stream transports above, it reports a
+genuine process exit code every time, because Docker's own exec-inspect
+endpoint provides one. It is also, by construction rather than convention,
+incapable of anything past running one command inside one already-running
+container: every request it can send is checked against a fixed, three-entry
+allowlist (create an exec instance, start it, inspect its result) before a
+byte reaches the socket, and there is no method anywhere in the package that
+could be widened into a general passthrough. This matters because the socket
+itself is root-equivalent — whoever can reach it can, in general, ask the
+daemon to create a privileged container with the host's root filesystem
+bind-mounted in — and neither a read-only socket mount nor running the
+calling process as non-root actually restricts that; the daemon's own
+privilege is what matters, not the caller's. The allowlist is the only real
+defense, and it is enforced in one function every request funnels through.
+
+**Digi RealPort is not, and will not be, a protocol Pleiades speaks.**
+RealPort is not a wire protocol in the sense RFC 2217 is — it is an
+operating-system driver product. Install Digi's own RealPort driver on the
+host, and the port it creates behaves like an ordinary local serial device:
+reach it with `serial_exec` exactly as you would a directly attached
+USB-serial adapter. Pleiades deliberately implements no RealPort client of
+its own; doing so would mean re-implementing, in Go, a job the vendor's
+driver already does correctly for the operating system.
+
 ### PKI and TLS
 
 Two different things, at different stages, and it is worth not confusing them.

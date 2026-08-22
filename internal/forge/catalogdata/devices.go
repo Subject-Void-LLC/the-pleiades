@@ -26,6 +26,7 @@ var Devices = []devicescaffold.Config{
 			capability.NameWinRM,
 			capability.NameWindowsService,
 			capability.NameWindowsFeature,
+			capability.NameNetworkAddressable,
 		},
 	},
 	{
@@ -77,6 +78,26 @@ var Devices = []devicescaffold.Config{
 			capability.NameSSHTransport,
 			capability.NameCiscoIOS,
 			capability.NameNetworkCLI,
+			capability.NameNetworkAddressable,
+		},
+	},
+	{
+		// container.Host is Phase 73's fix for a real, previously-shipped
+		// defect (FAILURE_PATTERNS.md #170): container.docker.run/stop/
+		// remove declared RequiredCapabilities: []capability.Name{
+		// capability.NameDocker} with zero device types able to satisfy
+		// it. It carries SSHTransportCapable because those three methods
+		// reach the Docker daemon through sdk.Connect's plain SSH session
+		// (internal/catalog/container/docker's own package doc explains
+		// why), DockerCapable for the capability the catalog actually
+		// requires, and NetworkAddressableCapable for the same reason
+		// every other network-reachable device type here now does.
+		Vendor:  "container",
+		TypeKey: "container_host",
+		Capabilities: []capability.Name{
+			capability.NameSSHTransport,
+			capability.NameDocker,
+			capability.NameNetworkAddressable,
 		},
 	},
 }

@@ -77,6 +77,17 @@ func New(opts Options) transport.Transport {
 // twice. command runs VERBATIM: no local shell, and no concatenation
 // with target.Host or anything else.
 func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred credential.Credential, command string) (transport.Result, error) {
+	// SSH only ever speaks to a network host:port pair. Any other
+	// Endpoint kind (Phase 73 onward: a serial line, a local socket)
+	// reaching this Adapter is a binding-configuration bug, not a
+	// protocol-level failure, so it is reported as a clear type error
+	// rather than a mysterious dial failure against a zero-value
+	// Host/Port pair.
+	net, ok := target.Endpoint.(transport.NetworkEndpoint)
+	if !ok {
+		return transport.Result{}, fmt.Errorf("ssh: target endpoint is %T, not a transport.NetworkEndpoint", target.Endpoint)
+	}
+
 	// A credential that cannot produce a usable authentication method is
 	// a hard error before any network I/O. This never proceeds with an
 	// empty Auth, which would be an unauthenticated login attempt against
@@ -91,7 +102,7 @@ func (t *sshTransport) Exec(ctx context.Context, target transport.Target, cred c
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}
 
-	result, err := t.runner.Run(ctx, hops, remoteexec.Target{Host: target.Host, Port: target.Port}, auth, command)
+	result, err := t.runner.Run(ctx, hops, remoteexec.Target{Host: net.Host, Port: net.Port}, auth, command)
 	if err != nil {
 		return transport.Result{}, fmt.Errorf("ssh: %w", err)
 	}

@@ -117,6 +117,9 @@ func TestRouter_Accessors(t *testing.T) {
 	if got := router.SSHHost(); got != "10.0.0.1" {
 		t.Errorf("SSHHost() = %q, want %q", got, "10.0.0.1")
 	}
+	if got := router.IPAddress(); got != "10.0.0.1" {
+		t.Errorf("IPAddress() = %q, want %q", got, "10.0.0.1")
+	}
 	if got := router.SSHPort(); got != 8022 {
 		t.Errorf("SSHPort() = %d, want %d", got, 8022)
 	}

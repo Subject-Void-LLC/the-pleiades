@@ -87,8 +87,7 @@ func TestExec_UnusableHopCredentialFailsBeforeDialing(t *testing.T) {
 	tr := New(Options{KnownHostsPath: writeKnownHosts(t, server.addr(), server.hostKey)})
 
 	target := transport.Target{
-		Host: server.target.Host,
-		Port: server.target.Port,
+		Endpoint: server.target.Endpoint,
 		Route: []transport.Hop{
 			{Host: "bastion", Port: 22, DeviceName: "bastion-device", Credential: credential.Credential{}},
 		},

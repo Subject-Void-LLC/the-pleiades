@@ -1,0 +1,11 @@
+%YAML 1.1
+---
+# The one connection this emulator serves: an RFC 2217 (Com Port
+# Control Option) and raw-passthrough-compatible telnet accepter on
+# port 7000, backed by /tmp/ttyA -- one end of the socat PTY pair
+# entrypoint.sh starts before this config is loaded.
+connection: &con01
+  accepter: telnet(rfc2217),tcp,7000
+  connector: serialdev,/tmp/ttyA,9600n81,local
+  options:
+    kickolduser: true

@@ -10,7 +10,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | --- | --- | --- |
 | `archive` | 2 | 2 |
 | `cloud` | 4 | 4 |
-| `container` | 3 | 3 |
+| `container` | 4 | 4 |
 | `exec` | 3 | 3 |
 | `facts` | 1 | 1 |
 | `file` | 11 | 10 |
@@ -24,7 +24,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **77** | **70** |
+| **total** | **78** | **71** |
 
 ## All methods
 
@@ -36,6 +36,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [cloud.aws.ec2.terminate](cloud/aws/ec2/terminate.md) | implemented | Terminates an EC2 instance via the AWS API. |
 | [cloud.aws.s3.create_bucket](cloud/aws/s3/create_bucket.md) | implemented | Creates an S3 bucket via the AWS API. |
 | [cloud.aws.s3.delete_bucket](cloud/aws/s3/delete_bucket.md) | implemented | Deletes an S3 bucket via the AWS API. |
+| [container.docker.exec](container/docker/exec.md) | implemented | Runs one command inside a running Docker container, reached directly through the daemon socket. |
 | [container.docker.remove](container/docker/remove.md) | implemented | Removes a Docker container from the target. |
 | [container.docker.run](container/docker/run.md) | implemented | Runs a Docker container on the target. |
 | [container.docker.stop](container/docker/stop.md) | implemented | Stops a running Docker container on the target. |
