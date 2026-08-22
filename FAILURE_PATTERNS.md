@@ -178,6 +178,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
 176. A named integer type built specifically to prevent one silent-misread class still allowed a different silent-truncation class
 177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
+178. Stream shape is re-asserted by three composition roots from compile-time constants, so the least-qualified process silently wins
+179. Two fully-built shared primitives had zero production callers, and both had been "finished" for phases
 
 ---
 

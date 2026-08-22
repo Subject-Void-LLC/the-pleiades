@@ -3049,3 +3049,39 @@ that earned their place here were daylight saving transitions in both
 hemispheres, a half-hour-offset zone with no DST at all, leap days, month-end
 rules over short months, ordinal weekdays, BYSETPOS, WKST changing which weeks
 an interval selects, and exclusion rules straddling a transition.
+
+## 152. A `file:line` citation is unverifiable by any tool in this repo, so it rots silently -- and copying one forward into a new document multiplies the rot instead of inheriting a fact
+
+**The incident (2026-08-22).** Writing new phase specs required citing
+`TestPkgNeverImportsInternal`. The spec tree said
+`internal/archtest/layering_test.go:129` in three places, `:129-137` in a
+fourth, and `:129-174` in a fifth. The test was at `:199`. Every one of the
+five was wrong, and none had ever failed anything: `make ci` runs
+`docs-lint`, which checks that gitignored documents are not *cited from
+user-facing pages*, and checks nothing at all about whether a line number
+still points where it claims.
+
+**Why it became five.** The first citation was correct when written. Each
+later phase, following this document's own good practice of grounding claims
+in the real source, copied the reference from the phase before it rather than
+re-deriving it. Copying looks like inheriting a verified fact and is actually
+duplicating an unverified one -- so a single unnoticed edit to
+`layering_test.go` invalidated five documents at once, and the redundancy
+that normally provides confidence instead provided false corroboration: a
+reader who spot-checked one citation against another would find them
+agreeing.
+
+**The rule.** Cite the SYMBOL, which is stable and greppable
+(`TestPkgNeverImportsInternal` in `internal/archtest/layering_test.go`), and
+treat a line number as a perishable convenience, never as the identifier. When
+a line number genuinely helps, re-derive it at writing time from the real file
+rather than copying it out of a neighbouring document, and never carry a
+`file:line` across a document boundary without re-checking it. The same applies
+to a measured COUNT: Phase 74's "27 registered capabilities" was true when
+written and false the moment Phase 73 landed four more.
+
+**The corollary that keeps this cheap.** Do not retcon a measurement that was
+correct when taken. Add a dated correction beside it, as Phase 74's entry now
+carries, and record the counting method next to the count so the next reader
+can re-measure in one command instead of trusting a number. A method survives
+drift; a number does not.
