@@ -112,6 +112,13 @@ func TestSwitchAccessors(t *testing.T) {
 			if got := ssh.SSHPort(); got != tt.wantPort {
 				t.Errorf("SSHPort() = %d, want %d", got, tt.wantPort)
 			}
+			addr, ok := item.(capability.NetworkAddressableCapable)
+			if !ok {
+				t.Fatal("Switch does not structurally implement NetworkAddressableCapable")
+			}
+			if got := addr.IPAddress(); got != tt.wantHost {
+				t.Errorf("IPAddress() = %q, want %q", got, tt.wantHost)
+			}
 
 			ios, ok := item.(capability.CiscoIOSCapable)
 			if !ok {

@@ -240,15 +240,18 @@ func TestDialThroughHops_UnverifiedBastionKeyFailsClosed(t *testing.T) {
 // succeeds, but nothing is listening at the address the caller asked it
 // to forward to, so the channel open itself fails and must surface as a
 // real, named error.
+// unreachableAddr is deliberately NOT built by opening a listener and
+// closing it: FAILURE_PATTERNS.md #123 found that exact strategy picks
+// the one address on a WSL2 host that keeps accepting connects after
+// release (loopback bridging between the Linux and Windows sides), which
+// is worse than a coin flip for a test asserting a specific failure
+// shape. Port 0 is the sockets API's "assign me any free port" value for
+// bind; nothing can ever be listening on it, by definition, so a connect
+// to it fails for a reason no host-specific timing can undo.
+const unreachableAddr = "127.0.0.1:0"
+
 func TestDialThroughHops_UnreachableTargetThroughBastionFailsWithChannelError(t *testing.T) {
 	bastionAddr, bastionKey := startFakeSSHListener(t, func(cmd string) (string, string, int) { return "", "", 0 })
-
-	deadListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to open a throwaway listener: %v", err)
-	}
-	unreachableAddr := deadListener.Addr().String()
-	deadListener.Close()
 
 	knownHostsPath := writeMultiKnownHosts(t, map[string]ssh.PublicKey{bastionAddr: bastionKey})
 	r := New(Options{KnownHostsPath: knownHostsPath, MaxRetries: 1})
@@ -257,7 +260,7 @@ func TestDialThroughHops_UnreachableTargetThroughBastionFailsWithChannelError(t 
 	unreachableHost, unreachablePort := splitHostPortT(t, unreachableAddr)
 	hops := []Hop{{Target: Target{Host: bastionHost, Port: bastionPort}, Auth: testAuth}}
 
-	_, err = r.DialThroughHops(context.Background(), hops, Target{Host: unreachableHost, Port: unreachablePort})
+	_, err := r.DialThroughHops(context.Background(), hops, Target{Host: unreachableHost, Port: unreachablePort})
 	if err == nil {
 		t.Fatal("expected a channel-open failure against an address nothing is listening on")
 	}

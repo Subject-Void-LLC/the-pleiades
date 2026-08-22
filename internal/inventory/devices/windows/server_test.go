@@ -160,6 +160,13 @@ func TestServer_WinRMHostAndPort(t *testing.T) {
 			if got := dev.WinRMPort(); got != tt.wantPort {
 				t.Errorf("WinRMPort() = %d, want %d", got, tt.wantPort)
 			}
+			addr, ok := item.(capability.NetworkAddressableCapable)
+			if !ok {
+				t.Fatal("windows.Server does not satisfy capability.NetworkAddressableCapable")
+			}
+			if got := addr.IPAddress(); got != tt.wantHost {
+				t.Errorf("IPAddress() = %q, want %q", got, tt.wantHost)
+			}
 		})
 	}
 }

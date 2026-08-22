@@ -5542,3 +5542,54 @@ different, adjacent class of mistake — `make gosec`'s G115 rule is what
 actually catches the gap between "has a named type" and "is validated
 for this specific narrowing," and running it before considering hardening
 work finished is what closed it here.
+
+## 177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
+
+**Symptom.** `go run ./tools/coverage-check` (a full `go test ./... -race`
+sweep) failed once, non-deterministically, on
+`TestDialThroughHops_UnreachableTargetThroughBastionFailsWithChannelError`
+(`pkg/remoteexec/tunnel_test.go`, Phase 73 Workstream G): "expected a
+channel-open failure against an address nothing is listening on," with
+`DialThroughHops` returning no error at all. The same package's own
+targeted, repeated reruns (`-count=20`) after the fix all passed,
+confirming the failure was a real race, not a one-off environment fluke
+unrelated to the test's own construction.
+
+**Root cause.** This is `FAILURE_PATTERNS.md` #123's exact bug shape,
+reintroduced in a new test written after that entry already existed: the
+test built its unreachable address by opening a `net.Listen("tcp",
+"127.0.0.1:0")`, reading back the assigned port, and closing the
+listener immediately, assuming a released port refuses connections. On
+this project's own WSL2 development host, a just-released loopback port
+keeps accepting connects for a period afterward (the Linux and Windows
+sides of loopback are bridged, and release does not propagate
+immediately), so the dial the fake bastion's own `direct-tcpip` handler
+made sometimes succeeded instead of failing, and `DialThroughHops`
+returned a live (if useless) connection with no error.
+
+**Why it was not caught writing the test.** #123's own fix and lesson
+were already committed to this exact file when this new test was
+written, but the lesson was not consulted at the point a new "build an
+address nothing is listening on" need arose — the earlier entry's own
+final sentence names exactly this failure mode ("a race even on hosts
+where it works, since another process can claim a released port between
+the close and the dial") and was not applied by analogy to a new,
+unrelated package reaching for the identical construction independently.
+
+**Fix.** Replaced the open-then-close listener with the literal constant
+`"127.0.0.1:0"`, #123's own established fix: port 0 is the sockets API's
+"assign me any free port" value for `bind`, so nothing can ever be
+listening on it and a connect to it fails for a reason no host-specific
+timing can undo. Verified with 20 repeated runs (`-count=20`), all
+passing, where the prior construction had already been observed to fail
+once in the wild.
+
+**Lesson.** A documented failure pattern in this project's own
+`FAILURE_PATTERNS.md` is not self-enforcing just by existing: a new test
+in an unrelated package can independently re-derive the same plausible-
+looking, subtly-wrong construction unless the pattern is actively
+checked against before writing a "this address must refuse connections"
+fixture, not just recorded for whoever happens to hit the failure and go
+looking. Grepping this file for "listening" or "released" before writing
+a new such fixture is cheap; discovering the recurrence via a
+nondeterministic CI-equivalent failure is not.

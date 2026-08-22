@@ -177,6 +177,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 174. A frame's announced size was allocated before it was checked against the output cap
 175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
 176. A named integer type built specifically to prevent one silent-misread class still allowed a different silent-truncation class
+177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
 
 ---
 
