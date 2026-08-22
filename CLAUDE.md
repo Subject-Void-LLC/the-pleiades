@@ -25,14 +25,14 @@ scheduler, multi-user), not a single-laptop CLI replacement.
 Read `docs/01-start-here.md` before assuming any feature works end to end. This is a
 pre-1.0 project and the honest state is not what the docs' introductions might imply:
 
-- **Walk tier (the `pleiades` CLI) is real.** Single static binary, no server/DB/broker,
+- **Crawl tier (the `pleiades` CLI) is real.** Single static binary, no server/DB/broker,
   connects over real SSH, genuinely executes `ssh_exec` against real devices.
-- **Crawl tier's control plane is real and tested**: data layer, event bus, distributed
+- **Walk tier's control plane is real and tested**: data layer, event bus, distributed
   locking, leader election, envelope encryption, inventory factory, RBAC, the CEL
   conditional engine, the workflow DAG builder, the HATEOAS API gateway, job dispatcher.
-- **Crawl tier's distributed execution plane reaches real devices as of Phase 16.**
+- **Walk tier's distributed execution plane reaches real devices as of Phase 16.**
   `internal/adapters/native/adapter.go`'s `Execute` resolves the dispatched runbook to a real
-  compiled DAG and runs it through the same `engine.Executor` stack the Walk-tier CLI uses,
+  compiled DAG and runs it through the same `engine.Executor` stack the Crawl-tier CLI uses,
   scoped to the one device the dispatch names, over the same real SSH transport. A Collection
   method runs inside a per-task subprocess (`ipc_parent.go`/`ipc_child.go`) so a secret crosses
   a real process boundary on stdin, never argv or the environment (PLAN.md Section 17.5). Proven
@@ -41,7 +41,7 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   device's credential and attaches it to the dispatch payload, so a secret rides the one
   JetStream stream and can persist there for up to its retention window; and PLAN.md Section
   17.4's full `CredentialStore` (rotation, Vault, PFX) is still unbuilt, with the Controller
-  using the same file-backed store the Walk tier does for per-device credentials.
+  using the same file-backed store the Crawl tier does for per-device credentials.
 - **Credential types and the injector engine are real (Phase 22).** A type is data
   (`internal/credtype`), an AWX export decodes into it with no translation layer, and its
   injectors are rendered by the one shared template engine (`internal/render`) and injected
@@ -230,9 +230,16 @@ hand before `internal/archtest`'s `TestCatalogDataDocsMatchTheRegistry` will pas
 
 | Tier | Composition root | Adds |
 |---|---|---|
-| Walk | `cmd/pleiades` | Offline CLI: static inventory, credentials, validate, run. Links inventory/engine/validate packages directly, no Controller dial. |
-| Crawl | `cmd/controller` + `cmd/runner` | API Gateway (embedded SQLite + NATS JetStream) and a stateless worker pulling jobs off a durable NATS consumer group. |
+| Crawl | `cmd/pleiades` | Offline CLI: static inventory, credentials, validate, run. Links inventory/engine/validate packages directly, no Controller dial. |
+| Walk | `cmd/controller` + `cmd/runner` | API Gateway (embedded SQLite + NATS JetStream) and a stateless worker pulling jobs off a durable NATS consumer group. |
 | Run | (not built) | GitOps-synced config, promotion gates, Ansible interop for unconverted playbooks. |
+
+**These two labels were swapped on 2026-08-22.** Until then Walk named the offline CLI and
+Crawl named the Controller/Runner tier, inverting "crawl, walk, run"; the ladder itself never
+changed. Docs and archives were rewritten to the corrected names, but **git commit messages
+were not** — a commit dated before 2026-08-22 saying "Walk tier" means what this table now
+calls Crawl. The `W` in phase identifiers `W1`-`W6` is a leftover of the old name, not a
+mnemonic. See `LESSONS_LEARNED.md` #152.
 
 `cmd/demo` wires a minimal controller-adjacent stack for exercising the web UI's SSE log
 stream in isolation.

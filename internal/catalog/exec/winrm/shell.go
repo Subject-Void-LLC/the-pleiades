@@ -301,7 +301,7 @@ func secondsParam(params map[string]any, key string) (time.Duration, error) {
 	}
 
 	// The three shapes a whole number really arrives in: int from YAML on
-	// the Walk tier, int64 from a wide-integer decoder, and float64 after
+	// the Crawl tier, int64 from a wide-integer decoder, and float64 after
 	// the same value has crossed the runner's per-task subprocess
 	// boundary as JSON. Refusing the last would make a working runbook
 	// fail on one tier and not the other.

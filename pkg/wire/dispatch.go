@@ -187,7 +187,7 @@ type DispatchPayload struct {
 	// pre-distributed to the Runner). Empty when the device has no stored
 	// credential, which is not itself a dispatch failure: only a task that
 	// actually needs a secret fails downstream, the same place a missing
-	// credential already fails at the Walk tier. Keys follow the
+	// credential already fails at the Crawl tier. Keys follow the
 	// convention internal/credential.Flatten documents ("username",
 	// "password", "private_key_pem", "passphrase"). omitempty keeps a
 	// credential-less dispatch's wire form free of a bare "secrets":{}.

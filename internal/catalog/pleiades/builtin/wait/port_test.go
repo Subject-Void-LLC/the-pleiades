@@ -122,7 +122,7 @@ func newPortUnreachable() inventory.InventoryItem {
 
 // portContext is a minimal sdk.RunbookContext carrying a fixed secret set,
 // standing in for the real one the composition root builds from the
-// credential store on the Walk tier or the dispatch payload on the Crawl
+// credential store on the Crawl tier or the dispatch payload on the Walk
 // tier.
 type portContext struct {
 	secrets map[string]string
@@ -328,7 +328,7 @@ func TestPort_RefusesAPortThatIsNotANumber(t *testing.T) {
 // TestPort_AcceptsThePortShapesEachTierProduces proves a port survives
 // both decodings.
 //
-// The Walk tier decodes YAML into an int and the Crawl tier decodes the
+// The Crawl tier decodes YAML into an int and the Walk tier decodes the
 // same task from JSON across the Runner's per-task subprocess boundary,
 // where every number is a float64. A method that accepted only one of
 // them would work on one tier and fail on the other, which is the worst

@@ -6,7 +6,7 @@ architecture, not the product as built: the runbook schema shown below (`steps:`
 `fqcn`/`params`; see `internal/engine/task_syntax.go`), and features referenced here (Okta/SAML,
 a NetBox plugin, a Module Registry serving compiled binaries, Postgres-backed locks) do not exist
 in the codebase today. Kept for its architectural framing, not its specifics. Never publish this
-file as user documentation; see the "Migrating from Ansible, AWX and AAP" book and the Walk-tier
+file as user documentation; see the "Migrating from Ansible, AWX and AAP" book and the Crawl-tier
 quickstart under `docs/` for what actually runs.
 
 **The Scenario:** Customer X has just installed Pleiades. They want to upgrade the firmware on 10 Cisco Catalyst switches in their "Lab" environment. 

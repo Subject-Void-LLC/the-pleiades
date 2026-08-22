@@ -73,8 +73,8 @@ func attributeParams(params map[string]any, modeKey, ownerKey, groupKey string) 
 // without quotes is the most common mistake anyone makes with Ansible's
 // file modules: YAML reads the leading zero as octal and hands over the
 // number 420. And `content: 8080` is a number that would render as
-// "8080" on the Walk tier and could arrive as a float64 across the
-// Runner's task subprocess boundary on the Crawl tier, so a method that
+// "8080" on the Crawl tier and could arrive as a float64 across the
+// Runner's task subprocess boundary on the Walk tier, so a method that
 // stringified it would write different bytes depending on which tier ran
 // it. Both are refused by name instead.
 func textParam(params map[string]any, key string) (string, error) {

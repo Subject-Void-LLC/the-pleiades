@@ -73,7 +73,7 @@ const (
 //
 //  1. The method runs at all through the real dispatch path, with a
 //     credential the CLI stored and resolved rather than one the runbook
-//     names. That second half is new: until this phase the Walk tier
+//     names. That second half is new: until this phase the Crawl tier
 //     handed every Collection method an empty secret set, so no method
 //     needing a credential could run from the CLI at all.
 //  2. argv and stdin reach the device intact, with no shell involved.

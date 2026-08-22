@@ -11,8 +11,8 @@
 // # Nothing here touches a device
 //
 // This is the first method in the catalog that opens no transport to the
-// target. It runs where the task runs, from the CLI on the Walk tier or
-// from the runner on the Crawl tier, and speaks to whatever URL the
+// target. It runs where the task runs, from the CLI on the Crawl tier or
+// from the runner on the Walk tier, and speaks to whatever URL the
 // runbook names using net/http. That is why its manifest declares no
 // transport and no capability: an arbitrary HTTP call has no device-side
 // prerequisite to check, and declaring one would refuse tasks that are
@@ -343,7 +343,7 @@ func requestURL(params map[string]any) (string, error) {
 //
 // A number is the case this catches. YAML reads an unquoted 8080 as an
 // integer, and a header rendered from one with %v would be the text 8080
-// on the Walk tier and 8080.000 on the Crawl tier, where the same value
+// on the Crawl tier and 8080.000 on the Walk tier, where the same value
 // crossed a JSON boundary and came back a float. A module that sent two
 // different requests depending on which tier ran it is worse than one
 // that refuses.

@@ -126,7 +126,7 @@ func newCopyUnreachable() inventory.InventoryItem {
 
 // copyContext is a minimal sdk.RunbookContext carrying a fixed secret
 // set, standing in for the real one the composition root builds from the
-// credential store on the Walk tier or the dispatch payload on the Crawl
+// credential store on the Crawl tier or the dispatch payload on the Walk
 // tier.
 type copyContext struct {
 	secrets map[string]string
@@ -401,7 +401,7 @@ func TestCopy_Registered(t *testing.T) {
 // about.
 //
 // It has to explain, not merely reject: src works perfectly well on the
-// Walk tier, so an author who tried it and got "unsupported parameter"
+// Crawl tier, so an author who tried it and got "unsupported parameter"
 // would reasonably assume a bug. The message names the tier where it
 // breaks and what to write instead. It is also checked BEFORE the
 // missing-content refusal, since a converted playbook carries src and no

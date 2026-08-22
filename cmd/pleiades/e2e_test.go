@@ -128,7 +128,7 @@ func TestCLI_ValidateRejectsMissingCapability(t *testing.T) {
 // "precheck" registers a stat; "reboot"'s when_cel reads it and is true,
 // so it must run and report changed; "skip-me"'s when_cel reads the same
 // stat and is false, so it must be skipped, never executed at all. No
-// server, database, or broker is running (the same Walk-tier constraint
+// server, database, or broker is running (the same Crawl-tier constraint
 // TestCLI_NoInfrastructure already exercises for validate).
 func TestCLI_RunExecutesConditionalBranch(t *testing.T) {
 	dir := t.TempDir()

@@ -10,7 +10,7 @@ import (
 
 	// Registers the "postgres" database/sql driver this adapter names.
 	// Until this file existed, lib/pq was a test-only dependency of this
-	// module; a Crawl-tier deployment is the first thing to need it at
+	// module; a Walk-tier deployment is the first thing to need it at
 	// run time, so internal/archtest's concrete-driver allowlist names it
 	// alongside the SQLite driver.
 	_ "github.com/lib/pq"

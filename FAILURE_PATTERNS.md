@@ -144,7 +144,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
 142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
 143. A Collection may import only pkg/, so the one SSH module hand-rolled the security-critical dial the transport layer already owned
-144. The Walk tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
+144. The Crawl tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
 145. Two collection methods' documentation had already drifted from the data the catalog is generated from
 146. A circuit breaker latched half-open forever, so a device that was briefly down was never dialed again
 147. The idempotence guard looked in a different directory from the command it guarded

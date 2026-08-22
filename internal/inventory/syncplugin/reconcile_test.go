@@ -91,7 +91,7 @@ func (it *scriptedIterator) Close() error {
 	return nil
 }
 
-// newRepo builds an empty file-backed repository, the Walk-tier arrangement
+// newRepo builds an empty file-backed repository, the Crawl-tier arrangement
 // a first sync actually writes into.
 func newRepo(t *testing.T) inv.Repository {
 	t.Helper()

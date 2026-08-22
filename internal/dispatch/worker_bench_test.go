@@ -1,4 +1,4 @@
-// Package dispatch_test: BenchmarkWorker_DeviceFanOut, the Crawl-tier
+// Package dispatch_test: BenchmarkWorker_DeviceFanOut, the Walk-tier
 // counterpart to internal/engine's own BenchmarkExecutorRun_DeviceFanOut
 // (internal/engine/executor_bench_test.go). This file follows that file's
 // exact benchmarking idiom rather than inventing a new one for this
@@ -30,7 +30,7 @@ import (
 
 // benchDeviceCount mirrors internal/engine's own
 // BenchmarkExecutorRun_DeviceFanOut device count (executor_bench_test.go),
-// so the Walk-tier Executor and Crawl-tier dispatch Worker fan-out
+// so the Crawl-tier Executor and Walk-tier dispatch Worker fan-out
 // benchmarks measure a comparable workload shape rather than two
 // arbitrarily different sizes that cannot be read side by side.
 const benchDeviceCount = 50

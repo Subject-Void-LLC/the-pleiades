@@ -77,7 +77,7 @@ func newRemoveUnreachableDevice() inventory.InventoryItem { return newRemoveStub
 
 // removeContext is a minimal sdk.RunbookContext carrying a fixed secret
 // set, standing in for the real one the composition root builds from the
-// credential store (Walk tier) or the dispatch payload (Crawl tier).
+// credential store (Crawl tier) or the dispatch payload (Walk tier).
 type removeContext struct {
 	secrets map[string]string
 	stats   map[string]any

@@ -2168,7 +2168,7 @@ the only mutable attribute. Supplementary group membership and account passwords
 out of scope this pass. All six methods are `Reversible: true`.
 
 A new shared `sdk.IntParam` helper was added to `pkg/sdk/params.go` for `uid`/`gid` parsing, the
-fourth place in the catalog needing int/int64/float64 handling across the Walk-tier-YAML vs
+fourth place in the catalog needing int/int64/float64 handling across the Crawl-tier-YAML vs
 Runner-subprocess-JSON boundary. The three prior private copies (`wait.port`,
 `net.catalyst.device_facts`, `http.request`, `exec.winrm.shell`) were deliberately left alone.
 
@@ -2729,9 +2729,9 @@ should declare (the full table, all 76 methods, is in `IMPLEMENTATION.md`'s Phas
   is the cleanest `InverseSelf` in the catalog (reapply the old mode, owner and group).
 - Then `file.copy` and `file.template`. **`file.copy` has a scoping decision in it that should be
   made before it is written**: Ansible's `copy` takes `src` (a path on the controller) or
-  `content` (inline). A Collection method runs on the runner, and under the Crawl tier that runner
+  `content` (inline). A Collection method runs on the runner, and under the Walk tier that runner
   is a container spawned per task with no access to whatever lives beside the runbook. `content`
-  works on both tiers; `src` works only at Walk tier unless something ships files with the
+  works on both tiers; `src` works only at Crawl tier unless something ships files with the
   dispatch. Decide and document rather than implementing half of it silently.
 - Then `file.line.*` and `file.block.*`.
 
@@ -2917,7 +2917,7 @@ no new concept an operator has to learn.
 
 **Why the variable is read in `pkg/remoteexec` and not at a composition root**, which is the one
 decision here worth defending. All four SSH call sites were passing an empty path, and two of them
-are Collection methods that build their options from task parameters. Under the Crawl tier a
+are Collection methods that build their options from task parameters. Under the Walk tier a
 Collection method runs in a per-task child process with no composition root of its own, so nothing
 wired at startup reaches it; the environment is what a child inherits. One read in one place fixed
 four call sites.
@@ -3099,7 +3099,7 @@ rather than at a composition root because that is the only place that
 reaches the code that needs it: all four SSH call sites in the
 repository were passing an empty path, two of them are collection
 methods that build their options out of task parameters, and under the
-Crawl tier a collection method runs in a per-task child process with no
+Walk tier a collection method runs in a per-task child process with no
 composition root of its own. One read in one place fixed four call
 sites.
 
@@ -3167,7 +3167,7 @@ Each was a map correction, made before code, and each is recorded in `IMPLEMENTA
    methods to a `[]collection.Method` literal and the package compiled. So the
    full-regeneration-versus-per-module-migration decision the roadmap asked a future session to
    make once has no subject.
-2. **The Walk tier handed every Collection method an empty secret set.** `pleiades run` could not
+2. **The Crawl tier handed every Collection method an empty secret set.** `pleiades run` could not
    run `net.ssh.ping` or any `net.catalyst.*` method at all, failing with an authentication error
    against a device whose credential was on disk. `engine.RunbookContextFunc` now takes a context
    and returns an error, and `engine.NewCredentialRunbookContext` resolves the stored credential.
@@ -3196,7 +3196,7 @@ Two design points worth knowing before the next module:
   redact rather than four redaction methods to keep in step with `internal/credential.Credential`.
 - `remoteexec.Shared(opts)` memoizes one Runner per Options for the process. A Collection method
   is invoked once per task with nowhere to keep a Runner, so `New` every time would carry a
-  breaker that never opens. It buys nothing under the Crawl tier's per-task subprocess, and says
+  breaker that never opens. It buys nothing under the Walk tier's per-task subprocess, and says
   so.
 
 ### What `exec.command` establishes for the rest of the tier
@@ -3284,7 +3284,7 @@ otherwise:
 1. **Host key policy, and the shipped container that cannot satisfy it.** `FAILURE_PATTERNS` #150:
    `Dockerfile.runner` sets no `HOME` and ships no known_hosts, so `os.UserHomeDir` fails and
    every SSH Collection method refuses unless the task sets `insecure_skip_host_key_verify`. The
-   escape hatch is currently the only working Crawl-tier path. The gates cannot see it because
+   escape hatch is currently the only working Walk-tier path. The gates cannot see it because
    they set `HOME` and write a known_hosts themselves. Fixing the image is necessary but the real
    question is where a stateless runner's known_hosts comes from.
 2. **`Manifest.RequiredCapabilities` is enforced by nothing at run time** (`FAILURE_PATTERNS`
@@ -3297,7 +3297,7 @@ otherwise:
 **Then, cheapest first:** `exec.shell` (nearly free: same package, same helpers, and the only
 things it must not reuse are `SplitWords` and `QuoteCommand`), then `file.copy` and
 `file.directory` (`RunWithStdin` is already built for the write; the open decision is whether
-`src` can work at all under the Crawl tier, where the runner cannot see the runbook's files), then
+`src` can work at all under the Walk tier, where the runner cannot see the runbook's files), then
 `svc.systemd.*` and `pkg.apt.*`.
 
 **The container question is settled, and the answer is better than feared.** Measured this
@@ -3329,7 +3329,7 @@ floor, including the new `pkg/remoteexec` at 98.3. Four packages failed under fu
 load and were downgraded as known-flaky: `cmd/runner`, `tests/e2e`, `internal/election` and
 `internal/runner`. **All four were confirmed passing in isolation rather than assumed**, which
 matters most for `cmd/runner`, since its `TestSSHMeshReleaseGate_*` pair drives `net.ssh.ping`
-through the whole Crawl-tier chain and is therefore also evidence the `pkg/remoteexec` refactor
+through the whole Walk-tier chain and is therefore also evidence the `pkg/remoteexec` refactor
 holds on that path. `tests/e2e` failed a different test on the isolation run with the documented
 `port "4222/tcp" not found` signature, and that one passed alone too.
 
@@ -3355,7 +3355,7 @@ written. The recorded trap about seventy one stubs carrying an old
 method signature is stale; all seventy six already carry the current
 one, settled by assigning every exported catalog method to a
 []collection.Method literal and building, because grep cannot see a
-signature. The Walk tier handed every Collection method an empty secret
+signature. The Crawl tier handed every Collection method an empty secret
 set, so pleiades run could not run net.ssh.ping or any net.catalyst.*
 method at all, failing with an authentication error against a device
 whose credential was in .pleiades/credentials.yaml the whole time. And
@@ -4592,7 +4592,7 @@ with the template's own edit both collides in the view registry and conflates tw
 privileges.
 
 **`pleiades import awx-credential-types <export.json>`.** Reports rather than writes, because the
-Walk tier does not dial a controller. Four verdicts (importable, already shipped, not implemented,
+Crawl tier does not dial a controller. Four verdicts (importable, already shipped, not implemented,
 refused), decoded through the same structs and validated through the same engine the Controller
 uses, so a type it accepts is a type the Controller accepts. Non-zero exit when something would not
 import, so it works as a migration gate; `--out` writes each importable type ready to post. Tested
@@ -7060,7 +7060,7 @@ own adversarial-review findings summary.
   specific last, skipping an unruled level rather than erroring (Section 6d's own tree has them), and
   errors if zero levels matched anywhere (Section 6g's quarantine trigger, surfaced as a plain error
   since the onboarding pipeline that owns the real lifecycle-state transition, Section 6b, is not built).
-  `DefaultRuleSet` ships the Walk-tier built-in rules `PLAN.md` Section 7 promises, grounded only in the
+  `DefaultRuleSet` ships the Crawl-tier built-in rules `PLAN.md` Section 7 promises, grounded only in the
   two device types the registry actually holds so a resolved type always hydrates. Deliberately not
   built: a filesystem loader for Section 6d's own `classification_rules/` directory tree (no config
   surface references one yet; same premature-generalization reasoning `yaml_plugin.go`'s own
@@ -7664,7 +7664,7 @@ suite). `make gosec`, `make govulncheck`, `make coverage`, and `make ci` all pas
 built `pleiades` binary was also exercised by hand (`init` → `add-host` with a shared tag across three
 devices → `validate` → `run` against both a new runbook using `lock_acquisition: all_at_plan_time` and the
 pre-existing `sample.yaml`) against a fresh scratch directory, which is what found defect #5 above and
-confirmed zero regression to the existing Walk-tier CLI path afterward.
+confirmed zero regression to the existing Crawl-tier CLI path afterward.
 
 **Files changed:** `internal/lock/manager.go` (`Mode`, `ContentionPolicy`, `AcquireOptions`,
 `CapacityCounter`, `Manager.Acquire` signature, `AcquireAll`, shared `validateTTL`), `internal/lock/queue.go`
@@ -8156,7 +8156,7 @@ test (the Phase W6 SSH container suite ran for real, ~33s, not skipped). The Rel
 shortcut to the real production path this phase built (`LESSONS_LEARNED.md` #28 explains why only this
 one test needed repointing, not every `enttest`-based test in the repository), and passes through it. The
 real built `pleiades` binary was also exercised by hand (`init` → `add-host` → `validate` → `run`
-against a fresh scratch directory) to confirm zero regression to the Walk-tier CLI path, which this phase
+against a fresh scratch directory) to confirm zero regression to the Crawl-tier CLI path, which this phase
 did not touch.
 
 **Deliberately deferred: secret-marked facts/registered values.** Mid-session, the project owner flagged
@@ -8189,16 +8189,16 @@ phase's actual two disjoint slices), each briefed against a precise, pre-agreed 
 would integrate without drift; this session's own role was the same as every prior multi-agent session's:
 assemble the briefs, independently re-verify every claim (rebuild, re-vet, re-run `-race`, read the actual
 code) before trusting either agent's self-report, then do the cross-package integration and Release Gate
-work no disjoint slice could do alone. A design decision genuinely open at the start (how Walk-tier SSH
+work no disjoint slice could do alone. A design decision genuinely open at the start (how Crawl-tier SSH
 credentials should be supplied, since no `CredentialStore` of any kind existed anywhere in this codebase
-and PLAN.md Section 17's own version is explicitly Crawl/Run-tier, Postgres/Vault-backed, behind unbuilt
+and PLAN.md Section 17's own version is explicitly Walk/Run-tier, Postgres/Vault-backed, behind unbuilt
 Phase 22) was put to the project owner directly rather than guessed; the answer (a new minimal
-`credential.Store` port now, a Walk-tier local-file adapter, Phase 22 adds a database/Vault adapter behind
+`credential.Store` port now, a Crawl-tier local-file adapter, Phase 22 adds a database/Vault adapter behind
 the same port later) shaped the whole session.
 
 **What was built:**
 
-- **`internal/credential`** (new package, Agent A): the Walk-tier `CredentialStore` port. `Credential`
+- **`internal/credential`** (new package, Agent A): the Crawl-tier `CredentialStore` port. `Credential`
   (Username/Password/PrivateKeyPEM/Passphrase) is redaction-safe through every serialization mechanism
   this codebase's own audit could find a caller for: `fmt` (via `String`/`GoString`), `encoding/json` (via
   `MarshalJSON`), and `log/slog` (via `LogValue`) all render the same `<redacted, set>`/`<not set>` shape,
@@ -8359,14 +8359,14 @@ four adapters were, so it was built directly rather than split across parallel a
   current producer of. `FuzzLevelIterator` builds synthetic diamond and long-chain graphs directly
   (bypassing the tree-walk builder, which cannot produce a diamond) and asserts the topological ordering
   property holds; 250k+ executions, zero failures in a 15s local run. `LESSONS_LEARNED.md` #22.
-- **`internal/engine/workflow_context.go`:** `NewInProcessWorkflowContext`, the Walk-tier local adapter
+- **`internal/engine/workflow_context.go`:** `NewInProcessWorkflowContext`, the Crawl-tier local adapter
   behind the `WorkflowContext` port (`trigger.go`), which had zero implementations before this session,
   the same "adapter behind an existing port" shape Phase W4 established for `lock.Manager`/`event.Bus`/
   `inventory.Repository`. A plain nested map (`nodeID` then `deviceID`) guarded by one mutex; `Read`
   returns a deep copy so a caller can never observe or corrupt a later `Merge`.
 - **`internal/engine/action.go`:** `TargetResolver` (satisfied for free by `validate.WorldView`, which
   already has the identical `Resolve` method, so no logic is duplicated across the two packages) and
-  `ActionExecutor` (the Strategy seam Phase W6 replaces with a real transport). The Walk-tier default,
+  `ActionExecutor` (the Strategy seam Phase W6 replaces with a real transport). The Crawl-tier default,
   `NewBuiltinActionExecutor`, knows exactly one action, `"noop"`, which echoes its own `Params` into
   `ActionResult.Stats` and reads an optional `Params["changed"]` bool, the only way to prove conditional
   branching end to end before a real transport exists. Every other `fqcn` fails with an explicit
@@ -8465,7 +8465,7 @@ curated `FuzzBuildFromYAML` seed). Deep JSON/YAML nesting is bounded by each lib
 builder, proven with a real malicious device name round-tripped through a real database. No command
 injection: all seven `os/exec` call sites in the repository are hardcoded test/benchmark scaffolding, none
 reachable from runbook or device data (concrete guidance recorded for Phase W6/25, which will be the real
-surface once built). No path traversal risk: the Walk-tier CLI reads exactly the path its own user names,
+surface once built). No path traversal risk: the Crawl-tier CLI reads exactly the path its own user names,
 the same trust model as `cat`, and `internal/api` does no filesystem access at all today.
 
 **Living documents updated:** `FAILURE_PATTERNS.md` #18-20, `.SPECIFICATION/IMPLEMENTATION.md` (all of
@@ -8641,7 +8641,7 @@ an unrelated change.
 ### Earlier sessions
 
 Prior session's scope: the Phase 1 blocking prerequisite (`*ent.Device` removed from domain signatures)
-plus Part 0 Walk phases W1 through W3. Phases W4 through W6 remain deliberately deferred to a follow-up
+plus Part 0 Crawl phases W1 through W3. Phases W4 through W6 remain deliberately deferred to a follow-up
 batch, per an explicit checkpoint agreed before that work.
 
 This session's scope, on top of the above: (1) standardized terminology on "runbook" for the native
@@ -9027,7 +9027,7 @@ now that `BenchmarkEntRepositorySave` exists to compare against).
 `.SPECIFICATION/IMPLEMENTATION.md` (all of Phase 1, every item `[x]` with evidence inline).
 
 **Not modified, by design:** `web/`, `helm/`, the Dockerfiles, `docker-compose.yml`, `cmd/pleiades` (the
-Walk-tier CLI does not call `OpenEmbedded`/`NewEntRepository` in production yet, confirmed by grep; this
+Crawl-tier CLI does not call `OpenEmbedded`/`NewEntRepository` in production yet, confirmed by grep; this
 phase's changes are exercised by tests and by the real built binary's unaffected file-backed path, both
 verified this session), and every production file outside the packages named above. `PLAN.md` and
 `.AGENTS/AGENTS.md` were read but not edited.
@@ -9314,7 +9314,7 @@ else, so a database backup or a badly-scoped read of the job history contains no
 **The precedence rule**: a machine credential bound to the TEMPLATE authenticates every device in the
 fan-out (AWX's semantics), and the per-device file store is the fallback when the template binds
 none. That is what keeps every dispatch that worked before this phase working unchanged, including
-the whole Walk tier.
+the whole Crawl tier.
 
 **The argv leak is fixed.** `buildArgv` now takes a `bool` rather than the extra variables, so no
 value is in scope for it to emit; the variables reach `ansible-playbook` as `-e @file`,
@@ -9671,7 +9671,7 @@ methods, because `linux.Server` never declared `POSIXFileSystemCapable` or `Fact
 that `file.*`, `wait.*` and `facts.gather` had been requiring all along. That is the latent bug the
 check exists to find. `wireDevice` and `inventorytest.Stub` each held a third and fourth
 exact-match copy of the capability test, so the same method against the same device answered
-differently on the Walk tier, the Crawl tier and in tests; all three now resolve the hierarchy.
+differently on the Crawl tier, the Walk tier and in tests; all three now resolve the hierarchy.
 
 **Forge enhancements.** Generated stubs now default `EngineVersion` to `>=1.0.0` instead of `""`,
 and carry a commented-out `Reversibility` block explaining the question `Register` will otherwise
@@ -9767,7 +9767,7 @@ the fix; loosening the methods would have been the wrong one.
 Three copies of the capability test disagreed with each other.
 record.Base resolves the hierarchy, wireDevice and inventorytest.Stub
 each matched exactly, so the same method against the same device
-answered differently on the Walk tier, the Crawl tier and in tests. All
+answered differently on the Crawl tier, the Walk tier and in tests. All
 three resolve now.
 
 The svc methods read state before acting, so a converged run reports no

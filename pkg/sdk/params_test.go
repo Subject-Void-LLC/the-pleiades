@@ -132,7 +132,7 @@ func TestStringSlice(t *testing.T) {
 		},
 		{
 			// The one that matters across tiers: a bare 8080 in YAML
-			// arrives as an int on the Walk tier and a float64 across the
+			// arrives as an int on the Crawl tier and a float64 across the
 			// Runner's JSON subprocess boundary, so rendering it would
 			// produce two different command lines depending on which tier
 			// ran the task.
@@ -197,7 +197,7 @@ func TestIntParam(t *testing.T) {
 	}{
 		{name: "absent", key: "absent", wantPresent: false},
 		{name: "nil is absent", key: "nil", wantPresent: false},
-		{name: "int from YAML on the Walk tier", key: "int-form", want: 1000, wantPresent: true},
+		{name: "int from YAML on the Crawl tier", key: "int-form", want: 1000, wantPresent: true},
 		{name: "int64 from a wide-integer decoder", key: "int64-form", want: 1001, wantPresent: true},
 		{name: "float64 across the Runner's JSON boundary", key: "float-form", want: 1002, wantPresent: true},
 		{name: "a fractional float is refused, not truncated", key: "fractional", wantPresent: true, wantErr: "not a whole number"},

@@ -10,7 +10,7 @@ import (
 )
 
 // runAddCredential stores one device's SSH credential, encrypted at rest,
-// in <dir>/.pleiades/credentials.yaml (internal/credential's Walk-tier
+// in <dir>/.pleiades/credentials.yaml (internal/credential's Crawl-tier
 // Store adapter, file_store.go). Unlike add-host's inventory.yaml, this
 // file holds AES-256-GCM ciphertext, not something an operator can
 // hand-edit, so this command is the only way to populate it.

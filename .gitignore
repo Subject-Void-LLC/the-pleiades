@@ -22,7 +22,7 @@ obj/
 /vendor/
 *.log
 
-# Walk-tier per-project secrets (internal/credential): the AES-256-GCM
+# Crawl-tier per-project secrets (internal/credential): the AES-256-GCM
 # master key and the credentials file it encrypts. Never commit either,
 # even though the credentials file itself holds only ciphertext.
 .pleiades/

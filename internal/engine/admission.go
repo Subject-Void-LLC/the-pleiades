@@ -1,8 +1,8 @@
 // Package engine: device admission checks. LifecycleAdmits and
 // CapabilityAdmits, extracted from executor.go's own previously inline
 // lifecycle check, are the shared contract for whether a device is a
-// valid target for real work. The Walk-tier engine.Executor calls them
-// directly; the Crawl-tier dispatch.Worker (internal/dispatch/worker.go)
+// valid target for real work. The Crawl-tier engine.Executor calls them
+// directly; the Walk-tier dispatch.Worker (internal/dispatch/worker.go)
 // calls them across the package boundary, so the two tiers never diverge
 // on what makes a device admissible.
 package engine

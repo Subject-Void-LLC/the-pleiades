@@ -9,7 +9,7 @@ import (
 
 // BenchmarkInProcessWorkflowContextMerge measures the cost of the
 // operation Executor calls once per successful device execution that
-// carries a Register name: the direct, in-memory Walk-tier equivalent of
+// carries a Register name: the direct, in-memory Crawl-tier equivalent of
 // PLAN.md Section 27's NATS KV stats aggregation.
 func BenchmarkInProcessWorkflowContextMerge(b *testing.B) {
 	wc := engine.NewInProcessWorkflowContext()

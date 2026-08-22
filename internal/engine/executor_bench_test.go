@@ -37,7 +37,7 @@ func fiveTaskChainDAG(b *testing.B) *engine.DAG {
 	return dag
 }
 
-// BenchmarkExecutorRun_FiveTaskChain measures the in-process Walk-tier
+// BenchmarkExecutorRun_FiveTaskChain measures the in-process Crawl-tier
 // Executor's per-run overhead for a five-task runbook: DAG walk, level
 // iteration, condition-less dispatch, and event publication, with no
 // device targets involved. This is the Go-native number
@@ -95,7 +95,7 @@ func BenchmarkAnsiblePlaybookComparable(b *testing.B) {
 // overhead fanning a single task out across 50 resolved devices: lock
 // acquisition and release, worker-pool scheduling, and one event
 // published per device, everything Section 13 and Section 14's
-// per-device execution model actually costs at Walk tier.
+// per-device execution model actually costs at Crawl tier.
 func BenchmarkExecutorRun_DeviceFanOut(b *testing.B) {
 	const deviceCount = 50
 

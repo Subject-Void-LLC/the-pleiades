@@ -1,4 +1,4 @@
-# Pleiades static inventory (Walk tier: no server, no database, no broker).
+# Pleiades static inventory (Crawl tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts:
     - id: 4d6e9c14-0785-49d2-b821-51a81b54b1cc

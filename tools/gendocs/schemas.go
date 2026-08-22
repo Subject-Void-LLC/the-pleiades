@@ -150,7 +150,7 @@ func generateInventorySchema(outDir string) error {
 		"$schema":     "https://json-schema.org/draft/2020-12/schema",
 		"$id":         "https://pleiades.dev/schemas/inventory.schema.json",
 		"title":       "Pleiades static inventory",
-		"description": "The Walk-tier inventory.yaml format.",
+		"description": "The Crawl-tier inventory.yaml format.",
 		"type":        "object",
 		"required":    []any{"hosts"},
 		"properties": map[string]any{

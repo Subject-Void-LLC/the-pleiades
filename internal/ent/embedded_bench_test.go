@@ -12,14 +12,14 @@ import (
 
 // BenchmarkEmbeddedOpen measures cold-open latency: creating a brand new
 // on-disk SQLite file, applying schema migration, and getting back a ready
-// client. This is the path a Walk-tier CLI runs on every process start, so
+// client. This is the path a Crawl-tier CLI runs on every process start, so
 // its latency is directly user-visible (it happens before the first
 // command can do anything).
 //
 // A credible existing reference for this specific operation (server
 // process boot plus first-connection schema migration against Postgres)
 // is not recorded anywhere in this repo, and fabricating one would violate
-// this project's testing rules. That comparison is Crawl-tier scope: it
+// this project's testing rules. That comparison is Walk-tier scope: it
 // needs an actual Postgres instance (e.g. via testcontainers, the pattern
 // internal/lock/nats_bench_test.go already uses for NATS) to measure
 // honestly rather than guess. This benchmark logs only what was actually
@@ -27,7 +27,7 @@ import (
 func BenchmarkEmbeddedOpen(b *testing.B) {
 	ctx := context.Background()
 
-	b.Logf("[REFERENCE] no credible existing Postgres cold-open+migrate number is recorded in this repo; a real comparison needs a live Postgres instance and is Crawl-tier scope, not fabricated here")
+	b.Logf("[REFERENCE] no credible existing Postgres cold-open+migrate number is recorded in this repo; a real comparison needs a live Postgres instance and is Walk-tier scope, not fabricated here")
 
 	for i := 0; i < b.N; i++ {
 		// b.TempDir() returns a distinct, already-cleaned-up-on-test-end

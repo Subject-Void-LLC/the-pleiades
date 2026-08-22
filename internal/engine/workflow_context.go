@@ -2,13 +2,13 @@ package engine
 
 import "sync"
 
-// inProcessWorkflowContext is the Walk-tier local adapter behind the
+// inProcessWorkflowContext is the Crawl-tier local adapter behind the
 // WorkflowContext port (trigger.go), the same "adapter behind an existing
 // port, selected only by the composition root" shape Phase W4 already
 // established for lock.Manager, event.Bus, and inventory.Repository
 // (HANDOFF_DOCUMENT.md's Phase W4 session). WorkflowContext's own doc
 // comment describes a real backing store (NATS KV) as existing to bound
-// memory across a distributed run; a single Walk-tier process run has no
+// memory across a distributed run; a single Crawl-tier process run has no
 // such distributed-memory concern, so this adapter is nothing more than a
 // nested map guarded by one mutex, discarded with the value itself once
 // the run finishes (PLAN.md Section 27: "stats are strictly ephemeral...
@@ -22,7 +22,7 @@ type inProcessWorkflowContext struct {
 
 // NewInProcessWorkflowContext returns a WorkflowContext with no backing
 // store at all: every Merge call is held in memory for the lifetime of
-// this value, which is exactly one runbook run at Walk tier.
+// this value, which is exactly one runbook run at Crawl tier.
 func NewInProcessWorkflowContext() WorkflowContext {
 	return &inProcessWorkflowContext{data: make(map[string]map[string]map[string]interface{})}
 }

@@ -165,8 +165,8 @@ func (Template) Edges() []ent.Edge {
 		// (internal/dispatch's fan-out): a machine credential bound here
 		// supplies auth for every device in the fan-out, AWX's own
 		// semantics, and the per-device store is the fallback consulted
-		// only when a template binds none. That keeps every Walk-tier
-		// dispatch and every pre-existing Crawl dispatch working unchanged.
+		// only when a template binds none. That keeps every Crawl-tier
+		// dispatch and every pre-existing Walk dispatch working unchanged.
 		edge.To("credentials", Credential.Type),
 
 		// The schedules that launch this template.

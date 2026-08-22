@@ -128,7 +128,7 @@ func newBlockUnreachable() inventory.InventoryItem {
 
 // blockContext is a minimal sdk.RunbookContext carrying a fixed secret
 // set, standing in for the real one the composition root builds from the
-// credential store on the Walk tier or the dispatch payload on the Crawl
+// credential store on the Crawl tier or the dispatch payload on the Walk
 // tier.
 type blockContext struct {
 	secrets map[string]string

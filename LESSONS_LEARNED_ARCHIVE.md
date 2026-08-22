@@ -56,7 +56,7 @@ story, per `.AGENTS/AGENTS.md`.
    discriminator field for distinguishing native and Ansible artifacts in a shared repository (originally
    `type: auto-roboto` versus `type: ansible`, later reconciled to `type: native` versus `type: ansible`
    once the product itself was renamed, a value chosen specifically to be product-name-agnostic so it
-   would not need to change again). The right move was to reuse that field name for the Walk-tier runbook
+   would not need to change again). The right move was to reuse that field name for the Crawl-tier runbook
    format's own type marker, not invent a competing `schema:` key. Two different field names solving the
    identical problem is exactly the kind of drift a single spec document exists to prevent.
 
@@ -1144,7 +1144,7 @@ story, per `.AGENTS/AGENTS.md`.
 89. **"No value was specified" and "no value is needed" are different states, and collapsing them at the
     point of lookup silently disables whatever was supposed to supply the default.** `resolveDevices`
     treated an empty task target as "controller-side task, no device" and returned before consulting the
-    resolver at all. At Walk tier those two states really are the same thing, because a runbook's own
+    resolver at all. At Crawl tier those two states really are the same thing, because a runbook's own
     `hosts:` key is the only source a device can come from, so the shortcut was invisible and correct for
     as long as one tier existed. In the Runner mesh they are not the same: the Controller already chose
     the device from the dispatch request's group, so an empty target means "the ambient default applies,"
@@ -2629,7 +2629,7 @@ anything else: a Collection method builds its own options from task parameters, 
 parameters are the runbook, not the deployment.
 
 **What the shape of the fix says.** The channel had to be an environment variable read inside
-`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Crawl tier
+`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Walk tier
 a Collection method runs in a per-task child process with no composition root of its own, so a
 value wired at startup cannot reach it; the environment is what a child inherits. One read in one
 place fixed all four call sites. The related discipline: it is a PATH and never a POLICY. There
@@ -3049,3 +3049,69 @@ that earned their place here were daylight saving transitions in both
 hemispheres, a half-hour-offset zone with no DST at all, leap days, month-end
 rules over short months, ordinal weekdays, BYSETPOS, WKST changing which weeks
 an interval selects, and exclusion rules straddling a transition.
+
+## 152. Domain vocabulary that inverts a well-known idiom stays invisible to every automated gate, because internal consistency is all any of them can measure
+
+**The incident.** From the beginning of the project until 2026-08-22, the three onboarding
+tiers of PLAN.md Section 7 were named **Walk** (a CLI with no infrastructure at all,
+`cmd/pleiades`), **Crawl** (Controller plus Runner, a state store, a broker and a web UI),
+and **Run**. That inverts the first two rungs of "crawl, walk, run," the idiom the ladder is
+obviously borrowing from: the cheapest rung carried the name of the more advanced one, so the
+tier a reader expects to be the *first* step was in fact the *second*.
+
+Nothing about the underlying design was wrong. Section 7's axis is ascending setup cost against
+capability unlocked, Binding Rule 1 makes each tier a strict subset of the one above it, and
+every table in the tree listed its rows in the correct ascending order. Only the two labels were
+swapped, and they were swapped *consistently*, in all 262 occurrences across tracked files and
+54 across the specification — user-facing docs (`docs/01-start-here.md`'s own section heading,
+`README.md`, `docs/02-get-started.md`, `docs/03-migrating-from-ansible.md`), the `pleiades`
+CLI's own `--help` tagline, Go doc comments, generated reference pages, and the archives.
+
+**Nothing caught it, and nothing could have.** `make ci` was green throughout. There is no test
+to write: every gate this repository runs measures internal consistency, and the naming was
+perfectly internally consistent — a lint that knew "Walk means the cheap tier" would have to be
+told the very fact that was wrong. `docs-lint` checks for leaked internal citations, not
+semantics. The only detector for this class of defect is a reader's expectation, and the
+authors had long since adapted to their own vocabulary.
+
+**What surfaced it.** A completion-percentage question. A per-tier breakdown reported "Walk
+100% (60 items), Crawl 83% (330 items)", and the project owner read it twice as a contradiction
+— first "shouldn't crawl have less to do than walk?", then "isn't crawl a prerequisite to
+walk?" Both readings were correct about the idiom and wrong about this codebase, which is
+exactly the signature. The confusion arrived from the person who chose the names, on his own
+project, roughly three weeks in. Anyone reading it cold would have hit it sooner and said
+nothing.
+
+**The correction, and what it did not touch.** The labels were swapped on 2026-08-22 across 113
+files: the offline CLI tier is now **Crawl**, the Controller/Runner tier is now **Walk**, Run is
+unchanged. Structure, row order, phase boundaries and every semantic claim stayed exactly as
+they were; only the two words moved. Historical documents were rewritten along with everything
+else, deliberately — `HANDOFF_ARCHIVE.md`, `FAILURE_PATTERNS_ARCHIVE.md`, this file and
+`CHANGELOG.md` all now use the corrected vocabulary. **The consequence worth knowing: an
+archive entry written before 2026-08-22 uses names that did not exist on the day it was
+written.** Read "Crawl tier" in a 2026-08-05 handoff entry as the offline CLI, which that
+session called Walk. Git commit messages were *not* rewritten and still carry the old, inverted
+labels, so a commit dated before 2026-08-22 saying "Walk tier" means what the tree now calls
+Crawl. The lettered phase identifiers `W1`–`W6` in `IMPLEMENTATION.md` also kept their `W`,
+because renaming them to `C1`–`C6` would invalidate every cross-reference in the roadmap and
+the archives for no semantic gain; the `W` there is now a historical artifact, not a mnemonic.
+
+**The rule.** When domain vocabulary borrows an ordered idiom that readers already know —
+crawl/walk/run, alpha/beta/GA, bronze/silver/gold, S/M/L — the idiom's canonical order is part
+of the contract, not decoration. Check it at the moment of naming, out loud, against the phrase
+as people actually say it. It is the cheapest possible check and there is no later one: no
+compiler, no test, no linter and no CI job can see the mismatch, and every day it survives it
+gets written into more files, more generated output, and more shipped documentation.
+
+**The corollary, for the rename itself.** A vocabulary swap is not a `sed` job. Two failures hit
+in a single pass here, both silent: a Perl `s///` replacement containing `@@@SENTINEL@@@`
+interpolated `@SENTINEL` as an empty array and destroyed the very guards that were protecting
+non-tier uses of the word (`filepath.Walk` became `filepathCrawl`); and `\bWalk\b` failed to
+match inside the Go string literal `"\nWalk tier: ..."`, because the `n` of the escape sequence
+is a word character, leaving the CLI's own tagline contradicting the two sibling strings in
+`internal/clispec` and `internal/inventory` that had flipped correctly. Both were caught only by
+verifying afterwards — by grepping the protected sites back out by name, and by diffing three
+strings that should agree against each other. Swap under sentinels that cannot interpolate,
+regenerate rather than hand-edit anything under `docs/reference/` or `internal/api/wellknown/`,
+and verify the before and after occurrence counts are exact mirrors of one another rather than
+merely both plausible.

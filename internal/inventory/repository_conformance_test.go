@@ -18,11 +18,11 @@ import (
 // This file is the Phase W4 Release Gate proof for the Repository port: "the
 // identical engine code path runs against local adapters and against NATS
 // plus Postgres, selected only by wiring in the composition root."
-// entRepository (ent_repository.go) is the Crawl-tier-and-above adapter, the
+// entRepository (ent_repository.go) is the Walk-tier-and-above adapter, the
 // same generated ent.Client code a real Postgres deployment uses (Open's
 // driverName is the only thing that changes; entRepository itself never
 // knows which SQL dialect backs it). fileRepository (file_repository.go) is
-// the Walk-tier local adapter this session added. Every test below runs the
+// the Crawl-tier local adapter this session added. Every test below runs the
 // exact same sequence of Repository calls against both, asserting identical
 // outcomes, so a caller (the engine, a future executor) cannot tell which
 // adapter it is talking to from behavior alone.
@@ -358,7 +358,7 @@ var conformanceSeedTags = []string{"core", "prod"}
 // plugin authoritatively owns it, and Section 11's One Authority Per Item
 // is about the second. The practical damage was that every hand-written
 // hosts.yaml entry looked like it was already claimed by a plugin named
-// "file", so the first real sync plugin to run against a Walk-tier project
+// "file", so the first real sync plugin to run against a Crawl-tier project
 // reported every host as a conflict and adopted none of them.
 //
 // Both backends now round-trip a real, caller-supplied plugin name, which

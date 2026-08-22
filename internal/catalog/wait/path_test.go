@@ -113,8 +113,8 @@ func TestPath_RefusesAStateItCannotWaitFor(t *testing.T) {
 // can be wrong, including the three Go types one YAML number arrives as.
 //
 // The type cases are not padding. A runbook's `timeout: 30` decodes to
-// an int on the Walk tier and to a float64 across the Runner's per-task
-// subprocess boundary on the Crawl tier, and a reader that understood
+// an int on the Crawl tier and to a float64 across the Runner's per-task
+// subprocess boundary on the Walk tier, and a reader that understood
 // only one of them would silently use the default on the other tier.
 // Each case below carries a value the message has to echo back, so a
 // reader that fell through to the wrong branch fails here.

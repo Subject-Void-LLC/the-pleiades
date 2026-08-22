@@ -268,7 +268,7 @@ func TestFileRepository_ResolvesClassifyOnlyHost(t *testing.T) {
 // single-writer correctness contract.
 
 // TestFileRepository_Selector_GroupNameIgnored pins down a deliberate,
-// documented gap (GetGroup's own doc comment): Walk tier's HostSpec has no
+// documented gap (GetGroup's own doc comment): Crawl tier's HostSpec has no
 // group-membership field at all, unlike the ent-backed adapter, which now
 // pushes sel.GroupName down to SQL via a real Group edge. A non-empty
 // GroupName here must still return every host rather than erroring or

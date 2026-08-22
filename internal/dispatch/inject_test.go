@@ -190,7 +190,7 @@ func TestWorkerInjectsBoundCredentialsOntoTheWire(t *testing.T) {
 // it expects. The per-device store remains the fallback, which is what
 // keeps every dispatch that worked before this phase working unchanged.
 func TestMachineCredentialPrecedence(t *testing.T) {
-	// A per-device credential in the Walk-tier file store, through the real
+	// A per-device credential in the Crawl-tier file store, through the real
 	// adapter rather than a fake, so the fallback path under test is the
 	// one production actually runs.
 	newDeviceStore := func(t *testing.T) credential.Store {

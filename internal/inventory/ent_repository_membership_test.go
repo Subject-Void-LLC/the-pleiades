@@ -192,7 +192,7 @@ func TestSet_SelectorIsTheOneDefinitionOfMembership(t *testing.T) {
 // TestFileRepository_RefusesAMembershipItCannotResolve is the other half of
 // the boundary.
 //
-// The Walk tier has no groups and no inventories, so it cannot narrow to a
+// The Crawl tier has no groups and no inventories, so it cannot narrow to a
 // membership at all. It refuses rather than ignoring, unlike its treatment
 // of Selector.GroupName: an ignored filter fails to narrow, but an ignored
 // membership streams the whole file, and on a dispatch that is the

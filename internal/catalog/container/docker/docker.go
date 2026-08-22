@@ -97,7 +97,7 @@ func queryContainer(ctx context.Context, conn *remoteexec.Conn, name string) (co
 // envParam reads the env param as a map of string keys to string
 // values, refusing anything else the way sdk.StringSlice refuses a
 // non-string list element: a value that arrived as a number or a bool
-// would render differently on the Walk tier than across the Runner's
+// would render differently on the Crawl tier than across the Runner's
 // JSON subprocess boundary, and a silently different docker run command
 // is worse than a refusal.
 func envParam(params map[string]any) (map[string]string, error) {

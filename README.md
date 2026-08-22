@@ -7,7 +7,7 @@ then converts to native typed collections at its own pace.
 **Status: pre-1.0, actively built.** The parts described below as real are real and
 tested today; nothing here is aspirational. Read this section before the rest.
 
-- **The Walk tier is real.** `pleiades` is a single, self-contained binary: no server,
+- **The Crawl tier is real.** `pleiades` is a single, self-contained binary: no server,
   no database, no message broker. It links its own inventory, engine, and validation
   packages directly, connects over a real SSH transport, and genuinely executes
   `ssh_exec` tasks against real devices. This was proven again while writing this
@@ -70,9 +70,9 @@ mkdir my-project && cd my-project
 
 ## Documentation
 
-- [`docs/01-start-here.md`](docs/01-start-here.md): what Pleiades is, the Walk/Crawl/Run
+- [`docs/01-start-here.md`](docs/01-start-here.md): what Pleiades is, the Crawl/Walk/Run
   tiers, and the implementation status summary.
-- [`docs/02-get-started.md`](docs/02-get-started.md): the Walk-tier and Crawl-tier
+- [`docs/02-get-started.md`](docs/02-get-started.md): the Crawl-tier and Walk-tier
   quickstarts, with real captured command output.
 - [`docs/03-migrating-from-ansible.md`](docs/03-migrating-from-ansible.md): the keyword,
   module-to-FQCN, and AWX/AAP object maps for a real migration.

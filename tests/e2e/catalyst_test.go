@@ -99,7 +99,7 @@ func requireDNAC(t *testing.T) (syncplugin.Config, credential.Store) {
 }
 
 // newProjectRepo builds a file-backed Repository over an empty inventory
-// document, which is the Walk-tier arrangement a user running this for the
+// document, which is the Crawl-tier arrangement a user running this for the
 // first time actually has.
 func newProjectRepo(t *testing.T) inv.Repository {
 	t.Helper()

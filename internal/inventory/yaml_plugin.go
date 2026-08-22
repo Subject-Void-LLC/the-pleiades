@@ -36,7 +36,7 @@ type HostSpec struct {
 }
 
 // yamlInventoryFile is the on-disk document shape: a flat list of hosts,
-// per Section 7's "just list hosts" Walk-tier promise.
+// per Section 7's "just list hosts" Crawl-tier promise.
 type yamlInventoryFile struct {
 	Hosts []HostSpec `yaml:"hosts"`
 }
@@ -150,8 +150,8 @@ func HydrateHosts(factory *ItemFactory, hosts []HostSpec) ([]inventory.Inventory
 			Type:       deviceType,
 			Properties: h.Properties,
 			Tags:       toTags(h.Tags),
-			// Walk tier has no onboarding pipeline (Section 6b is
-			// Crawl-tier): a host listed in the file is immediately active.
+			// Crawl tier has no onboarding pipeline (Section 6b is
+			// Walk-tier): a host listed in the file is immediately active.
 			State:        inventory.StateActive,
 			Source:       inventory.SourceAuthority{Plugin: "static_yaml"},
 			Capabilities: caps,

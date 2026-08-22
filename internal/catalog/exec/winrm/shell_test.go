@@ -275,7 +275,7 @@ func TestRefusesABadTimeout(t *testing.T) {
 //
 // The runner hands a Collection method its params through a per-task
 // subprocess, so timeout: 30 written in YAML arrives as float64(30) on
-// the Crawl tier and int(30) on the Walk tier. Refusing one of those
+// the Walk tier and int(30) on the Crawl tier. Refusing one of those
 // would make the same runbook work on one tier and fail on the other.
 func TestAcceptsAFloatTimeout(t *testing.T) {
 	port := deafListener(t)

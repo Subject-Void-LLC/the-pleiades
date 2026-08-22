@@ -80,8 +80,8 @@ func newSymlinkUnreachableDevice() inventory.InventoryItem { return newSymlinkSt
 
 // symlinkContext is a minimal sdk.RunbookContext carrying a fixed secret
 // set, standing in for the real one the composition root builds from the
-// credential store on the Walk tier or from the dispatch payload on the
-// Crawl tier.
+// credential store on the Crawl tier or from the dispatch payload on the
+// Walk tier.
 type symlinkContext struct {
 	secrets map[string]string
 	stats   map[string]any

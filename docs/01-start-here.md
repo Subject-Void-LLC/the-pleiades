@@ -40,19 +40,19 @@ For the full, generated reference on any of these, see
 [the runbook and task key reference](reference/task-keys.md) and
 [the capability vocabulary](reference/capabilities.md).
 
-## The Walk, Crawl, and Run tiers
+## The Crawl, Walk, and Run tiers
 
 Pleiades is meant to be adopted incrementally. Each tier is a strict superset of the
 one before it, and nothing is gated behind a higher tier that does not need it.
 
 | Tier | What it adds | Infrastructure required |
 |---|---|---|
-| **Walk** | The `pleiades` CLI. Scaffold a project, manage a static inventory, store credentials, validate and run runbooks. | None. A single binary, no server, no database, no broker. |
-| **Crawl** | A Controller and a Runner talking over a real API, plus a web UI that does not reach that API yet. | A NATS JetStream broker and a datastore for the Controller. |
-| **Run** | GitOps-synced platform config, promotion gates, and the full Ansible interoperability layer (auto-discovery, Galaxy/pip dependency caching, Kubernetes container groups). A minimal, real slice of unconverted-playbook execution already exists at the Crawl tier; see [Implementation status](#implementation-status). | Everything Crawl needs, plus a Git-backed config repository. |
+| **Crawl** | The `pleiades` CLI. Scaffold a project, manage a static inventory, store credentials, validate and run runbooks. | None. A single binary, no server, no database, no broker. |
+| **Walk** | A Controller and a Runner talking over a real API, plus a web UI that does not reach that API yet. | A NATS JetStream broker and a datastore for the Controller. |
+| **Run** | GitOps-synced platform config, promotion gates, and the full Ansible interoperability layer (auto-discovery, Galaxy/pip dependency caching, Kubernetes container groups). A minimal, real slice of unconverted-playbook execution already exists at the Walk tier; see [Implementation status](#implementation-status). | Everything Walk needs, plus a Git-backed config repository. |
 
-Today, Walk is the tier that works end to end. See the next section for exactly what
-that means at Crawl.
+Today, Crawl is the tier that works end to end. See the next section for exactly what
+that means at Walk.
 
 ## Implementation status
 
@@ -63,7 +63,7 @@ same registries the engine reads: see
 FQCN by name. The narrative below is not auto-generated and is accurate as of the
 change that most recently touched it.
 
-**The Walk-tier CLI executes for real.** `pleiades run` genuinely connects over SSH
+**The Crawl-tier CLI executes for real.** `pleiades run` genuinely connects over SSH
 and runs commands against real devices. This is not a claim taken on faith: see
 [`examples/webserver_lab/`](../examples/webserver_lab/) for three real Ubuntu
 containers, onboarded and driven entirely through the real CLI, with captured
@@ -270,7 +270,7 @@ None of these are secret. They are the honest gap between "what AWX does today" 
 
 ## FAQ
 
-**Is this ready to replace AWX in production?** Not yet. The Walk-tier CLI is real
+**Is this ready to replace AWX in production?** Not yet. The Crawl-tier CLI is real
 and useful for scripted, single-operator automation today. The distributed,
 multi-user control plane is built and tested but cannot yet dispatch a real job to a
 real device end to end; see [Implementation status](#implementation-status) above.

@@ -694,7 +694,7 @@ func portSecondsParam(params map[string]any, key string, fallback, lowest int) (
 // key was present so a caller can tell an absent value from a zero.
 //
 // It accepts the three shapes a whole number really arrives in and
-// refuses everything else. int is what YAML decoding produces on the Walk
+// refuses everything else. int is what YAML decoding produces on the Crawl
 // tier, int64 is what a decoder configured for wide integers produces,
 // and float64 is what the same value becomes after crossing the Runner's
 // per-task subprocess boundary as JSON, so refusing that one would make a

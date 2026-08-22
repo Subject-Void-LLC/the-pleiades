@@ -15,14 +15,14 @@ import (
 // SaveFileStore (file_store_save.go) writes, always placed in the same
 // masterKeyDirName directory the master key file lives in (master_key.go),
 // so both concerns share one hidden directory under a caller-supplied
-// root. fileStore is the Walk-tier Store adapter: a single local YAML
+// root. fileStore is the Crawl-tier Store adapter: a single local YAML
 // file, encrypted field-by-field with the AES-256-GCM envelope
 // encryption internal/crypto already provides
 // (crypto.NewAESService/Service, internal/crypto/aes.go). This mirrors
 // the split internal/inventory uses between its Repository port and its
 // file-backed and ent-backed adapters: fileStore is this port's
-// Walk-tier adapter, a database-backed one is PLAN.md Section 17's
-// future Crawl-tier work.
+// Crawl-tier adapter, a database-backed one is PLAN.md Section 17's
+// future Walk-tier work.
 const credentialsFileName = "credentials.yaml"
 
 // credentialsDocument is the on-disk shape of the credentials file: one

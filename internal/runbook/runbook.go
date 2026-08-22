@@ -99,7 +99,7 @@ type Runbook struct {
 // (filesystem, database, GitOps sync), the same "modularity: every
 // component is a pluggable interface" principle AGENTS.md's Architecture
 // Principles require of every other component in this codebase. DirSource
-// (dir_source.go, via NewDirSource) is the first, Walk-tier
+// (dir_source.go, via NewDirSource) is the first, Crawl-tier
 // implementation; nothing about this interface assumes a filesystem.
 type Source interface {
 	// Get resolves id to its compiled Runbook, or returns an error

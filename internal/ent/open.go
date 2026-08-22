@@ -78,7 +78,7 @@ type resolvedDSN struct {
 //
 //   - "postgres://user:pass@host:5432/db?sslmode=disable" (or the
 //     "postgresql://" spelling): a real PostgreSQL server, which is what
-//     a Crawl-tier deployment runs.
+//     a Walk-tier deployment runs.
 //   - "sqlite://relative/path.db" or "sqlite:///absolute/path.db": an
 //     on-disk SQLite file.
 //   - a bare filesystem path, with no scheme at all: the same on-disk

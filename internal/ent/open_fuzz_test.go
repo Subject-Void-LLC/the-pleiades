@@ -45,7 +45,7 @@ func FuzzResolveDSN(f *testing.F) {
 	// A scheme hidden behind a path separator, which must not be read as
 	// a scheme.
 	f.Add("./postgres://not-a-scheme")
-	// Traversal in the SQLite path. The Walk-tier precedent is that a
+	// Traversal in the SQLite path. The Crawl-tier precedent is that a
 	// path names exactly what its operator typed, so this must resolve
 	// rather than error; the property under test is that it stays SQLite
 	// and stays literal.

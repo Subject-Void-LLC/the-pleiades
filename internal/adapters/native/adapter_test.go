@@ -266,7 +266,7 @@ func TestAdapter_Execute_AlreadyCanceledContextReturnsPromptly(t *testing.T) {
 // secret it's given out of a failing node's error text, since a task's
 // own error can echo back device output that happens to contain a secret
 // (internal/engine/action_ssh.go's transportActionExecutor already
-// applies this identical masking for the Walk-tier CLI, for the identical
+// applies this identical masking for the Crawl-tier CLI, for the identical
 // reason).
 func TestSummarize_MasksSecretsInFailureMessages(t *testing.T) {
 	result := engine.RunResult{

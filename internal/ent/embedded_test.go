@@ -86,7 +86,7 @@ func TestOpenEmbeddedDurability(t *testing.T) {
 }
 
 // TestOpenEmbeddedCreatesParentDirectory proves the os.MkdirAll step: a
-// freshly scaffolded Walk-tier project directory will not already contain
+// freshly scaffolded Crawl-tier project directory will not already contain
 // the nested directory an embedded database file lives in, so OpenEmbedded
 // must create it rather than failing with "no such file or directory".
 func TestOpenEmbeddedCreatesParentDirectory(t *testing.T) {

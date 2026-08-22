@@ -63,7 +63,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `tasks:` | `tasks:` | Same. |
 | `post_tasks:` | `posttasks:` | Same phase, no underscore. |
 | `block:` | `block:` | Same grouping. |
-| `rescue:` | `rescue:` | Accepted and validated; the Walk-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). |
+| `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). |
 | `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. |
 | `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. |
@@ -265,8 +265,8 @@ in a future phase, or a case for `forge new-collection` to add it yourself; see
 
 ## AWX / AAP object map
 
-Pleiades' Crawl tier (a Controller, a Runner, and NATS; see
-[Start here](01-start-here.md#the-walk-crawl-and-run-tiers)) is the layer that
+Pleiades' Walk tier (a Controller, a Runner, and NATS; see
+[Start here](01-start-here.md#the-crawl-walk-and-run-tiers)) is the layer that
 corresponds to AWX at all. The dispatcher, RBAC, and job model are real and tested;
 several AWX concepts below have no Pleiades equivalent yet, which this table states
 plainly rather than implying a rough match exists.

@@ -157,7 +157,7 @@ action path rather than the Collection dispatcher, so it is deliberately exempte
 
 and `pleiades run` refuses to execute for the same reason ("validation failed, not
 executing"). `rescue:` has the same kind of gap one level down: the schema accepts it and
-`pleiades validate` checks it structurally, but the Walk-tier executor does not run rescue or
+`pleiades validate` checks it structurally, but the Crawl-tier executor does not run rescue or
 always handlers yet either (`internal/engine/tasktree.go`: "there is no executor yet to give it
 real meaning"). None of this is a mistake in this example. It is what
 `pleiades forge new-collection`-generated stubs are supposed to do: report they are not
@@ -165,7 +165,7 @@ implemented rather than silently claim success.
 
 If you want a runbook that actually executes against the current binary, `pleiades init`
 scaffolds one (`runbooks/sample.yaml`, `fqcn: noop`), or see
-[the Walk-tier quickstart](../../docs/02-get-started.md), which runs a real `ssh_exec` task
+[the Crawl-tier quickstart](../../docs/02-get-started.md), which runs a real `ssh_exec` task
 against a real device. This example shows the DSL you will write once each declared method it
 uses above is really implemented, compared honestly against the Ansible playbook it is meant to
 replace.

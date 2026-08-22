@@ -18,7 +18,7 @@ import (
 // This is the composition root's adapter selection for the Phase W4
 // Release Gate: it goes through the inventory.Repository port (via
 // inventory.NewFileRepository) rather than calling StaticYAMLPlugin
-// directly, the same port entRepository implements at Crawl tier and
+// directly, the same port entRepository implements at Walk tier and
 // above. Swapping which Repository is wired in here, not changing any
 // caller, is what "selected only by wiring in the composition root"
 // means; run.go and validate.go never know or care which one they got.
@@ -31,7 +31,7 @@ func loadWorld(dir, runbookPath string) ([]pkginventory.InventoryItem, *engine.D
 	inventoryPath := filepath.Join(dir, inventory.DefaultInventoryFilename)
 	repo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 
-	// GetGroup's Selector is Walk tier's honest no-op: neither Repository
+	// GetGroup's Selector is Crawl tier's honest no-op: neither Repository
 	// implementation has real grouping infrastructure yet (see
 	// fileRepository.GetGroup's own doc comment), so the zero value is
 	// passed rather than inventing a group concept this call cannot act on.

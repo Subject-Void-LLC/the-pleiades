@@ -78,7 +78,7 @@ type Flag struct {
 // reference page to both read.
 var Root = Command{
 	Name:     "pleiades",
-	Synopsis: "Walk tier: no server, no database, no broker.",
+	Synopsis: "Crawl tier: no server, no database, no broker.",
 	Subcommands: []Command{
 		{
 			Name:     "init",

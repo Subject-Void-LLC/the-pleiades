@@ -1,4 +1,4 @@
-# Pleiades static inventory (Walk tier, PLAN.md Section 7).
+# Pleiades static inventory (Crawl tier, PLAN.md Section 7).
 # Credentials are not stored here: run
 #   pleiades add-credential sw1 --username svc-netauto
 #   pleiades add-credential sw2 --username svc-netauto

@@ -92,7 +92,7 @@ func TestWireDevice_VersionAndHistoryAreEmpty(t *testing.T) {
 }
 
 // TestWireDevice_HasCapability_ResolvesHierarchy pins the property that
-// makes the Crawl tier agree with the Walk tier.
+// makes the Walk tier agree with the Crawl tier.
 //
 // A real device type answers HasCapability through record.Base.Declares,
 // which runs capability.Resolves, so a device declaring the concrete

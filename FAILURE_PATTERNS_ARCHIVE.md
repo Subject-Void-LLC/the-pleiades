@@ -79,7 +79,7 @@ declare `SSHTransportCapable`, so there is no built-in device type that fails an
 **Root cause:** assumed device-type diversity without checking which capabilities the two concrete types
 actually declare.
 
-**Fix:** added a second Walk-tier action, `ios_backup` -> `CiscoIOSCapable`, which only `CiscoRouter`
+**Fix:** added a second Crawl-tier action, `ios_backup` -> `CiscoIOSCapable`, which only `CiscoRouter`
 declares, and manually ran the failing case through the built binary before writing the automated test.
 
 **Lesson:** manually exercise a new validation or CLI path with a real failing case before writing the
@@ -1049,7 +1049,7 @@ which never touch `cmd/controller` at all.
 
 **Root cause:** `cmd/controller/main.go` now calls `log.Fatal` at startup if `MASTER_ENCRYPTION_KEY` is
 unset or malformed (a deliberate fail-closed choice, see this phase's own plan: a server composition
-root must not silently generate-and-persist a local key the way `internal/credential`'s Walk-tier
+root must not silently generate-and-persist a local key the way `internal/credential`'s Crawl-tier
 fallback does). `startController` (the test's own subprocess launcher) set `NATS_URL`, `DB_PATH`,
 `LISTEN_ADDR`, and `JWT_SECRET` in each spawned process's environment, but had no reason to know about
 an env var that did not exist when it was written (Phase 4). Every one of the three subprocesses hit the
@@ -2342,7 +2342,7 @@ printing a nil interface value, not a `*wireDevice` of the wrong concrete type.
 **Root cause:** `run.resolveDevices` (`internal/engine/executor.go`) read a task's effective target via
 `TaskTarget` (the task's own `params.target`, falling back to `dag.Hosts`) and returned `(nil, nil)`
 immediately when that was empty, classifying "this task names no target" as "this is a controller-side
-task with no device," without ever calling `Executor.resolver`. That is correct at Walk tier, where a
+task with no device," without ever calling `Executor.resolver`. That is correct at Crawl tier, where a
 runbook's own `hosts:` key is the only way a device is ever chosen. It is wrong one tier up: in the
 Runner mesh the Controller selects devices from the dispatch request's own group
 (`internal/dispatch/worker_devices.go`) and fans out one `wire.DispatchPayload` per device, so the
@@ -2356,7 +2356,7 @@ fixture runbook that does carry `hosts:`; only a test exercising the real, mesh-
 **Fix:** `resolveDevices` now calls `r.x.resolver.Resolve("")` for an empty target rather than returning
 early, and treats an empty result as the same controller-side task it always did, deliberately not as
 the error the non-empty branch raises: "this task names no target" and "this task names a target that
-matches nothing" are different conditions, and only the second is a mistake. Walk-tier behavior is
+matches nothing" are different conditions, and only the second is a mistake. Crawl-tier behavior is
 unchanged and provably so, since `validate.WorldView.Resolve("")` matches no device Name and no Tag and
 `internal/engine`'s own test `mapResolver` returns `m[""]`, so both answer empty exactly as before. The
 alternative fix, having the Runner set `dag.Hosts` to the dispatched device's name, was rejected:
@@ -4255,12 +4255,12 @@ pass unchanged, which is what proves the primitive is usable from a Collection.
 other half is a home for that code on the allowed side of the line, and the cost of not building
 it is not duplication in the abstract: it is a second implementation of host key verification.
 
-## 144. The Walk tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
+## 144. The Crawl tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
 
 **Symptom.** `pleiades run` against a runbook naming `net.ssh.ping` failed with "no usable
 authentication method", and against any `net.catalyst.*` method with `no "username" secret
 available`, on a device whose credential was in `.pleiades/credentials.yaml` the whole time. The
-Crawl tier was unaffected.
+Walk tier was unaffected.
 
 **Root cause.** `cmd/pleiades/run.go` passed `engine.NewDeviceRunbookContext` as the executor's
 context constructor. That function ignores its device argument and returns
@@ -4273,7 +4273,7 @@ connected the two changes. The credential store was already constructed two line
 **Fix.** `engine.RunbookContextFunc` now takes a context and returns an error, and
 `engine.NewCredentialRunbookContext(store)` resolves each device's stored credential and flattens
 it into the context. A device with no stored credential is not an error and yields an empty set,
-matching the Crawl tier; any other lookup failure is reported, because an unreadable store and an
+matching the Walk tier; any other lookup failure is reported, because an unreadable store and an
 absent entry must not look alike.
 
 **Lesson.** A comment that says "this is empty because nothing needs it yet" is a dependency
@@ -4419,7 +4419,7 @@ blocking, so only the second half was solved: `pkg/remoteexec` gained `KnownHost
 directory, which is OpenSSH's own layering and AGENTS.md's hierarchical-policy principle.
 
 It went in `pkg/remoteexec` rather than a composition root because that is the only place that
-reaches the code that needs it: under the Crawl tier a Collection method runs in a per-task child
+reaches the code that needs it: under the Walk tier a Collection method runs in a per-task child
 process with no composition root and no argument it controls, and it builds its own Options from
 task parameters. One variable read in one place fixed all four call sites, which had all been
 passing an empty path. Deliberately a PATH and never a POLICY: there is no variable that turns
@@ -4461,7 +4461,7 @@ the catalog.
 **Root cause.** `Manifest.RequiredCapabilities` has no run-time reader. The Controller's admission
 path consults `engine.ActionCapability`, a two-entry table naming only `ssh_exec` and
 `ios_backup`, so a runbook of Collection tasks is dispatched with an empty requirement set and
-`CapabilityAdmits` loops zero times. The Walk tier's `collectionActionExecutor` checks status and
+`CapabilityAdmits` loops zero times. The Crawl tier's `collectionActionExecutor` checks status and
 nothing else, and `internal/validate`'s capability rule keys off the same two-entry table. The
 field is read by the documentation generators, by registration's name-exists check, and by
 `internal/archtest`. That is all.

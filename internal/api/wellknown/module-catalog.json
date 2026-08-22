@@ -1296,7 +1296,7 @@
     },
     "doc": {
       "summary": "Writes inline content to a file on the target, only when the bytes there differ.",
-      "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. Only content is supported; src is refused rather than half-implemented, because src names a file beside the runbook on the controller while this method runs on the runner, which under the Crawl tier is a per-task container that cannot see it. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
+      "description": "Writes content to a path on the device, comparing a SHA-256 of the content against a SHA-256 the device computes of what is already there, so a run that finds the same bytes sends no write at all and reports no change. A write that does happen is atomic: the bytes go to a temporary file in the destination's own directory and are renamed over it, so a reader of the path sees either the whole old file or the whole new one and never a half-written one. Only content is supported; src is refused rather than half-implemented, because src names a file beside the runbook on the controller while this method runs on the runner, which under the Walk tier is a per-task container that cannot see it. Anything at dest that is not a regular file is refused rather than replaced. An existing file keeps the mode, owner and group it had unless the task names them, matching what Ansible's own atomic move does; a file this method creates and the task gave no mode gets 0600, which is a fixed, documentable default rather than Ansible's umask-derived one.",
       "params": [
         {
           "name": "dest",
@@ -1313,7 +1313,7 @@
         {
           "name": "src",
           "type": "string",
-          "description": "Refused, always. In Ansible src names a file beside the playbook and the controller reads it; here a Collection method runs on the runner, which under the Crawl tier is a per-task container with no access to the controller's filesystem, so honoring src would work on the Walk tier and fail on the Crawl tier. Read the file into a variable and pass it as content instead."
+          "description": "Refused, always. In Ansible src names a file beside the playbook and the controller reads it; here a Collection method runs on the runner, which under the Walk tier is a per-task container with no access to the controller's filesystem, so honoring src would work on the Crawl tier and fail on the Walk tier. Read the file into a variable and pass it as content instead."
         },
         {
           "name": "mode",

@@ -1,4 +1,4 @@
-# The Pleiades Crawl tier as one Kubernetes release: the controller (API
+# The Pleiades Walk tier as one Kubernetes release: the controller (API
 # gateway, scheduler lease holder, job dispatcher), the runner (the stateless
 # worker that pulls jobs off a durable NATS consumer group), and optionally the
 # PostgreSQL and NATS the two of them need.

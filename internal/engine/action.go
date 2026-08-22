@@ -60,7 +60,7 @@ type ActionResult struct {
 	// task's when_cel can reference it. This mirrors
 	// sdk.RunbookContext.SetStat at the Collection-author level (pkg/sdk's
 	// doc comment) and PLAN.md Section 27's device.state_changed stats
-	// payload; Executor is its Walk-tier in-process carrier.
+	// payload; Executor is its Crawl-tier in-process carrier.
 	Stats map[string]interface{}
 
 	// IsMetadata reports whether Stats is runbook-level custom automation
@@ -76,7 +76,7 @@ type ActionResult struct {
 // ActionExecutor runs one task's fqcn action. It is the seam Phase W6
 // replaces with a real transport-backed implementation (dispatch over
 // SSHTransportCapable, once a device is resolved and its capability
-// checked); the Walk-tier default (NewBuiltinActionExecutor) has no
+// checked); the Crawl-tier default (NewBuiltinActionExecutor) has no
 // transport at all, so only fqcn values with no real device dependency
 // can genuinely run in-process today.
 type ActionExecutor interface {
@@ -86,10 +86,10 @@ type ActionExecutor interface {
 	Execute(ctx context.Context, task *Task, device inventory.InventoryItem) (ActionResult, error)
 }
 
-// builtinActionExecutor is the Walk-tier default ActionExecutor.
+// builtinActionExecutor is the Crawl-tier default ActionExecutor.
 type builtinActionExecutor struct{}
 
-// NewBuiltinActionExecutor returns the Walk-tier default ActionExecutor.
+// NewBuiltinActionExecutor returns the Crawl-tier default ActionExecutor.
 // It knows exactly two actions, both requiring nothing per
 // capability_rule.go's actionCapability map:
 //

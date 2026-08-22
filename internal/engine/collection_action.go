@@ -49,7 +49,7 @@ type collectionActionExecutor struct {
 // bypassing collectionActionExecutor's own dispatch, status-check, or
 // fact-collection logic. Nil (the default: WithCollectionInvoker is never
 // called) means "call desc.Invoke directly, in-process," today's exact,
-// unchanged Walk-tier behavior -- cmd/pleiades/run.go's own
+// unchanged Crawl-tier behavior -- cmd/pleiades/run.go's own
 // NewCollectionActionExecutor call needs no change at all.
 type CollectionInvoker func(ctx context.Context, desc collection.Descriptor, device inventory.InventoryItem, params map[string]interface{}) (collection.Result, map[string]interface{}, error)
 

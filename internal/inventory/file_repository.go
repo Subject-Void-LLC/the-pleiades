@@ -21,9 +21,9 @@ import (
 // reasoning HANDOFF_DOCUMENT.md's "the write path is now BUILT" section
 // gives for the ent schema's separate Revision table ("the questions it
 // answers are cross-device and cross-time and a blob cannot be indexed for
-// those") to a file pair instead of a database. This is the Walk-tier
+// those") to a file pair instead of a database. This is the Crawl-tier
 // adapter behind the same Repository port entRepository implements at
-// Crawl and above; both must behave identically to callers.
+// Walk and above; both must behave identically to callers.
 type fileRepository struct {
 	hostsPath   string // path to the primary, hand-editable hosts.yaml
 	sidecarPath string // path to the generated version/history sidecar
@@ -54,7 +54,7 @@ func NewFileRepository(inventoryPath string, factory *ItemFactory) Repository {
 	}
 }
 
-// GetGroup returns an Iterator over every host in the inventory file. Walk
+// GetGroup returns an Iterator over every host in the inventory file. Crawl
 // tier has no real grouping infrastructure yet anywhere in this codebase:
 // HostSpec (yaml_plugin.go) has no group-membership field at all, unlike
 // the ent-backed adapter, which now pushes sel.GroupName down to SQL via a
@@ -129,7 +129,7 @@ func (r *fileRepository) GetGroup(ctx context.Context, sel inventory.Selector) (
 // GroupAncestry always returns a nil slice and a nil error. hosts.yaml
 // models a flat list of hosts with no nested Group or Inventory entities
 // at all (those are ent schema concepts, internal/ent/schema/group.go and
-// inventory.go, that this Walk-tier storage format has no equivalent
+// inventory.go, that this Crawl-tier storage format has no equivalent
 // of), so there is no hierarchy to walk. A nil, nil result is the honest
 // answer this Repository.GroupAncestry's own doc comment already
 // documents for exactly this case ("a Repository with no such hierarchy
@@ -227,7 +227,7 @@ func (r *fileRepository) buildRecord(h HostSpec, sidecar sidecarDocument, withHi
 		// Item is about the second. Naming the storage backend as the owner
 		// made every hand-written hosts.yaml entry look like it was already
 		// claimed by a plugin called "file", so the first real sync plugin
-		// to run against a Walk-tier project reported every host as a
+		// to run against a Crawl-tier project reported every host as a
 		// conflict and refused to adopt any of them. An empty Plugin is the
 		// honest answer for "provenance was never recorded", and it is the
 		// value reconciliation already treats as adoptable.

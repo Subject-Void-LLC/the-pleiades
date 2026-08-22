@@ -176,7 +176,7 @@ func (s failingStore) Lookup(context.Context, string) (credential.Credential, er
 }
 
 // TestNewCredentialRunbookContext_ResolvesTheDevicesSecrets proves the
-// Walk tier actually hands a Collection method the credential stored for
+// Crawl tier actually hands a Collection method the credential stored for
 // the device it is acting on.
 //
 // This is the gap that made every credential-needing Collection method

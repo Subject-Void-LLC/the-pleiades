@@ -1,7 +1,7 @@
 // Package inventory hydrates storage-agnostic Records into the concrete
 // device types that satisfy the base InventoryItem contract (pkg/inventory),
 // and adapts them to and from whichever repository backs the platform at a
-// given tier (ent-backed at Crawl and above, YAML-backed at Walk).
+// given tier (ent-backed at Walk and above, YAML-backed at Crawl).
 package inventory
 
 import (
