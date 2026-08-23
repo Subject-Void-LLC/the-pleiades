@@ -279,6 +279,64 @@ func Shared(opts Options) *Runner {
 	return r
 }
 
+// SnapshotForTest captures the process-wide Runner memo and returns a
+// function that puts it back, for a test whose subject is what a dial
+// FAILURE looks like.
+//
+// Such a test is the one caller that cannot tolerate this memo. The
+// breaker counts CONSECUTIVE failures per Runner with no time window and
+// no decay, and Shared keys its Runners by Options, so every test in a
+// binary that dials the same dead address shares one counter and every
+// iteration of every one of them adds to it. Cross a threshold and the
+// error stops naming the dial failure and starts saying "circuit open"
+// instead -- which is the breaker working exactly as designed, arriving
+// as a test failure in a test that never asked for it.
+//
+// That is not hypothetical: internal/catalog/net/ssh's own
+// TestPing_DialFailureIsReported passes at -count=1 and -count=2 and
+// fails from -count=3, because one Ping spends three dial attempts and
+// the threshold is five.
+//
+// It EMPTIES the memo as well as capturing it, and both halves are
+// load-bearing. Capturing alone is not enough and was tried first: the map
+// holds Runner POINTERS, so putting the same map back hands the next
+// iteration the very same Runner with its failure count intact, and a
+// Runner built by some earlier test in the binary is never dropped at all.
+// Emptying is what guarantees the caller a Runner with a zero counter,
+// which is the whole point.
+//
+// Emptying is safe in a way that emptying a registry would not be. This is
+// a memo, not a vocabulary: Shared rebuilds any entry on next use, so the
+// only cost of starting empty is one allocation. Nothing looks a Runner up
+// here expecting to find it.
+//
+// Reaching into the Runner to zero its breaker instead was rejected. That
+// would couple every caller of this seam to the breaker's internal shape,
+// and it would leave a second Runner for the same Options -- one held
+// directly by a caller that used New -- still counting.
+//
+// internal/archtest forbids production code from calling this.
+func SnapshotForTest() func() {
+	shared.mu.Lock()
+	saved := make(map[Options]*Runner, len(shared.runners))
+	for k, v := range shared.runners {
+		saved[k] = v
+	}
+	shared.runners = map[Options]*Runner{}
+	shared.mu.Unlock()
+
+	return func() {
+		restored := make(map[Options]*Runner, len(saved))
+		for k, v := range saved {
+			restored[k] = v
+		}
+
+		shared.mu.Lock()
+		defer shared.mu.Unlock()
+		shared.runners = restored
+	}
+}
+
 // Run dials through hops (if any) to target, runs command, and closes the
 // connection.
 //

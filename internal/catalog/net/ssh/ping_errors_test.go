@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/net/ssh"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
 // sshStub is an inventory item that implements capability.SSHTransportCapable,
@@ -125,6 +126,17 @@ func TestPing_MissingKnownHostsFailsClosed(t *testing.T) {
 // test at the one loopback address on the machine that would answer it.
 // See FAILURE_PATTERNS.md #123.
 func TestPing_DialFailureIsReported(t *testing.T) {
+	// Ping reaches its Runner through remoteexec.Shared, which memoizes one
+	// Runner per Options for the life of the PROCESS, and the breaker on it
+	// counts consecutive failures with no window and no decay. Every case
+	// below is a dial failure by design, so without this the counter simply
+	// accumulates: one Ping spends three attempts, the threshold is five,
+	// and from the third iteration of this test the error stops naming the
+	// dial failure and says "circuit open" instead. That is the breaker
+	// working correctly, surfacing as a failure in a test that is not about
+	// it.
+	t.Cleanup(remoteexec.SnapshotForTest())
+
 	cases := []struct {
 		name string
 		host string
