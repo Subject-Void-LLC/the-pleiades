@@ -10,7 +10,7 @@ import (
 
 // Create appends a new host to the inventory file and its sidecar entry to
 // the state file. It is the file-backed half of the Repository write path,
-// and it is what lets a Walk-tier user run a sync plugin with no database
+// and it is what lets a Crawl-tier user run a sync plugin with no database
 // at all, which Section 7's binding rule 2 requires of every port the
 // execution path touches.
 //

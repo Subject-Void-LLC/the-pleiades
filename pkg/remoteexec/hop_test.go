@@ -222,15 +222,13 @@ func TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError(t
 		return "", "", 0
 	})
 
-	// A real, bound loopback listener, closed before the chain dials it,
-	// so the address is syntactically valid but genuinely has nothing
-	// listening.
-	deadListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to open a throwaway listener: %v", err)
-	}
-	unreachableAddr := deadListener.Addr().String()
-	deadListener.Close()
+	// Port 0: syntactically valid, and nothing can ever be listening on
+	// it, because 0 is the sockets API's "assign me any free port" value
+	// for bind. This used to open a listener and close it again, which
+	// FAILURE_PATTERNS.md #123, #177 and #183 all record failing for
+	// real on this project's own development host, where a just-released
+	// loopback port keeps accepting connects.
+	const unreachableAddr = "127.0.0.1:0"
 
 	knownHostsPath := writeMultiKnownHosts(t, map[string]ssh.PublicKey{bastionAddr: bastionKey})
 	r := New(Options{KnownHostsPath: knownHostsPath, InsecureSkipHostKeyVerify: false, MaxRetries: 1})
@@ -247,7 +245,7 @@ func TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError(t
 	target := Target{Host: targetHost, Port: targetPort}
 	targetAuth := testAuth
 
-	_, err = r.Run(context.Background(), hops, target, targetAuth, "echo hi")
+	_, err := r.Run(context.Background(), hops, target, targetAuth, "echo hi")
 	if err == nil {
 		t.Fatal("expected a channel-open failure against an address nothing is listening on")
 	}

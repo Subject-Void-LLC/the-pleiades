@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // parseGenerated parses content as Go source, failing the test with the
@@ -51,8 +52,42 @@ func TestGenerate(t *testing.T) {
 				"type CatalystCenter struct",
 				"ReadOnly: true",
 				`Endpoint: "https://sandboxdnac.cisco.com"`,
-				"Status: syncplugin.StatusDeclared",
+				"syncplugin.StatusDeclared",
+				"RequiresCredentials: false",
+				"func(deps syncplugin.Deps) syncplugin.Plugin { return New(deps) }",
 				"var _ syncplugin.Plugin = (*CatalystCenter)(nil)",
+			},
+		},
+		{
+			// The wiring half: a plugin declaring a credential store and a
+			// per-deployment setting must come out of the generator already
+			// reading both, since a declaration written later than the code
+			// that reads it is a declaration that starts out wrong.
+			name: "a plugin that needs credentials and a setting",
+			cfg: pluginscaffold.Config{
+				Name:                "cloudthing",
+				Description:         "reads hosts from a cloud provider",
+				RequiresCredentials: true,
+				Settings: []syncplugin.SettingSpec{{
+					Name:        "region",
+					Description: "the provider region to read from",
+					Required:    true,
+				}},
+			},
+			wantPaths: []string{
+				"internal/inventory/plugins/cloudthing/cloudthing.go",
+				"internal/inventory/plugins/cloudthing/cloudthing_test.go",
+			},
+			wantContains: []string{
+				"RequiresCredentials: true",
+				"Settings: []syncplugin.SettingSpec{",
+				`Name:        "region"`,
+				`Description: "the provider region to read from"`,
+				"Required:    true",
+				"creds credential.Store",
+				"creds: deps.Credentials,",
+				`cfg.Setting("region")`,
+				`"github.com/Subject-Void-LLC/the-pleiades/internal/credential"`,
 			},
 		},
 		{
@@ -158,6 +193,39 @@ func TestGenerate_Rejects(t *testing.T) {
 			name:    "missing description",
 			cfg:     pluginscaffold.Config{Name: "netbox"},
 			wantErr: "has no description",
+		},
+		{
+			// A setting nobody can name is not a setting, and the
+			// generated descriptor would declare an empty key nothing can
+			// ever match a --set value to.
+			name: "setting with no name",
+			cfg: pluginscaffold.Config{
+				Name:        "netbox",
+				Description: "x",
+				Settings:    []syncplugin.SettingSpec{{Description: "d"}},
+			},
+			wantErr: "invalid setting name",
+		},
+		{
+			name: "setting name is not a valid segment",
+			cfg: pluginscaffold.Config{
+				Name:        "netbox",
+				Description: "x",
+				Settings:    []syncplugin.SettingSpec{{Name: "My-Region", Description: "d"}},
+			},
+			wantErr: "invalid setting name",
+		},
+		{
+			// A required setting an operator cannot look up the meaning of
+			// is a value they have to read source to supply, which is the
+			// state that made the AWS region undiscoverable.
+			name: "setting with no description",
+			cfg: pluginscaffold.Config{
+				Name:        "netbox",
+				Description: "x",
+				Settings:    []syncplugin.SettingSpec{{Name: "region"}},
+			},
+			wantErr: "no description",
 		},
 		{
 			name:    "whitespace-only description",

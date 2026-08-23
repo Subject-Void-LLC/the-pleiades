@@ -93,7 +93,7 @@ func hostKeyCallbackFor(opts Options, insecureSkipHostKeyVerify bool) (ssh.HostK
 //
 // A package reading its own environment variable is usually a smell, and
 // it is the right answer here for one specific reason: this is the only
-// channel that reaches the code that needs it. Under the Crawl tier a
+// channel that reaches the code that needs it. Under the Walk tier a
 // Collection method runs inside a per-task subprocess with no composition
 // root of its own and no argument it controls, so a value wired at
 // startup cannot reach it. The subprocess inherits the environment

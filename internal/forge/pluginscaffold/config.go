@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // Config is the input to Generate: everything needed to emit one new
@@ -40,6 +41,32 @@ type Config struct {
 	// is the plugin's shipped default rather than something each caller has
 	// to remember to set.
 	ReadOnly bool
+
+	// RequiresCredentials says this plugin's Connect resolves a
+	// credential, so the generated descriptor declares
+	// syncplugin.Descriptor.RequiresCredentials and the generated New
+	// keeps the store out of syncplugin.Deps.
+	//
+	// It is here rather than left to a human to add later because
+	// forgetting it is exactly how the AWS plugin shipped unreachable: a
+	// plugin that needs a store and does not say so gets built with a nil
+	// one, and finds out only against a real upstream. Generating the
+	// declaration alongside the code that reads it means the two cannot
+	// start out disagreeing.
+	RequiresCredentials bool
+
+	// Settings are the per-deployment values this plugin needs beyond
+	// syncplugin.Config's shared fields, for example an AWS region. They
+	// land in the generated descriptor, so `pleiades inventory plugins`
+	// lists them and syncplugin.Open refuses a missing required one by
+	// name.
+	//
+	// This is the shared runtime type rather than a generator-local copy
+	// of it: two structural definitions of one concept is the drift this
+	// repository has already paid for elsewhere, and a generator whose
+	// idea of a setting differs from the registry's would emit code that
+	// does not compile.
+	Settings []syncplugin.SettingSpec
 }
 
 // TypeName returns the exported Go type name for the generated plugin, for
@@ -83,6 +110,14 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Description) == "" {
 		return fmt.Errorf("pluginscaffold: plugin %q has no description", c.Name)
+	}
+	for _, spec := range c.Settings {
+		if err := genutil.ValidateSegment(spec.Name); err != nil {
+			return fmt.Errorf("pluginscaffold: plugin %q declares an invalid setting name %q: %w", c.Name, spec.Name, err)
+		}
+		if strings.TrimSpace(spec.Description) == "" {
+			return fmt.Errorf("pluginscaffold: plugin %q declares setting %q with no description", c.Name, spec.Name)
+		}
 	}
 	if c.Endpoint != "" {
 		parsed, err := url.Parse(c.Endpoint)

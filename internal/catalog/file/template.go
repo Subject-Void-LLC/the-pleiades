@@ -39,8 +39,8 @@ import (
 // filters, whitespace and error messages, and a runbook's template would
 // then behave differently depending on whether it was rendered for a
 // credential injector or for this method. Rendering on the controller
-// and shipping the result would work on the Walk tier and fail on the
-// Crawl tier, where a method runs in a per-task container that has
+// and shipping the result would work on the Crawl tier and fail on the
+// Walk tier, where a method runs in a per-task container that has
 // neither the runbook's directory nor the run's variables, which is the
 // same reason file.copy refuses src.
 //

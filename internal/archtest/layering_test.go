@@ -39,7 +39,7 @@ const modulePath = "github.com/Subject-Void-LLC/the-pleiades"
 // lib/pq joined this list in Phase 18 (The Grand Integration Test), which
 // gave internal/ent a real PostgreSQL adapter behind OpenDatabase. Until
 // then lib/pq was a test-only dependency of this module, so listing it
-// would have caught nothing; a Crawl-tier deployment is the first thing
+// would have caught nothing; a Walk-tier deployment is the first thing
 // that needs it at run time.
 var concreteDriverPrefixes = []string{
 	"github.com/nats-io/nats.go",

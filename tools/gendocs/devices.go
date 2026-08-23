@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/catalogdata"
+	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory" // registers every built-in device type
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 )
 
 // handWrittenDevices names the two device types that predate the Forge
@@ -46,22 +48,74 @@ func generateDevices(outDir string) error {
 	b.WriteString(frontMatter("beta"))
 	b.WriteString("# Device types\n\n")
 	b.WriteString("Every registered inventory device type, its vendor package, and the capabilities " +
-		"every hydrated instance carries as its baseline.\n\n")
+		"that type can carry.\n\n")
 
 	rows := make([][]string, 0, len(catalogdata.Devices)+len(handWrittenDevices))
+	var conditional bool
 	for _, d := range handWrittenDevices {
-		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), quoteList(d.Capabilities), "hand-written, predates the Forge"})
+		caps, marked := markConditional(d.TypeKey, d.Capabilities)
+		conditional = conditional || marked
+		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "hand-written, predates the Forge"})
 	}
 	for _, d := range catalogdata.Devices {
-		caps := make([]string, len(d.Capabilities))
+		names := make([]string, len(d.Capabilities))
 		for i, c := range d.Capabilities {
-			caps[i] = string(c)
+			names[i] = string(c)
 		}
-		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), quoteList(caps), "generated"})
+		caps, marked := markConditional(d.TypeKey, names)
+		conditional = conditional || marked
+		rows = append(rows, []string{code(d.TypeKey), code(d.Vendor), caps, "generated"})
 	}
 
 	b.WriteString(table([]string{"Type", "Vendor", "Capabilities", "Origin"}, rows))
 	b.WriteString(fmt.Sprintf("\n%d device types registered.\n", len(rows)))
+	if conditional {
+		b.WriteString("\n" + conditionalNote + "\n")
+	}
 
 	return os.WriteFile(filepath.Join(outDir, "devices.md"), []byte(b.String()), 0o644) // #nosec G306 -- generated docs, not secret material
+}
+
+// conditionalNote explains the marker markConditional adds. It is written
+// only when some type actually earns it, so the page never carries a
+// footnote pointing at nothing.
+const conditionalNote = "A capability list marked with an asterisk is what that type CAN carry, not what " +
+	"every instance declares: the type decides per device, from that device's own properties. " +
+	"`console_device` is the case this exists for, because a local serial line, a console server " +
+	"port and a bare Telnet session are alternative ways to reach one device rather than three " +
+	"facts about it, so a device configured for one must not claim the others. See that type's " +
+	"package documentation for which property enables which capability."
+
+// markConditional renders a type's capability list, appending an asterisk
+// when hydrating that type with a bare Record does not in fact declare
+// every capability listed, and reports whether it did.
+//
+// Deriving this rather than hardcoding a type name is the difference
+// between a footnote that stays true and one that rots: a type that
+// later becomes unconditional loses its marker with no edit here, and a
+// new conditional type gains one without anybody remembering to.
+func markConditional(typeKey string, capabilities []string) (string, bool) {
+	rendered := quoteList(capabilities)
+
+	constructor, ok := record.LookupType(typeKey)
+	if !ok {
+		// TestDeviceRowsMatchLiveRegistry owns this failure; rendering
+		// the row unmarked keeps one problem from looking like two.
+		return rendered, false
+	}
+	item, err := constructor(record.Record{Name: typeKey, Type: typeKey})
+	if err != nil {
+		return rendered, false
+	}
+
+	declared := make(map[string]bool, len(item.Capabilities()))
+	for _, c := range item.Capabilities() {
+		declared[string(c)] = true
+	}
+	for _, name := range capabilities {
+		if !declared[name] {
+			return rendered + " \\*", true
+		}
+	}
+	return rendered, false
 }

@@ -51,7 +51,7 @@ type Worker struct {
 	// resolves and hands it over already-decrypted, per job, per device).
 	// A device with no stored credential is not a fan-out failure: only a
 	// task that actually needs a secret fails downstream, the same place
-	// a missing credential already fails at the Walk tier
+	// a missing credential already fails at the Crawl tier
 	// (worker_devices.go's admitAndDispatchDevice).
 	credentials credential.Store
 	// credentialResolver and injector are the Phase 22 half of the same
@@ -63,7 +63,7 @@ type Worker struct {
 	// takes them as a pair, so a Worker cannot hold a resolver with nothing
 	// to render it into). A Worker without them dispatches exactly as it
 	// did before this phase, which is what keeps every existing deployment
-	// and the whole Walk tier working unchanged.
+	// and the whole Crawl tier working unchanged.
 	credentialResolver CredentialResolver
 	injector           *credtype.Injector
 

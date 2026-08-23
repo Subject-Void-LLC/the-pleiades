@@ -67,7 +67,7 @@ date until a first tagged release.
   (`internal/ent/migrate/migrations/sqlite/0004_add_jobs.sql`). Without it, every
   `POST /api/v1/jobs/dispatch` call failed with `"no such table: jobs"` on any
   deployment, not just a fresh one: the tables were never created. Found while
-  capturing real output for the Crawl-tier quickstart.
+  capturing real output for the Walk-tier quickstart.
 - `pleiades --help`, `pleiades forge --help`, and `pleiades inventory --help` no
   longer cite an internal specification document that is gitignored and never ships.
   Same fix applied to the `inventory.yaml` header a scaffolded project's
@@ -99,7 +99,7 @@ date until a first tagged release.
 
 ## Pre-history
 
-Everything before this entry: the Walk-tier CLI, the control plane (data layer, event
+Everything before this entry: the Crawl-tier CLI, the control plane (data layer, event
 bus, distributed locking, leader election, envelope encryption, inventory factory,
 RBAC, the CEL engine, the workflow DAG builder, the HATEOAS API gateway, the
 dispatcher), the Forge scaffolding tooling, and the 75-method module catalog (4

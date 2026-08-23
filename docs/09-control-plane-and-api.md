@@ -4,7 +4,7 @@ status: beta
 
 # Control plane and API
 
-This book covers the Crawl-tier control plane's HTTP API: what it looks like today,
+This book covers the Walk-tier control plane's HTTP API: what it looks like today,
 how authorization works, and what is and is not built. See
 [Start here](01-start-here.md) for the tier vocabulary and the honest summary of what
 is real (the control plane's own data layer, event bus, locking, RBAC, the job
@@ -267,7 +267,7 @@ Precisely:
   reaches the viewer unscrubbed.
 - The stream never terminates on its own; the client closes it.
 
-**This stream carries no real task results today, on any path.** The Walk-tier
+**This stream carries no real task results today, on any path.** The Crawl-tier
 CLI is not even one of its publishers: `pleiades run` builds its engine on an
 in-process bus (`event.NewInProcessBus`, in `cmd/pleiades/run.go`), never opens a
 NATS connection, and publishes its per-task status events under

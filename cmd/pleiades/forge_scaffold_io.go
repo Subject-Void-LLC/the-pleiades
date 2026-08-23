@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -113,6 +114,44 @@ func parseDocJSONFlag(value string) (collection.Doc, error) {
 		return collection.Doc{}, fmt.Errorf("parsing %s as a collection.Doc: %w", source, err)
 	}
 	return doc, nil
+}
+
+// parseSettingsJSONFlag decodes a --settings-json flag value into the
+// per-deployment settings a generated sync plugin declares. It follows
+// parseDocJSONFlag's conventions exactly, for the same reasons: an empty
+// value yields no settings, a value beginning with "@" is a path to read
+// the JSON from, and unknown fields are rejected rather than ignored, so
+// a mistyped key fails here instead of generating a descriptor that
+// silently declares nothing.
+//
+// The value is a JSON array of objects with name, description and
+// required, matching syncplugin.SettingSpec's own field names:
+//
+//	--settings-json '[{"name":"region","description":"the AWS region to read from","required":true}]'
+func parseSettingsJSONFlag(value string) ([]syncplugin.SettingSpec, error) {
+	if value == "" {
+		return nil, nil
+	}
+
+	raw := []byte(value)
+	source := "--settings-json"
+	if strings.HasPrefix(value, "@") {
+		path := strings.TrimPrefix(value, "@")
+		contents, err := os.ReadFile(path) // #nosec G304 -- a path the operator typed on their own command line, in their own repository
+		if err != nil {
+			return nil, fmt.Errorf("reading --settings-json file: %w", err)
+		}
+		raw = contents
+		source = path
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var settings []syncplugin.SettingSpec
+	if err := dec.Decode(&settings); err != nil {
+		return nil, fmt.Errorf("parsing %s as a list of syncplugin.SettingSpec: %w", source, err)
+	}
+	return settings, nil
 }
 
 // parseCapabilitiesFlag splits a comma-separated --capabilities flag value

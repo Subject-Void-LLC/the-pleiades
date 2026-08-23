@@ -1,7 +1,7 @@
-// Command pleiades is the Walk-tier composition root: the offline,
+// Command pleiades is the Crawl-tier composition root: the offline,
 // single-binary entry point with no server, database, or broker. It
 // links the inventory, engine, and validation packages directly and
-// does not dial a Controller: at Walk there is no Controller to dial.
+// does not dial a Controller: at Crawl there is no Controller to dial.
 // This file and its subcommand siblings only parse arguments and delegate;
 // every subcommand's real logic lives in the internal package that already
 // owns it.
@@ -85,5 +85,5 @@ func run(args []string) int {
 func printUsage() {
 	fmt.Fprint(os.Stderr, "usage: pleiades <command> [flags]\n\ncommands:\n")
 	fmt.Fprint(os.Stderr, clispec.RenderList(clispec.Root.Subcommands))
-	fmt.Fprintln(os.Stderr, "\nWalk tier: no server, no database, no broker. See docs/ in the repository\nfor the full documentation.")
+	fmt.Fprintln(os.Stderr, "\nCrawl tier: no server, no database, no broker. See docs/ in the repository\nfor the full documentation.")
 }

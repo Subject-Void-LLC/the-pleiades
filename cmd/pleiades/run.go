@@ -30,7 +30,7 @@ import (
 // tree and what each task targets), and then actually executes it with
 // engine.Executor (Part 0 Phase W5).
 //
-// This is the Walk-tier composition root's own adapter selection for the
+// This is the Crawl-tier composition root's own adapter selection for the
 // Release Gate Phase W4 left open (HANDOFF_DOCUMENT.md's Phase W4
 // session): lock.NewInProcessManager and event.NewInProcessBus are wired
 // in here, giving both ports their first real production caller anywhere
@@ -155,7 +155,7 @@ func runRunbook(args []string) error {
 	// Collection method unusable from this CLI: net.ssh.ping failed with
 	// "no usable authentication method" and net.catalyst.* with "no
 	// username secret available", against a device whose credential was
-	// sitting in .pleiades/credentials.yaml the whole time. The Crawl tier
+	// sitting in .pleiades/credentials.yaml the whole time. The Walk tier
 	// never had that gap, because the Controller attaches the credential
 	// to the dispatch payload.
 	credentials := credential.NewLazyFileStore(*dir)
@@ -166,10 +166,10 @@ func runRunbook(args []string) error {
 	// GroupAncestry, which a plain slice cannot answer). Cheap to build a
 	// second time: NewFileRepository wraps a path, it does not read the
 	// file until asked. fileRepository.GroupAncestry always reports "no
-	// hierarchy" (Walk tier's hosts.yaml has no Group/Inventory nesting
+	// hierarchy" (Crawl tier's hosts.yaml has no Group/Inventory nesting
 	// to walk), so a bastion configured at Device level still resolves
 	// end to end here; only a Group- or Inventory-level route needs
-	// Crawl tier's ent-backed Repository.
+	// Walk tier's ent-backed Repository.
 	inventoryPath := filepath.Join(*dir, inventory.DefaultInventoryFilename)
 	inventoryRepo := inventory.NewFileRepository(inventoryPath, inventory.NewItemFactory())
 

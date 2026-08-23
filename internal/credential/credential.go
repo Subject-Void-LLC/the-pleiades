@@ -1,18 +1,18 @@
-// Package credential defines the Walk-tier CredentialStore port: the
+// Package credential defines the Crawl-tier CredentialStore port: the
 // minimal value type and interface the platform uses to resolve a
 // device's SSH username, password, or private key by device name, plus
 // the redaction (this file) and masking (mask.go) helpers that keep
 // those secrets out of logs and debug output.
 //
 // This is deliberately smaller than PLAN.md Section 17's full
-// Postgres/Vault-backed CredentialStore (Crawl/Run tier, behind unbuilt
-// Phase 22). It follows the same "adapter behind a port, Walk gets a
-// file-backed one, Crawl gets a database-backed one later" split
+// Postgres/Vault-backed CredentialStore (Walk/Run tier, behind unbuilt
+// Phase 22). It follows the same "adapter behind a port, Crawl gets a
+// file-backed one, Walk gets a database-backed one later" split
 // internal/inventory already uses for its Repository interface
-// (internal/inventory/file_repository.go is the Walk-tier adapter,
-// internal/inventory/ent_repository.go the Crawl-tier one), applied here
+// (internal/inventory/file_repository.go is the Crawl-tier adapter,
+// internal/inventory/ent_repository.go the Walk-tier one), applied here
 // to credentials instead of inventory state. file_store.go is this
-// package's Walk-tier adapter.
+// package's Crawl-tier adapter.
 package credential
 
 import (
@@ -142,11 +142,11 @@ func setMarker(set bool) string {
 // returning it.
 var ErrNotFound = errors.New("credential: no credential found for device")
 
-// Store is the Walk-tier port through which the platform resolves a
+// Store is the Crawl-tier port through which the platform resolves a
 // device's SSH credential by name. internal/transport (built in a
 // parallel slice of this phase) depends only on this interface, never on
 // a concrete adapter, so a Postgres/Vault-backed Store built later for
-// Crawl tier (PLAN.md Section 17) is a new implementation of this
+// Walk tier (PLAN.md Section 17) is a new implementation of this
 // interface, not a rewrite of every caller.
 type Store interface {
 	// Lookup resolves deviceName to its stored Credential. It returns

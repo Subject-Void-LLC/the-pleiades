@@ -8,8 +8,8 @@ import (
 )
 
 // BenchmarkParseHosts measures parse time for a representative
-// thousand-host static inventory file, the Walk-tier scale this format is
-// meant for (a hand-authored file, not a 100,000-device Crawl-tier group).
+// thousand-host static inventory file, the Crawl-tier scale this format is
+// meant for (a hand-authored file, not a 100,000-device Walk-tier group).
 func BenchmarkParseHosts(b *testing.B) {
 	hosts := make([]inventory.HostSpec, 1000)
 	for i := range hosts {

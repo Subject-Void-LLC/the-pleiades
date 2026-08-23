@@ -297,7 +297,7 @@ rather than a client-side parse.
 
 ### A command is never retried once sent
 
-The Walk-tier CLI's real SSH transport (`internal/transport/ssh`) retries with
+The Crawl-tier CLI's real SSH transport (`internal/transport/ssh`) retries with
 backoff and jitter, and short-circuits through a per-target circuit breaker, but
 **only during the dial phase**: establishing the TCP connection and completing the
 SSH handshake. The moment a command has actually been sent to the remote side, it
@@ -332,13 +332,13 @@ Every inventory item carries one of eight lifecycle states
 (`discovered`, `quarantined`, `onboarding`, `active`, `simulate-locked`,
 `unreachable`, `decommissioning`, `archived`). Only `active` accepts real work.
 `pleiades validate` rejects any task whose target resolves to a non-active device,
-by name, before anything runs; the Walk-tier executor and the Crawl-tier dispatcher
+by name, before anything runs; the Crawl-tier executor and the Walk-tier dispatcher
 both re-check the same rule at their own layer as well, so a device is never
 executed against by a path that happened to skip validation.
 
 ### Locking
 
-**The Walk-tier CLI's locking is in-process only. Two `pleiades run` invocations do
+**The Crawl-tier CLI's locking is in-process only. Two `pleiades run` invocations do
 not exclude each other.** `cmd/pleiades/run.go` wires `lock.NewInProcessManager`,
 whose own doc comment says it "only guards against concurrent access within this
 process." Every `pleiades run` is a separate process that starts with its own empty
@@ -354,7 +354,7 @@ A real distributed lock manager does exist (`lock.NewNatsLockManager`, backed by
 JetStream), and only the `controller` and `runner` binaries construct it. Since Phase
 16 the distributed execution plane does reach real devices, so that tier both runs for
 real and holds a per-device lease while it does. The gap is now narrower and lives
-entirely on this side: the Walk-tier CLI still has no distributed locking, so two
+entirely on this side: the Crawl-tier CLI still has no distributed locking, so two
 concurrent `pleiades run` invocations against one device do not coordinate.
 
 **What to do instead:** serialize device access outside Pleiades. Run one
@@ -450,7 +450,7 @@ federates against an external issuer and holds no local passwords at all.
 Pleiades stores two classes of durable secret.
 
 The first is device credentials: a username plus a password or an SSH private key,
-keyed by device name, encrypted at rest in a local file. This is the Walk tier's
+keyed by device name, encrypted at rest in a local file. This is the Crawl tier's
 store and it is still what the control plane falls back to when a template binds no
 machine credential.
 
@@ -571,7 +571,7 @@ The file is resolved from the first of three sources that names one:
    configures the whole process;
 3. `$HOME/.ssh/known_hosts`, which is where you already keep yours.
 
-Most specific wins, the same order `ssh` itself uses. On the Walk tier the third
+Most specific wins, the same order `ssh` itself uses. On the Crawl tier the third
 entry means the CLI simply reuses the file you have, and there is nothing to
 configure.
 
@@ -668,6 +668,57 @@ instead of a command run over a session. Each one trades away something SSH
 gives you for free — authentication, encryption, or both — and each one says
 so loudly rather than quietly, through a task parameter that has to be set on
 purpose next to the command it applies to.
+
+**First, the device type that carries these capabilities: `console_device`.**
+None of the tasks below can run against a `linux_server` or a `cisco_router`,
+and that is deliberate rather than an omission. A Linux server reached over
+SSH is not cabled to a console; claiming otherwise would let a runbook pass
+validation and then dial nothing. Console-reachable gear is its own inventory
+type:
+
+```yaml
+hosts:
+  # A switch on a terminal server port, staged before it has a management
+  # address. Reachable by serialtcp_exec, and by nothing else.
+  - name: sw-staging-01
+    type: console_device
+    properties:
+      raw_passthrough_host: ts1.mgmt.example.net
+      raw_passthrough_port: 2003
+
+  # A channel bank cabled to this host's own USB-serial adapter.
+  - name: pbx-annex
+    type: console_device
+    properties:
+      serial_device: /dev/ttyUSB0
+      serial_baud: 9600
+      serial_data_bits: 8
+      serial_parity: none
+      serial_stop_bits: "1"
+
+  # Genuinely old gear with nothing but Telnet.
+  - name: rtr-1994
+    type: console_device
+    properties:
+      telnet_host: 10.20.30.40
+```
+
+The properties are what decide which capability the device declares, one
+reach path at a time:
+
+| Property | Declares | Notes |
+|---|---|---|
+| `serial_device` | `SerialCapable` | The operating system's own name for the port. Opaque: `COM3` is as valid as `/dev/ttyUSB0`. |
+| `serial_baud`, `serial_data_bits`, `serial_parity`, `serial_stop_bits` | *(line settings only)* | Optional. Default to 9600 8-N-1, the console setting mainstream gear ships with. |
+| `raw_passthrough_host` + `raw_passthrough_port` | `RawPassthroughCapable` | Both required. There is no default port: per-line numbering is vendor specific (Digi from 2001, Opengear and Lantronix from 3001), so guessing would dial somebody else's line on the same unit. |
+| `rfc2217_host` + `rfc2217_port` | `RFC2217Capable` | Both required, same reason. `rfc2217_baud` and its siblings configure this line independently of `serial_*`. |
+| `telnet_host` | `TelnetCapable` | `telnet_port` defaults to 23, which is a real convention rather than a guess. |
+
+A device configured for one path does not claim the others, so
+`pleiades validate` rejects a `serial_exec` task aimed at a Telnet-only
+device before anything runs. A line setting that does not parse is refused
+when the inventory is read, not defaulted past: a wrong parity or baud rate
+does not fail a serial line, it silently corrupts every byte crossing it.
 
 **Local serial (`serial_exec`).** A device declaring `SerialCapable`
 advertises a serial port identifier (`/dev/ttyUSB0` on Linux,
@@ -872,7 +923,7 @@ at all.
   scrubbed using the complete set of values discovered as secret by the time the
   run finished.
 - Every live progress event published during the run (the same event stream a
-  Crawl-tier job log or SSE viewer would read) is scrubbed **best-effort, in
+  Walk-tier job log or SSE viewer would read) is scrubbed **best-effort, in
   flight**, using only the secrets known at the moment that specific event is
   published. An event published before a later task marks something secret cannot
   be retroactively scrubbed. This is a real, load-bearing limitation, not a
@@ -881,12 +932,12 @@ at all.
 - `when_cel` conditions always see the real, unmasked value. Masking a value from
   the conditional engine would silently break branching logic that depends on it.
 
-**Where masking does not apply today:** the Crawl-tier distributed execution path
+**Where masking does not apply today:** the Walk-tier distributed execution path
 (a job dispatched to a `runner` over NATS) does not yet run real tasks at all (see
 [Start here](01-start-here.md)), so there is no real stored job record or SSE
 stream carrying task output to audit for masking yet. This section will need a real
 audit once that path executes for real; treat the guarantees above as proven only
-for the Walk-tier CLI's own output today.
+for the Crawl-tier CLI's own output today.
 
 ### Telemetry
 

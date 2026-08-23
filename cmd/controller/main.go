@@ -15,7 +15,7 @@
 // exists anywhere in this repository yet (internal/ent/embedded.go only
 // has a SQLite embedded-migration path), and adding one is not a Phase 2
 // checklist item; this composition root uses the same embedded SQLite
-// path cmd/pleiades (the Walk-tier CLI) already does.
+// path cmd/pleiades (the Crawl-tier CLI) already does.
 //
 // This is also Phase 4's own composition root: exactly one running
 // controller replica must hold the "pleiades-scheduler-leader" lease at
@@ -677,7 +677,7 @@ func main() {
 	// time, so worker below can attach it directly to
 	// wire.DispatchPayload.Secrets (Phase 16, Native Go Execution
 	// Adapter: the Runner never holds its own copy of the decryption
-	// key). This is deliberately the same Walk-tier file-backed adapter
+	// key). This is deliberately the same Crawl-tier file-backed adapter
 	// cmd/pleiades already trusts (credential.NewLazyFileStore), not
 	// PLAN.md Section 17's full Postgres/Vault-backed CredentialStore,
 	// which remains unbuilt future work; see this phase's own plan for
@@ -687,7 +687,7 @@ func main() {
 	credentialsDir := getenv("CONTROLLER_CREDENTIALS_DIR", ".")
 	deviceCredentials := credential.NewLazyFileStore(credentialsDir)
 
-	// The Crawl-tier credential surface, which is a different axis from
+	// The Walk-tier credential surface, which is a different axis from
 	// the per-device file store above rather than a replacement for it.
 	// That store answers "what does this DEVICE authenticate with"; this
 	// one answers "what does this TEMPLATE run as", which is AWX's own

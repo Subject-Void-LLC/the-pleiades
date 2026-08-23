@@ -4,7 +4,7 @@ status: beta
 
 # Get started
 
-## Quickstart: Walk tier
+## Quickstart: Crawl tier
 
 Everything below is real, captured output from a real run: `pleiades` against a live
 Ubuntu container over SSH, the same lab set up in
@@ -40,7 +40,7 @@ added host "web1" (linux_server) to inventory.yaml
 `inventory.yaml` now has a real entry, written by the CLI, not by hand:
 
 ```yaml
-# Pleiades static inventory (Walk tier: no server, no database, no broker).
+# Pleiades static inventory (Crawl tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts:
     - id: 6e3dd54a-763e-45f2-ae77-dd9fd90d0898
@@ -159,7 +159,7 @@ Run it again and it reports `ok` again, both times, because the runbook now says
 explicitly. This is the whole of `ssh_exec`'s change-detection story today: an author
 states it, the engine does not infer it.
 
-## Quickstart: Crawl tier
+## Quickstart: Walk tier
 
 **Status: real infrastructure, real execution.** Everything below is captured from a
 real local mesh: a real NATS JetStream container and a real `controller` binary,
@@ -304,7 +304,7 @@ $ curl -s --cacert ./tls/cert.pem "https://localhost:8080/api/v1/jobs/2cd07f0c-4
 ```
 
 `dispatched: 0` is honest, not broken: the inventory this template names holds no
-devices yet. The Controller's own inventory is a separate store from the Walk-tier
+devices yet. The Controller's own inventory is a separate store from the Crawl-tier
 CLI's local `inventory.yaml`, and populating it means creating devices
 (`POST /api/v1/inventory/devices`), grouping them, and putting those groups in an
 Inventory (`POST /api/v1/inventories`) for a template to target.

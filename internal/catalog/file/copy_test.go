@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -126,7 +125,7 @@ func newCopyUnreachable() inventory.InventoryItem {
 
 // copyContext is a minimal sdk.RunbookContext carrying a fixed secret
 // set, standing in for the real one the composition root builds from the
-// credential store on the Walk tier or the dispatch payload on the Crawl
+// credential store on the Crawl tier or the dispatch payload on the Walk
 // tier.
 type copyContext struct {
 	secrets map[string]string
@@ -250,17 +249,17 @@ func copyFileNames(t *testing.T, path string) (string, string) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	uid, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	owner, err := user.LookupId(strconv.Itoa(int(sys.Uid)))
+	owner, err := user.LookupId(strconv.Itoa(uid))
 	if err != nil {
-		t.Skipf("uid %d has no name on this machine: %v", sys.Uid, err)
+		t.Skipf("uid %d has no name on this machine: %v", uid, err)
 	}
-	group, err := user.LookupGroupId(strconv.Itoa(int(sys.Gid)))
+	group, err := user.LookupGroupId(strconv.Itoa(gid))
 	if err != nil {
-		t.Skipf("gid %d has no name on this machine: %v", sys.Gid, err)
+		t.Skipf("gid %d has no name on this machine: %v", gid, err)
 	}
 	return owner.Username, group.Name
 }
@@ -280,11 +279,10 @@ func copyOtherGroup(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, current, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	current := int(sys.Gid)
 
 	candidates, err := os.Getgroups()
 	if err != nil {
@@ -401,7 +399,7 @@ func TestCopy_Registered(t *testing.T) {
 // about.
 //
 // It has to explain, not merely reject: src works perfectly well on the
-// Walk tier, so an author who tried it and got "unsupported parameter"
+// Crawl tier, so an author who tried it and got "unsupported parameter"
 // would reasonably assume a bug. The message names the tier where it
 // breaks and what to write instead. It is also checked BEFORE the
 // missing-content refusal, since a converted playbook carries src and no
@@ -866,12 +864,12 @@ func TestCopy_ChangesTheGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", dest, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	if strconv.Itoa(int(sys.Gid)) != resolved.Gid {
-		t.Errorf("the file's gid is %d on disk, want %s: the group was never applied", sys.Gid, resolved.Gid)
+	if strconv.Itoa(gid) != resolved.Gid {
+		t.Errorf("the file's gid is %d on disk, want %s: the group was never applied", gid, resolved.Gid)
 	}
 	if got := rc.stats["group"]; got != wanted {
 		t.Errorf("group stat = %v, want %q", got, wanted)

@@ -144,7 +144,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 141. The Kubernetes gate's cluster name is a constant it deletes on sight, so any second actor's cleanup is a live run's outage
 142. An unquoted chart value let an operator-supplied string add fields to objects the chart never wrote
 143. A Collection may import only pkg/, so the one SSH module hand-rolled the security-critical dial the transport layer already owned
-144. The Walk tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
+144. The Crawl tier handed every Collection method an empty secret set, so no method needing a credential could run from the CLI
 145. Two collection methods' documentation had already drifted from the data the catalog is generated from
 146. A circuit breaker latched half-open forever, so a device that was briefly down was never dialed again
 147. The idempotence guard looked in a different directory from the command it guarded
@@ -180,6 +180,13 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
 178. Stream shape is re-asserted by three composition roots from compile-time constants, so the least-qualified process silently wins
 179. Two fully-built shared primitives had zero production callers, and both had been "finished" for phases
+180. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
+181. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
+182. The one JetStream KV bucket whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
+183. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
+184. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
+185. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
+186. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
 
 ---
 

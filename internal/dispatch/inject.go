@@ -16,7 +16,7 @@
 // having rendered it slightly earlier.
 //
 // It is the same place a credential is already resolved. worker_devices.go
-// already calls credentials.Lookup for the per-device Walk-tier store here.
+// already calls credentials.Lookup for the per-device Crawl-tier store here.
 // Two just-in-time resolution points would eventually disagree about which
 // one a given dispatch used.
 //
@@ -65,7 +65,7 @@ type CredentialResolver interface {
 //
 // A job binding no credentials, or a Worker with no resolver wired, returns
 // an empty artifact and no error. That is what keeps every pre-Phase-22
-// dispatch working unchanged: the per-device Walk-tier credential store
+// dispatch working unchanged: the per-device Crawl-tier credential store
 // below this call is still the fallback, and a deployment that has never
 // created a credential type never enters this path.
 func (w *Worker) injectFor(ctx context.Context, job *Job) (credtype.Artifact, string, error) {
@@ -160,7 +160,7 @@ func InjectedFrom(art credtype.Artifact) *wire.Injected {
 // from AWX expects: they bind one machine credential to a job template and
 // every host in the inventory is reached with it. The per-device store
 // staying as the fallback is what keeps every dispatch that exists today
-// working unchanged, including the whole Walk tier, which has no template
+// working unchanged, including the whole Crawl tier, which has no template
 // and no binding.
 //
 // The order matters and the inverse would be worse: a per-device credential

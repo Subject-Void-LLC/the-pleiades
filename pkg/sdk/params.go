@@ -5,8 +5,8 @@ import "fmt"
 // Typed readers for a task's params map.
 //
 // Every Collection method receives its parameters as map[string]any,
-// because that is what survives YAML decoding on the Walk tier and JSON
-// decoding across the Runner's per-task subprocess boundary on the Crawl
+// because that is what survives YAML decoding on the Crawl tier and JSON
+// decoding across the Runner's per-task subprocess boundary on the Walk
 // tier. Reading that map correctly is the same problem in every module,
 // and getting it wrong is quiet rather than loud: a misspelled key reads
 // as absent, and a value of the wrong type reads as the zero value.
@@ -93,7 +93,7 @@ func StringSlice(params map[string]any, key string) ([]string, bool, error) {
 // none given.
 //
 // A value arrives as one of three shapes depending on which tier decoded
-// it: int from YAML on the Walk tier, int64 from a wide-integer decoder,
+// it: int from YAML on the Crawl tier, int64 from a wide-integer decoder,
 // or float64 once the same value has crossed the Runner's per-task
 // subprocess boundary as JSON. Refusing the last would make a working
 // runbook fail on one tier and not the other. This is the fourth

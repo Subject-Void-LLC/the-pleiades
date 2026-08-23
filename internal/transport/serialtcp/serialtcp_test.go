@@ -105,19 +105,15 @@ func TestExec_RejectsAnyEndpointOtherThanNetworkEndpoint(t *testing.T) {
 // pkg/serialtcp (here, a dial to a closed port) reaches the caller as a
 // wrapped, non-nil error rather than a zero-value success.
 func TestExec_WrapsAnUnderlyingFailureClearly(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // nothing is listening now
-
 	tr := serialtcptransport.New(serialtcp.Options{}, remoteexec.Options{})
-	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: port}}
+	// Port 0, not a released listener's port: FAILURE_PATTERNS.md #123,
+	// #177 and #183. Nothing can bind port 0, so nothing can be
+	// listening on it.
+	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 0}}
 
-	_, err = tr.Exec(context.Background(), target, credential.Credential{}, "cmd")
+	_, err := tr.Exec(context.Background(), target, credential.Credential{}, "cmd")
 	if err == nil {
-		t.Fatal("expected an error dialing a closed listener")
+		t.Fatal("expected an error dialing an address nothing can be listening on")
 	}
 }
 
@@ -203,12 +199,6 @@ func TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError(t *tes
 	}
 	defer bastion.Close()
 
-	deadListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	unreachablePort := deadListener.Addr().(*net.TCPAddr).Port
-	deadListener.Close()
 	knownHostsPath := writeKnownHostsFor(t, bastion)
 
 	tr := serialtcptransport.New(
@@ -216,7 +206,14 @@ func TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError(t *tes
 		remoteexec.Options{KnownHostsPath: knownHostsPath, MaxRetries: 1},
 	)
 	target := transport.Target{
-		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: unreachablePort},
+		// Port 0, not a released listener's port. This test was written
+		// with the latter and flaked for real: FAILURE_PATTERNS.md #123
+		// and #177 both record that a just-released loopback port keeps
+		// accepting connects on this project's development host, so the
+		// bastion's own direct-tcpip dial sometimes succeeded and the
+		// channel-open failure this test exists to observe never
+		// happened. Port 0 cannot be bound, so nothing can be listening.
+		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 0},
 		Route: []transport.Hop{{
 			Host:       bastion.Host,
 			Port:       bastion.Port,

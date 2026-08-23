@@ -18,7 +18,10 @@
 // internal/transport/serial, the package that actually dials a line.
 package serialline
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Device identifies a serial port by whatever name the host operating
 // system assigns it: "/dev/ttyUSB0" on Linux, "/dev/tty.usbserial-*" on
@@ -129,4 +132,54 @@ type Config struct {
 
 	// StopBits is the number of stop bits per frame.
 	StopBits StopBits
+}
+
+// ParseParity turns an operator-written parity name into a Parity. It is
+// the exact inverse of Parity.String, so a value this package printed can
+// always be read back, and it accepts the names in any letter case since
+// a device property is hand-written text rather than generated output.
+//
+// It returns an error rather than falling back to ParityNone. A parity
+// mismatch does not fail loudly on a serial line: both ends keep talking
+// and the receiver silently sees corrupted bytes, so a typo quietly
+// defaulted to "none" would be indistinguishable from a line that is
+// working, which is the worst shape this particular mistake can take.
+func ParseParity(s string) (Parity, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "none":
+		return ParityNone, nil
+	case "odd":
+		return ParityOdd, nil
+	case "even":
+		return ParityEven, nil
+	case "mark":
+		return ParityMark, nil
+	case "space":
+		return ParitySpace, nil
+	default:
+		return ParityNone, fmt.Errorf("unknown parity %q, want one of none, odd, even, mark, space", s)
+	}
+}
+
+// ParseStopBits turns an operator-written stop-bit count into a StopBits.
+// It is the exact inverse of StopBits.String, and it refuses an unknown
+// value for the same reason ParseParity does: a stop-bit mismatch
+// corrupts the line rather than failing it.
+//
+// "1.5" is spelled with a decimal point because that is how every serial
+// terminal program and every piece of network gear's console
+// documentation writes it. The alternative spellings a caller might
+// reach for ("1", "2") are the other two real values, so there is no
+// room to also accept a loose form of this one.
+func ParseStopBits(s string) (StopBits, error) {
+	switch strings.TrimSpace(s) {
+	case "1":
+		return StopBitsOne, nil
+	case "1.5":
+		return StopBitsOnePointFive, nil
+	case "2":
+		return StopBitsTwo, nil
+	default:
+		return StopBitsOne, fmt.Errorf("unknown stop bits %q, want one of 1, 1.5, 2", s)
+	}
 }

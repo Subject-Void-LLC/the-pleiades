@@ -122,8 +122,9 @@ func devicePage(devices []upstreamDevice, r *http.Request) []byte {
 func connect(t *testing.T, srv *httptest.Server, readOnly bool) *catalystcenter.CatalystCenter {
 	t.Helper()
 
-	p := catalystcenter.New(catalystcenter.WithCredentialStore(
-		staticStore{credential.Credential{Username: "devnetuser", Password: "secret"}}))
+	p := catalystcenter.New(syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: "devnetuser", Password: "secret"}},
+	})
 	t.Cleanup(func() { _ = p.Close() })
 
 	cfg := syncplugin.Config{
@@ -447,11 +448,7 @@ func TestConnect_Rejects(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var opts []catalystcenter.Option
-			if tt.store != nil {
-				opts = append(opts, catalystcenter.WithCredentialStore(tt.store))
-			}
-			p := catalystcenter.New(opts...)
+			p := catalystcenter.New(syncplugin.Deps{Credentials: tt.store})
 			defer func() { _ = p.Close() }()
 
 			err := p.Connect(context.Background(), tt.cfg)
@@ -468,7 +465,7 @@ func TestConnect_Rejects(t *testing.T) {
 // TestNotConnected proves the port's call order is enforced with a typed
 // error rather than a nil-pointer panic.
 func TestNotConnected(t *testing.T) {
-	p := catalystcenter.New()
+	p := catalystcenter.New(syncplugin.Deps{})
 
 	if _, err := p.Discover(context.Background()); !errors.Is(err, syncplugin.ErrNotConnected) {
 		t.Errorf("Discover before Connect = %v, want ErrNotConnected", err)
@@ -494,7 +491,10 @@ func TestRegistered(t *testing.T) {
 	if !desc.DefaultConfig.ReadOnly {
 		t.Error("a controller is an authoritative upstream; the shipped default must be read-only")
 	}
-	if desc.New() == nil {
+	if desc.New(syncplugin.Deps{}) == nil {
 		t.Error("registered constructor returned nil")
+	}
+	if !desc.RequiresCredentials {
+		t.Error("this plugin resolves a credential, so its descriptor must say so or syncplugin.Open will build it with no store")
 	}
 }

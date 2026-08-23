@@ -1,7 +1,7 @@
 // Package native implements runner.ExecutionAdapter for native Go
 // collections, by handing a wire.DispatchPayload back to the same
 // internal/engine execution stack (Executor, TransportActionExecutor,
-// CollectionActionExecutor) the Walk-tier CLI (cmd/pleiades/run.go)
+// CollectionActionExecutor) the Crawl-tier CLI (cmd/pleiades/run.go)
 // already runs, rather than a second, parallel dispatch mechanism.
 package native
 
@@ -99,7 +99,7 @@ func NewAdapter(bus event.Bus, runbooks runbook.Source, logger *slog.Logger) (*A
 // singleDeviceResolver.
 // It returns a nil error unconditionally, and that is the honest answer
 // rather than a signature it does not use: nothing here can fail,
-// because the secrets are already in hand. It is the Walk tier that has
+// because the secrets are already in hand. It is the Crawl tier that has
 // a credential store to read and therefore a failure to report, which is
 // why engine.RunbookContextFunc carries an error at all.
 func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) (sdk.RunbookContext, error) {
@@ -113,7 +113,7 @@ func newDeviceRunbookContext(_ context.Context, device inventory.InventoryItem) 
 // Execute implements runner.ExecutionAdapter. It resolves payload's
 // runbook to a compiled DAG, adapts payload into an inventory.InventoryItem
 // (wireDevice), and runs the identical engine.Executor/ActionExecutor
-// stack the Walk-tier CLI runs, scoped to the one device this payload
+// stack the Crawl-tier CLI runs, scoped to the one device this payload
 // names.
 func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) error {
 	started := wire.JobEvent{Status: "started", Host: payload.DeviceHost, Task: "runbook:" + payload.RunbookID}
@@ -203,7 +203,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		// injected, already merged with a collision refused. This is the
 		// one injector target the native path DOES honour, and it is
 		// pre-existing machinery rather than something built for it:
-		// engine.WithVariables is what the Walk-tier CLI already uses.
+		// engine.WithVariables is what the Crawl-tier CLI already uses.
 		engine.WithVariables(variables),
 		engine.WithTaskTimeout(taskTimeout(launch.Fields(payload.Fields))),
 	)
@@ -224,7 +224,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	// secret_mask annotations discovered, plus every value the Controller
 	// attached to this payload, since a task's output can echo either one
 	// back (internal/engine/action_ssh.go's transportActionExecutor
-	// already applies this identical pairing for the Walk-tier CLI).
+	// already applies this identical pairing for the Crawl-tier CLI).
 	// Plus every value a bound credential injected, which a task's output
 	// can echo back exactly as readily as one the Controller attached to
 	// Secrets.

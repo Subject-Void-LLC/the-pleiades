@@ -38,7 +38,7 @@ func init() {
 			Name: Name,
 			// A local file is not a remote source of truth this platform
 			// must avoid writing back to: hosts.yaml is the hand-editable
-			// file Walk tier promises, and add-host already writes it.
+			// file Crawl tier promises, and add-host already writes it.
 			ReadOnly: false,
 		},
 		// This plugin's four methods do real work against a real file, and
@@ -46,7 +46,13 @@ func init() {
 		// system is the local filesystem, so "proven against the real
 		// upstream" needs no network and no sandbox.
 		Status: syncplugin.StatusImplemented,
-		New:    func() syncplugin.Plugin { return New(inv.NewItemFactory()) },
+		// No Settings and no RequiresCredentials, and both absences are
+		// the point of keeping this plugin in the registry: it is the
+		// control case that proves syncplugin.Deps and Descriptor.Settings
+		// are genuinely optional rather than a tax every plugin pays.
+		// A local file has nothing to authenticate to and nothing to
+		// configure beyond the Endpoint every Config already carries.
+		New: func(_ syncplugin.Deps) syncplugin.Plugin { return New(inv.NewItemFactory()) },
 	})
 }
 
@@ -148,7 +154,7 @@ func (p *Plugin) Classify(_ context.Context, rec record.Record) (syncplugin.Clas
 	return syncplugin.Classification{
 		Type:         rec.Type,
 		Capabilities: rec.Capabilities,
-		// Walk tier has no onboarding pipeline, so a host listed in the
+		// Crawl tier has no onboarding pipeline, so a host listed in the
 		// file is immediately active. This matches HydrateHosts' own
 		// long-standing default rather than introducing a second answer.
 		State: inventory.StateActive,

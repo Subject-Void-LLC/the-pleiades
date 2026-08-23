@@ -26,5 +26,25 @@ COPY ser2net.yaml /etc/ser2net.yaml
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 7000
+# Deliberately NO `EXPOSE 7000`, and it must not come back. ser2net does
+# listen on 7000; the point is that this image must not ASK for it to be
+# published, because testcontainers-go publishes a port this container
+# never wanted:
+#
+# When a ContainerRequest declares no ExposedPorts of its own,
+# testcontainers-go inspects the image and exposes -- and host-publishes,
+# on an ephemeral port -- every port the image's own EXPOSE names
+# (lifecycle.go's "Expose ports automatically if the container request
+# exposes zero ports"). So asking for nothing produced a host binding,
+# which is the exact opposite of what ssh_bastion_proof_test.go's
+# topology needs, and it went unnoticed because that test only ever
+# dialed the container's own address.
+#
+# It is not merely cosmetic. A published port installs an ACCEPT rule in
+# the daemon's DOCKER chain that matches traffic arriving from ANY other
+# bridge network, not just from the host, so it punches straight through
+# the inter-network isolation the bastion proof exists to demonstrate --
+# measured directly, not inferred: with two networks and two otherwise
+# identical containers, the published one was reachable across networks
+# and the unpublished one was not.
 ENTRYPOINT ["/entrypoint.sh"]

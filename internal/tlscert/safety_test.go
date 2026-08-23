@@ -455,6 +455,27 @@ func TestAnchorsForFileTrustsExactlyThatFile(t *testing.T) {
 	}
 }
 
+// shortTempDir returns a fresh temporary directory, removed when the test
+// ends, whose path is short enough to hold a Unix socket.
+//
+// t.TempDir is the obvious thing to reach for and is the wrong one here:
+// it builds its directory name out of the test's own name, and macOS puts
+// TMPDIR under /var/folders/<2>/<28>/T/, so a descriptively named test
+// pushes the socket path past sockaddr_un's 104-byte sun_path limit and
+// net.Listen fails with the famously unhelpful "bind: invalid argument".
+// Linux allows 108 bytes and puts TMPDIR at /tmp, which is why this was
+// invisible until CI grew a macos-latest leg. A two-character prefix keeps
+// the whole path near 70 bytes on either platform.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "px")
+	if err != nil {
+		t.Fatalf("os.MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // TestRefusesAPathThatIsNotAnOrdinaryFile is the rest of the blocking-file
 // guard, on the paths a named pipe test cannot reach.
 //
@@ -488,7 +509,11 @@ func TestRefusesAPathThatIsNotAnOrdinaryFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
-	socketDir := t.TempDir()
+	// shortTempDir rather than t.TempDir: a Unix socket path has a hard
+	// length limit t.TempDir's test-name-derived path can overrun, and
+	// this case's own t.Skipf below would have turned that into a silent
+	// gap rather than a failure.
+	socketDir := shortTempDir(t)
 	socketPath := filepath.Join(socketDir, "cert.pem")
 	socket, err := net.Listen("unix", socketPath)
 	if err != nil {

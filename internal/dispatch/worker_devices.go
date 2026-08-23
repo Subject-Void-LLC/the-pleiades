@@ -138,7 +138,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 
 	// The per-device store is the FALLBACK, consulted only when the
 	// template bound no machine credential. It is what keeps every dispatch
-	// that exists today working unchanged, including the whole Walk tier,
+	// that exists today working unchanged, including the whole Crawl tier,
 	// which has no template and no binding.
 	//
 	// The Controller resolves this device's credential now, at fan-out
@@ -147,7 +147,7 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// decision): the Runner never holds its own copy of the decryption
 	// key. A missing credential (ErrNotFound) is not a dispatch failure --
 	// only a task that actually needs a secret fails downstream, the same
-	// place a missing credential already fails at the Walk tier. Any
+	// place a missing credential already fails at the Crawl tier. Any
 	// other error (a real store failure: a corrupt file, a bad master
 	// key) is logged and the device proceeds with no secrets rather than
 	// being skipped outright, since a device that only runs

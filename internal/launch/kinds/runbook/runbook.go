@@ -19,7 +19,7 @@ const Kind = "runbook"
 
 // Adapter names the execution adapter that runs it: internal/adapters/native,
 // which resolves the runbook to a compiled DAG and runs it through the same
-// engine.Executor stack the Walk-tier CLI uses.
+// engine.Executor stack the Crawl-tier CLI uses.
 const Adapter = "native"
 
 func init() {

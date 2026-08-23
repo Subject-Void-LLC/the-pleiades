@@ -235,8 +235,8 @@ func waitWantPresent(params map[string]any) (bool, error) {
 // returning fallback when the key is absent.
 //
 // It accepts three Go types for one YAML number, and that is not
-// defensive coding. On the Walk tier a runbook's `timeout: 30` decodes
-// to an int, and on the Crawl tier the same task crosses the Runner's
+// defensive coding. On the Crawl tier a runbook's `timeout: 30` decodes
+// to an int, and on the Walk tier the same task crosses the Runner's
 // per-task subprocess boundary as JSON, where every number decodes to a
 // float64. A reader that took only int would silently fall back to the
 // default on one tier and honor the task on the other, which is the

@@ -380,7 +380,7 @@ func TestRegisteredPluginsAreWellFormed(t *testing.T) {
 			t.Errorf("sync plugin %q has no constructor", name)
 			continue
 		}
-		if desc.New() == nil {
+		if desc.New(syncplugin.Deps{}) == nil {
 			t.Errorf("sync plugin %q constructor returned nil", name)
 		}
 		if desc.DefaultConfig.Name != "" && desc.DefaultConfig.Name != name {

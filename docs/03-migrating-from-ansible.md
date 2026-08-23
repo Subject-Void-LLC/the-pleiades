@@ -63,7 +63,7 @@ implemented, the same honest refusal [Start here](01-start-here.md) describes).
 | `tasks:` | `tasks:` | Same. |
 | `post_tasks:` | `posttasks:` | Same phase, no underscore. |
 | `block:` | `block:` | Same grouping. |
-| `rescue:` | `rescue:` | Accepted and validated; the Walk-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). |
+| `rescue:` | `rescue:` | Accepted and validated; the Crawl-tier executor does not run rescue handlers yet (see [Start here](01-start-here.md)). |
 | `always:` | `always:` | Same status as `rescue:` above: accepted, not yet executed. |
 | `register:` | `register:` | Same idea: name a result for a later task to read. Addressed as `stat.<name>[<deviceID>].<field>` in `when_cel`, not as a bare Jinja variable. |
 | `when:` (single or list) | `when:` | A list ANDs, same as Ansible. Pleiades evaluates CEL underneath, not Jinja, but a plain comparison reads identically in both. |
@@ -201,7 +201,7 @@ verified against Cisco's public DevNet sandbox.
 | `ansible.posix.mount` | `fs.mount`, `fs.unmount` | `LinuxCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
-| `community.general.unarchive` | `archive.extract` | `FileTransferCapable` | hybrid |
+| `community.general.unarchive` | `archive.extract` | `POSIXFileSystemCapable` | hybrid |
 | `community.docker.docker_container` | `container.docker.run`, `.stop`, `.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
 | `amazon.aws.s3_bucket` | `cloud.aws.s3.create_bucket`, `.delete_bucket` | `AWSAPICapable` | controller side |
@@ -265,8 +265,8 @@ in a future phase, or a case for `forge new-collection` to add it yourself; see
 
 ## AWX / AAP object map
 
-Pleiades' Crawl tier (a Controller, a Runner, and NATS; see
-[Start here](01-start-here.md#the-walk-crawl-and-run-tiers)) is the layer that
+Pleiades' Walk tier (a Controller, a Runner, and NATS; see
+[Start here](01-start-here.md#the-crawl-walk-and-run-tiers)) is the layer that
 corresponds to AWX at all. The dispatcher, RBAC, and job model are real and tested;
 several AWX concepts below have no Pleiades equivalent yet, which this table states
 plainly rather than implying a rough match exists.
@@ -474,10 +474,13 @@ the container (it has no source yet for a target's known host key).
 
 `pleiades init` scaffolds an empty `inventory.yaml`. `pleiades add-host <name> --type
 <type> [--set key=value ...] [--tags ...]` adds one device at a time by hand;
-`pleiades inventory sync --plugin <name>` pulls devices from an external source (today,
-only `catalyst_center`, which registers as `implemented`, not `declared`: its
-implementation authenticates, pages the upstream device list, classifies each record, and
-reconciles the result into the project's `inventory.yaml`). Nothing reads an
+`pleiades inventory sync --plugin <name>` pulls devices from an external source. Run
+`pleiades inventory plugins` for the current list and for what each one needs;
+`docs/reference/plugins.md` is the same list generated from the registry. A plugin
+needing a per-deployment value takes it as `--set key=value`, so reading an AWS account
+is `pleiades inventory sync --plugin aws --set region=us-east-1`, and one that
+authenticates resolves its credential from the project credential store by its own name
+unless `--credential` names another. Nothing reads an
 Ansible dynamic inventory script or a Galaxy inventory plugin directly. There is no bulk import path
 from an existing AWX inventory today: migrating one means walking its host list and
 issuing one `add-host` per device, or writing a new sync plugin

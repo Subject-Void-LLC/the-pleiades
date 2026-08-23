@@ -56,7 +56,7 @@ story, per `.AGENTS/AGENTS.md`.
    discriminator field for distinguishing native and Ansible artifacts in a shared repository (originally
    `type: auto-roboto` versus `type: ansible`, later reconciled to `type: native` versus `type: ansible`
    once the product itself was renamed, a value chosen specifically to be product-name-agnostic so it
-   would not need to change again). The right move was to reuse that field name for the Walk-tier runbook
+   would not need to change again). The right move was to reuse that field name for the Crawl-tier runbook
    format's own type marker, not invent a competing `schema:` key. Two different field names solving the
    identical problem is exactly the kind of drift a single spec document exists to prevent.
 
@@ -1144,7 +1144,7 @@ story, per `.AGENTS/AGENTS.md`.
 89. **"No value was specified" and "no value is needed" are different states, and collapsing them at the
     point of lookup silently disables whatever was supposed to supply the default.** `resolveDevices`
     treated an empty task target as "controller-side task, no device" and returned before consulting the
-    resolver at all. At Walk tier those two states really are the same thing, because a runbook's own
+    resolver at all. At Crawl tier those two states really are the same thing, because a runbook's own
     `hosts:` key is the only source a device can come from, so the shortcut was invisible and correct for
     as long as one tier existed. In the Runner mesh they are not the same: the Controller already chose
     the device from the dispatch request's group, so an empty target means "the ambient default applies,"
@@ -2629,7 +2629,7 @@ anything else: a Collection method builds its own options from task parameters, 
 parameters are the runbook, not the deployment.
 
 **What the shape of the fix says.** The channel had to be an environment variable read inside
-`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Crawl tier
+`pkg/remoteexec` itself, which is normally a smell. It is right here because under the Walk tier
 a Collection method runs in a per-task child process with no composition root of its own, so a
 value wired at startup cannot reach it; the environment is what a child inherits. One read in one
 place fixed all four call sites. The related discipline: it is a PATH and never a POLICY. There
@@ -3085,3 +3085,248 @@ correct when taken. Add a dated correction beside it, as Phase 74's entry now
 carries, and record the counting method next to the count so the next reader
 can re-measure in one command instead of trusting a number. A method survives
 drift; a number does not.
+
+## 153. Domain vocabulary that inverts a well-known idiom stays invisible to every automated gate, because internal consistency is all any of them can measure
+
+**The incident.** From the beginning of the project until 2026-08-22, the three onboarding
+tiers of PLAN.md Section 7 were named **Walk** (a CLI with no infrastructure at all,
+`cmd/pleiades`), **Crawl** (Controller plus Runner, a state store, a broker and a web UI),
+and **Run**. That inverts the first two rungs of "crawl, walk, run," the idiom the ladder is
+obviously borrowing from: the cheapest rung carried the name of the more advanced one, so the
+tier a reader expects to be the *first* step was in fact the *second*.
+
+Nothing about the underlying design was wrong. Section 7's axis is ascending setup cost against
+capability unlocked, Binding Rule 1 makes each tier a strict subset of the one above it, and
+every table in the tree listed its rows in the correct ascending order. Only the two labels were
+swapped, and they were swapped *consistently*, in all 262 occurrences across tracked files and
+54 across the specification — user-facing docs (`docs/01-start-here.md`'s own section heading,
+`README.md`, `docs/02-get-started.md`, `docs/03-migrating-from-ansible.md`), the `pleiades`
+CLI's own `--help` tagline, Go doc comments, generated reference pages, and the archives.
+
+**Nothing caught it, and nothing could have.** `make ci` was green throughout. There is no test
+to write: every gate this repository runs measures internal consistency, and the naming was
+perfectly internally consistent — a lint that knew "Walk means the cheap tier" would have to be
+told the very fact that was wrong. `docs-lint` checks for leaked internal citations, not
+semantics. The only detector for this class of defect is a reader's expectation, and the
+authors had long since adapted to their own vocabulary.
+
+**What surfaced it.** A completion-percentage question. A per-tier breakdown reported "Walk
+100% (60 items), Crawl 83% (330 items)", and the project owner read it twice as a contradiction
+— first "shouldn't crawl have less to do than walk?", then "isn't crawl a prerequisite to
+walk?" Both readings were correct about the idiom and wrong about this codebase, which is
+exactly the signature. The confusion arrived from the person who chose the names, on his own
+project, roughly three weeks in. Anyone reading it cold would have hit it sooner and said
+nothing.
+
+**The correction, and what it did not touch.** The labels were swapped on 2026-08-22 across 113
+files: the offline CLI tier is now **Crawl**, the Controller/Runner tier is now **Walk**, Run is
+unchanged. Structure, row order, phase boundaries and every semantic claim stayed exactly as
+they were; only the two words moved. Historical documents were rewritten along with everything
+else, deliberately — `HANDOFF_ARCHIVE.md`, `FAILURE_PATTERNS_ARCHIVE.md`, this file and
+`CHANGELOG.md` all now use the corrected vocabulary. **The consequence worth knowing: an
+archive entry written before 2026-08-22 uses names that did not exist on the day it was
+written.** Read "Crawl tier" in a 2026-08-05 handoff entry as the offline CLI, which that
+session called Walk. Git commit messages were *not* rewritten and still carry the old, inverted
+labels, so a commit dated before 2026-08-22 saying "Walk tier" means what the tree now calls
+Crawl. The lettered phase identifiers `W1`–`W6` in `IMPLEMENTATION.md` also kept their `W`,
+because renaming them to `C1`–`C6` would invalidate every cross-reference in the roadmap and
+the archives for no semantic gain; the `W` there is now a historical artifact, not a mnemonic.
+
+**The rule.** When domain vocabulary borrows an ordered idiom that readers already know —
+crawl/walk/run, alpha/beta/GA, bronze/silver/gold, S/M/L — the idiom's canonical order is part
+of the contract, not decoration. Check it at the moment of naming, out loud, against the phrase
+as people actually say it. It is the cheapest possible check and there is no later one: no
+compiler, no test, no linter and no CI job can see the mismatch, and every day it survives it
+gets written into more files, more generated output, and more shipped documentation.
+
+**The corollary, for the rename itself.** A vocabulary swap is not a `sed` job. Two failures hit
+in a single pass here, both silent: a Perl `s///` replacement containing `@@@SENTINEL@@@`
+interpolated `@SENTINEL` as an empty array and destroyed the very guards that were protecting
+non-tier uses of the word (`filepath.Walk` became `filepathCrawl`); and `\bWalk\b` failed to
+match inside the Go string literal `"\nWalk tier: ..."`, because the `n` of the escape sequence
+is a word character, leaving the CLI's own tagline contradicting the two sibling strings in
+`internal/clispec` and `internal/inventory` that had flipped correctly. Both were caught only by
+verifying afterwards — by grepping the protected sites back out by name, and by diffing three
+strings that should agree against each other. Swap under sentinels that cannot interpolate,
+regenerate rather than hand-edit anything under `docs/reference/` or `internal/api/wellknown/`,
+and verify the before and after occurrence counts are exact mirrors of one another rather than
+merely both plausible.
+
+## 154. A dependency a component cannot build for itself belongs in its constructor's signature, never in an option, because an option is what every caller except the one who wrote it forgets
+
+**The incident.** The `aws` inventory sync plugin took its two dependencies, a credential
+store and an AWS region, as functional options: `aws.WithCredentialStore` and
+`aws.WithRegion`. The plugin registry's constructor was `func() Plugin`, taking no
+arguments, so the instance `cmd/pleiades` built had neither. Every
+`pleiades inventory sync --plugin aws` failed with "no region configured, use WithRegion,"
+for the plugin's entire existence, while three separate test suites stayed green.
+
+`gopls references` on both options returns test files and nothing else. That is the whole
+finding in one line, and it was available at any point.
+
+**Why the options looked right when they were written.** They are idiomatic Go, they read
+well, and each carries a careful doc comment arguing correctly for its own existence:
+`WithRegion`'s explains at length why a region must not become a field on the shared
+`syncplugin.Config` (a shared type that grows a field per implementation stops being
+shared), and it is right about that. The argument answers "where should this value not
+live" and never answers "how does it get here in production."
+
+**The composition root had already predicted this and been ignored.**
+`cmd/pleiades/inventory.go`'s `buildSyncPlugin` wired exactly one plugin through a
+`desc.Name == catalystcenter.Name` type switch, and its own doc comment said: "When a third
+plugin needs it, this becomes an optional interface the plugin asserts rather than a longer
+switch." The third plugin arrived. Nobody extended the switch, and nothing could tell,
+because a plugin nobody wired still compiles, still registers, still appears in
+`pleiades inventory plugins`, and still passes every test that constructs it directly.
+
+**Why an optional interface would have been the wrong successor anyway.** The comment's own
+proposal has the same defect one level up: an optional interface is something a plugin
+author forgets to implement, and forgetting is silent in exactly the same way. The fix that
+holds is the one that cannot be skipped: `Constructor` became `func(Deps) Plugin`, so every
+constructor is handed the dependency whether it reads it or not, and a per-deployment value
+an operator types became declared data on the descriptor (`Settings []SettingSpec`) that
+`syncplugin.Open` refuses to proceed without, by name, with the setting's own description.
+
+**The two guards that matter are different sizes.** The narrow one opens every registered
+plugin through the shared path and checks that `RequiresCredentials` actually changes the
+outcome. The broad one is structural and would have caught the original defect outright:
+`internal/archtest.TestCompositionRootsBuildPluginsThroughTheRegistry` fails if any `cmd/`
+package imports an individual plugin package. That forbids the type switch, which is what
+made a per-plugin arrangement expressible at all. A rule that removes the *ability* to wire
+one component differently from its siblings is worth more than a test that checks each
+component was wired the same way.
+
+**The rule.** When a component needs something it cannot construct for itself, put it in the
+constructor's signature. Reserve options for genuine variation between call sites (a
+timeout, a retry budget, an endpoint override) where every value is legitimate and the zero
+value works. If a "with" function's absence makes the component refuse to run, it was never
+an option; it was a parameter wearing an option's clothes, and the only caller who will ever
+pass it is the test that was written beside it.
+
+## 155. A guard written against one registry protects that registry only, and the surface it does not cover is exactly where the same defect ships next
+
+**The incident.** Phase 73's Workstream A found three `StatusImplemented` Collection methods
+requiring `DockerCapable` that no device type could satisfy, fixed it with a real device
+type, and added
+`internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable` so the class could
+not recur. In the same commit, that phase shipped four new capabilities, three transports,
+three `TransportBinding` entries, three `engine.ActionCapability` rows and a documented
+user-facing feature, with **no device type able to satisfy any of them**. Every
+`serial_exec`, `serialtcp_exec` and `telnet_exec` task was refused for every device the
+platform can build, twice over: once by `validate.CapabilityRule`, once by the binding's own
+type assertion.
+
+The guard did not fail, and could not. It iterates `catalogdata.Collections`. A transport
+fqcn is not a Collection method and appears nowhere in that table.
+
+**The tests that existed proved the wrong half.** `TestSerialTarget` and its two siblings
+build their device as a stub wrapping `inventorytest.Stub`, which deliberately matches a
+capability by name and skips the structural assertion a real device type performs. So they
+proved `SerialTarget` reads the accessors it is handed. Whether anything the platform can
+hydrate has those accessors is a different question, and no test asked it. That is the
+identical shape Workstream A had just written up for `docker_test.go`, in a package whose
+tests were written days later.
+
+**What the third sweep found that neither of the first two could.** Both existing sweeps
+start from a consumer (a method, a binding) and ask whether a device can satisfy it. A
+capability with **no consumer at all** is invisible to both, yet it is published in
+`docs/reference/capabilities.md` as part of the vocabulary an operator classifies devices
+against. `FileTransferCapable` was exactly that, and
+`docs/03-migrating-from-ansible.md` was telling migrating users that `archive.extract`
+requires it, when that method requires `POSIXFileSystemCapable`. A reader following the
+migration guide would have classified a device correctly per the docs and been quietly
+wrong.
+
+**The rule.** When a guard is written for a registry, enumerate every *other* registry that
+can produce the same class of defect before calling the class closed, and write the sweep
+that covers the union rather than the one in front of you. Ask the question from both ends:
+can every consumer be satisfied, and is every declared name reachable by some consumer. And
+negative-control each sweep with a permanent synthetic case in the test file, not a one-off
+manual un-wiring: a control that runs once and leaves no trace cannot tell a later reader
+whether the rule still matches anything.
+
+## 156. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
+
+**The incident.** `internal/topology`'s package doc calls it "the single owner of every NATS
+JetStream subject, stream, consumer, and retention/replica setting used by Pleiades," and
+`internal/archtest/layering_test.go`'s own comment repeats it more specifically: topology "is
+the one place jetstream.StreamConfig/ConsumerConfig/KeyValueConfig shapes are declared, so
+every other adapter can depend on topology instead of the driver directly." Both were false
+when written. `lock.NewNatsLockManager` built its own `jetstream.KeyValueConfig` literal for
+the `Pleiades_Locks` bucket, the one carrying every leader-election lease and every
+per-device execution lease, and both `cmd/controller` and `cmd/runner` provision it on
+startup.
+
+Separately and in the same spirit, `catalystcenter.WithClientOption` and
+`pkg/catalystcenter.WithHTTPClient` both carried doc comments saying "tests use it to point
+at a stub server," and neither had a single caller anywhere in the module. The tests reach
+their `httptest.Server` through `Config.Endpoint`, the same path production takes.
+
+**Why both survive review.** A reviewer reading `topology.go` sees a plausible sentence about
+a package they are looking at and no way to check it short of grepping the whole tree for a
+struct literal. A reviewer reading `WithHTTPClient` sees a comment naming a caller and has no
+reason to doubt it; the one check that would settle it (`gopls references`) is precisely the
+check the comment discourages, because it appears to have already been answered.
+
+**The asymmetry that makes the second kind worse.** A stale comment that says nothing is
+inert. A stale comment that names a caller, a mechanism, or an exclusive owner actively
+redirects the reader away from verifying it. It converts an open question into a settled one
+in the reader's head, which is the opposite of what a comment is for.
+
+**The rule.** An assertion about the whole repository ("this is the only place X happens",
+"nothing else does Y") belongs in an enforced rule, written in the same commit as the
+sentence. `internal/archtest` is where this project puts them, and the AST walk that finds a
+`jetstream.*Config` composite literal outside one package is about forty lines. If the rule
+is not worth writing, write the weaker sentence that is true without it. The same applies at
+the smaller scale: a doc comment naming a caller is a claim with an expiry date, so either
+name the mechanism instead (which cannot rot the same way) or state plainly that there is no
+caller today and why the shape is kept.
+
+## 157. Sweep for a recurring construction by what the code is trying to say, not by the shape of the instance in front of you, and do it before the fix rather than after the next failure
+
+**The incident.** A "this address must refuse connections" test fixture, built by opening a
+listener, reading its assigned port, closing it, and dialing the number again, has now failed
+in this repository three separate times: `FAILURE_PATTERNS.md` #123, then #177, then #183. A
+just-released loopback port keeps accepting connects on this project's WSL2 development host,
+so the dial sometimes succeeds and the failure the test exists to observe never happens.
+
+#177's fix touched the one file where the failure was observed. Nine more sites carried the
+identical construction, written in the same phase, and one of them flaked in the next
+session's very first full sweep.
+
+**The second miss is the lesson, not the first.** After that flake, a grep did go looking for
+the rest. It matched on the expression shape, `Addr().(*net.TCPAddr).Port` near a `Close`, and
+found four sites, which were fixed and repeat-run clean. A later full sweep then failed on a
+fifth, in a package the grep had walked past, and re-searching turned up five in total that
+the first pass had missed: one spelled `Addr().String()`, one used
+`LocalAddr().(*net.UDPAddr).Port`, one was a second occurrence inside a file that had just
+been edited for the first, and two were in a sibling package whose tests read almost
+identically to ones already fixed.
+
+Searching instead for what the code was *trying to say* found every one of them in a single
+pass: the phrase "nothing is listening", the variable name `deadListener`, the trailing
+comment "nothing is listening now". Those are the things an author writes when reaching for
+this construction, and they vary far less than the expression does.
+
+**Two of the ten sites correctly refused the standard fix, and that matters too.** A sweep
+that mechanically applies one fix everywhere produces tests that pass for new wrong reasons.
+The TFTP test asserts a *timeout budget* bounds the call, so a closed UDP port (which answers
+with an ICMP port-unreachable) or an invalid address (which fails validation earlier still)
+would both end the call before the budget ever bound anything; it needed a real socket held
+open and silent instead. `wait.port`'s helper needs a concrete port that is closed now and
+bindable later, which port 0 cannot express at all, so it closes the race by *checking* instead
+of by construction: it confirms the released port really refuses a connection before handing it
+back, and retries if not.
+
+That second one was first left alone under a comment calling it a considered exception, and the
+very next full sweep failed on it. Which is its own correction to this lesson: "the standard fix
+does not apply here" is a reason to find the fix that does apply, not a reason to stop. A
+documented exception is still a flaky test, and the documentation does not make the gate green.
+
+**The rule.** Finding a recurrence once is evidence the construction is attractive, not
+evidence it appeared once. Sweep the whole tree in the same commit as the fix, search on the
+intent rather than the syntax (comments, variable names, the sentence in the failure message),
+and when a site cannot take the standard fix, write down why it is different rather than
+forcing it or silently skipping it. The grep costs a minute; the alternative is discovering
+each remaining instance separately through a nondeterministic failure, which is exactly what
+happened here twice in one session.

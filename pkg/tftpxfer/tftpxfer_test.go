@@ -207,16 +207,27 @@ func TestPut_AlreadyCanceledContextIsRefused(t *testing.T) {
 }
 
 // TestGet_UnreachableServerFailsWithinTheTimeoutBudget proves Get does
-// not hang forever against a port nothing is listening on, bounded by
+// not hang forever against a server that never answers, bounded by
 // Options.Timeout and Options.Retries the way the package doc comment
 // states cancellation is (a budget, not an immediate interrupt).
 func TestGet_UnreachableServerFailsWithinTheTimeoutBudget(t *testing.T) {
+	// A real UDP socket held OPEN for the whole test, never read from and
+	// never answering. That is deliberately not the "bind a port, close
+	// it, reuse the number" construction FAILURE_PATTERNS.md #123, #177
+	// and #183 record failing, and port 0 is not the fix here either:
+	// this test's subject is the Timeout/Retries BUDGET, and a closed UDP
+	// port answers with an ICMP port-unreachable that ends the call
+	// early, while an invalid address fails validation earlier still.
+	// Either would make this pass without the budget ever bounding
+	// anything. A silent server is the case the budget exists for, and
+	// holding the socket open also means no other process can take the
+	// port mid-test.
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.ListenPacket: %v", err)
 	}
+	t.Cleanup(func() { _ = conn.Close() })
 	port := conn.LocalAddr().(*net.UDPAddr).Port
-	_ = conn.Close() // nothing is listening now
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -226,7 +237,7 @@ func TestGet_UnreachableServerFailsWithinTheTimeoutBudget(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("expected an error against an unreachable server")
+		t.Fatal("expected an error against a server that never answers")
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("Get took %v, expected the Timeout/Retries budget to bound it well under that", elapsed)

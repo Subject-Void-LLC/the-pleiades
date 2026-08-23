@@ -91,7 +91,7 @@ func (d *wireDevice) Tags() []inventory.Tag { return nil }
 // satisfies a method requiring the broad ServiceManagerCapable. An
 // exact-match loop here answered false for that same pair, which meant
 // the identical method against the identical device succeeded on the
-// Walk tier and was refused on the Crawl tier. A capability check that
+// Crawl tier and was refused on the Walk tier. A capability check that
 // disagrees with itself depending on which binary is running is worse
 // than either answer, because the runbook that proves out on a laptop is
 // the one that fails in the mesh.

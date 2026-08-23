@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devicescaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/collection"
 )
@@ -217,11 +218,38 @@ func TestNewPluginArgs(t *testing.T) {
 				"--skip-existing",
 			},
 		},
+		{
+			// The wiring half: a plugin declaring a credential store and a
+			// per-deployment setting must reach the real CLI carrying both,
+			// or a regenerated skeleton comes out unwired and the defect
+			// this table exists to prevent recurs one generation later.
+			name: "credentials and settings",
+			cfg: pluginscaffold.Config{
+				Name:                "aws",
+				Description:         "reads EC2 instances",
+				RequiresCredentials: true,
+				Settings: []syncplugin.SettingSpec{{
+					Name:        "region",
+					Description: "the AWS region",
+					Required:    true,
+				}},
+			},
+			want: []string{
+				"forge", "new-plugin", "aws",
+				"--description", "reads EC2 instances",
+				"--requires-credentials",
+				"--settings-json", `[{"name":"region","description":"the AWS region","required":true}]`,
+				"--skip-existing",
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := newPluginArgs(tc.cfg)
+			got, err := newPluginArgs(tc.cfg)
+			if err != nil {
+				t.Fatalf("newPluginArgs(%+v): %v", tc.cfg, err)
+			}
 			if !equalArgs(got, tc.want) {
 				t.Errorf("newPluginArgs(%+v) = %v, want %v", tc.cfg, got, tc.want)
 			}

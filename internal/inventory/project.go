@@ -16,7 +16,7 @@ const DefaultRunbookDir = "runbooks"
 // DefaultSampleRunbook is the starter runbook Scaffold writes.
 const DefaultSampleRunbook = "sample.yaml"
 
-const starterInventory = `# Pleiades static inventory (Walk tier: no server, no database, no broker).
+const starterInventory = `# Pleiades static inventory (Crawl tier: no server, no database, no broker).
 # Add hosts by hand below, or run: pleiades add-host <name> --type <type>
 hosts: []
 `
@@ -35,7 +35,7 @@ const starterReadme = "This project was created by `pleiades init`.\n\n" +
 	"  pleiades validate\n" +
 	"  pleiades run runbooks/sample.yaml\n"
 
-// Scaffold creates a new Walk-tier project in dir: a static inventory
+// Scaffold creates a new Crawl-tier project in dir: a static inventory
 // file, a starter runbook, and a short README. It never overwrites a
 // file that already exists, so re-running init in an existing project
 // directory is safe and just fills in whatever is missing.

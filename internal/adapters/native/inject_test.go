@@ -69,7 +69,7 @@ func TestNativeRefusesWhatItCannotInject(t *testing.T) {
 
 // TestNativeAcceptsExtraVariables covers the one injector target this path
 // does honour, which is pre-existing machinery rather than something built
-// for it: engine.WithVariables is what the Walk-tier CLI already uses.
+// for it: engine.WithVariables is what the Crawl-tier CLI already uses.
 func TestNativeAcceptsExtraVariables(t *testing.T) {
 	injected := &wire.Injected{ExtraVars: map[string]any{"ansible_api_url": "https://api.example.test"}}
 

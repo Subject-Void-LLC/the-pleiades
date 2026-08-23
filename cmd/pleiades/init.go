@@ -7,7 +7,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 )
 
-// runInit scaffolds a new Walk-tier project: a static inventory file, a
+// runInit scaffolds a new Crawl-tier project: a static inventory file, a
 // starter runbook, and a README. All the actual file-writing logic lives
 // in inventory.Scaffold; this function only parses flags and prints what
 // happened.

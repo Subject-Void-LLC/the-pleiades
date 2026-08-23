@@ -17,9 +17,9 @@ import (
 // generated package's own doc comment for what a human fills in and in what
 // order.
 func runForgeNewPlugin(args []string) error {
-	name, rest, err := splitPositional(args, map[string]bool{"read-only": true, "skip-existing": true})
+	name, rest, err := splitPositional(args, map[string]bool{"read-only": true, "skip-existing": true, "requires-credentials": true})
 	if err != nil {
-		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--skip-existing] [--dir .]: %w", err)
+		return fmt.Errorf("usage: pleiades forge new-plugin <name> --description <text> [--endpoint https://host] [--read-only] [--requires-credentials] [--settings-json '[...]'|@file.json] [--skip-existing] [--dir .]: %w", err)
 	}
 
 	fs := flag.NewFlagSet("forge new-plugin", flag.ContinueOnError)
@@ -27,17 +27,26 @@ func runForgeNewPlugin(args []string) error {
 	description := fs.String("description", "", "one-line help text describing the upstream system this plugin reads")
 	endpoint := fs.String("endpoint", "", "default upstream base URL (e.g. https://sandboxdnac.cisco.com)")
 	readOnly := fs.Bool("read-only", false, "declare the upstream authoritative and never written back")
+	requiresCredentials := fs.Bool("requires-credentials", false, "declare that Connect resolves a credential, so the plugin is built with the project credential store")
+	settingsJSON := fs.String("settings-json", "", "per-deployment settings as a JSON list of syncplugin.SettingSpec objects, or @path to read it from a file")
 	skipExisting := fs.Bool("skip-existing", false, "leave an already-written file alone instead of refusing, for regenerating a catalog in place")
 
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 
+	settings, err := parseSettingsJSONFlag(*settingsJSON)
+	if err != nil {
+		return err
+	}
+
 	cfg := pluginscaffold.Config{
-		Name:        name,
-		Description: *description,
-		Endpoint:    *endpoint,
-		ReadOnly:    *readOnly,
+		Name:                name,
+		Description:         *description,
+		Endpoint:            *endpoint,
+		ReadOnly:            *readOnly,
+		RequiresCredentials: *requiresCredentials,
+		Settings:            settings,
 	}
 
 	files, err := pluginscaffold.Generate(cfg)

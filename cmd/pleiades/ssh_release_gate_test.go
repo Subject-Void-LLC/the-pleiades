@@ -26,7 +26,7 @@ import (
 // the same image and recipe internal/transport/ssh's own container tests
 // already proved works in this environment), reached over the network the
 // real built pleiades binary actually dials, exactly like the NATS/Postgres
-// containers earlier Walk phases used as this repository's own definition
+// containers earlier Crawl phases used as this repository's own definition
 // of "real" infrastructure it does not own physical hardware for.
 
 const (

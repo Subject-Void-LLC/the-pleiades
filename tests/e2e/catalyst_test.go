@@ -99,7 +99,7 @@ func requireDNAC(t *testing.T) (syncplugin.Config, credential.Store) {
 }
 
 // newProjectRepo builds a file-backed Repository over an empty inventory
-// document, which is the Walk-tier arrangement a user running this for the
+// document, which is the Crawl-tier arrangement a user running this for the
 // first time actually has.
 func newProjectRepo(t *testing.T) inv.Repository {
 	t.Helper()
@@ -121,7 +121,7 @@ func TestCatalystCenter_LiveSync(t *testing.T) {
 	ctx := context.Background()
 	repo := newProjectRepo(t)
 
-	plugin := catalystcenter.New(catalystcenter.WithCredentialStore(store))
+	plugin := catalystcenter.New(syncplugin.Deps{Credentials: store})
 	defer func() { _ = plugin.Close() }()
 	if err := plugin.Connect(ctx, cfg); err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -235,7 +235,7 @@ func TestCatalystCenter_LiveResyncIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	repo := newProjectRepo(t)
 
-	plugin := catalystcenter.New(catalystcenter.WithCredentialStore(store))
+	plugin := catalystcenter.New(syncplugin.Deps{Credentials: store})
 	defer func() { _ = plugin.Close() }()
 	if err := plugin.Connect(ctx, cfg); err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -273,7 +273,7 @@ func TestCatalystCenter_LiveRejectsBadCredential(t *testing.T) {
 	cfg, _ := requireDNAC(t)
 	bad := staticStore{credential.Credential{Username: "devnetuser", Password: "definitely-not-the-password"}}
 
-	plugin := catalystcenter.New(catalystcenter.WithCredentialStore(bad))
+	plugin := catalystcenter.New(syncplugin.Deps{Credentials: bad})
 	defer func() { _ = plugin.Close() }()
 
 	if err := plugin.Connect(context.Background(), cfg); err == nil {

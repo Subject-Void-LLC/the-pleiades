@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/catalog/file"
@@ -124,8 +123,8 @@ func newPermissionsUnreachable() inventory.InventoryItem {
 
 // permissionsContext is a minimal sdk.RunbookContext carrying a fixed
 // secret set, standing in for the real one the composition root builds
-// from the credential store on the Walk tier or the dispatch payload on
-// the Crawl tier.
+// from the credential store on the Crawl tier or the dispatch payload on
+// the Walk tier.
 type permissionsContext struct {
 	secrets map[string]string
 	stats   map[string]any
@@ -297,11 +296,11 @@ func permissionsFileIDs(t *testing.T, path string) (int, int) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	uid, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	return int(sys.Uid), int(sys.Gid)
+	return uid, gid
 }
 
 // permissionsFileNames returns the owner and group NAMES of a path, which

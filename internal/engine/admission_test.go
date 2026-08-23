@@ -149,8 +149,8 @@ func TestCapabilityAdmits(t *testing.T) {
 }
 
 // TestLifecycleAdmits_ConformsToExecutorSkipReason is the literal proof
-// behind this phase's claim that the Walk-tier Executor and any other
-// lifecycle-admission caller (the Crawl-tier dispatch worker,
+// behind this phase's claim that the Crawl-tier Executor and any other
+// lifecycle-admission caller (the Walk-tier dispatch worker,
 // internal/dispatch/worker.go) share one lifecycle-admission
 // implementation, rather than two copies that merely happen to agree
 // today: it drives a minimal but real engine.Executor (real DAG, real

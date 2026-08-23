@@ -86,11 +86,45 @@ func renderPlugins(names []string) (string, error) {
 			origin = "generated"
 		}
 
-		rows = append(rows, []string{code(name), desc.Description, yesNo(desc.DefaultConfig.ReadOnly), code(status), origin})
+		rows = append(rows, []string{
+			code(name), desc.Description, yesNo(desc.DefaultConfig.ReadOnly),
+			code(status), pluginNeeds(desc), origin,
+		})
 	}
 
-	b.WriteString(table([]string{"Name", "Description", "Read-only", "Status", "Origin"}, rows))
+	b.WriteString(table([]string{"Name", "Description", "Read-only", "Status", "Needs", "Origin"}, rows))
 	b.WriteString(fmt.Sprintf("\n%d sync plugins registered.\n", len(rows)))
+	b.WriteString("\nThe **Needs** column is what a run has to supply beyond `--plugin`. " +
+		"A credential is resolved from the project credential store under the plugin's own " +
+		"name unless `--credential` names another. Everything else is a declared setting, " +
+		"passed as `--set key=value`, and `pleiades inventory sync` refuses to start without " +
+		"a required one rather than failing partway through a connection.\n")
 
 	return b.String(), nil
+}
+
+// pluginNeeds renders what a caller must supply for one plugin: its
+// declared settings and whether it resolves a credential.
+//
+// It reads the descriptor rather than a list typed here, so a plugin that
+// gains a setting gains a documented one in the same commit. That
+// matters more than it looks: the AWS plugin needed a region for its
+// whole existence, nothing said so anywhere a user would look, and it was
+// broken from the CLI the entire time.
+func pluginNeeds(desc syncplugin.Descriptor) string {
+	var parts []string
+	if desc.RequiresCredentials {
+		parts = append(parts, "a credential")
+	}
+	for _, spec := range desc.Settings {
+		requirement := "optional"
+		if spec.Required {
+			requirement = "required"
+		}
+		parts = append(parts, fmt.Sprintf("`--set %s=...` (%s, %s)", spec.Name, requirement, spec.Description))
+	}
+	if len(parts) == 0 {
+		return "nothing beyond `--endpoint`"
+	}
+	return strings.Join(parts, "; ")
 }

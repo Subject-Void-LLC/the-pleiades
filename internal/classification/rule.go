@@ -17,7 +17,7 @@
 // Deliberately still out of scope: loading a RuleSet from a real on-disk
 // directory of _rule.yaml files (Section 6d's own classification_rules/
 // layout). DefaultRuleSet below is the only RuleSet this phase ships,
-// baked in for the Walk tier's "built-in classification rules for common
+// baked in for the Crawl tier's "built-in classification rules for common
 // OS families" promise (PLAN.md Section 7). A filesystem loader with no
 // caller (no CLI flag or config surface references a custom rule
 // directory yet) would be a "port with no callers is a decoration, not an

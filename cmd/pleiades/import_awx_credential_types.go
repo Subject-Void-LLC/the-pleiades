@@ -20,7 +20,7 @@ import (
 //
 // # Why this reports rather than writes
 //
-// The Walk tier has no controller, no database and no broker, and it does
+// The Crawl tier has no controller, no database and no broker, and it does
 // not dial one: that is the tier's defining property rather than a missing
 // feature. So this command cannot create credential types, and pretending
 // to would mean either building a controller client into the offline CLI

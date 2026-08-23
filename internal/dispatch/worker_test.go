@@ -606,7 +606,7 @@ func TestWorker_HandleJobRequested_NoLaunchFieldsOmitsThemFromTheWire(t *testing
 // TestWorker_HandleJobRequested_AttachesStoredCredential proves the
 // Controller resolves a device's credential at fan-out time and attaches
 // it to the payload as the flattened secret map, using a real
-// credential.NewLazyFileStore (RULE 0: the real Walk-tier-shared adapter,
+// credential.NewLazyFileStore (RULE 0: the real Crawl-tier-shared adapter,
 // not a fake), so the JIT-delivery design this phase chose is exercised
 // through its own real code, not asserted only against a mock.
 func TestWorker_HandleJobRequested_AttachesStoredCredential(t *testing.T) {
@@ -647,7 +647,7 @@ func TestWorker_HandleJobRequested_AttachesStoredCredential(t *testing.T) {
 // device with no stored credential is dispatched normally, with an empty
 // Secrets map, rather than being skipped or failed: only a task that
 // actually needs a secret should fail downstream, the same place a
-// missing credential already fails at the Walk tier.
+// missing credential already fails at the Crawl tier.
 func TestWorker_HandleJobRequested_NoStoredCredentialStillDispatches(t *testing.T) {
 	ctx := t.Context()
 	store := newTestJobStore(t)

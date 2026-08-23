@@ -259,9 +259,9 @@ var shared = struct {
 // BreakerThreshold failures.
 //
 // The honest limit: this shares state within ONE process. Under the
-// Crawl tier every Collection method runs in its own short-lived
+// Walk tier every Collection method runs in its own short-lived
 // subprocess, so there the breaker is scoped to a single task and buys
-// nothing beyond what New would. It is the Walk tier, and any future
+// nothing beyond what New would. It is the Crawl tier, and any future
 // in-process execution model, that this helps.
 //
 // The map is unbounded in principle. In practice Options varies over a

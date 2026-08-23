@@ -14,7 +14,7 @@ import (
 // inventory file. The leading dot and "generated" wording mark it as
 // machinery a human should not hand-edit, the same convention a lockfile
 // uses (package-lock.json, Cargo.lock): hosts.yaml stays the simple,
-// hand-editable file Walk tier promises (yaml_plugin.go); this file is
+// hand-editable file Crawl tier promises (yaml_plugin.go); this file is
 // where the version and audit trail HostSpec deliberately does not carry
 // actually live.
 const sidecarFileName = ".inventory-state.generated.yaml"

@@ -161,14 +161,14 @@ type releaseGateHarness struct {
 type knownHostsSource int
 
 const (
-	// knownHostsInHomeDir writes $HOME/.ssh/known_hosts, the Walk tier's
+	// knownHostsInHomeDir writes $HOME/.ssh/known_hosts, the Crawl tier's
 	// arrangement: a person, a home directory, a file ssh itself would
 	// have written.
 	knownHostsInHomeDir knownHostsSource = iota
 
 	// knownHostsInEnvironment writes the file somewhere unrelated and
 	// names it with remoteexec.KnownHostsEnv, leaving $HOME pointing at a
-	// directory with no known_hosts anywhere in it. That is the Crawl
+	// directory with no known_hosts anywhere in it. That is the Walk
 	// tier's arrangement, and the empty home directory is load-bearing:
 	// it means a pass can only come from the environment variable being
 	// read, and read inside the per-task child process, which is a
@@ -434,7 +434,7 @@ func pingPayload(h *releaseGateHarness) wire.DispatchPayload {
 }
 
 // TestSSHMeshReleaseGate_HostKeyVerifiedFromTheEnvironment proves the
-// Crawl tier can verify a real host key against a real device without a
+// Walk tier can verify a real host key against a real device without a
 // home directory to keep one in, which is what the published runner
 // container is missing and what FAILURE_PATTERNS.md #150 recorded.
 //

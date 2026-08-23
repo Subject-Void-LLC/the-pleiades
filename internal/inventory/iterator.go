@@ -59,7 +59,7 @@ var ErrSelectorUnsupported = errors.New("inventory backend cannot apply this sel
 
 // Repository defines the data access methods for the inventory state. It
 // is the pluggable port every tier's inventory backend satisfies: an
-// ent-backed repository at Crawl and above, a YAML-backed one at Walk.
+// ent-backed repository at Walk and above, a YAML-backed one at Crawl.
 type Repository interface {
 	// GetGroup returns an Iterator to safely stream every device matching
 	// sel. Items it yields carry their stored version but not their
@@ -149,7 +149,7 @@ type Repository interface {
 	// specific.
 	//
 	// A device reachable through no group or inventory (or a Repository
-	// with no such hierarchy at all, as the Walk-tier file-backed
+	// with no such hierarchy at all, as the Crawl-tier file-backed
 	// implementation is) returns a nil slice and a nil error: "nothing
 	// configured at any level" is a normal outcome, not a failure,
 	// matching pkg/policy.Resolve's own empty-layers contract.

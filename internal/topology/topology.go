@@ -1,5 +1,6 @@
 // Package topology is the single owner of every NATS JetStream subject,
-// stream, consumer, and retention/replica setting used by Pleiades.
+// stream, consumer, key-value bucket, and retention/replica setting used
+// by Pleiades.
 //
 // Before this package existed, three call sites each declared their own
 // idea of what stream and subjects the mesh uses: event.NewNatsBus created
@@ -10,8 +11,19 @@
 // of PLAN.md ("Shared Primitives") names "Messaging topology owner" as a
 // Build-Once contract due by Phase 2 for exactly this reason: independent
 // stream declarations drift, and retention/replica fixes must otherwise be
-// applied in N places. Every subject, stream, and consumer shape in the
-// mesh is declared here and nowhere else.
+// applied in N places. Every subject, stream, consumer and bucket shape
+// in the mesh is declared here and nowhere else.
+//
+// That last sentence used to be aspirational rather than true, and it is
+// worth saying which way. The "Pleiades_Locks" KV bucket, which carries
+// both the leader-election leases and the per-device execution leases,
+// had its shape declared inline in internal/lock and provisioned from
+// two composition roots, so this doc comment and internal/archtest's own
+// repetition of it were both false. LockBucketConfig (dedup.go) is that
+// shape now, and internal/archtest's
+// TestOnlyTopologyDeclaresJetStreamShapes is what keeps this paragraph
+// honest: it fails the build if any package outside this one writes a
+// jetstream.StreamConfig, ConsumerConfig or KeyValueConfig literal.
 package topology
 
 import (

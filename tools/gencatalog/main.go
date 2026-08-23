@@ -127,7 +127,11 @@ func generateEntries(
 		written += n
 	}
 	for _, cfg := range plugins {
-		n, err := runPleiades(binPath, root, newPluginArgs(cfg)...)
+		args, err := newPluginArgs(cfg)
+		if err != nil {
+			return written, err
+		}
+		n, err := runPleiades(binPath, root, args...)
 		if err != nil {
 			return written, err
 		}
@@ -138,7 +142,7 @@ func generateEntries(
 
 // newPluginArgs builds the exact `forge new-plugin` argument list for cfg,
 // mirroring cmd/pleiades/forge_new_plugin.go's own flag surface.
-func newPluginArgs(cfg pluginscaffold.Config) []string {
+func newPluginArgs(cfg pluginscaffold.Config) ([]string, error) {
 	args := []string{"forge", "new-plugin", cfg.Name, "--description", cfg.Description}
 	if cfg.Endpoint != "" {
 		args = append(args, "--endpoint", cfg.Endpoint)
@@ -146,7 +150,21 @@ func newPluginArgs(cfg pluginscaffold.Config) []string {
 	if cfg.ReadOnly {
 		args = append(args, "--read-only")
 	}
-	return append(args, "--skip-existing")
+	if cfg.RequiresCredentials {
+		args = append(args, "--requires-credentials")
+	}
+	// The settings travel as JSON on the command line, the same route a
+	// Collection method's Doc already takes through --doc-json, so a
+	// scaffolded plugin comes out declaring exactly what catalogdata says
+	// it needs rather than needing it transcribed by hand.
+	if len(cfg.Settings) > 0 {
+		encoded, err := json.Marshal(cfg.Settings)
+		if err != nil {
+			return nil, fmt.Errorf("encoding settings for plugin %q: %w", cfg.Name, err)
+		}
+		args = append(args, "--settings-json", string(encoded))
+	}
+	return append(args, "--skip-existing"), nil
 }
 
 // writeCatalogBuiltins writes internal/catalog/builtins.go: a blank

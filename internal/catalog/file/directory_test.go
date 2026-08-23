@@ -119,7 +119,7 @@ func newUnreachableDirDevice() inventory.InventoryItem {
 
 // dirContext is a minimal sdk.RunbookContext carrying a fixed secret set,
 // standing in for the real one the composition root builds from the
-// credential store (Walk tier) or the dispatch payload (Crawl tier).
+// credential store (Crawl tier) or the dispatch payload (Walk tier).
 type dirContext struct {
 	secrets map[string]string
 	stats   map[string]any
@@ -671,12 +671,33 @@ func TestDirectory_RefusesASymlinkEvenToADirectory(t *testing.T) {
 	}
 }
 
+// shortTempDir returns a fresh temporary directory, removed when the test
+// ends, whose path is short enough to hold a Unix socket.
+//
+// t.TempDir is the obvious thing to reach for and is the wrong one here:
+// it builds its directory name out of the test's own name, and macOS puts
+// TMPDIR under /var/folders/<2>/<28>/T/, so a descriptively named test
+// pushes the socket path past sockaddr_un's 104-byte sun_path limit and
+// net.Listen fails with the famously unhelpful "bind: invalid argument".
+// Linux allows 108 bytes and puts TMPDIR at /tmp, which is why this was
+// invisible until CI grew a macos-latest leg. A two-character prefix keeps
+// the whole path near 70 bytes on either platform.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "px")
+	if err != nil {
+		t.Fatalf("os.MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // TestDirectory_RefusesSomethingThatIsNeither covers the third kind a path
 // can hold. A unix socket is the cheapest one to make from a test, and it
 // exercises the same branch a device node or a fifo would.
 func TestDirectory_RefusesSomethingThatIsNeither(t *testing.T) {
 	server := startDirServer(t)
-	path := filepath.Join(t.TempDir(), "socket")
+	path := filepath.Join(shortTempDir(t), "socket")
 
 	listener, err := net.Listen("unix", path)
 	if err != nil {

@@ -28,7 +28,7 @@ const defaultMaxConcurrency = 5
 // context when the run's own ctx is already canceled, mirroring
 // Scheduler.Run's own graceful-handover idiom (scheduler.go: "Use a
 // background context since the parent ctx is already dead"). It is
-// generous because the Walk-tier ActionExecutor today only ever runs the
+// generous because the Crawl-tier ActionExecutor today only ever runs the
 // near-instant "noop" action; a longer-running or per-task configurable
 // value is Phase W6's real transport dispatch's concern, not this one's.
 const defaultLockTTL = 5 * time.Minute
@@ -513,7 +513,7 @@ func (r *run) resolveDevices(task *Task) ([]inventory.InventoryItem, error) {
 		// dispatch request's own group rather than from the runbook's
 		// hosts: key, so a mesh-dispatched runbook legitimately carries no
 		// hosts: at all. A resolver with no such default returns nothing
-		// here and the task stays controller-side exactly as before: Walk
+		// here and the task stays controller-side exactly as before: Crawl
 		// tier's validate.WorldView matches an empty target against no
 		// Name and no Tag, so its behavior is unchanged by this branch.
 		// An empty result here is deliberately not the error the non-empty
@@ -620,8 +620,8 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 
 // nodeEvent mirrors adapters/native.LogEvent's exact field shape
 // (Timestamp, Status, Host, Task, EventData.Message), the vocabulary the
-// Crawl-tier native Adapter already publishes to jobs.logs.<job-id>.
-// Reusing the identical shape here, over the Walk-tier in-process Bus, is
+// Walk-tier native Adapter already publishes to jobs.logs.<job-id>.
+// Reusing the identical shape here, over the Crawl-tier in-process Bus, is
 // the concrete evidence for this phase's Adversarial Pattern
 // Justification: in-process and distributed execution report the same
 // event contract, they just publish it through different Bus adapters and

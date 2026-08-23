@@ -8,32 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/retry"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
-
-const bucketName = "Pleiades_Locks"
-
-// lockMarkerTTL bounds how long a delete/expiry marker persists in the
-// bucket's underlying stream once a key is removed. jetstream.KeyValueConfig
-// requires a non-zero LimitMarkerTTL before it will honor any per-key TTL at
-// all (jetstream.KeyTTL, used by tryAcquireOnce below); the value itself
-// only affects watcher notification, never lock correctness, so a modest
-// fixed duration is enough. Setting it is also this package's real minimum
-// server-version requirement: a nats-server older than 2.11 rejects
-// LimitMarkerTTL outright ("limit marker TTLs not supported by server"),
-// confirmed empirically against a real nats:2.10 container while designing
-// this phase (LESSONS_LEARNED.md), so NewNatsLockManager simply fails to
-// construct against one, rather than silently falling back to a mode that
-// cannot honor ttl.
-const lockMarkerTTL = time.Minute
-
-// lockBucketTTL is the bucket-wide absolute failsafe ceiling: no lock can
-// outlive this regardless of what ttl a caller requests, or of any bug in
-// the per-key TTL logic below.
-const lockBucketTTL = 24 * time.Hour
 
 // minPositiveTTL is the smallest positive ttl natsLockManager accepts. Real
 // per-key JetStream KV TTL requires whole-second granularity server-side: a
@@ -75,12 +55,13 @@ func NewNatsLockManager(ctx context.Context, url string) (Manager, error) {
 		return nil, fmt.Errorf("failed to init jetstream: %w", err)
 	}
 
-	// Create or update the distributed lock bucket
-	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket:         bucketName,
-		TTL:            lockBucketTTL,
-		LimitMarkerTTL: lockMarkerTTL,
-	})
+	// Create or update the distributed lock bucket. The shape comes from
+	// internal/topology, which owns every JetStream object's declared
+	// configuration, rather than from a literal here: cmd/controller and
+	// cmd/runner both run this constructor against one NATS, and a shape
+	// written down in one place cannot disagree with itself across a
+	// rolling upgrade the way two copies could.
+	kv, err := js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to init lock bucket: %w", err)
 	}
@@ -158,7 +139,7 @@ func itemIDValid(itemID string) bool {
 // confirmed by reading nats.go v1.52.0's own source before relying on it
 // (LESSONS_LEARNED.md).
 func kvSubject(itemID string) string {
-	return fmt.Sprintf("$KV.%s.%s", bucketName, itemID)
+	return fmt.Sprintf("$KV.%s.%s", topology.LockBucketName, itemID)
 }
 
 // publishWithTTL CAS-publishes value as itemID's next revision, expecting

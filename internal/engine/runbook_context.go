@@ -11,12 +11,12 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/sdk"
 )
 
-// runbookContext is the Walk-tier sdk.RunbookContext handed to a Collection
+// runbookContext is the Crawl-tier sdk.RunbookContext handed to a Collection
 // method: it collects whatever the method emits so the executor can report
 // it, and resolves secrets for the device the method is acting on.
 //
 // It is in-process by design. pkg/sdk's contract is shaped for an
-// out-of-process method eventually talking over IPC, but at Walk tier the
+// out-of-process method eventually talking over IPC, but at Crawl tier the
 // engine links the method directly, so "send this fact back to the engine"
 // is a map write. Nothing about the method's own code changes if that
 // carrier is replaced later.
@@ -98,7 +98,7 @@ func (c *runbookContext) Facts() map[string]interface{} {
 // invocation is handed, for the one device it is acting on.
 //
 // It takes a context and returns an error because resolving a device's
-// secrets is real work that can fail: the Walk tier reads and decrypts a
+// secrets is real work that can fail: the Crawl tier reads and decrypts a
 // credential file here. Before this signature existed the composition
 // root had nowhere to report that, so it passed every method an empty
 // secret set and no method needing a credential could run through the
@@ -110,7 +110,7 @@ type RunbookContextFunc func(ctx context.Context, device inventory.InventoryItem
 // an empty InjectSecrets.
 //
 // It is correct for a composition root with no credential store, and for
-// tests. A real Walk-tier run wants NewCredentialRunbookContext instead;
+// tests. A real Crawl-tier run wants NewCredentialRunbookContext instead;
 // this one is not the sensible default it was once used as.
 func NewDeviceRunbookContext(_ context.Context, _ inventory.InventoryItem) (sdk.RunbookContext, error) {
 	return NewRunbookContext(nil), nil
@@ -121,7 +121,7 @@ func NewDeviceRunbookContext(_ context.Context, _ inventory.InventoryItem) (sdk.
 // as flattened secrets.
 //
 // This is what makes a credential-needing Collection method work at the
-// Walk tier. The Crawl tier does the same thing by a different route:
+// Crawl tier. The Walk tier does the same thing by a different route:
 // the Controller resolves the credential at dispatch time and attaches
 // it to the payload, and the per-task subprocess builds its context from
 // that. Both ends read the map by the same wire.Secret* keys.

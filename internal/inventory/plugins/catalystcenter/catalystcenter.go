@@ -47,8 +47,9 @@ func init() {
 		// Verified against the real DevNet sandbox: authenticate, page the
 		// device inventory, classify, and reconcile. See
 		// tests/e2e/catalyst_test.go for the reproducible run.
-		Status: syncplugin.StatusImplemented,
-		New:    func() syncplugin.Plugin { return New() },
+		Status:              syncplugin.StatusImplemented,
+		RequiresCredentials: true,
+		New:                 func(deps syncplugin.Deps) syncplugin.Plugin { return New(deps) },
 	})
 }
 
@@ -60,48 +61,35 @@ type CatalystCenter struct {
 	factory *inv.ItemFactory
 	ruleSet *classification.RuleSet
 
-	// creds resolves cfg.CredentialName at Connect time. It is injected
-	// rather than constructed so a caller can supply the project's own
-	// store, and so tests can supply one without a keyed file store on
-	// disk. A nil store means Connect has nothing to authenticate with.
+	// creds resolves cfg.CredentialName at Connect time. It arrives
+	// through syncplugin.Deps, so it is whatever store the composition
+	// root that built this plugin uses, and syncplugin.Open has already
+	// refused to build the plugin at all if that store was nil (the
+	// descriptor above sets RequiresCredentials).
 	creds credential.Store
-
-	// clientOpts are passed through to the REST client Connect builds.
-	clientOpts []catalystcenter.Option
 }
 
 // compile-time proof this plugin satisfies the port.
 var _ syncplugin.Plugin = (*CatalystCenter)(nil)
 
-// Option customizes a plugin at construction time.
-type Option func(*CatalystCenter)
-
-// WithCredentialStore supplies the store Connect resolves its credential
-// from. Without it, Connect fails rather than falling back to the
-// environment: Section 6c is explicit that discovery credentials are looked
-// up, never inlined, and an environment fallback is exactly the inlining
-// that rule exists to prevent.
-func WithCredentialStore(store credential.Store) Option {
-	return func(p *CatalystCenter) { p.creds = store }
-}
-
-// WithClientOption threads a catalystcenter client option through to the
-// client Connect builds. Tests use it to point at an httptest.Server
-// replaying captured sandbox responses.
-func WithClientOption(opt catalystcenter.Option) Option {
-	return func(p *CatalystCenter) { p.clientOpts = append(p.clientOpts, opt) }
-}
-
-// New creates an unconnected plugin.
-func New(opts ...Option) *CatalystCenter {
-	p := &CatalystCenter{
+// New creates an unconnected plugin from the dependencies the
+// composition root supplies.
+//
+// It used to take functional Options. WithCredentialStore became
+// syncplugin.Deps, which every constructor receives on the one path
+// callers build through rather than one caller having to remember it.
+// WithClientOption was deleted outright: its doc comment claimed "tests
+// use it to point at a stub server", and no caller existed anywhere in
+// the module, including the tests, which point at their httptest.Server
+// through Config.Endpoint like any other deployment does. A doc comment
+// naming a caller that does not exist defeats the exact check somebody
+// would run to find one.
+func New(deps syncplugin.Deps) *CatalystCenter {
+	return &CatalystCenter{
 		factory: inv.NewItemFactory(),
 		ruleSet: classification.DefaultRuleSet(),
+		creds:   deps.Credentials,
 	}
-	for _, opt := range opts {
-		opt(p)
-	}
-	return p
 }
 
 // Connect resolves the configured credential and authenticates against the
@@ -119,7 +107,11 @@ func (p *CatalystCenter) Connect(ctx context.Context, cfg syncplugin.Config) err
 		return fmt.Errorf("sync plugin %q: endpoint is required", Name)
 	}
 	if p.creds == nil {
-		return fmt.Errorf("sync plugin %q: no credential store configured, use WithCredentialStore", Name)
+		// Re-checked here, not only in syncplugin.Open, because Connect is
+		// a method on an exported type and nothing stops a caller from
+		// building a CatalystCenter directly. The alternative to
+		// re-checking is a nil-pointer panic inside Lookup.
+		return fmt.Errorf("sync plugin %q: no credential store configured", Name)
 	}
 
 	credentialName := cfg.CredentialName
@@ -135,7 +127,7 @@ func (p *CatalystCenter) Connect(ctx context.Context, cfg syncplugin.Config) err
 		return fmt.Errorf("sync plugin %q: resolving credential %q: %w", Name, credentialName, err)
 	}
 
-	opts := append([]catalystcenter.Option{}, p.clientOpts...)
+	var opts []catalystcenter.Option
 	if cfg.InsecureSkipVerify {
 		opts = append(opts, catalystcenter.WithInsecureSkipVerify(true))
 	}

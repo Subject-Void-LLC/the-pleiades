@@ -93,6 +93,25 @@ func (LocalSocketEndpoint) endpoint() {}
 // smuggled into LocalSocketEndpoint's own Address field — a container id
 // is not itself an address, and doing so would reintroduce exactly the
 // tagged-struct ambiguity this sealed interface exists to prevent.
+//
+// # Nothing constructs this today, and the reason is architectural
+//
+// No production code builds a DockerExecEndpoint and no Adapter's type
+// switch accepts one. That is not an unfinished wiring job waiting to be
+// completed: container.docker.exec is a Collection method rather than a
+// TransportBinding, because the container id is a per-task parameter a
+// binding's Target function (which sees only the device) cannot supply,
+// and internal/catalog/container/docker/exec.go's own doc comment states
+// that reasoning. It reaches the daemon through pkg/dockerexec directly.
+//
+// This variant is kept rather than deleted because Endpoint is a sealed
+// interface: every implementation lives in this one package, so removing
+// and later re-adding it is a single-file change with no external
+// breakage either way, and the shape is the one a future
+// transport-shaped container exec would want. It is disclosed here so a
+// reader does not mistake an unreachable variant for a wiring gap, the
+// same way pkg/tftpxfer and pkg/rfc2217 are disclosed in
+// docs/10-running-in-production.md.
 type DockerExecEndpoint struct {
 	Socket      LocalSocketEndpoint
 	ContainerID string

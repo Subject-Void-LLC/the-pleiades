@@ -1,4 +1,4 @@
-# The Pleiades Crawl-tier stack as one command: PostgreSQL, NATS with
+# The Pleiades Walk-tier stack as one command: PostgreSQL, NATS with
 # JetStream, the controller (API gateway, scheduler lease holder, job
 # dispatcher) and one runner (the stateless worker that pulls jobs off the
 # durable consumer group).

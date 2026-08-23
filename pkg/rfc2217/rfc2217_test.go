@@ -12,6 +12,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/rfc2217"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialline"
+	"strings"
 )
 
 // This file is the RULE 0 evidence for pkg/rfc2217's negotiation and
@@ -204,16 +205,15 @@ func TestDial_TimesOutWaitingForAReply(t *testing.T) {
 // TestDial_FailureIsAClearError proves a connection refused (a closed
 // listener) fails with a wrapped error, not a panic.
 func TestDial_FailureIsAClearError(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-
-	_, err = rfc2217.Dial(context.Background(), "127.0.0.1", port, rfc2217.Options{})
+	// Port 0, not a released listener's port: see
+	// FAILURE_PATTERNS.md #123 and #177 for why the latter is a race
+	// that has already failed in this repository twice.
+	_, err := rfc2217.Dial(context.Background(), "127.0.0.1", 0, rfc2217.Options{})
 	if err == nil {
-		t.Fatal("expected an error dialing a closed listener")
+		t.Fatal("expected an error dialing an address nothing can be listening on")
+	}
+	if !strings.Contains(err.Error(), "127.0.0.1:0") {
+		t.Errorf("error %q does not name the address it failed to reach", err)
 	}
 }
 

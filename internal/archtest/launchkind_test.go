@@ -239,7 +239,7 @@ func TestCompositionRootsImportTheLaunchKinds(t *testing.T) {
 	const kindsPath = modulePath + "/internal/launch/kinds"
 
 	// The two binaries that resolve a kind at run time. cmd/pleiades is
-	// deliberately absent: the Walk-tier CLI has no templates and no
+	// deliberately absent: the Crawl-tier CLI has no templates and no
 	// dispatch, so importing the registry there would be weight with no
 	// consumer.
 	needs := map[string]bool{
