@@ -187,6 +187,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 184. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
 185. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
 186. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
+187. One test asserted a fact was present where its twelve siblings asserted a value, so it alone had no environmental guard and was the only one to fail off Linux
+188. Nine packages could not run their own tests twice in one process, and no gate in this repository could ever have noticed
+189. A lost race returned the same sentinel as a real collision, so the operator was told to rename a credential type that does not exist
 
 ---
 
