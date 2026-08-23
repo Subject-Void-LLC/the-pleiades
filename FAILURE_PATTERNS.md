@@ -178,13 +178,15 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 175. A protocol with no length field to lie about still had an unbounded accumulator, because the missing terminator is the same risk in a different shape
 176. A named integer type built specifically to prevent one silent-misread class still allowed a different silent-truncation class
 177. A "nothing is listening here" test address was built by releasing a port again, the exact recurrence entry #123 already named
-178. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
-179. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
-180. The one JetStream object whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
-181. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
-182. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
-183. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
-184. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
+178. Stream shape is re-asserted by three composition roots from compile-time constants, so the least-qualified process silently wins
+179. Two fully-built shared primitives had zero production callers, and both had been "finished" for phases
+180. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
+181. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
+182. The one JetStream KV bucket whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
+183. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
+184. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
+185. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
+186. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
 
 ---
 

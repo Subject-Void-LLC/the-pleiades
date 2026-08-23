@@ -3050,7 +3050,43 @@ hemispheres, a half-hour-offset zone with no DST at all, leap days, month-end
 rules over short months, ordinal weekdays, BYSETPOS, WKST changing which weeks
 an interval selects, and exclusion rules straddling a transition.
 
-## 152. Domain vocabulary that inverts a well-known idiom stays invisible to every automated gate, because internal consistency is all any of them can measure
+## 152. A `file:line` citation is unverifiable by any tool in this repo, so it rots silently -- and copying one forward into a new document multiplies the rot instead of inheriting a fact
+
+**The incident (2026-08-22).** Writing new phase specs required citing
+`TestPkgNeverImportsInternal`. The spec tree said
+`internal/archtest/layering_test.go:129` in three places, `:129-137` in a
+fourth, and `:129-174` in a fifth. The test was at `:199`. Every one of the
+five was wrong, and none had ever failed anything: `make ci` runs
+`docs-lint`, which checks that gitignored documents are not *cited from
+user-facing pages*, and checks nothing at all about whether a line number
+still points where it claims.
+
+**Why it became five.** The first citation was correct when written. Each
+later phase, following this document's own good practice of grounding claims
+in the real source, copied the reference from the phase before it rather than
+re-deriving it. Copying looks like inheriting a verified fact and is actually
+duplicating an unverified one -- so a single unnoticed edit to
+`layering_test.go` invalidated five documents at once, and the redundancy
+that normally provides confidence instead provided false corroboration: a
+reader who spot-checked one citation against another would find them
+agreeing.
+
+**The rule.** Cite the SYMBOL, which is stable and greppable
+(`TestPkgNeverImportsInternal` in `internal/archtest/layering_test.go`), and
+treat a line number as a perishable convenience, never as the identifier. When
+a line number genuinely helps, re-derive it at writing time from the real file
+rather than copying it out of a neighbouring document, and never carry a
+`file:line` across a document boundary without re-checking it. The same applies
+to a measured COUNT: Phase 74's "27 registered capabilities" was true when
+written and false the moment Phase 73 landed four more.
+
+**The corollary that keeps this cheap.** Do not retcon a measurement that was
+correct when taken. Add a dated correction beside it, as Phase 74's entry now
+carries, and record the counting method next to the count so the next reader
+can re-measure in one command instead of trusting a number. A method survives
+drift; a number does not.
+
+## 153. Domain vocabulary that inverts a well-known idiom stays invisible to every automated gate, because internal consistency is all any of them can measure
 
 **The incident.** From the beginning of the project until 2026-08-22, the three onboarding
 tiers of PLAN.md Section 7 were named **Walk** (a CLI with no infrastructure at all,
@@ -3116,7 +3152,7 @@ regenerate rather than hand-edit anything under `docs/reference/` or `internal/a
 and verify the before and after occurrence counts are exact mirrors of one another rather than
 merely both plausible.
 
-## 153. A dependency a component cannot build for itself belongs in its constructor's signature, never in an option, because an option is what every caller except the one who wrote it forgets
+## 154. A dependency a component cannot build for itself belongs in its constructor's signature, never in an option, because an option is what every caller except the one who wrote it forgets
 
 **The incident.** The `aws` inventory sync plugin took its two dependencies, a credential
 store and an AWS region, as functional options: `aws.WithCredentialStore` and
@@ -3167,7 +3203,7 @@ value works. If a "with" function's absence makes the component refuse to run, i
 an option; it was a parameter wearing an option's clothes, and the only caller who will ever
 pass it is the test that was written beside it.
 
-## 154. A guard written against one registry protects that registry only, and the surface it does not cover is exactly where the same defect ships next
+## 155. A guard written against one registry protects that registry only, and the surface it does not cover is exactly where the same defect ships next
 
 **The incident.** Phase 73's Workstream A found three `StatusImplemented` Collection methods
 requiring `DockerCapable` that no device type could satisfy, fixed it with a real device
@@ -3209,7 +3245,7 @@ negative-control each sweep with a permanent synthetic case in the test file, no
 manual un-wiring: a control that runs once and leaves no trace cannot tell a later reader
 whether the rule still matches anything.
 
-## 155. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
+## 156. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
 
 **The incident.** `internal/topology`'s package doc calls it "the single owner of every NATS
 JetStream subject, stream, consumer, and retention/replica setting used by Pleiades," and
@@ -3246,11 +3282,11 @@ the smaller scale: a doc comment naming a caller is a claim with an expiry date,
 name the mechanism instead (which cannot rot the same way) or state plainly that there is no
 caller today and why the shape is kept.
 
-## 156. Sweep for a recurring construction by what the code is trying to say, not by the shape of the instance in front of you, and do it before the fix rather than after the next failure
+## 157. Sweep for a recurring construction by what the code is trying to say, not by the shape of the instance in front of you, and do it before the fix rather than after the next failure
 
 **The incident.** A "this address must refuse connections" test fixture, built by opening a
 listener, reading its assigned port, closing it, and dialing the number again, has now failed
-in this repository three separate times: `FAILURE_PATTERNS.md` #123, then #177, then #181. A
+in this repository three separate times: `FAILURE_PATTERNS.md` #123, then #177, then #183. A
 just-released loopback port keeps accepting connects on this project's WSL2 development host,
 so the dial sometimes succeeds and the failure the test exists to observe never happens.
 

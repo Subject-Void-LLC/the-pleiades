@@ -57,17 +57,25 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 77 declared FQCNs; 34 implemented:** the 6 `svc.systemd.*` methods
-  (`start`, `stop`, `restart`, `enable`, `disable`, `daemon_reload`) and the 5 generic `svc.*`
-  ones that resolve a device's service manager and dispatch to them, both built on
-  `pkg/remotesvc`; the 4 `net.catalyst.*` ones (Cisco
-  Catalyst Center), `net.ssh.ping`, `exec.command`, `exec.shell`, ten of the `file.*` methods
-  (`copy`, `directory`, `touch`, `permissions`, `remove`, `symlink`, `line.set`, `line.remove`,
-  `block.set`, `block.remove`), `wait.path`, `wait.search`, `pleiades.builtin.wait.port`,
-  `facts.gather` and `http.request`. `file.template` is deliberately still declared: the render
-  engine lives in `internal/render` and a Collection may not import `internal/`. Everything else
-  returns an explicit "declared but not implemented" error rather than a silent no-op.
-  `exec.command` is the first write-capable method and the first built on `pkg/remoteexec`,
+- **Module catalog: 78 registered FQCNs; 71 implemented, 7 declared-not-implemented.** These counts
+  and every per-method status come from the generated
+  `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
+  and which is authoritative over any hand-written tally in this file — read it rather than trusting
+  this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `file` 10,
+  `pkg` 9, `identity` 6, `net` 5, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
+  `wait` 2, `win` 2, `facts` 1, `http` 1, `pleiades` 1. The `svc` group is the 6 `svc.systemd.*`
+  methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
+  service manager and dispatch to whichever applies, all built on `pkg/remotesvc`.
+  **The short and decision-relevant list is what is NOT implemented, all seven of them:**
+  `file.template` — deliberate and not a gap to close casually, since the render engine lives in
+  `internal/render` and a Collection may not import `internal/`; `net.cli.command`,
+  `net.cli.config` and `net.ios.config`, blocked on Phase 86.5's interactive network CLI
+  transport; and `net.netconf.config`, `net.junos.config` and `net.eos.config`, blocked on
+  Phase 74. Each returns an explicit "declared but not implemented" error rather than a silent
+  no-op, though that error is a backstop rather than the mechanism: the dispatcher refuses any
+  method whose `Status` is not `StatusImplemented` before its body is ever called
+  (`internal/engine/collection_action.go`).
+  `exec.command` was the first write-capable method and the first built on `pkg/remoteexec`,
   the shared SSH execution primitive a Collection may import (a Collection may import only
   `pkg/`, so `internal/transport/ssh` is unreachable from one and is now a thin adapter over
   the same primitive). Every implemented method declares `collection.Reversibility` (a bool plus
@@ -239,7 +247,7 @@ Crawl named the Controller/Runner tier, inverting "crawl, walk, run"; the ladder
 changed. Docs and archives were rewritten to the corrected names, but **git commit messages
 were not** — a commit dated before 2026-08-22 saying "Walk tier" means what this table now
 calls Crawl. The `W` in phase identifiers `W1`-`W6` is a leftover of the old name, not a
-mnemonic. See `LESSONS_LEARNED.md` #152.
+mnemonic. See `LESSONS_LEARNED.md` #153.
 
 `cmd/demo` wires a minimal controller-adjacent stack for exercising the web UI's SSE log
 stream in isolation.

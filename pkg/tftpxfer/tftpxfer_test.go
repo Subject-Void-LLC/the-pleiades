@@ -214,7 +214,7 @@ func TestGet_UnreachableServerFailsWithinTheTimeoutBudget(t *testing.T) {
 	// A real UDP socket held OPEN for the whole test, never read from and
 	// never answering. That is deliberately not the "bind a port, close
 	// it, reuse the number" construction FAILURE_PATTERNS.md #123, #177
-	// and #181 record failing, and port 0 is not the fix here either:
+	// and #183 record failing, and port 0 is not the fix here either:
 	// this test's subject is the Timeout/Retries BUDGET, and a closed UDP
 	// port answers with an ICMP port-unreachable that ends the call
 	// early, while an invalid address fails validation earlier still.

@@ -107,7 +107,7 @@ func TestExec_RejectsAnyEndpointOtherThanNetworkEndpoint(t *testing.T) {
 func TestExec_WrapsAnUnderlyingFailureClearly(t *testing.T) {
 	tr := serialtcptransport.New(serialtcp.Options{}, remoteexec.Options{})
 	// Port 0, not a released listener's port: FAILURE_PATTERNS.md #123,
-	// #177 and #181. Nothing can bind port 0, so nothing can be
+	// #177 and #183. Nothing can bind port 0, so nothing can be
 	// listening on it.
 	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 0}}
 

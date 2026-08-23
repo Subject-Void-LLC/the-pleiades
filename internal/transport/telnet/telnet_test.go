@@ -96,7 +96,7 @@ func TestExec_RejectsAnyEndpointOtherThanNetworkEndpoint(t *testing.T) {
 func TestExec_WrapsAnUnderlyingFailureClearly(t *testing.T) {
 	tr := telnettransport.New(telnetexec.Options{}, remoteexec.Options{})
 	// Port 0, not a released listener's port: FAILURE_PATTERNS.md #123,
-	// #177 and #181 all record that construction failing for real, most
+	// #177 and #183 all record that construction failing for real, most
 	// recently in this very file. Port 0 is the sockets API's "assign me
 	// any free port" value for bind, so nothing can ever be listening on
 	// it.

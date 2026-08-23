@@ -8,9 +8,9 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 `feature/aws-collection`'s HEAD (`505c203`, "cleanup chore for swapped crawl/walk phases"). HEAD is
 now `afb6569`, a commit **the user made themselves, mid-session**, fixing CI on all three matrix
 legs; it is unrelated to the work below except that it swept this session's already-written
-`FAILURE_PATTERNS` entries #178-#181 into itself alongside the user's own #182-#184 (numbering is
-intact, index and archive both hold 182 entries and agree). Everything else below is
-unstaged/untracked on top of `afb6569`, per the standing rule that only the user commits. A drafted
+`FAILURE_PATTERNS` entries into itself alongside the user's own. `origin/main` was then merged in,
+which collided on numbering in both living documents (see the note directly below); the merge
+resolution is part of this branch. A drafted
 commit message is in this session's final message.**
 
 This session fixed one class of defect and the guard gap that let it through: **things that are
@@ -129,7 +129,7 @@ on the wait package.
 
 ### Documentation
 
-`FAILURE_PATTERNS.md`/`_ARCHIVE.md` #178-#181, `LESSONS_LEARNED.md`/`_ARCHIVE.md` #153-#156.
+`FAILURE_PATTERNS.md`/`_ARCHIVE.md` #180-#183 (this session) and #184-#186 (the user's own CI-fixing commit), `LESSONS_LEARNED.md`/`_ARCHIVE.md` #154-#157. Numbers as resolved against `main`; see the merge note above.
 `docs/10-running-in-production.md` gained the `console_device` configuration section its serial
 transport docs were describing without ever saying how to declare one.
 `docs/03-migrating-from-ansible.md`'s stale "only catalyst_center" claim and its wrong
@@ -194,6 +194,37 @@ against real LocalStack, as does the whole plugin conformance suite through the 
 construction path.
 
 ### Next steps
+
+### The merge with `main`, and what it changed beyond numbers
+
+`origin/main` gained `FAILURE_PATTERNS` #178-#179 and `LESSONS_LEARNED` #152 from PR #24 (Phase
+96-101) while this branch was open, and this branch had independently used the same numbers. Four
+files conflicted. The trunk's numbers were kept and this branch's entries shifted: failure patterns
+#178-#184 became **#180-#186**, lessons #152-#156 became **#153-#157**. Every cross-reference was
+updated with them.
+
+**One conflict was not a numbering conflict, and a naive resolution would have shipped it broken.**
+This branch's JetStream entry (now #182) argued that several composition roots reshaping one
+JetStream object at startup is "this codebase's deliberate pattern," citing `topology.EnsureStream`
+doing exactly that for the main stream from three roots, and concluded the only real problem was
+that the lock bucket's shape was written down in two places. `main`'s #178 reaches the opposite and
+correct judgement about the same unchanged code: last-writer-wins over shared infrastructure with no
+owner is a latent defect, and the Runner is the process whose opinion should carry the least weight
+precisely because it is the one most likely to be an older build. Phase 96 is planning at the time
+of this merge, so no code moved under either entry. #182 now records that it was half wrong and
+points at #178; its `LockBucketConfig` move is described as a prerequisite for #178's single-owner
+fix rather than a substitute for it.
+
+`main`'s #179 is the same class this whole branch is about, seen from the other end: two fully-built
+shared primitives with zero production callers, and the observation that "a port with no callers is
+invisible to every automated gate this repository runs." #181 now cross-references it and states
+honestly that these sweeps give three registries such a gate rather than closing the general case.
+#179's own subjects (`event.NewIdempotentBus`, `pkg/policy`) remain unreached.
+
+**`LESSONS_LEARNED.md` auto-merged into two `152.` entries in different regions, and git did not
+flag it.** Only the archive conflicted. Anyone resolving these four files by accepting the flagged
+hunks alone would have committed a duplicate-numbered index; it was found by grepping the merged
+index for duplicate numbers rather than by the merge tool.
 
 The user reviews and commits. Three things are deliberately left undone and are the natural
 follow-ups: `internal/launch`'s inability to run under `-count>1` (above),
@@ -362,4 +393,3 @@ session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than b
 read this section before assuming any of their own scope from `.SPECIFICATION/IMPLEMENTATION.md`
 alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
 current code first.
-

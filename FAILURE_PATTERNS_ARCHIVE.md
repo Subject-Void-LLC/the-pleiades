@@ -5594,7 +5594,96 @@ looking. Grepping this file for "listening" or "released" before writing
 a new such fixture is cheap; discovering the recurrence via a
 nondeterministic CI-equivalent failure is not.
 
-## 178. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
+## 178. Stream shape is re-asserted by three composition roots from compile-time constants, so the least-qualified process silently wins
+
+**Symptom (latent -- found by inspection while designing Phase 96, not by an
+observed failure; there is no test that would catch it and no log line that
+would report it).** Any operator-chosen JetStream retention setting -- the
+dedup window, `MaxAge`, replicas -- is silently reverted the next time a
+Runner process starts, with no error surfaced anywhere and no way to tell
+from the outside that it happened.
+
+**Root cause.** Stream configuration is not written once at provisioning
+time. `internal/topology.EnsureStream` calls
+`js.CreateOrUpdateStream(ctx, StreamConfig())` (`internal/topology/stream.go`),
+and `StreamConfig()` returns **compile-time constants**
+(`streamMaxAge`, `streamDuplicateWindow`, `Replicas: 1`). Three separate
+composition roots reach that function on every process start, each through
+`event.NewNatsBus`: `cmd/controller`, `cmd/runner` and `cmd/demo`. So the
+stream's shape is whatever the most recently started binary was compiled to
+believe, which is last-writer-wins over shared infrastructure with no owner.
+
+The ordering makes it worse rather than better. The Runner is the binary most
+likely to be an older build, deployed at the edge and upgraded last --
+precisely the process whose opinion about fleet-wide retention should carry
+the least weight, and precisely the one that will restart most often on an
+unstable link.
+
+This was invisible for as long as the constants were the only source of
+truth, because every writer agreed. It only becomes a defect the moment
+anything makes retention configurable, which is what Phase 96 does -- so it
+is a pre-existing latent defect promoted to a load-bearing one, not a defect
+that phase introduces.
+
+**Fix.** Give the stream exactly one owner. The Controller keeps
+`CreateOrUpdateStream`; Runners **attach** with `js.Stream(ctx, StreamName)`
+and fail loudly when it is absent. That converts the failure mode from
+"silently reshaped by whoever restarted last" into "stream missing, refuse to
+start", which is the same fail-closed instinct
+`internal/transport/ssh/known_hosts.go` already applies to a missing
+`known_hosts` file. Guard it with an `internal/archtest` rule so a
+non-owning root cannot regain the ability to reshape the stream. Filed as
+checklist items in Phase 96.
+
+**Lesson.** An idempotent-looking provisioning call
+(`CreateOrUpdate*`, `Ensure*`, `migrate`, `seed`) reachable from more than one
+composition root is not idempotent -- it is last-writer-wins, and the fact
+that every writer currently agrees is a property of them sharing a compile,
+not a property of the design. Before making any such value configurable, ask
+which single process owns it and make every other process a reader.
+
+## 179. Two fully-built shared primitives had zero production callers, and both had been "finished" for phases
+
+**Symptom.** While looking for somewhere to put a longer deduplication
+window, `grep -rn "NewIdempotentBus" --include="*.go" .` returned only the
+symbol's own definition and three doc-comment mentions. No composition root
+called it. The same question asked of `pkg/policy` found the answer written
+into the package's own doc comment: "This is written down here, not built,
+because no phase consuming it exists yet."
+
+**Root cause.** Both are Section 25 "shared primitive" contracts, built ahead
+of a consumer on the reasonable theory that a later phase would need them.
+`event.NewIdempotentBus` ships with its `DedupStore` port and **both**
+adapters (`dedup_inprocess.go`, `dedup_nats.go`), full doc comments and
+tests. `pkg/policy` ships the whole hierarchical System -> Inventory -> Group
+-> Device resolver with `Override`/`UnionSlices`/`IntersectSlices`, plus fuzz
+and benchmark tests. Everything about both reads as complete, and a
+maintainer searching for "do we have deduplication" or "do we have a policy
+resolver" gets a confident yes.
+
+The tests are what hid it. Each package's own tests exercise its API
+thoroughly, so coverage is high and CI is green, and neither `go vet`,
+`make coverage` nor `internal/archtest` has any notion of "exported, tested,
+and reached by nothing that ships". A port with no callers is invisible to
+every automated gate this repository runs.
+
+**Fix.** No code change for either yet; both are now filed against the phases
+that would consume them -- `pkg/policy` as Phase 102's explicit first
+consumer ("do not invent a second resolver"), and `NewIdempotentBus` as a
+named finding in Phase 96, including the further catch that the Runner pulls
+dispatch from a raw `jetstream.Consumer` rather than through
+`Bus.Subscribe`, so the decorator would not cover the dispatch path even once
+wired.
+
+**Lesson.** Gate 2 already says it -- "a port with no callers is not an
+implemented pattern, it is a decoration" -- and it still happened twice,
+because a build-ahead primitive passes every check a real one does. When
+consuming a shared primitive, verify it has at least one existing production
+caller before assuming the mechanism works; when building one ahead of its
+consumer, say so in the package doc the way `pkg/policy` honourably did, so
+the next reader is not misled by its completeness.
+
+## 180. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
 
 **Symptom.** `pleiades inventory sync --plugin aws` failed 100% of the
 time, from the day the plugin landed, with `sync plugin "aws": no region
@@ -5649,9 +5738,9 @@ The conformance suite now constructs through `Open`.
 `tests/e2e/inventory_sync_cli_test.go` runs the real binary against a
 real LocalStack and reads the `inventory.yaml` a user would open.
 
-**Lesson.** See `LESSONS_LEARNED.md` #153.
+**Lesson.** See `LESSONS_LEARNED.md` #154.
 
-## 179. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
+## 181. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
 
 **Symptom.** `serial_exec`, `serialtcp_exec` and `telnet_exec` were
 refused for every device the platform can build, twice over:
@@ -5705,9 +5794,25 @@ of the published vocabulary. It found `FileTransferCapable`, which
 `archive.extract` requires, when that method requires
 `POSIXFileSystemCapable`.
 
-**Lesson.** See `LESSONS_LEARNED.md` #154.
+**Entry #179, merged from `main` alongside this one, is the same class
+seen from the other end and states the gap these sweeps close.** It found
+two fully-built shared primitives with zero production callers and said
+outright what was missing: "neither `go vet`, `make coverage` nor
+`internal/archtest` has any notion of 'exported, tested, and reached by
+nothing that ships'. A port with no callers is invisible to every
+automated gate this repository runs." That was true when written. The
+sweeps here give three of those registries such a notion (Collection
+capabilities, transport fqcns, sync plugins), and
+`TestRegisteredCapabilitiesAreReachable` covers the specific shape #179
+describes: a name that is complete, tested, and required by nothing.
+Neither entry closes the general case, and #179's own subjects
+(`event.NewIdempotentBus`, `pkg/policy`) are still unreached, so the
+honest reading is that this class now has partial coverage rather than a
+guard.
 
-## 180. The one JetStream object whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
+**Lesson.** See `LESSONS_LEARNED.md` #155.
+
+## 182. The one JetStream KV bucket whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
 
 **Symptom.** No runtime symptom, which is the point of recording it.
 `internal/topology`'s package doc calls it "the single owner of every
@@ -5722,11 +5827,8 @@ bucket, which carries both the leader-election leases `cmd/controller`
 holds and the per-device execution leases `cmd/runner` takes. Both
 binaries call that constructor on startup, and
 `CreateOrUpdateKeyValue` reaches `CreateOrUpdateStream`, which issues an
-unconditional `UpdateStream` first. Several roots reshaping one
-JetStream object at startup is this codebase's deliberate pattern
-(`topology.EnsureStream` does it for the main stream from three roots);
-what makes it safe is that the shape is written down once, and this one
-was not.
+unconditional `UpdateStream` first, so the bucket's shape is whatever the
+most recently started binary was compiled to believe.
 
 **Correcting the original report.** The audit that surfaced this called
 it "the same shape" as a prior multi-declaration stream-drift finding.
@@ -5740,10 +5842,31 @@ changed against one where it did not, and a lowered bucket TTL lands as a
 lowered stream `MaxAge`, expiring live lock entries and releasing a
 device lease that two runners could then both take.
 
+**This entry was itself half wrong, and #178 is what corrects it.** As
+first written it said several roots reshaping one JetStream object at
+startup was "this codebase's deliberate pattern," citing
+`topology.EnsureStream` doing exactly that for the main stream from
+three composition roots, and concluded that what made it safe was having
+the shape written down once. Entry #178, found independently while
+designing Phase 96 and merged from `main` after this was written, reaches
+the opposite and correct judgement about the same code: last-writer-wins
+over shared infrastructure with no owner is a latent defect, and the
+Runner (the binary most likely to be an older build, deployed at the edge
+and upgraded last) is precisely the process whose opinion should carry
+the least weight. The reasoning here was not wrong about the mechanism,
+only about whether to accept it, and it was wrong for the ordinary reason:
+an existing pattern was read as an endorsement of itself. Both entries
+describe the same unchanged code, since Phase 96 is planning at the time
+of this merge.
+
 **Fix.** `topology.LockBucketConfig()` plus `LockBucketName`,
 `LockMarkerTTL` and `LockBucketTTL`, sitting beside the dedup bucket's
-existing config; `internal/lock` calls it. `CreateOrUpdateKeyValue`
-stayed as it was, deliberately: it is not the bug.
+existing config; `internal/lock` calls it. That gives the shape one
+declaration, which is a prerequisite for #178's fix rather than a
+substitute for it: giving the bucket one *owner* (a writer that
+provisions, and attachers that fail closed when it is absent) is the
+other half, and it belongs with the identical change to the stream
+rather than being done differently here first.
 
 **Guard.** `internal/archtest.TestOnlyTopologyDeclaresJetStreamShapes`
 parses every non-test Go file in the module and fails on a
@@ -5758,7 +5881,7 @@ repository that no reader can verify by reading the file making it, and
 that no compiler checks. Either write the AST rule that enforces it in
 the same commit, or write the weaker sentence that is actually true.
 
-## 181. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
+## 183. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
 
 **Symptom.** A full `go test ./...` sweep failed once on
 `internal/transport/serialtcp.TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError`
@@ -5820,9 +5943,9 @@ and failing with a message naming this fixture if it cannot. Verified
 with `-count=8 -race` across all seven affected packages and
 `-count=6 -race` on the wait package.
 
-**Lesson.** See `LESSONS_LEARNED.md` #156.
+**Lesson.** See `LESSONS_LEARNED.md` #157.
 
-## 182. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
+## 184. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
 
 **Symptom.** CI's `macos-latest` leg failed nine tests in `pkg/dockerexec`
 with `net.Listen: listen unix
@@ -5868,7 +5991,7 @@ And a cross-platform failure that "cannot be reproduced locally" usually
 can be: find the limit the remote platform is hitting and simulate it,
 rather than treating the remote leg as the only oracle and fixing blind.
 
-## 183. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
+## 185. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
 
 **Symptom.** CI's `windows-latest` leg failed `go vet ./...` with
 `undefined: syscall.Stat_t` in `internal/catalog/file` and
@@ -5900,7 +6023,7 @@ silently never could. The advisory Windows leg exists to catch exactly
 this, and it only works if somebody reads a leg that is allowed to be
 red.
 
-## 184. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
+## 186. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
 
 **Symptom.** CI's `ubuntu-latest` leg failed
 `TestBastionProof/DirectDialToConsoleServerFails`: a direct TCP dial from

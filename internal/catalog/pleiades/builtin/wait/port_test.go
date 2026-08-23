@@ -221,7 +221,7 @@ func portOpenListenerOn(t *testing.T, host string) (net.Listener, int) {
 // refuses a connection before handing it back.
 //
 // The confirmation is the whole point, and it is what
-// FAILURE_PATTERNS.md #123, #177 and #181 are about. Binding and
+// FAILURE_PATTERNS.md #123, #177 and #183 are about. Binding and
 // releasing alone is a race twice over: another process can claim the
 // port in the window, and on this project's own WSL2 development host a
 // just-released loopback port keeps accepting connects for a period

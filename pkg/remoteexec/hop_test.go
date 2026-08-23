@@ -225,7 +225,7 @@ func TestConnect_HopChain_UnreachableTargetThroughBastionFailsWithChannelError(t
 	// Port 0: syntactically valid, and nothing can ever be listening on
 	// it, because 0 is the sockets API's "assign me any free port" value
 	// for bind. This used to open a listener and close it again, which
-	// FAILURE_PATTERNS.md #123, #177 and #181 all record failing for
+	// FAILURE_PATTERNS.md #123, #177 and #183 all record failing for
 	// real on this project's own development host, where a just-released
 	// loopback port keeps accepting connects.
 	const unreachableAddr = "127.0.0.1:0"
