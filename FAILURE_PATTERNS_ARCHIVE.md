@@ -6328,3 +6328,60 @@ available years before the incident: a method documented as idempotent, a
 branch at 0% coverage, and a caller switching on a sentinel to choose an
 operator-facing instruction. Any one of those is a question worth asking;
 all three together describe this bug exactly.
+
+## 190. A capability added to a device type left the Grand Integration Test asserting a set that no longer matched, and main stayed red at test-integration across three merged pull requests
+
+**Symptom.** `make ci` fails at `test-integration`, in the one test that
+drives the real binaries against real PostgreSQL and real NATS:
+
+```
+--- FAIL: TestGrandIntegration (11.33s)
+    integration_test.go:114: rtr1 payload capabilities = [SSHTransportCapable CiscoIOSCapable NetworkAddressableCapable],
+        want the set map[CiscoIOSCapable:true SSHTransportCapable:true]
+```
+
+The device carries one capability MORE than the assertion allows.
+
+**Root cause.** `cc71f55` gave `cisco.Router` an `IPAddress()` accessor,
+which is what makes a device satisfy `NetworkAddressableCapable`, so that
+`pleiades.builtin.wait.port` could dispatch against a real device at all.
+That was correct and deliberate, and `internal/archtest`'s own sweep
+records the reasoning: this capability was "fixed for real instead of
+allowlisted", because `IPAddress()` is trivial, already-known data on
+every network-reachable device type.
+
+`tests/e2e`'s `wantCaps` compares the dispatch payload against an EXACT
+set, by length and then by membership. Nobody updated it. The capability
+was added on the Phase 73 branch and merged in PR #23; the expectation
+was last touched many phases earlier.
+
+**What made it survive.** The assertion is exact on both sides, which is
+the right shape for this test and is also what made it break silently
+from the other direction: a capability ADDED anywhere in the device tree
+breaks a test that names none of the packages involved, and the failure
+surfaces only in the slowest, most expensive, most easily-assumed-flaky
+suite in the module. `tests/e2e` is the first entry in
+`flaky-packages.json` and `FAILURE_PATTERNS.md` #61 names
+`TestGrandIntegration` specifically, so a red run here reads as known
+noise. It is not: #61's signature is a container port-mapping race or a
+lock-contention hang, and this was a deterministic assertion that failed
+identically every time.
+
+Verified pre-existing rather than assumed. A `git worktree` at clean
+`origin/main` (`bfdd9a2`) reproduced the identical message, byte for
+byte, with none of the current branch's changes present.
+
+**Fix.** The expectation gains `capability.NameNetworkAddressable`, with
+a comment naming the phase that added it and pointing at the archtest
+sweep that records why it is deliberate.
+
+**Lesson.** An exact-set assertion in an end-to-end test is a
+cross-repository invariant wearing local clothes: it constrains every
+device type, in packages it never names, and it can be broken by a change
+that is correct in itself. That is worth keeping rather than loosening,
+because the alternative (a subset check) would have let a real capability
+regression through silently. What has to change is where the failure is
+noticed: this one sat behind a suite everybody already treats as flaky,
+which is how a hard, repeatable failure hid for three merged pull
+requests. When a package on `flaky-packages.json` fails, read the actual
+assertion before reaching for the rerun.

@@ -94,6 +94,29 @@ drop after an isolation fix is a signal to look for that shape, not a number to 
 reachable on more than the two resources fixed here, and `view.FieldFault` has had exactly one
 production caller in the whole module. Fixing the other ports is a real follow-up and is NOT done.
 
+### One pre-existing failure found by running the gate, and fixed
+
+`make ci` failed at `test-integration` on `tests/e2e`'s `TestGrandIntegration`:
+`rtr1 payload capabilities = [SSHTransportCapable CiscoIOSCapable NetworkAddressableCapable], want the
+set map[CiscoIOSCapable:true SSHTransportCapable:true]`. It is NOT this branch's doing and it is NOT
+the known flake. `cc71f55` gave `cisco.Router` an `IPAddress()` accessor so
+`pleiades.builtin.wait.port` could dispatch against a real device, which makes every router
+`NetworkAddressableCapable`; the e2e expectation compares an EXACT set and was never updated. So
+`main` has been red at `test-integration` since PR #23 merged.
+
+Verified rather than assumed: a `git worktree` at clean `origin/main` (`bfdd9a2`) reproduces the
+identical message byte for byte, with none of this branch's changes present. The capability is
+deliberate, and `internal/archtest/registry_sweep_test.go` records why ("fixed for real instead of
+allowlisted"), so the stale side is the test. `FAILURE_PATTERNS.md` #190.
+
+It is fixed here, in its own commit, because it blocks any green gate on this branch. It is outside
+the four items this branch set out to close and should be reviewed as its own thing.
+
+Why it survived three merged pull requests is worth carrying: `tests/e2e` is the first entry in
+`flaky-packages.json` and `FAILURE_PATTERNS.md` #61 names `TestGrandIntegration` by name, so a red run
+there reads as known noise. #61's signature is a container port-mapping race or a hang; this was a
+deterministic assertion failing identically every time.
+
 ### Verification state
 
 `go build ./...`, `go vet ./...`, `make fmt` clean. `make test-repeat` (the whole non-Docker set at

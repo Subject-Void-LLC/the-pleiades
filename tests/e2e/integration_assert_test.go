@@ -385,6 +385,14 @@ func (h *harness) assertDispatchPayloads(t *testing.T, consumer jetstream.Consum
 		wantCaps := map[capability.Name]bool{
 			capability.NameSSHTransport: true,
 			capability.NameCiscoIOS:     true,
+			// Phase 73 gave cisco.Router an IPAddress() accessor so
+			// pleiades.builtin.wait.port could dispatch against a real
+			// device at all, which makes every router NetworkAddressable
+			// and is deliberate: internal/archtest's own sweep records
+			// that this one was "fixed for real instead of allowlisted".
+			// This expectation was not updated with it, so the Grand
+			// Integration Test has been failing on main ever since.
+			capability.NameNetworkAddressable: true,
 		}
 		if len(payload.Capabilities) != len(wantCaps) {
 			t.Fatalf("%s payload capabilities = %v, want the set %v", name, payload.Capabilities, wantCaps)

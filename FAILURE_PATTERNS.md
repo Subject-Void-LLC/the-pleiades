@@ -190,6 +190,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 187. One test asserted a fact was present where its twelve siblings asserted a value, so it alone had no environmental guard and was the only one to fail off Linux
 188. Nine packages could not run their own tests twice in one process, and no gate in this repository could ever have noticed
 189. A lost race returned the same sentinel as a real collision, so the operator was told to rename a credential type that does not exist
+190. A capability added to a device type left the Grand Integration Test asserting a set that no longer matched, and main stayed red at test-integration across three merged pull requests
 
 ---
 
