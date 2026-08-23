@@ -37,6 +37,7 @@ func FuzzRegister(f *testing.F) {
 	f.Add("\x00\xff.\x00\xff")
 
 	f.Fuzz(func(t *testing.T, name string) {
+		t.Cleanup(collection.SnapshotForTest())
 		namespace, method, ok := strings.Cut(name, ".")
 		wellFormed := ok && namespace != "" && method != ""
 
@@ -77,6 +78,7 @@ func FuzzRegisterRequiredCapability(f *testing.F) {
 
 	var seq atomic.Int64
 	f.Fuzz(func(t *testing.T, capName string) {
+		t.Cleanup(collection.SnapshotForTest())
 		d := collection.Descriptor{
 			Name: fmt.Sprintf("fuzzcap.method%d", seq.Add(1)),
 			Manifest: collection.Manifest{

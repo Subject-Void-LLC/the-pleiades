@@ -102,6 +102,23 @@ func (d Descriptor) Implemented() bool {
 // than a third hand-rolled map.
 var plugins = registry.New[Descriptor]()
 
+// SnapshotForTest captures the process-wide sync plugin registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(syncplugin.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return plugins.SnapshotForTest()
+}
+
 // MustRegister adds d to the sync plugin registry, panicking on a duplicate
 // name or an invalid descriptor. Plugin packages call it from their own
 // init(), so a duplicate built-in name fails at process start rather than

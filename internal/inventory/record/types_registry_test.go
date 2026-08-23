@@ -60,3 +60,33 @@ func TestRegisterType_DuplicatePanics(t *testing.T) {
 		return nil, nil
 	})
 }
+
+// TestSnapshotForTest_FreesTheNameForTheNextIteration pins the seam every
+// out-of-package test registering a device type depends on.
+//
+// RegisterType panics on a duplicate, matching pkg/capability's
+// closed-vocabulary-at-init convention, so a test that registers a type
+// and leaves it there does not merely fail on a second iteration in the
+// same process -- it takes the whole test binary down with it. Looping
+// here rather than asserting once is the point: one pass proves nothing,
+// because the defect this guards against only appears on the second.
+func TestSnapshotForTest_FreesTheNameForTheNextIteration(t *testing.T) {
+	const deviceType = "record_test_snapshot_roundtrip"
+
+	for i := range 3 {
+		func() {
+			defer record.SnapshotForTest()()
+
+			record.RegisterType(deviceType, func(record.Record) (inventory.InventoryItem, error) {
+				return nil, nil
+			})
+			if _, ok := record.LookupType(deviceType); !ok {
+				t.Fatalf("iteration %d: LookupType(%q) found nothing straight after registering it", i, deviceType)
+			}
+		}()
+
+		if _, ok := record.LookupType(deviceType); ok {
+			t.Fatalf("iteration %d: %q outlived the restore, so the next iteration would panic on it", i, deviceType)
+		}
+	}
+}

@@ -65,6 +65,49 @@ func (r *Registry[T]) Get(key string) (T, bool) {
 	return v, ok
 }
 
+// SnapshotForTest captures this registry's current contents and returns a
+// function that puts them back, so a test registering into a process-wide
+// table can leave it the way it found it.
+//
+// It exists because a registry built at package scope outlives the test
+// that writes to it. A second iteration under `go test -count=2` finds the
+// first iteration's entries still present and fails on a duplicate
+// registration, or panics outright when the registration went through
+// MustRegister. That was true of seven packages in this module
+// simultaneously, and no gate here ever saw it, because `go test` defaults
+// to -count=1 and every CI target relies on that default.
+//
+// The restore replaces the whole table rather than deleting the keys added
+// since, which is the stronger guarantee and the cheaper one to reason
+// about: an entry a test overwrote comes back as it was, and one a test
+// removed comes back at all. It is also safe to call more than once, since
+// it copies out of the snapshot rather than handing the live map back.
+//
+// ForTest is in the name rather than in a _test.go file because a _test.go
+// file cannot be imported across package boundaries, and most callers here
+// need to isolate a table some OTHER package owns. internal/archtest
+// forbids production code from calling anything by this name, which is the
+// protection an export_test.go would otherwise have given for free.
+func (r *Registry[T]) SnapshotForTest() func() {
+	r.mu.RLock()
+	saved := make(map[string]T, len(r.entries))
+	for k, v := range r.entries {
+		saved[k] = v
+	}
+	r.mu.RUnlock()
+
+	return func() {
+		restored := make(map[string]T, len(saved))
+		for k, v := range saved {
+			restored[k] = v
+		}
+
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.entries = restored
+	}
+}
+
 // All returns a snapshot copy of every registered entry, keyed by
 // registration key. It is a copy specifically so a caller mutating the
 // returned map (or a future registration racing with an in-flight caller

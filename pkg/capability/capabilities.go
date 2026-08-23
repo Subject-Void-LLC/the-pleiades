@@ -74,6 +74,23 @@ type Descriptor struct {
 // one.
 var vocabulary = registry.New[Descriptor]()
 
+// SnapshotForTest captures the process-wide capability registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(capability.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return vocabulary.SnapshotForTest()
+}
+
 // Register adds a Descriptor to the blessed vocabulary. It panics on a
 // duplicate name: two different structural definitions of the same
 // capability name is the exact collision this package exists to prevent,

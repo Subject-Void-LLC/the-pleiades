@@ -125,6 +125,7 @@ func validDescriptor(name string) view.Descriptor {
 }
 
 func TestRegister_AcceptsAValidDescriptor(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	d := validDescriptor("register-valid")
 	if err := view.Register(d); err != nil {
 		t.Fatalf("Register() = %v, want nil", err)
@@ -143,6 +144,7 @@ func TestRegister_AcceptsAValidDescriptor(t *testing.T) {
 }
 
 func TestRegister_RejectsDuplicate(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	d := validDescriptor("register-duplicate")
 	if err := view.Register(d); err != nil {
 		t.Fatalf("first Register() = %v, want nil", err)
@@ -153,6 +155,7 @@ func TestRegister_RejectsDuplicate(t *testing.T) {
 }
 
 func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	// Every case here is a real failure this validation exists to catch,
 	// named by what would break in production if it were let through.
 	cases := []struct {
@@ -240,6 +243,7 @@ func TestRegister_RejectsInvalidDescriptors(t *testing.T) {
 // this UI's affordance model would otherwise turn into a rendered button
 // that 404s, so it is refused at registration.
 func TestRegister_RejectsUnknownEndpoint(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	ghost := apispec.Endpoint{
 		Name: "list_ghosts", Method: "GET", Pattern: "/ghosts",
 		Scope: auth.ScopeInventoryRead, Rel: auth.RelCollection,
@@ -254,6 +258,7 @@ func TestRegister_RejectsUnknownEndpoint(t *testing.T) {
 }
 
 func TestRegister_RejectsStaleEndpointCopy(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	stale := apispec.GetDevice
 	stale.Scope = auth.ScopeInventoryWrite // the real one is inventory:read
 
@@ -267,6 +272,7 @@ func TestRegister_RejectsStaleEndpointCopy(t *testing.T) {
 }
 
 func TestRegister_RejectsAmbiguousRelations(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	d := validDescriptor("reject-ambiguous-rel")
 	// Both carry RelSelf, so Can(RelSelf) could not say which was meant.
 	d.Ops.Get = &apispec.GetDevice
@@ -279,6 +285,7 @@ func TestRegister_RejectsAmbiguousRelations(t *testing.T) {
 }
 
 func TestMustRegister_PanicsOnInvalid(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	defer func() {
 		if recover() == nil {
 			t.Fatal("MustRegister() did not panic on an invalid descriptor")
@@ -288,6 +295,7 @@ func TestMustRegister_PanicsOnInvalid(t *testing.T) {
 }
 
 func TestNamesAndNav_AreOrdered(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	first := validDescriptor("nav-bravo")
 	first.NavOrder = 20
 	second := validDescriptor("nav-alpha")
@@ -327,6 +335,7 @@ func TestNamesAndNav_AreOrdered(t *testing.T) {
 }
 
 func TestAll_ReturnsASnapshot(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	if err := view.Register(validDescriptor("all-snapshot")); err != nil {
 		t.Fatalf("Register() = %v", err)
 	}
@@ -835,6 +844,7 @@ func TestReferences_NeverLinkWithoutText(t *testing.T) {
 // Running it after everything is in turns a dangling reference into a
 // startup refusal rather than a link that 404s when somebody clicks it.
 func TestCheckReferences_RefusesAReferenceToNothing(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	// A view referencing one that exists.
 	target := validDescriptor("reference-target")
 	if err := view.Register(target); err != nil {

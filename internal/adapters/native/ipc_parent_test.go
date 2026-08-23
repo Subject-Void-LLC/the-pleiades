@@ -129,6 +129,8 @@ func TestIPCCollectionExecutor_Invoke_UnregisteredFQCNReturnsError(t *testing.T)
 // than the test's own cancellation deadline must still cause invoke to
 // return promptly once ctx is canceled.
 func TestIPCCollectionExecutor_Invoke_CancelKillsSubprocessPromptly(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+
 	name := "nativeipctest.slow"
 	if err := collection.Register(collection.Descriptor{
 		Name:     name,

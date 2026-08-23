@@ -125,6 +125,7 @@ func TestNavGroup_IDIsSafeInAnAttribute(t *testing.T) {
 // Free text would let two views spell one group two ways and render two
 // headings that look like a bug in the sidebar.
 func TestRegister_RefusesAnUndeclaredNavGroup(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	d := validDescriptor("navgroup-invalid")
 	d.NavGroup = view.NavGroup("MISCELLANEOUS")
 

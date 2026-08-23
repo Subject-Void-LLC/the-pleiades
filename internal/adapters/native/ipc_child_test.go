@@ -15,6 +15,9 @@ import (
 
 func registerChildTestMethod(t *testing.T, suffix string, status collection.Status, fn collection.Method) string {
 	t.Helper()
+	// The registry is process-wide and outlives this test, so without the
+	// snapshot a second iteration under -count>1 finds the name taken.
+	t.Cleanup(collection.SnapshotForTest())
 	name := "nativechildtest." + suffix
 	if err := collection.Register(collection.Descriptor{
 		Name: name,

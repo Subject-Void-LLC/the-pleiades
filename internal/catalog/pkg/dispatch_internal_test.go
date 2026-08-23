@@ -39,6 +39,8 @@ func TestDispatch_TargetNotRegistered(t *testing.T) {
 }
 
 func TestDispatch_TargetDeclaredButNotImplemented(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
+
 	const fake = "pkg.apt.faketest_dispatch_coverage"
 	if err := collection.Register(collection.Descriptor{
 		Name: fake,
