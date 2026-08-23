@@ -24,6 +24,8 @@ import (
 	"go/format"
 	"strconv"
 	"text/template"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // GeneratedFile is one file Generate produces: a path relative to the
@@ -42,6 +44,15 @@ type templateData struct {
 	Description string
 	Endpoint    string
 	ReadOnly    bool
+
+	// RequiresCredentials and Settings drive the wiring half of the
+	// generated descriptor: whether the plugin declares that it needs a
+	// credential store, and which per-deployment settings it declares.
+	// Both are emitted rather than left for a human to add, because a
+	// declaration that is written later than the code reading it is a
+	// declaration that starts out wrong.
+	RequiresCredentials bool
+	Settings            []syncplugin.SettingSpec
 }
 
 var funcMap = template.FuncMap{
@@ -69,6 +80,9 @@ func Generate(cfg Config) ([]GeneratedFile, error) {
 		Description: cfg.Description,
 		Endpoint:    cfg.Endpoint,
 		ReadOnly:    cfg.ReadOnly,
+
+		RequiresCredentials: cfg.RequiresCredentials,
+		Settings:            cfg.Settings,
 	}
 
 	sourceFile, err := renderAndFormat(pluginTemplate, data)

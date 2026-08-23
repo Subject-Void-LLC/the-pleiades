@@ -181,7 +181,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 178. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
 179. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
 180. The one JetStream object whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
-181. Entry #177's fix was applied to one of five sites carrying the identical construction, and one of the other four flaked in the very next session
+181. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
 182. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
 183. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
 184. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it

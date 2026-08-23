@@ -8,12 +8,20 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/registry"
 )
 
-// Constructor builds a fresh Plugin instance. Registration stores a
-// constructor rather than an instance because a Plugin holds live
-// connection state after Connect, and handing every caller the same
-// connected object would make two concurrent syncs share one auth token and
-// one page cursor.
-type Constructor func() Plugin
+// Constructor builds a fresh Plugin instance from the dependencies a
+// composition root supplies. Registration stores a constructor rather
+// than an instance because a Plugin holds live connection state after
+// Connect, and handing every caller the same connected object would make
+// two concurrent syncs share one auth token and one page cursor.
+//
+// It takes Deps rather than nothing so a plugin needing the project's
+// credential store receives it on the one path everything constructs
+// through. Before that, a plugin's dependencies arrived through
+// constructor Options only its own tests passed, and the registry-built
+// instance every real caller got had none of them: see deps.go's doc
+// comment for the defect that shipped. A plugin that needs nothing
+// simply ignores the argument.
+type Constructor func(Deps) Plugin
 
 // Status says whether a registered plugin actually talks to its upstream
 // system yet. It mirrors pkg/collection.Status exactly, and for the same
@@ -56,7 +64,29 @@ type Descriptor struct {
 	// than silently claiming to work.
 	Status Status
 
-	// New constructs an unconnected Plugin instance.
+	// Settings declares the per-deployment values this plugin needs
+	// beyond Config's shared fields, for example an AWS region. Open
+	// refuses to build the plugin when a required one is absent, and
+	// `pleiades inventory plugins` lists them, so a user finds out what
+	// a plugin needs before running it rather than from a Connect-time
+	// error.
+	Settings []SettingSpec
+
+	// RequiresCredentials says Connect resolves Config.CredentialName
+	// through a credential store, so Open refuses to build this plugin
+	// without one in Deps.
+	//
+	// It is declared here rather than inferred, because there is nothing
+	// to infer it from: a plugin that reads deps.Credentials and one
+	// that ignores it are the same type from outside. Declaring it makes
+	// "this composition root forgot to wire the store" a refusal at
+	// construction, in shared code, instead of a per-plugin error string
+	// somewhere inside Connect that only fires against a real upstream.
+	RequiresCredentials bool
+
+	// New constructs an unconnected Plugin instance from deps. Callers
+	// go through Open rather than calling this directly, so the settings
+	// and credential-store checks above cannot be skipped.
 	New Constructor
 }
 
@@ -97,6 +127,23 @@ func Register(d Descriptor) error {
 	// that does not match the name it was looked up under.
 	if d.DefaultConfig.Name != "" && d.DefaultConfig.Name != d.Name {
 		return fmt.Errorf("descriptor %q has default config named %q", d.Name, d.DefaultConfig.Name)
+	}
+	// A setting nobody can name is not a setting, and one nobody can
+	// look up the meaning of is a value an operator has to read source
+	// to supply. Both are refused at registration, where the mistake is,
+	// rather than at the first sync that needs the value.
+	seen := make(map[string]bool, len(d.Settings))
+	for _, spec := range d.Settings {
+		if strings.TrimSpace(spec.Name) == "" {
+			return fmt.Errorf("descriptor %q declares a setting with no name", d.Name)
+		}
+		if strings.TrimSpace(spec.Description) == "" {
+			return fmt.Errorf("descriptor %q declares setting %q with no description", d.Name, spec.Name)
+		}
+		if seen[spec.Name] {
+			return fmt.Errorf("descriptor %q declares setting %q more than once", d.Name, spec.Name)
+		}
+		seen[spec.Name] = true
 	}
 	return plugins.Register(d.Name, d)
 }

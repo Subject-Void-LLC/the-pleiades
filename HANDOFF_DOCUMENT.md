@@ -4,195 +4,201 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-73-Serial-Bastion-Docker-TFTP`, created off
-`feature/Transport-Foundation-the-Circuit-Breaker`'s HEAD (`70db86f`) at the start of this session,
-since Phase 72's own branch was still unmerged and Phase 73 is a large, independently-reviewable
-body of work. HEAD is now `cc71f55` ("fix(inventory,archtest): give Docker a real device type, and a
-guard so this class can't hide again"): **the user reviewed and committed Workstream A themselves**,
-with their own live go-ahead, before authorizing Workstream B onward. Every workstream from B through
-H is **uncommitted** — `git status` shows that entire diff as unstaged/untracked on top of `cc71f55`,
-and this session has not committed anything itself since, matching the standing rule that only the
-user commits. This is a phase-complete handoff, not a mid-task one: all eight workstreams (A through
-H, see the plan at `/root/.claude/plans/jaunty-roaming-lampson.md`) are done, A committed and B-H
-awaiting the user's own review.**
+**Branch `feature/Capability-Reachability-And-Plugin-Wiring`, cut at the start of this session off
+`feature/aws-collection`'s HEAD (`505c203`, "cleanup chore for swapped crawl/walk phases"). HEAD is
+now `afb6569`, a commit **the user made themselves, mid-session**, fixing CI on all three matrix
+legs; it is unrelated to the work below except that it swept this session's already-written
+`FAILURE_PATTERNS` entries #178-#181 into itself alongside the user's own #182-#184 (numbering is
+intact, index and archive both hold 182 entries and agree). Everything else below is
+unstaged/untracked on top of `afb6569`, per the standing rule that only the user commits. A drafted
+commit message is in this session's final message.**
 
-This session planned and built the whole of **Phase 73: Serial, the Bastion Proof, Container Exec
-and TFTP**: `transport.Target`'s non-network-endpoint half (a sealed `Endpoint` interface: network,
-serial, local-socket, Docker), four new capability siblings (`SerialCapable`, `RawPassthroughCapable`,
-`RFC2217Capable`, `TelnetCapable`), the serial/console-server/Telnet/Docker-exec/TFTP transports
-themselves, the real four-container two-Docker-network bastion proof Phase 72 deferred here, and a
-full pass of chaos/fuzz/stress/adversarial testing plus hardening, docs, coverage floors, and a spec
-correction pass. `go build ./... && go vet ./... && gofmt -l` clean; `go test ./... -race` clean
-across 143 packages; `make gosec` and `make govulncheck` clean.
+This session fixed one class of defect and the guard gap that let it through: **things that are
+built, tested, documented, and reached by nothing that ships.** Three live instances, three new
+`internal/archtest` sweeps, and the lower-priority audit items that were re-verified before being
+acted on.
 
-### What landed, workstream by workstream
+### The three live defects
 
-**A — the Docker capability-satisfiability defect and its systemic guard.** `container.docker.run/stop/remove`
-were `StatusImplemented` but zero device types implemented `DockerCapable`, so every real invocation
-was refused; `internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable` now catches this
-class of bug for every `StatusImplemented` method, negative-controlled. Full detail below (this
-section used to be the whole handoff, from when only Workstream A was done).
+**1. `pleiades inventory sync --plugin aws` was broken unconditionally, from the day the plugin
+landed.** `aws.WithRegion` and `aws.WithCredentialStore` had test callers and nothing else
+(`gopls references`), while the registry's own `Descriptor.New` took no arguments, so the CLI built
+the plugin with `region == ""` and `creds == nil` and `Connect` refused every time. Three suites
+were green throughout, because each constructed the plugin its own way.
+`cmd/pleiades/inventory.go`'s `buildSyncPlugin` type switch wired exactly one plugin and its own
+comment had predicted the failure ("when a third plugin needs it, this becomes an optional
+interface..."). Fixed by making the dependency a constructor parameter rather than an option:
+`syncplugin.Constructor` is now `func(Deps) Plugin`, `Deps` carries the credential store, a
+per-deployment value is declared data (`Descriptor.Settings []SettingSpec`) supplied as
+`--set key=value`, and `syncplugin.Open` is the one construction path both `cmd/pleiades` and the
+conformance suite go through. `buildSyncPlugin` is gone. `static_yaml` was checked and had no such
+gap; it is now the control case proving `Deps` and `Settings` are genuinely optional.
 
-**B — the port.** `transport.Endpoint` (sealed interface: `NetworkEndpoint`, `SerialEndpoint`,
-`LocalSocketEndpoint`, a Docker variant), `transport.Result.ExitStatusUnknown` (a byte-stream
-transport has no real exit code, and `transportActionExecutor` now refuses to infer success from a
-zero it never actually observed), and `pkg/serialline` (the leaf package `pkg/capability` and
-`internal/transport` both need without either importing the other).
+**2. Phase 73's serial/console/telnet transports were unreachable.** No production device type
+implemented `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable` or `TelnetCapable`; the only
+implementers were stubs in `internal/engine/action_ssh_test.go`. Fixed with a real
+`console_device` type (`internal/inventory/devices/console`), scaffolded through the actual
+`pleiades forge new-device` CLI and hand-completed, hydrating from `pkg/inventory.Properties` the
+way `linux.Server.SSHPort` does. It declares each capability **per record** rather than all four
+unconditionally, because they are alternative ways to reach one device rather than four facts about
+it; the package doc argues that at length, and the deviation from `container.Host`'s unconditional
+baseline is deliberate and disclosed (including in the generated `docs/reference/devices.md`, whose
+marker is derived by hydrating each type rather than hardcoded).
 
-**C — capabilities.** `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable`, `TelnetCapable`,
-each with an opaque or strongly-typed accessor, hydrated from `pkg/inventory.Properties`.
+**3. The guard gap, which mattered most.** `TestImplementedCollectionCapabilitiesAreSatisfiable`
+walks `catalogdata.Collections` only, so transport fqcns were entirely outside its coverage; Phase
+73 shipped that guard and this defect in the same commit. Three new sweeps in
+`internal/archtest`, each with a permanent negative control rather than a one-off manual
+un-wiring:
 
-**D — the serial family.** `pkg/serialexec` (local serial, `go.bug.st/serial`, BSD-3) and
-`pkg/serialtcp` (raw TCP passthrough) hold the real logic; `internal/transport/serial` and
-`internal/transport/serialtcp` are thin adapters with `TransportBinding`/`ActionCapability` entries.
-Raw passthrough is gated behind `insecure_raw_passthrough`.
+- `TestDispatchableTransportCapabilitiesAreSatisfiable` / `TestBoundTransportCapabilitiesAreSatisfiable`
+  (`transport_reachability_test.go`) cover `engine.ActionCapability` and the real
+  `NewDefaultTransportBindings` registry. Running them for the first time reproduced all three
+  failures verbatim.
+- `TestRegisteredCapabilitiesAreReachable` covers the class neither of the other two can see: a
+  capability nothing requires **and** nothing satisfies. It found `FileTransferCapable`, which
+  `docs/03-migrating-from-ansible.md` was telling users `archive.extract` requires (it requires
+  `POSIXFileSystemCapable`).
+- `TestEveryRegisteredPluginOpensFromTheSharedPath` and
+  `TestCompositionRootsBuildPluginsThroughTheRegistry` (`plugin_reachability_test.go`) are the
+  same shape one level up. The second is the one that would have caught #1 outright: it forbids
+  any `cmd/` package from importing an individual plugin package, which forbids the type switch
+  that made a per-plugin arrangement expressible at all.
 
-**E — RFC 2217 and Telnet.** `github.com/annetutil/gnetcli/pkg/streamer/rfc2217` evaluated and
-rejected (a second logging vocabulary, a second credentials type, no narrow control-channel surface)
-in favor of a hand-rolled `pkg/rfc2217` — a real, tested Telnet Com Port Control Option client with no
-`TransportBinding` (line control is not a command string). `pkg/telnetexec` +
-`internal/transport/telnet` are Exec-shaped and do get a binding, behind `insecure_telnet`.
+### The forge, which the user asked about first
 
-**F — Docker exec and TFTP.** `pkg/dockerexec`, exec-only by construction: every request funnels
-through one allowlist of exactly three (method, path) pairs before a byte reaches the daemon socket.
-`container.docker.exec` is a real Collection method (not a `TransportBinding`, since the container id
-is a per-task param a binding's `Target` function cannot see). `pkg/tftpxfer` on
-`github.com/pin/tftp/v3`, no binding, filename traversal refused. Both packages deviated from the
-plan's own `internal/transport/docker`/`internal/transport/tftp` naming — `TestCatalogPackagesImportOnlyPkg`
-would have blocked every future FQCN importing either, so both live under `pkg/` instead, recorded in
-the spec correction pass (Workstream H) rather than silently.
+Yes, it needed updating, and the update is what stops #1 recurring one generation later.
+`pluginscaffold.Config` gained `RequiresCredentials` and `Settings`; the template emits a
+constructor taking `syncplugin.Deps`, a descriptor declaring both, and a `Connect` whose TODOs name
+`p.creds` and `cfg.Setting("...")`. `pleiades forge new-plugin` gained `--requires-credentials` and
+`--settings-json` (following `--doc-json`'s established `@file` convention), `tools/gencatalog`
+threads both through the real CLI, and `catalogdata.Plugins` now declares AWS's region and
+credential requirement so a regenerated skeleton comes out wired.
 
-**G — the bastion proof, chaos, fuzz, stress, adversarial.** `pkg/remoteexec.DialThroughHops`, a new
-primitive (reusing `Connect`'s own breaker/retry machinery) that closed a real gap: the serial/telnet
-adapters were silently ignoring `Target.Route` before this workstream. The real four-container,
-two-Docker-network bastion proof (`ser2net` + `socat`, license-verified, both mandatory control
-assertions passing) against `internal/transport/ssh`. Two chaos tests, four fuzz targets, a stress
-test, a benchmark, four adversarial tests, all real and passing. One test's own expectation was wrong
-and corrected: severing a bastion leg mid-stream is genuinely indistinguishable from a graceful
-close (`golang.org/x/crypto/ssh`'s `Channel.Read` returns plain `io.EOF` either way), documented as
-verified drift rather than forced to match the plan's original guess.
+### Lower-priority audit items: re-verified first, then acted on selectively
 
-**H — hardening, docs, coverage, spec correction.** Two real hardening gaps found and fixed beyond
-the plan's own five named boundaries: `pkg/dockerexec.readDemux` allocated a frame's announced size
-before checking it against the output cap (the same shape `FAILURE_PATTERNS.md` already knew for
-`GzipDecompress`), and `pkg/rfc2217`'s subnegotiation payload accumulator had no bound at all for a
-never-terminated frame. `make gosec` then found a third, independent gap in the same package
-(`FAILURE_PATTERNS.md` #176): `BaudRate`/`DataBits` converting to a narrower wire type with no range
-check. All three fixed and tested. `docs/10-running-in-production.md` gained a full transport
-reference section (serial, console servers, Telnet, TFTP, Docker exec, the mandatory Digi RealPort
-clarification); `PATTERNS.md`'s Interface Segregation count corrected (27 → 31, not the 28 the spec
-predicted, since this phase adds four capabilities, not one). `coverage-floor.json` gained floors for
-12 new/grown packages and dropped the stale `internal/transport/winrm` entry. `.SPECIFICATION/IMPLEMENTATION.md`'s
-Phase 73 checklist is fully annotated (25 of 26 items checked; the 26th, commit message, is
-deliberately unchecked — nothing is committed).
+A six-agent workflow re-derived each claim from source with `gopls` (the user authorized workflows
+mid-session). Two claims came back materially corrected, and both corrections are recorded rather
+than quietly absorbed:
 
-### What landed (Workstream A, in full — kept from the prior handoff)
+- **NATS KV bucket: acted on, but the reported diagnosis was wrong.** There was one config literal
+  reached through one constructor, not two independent declarations, so the "multi-declaration
+  drift" framing would send a reader hunting for a second literal that does not exist. The real
+  exposure is version skew across a rolling upgrade of two separately-built images. Fixed by moving
+  the shape to `topology.LockBucketConfig()` and adding
+  `TestOnlyTopologyDeclaresJetStreamShapes`, an AST rule that makes topology's own doc claim (and
+  `layering_test.go`'s repetition of it, both false when written) true.
+- **`credstore.ReconcileManaged`: NOT acted on, deliberately.** The equality guard the audit asked
+  for is the wrong fix: it saves six no-op UPDATEs nothing observes and leaves the same TOCTOU
+  window. The real (minor) issue is a lost-race warning on a concurrent cold start against an empty
+  shared database, and the honest fix is in `EnsureManagedType`'s constraint-error branch, which
+  changes error semantics and deserves its own change with its own tests. Left undone and reported.
+- **`internal/pki` and `lock.CapacityCounter`: not dead, do not delete.** Both are deliberate
+  Build-Once declarations already documented elsewhere; `internal/pki` gained the package-level
+  disclosure it was missing.
+- **`transport.DockerExecEndpoint`: disclosed rather than deleted.** Deleting shipped API surface
+  was beyond what was asked; the doc comment now states why nothing constructs it and why the
+  variant is kept. The delete option is reported.
+- **`catalystcenter.WithClientOption`: deleted** (zero callers, and its "tests use it" claim was
+  false). **`pkg/catalystcenter.WithHTTPClient`: comment fixed, not deleted** (it is on `pkg/`, the
+  surface a Collection may import, and a TLS/proxy escape hatch is a normal thing to offer); its
+  ordering hazard against `WithInsecureSkipVerify` is now documented on both.
+- **`go mod tidy`: run.** 8 modules promoted indirect to direct, **6 removed** (aws-sdk-v2
+  config/sso/ssooidc/sts/signin/imds), 3 stale go.sum pairs dropped. The removals are the part a
+  reviewer needs to see: anything later wanting `config.LoadDefaultConfig` re-adds them.
+  `make ci` and `make push-gate` gained a `tidy-check` target so this cannot drift again.
 
-**The live defect**: `container.docker.run/stop/remove` were `StatusImplemented`, fully coded and
-tested, requiring `capability.NameDocker` — but **zero device types anywhere in the module
-implemented it**, so `engine.checkMethodCapabilities` would refuse every real invocation. Confirmed
-empirically with a throwaway probe (since removed) against a real `linux.Server`, with a real
-capability it does satisfy as a non-vacuous control. The method's own tests never caught it because
-they build their device as `inventorytest.Stub`, which deliberately skips the structural assertion
-`HasCapability` performs on a real type — RULE 0's exact thesis. Fixed: `DockerCapable.DockerSocketPath()
-string` renamed to `DockerEndpoint() capability.SocketAddress` (a new named string type, since the
-value may be a Windows named pipe, never a POSIX path); a real `container.Host` device type
-scaffolded through the actual `pleiades forge new-device` CLI, hand-completed with
-`SSHHost`/`SSHPort`/`DockerEndpoint`/`IPAddress`, wired into `internal/inventory/builtins.go`.
+### One real flake found and fixed, in ten places, after the first sweep for it missed five
 
-**The systemic guard**: `internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable`
-fails the build if any `StatusImplemented` Collection method's `RequiredCapabilities` names a
-capability no registered device type structurally implements — proven to catch the exact class of
-bug above by a real negative control (temporarily un-wiring the device type reproduces the three
-Docker failures verbatim).
+A full sweep failed once on `internal/transport/serialtcp`'s bastion test: `FAILURE_PATTERNS.md`
+#177 verbatim, in a file #177's own fix did not touch. A grep on the expression shape found four
+sites, which were fixed; the next full sweep then failed on a fifth, and re-searching on the
+code's *intent* instead ("nothing is listening", `deadListener`, "listening now") found all ten in
+one pass. Eight now use literal port 0 and cite #123/#177/#181 by number. Two cannot: `pkg/tftpxfer`'s test
+asserts a timeout budget, which a closed UDP port or an invalid address would both short-circuit,
+so it holds a real socket open and silent instead; and
+`internal/catalog/pleiades/builtin/wait`'s `portClosedPort` needs a port that is closed now and
+bindable later, which port 0 cannot express. That second one was first written up as a considered
+exception and left alone, and the very next full sweep failed on it ("a closed port was reported as
+open by the bash prober", against a prober that was working correctly), so it now closes the race
+by checking rather than by construction: it confirms the released port really refuses a connection
+before handing it back, and retries if not. Three direct-dial assertions were also strengthened
+from "an error occurred" to "the error names the address", which is what their own doc comments
+already claimed. Verified `-count=8 -race` across all seven affected packages and `-count=6 -race`
+on the wait package.
 
-**Running the new guard for real surfaced five more unsatisfiable capabilities**, not just Docker's.
-Four (`PackageManagerCapable`, `AptCapable`, `DnfCapable`, `PosixAccountCapable`, covering 15
-methods) turned out to already be honestly disclosed as "settled, intentional architecture" in their
-own implementing package's doc comment (`apt.go`, `dnf.go`, `identity/user/user.go`,
-`identity/group/group.go`) — genuinely per-distro or not-yet-collected classification data. These
-were allowlisted in a new `acceptedUnsatisfiableCapabilities` map, matching `gosec-waivers.json`'s
-established per-entry-reason convention, each entry citing the exact disclosure. A companion test,
-`TestAcceptedUnsatisfiableCapabilitiesAreNotStale`, fails if any allowlisted capability ever becomes
-satisfiable for real (also negative-controlled). The fifth and sixth were **not** disclosed anywhere
-— the same undocumented shape Docker had. `FirewalldCapable` (`fw.firewalld.*`, 3 methods) was
-documented (the same "capability this cannot reach yet" section added to `firewalld.go`, matching
-`apt.go`'s precedent — firewalld really is optional per-distro software) and allowlisted.
-`NetworkAddressableCapable` (`pleiades.builtin.wait.port`, 1 method) was **fixed for real**: it is
-trivial, already-known data on every network-reachable device type (an `IPAddress()` accessor
-delegating to each type's existing host field), so there was no honest architectural reason to leave
-it unsatisfiable. Added to `linux.Server`, `windows.Server`, `cisco.Router`, `cisco.Switch`, and the
-new `container.Host`, in each type's baseline capability set (not classification-only, since this is
-universal, not per-vendor, data).
+### Documentation
 
-### Real findings, recorded
-
-`FAILURE_PATTERNS.md`/`FAILURE_PATTERNS_ARCHIVE.md` #170 (the Docker satisfiability gap itself),
-#171 (the guard's own first real run surfacing five more capabilities, four already accepted, two
-not), #172 (a pre-existing `pkg/serialtcp` EOF-as-quiet bug, Workstream D), #173 (two Adapter
-packages at 0.0% coverage under a fully-tested primitive, Workstream E), #174 (`pkg/dockerexec.readDemux`
-allocating a frame's announced size before checking the output cap, Workstream H), #175
-(`pkg/rfc2217`'s unbounded subnegotiation payload accumulator, Workstream H), #176 (`BaudRate`/`DataBits`
-converting to a narrower wire type with no range check, found by `make gosec`, Workstream H).
+`FAILURE_PATTERNS.md`/`_ARCHIVE.md` #178-#181, `LESSONS_LEARNED.md`/`_ARCHIVE.md` #153-#156.
+`docs/10-running-in-production.md` gained the `console_device` configuration section its serial
+transport docs were describing without ever saying how to declare one.
+`docs/03-migrating-from-ansible.md`'s stale "only catalyst_center" claim and its wrong
+`archive.extract` capability row are fixed. `docs/reference/{devices,plugins,cli}.md` regenerate
+clean, and `plugins.md` gained a **Needs** column derived from each descriptor.
 
 ### Read this first
 
-**A methodology bug was caught before it shipped, not after.** The first draft of
-`satisfiableCapabilities` (the sweep's shared helper) checked `item.HasCapability(name)` against a
-probe `Record` with no classification data. For a capability meant to be classification-only by
-design (all four of the "accepted" ones above), `Declares` would be permanently false regardless of
-whether the structural half was ever fixed — silently defeating
-`TestAcceptedUnsatisfiableCapabilitiesAreNotStale` for exactly the four entries it exists to guard.
-Caught by reasoning through what the staleness test would actually need to observe, before running
-anything, and fixed by hydrating every probe with **every** registered capability name as
-classification data, so only the structural half is under test — closer to "could classification
-ever make this true" than "did classification run."
+**The audit's own claims needed re-verification, and two were materially wrong.** The user said so
+up front and was right. Do not carry an audit finding into a fix without re-deriving it; the NATS
+KV item in particular would have produced a commit message describing a defect that does not exist.
 
-**A `git checkout --` used mid-negative-control wiped legitimate work, caught immediately.** While
-negative-controlling the staleness guard, `git checkout -- internal/archtest/registry_sweep_test.go`
-was used to discard a temporary stale-probe edit — but the file had uncommitted legitimate changes
-(this session's own new tests) with nothing else to fall back to, so the command reverted **all** of
-it back to HEAD, not just the probe. Caught immediately by checking `git diff --stat` after, which
-showed zero diff where substantial new test code should have been. Recovered by re-authoring the
-same edits from this conversation's own record (not from git, since nothing was committed) and, for
-the second negative control, switched to a copy-to-scratchpad-and-restore-from-backup approach
-instead of `git checkout --`, verified byte-exact via `diff` afterward. Lesson for next time:
-`git stash` (not `checkout --`) is the safe tool for "discard this one temporary edit, then get
-everything back," since a stash pop restores by patch rather than by wholesale revert to HEAD.
+**A negative control belongs in the test file, not in a session transcript.** Every sweep added
+here carries a permanent synthetic control, because Phase 73's own guards were controlled by
+temporarily un-wiring a device type, which is real evidence that leaves no trace for the next
+reader. Two of the new rules were additionally controlled live against the real tree (a probe file
+in `internal/lock`, and removing an allowlist entry with a scratchpad backup rather than
+`git checkout --`, per the prior session's own lesson).
 
-**No commit without the user's own live word in the current conversation.** Held throughout.
+**`console_device` deliberately breaks the "baseline capabilities" invariant every other device
+type follows.** That is the one design decision here a reviewer should push back on if they
+disagree. The reasoning is Architecture Principle 5 (type safety moves left): declaring all four
+unconditionally would make `validate.CapabilityRule` answer "yes, serial_exec is fine" for a
+Telnet-only device.
 
-**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
-Held throughout — Ultracode was active this session and every exploration, edit and verification was
-done directly.
+**No commit without the user's own live word.** Held throughout.
 
-### Verification state (whole phase, as of the end of Workstream H)
+### Verification state
 
-`go build ./...`, `go vet ./...`, `gofmt -l` all clean. `go test ./... -race` clean: 143 packages, zero
-failures, run fresh after every workstream's own changes (most recently after Workstream H's gosec
-fix). `make gosec` clean (9 findings, all individually waived; the three real, unwaived G115 findings
-this session's own new code introduced were fixed, not waived). `make govulncheck` clean. `make
-docs-gen-check`'s generator itself is idempotent (running it twice back to back produces zero further
-diff); the target still reports a diff against git HEAD, which is expected and correct given nothing
-is committed — it will pass cleanly once this lands. Both `internal/archtest` guards from Workstream A
-remain negative-controlled and green. The real four-container two-Docker-network bastion proof passes
-with both mandatory control assertions. `coverage-floor.json` carries a real floor for every new
-package; `go run ./tools/coverage-check` shows zero regressions among this phase's own packages — the
-six regressions it does report (`internal/catalog/cloud/aws/ec2`/`s3`, three `internal/inventory/devices/*`
-packages, `internal/launch`) are confirmed, via isolated reruns, to be stable and reproducible but
-**unrelated to this phase**: the `ec2`/`s3` drop is LocalStack test skips (a known pre-existing
-environment issue in this sandbox, matching prior session notes on LocalStack readiness timeouts), and
-the other three were not investigated further since nothing in this phase touches those packages.
+`go build ./...`, `go vet ./...`, `go vet -tags integration ./...`, `make fmt` and `make tidy-check`
+all clean. `go test ./... -race`: **144 packages, zero failures**, run to completion three times
+(the first two each surfaced one more instance of the port-reuse flake, which is how the count went
+from four to ten). `make gosec` clean (9 findings, all pre-existing and individually waived; this
+session introduced none). `make govulncheck` clean. `make docs-lint` clean. `make arch` clean.
+`tools/gendocs` is idempotent, proven by diffing a second run's output byte for byte rather than by
+assertion.
+
+Coverage: `make coverage` is **clean, with no regressions**. `internal/inventory/devices/console`
+100%, `internal/inventory/syncplugin` 90.5 to 95.6, `internal/topology` 95.4 to 95.8,
+`internal/forge/pluginscaffold` 83.5 to 85.7, `internal/launch` 87.4 to 91.1; all five floors
+recorded.
+
+`internal/launch` needs a note, because its regression was not this branch's and was fixed anyway
+at the user's request. It measured 87.0% against a floor of 87.4%, verified as pre-existing by
+stashing this session's entire diff (untracked files included) and measuring 87.0% on a clean
+`afb6569`, deterministically, with zero skipped tests. The floor dates to Phase 22b on 2026-08-13.
+The gap was real rather than cosmetic: `KindCatalogFuncs.Verify` and `staticCatalog.List` were at
+0.0%, meaning the catalog port's own happy path (its entire reason for existing, answering "yes,
+this is launchable here" at template create) had never once run; `Fields.Int` and `Fields.List` were
+covered only for the Go shape, while their doc comments name the JSON and HTML-form shapes and state
+outright that a reader handling only the first "would work in tests and fail on the wire"; and
+`ResolveKind`, the single place the default-kind rule lives after being consolidated from two, had
+no test at all. Those are the gaps that were filled, not padding: the package is at 91.1%.
+
+One thing found there and deliberately left: `internal/launch` cannot be run with `-count>1` in one
+process. `unknownkind_test.go` registers process-global kinds named after the test with no cleanup,
+so a second iteration collides on a duplicate registration. Confirmed pre-existing (four identical
+failures on a clean tree). `make ci` runs `-count=1`, so no gate is affected.
+
+The real-binary AWS sync gate (`tests/e2e/inventory_sync_cli_test.go`, integration-tagged) passes
+against real LocalStack, as does the whole plugin conformance suite through the new shared
+construction path.
 
 ### Next steps
 
-All eight workstreams are done; A is committed (`cc71f55`), B through H are not. The natural next step
-is the user's own review of B-H and an explicit go-ahead to commit — this session will not commit
-without one, per the standing rule. `.SPECIFICATION/IMPLEMENTATION.md`'s Phase 73 checklist is fully
-annotated (gitignored, never committable, but real, for the next reader). If a future session picks
-this back up before B-H is committed, start from `git status`/`git diff` against `cc71f55`, not from
-this document's own prose summary, since the summary can drift from the literal diff in ways the diff
-itself cannot.
+The user reviews and commits. Three things are deliberately left undone and are the natural
+follow-ups: `internal/launch`'s inability to run under `-count>1` (above),
+`credstore.EnsureManagedType`'s lost-race branch, and a decision on whether
+`transport.DockerExecEndpoint` should be deleted rather than disclosed.
 
 ## Previous session (Phase 72: Transport Foundation)
 

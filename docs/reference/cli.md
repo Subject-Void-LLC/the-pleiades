@@ -99,8 +99,11 @@ pull devices from an external source into the local inventory
 | --page-size | `int` | `0` | how many records to request per upstream page |
 | --read-only | `bool` | `false` | refuse every write to the local inventory, reporting what would have changed |
 | --insecure-skip-verify | `bool` | `false` | skip TLS certificate verification against the upstream system |
+| --set | `string` | - | a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins') |
 
 `pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com`
+
+`pleiades inventory sync --plugin aws --set region=us-east-1`
 
 ### pleiades inventory plugins
 
@@ -182,7 +185,13 @@ generate a new inventory sync plugin package
 | --description | `string` | - | one-line help text describing the upstream system this plugin reads |
 | --endpoint | `string` | - | default upstream base URL (e.g. https://sandboxdnac.cisco.com) |
 | --read-only | `bool` | `false` | declare the upstream authoritative and never written back |
+| --requires-credentials | `bool` | `false` | declare that Connect resolves a credential, so the plugin is built with the project credential store |
+| --settings-json | `string` | - | per-deployment settings as a JSON list of syncplugin.SettingSpec objects, or @path to read it from a file |
 | --skip-existing | `bool` | `false` | leave an already-generated entry alone instead of refusing, for regenerating a catalog in place |
+
+`pleiades forge new-plugin netbox --description "reads devices from a NetBox instance" --requires-credentials`
+
+`pleiades forge new-plugin gcp --description "reads Compute Engine instances" --requires-credentials --settings-json '[{"name":"project","description":"the GCP project to read from","required":true}]'`
 
 ### pleiades forge new-view
 

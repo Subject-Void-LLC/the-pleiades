@@ -57,6 +57,24 @@ type NetworkAddressableCapable interface {
 
 // FileTransferCapable is satisfied by devices that support transferring
 // files to or from them (e.g. SCP/SFTP).
+//
+// # This capability cannot reach a real device yet
+//
+// No device type in this repository structurally implements
+// FileTransferRoot today, and no Collection method or transport fqcn
+// requires this capability, so nothing is refused by the gap and nothing
+// depends on it. It exists as the declared name for the file-moving
+// transports pkg/tftpxfer already implements and Phase 77's SFTP work
+// will join, both of which docs/10-running-in-production.md already
+// discloses as having no production consumer.
+//
+// The disclosure lives here, in the declaration, following the
+// convention AptCapable, DnfCapable, PosixAccountCapable and
+// FirewalldCapable already set for a capability nothing can satisfy: a
+// reader looking at the interface should not have to find a coverage
+// file or a production guide to learn that. internal/archtest's
+// TestRegisteredCapabilitiesAreReachable is the guard that fails if this
+// comment ever stops being true in either direction.
 type FileTransferCapable interface {
 	// FileTransferRoot returns the base directory files are transferred
 	// to and from.

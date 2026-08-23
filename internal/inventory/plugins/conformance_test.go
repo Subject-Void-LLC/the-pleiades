@@ -199,11 +199,38 @@ func newStaticYAMLBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plu
 		Name:     staticyaml.Name,
 		Endpoint: (&url.URL{Scheme: "file", Path: path}).String(),
 	}
-	p := staticyaml.New(inv.NewItemFactory())
-	if err := p.Connect(context.Background(), cfg); err != nil {
-		t.Fatalf("Connect: %v", err)
+	return openThroughRegistry(t, staticyaml.Name, cfg, syncplugin.Deps{}), cfg
+}
+
+// openThroughRegistry builds a plugin exactly the way cmd/pleiades does:
+// look the descriptor up in the shared registry, hand syncplugin.Open the
+// assembled Config and the composition root's Deps, and connect the
+// result.
+//
+// Every backend below goes through it, and that is this suite's most
+// important property rather than a tidiness choice. Before this, each
+// backend constructed its plugin with that plugin's own options, and the
+// AWS plugin passed every assertion here while `pleiades inventory sync
+// --plugin aws` failed unconditionally, because the CLI built it a
+// different way and nothing compared the two. A conformance suite that
+// constructs its subject differently from the product is testing an
+// arrangement no user can reach, which is RULE 0's exact thesis.
+func openThroughRegistry(t *testing.T, name string, cfg syncplugin.Config, deps syncplugin.Deps) syncplugin.Plugin {
+	t.Helper()
+
+	desc, ok := syncplugin.Lookup(name)
+	if !ok {
+		t.Fatalf("plugin %q is not registered; internal/inventory/plugins/builtins.go may be missing its blank import", name)
 	}
-	return p, cfg
+	p, err := syncplugin.Open(desc, cfg, deps)
+	if err != nil {
+		t.Fatalf("syncplugin.Open(%q): %v", name, err)
+	}
+	if err := p.Connect(context.Background(), cfg); err != nil {
+		t.Fatalf("Connect(%q): %v", name, err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	return p
 }
 
 // staticStore is a credential.Store returning one fixed credential.
@@ -253,13 +280,10 @@ func newCatalystBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plugi
 		// Below the fixture size, so the multi-page path runs.
 		PageSize: 1,
 	}
-	p := catalystcenter.New(catalystcenter.WithCredentialStore(
-		staticStore{credential.Credential{Username: "devnetuser", Password: "secret"}}))
-	if err := p.Connect(context.Background(), cfg); err != nil {
-		t.Fatalf("Connect: %v", err)
+	deps := syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: "devnetuser", Password: "secret"}},
 	}
-	t.Cleanup(func() { _ = p.Close() })
-	return p, cfg
+	return openThroughRegistry(t, catalystcenter.Name, cfg, deps), cfg
 }
 
 // catalystDevicePage renders the requested page of hosts in the
@@ -347,16 +371,16 @@ func newAWSBackend(t *testing.T, hosts []conformanceHost) (syncplugin.Plugin, sy
 		// multi-page path to run rather than only ever exercising a
 		// single-page fetch.
 		PageSize: 1,
+		// The region arrives as a declared setting, the same way
+		// `pleiades inventory sync --set region=us-east-1` supplies it.
+		// It used to arrive through a constructor option only this suite
+		// and the plugin's own tests ever passed.
+		Settings: map[string]string{awsplugin.SettingRegion: awsConformanceRegion},
 	}
-	p := awsplugin.New(
-		awsplugin.WithRegion(awsConformanceRegion),
-		awsplugin.WithCredentialStore(staticStore{credential.Credential{Username: awsConformanceKey, Password: awsConformanceSecret}}),
-	)
-	if err := p.Connect(ctx, cfg); err != nil {
-		t.Fatalf("Connect: %v", err)
+	deps := syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: awsConformanceKey, Password: awsConformanceSecret}},
 	}
-	t.Cleanup(func() { _ = p.Close() })
-	return p, cfg
+	return openThroughRegistry(t, awsplugin.Name, cfg, deps), cfg
 }
 
 // LocalStack accepts any non-empty static credential by default; this is
@@ -682,7 +706,7 @@ func TestPluginConformance_RegisteredAndReachable(t *testing.T) {
 			if !ok {
 				t.Fatalf("plugin %q is not registered; internal/inventory/plugins/builtins.go may be missing its blank import", backend.name)
 			}
-			if desc.New == nil || desc.New() == nil {
+			if desc.New == nil || desc.New(syncplugin.Deps{}) == nil {
 				t.Fatal("registered descriptor cannot construct a plugin")
 			}
 			if desc.Description == "" {

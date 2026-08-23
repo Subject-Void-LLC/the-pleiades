@@ -100,4 +100,40 @@ var Devices = []devicescaffold.Config{
 			capability.NameNetworkAddressable,
 		},
 	},
+	{
+		// console.Device is the fix for the same class of defect
+		// container.Host above fixed for Docker, found again one commit
+		// later in Phase 73's own transport work: serial_exec,
+		// serialtcp_exec and telnet_exec shipped as real bindings over
+		// real transports, requiring SerialCapable, RawPassthroughCapable
+		// and TelnetCapable, with zero device types able to satisfy any
+		// of the three. See FAILURE_PATTERNS.md.
+		//
+		// It is the target whose only management path is a console: a
+		// directly cabled serial line, a console/terminal server port
+		// (raw TCP or RFC 2217), or bare Telnet. That covers gear with no
+		// SSH at all (a legacy PBX, a channel bank, a PDU, a switch being
+		// staged before its management address exists) and is deliberately
+		// a separate type from cisco.Router or linux.Server rather than
+		// four more capabilities bolted onto those: a Linux server reached
+		// over SSH is not console-cabled, and claiming otherwise is the
+		// overreach the Docker gap already taught this table to avoid.
+		//
+		// The capability list here is what this type can offer, which is
+		// what devicescaffold's baseline means everywhere else in this
+		// table. Unlike every other entry, the hand-completed constructor
+		// does NOT declare all four unconditionally: these four are
+		// alternative ways to reach one device, not four extra facts about
+		// it, so each is declared only when the record actually carries
+		// that path's configuration. internal/inventory/devices/console's
+		// own package doc argues that at length.
+		Vendor:  "console",
+		TypeKey: "console_device",
+		Capabilities: []capability.Name{
+			capability.NameSerial,
+			capability.NameRawPassthrough,
+			capability.NameRFC2217,
+			capability.NameTelnet,
+		},
+	},
 }

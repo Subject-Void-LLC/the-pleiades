@@ -669,6 +669,57 @@ gives you for free — authentication, encryption, or both — and each one says
 so loudly rather than quietly, through a task parameter that has to be set on
 purpose next to the command it applies to.
 
+**First, the device type that carries these capabilities: `console_device`.**
+None of the tasks below can run against a `linux_server` or a `cisco_router`,
+and that is deliberate rather than an omission. A Linux server reached over
+SSH is not cabled to a console; claiming otherwise would let a runbook pass
+validation and then dial nothing. Console-reachable gear is its own inventory
+type:
+
+```yaml
+hosts:
+  # A switch on a terminal server port, staged before it has a management
+  # address. Reachable by serialtcp_exec, and by nothing else.
+  - name: sw-staging-01
+    type: console_device
+    properties:
+      raw_passthrough_host: ts1.mgmt.example.net
+      raw_passthrough_port: 2003
+
+  # A channel bank cabled to this host's own USB-serial adapter.
+  - name: pbx-annex
+    type: console_device
+    properties:
+      serial_device: /dev/ttyUSB0
+      serial_baud: 9600
+      serial_data_bits: 8
+      serial_parity: none
+      serial_stop_bits: "1"
+
+  # Genuinely old gear with nothing but Telnet.
+  - name: rtr-1994
+    type: console_device
+    properties:
+      telnet_host: 10.20.30.40
+```
+
+The properties are what decide which capability the device declares, one
+reach path at a time:
+
+| Property | Declares | Notes |
+|---|---|---|
+| `serial_device` | `SerialCapable` | The operating system's own name for the port. Opaque: `COM3` is as valid as `/dev/ttyUSB0`. |
+| `serial_baud`, `serial_data_bits`, `serial_parity`, `serial_stop_bits` | *(line settings only)* | Optional. Default to 9600 8-N-1, the console setting mainstream gear ships with. |
+| `raw_passthrough_host` + `raw_passthrough_port` | `RawPassthroughCapable` | Both required. There is no default port: per-line numbering is vendor specific (Digi from 2001, Opengear and Lantronix from 3001), so guessing would dial somebody else's line on the same unit. |
+| `rfc2217_host` + `rfc2217_port` | `RFC2217Capable` | Both required, same reason. `rfc2217_baud` and its siblings configure this line independently of `serial_*`. |
+| `telnet_host` | `TelnetCapable` | `telnet_port` defaults to 23, which is a real convention rather than a guess. |
+
+A device configured for one path does not claim the others, so
+`pleiades validate` rejects a `serial_exec` task aimed at a Telnet-only
+device before anything runs. A line setting that does not parse is refused
+when the inventory is read, not defaulted past: a wrong parity or baud rate
+does not fail a serial line, it silently corrupts every byte crossing it.
+
 **Local serial (`serial_exec`).** A device declaring `SerialCapable`
 advertises a serial port identifier (`/dev/ttyUSB0` on Linux,
 `/dev/tty.usbserial-*` on macOS, `COM3` on Windows) and a line configuration

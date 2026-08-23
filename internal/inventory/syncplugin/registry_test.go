@@ -42,12 +42,12 @@ func TestRegister_Rejects(t *testing.T) {
 	}{
 		{
 			name:    "no name",
-			desc:    syncplugin.Descriptor{New: func() syncplugin.Plugin { return stubPlugin{} }},
+			desc:    syncplugin.Descriptor{New: func(syncplugin.Deps) syncplugin.Plugin { return stubPlugin{} }},
 			wantErr: "no name",
 		},
 		{
 			name:    "whitespace name",
-			desc:    syncplugin.Descriptor{Name: "  ", New: func() syncplugin.Plugin { return stubPlugin{} }},
+			desc:    syncplugin.Descriptor{Name: "  ", New: func(syncplugin.Deps) syncplugin.Plugin { return stubPlugin{} }},
 			wantErr: "no name",
 		},
 		{
@@ -63,7 +63,7 @@ func TestRegister_Rejects(t *testing.T) {
 			desc: syncplugin.Descriptor{
 				Name:          "registry_test_mismatch",
 				DefaultConfig: syncplugin.Config{Name: "something_else"},
-				New:           func() syncplugin.Plugin { return stubPlugin{} },
+				New:           func(syncplugin.Deps) syncplugin.Plugin { return stubPlugin{} },
 			},
 			wantErr: "default config named",
 		},
@@ -92,7 +92,7 @@ func TestRegister_RoundTripAndDuplicate(t *testing.T) {
 		Name:          name,
 		Description:   "a stub used only by this test",
 		DefaultConfig: syncplugin.Config{Name: name, ReadOnly: true},
-		New:           func() syncplugin.Plugin { return stubPlugin{} },
+		New:           func(syncplugin.Deps) syncplugin.Plugin { return stubPlugin{} },
 	}
 	if err := syncplugin.Register(desc); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -105,7 +105,7 @@ func TestRegister_RoundTripAndDuplicate(t *testing.T) {
 	if !got.DefaultConfig.ReadOnly {
 		t.Error("expected the registered default config to survive lookup")
 	}
-	if got.New() == nil {
+	if got.New(syncplugin.Deps{}) == nil {
 		t.Error("expected the registered constructor to build a plugin")
 	}
 

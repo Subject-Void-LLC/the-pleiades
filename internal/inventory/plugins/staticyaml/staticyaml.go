@@ -46,7 +46,13 @@ func init() {
 		// system is the local filesystem, so "proven against the real
 		// upstream" needs no network and no sandbox.
 		Status: syncplugin.StatusImplemented,
-		New:    func() syncplugin.Plugin { return New(inv.NewItemFactory()) },
+		// No Settings and no RequiresCredentials, and both absences are
+		// the point of keeping this plugin in the registry: it is the
+		// control case that proves syncplugin.Deps and Descriptor.Settings
+		// are genuinely optional rather than a tax every plugin pays.
+		// A local file has nothing to authenticate to and nothing to
+		// configure beyond the Endpoint every Config already carries.
+		New: func(_ syncplugin.Deps) syncplugin.Plugin { return New(inv.NewItemFactory()) },
 	})
 }
 

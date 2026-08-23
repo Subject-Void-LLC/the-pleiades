@@ -37,6 +37,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/classification"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
@@ -64,9 +65,26 @@ func init() {
 		// EC2's real DescribeInstances, classify, and reconcile. See
 		// aws_test.go and the conformance suite's "aws" backend entry.
 		Status: syncplugin.StatusImplemented,
-		New:    func() syncplugin.Plugin { return New() },
+		// The region is declared rather than defaulted for the same
+		// reason pkg/awscloud.New and devices/aws.Account.AWSRegion
+		// refuse an empty one: a region is not a convention the way an
+		// SSH port is, and guessing would read a fleet that is not the
+		// one the operator meant.
+		Settings: []syncplugin.SettingSpec{{
+			Name:        SettingRegion,
+			Description: "the AWS region to read EC2 instances from, for example us-east-1",
+			Required:    true,
+		}},
+		RequiresCredentials: true,
+		New:                 func(deps syncplugin.Deps) syncplugin.Plugin { return New(deps) },
 	})
 }
+
+// SettingRegion is the Descriptor setting key naming the AWS region
+// this plugin reads. It is exported so a caller assembling a Config, and
+// a test asserting the wiring, name the same string the descriptor
+// declares rather than two copies of a literal.
+const SettingRegion = "region"
 
 // Aws is the "aws" sync plugin. The zero value is not usable; construct
 // one with New.
@@ -77,52 +95,36 @@ type Aws struct {
 	factory *inv.ItemFactory
 	ruleSet *classification.RuleSet
 
-	// creds resolves cfg.CredentialName at Connect time. It is injected
-	// rather than constructed so a caller can supply the project's own
-	// store, and so tests can supply one without a keyed file store on
-	// disk. A nil store means Connect has nothing to authenticate with.
+	// creds resolves cfg.CredentialName at Connect time. It arrives
+	// through syncplugin.Deps, so it is whatever store the composition
+	// root that built this plugin uses, and syncplugin.Open has already
+	// refused to build the plugin at all if that store was nil (the
+	// descriptor above sets RequiresCredentials).
 	creds credential.Store
 }
 
 // compile-time proof this plugin satisfies the port.
 var _ syncplugin.Plugin = (*Aws)(nil)
 
-// Option customizes a plugin at construction time.
-type Option func(*Aws)
-
-// WithCredentialStore supplies the store Connect resolves its credential
-// from. Without it, Connect fails rather than falling back to the
-// environment: Section 6c is explicit that discovery credentials are
-// looked up, never inlined, the same rule catalystcenter's own
-// WithCredentialStore documents.
-func WithCredentialStore(store credential.Store) Option {
-	return func(p *Aws) { p.creds = store }
-}
-
-// WithRegion sets the AWS region this plugin connects to.
+// New creates an unconnected plugin from the dependencies the
+// composition root supplies.
 //
-// It is a constructor Option rather than a syncplugin.Config field:
-// Config.Endpoint's own doc comment is explicit that a plugin needing more
-// than the shared fields validates that itself, because a shared type
-// that grows a field per implementation stops being shared. There is no
-// fallback default the way SSHPort falls back to 22: a region is not a
-// convention, and Connect refuses outright without one, the identical
-// reasoning pkg/awscloud.New and inventory/devices/aws.Account.AWSRegion
-// already apply.
-func WithRegion(region string) Option {
-	return func(p *Aws) { p.region = region }
-}
-
-// New creates an unconnected plugin.
-func New(opts ...Option) *Aws {
-	p := &Aws{
+// There are deliberately no constructor Options any more. This plugin
+// used to take WithRegion and WithCredentialStore, and nothing in
+// production ever passed either: the registry's own argument-less
+// constructor was what cmd/pleiades built, so every real
+// `pleiades inventory sync --plugin aws` failed with "no region
+// configured, use WithRegion" while three test suites passed. The
+// credential store now arrives in deps, on the one path everything
+// constructs through, and the region arrives as a declared setting on
+// the Config, which is where a per-deployment value an operator types
+// belongs. See internal/inventory/syncplugin/deps.go.
+func New(deps syncplugin.Deps) *Aws {
+	return &Aws{
 		factory: inv.NewItemFactory(),
 		ruleSet: classification.DefaultRuleSet(),
+		creds:   deps.Credentials,
 	}
-	for _, opt := range opts {
-		opt(p)
-	}
-	return p
 }
 
 // Connect resolves the configured credential and authenticates against
@@ -136,12 +138,22 @@ func (p *Aws) Connect(ctx context.Context, cfg syncplugin.Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	if p.region == "" {
-		return fmt.Errorf("sync plugin %q: no region configured, use WithRegion", Name)
+
+	// The region and the credential store are both checked again here,
+	// not only in syncplugin.Open. Open is the one path any composition
+	// root builds through, but Connect is a method on an exported type
+	// and nothing in Go stops a caller from constructing an Aws directly
+	// and calling it; the alternative to re-checking is a nil-pointer
+	// panic several frames into the AWS SDK.
+	region, _ := cfg.Setting(SettingRegion)
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return fmt.Errorf("sync plugin %q: no %s setting configured", Name, SettingRegion)
 	}
 	if p.creds == nil {
-		return fmt.Errorf("sync plugin %q: no credential store configured, use WithCredentialStore", Name)
+		return fmt.Errorf("sync plugin %q: no credential store configured", Name)
 	}
+	p.region = region
 
 	credentialName := cfg.CredentialName
 	if credentialName == "" {

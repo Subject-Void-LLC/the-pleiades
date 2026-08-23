@@ -79,6 +79,34 @@ type Config struct {
 	// PageSize is how many records to request per upstream page. Zero means
 	// DefaultPageSize; see EffectivePageSize.
 	PageSize int
+
+	// Settings carries the per-plugin values one implementation needs and
+	// the others have no use for: an AWS region, a NetBox tenant, a
+	// vSphere datacenter.
+	//
+	// It is a bag of strings rather than a typed field per plugin
+	// precisely because of Endpoint's rule above: a shared type that
+	// grows a field per implementation stops being shared. A generic map
+	// does not grow, so the rule holds. What keeps it from becoming an
+	// untyped free-for-all is that a plugin cannot read a key it did not
+	// declare in its Descriptor.Settings and expect an operator to know
+	// about it: the declaration is what `pleiades inventory plugins`
+	// lists and what Open refuses a missing required value against.
+	//
+	// It carries no secret material, for the same reason
+	// CredentialName does: a Config must stay safe to log, serialize, or
+	// embed in an error.
+	Settings map[string]string
+}
+
+// Setting returns the per-plugin setting at key, and whether it was
+// supplied at all. A plugin uses it rather than indexing Settings
+// directly so a nil map (a Config built by a caller that supplied no
+// settings) reads as absent instead of panicking, the same nil
+// tolerance NewProperties already gives device metadata.
+func (c Config) Setting(key string) (string, bool) {
+	value, ok := c.Settings[key]
+	return value, ok
 }
 
 // Validate reports whether the Config is usable, checking the constraints

@@ -304,7 +304,7 @@ func TestRegistered(t *testing.T) {
 	if desc.New == nil {
 		t.Fatal("registered descriptor has no constructor")
 	}
-	if desc.New() == nil {
+	if desc.New(syncplugin.Deps{}) == nil {
 		t.Fatal("constructor returned nil")
 	}
 }

@@ -65,14 +65,32 @@ type Client struct {
 // Option customizes a Client at construction time.
 type Option func(*Client)
 
-// WithHTTPClient replaces the underlying HTTP client. Tests use it to point
-// at an httptest.Server; a deployment behind a proxy uses it to supply a
-// transport that knows about the proxy.
+// WithHTTPClient replaces the underlying HTTP client, so a deployment
+// behind a proxy can supply a transport that knows about it.
+//
+// It has no callers today. The previous version of this comment claimed
+// "tests use it to point at an httptest.Server", which was never true:
+// this package's own tests reach their test server through New's baseURL
+// argument, exactly as a real deployment reaches a real controller, and
+// so does the inventory sync plugin through syncplugin.Config.Endpoint.
+// A doc comment naming a caller that does not exist defeats the one
+// check somebody would run to find it, which is why the claim is
+// recorded as removed rather than quietly dropped.
+//
+// Order matters against WithInsecureSkipVerify: that option rebuilds the
+// client from scratch, carrying over only Timeout, so it discards a
+// transport this option installed earlier in the same New call. Pass
+// this one last if both are needed, or build the insecure TLS config
+// into the transport handed here and skip the other.
 func WithHTTPClient(hc *http.Client) Option {
 	return func(c *Client) { c.httpClient = hc }
 }
 
 // WithInsecureSkipVerify disables TLS certificate verification.
+//
+// It replaces the whole http.Client, keeping only the existing Timeout,
+// so it silently discards a transport an earlier WithHTTPClient
+// installed. See that option's doc comment for how to hold both.
 //
 // It exists because appliances ship with self-signed certificates, and a
 // client that cannot express that pushes users to disable verification

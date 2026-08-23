@@ -6,6 +6,7 @@ package catalogdata
 
 import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
 // Plugins is every inventory sync plugin generated via `pleiades forge
@@ -30,9 +31,10 @@ var Plugins = []pluginscaffold.Config{
 		// and the credential is never baked in at all (Config carries only
 		// a credential name, resolved through internal/credential at
 		// Connect time).
-		Name:        "catalyst_center",
-		Description: "reads managed network devices from a Cisco Catalyst Center",
-		Endpoint:    "https://sandboxdnac.cisco.com",
+		Name:                "catalyst_center",
+		Description:         "reads managed network devices from a Cisco Catalyst Center",
+		Endpoint:            "https://sandboxdnac.cisco.com",
+		RequiresCredentials: true,
 		// The DevNet sandbox is read-only, and so is this plugin by design:
 		// a controller is the authoritative source for the devices it
 		// manages, so Pleiades imports from it and never writes back.
@@ -53,6 +55,19 @@ var Plugins = []pluginscaffold.Config{
 		Name:        "aws",
 		Description: "reads EC2 instances from an AWS account/region",
 		Endpoint:    "",
+		// The region and the credential store are declared here rather
+		// than left to whoever hand-completes the generated skeleton.
+		// This plugin shipped without either declaration and was
+		// unreachable from the CLI for its whole existence as a result:
+		// the registry built it with no store and no region while its
+		// own tests passed both through constructor options nothing in
+		// production used. See FAILURE_PATTERNS.md.
+		RequiresCredentials: true,
+		Settings: []syncplugin.SettingSpec{{
+			Name:        "region",
+			Description: "the AWS region to read EC2 instances from, for example us-east-1",
+			Required:    true,
+		}},
 		// This plugin only ever calls DescribeInstances; there is no
 		// write-back path to guard, the same structural guarantee
 		// catalyst_center's own ReadOnly documents.

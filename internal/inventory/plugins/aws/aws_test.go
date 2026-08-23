@@ -21,7 +21,7 @@ func TestAws_Registered(t *testing.T) {
 	if desc.New == nil {
 		t.Fatal("registered descriptor has no constructor")
 	}
-	if desc.New() == nil {
+	if desc.New(syncplugin.Deps{}) == nil {
 		t.Fatal("constructor returned nil")
 	}
 	if desc.Description == "" {
@@ -72,7 +72,7 @@ func TestAws_NotImplemented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.call(desc.New()); err == nil {
+			if err := tt.call(desc.New(syncplugin.Deps{})); err == nil {
 				t.Fatalf("%s returned nil; a declared plugin must refuse, never succeed", tt.name)
 			}
 		})
@@ -92,7 +92,7 @@ func TestAws_ClassifyQuarantines(t *testing.T) {
 		t.Skip("plugin reports StatusImplemented; these declared-stage assertions no longer apply")
 	}
 
-	cls, err := desc.New().Classify(context.Background(), record.Record{Name: "any-device"})
+	cls, err := desc.New(syncplugin.Deps{}).Classify(context.Background(), record.Record{Name: "any-device"})
 	if err != nil {
 		t.Fatalf("Classify must not error while declared, got %v", err)
 	}

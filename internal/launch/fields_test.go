@@ -198,3 +198,88 @@ func TestSurvey_RefusesAChoiceOutsideItsList(t *testing.T) {
 		t.Error("a multi-select accepted a value that is not one of its choices")
 	}
 }
+
+// TestFields_IntReadsEveryShapeItDocumentsAccepting is the test Fields.Int's
+// own doc comment asks for and did not have.
+//
+// That comment names three real callers (a Go int from code, a float64
+// from encoding/json, a string from an HTML form) and states the failure
+// plainly: "a reader that only handled the first would work in tests and
+// fail on the wire." Only the first was covered, so the comment was the
+// only thing holding the other two, and for `forks` or `timeout` reading
+// zero instead of the operator's number is a behaviour change nobody
+// would attribute to a type assertion.
+func TestFields_IntReadsEveryShapeItDocumentsAccepting(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  int
+	}{
+		{name: "a Go int from code", value: 5, want: 5},
+		{name: "an int64 from a database driver", value: int64(5), want: 5},
+		{name: "a float64 from encoding/json", value: float64(5), want: 5},
+		{name: "a string from an HTML form", value: "5", want: 5},
+		{name: "a form string with the whitespace a textarea adds", value: "  5\n", want: 5},
+		{name: "a negative value, which is a real answer rather than absence", value: -1, want: -1},
+		{name: "a string that is not a number reads as absent", value: "five", want: 0},
+		{name: "a shape no boundary produces reads as absent", value: []string{"5"}, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := launch.Fields{"forks": tt.value}
+			if got := fields.Int("forks"); got != tt.want {
+				t.Errorf("Int(%#v) = %d, want %d", tt.value, got, tt.want)
+			}
+		})
+	}
+
+	empty := launch.Fields{}
+	if got := empty.Int("forks"); got != 0 {
+		t.Errorf("Int on an absent field = %d, want 0", got)
+	}
+}
+
+// TestFields_ListReadsEveryShapeItDocumentsAccepting is Int's counterpart
+// for TypeStringList, whose []any case is the one that matters: a list
+// that crossed a JSON boundary arrives as []any, never []string, so a
+// reader handling only the Go shape would return nil for every value that
+// actually came off the wire.
+func TestFields_ListReadsEveryShapeItDocumentsAccepting(t *testing.T) {
+	if got := (launch.Fields{"limit": []string{"web", "db"}}).List("limit"); len(got) != 2 || got[0] != "web" || got[1] != "db" {
+		t.Errorf("List(a Go []string) = %v, want [web db]", got)
+	}
+
+	// The shape encoding/json actually produces.
+	decoded := launch.Fields{"limit": []any{"web", "db"}}
+	if got := decoded.List("limit"); len(got) != 2 || got[0] != "web" || got[1] != "db" {
+		t.Errorf("List(a decoded []any) = %v, want [web db]", got)
+	}
+
+	// A heterogeneous []any is rendered rather than dropped: a list is a
+	// list even when one element decoded as a number.
+	if got := (launch.Fields{"limit": []any{"web", 7}}).List("limit"); len(got) != 2 || got[1] != "7" {
+		t.Errorf("List(a mixed []any) = %v, want [web 7]", got)
+	}
+
+	if got := (launch.Fields{"limit": "web"}).List("limit"); got != nil {
+		t.Errorf("List(a bare string) = %v, want nil: a single value is not a one-element list", got)
+	}
+	if got := (launch.Fields{}).List("limit"); got != nil {
+		t.Errorf("List on an absent field = %v, want nil", got)
+	}
+}
+
+// TestFields_ListReturnsItsOwnCopy proves a caller cannot reach back into
+// the Fields map through the slice it was handed, which matters because a
+// resolved Fields is read by several stages of a launch in turn.
+func TestFields_ListReturnsItsOwnCopy(t *testing.T) {
+	fields := launch.Fields{"limit": []string{"web", "db"}}
+
+	got := fields.List("limit")
+	got[0] = "overwritten"
+
+	if again := fields.List("limit"); again[0] != "web" {
+		t.Errorf("mutating a returned list changed the field: %v", again)
+	}
+}

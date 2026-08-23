@@ -17,7 +17,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	_ "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
 )
 
@@ -85,7 +84,62 @@ func runInventoryPlugins(args []string) error {
 			status = string(syncplugin.StatusImplemented)
 		}
 		fmt.Printf("%-18s %-12s %s\n", name, status, desc.Description)
+
+		// A plugin's own settings are printed under it rather than left
+		// to be discovered from a Connect-time refusal. The AWS plugin
+		// needed a region for its whole existence and there was no way
+		// to learn that short of reading its source.
+		for _, spec := range desc.Settings {
+			requirement := "optional"
+			if spec.Required {
+				requirement = "required"
+			}
+			fmt.Printf("  --set %-14s %-12s %s\n", spec.Name+"=...", requirement, spec.Description)
+		}
+		if desc.RequiresCredentials {
+			fmt.Printf("  %-20s %-12s resolved from the project credential store, defaulting to the plugin name\n", "--credential name", "required")
+		}
 	}
+	return nil
+}
+
+// settingFlag collects repeated --set key=value flags into the map
+// syncplugin.Config.Settings carries. It is a flag.Value rather than a
+// single comma-joined string so a value containing a comma is not a
+// parsing problem, and so the same flag can be repeated the way a person
+// expects it to be.
+type settingFlag map[string]string
+
+// String renders the collected settings for flag's usage output. The
+// keys are sorted so the text is stable rather than map-ordered.
+func (f settingFlag) String() string {
+	if len(f) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(f))
+	for key := range f {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+f[key])
+	}
+	return strings.Join(parts, ",")
+}
+
+// Set records one key=value pair, refusing a malformed one rather than
+// storing an empty key nothing will ever match a declared setting to.
+func (f settingFlag) Set(raw string) error {
+	key, value, found := strings.Cut(raw, "=")
+	key = strings.TrimSpace(key)
+	if !found || key == "" {
+		return fmt.Errorf("--set expects key=value, got %q", raw)
+	}
+	if _, duplicate := f[key]; duplicate {
+		return fmt.Errorf("--set %s given more than once", key)
+	}
+	f[key] = strings.TrimSpace(value)
 	return nil
 }
 
@@ -100,6 +154,8 @@ func runInventorySync(args []string) error {
 	pageSize := fs.Int("page-size", 0, "how many records to request per upstream page")
 	readOnly := fs.Bool("read-only", false, "refuse every write to the local inventory, reporting what would have changed")
 	insecure := fs.Bool("insecure-skip-verify", false, "skip TLS certificate verification against the upstream system")
+	settings := settingFlag{}
+	fs.Var(settings, "set", "a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins')")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -127,8 +183,18 @@ func runInventorySync(args []string) error {
 	if *insecure {
 		cfg.InsecureSkipVerify = true
 	}
+	if len(settings) > 0 {
+		cfg.Settings = settings
+	}
 
-	plugin, err := buildSyncPlugin(desc, *dir)
+	// syncplugin.Open is the ONE construction path, shared with the
+	// conformance suite, so a plugin cannot pass its tests while being
+	// unreachable here. It checks the descriptor's declared settings and
+	// hands every plugin the same Deps, which is what replaced a
+	// per-plugin type switch that had grown one arm and needed three.
+	plugin, err := syncplugin.Open(desc, cfg, syncplugin.Deps{
+		Credentials: credential.NewLazyFileStore(*dir),
+	})
 	if err != nil {
 		return err
 	}
@@ -151,25 +217,6 @@ func runInventorySync(args []string) error {
 
 	printReconciliation(report)
 	return nil
-}
-
-// buildSyncPlugin constructs the named plugin, injecting the project's own
-// credential store into the one plugin that needs it.
-//
-// The type switch is deliberate and is not a registry the descriptor should
-// carry instead. A credential store is not something every plugin wants
-// (the static YAML one has nothing to authenticate to), and threading it
-// through Descriptor.New would put an argument in the constructor signature
-// that most implementations ignore. When a third plugin needs it, this
-// becomes an optional interface the plugin asserts rather than a longer
-// switch.
-func buildSyncPlugin(desc syncplugin.Descriptor, dir string) (syncplugin.Plugin, error) {
-	if desc.Name == catalystcenter.Name {
-		return catalystcenter.New(
-			catalystcenter.WithCredentialStore(credential.NewLazyFileStore(dir)),
-		), nil
-	}
-	return desc.New(), nil
 }
 
 // printReconciliation writes the sync report: a summary line, then every

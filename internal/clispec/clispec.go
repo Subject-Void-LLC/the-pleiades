@@ -152,8 +152,12 @@ var Root = Command{
 						{Name: "page-size", Type: "int", Default: "0", Doc: "how many records to request per upstream page"},
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "refuse every write to the local inventory, reporting what would have changed"},
 						{Name: "insecure-skip-verify", Type: "bool", Default: "false", Doc: "skip TLS certificate verification against the upstream system"},
+						{Name: "set", Type: "string", Default: "", Doc: "a plugin-specific setting as key=value, repeatable (see 'pleiades inventory plugins')"},
 					},
-					Examples: []string{"pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com"},
+					Examples: []string{
+						"pleiades inventory sync --plugin catalyst_center --endpoint https://dnac.example.com",
+						"pleiades inventory sync --plugin aws --set region=us-east-1",
+					},
 				},
 				{
 					Name:     "plugins",
@@ -223,7 +227,13 @@ var Root = Command{
 						{Name: "description", Type: "string", Default: "", Doc: "one-line help text describing the upstream system this plugin reads"},
 						{Name: "endpoint", Type: "string", Default: "", Doc: "default upstream base URL (e.g. https://sandboxdnac.cisco.com)"},
 						{Name: "read-only", Type: "bool", Default: "false", Doc: "declare the upstream authoritative and never written back"},
+						{Name: "requires-credentials", Type: "bool", Default: "false", Doc: "declare that Connect resolves a credential, so the plugin is built with the project credential store"},
+						{Name: "settings-json", Type: "string", Default: "", Doc: "per-deployment settings as a JSON list of syncplugin.SettingSpec objects, or @path to read it from a file"},
 						{Name: "skip-existing", Type: "bool", Default: "false", Doc: "leave an already-generated entry alone instead of refusing, for regenerating a catalog in place"},
+					},
+					Examples: []string{
+						"pleiades forge new-plugin netbox --description \"reads devices from a NetBox instance\" --requires-credentials",
+						"pleiades forge new-plugin gcp --description \"reads Compute Engine instances\" --requires-credentials --settings-json '[{\"name\":\"project\",\"description\":\"the GCP project to read from\",\"required\":true}]'",
 					},
 				},
 				{

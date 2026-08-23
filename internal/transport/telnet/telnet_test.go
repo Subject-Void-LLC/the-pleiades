@@ -94,19 +94,17 @@ func TestExec_RejectsAnyEndpointOtherThanNetworkEndpoint(t *testing.T) {
 // pkg/telnetexec (here, a dial to a closed port) reaches the caller as a
 // wrapped, non-nil error rather than a zero-value success.
 func TestExec_WrapsAnUnderlyingFailureClearly(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // nothing is listening now
-
 	tr := telnettransport.New(telnetexec.Options{}, remoteexec.Options{})
-	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: port}}
+	// Port 0, not a released listener's port: FAILURE_PATTERNS.md #123,
+	// #177 and #181 all record that construction failing for real, most
+	// recently in this very file. Port 0 is the sockets API's "assign me
+	// any free port" value for bind, so nothing can ever be listening on
+	// it.
+	target := transport.Target{Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 0}}
 
-	_, err = tr.Exec(context.Background(), target, credential.Credential{}, "cmd")
+	_, err := tr.Exec(context.Background(), target, credential.Credential{}, "cmd")
 	if err == nil {
-		t.Fatal("expected an error dialing a closed listener")
+		t.Fatal("expected an error dialing an address nothing can be listening on")
 	}
 }
 
@@ -195,12 +193,6 @@ func TestExec_UnreachableDeviceThroughBastionFailsWithChannelError(t *testing.T)
 	}
 	defer bastion.Close()
 
-	deadListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	unreachablePort := deadListener.Addr().(*net.TCPAddr).Port
-	deadListener.Close()
 	knownHostsPath := writeKnownHostsFor(t, bastion)
 
 	tr := telnettransport.New(
@@ -208,7 +200,11 @@ func TestExec_UnreachableDeviceThroughBastionFailsWithChannelError(t *testing.T)
 		remoteexec.Options{KnownHostsPath: knownHostsPath, MaxRetries: 1},
 	)
 	target := transport.Target{
-		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: unreachablePort},
+		// Port 0, for the same reason as above: a released loopback port
+		// keeps accepting connects on this project's own development
+		// host, so the bastion's direct-tcpip dial would sometimes
+		// succeed and the channel-open failure under test never happen.
+		Endpoint: transport.NetworkEndpoint{Host: "127.0.0.1", Port: 0},
 		Route: []transport.Hop{{
 			Host:       bastion.Host,
 			Port:       bastion.Port,

@@ -26,10 +26,10 @@ const pluginTemplateSource = `// Package {{.PackageName}} implements the "{{.Nam
 // What a human fills in, in order:
 //
 //  1. Connect: resolve the credential named by cfg.CredentialName through
-//     internal/credential, authenticate, and keep whatever session or token
-//     the upstream system hands back. Never read a secret from the
-//     environment; Section 6c is explicit that discovery credentials are
-//     looked up, not inlined.
+//     the store New was handed in syncplugin.Deps, authenticate, and keep
+//     whatever session or token the upstream system hands back. Never read a
+//     secret from the environment; Section 6c is explicit that discovery
+//     credentials are looked up, not inlined.
 //  2. Discover: page the upstream API, yielding one record.Record per
 //     device through a RecordIterator. Page rather than materialize, so
 //     memory stays flat regardless of fleet size.
@@ -52,7 +52,9 @@ package {{.PackageName}}
 import (
 	"context"
 	"fmt"
-
+{{if .RequiresCredentials}}
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credential"
+{{end}}
 	inv "github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin"
@@ -77,7 +79,24 @@ func init() {
 			ReadOnly: {{.ReadOnly}},
 		},
 		Status: syncplugin.StatusDeclared,
-		New:    func() syncplugin.Plugin { return New() },
+{{- if .Settings}}
+		// Every per-deployment value this plugin needs beyond Config's
+		// shared fields. syncplugin.Open refuses to build the plugin
+		// without a required one, naming it, and
+		// "pleiades inventory plugins" lists them, so a user never has to
+		// read this file to find out what to supply.
+		Settings: []syncplugin.SettingSpec{
+{{- range .Settings}}
+			{
+				Name:        {{quote .Name}},
+				Description: {{quote .Description}},
+				Required:    {{.Required}},
+			},
+{{- end}}
+		},
+{{- end}}
+		RequiresCredentials: {{.RequiresCredentials}},
+		New:                 func(deps syncplugin.Deps) syncplugin.Plugin { return New(deps) },
 	})
 }
 
@@ -87,6 +106,15 @@ type {{.TypeName}} struct {
 	// cfg is retained by Connect so the later methods can read the endpoint,
 	// page size, and read-only flag without being handed them again.
 	cfg syncplugin.Config
+{{- if .RequiresCredentials}}
+
+	// creds resolves cfg.CredentialName at Connect time. It arrives
+	// through syncplugin.Deps, so it is whatever store the composition
+	// root that built this plugin uses, and syncplugin.Open has already
+	// refused to build this plugin at all if that store was nil (the
+	// descriptor above sets RequiresCredentials).
+	creds credential.Store
+{{- end}}
 }
 
 // compile-time proof this plugin satisfies the port. Without it, a drift
@@ -94,9 +122,21 @@ type {{.TypeName}} struct {
 // registry call site.
 var _ syncplugin.Plugin = (*{{.TypeName}})(nil)
 
-// New creates an unconnected plugin.
-func New() *{{.TypeName}} {
-	return &{{.TypeName}}{}
+// New creates an unconnected plugin from the dependencies the composition
+// root supplies.
+//
+// deps is a parameter rather than a set of functional Options for a
+// reason worth keeping: an Option is something one caller passes and
+// every other caller forgets. The AWS plugin took WithRegion and
+// WithCredentialStore, only its own tests ever passed either, and every
+// real "pleiades inventory sync --plugin aws" failed unconditionally
+// while three test suites stayed green. A parameter cannot be forgotten.
+func New(deps syncplugin.Deps) *{{.TypeName}} {
+	return &{{.TypeName}}{
+{{- if .RequiresCredentials}}
+		creds: deps.Credentials,
+{{- end}}
+	}
 }
 
 // Connect authenticates against the upstream system described by cfg.
@@ -105,8 +145,18 @@ func (p *{{.TypeName}}) Connect(_ context.Context, cfg syncplugin.Config) error 
 		return err
 	}
 	p.cfg = cfg
-	// TODO(forge): resolve cfg.CredentialName through internal/credential
-	// and authenticate. Returning an error keeps this honest until then.
+{{- if .RequiresCredentials}}
+	// TODO(forge): resolve cfg.CredentialName through p.creds (defaulting
+	// the name to Name when cfg.CredentialName is empty, the convention
+	// every other plugin follows) and authenticate. Returning an error
+	// keeps this honest until then.
+{{- else}}
+	// TODO(forge): authenticate against the upstream system. Returning an
+	// error keeps this honest until then.
+{{- end}}
+{{- range .Settings}}
+	// TODO(forge): read the {{.Name}} setting with cfg.Setting({{quote .Name}}).
+{{- end}}
 	return errNotImplemented
 }
 
@@ -170,7 +220,7 @@ func Test{{.TypeName}}_Registered(t *testing.T) {
 	if desc.New == nil {
 		t.Fatal("registered descriptor has no constructor")
 	}
-	if desc.New() == nil {
+	if desc.New(syncplugin.Deps{}) == nil {
 		t.Fatal("constructor returned nil")
 	}
 	if desc.Description == "" {
@@ -221,7 +271,7 @@ func Test{{.TypeName}}_NotImplemented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.call(desc.New()); err == nil {
+			if err := tt.call(desc.New(syncplugin.Deps{})); err == nil {
 				t.Fatalf("%s returned nil; a declared plugin must refuse, never succeed", tt.name)
 			}
 		})
@@ -241,7 +291,7 @@ func Test{{.TypeName}}_ClassifyQuarantines(t *testing.T) {
 		t.Skip("plugin reports StatusImplemented; these declared-stage assertions no longer apply")
 	}
 
-	cls, err := desc.New().Classify(context.Background(), record.Record{Name: "any-device"})
+	cls, err := desc.New(syncplugin.Deps{}).Classify(context.Background(), record.Record{Name: "any-device"})
 	if err != nil {
 		t.Fatalf("Classify must not error while declared, got %v", err)
 	}

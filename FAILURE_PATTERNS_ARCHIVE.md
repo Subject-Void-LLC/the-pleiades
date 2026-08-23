@@ -5758,43 +5758,69 @@ repository that no reader can verify by reading the file making it, and
 that no compiler checks. Either write the AST rule that enforces it in
 the same commit, or write the weaker sentence that is actually true.
 
-## 181. Entry #177's fix was applied to one of five sites carrying the identical construction, and one of the other four flaked in the very next session
+## 181. Entry #177's fix reached one of ten sites carrying the identical construction, and the sweep that went looking for the rest missed half of them too
 
 **Symptom.** A full `go test ./...` sweep failed once on
 `internal/transport/serialtcp.TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError`
 ("expected a channel-open failure against an address nothing is
 listening on"), then passed on every isolated rerun. The package is not
 in `flaky-packages.json`, so `make push-gate` would have blocked a push
-on it, at random.
+on it, at random. A later `make coverage` run (a second full sweep) then
+failed on `internal/transport/telnet`'s equivalent test, which the first
+sweep had passed.
 
-**Root cause.** Exactly entry #177, in a file #177's own fix did not
+**Root cause.** Exactly entry #177, in files #177's own fix did not
 touch. #177 was found in `pkg/remoteexec/tunnel_test.go` and fixed
-there. The identical open-a-listener, read-its-port, close-it, dial-the-
-number-again construction was live in four more files, all written in the
-same phase: `internal/transport/serialtcp`, `pkg/serialtcp`,
-`pkg/rfc2217` and `pkg/telnetexec`. A just-released loopback port keeps
-accepting connects on this project's WSL2 host, so the dial sometimes
-succeeds and the failure the test exists to observe never happens.
+there alone. The identical open-a-listener, read-its-port, close-it,
+dial-the-number-again construction was live in nine more places, all
+written in the same phase. A just-released loopback port keeps accepting
+connects on this project's WSL2 host, so the dial sometimes succeeds and
+the failure the test exists to observe never happens.
 
-**Fix.** The literal port `0` at all four sites, #123's and #177's
-established fix: port 0 is the sockets API's "assign me any free port"
-value for `bind`, so nothing can ever be listening on it. Each site
-gained a comment citing both entries by number, so the next reader finds
-the reasoning at the code rather than by searching. The three direct-dial
-assertions were also strengthened from "an error occurred" to "the error
-names the address," which is what their own doc comments already claimed
-and what makes them non-vacuous. Verified with `-count=10 -race` across
-all four packages.
+**The part worth recording is the second miss, not the first.** After
+the `serialtcp` flake, a grep went looking for the rest and found four
+sites, which were fixed. That grep matched on the *expression shape*
+(`Addr().(*net.TCPAddr).Port` near a `Close`), and it missed five more:
+`internal/transport/telnet` had two (one of which flaked on the very
+next full run), `internal/transport/serialtcp` itself had a second one
+in the same file that had just been edited, `pkg/remoteexec/hop_test.go`
+spelled it `Addr().String()`, and `pkg/tftpxfer` used
+`LocalAddr().(*net.UDPAddr).Port`. Searching for the *intent* instead
+("nothing is listening", `deadListener`, "listening now") found all of
+them in one pass. A grep written from the shape of the instance in front
+of you finds instances that look like that one; a grep written from what
+the code is trying to say finds the rest.
 
-**Lesson.** Fixing a recurrence in the file where it was observed is half
-the work. The other half is grepping for the construction across the
-whole tree in the same commit, because a recurrence found once is
-evidence the pattern is attractive, not evidence it appeared once: here
-one phase produced five instances and the fix reached one of them. The
-grep is mechanical (`Addr().(*net.TCPAddr).Port` followed by a `Close`)
-and takes a minute; the alternative is discovering each remaining
-instance separately through a nondeterministic failure, which is what
-happened.
+**Fix.** The literal port `0` at eight of the ten sites, #123's and
+#177's established fix: port 0 is the sockets API's "assign me any free
+port" value for `bind`, so nothing can ever be listening on it. Each
+site cites the entries by number, so the next reader finds the reasoning
+at the code rather than by searching. Three direct-dial assertions were
+also strengthened from "an error occurred" to "the error names the
+address," which is what their own doc comments already claimed.
+
+Two sites did not take that fix, and both are recorded rather than
+forced. `pkg/tftpxfer`'s test asserts a *timeout budget* bounds the
+call: a closed UDP port answers with an ICMP port-unreachable that ends
+it early, and an invalid address fails validation earlier still, so
+either would make it pass without the budget bounding anything. It now
+holds a real UDP socket open and silent, which is the case the budget
+exists for and also stops any other process taking the port.
+`internal/catalog/pleiades/builtin/wait`'s `portClosedPort` needs a
+concrete port that is closed now and bindable later, because its tests
+prove `wait.port` notices a port opening, and port 0 cannot express
+that. It was first left alone under a comment calling it a considered
+exception, and the very next full sweep failed on it ("a closed port was
+reported as open by the bash prober", against a prober that was working
+correctly), which is the third time in this session that leaving one of
+these alone cost a run. It now closes the race by checking rather than
+by construction: bind, release, and confirm the port actually refuses a
+connection before handing it back, retrying a bounded number of times
+and failing with a message naming this fixture if it cannot. Verified
+with `-count=8 -race` across all seven affected packages and
+`-count=6 -race` on the wait package.
+
+**Lesson.** See `LESSONS_LEARNED.md` #156.
 
 ## 182. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
 

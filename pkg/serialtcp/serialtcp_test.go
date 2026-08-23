@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/serialtcp"
+	"strings"
 )
 
 // This file is the RULE 0 evidence for serialtcp.Exec, against a real
@@ -166,16 +167,19 @@ func TestExec_DefaultsWhenOptionsIsZeroValue(t *testing.T) {
 // closed listener) fails with a wrapped error naming the address, not a
 // panic or an opaque failure.
 func TestExec_DialFailureIsAClearError(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // nothing is listening now
-
-	_, err = serialtcp.Exec(context.Background(), "127.0.0.1", port, serialtcp.Options{}, "cmd")
+	// Port 0 is the sockets API's "assign me any free port" value for
+	// bind, so nothing can ever be listening on it. FAILURE_PATTERNS.md
+	// #123 and #177 both record the alternative (open a listener, read
+	// its port, close it, dial the number again) failing for real: a
+	// just-released loopback port keeps accepting connects on this
+	// project's own development host, and another process can claim it
+	// in the window regardless.
+	_, err := serialtcp.Exec(context.Background(), "127.0.0.1", 0, serialtcp.Options{}, "cmd")
 	if err == nil {
-		t.Fatal("expected an error dialing a closed listener")
+		t.Fatal("expected an error dialing an address nothing can be listening on")
+	}
+	if !strings.Contains(err.Error(), "127.0.0.1:0") {
+		t.Errorf("error %q does not name the address it failed to reach", err)
 	}
 }
 

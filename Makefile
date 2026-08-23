@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix test test-race test-no-docker test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -260,6 +260,24 @@ arch:
 coverage:
 	go run ./tools/coverage-check
 
+# tidy-check proves go.mod and go.sum are exactly what `go mod tidy`
+# produces, without writing either file. It exists because the tree was
+# untidy for the whole life of the AWS and serial work and nothing
+# noticed: eight modules the code imports directly (the AWS SDK behind
+# pkg/awscloud, go.bug.st/serial behind pkg/serialexec, github.com/pin/tftp
+# behind pkg/tftpxfer) sat in the indirect block claiming to be incidental
+# transitive pickups, which is exactly the state a branch adding new
+# direct imports produces when nobody runs tidy. That misleads anyone
+# auditing the dependency surface or deciding which upgrades are this
+# project's to own.
+#
+# `-diff` exits non-zero when a change is needed and prints the diff,
+# needing no network beyond the module cache, so this is a gate rather
+# than a mutation: CI reports the untidiness and a developer runs
+# `go mod tidy` themselves.
+tidy-check:
+	go mod tidy -diff
+
 # docs-lint (tools/docs-lint) fails the build when a gitignored internal
 # document (.SPECIFICATION/, .AGENTS/, PLAN.md, PATTERNS.md,
 # IMPLEMENTATION.md) is cited anywhere a real user could see it: docs/,
@@ -320,7 +338,7 @@ helm-lint:
 # target itself becoming any less strict. Never make ci itself tolerant of
 # anything; it is the one target whose pass/fail this repository's actual
 # merge gate depends on.
-ci: build devtools vet fmt test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
+ci: build devtools vet fmt tidy-check test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
 
 # push-gate-race and push-gate-integration run through tools/testgate
@@ -365,7 +383,7 @@ push-gate-coverage:
 # comment above), so nothing here weakens what actually gates a merge; it
 # only reduces how much known-flaky local noise a developer has to fight
 # through, and re-run, before a push reaches that real gate.
-push-gate: build devtools vet fmt push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
+push-gate: build devtools vet fmt tidy-check push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
 
 # templ-gen regenerates the view layer's templates. templ emits a

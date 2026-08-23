@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -91,19 +92,54 @@ func requireLocalStack(tb testing.TB) string {
 	return sharedEndpoint
 }
 
+// regionConfig returns a Config carrying the region setting the
+// descriptor declares, so every test here supplies it the same way
+// `pleiades inventory sync --set region=...` does rather than through a
+// constructor option no real caller has.
+func regionConfig(endpoint string) syncplugin.Config {
+	return syncplugin.Config{
+		Name:     awsplugin.Name,
+		Endpoint: endpoint,
+		ReadOnly: true,
+		Settings: map[string]string{awsplugin.SettingRegion: testRegion},
+	}
+}
+
+// realDeps is the Deps a composition root hands this plugin, holding a
+// store that resolves LocalStack's throwaway key pair.
+func realDeps() syncplugin.Deps {
+	return syncplugin.Deps{
+		Credentials: staticStore{credential.Credential{Username: testAccessKeyID, Password: testSecretAccessKey}},
+	}
+}
+
 // connect builds a plugin pointed at the shared LocalStack container and
 // connects it, mirroring catalystcenter_test.go's own connect helper.
+//
+// It goes through syncplugin.Open rather than calling awsplugin.New
+// directly, which is the whole point: this suite used to construct the
+// plugin with options nothing in production passed, so it proved the
+// plugin worked in an arrangement no user could reach. Open is the same
+// function cmd/pleiades calls.
 func connect(t *testing.T) *awsplugin.Aws {
 	t.Helper()
 	endpoint := requireLocalStack(t)
 
-	p := awsplugin.New(
-		awsplugin.WithRegion(testRegion),
-		awsplugin.WithCredentialStore(staticStore{credential.Credential{Username: testAccessKeyID, Password: testSecretAccessKey}}),
-	)
+	cfg := regionConfig(endpoint)
+	desc, ok := syncplugin.Lookup(awsplugin.Name)
+	if !ok {
+		t.Fatalf("plugin %q is not registered", awsplugin.Name)
+	}
+	opened, err := syncplugin.Open(desc, cfg, realDeps())
+	if err != nil {
+		t.Fatalf("syncplugin.Open: %v", err)
+	}
+	p, ok := opened.(*awsplugin.Aws)
+	if !ok {
+		t.Fatalf("syncplugin.Open returned a %T, want *awsplugin.Aws", opened)
+	}
 	t.Cleanup(func() { _ = p.Close() })
 
-	cfg := syncplugin.Config{Name: awsplugin.Name, Endpoint: endpoint, ReadOnly: true}
 	if err := p.Connect(context.Background(), cfg); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -135,23 +171,61 @@ func newRepo(t *testing.T) inv.Repository {
 // ---------- Connect ----------
 
 func TestConnect_RequiresRegion(t *testing.T) {
-	p := awsplugin.New(awsplugin.WithCredentialStore(staticStore{}))
+	p := awsplugin.New(syncplugin.Deps{Credentials: staticStore{}})
 	err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name})
 	if err == nil {
-		t.Error("Connect with no region configured: got nil error, want one")
+		t.Error("Connect with no region setting: got nil error, want one")
+	}
+}
+
+// TestOpen_RefusesAMissingRegion is the same refusal one layer up, on
+// the path a user actually reaches: syncplugin.Open checks the
+// descriptor's declared settings before the plugin is even built, so
+// `pleiades inventory sync --plugin aws` with no --set region=... fails
+// with a message naming the flag rather than a Connect-time surprise.
+func TestOpen_RefusesAMissingRegion(t *testing.T) {
+	desc, ok := syncplugin.Lookup(awsplugin.Name)
+	if !ok {
+		t.Fatalf("plugin %q is not registered", awsplugin.Name)
+	}
+	_, err := syncplugin.Open(desc, syncplugin.Config{Name: awsplugin.Name}, realDeps())
+	if err == nil {
+		t.Fatal("Open with no region setting: got nil error, want one")
+	}
+	if !strings.Contains(err.Error(), awsplugin.SettingRegion) {
+		t.Errorf("error = %q, want it to name the missing setting %q", err, awsplugin.SettingRegion)
+	}
+}
+
+// TestOpen_RefusesAMissingCredentialStore proves the descriptor's
+// RequiresCredentials flag is load-bearing: a composition root that
+// forgets Deps.Credentials is refused in shared code, which is exactly
+// the failure that shipped when cmd/pleiades built this plugin through
+// an argument-less constructor.
+func TestOpen_RefusesAMissingCredentialStore(t *testing.T) {
+	desc, ok := syncplugin.Lookup(awsplugin.Name)
+	if !ok {
+		t.Fatalf("plugin %q is not registered", awsplugin.Name)
+	}
+	_, err := syncplugin.Open(desc, regionConfig(""), syncplugin.Deps{})
+	if err == nil {
+		t.Fatal("Open with no credential store: got nil error, want one")
+	}
+	if !strings.Contains(err.Error(), "credential store") {
+		t.Errorf("error = %q, want it to name the missing credential store", err)
 	}
 }
 
 func TestConnect_RequiresCredentialStore(t *testing.T) {
-	p := awsplugin.New(awsplugin.WithRegion(testRegion))
-	err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name})
+	p := awsplugin.New(syncplugin.Deps{})
+	err := p.Connect(context.Background(), regionConfig(""))
 	if err == nil {
 		t.Error("Connect with no credential store configured: got nil error, want one")
 	}
 }
 
 func TestConnect_InvalidConfig(t *testing.T) {
-	p := awsplugin.New(awsplugin.WithRegion(testRegion), awsplugin.WithCredentialStore(staticStore{}))
+	p := awsplugin.New(syncplugin.Deps{Credentials: staticStore{}})
 	// Config.Validate requires a non-empty Name; this Config has none.
 	if err := p.Connect(context.Background(), syncplugin.Config{}); err == nil {
 		t.Error("Connect with an invalid Config: got nil error, want one")
@@ -166,33 +240,30 @@ func (s failingStore) Lookup(context.Context, string) (credential.Credential, er
 }
 
 func TestConnect_CredentialLookupFailure(t *testing.T) {
-	p := awsplugin.New(awsplugin.WithRegion(testRegion), awsplugin.WithCredentialStore(failingStore{err: fmt.Errorf("no such credential")}))
-	if err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name}); err == nil {
+	p := awsplugin.New(syncplugin.Deps{Credentials: failingStore{err: fmt.Errorf("no such credential")}})
+	if err := p.Connect(context.Background(), regionConfig("")); err == nil {
 		t.Error("Connect with a failing credential store: got nil error, want one")
 	}
 }
 
 func TestConnect_EmptyCredentialUsername(t *testing.T) {
-	p := awsplugin.New(awsplugin.WithRegion(testRegion), awsplugin.WithCredentialStore(staticStore{credential.Credential{}}))
-	if err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name}); err == nil {
+	p := awsplugin.New(syncplugin.Deps{Credentials: staticStore{credential.Credential{}}})
+	if err := p.Connect(context.Background(), regionConfig("")); err == nil {
 		t.Error("Connect with a credential carrying an empty access key: got nil error, want one")
 	}
 }
 
 func TestConnect_Succeeds(t *testing.T) {
 	p := connect(t)
-	if err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name, Endpoint: requireLocalStack(t), ReadOnly: true}); err != nil {
+	if err := p.Connect(context.Background(), regionConfig(requireLocalStack(t))); err != nil {
 		t.Errorf("second Connect: %v (Connect must be safe to call more than once)", err)
 	}
 }
 
 func TestConnect_UnreachableEndpoint(t *testing.T) {
 	requireLocalStack(t) // still gate on the token, even though this test never reaches the container
-	p := awsplugin.New(
-		awsplugin.WithRegion(testRegion),
-		awsplugin.WithCredentialStore(staticStore{credential.Credential{Username: testAccessKeyID, Password: testSecretAccessKey}}),
-	)
-	err := p.Connect(context.Background(), syncplugin.Config{Name: awsplugin.Name, Endpoint: "http://127.0.0.1:1"})
+	p := awsplugin.New(realDeps())
+	err := p.Connect(context.Background(), regionConfig("http://127.0.0.1:1"))
 	if err == nil {
 		t.Error("Connect against an unreachable endpoint: got nil error, want one")
 	}
@@ -201,7 +272,7 @@ func TestConnect_UnreachableEndpoint(t *testing.T) {
 // ---------- Discover ----------
 
 func TestDiscover_NotConnected(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	if _, err := p.Discover(context.Background()); err != syncplugin.ErrNotConnected {
 		t.Errorf("Discover before Connect: err = %v, want ErrNotConnected", err)
 	}
@@ -262,7 +333,7 @@ func TestDiscover_YieldsAccountThenInstances(t *testing.T) {
 // LOCALSTACK_AUTH_TOKEN set.
 
 func TestClassify_Account(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	cls, err := p.Classify(context.Background(), record.Record{
 		Properties: map[string]inventory.PropertyValue{"aws_role": "account", "region": testRegion},
 	})
@@ -278,7 +349,7 @@ func TestClassify_Account(t *testing.T) {
 }
 
 func TestClassify_LinuxInstance(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	cls, err := p.Classify(context.Background(), record.Record{
 		Properties: map[string]inventory.PropertyValue{"aws_role": "instance", "aws_instance_id": "i-abc"},
 	})
@@ -294,7 +365,7 @@ func TestClassify_LinuxInstance(t *testing.T) {
 }
 
 func TestClassify_WindowsInstance(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	cls, err := p.Classify(context.Background(), record.Record{
 		Properties: map[string]inventory.PropertyValue{"aws_role": "instance", "aws_platform": "windows"},
 	})
@@ -316,7 +387,7 @@ func TestClassify_WindowsInstance(t *testing.T) {
 // same restraint TestClassify_UnrecognizedRole_Quarantines below asserts
 // for an unrecognized aws_role.
 func TestClassify_UnrecognizedPlatform_Quarantines(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	cls, err := p.Classify(context.Background(), record.Record{
 		Properties: map[string]inventory.PropertyValue{"aws_role": "instance", "aws_platform": "some-future-platform"},
 	})
@@ -332,7 +403,7 @@ func TestClassify_UnrecognizedPlatform_Quarantines(t *testing.T) {
 }
 
 func TestClassify_UnrecognizedRole_Quarantines(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	cls, err := p.Classify(context.Background(), record.Record{Properties: map[string]inventory.PropertyValue{}})
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
@@ -345,7 +416,7 @@ func TestClassify_UnrecognizedRole_Quarantines(t *testing.T) {
 // ---------- Sync ----------
 
 func TestSync_NotConnected(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	if _, err := p.Sync(context.Background(), nil); err != syncplugin.ErrNotConnected {
 		t.Errorf("Sync before Connect: err = %v, want ErrNotConnected", err)
 	}
@@ -388,7 +459,7 @@ func TestSync_RoundTripsRealInstances(t *testing.T) {
 // ---------- Close ----------
 
 func TestClose_IdempotentAndSafeUnconnected(t *testing.T) {
-	p := awsplugin.New()
+	p := awsplugin.New(syncplugin.Deps{})
 	if err := p.Close(); err != nil {
 		t.Errorf("Close on an unconnected plugin: %v, want nil", err)
 	}

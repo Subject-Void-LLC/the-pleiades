@@ -3115,3 +3115,182 @@ strings that should agree against each other. Swap under sentinels that cannot i
 regenerate rather than hand-edit anything under `docs/reference/` or `internal/api/wellknown/`,
 and verify the before and after occurrence counts are exact mirrors of one another rather than
 merely both plausible.
+
+## 153. A dependency a component cannot build for itself belongs in its constructor's signature, never in an option, because an option is what every caller except the one who wrote it forgets
+
+**The incident.** The `aws` inventory sync plugin took its two dependencies, a credential
+store and an AWS region, as functional options: `aws.WithCredentialStore` and
+`aws.WithRegion`. The plugin registry's constructor was `func() Plugin`, taking no
+arguments, so the instance `cmd/pleiades` built had neither. Every
+`pleiades inventory sync --plugin aws` failed with "no region configured, use WithRegion,"
+for the plugin's entire existence, while three separate test suites stayed green.
+
+`gopls references` on both options returns test files and nothing else. That is the whole
+finding in one line, and it was available at any point.
+
+**Why the options looked right when they were written.** They are idiomatic Go, they read
+well, and each carries a careful doc comment arguing correctly for its own existence:
+`WithRegion`'s explains at length why a region must not become a field on the shared
+`syncplugin.Config` (a shared type that grows a field per implementation stops being
+shared), and it is right about that. The argument answers "where should this value not
+live" and never answers "how does it get here in production."
+
+**The composition root had already predicted this and been ignored.**
+`cmd/pleiades/inventory.go`'s `buildSyncPlugin` wired exactly one plugin through a
+`desc.Name == catalystcenter.Name` type switch, and its own doc comment said: "When a third
+plugin needs it, this becomes an optional interface the plugin asserts rather than a longer
+switch." The third plugin arrived. Nobody extended the switch, and nothing could tell,
+because a plugin nobody wired still compiles, still registers, still appears in
+`pleiades inventory plugins`, and still passes every test that constructs it directly.
+
+**Why an optional interface would have been the wrong successor anyway.** The comment's own
+proposal has the same defect one level up: an optional interface is something a plugin
+author forgets to implement, and forgetting is silent in exactly the same way. The fix that
+holds is the one that cannot be skipped: `Constructor` became `func(Deps) Plugin`, so every
+constructor is handed the dependency whether it reads it or not, and a per-deployment value
+an operator types became declared data on the descriptor (`Settings []SettingSpec`) that
+`syncplugin.Open` refuses to proceed without, by name, with the setting's own description.
+
+**The two guards that matter are different sizes.** The narrow one opens every registered
+plugin through the shared path and checks that `RequiresCredentials` actually changes the
+outcome. The broad one is structural and would have caught the original defect outright:
+`internal/archtest.TestCompositionRootsBuildPluginsThroughTheRegistry` fails if any `cmd/`
+package imports an individual plugin package. That forbids the type switch, which is what
+made a per-plugin arrangement expressible at all. A rule that removes the *ability* to wire
+one component differently from its siblings is worth more than a test that checks each
+component was wired the same way.
+
+**The rule.** When a component needs something it cannot construct for itself, put it in the
+constructor's signature. Reserve options for genuine variation between call sites (a
+timeout, a retry budget, an endpoint override) where every value is legitimate and the zero
+value works. If a "with" function's absence makes the component refuse to run, it was never
+an option; it was a parameter wearing an option's clothes, and the only caller who will ever
+pass it is the test that was written beside it.
+
+## 154. A guard written against one registry protects that registry only, and the surface it does not cover is exactly where the same defect ships next
+
+**The incident.** Phase 73's Workstream A found three `StatusImplemented` Collection methods
+requiring `DockerCapable` that no device type could satisfy, fixed it with a real device
+type, and added
+`internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable` so the class could
+not recur. In the same commit, that phase shipped four new capabilities, three transports,
+three `TransportBinding` entries, three `engine.ActionCapability` rows and a documented
+user-facing feature, with **no device type able to satisfy any of them**. Every
+`serial_exec`, `serialtcp_exec` and `telnet_exec` task was refused for every device the
+platform can build, twice over: once by `validate.CapabilityRule`, once by the binding's own
+type assertion.
+
+The guard did not fail, and could not. It iterates `catalogdata.Collections`. A transport
+fqcn is not a Collection method and appears nowhere in that table.
+
+**The tests that existed proved the wrong half.** `TestSerialTarget` and its two siblings
+build their device as a stub wrapping `inventorytest.Stub`, which deliberately matches a
+capability by name and skips the structural assertion a real device type performs. So they
+proved `SerialTarget` reads the accessors it is handed. Whether anything the platform can
+hydrate has those accessors is a different question, and no test asked it. That is the
+identical shape Workstream A had just written up for `docker_test.go`, in a package whose
+tests were written days later.
+
+**What the third sweep found that neither of the first two could.** Both existing sweeps
+start from a consumer (a method, a binding) and ask whether a device can satisfy it. A
+capability with **no consumer at all** is invisible to both, yet it is published in
+`docs/reference/capabilities.md` as part of the vocabulary an operator classifies devices
+against. `FileTransferCapable` was exactly that, and
+`docs/03-migrating-from-ansible.md` was telling migrating users that `archive.extract`
+requires it, when that method requires `POSIXFileSystemCapable`. A reader following the
+migration guide would have classified a device correctly per the docs and been quietly
+wrong.
+
+**The rule.** When a guard is written for a registry, enumerate every *other* registry that
+can produce the same class of defect before calling the class closed, and write the sweep
+that covers the union rather than the one in front of you. Ask the question from both ends:
+can every consumer be satisfied, and is every declared name reachable by some consumer. And
+negative-control each sweep with a permanent synthetic case in the test file, not a one-off
+manual un-wiring: a control that runs once and leaves no trace cannot tell a later reader
+whether the rule still matches anything.
+
+## 155. A doc comment claiming exclusive ownership of a pattern is a repository-wide assertion no reader can check and no compiler enforces, so it must ship with its AST rule or be written weaker
+
+**The incident.** `internal/topology`'s package doc calls it "the single owner of every NATS
+JetStream subject, stream, consumer, and retention/replica setting used by Pleiades," and
+`internal/archtest/layering_test.go`'s own comment repeats it more specifically: topology "is
+the one place jetstream.StreamConfig/ConsumerConfig/KeyValueConfig shapes are declared, so
+every other adapter can depend on topology instead of the driver directly." Both were false
+when written. `lock.NewNatsLockManager` built its own `jetstream.KeyValueConfig` literal for
+the `Pleiades_Locks` bucket, the one carrying every leader-election lease and every
+per-device execution lease, and both `cmd/controller` and `cmd/runner` provision it on
+startup.
+
+Separately and in the same spirit, `catalystcenter.WithClientOption` and
+`pkg/catalystcenter.WithHTTPClient` both carried doc comments saying "tests use it to point
+at a stub server," and neither had a single caller anywhere in the module. The tests reach
+their `httptest.Server` through `Config.Endpoint`, the same path production takes.
+
+**Why both survive review.** A reviewer reading `topology.go` sees a plausible sentence about
+a package they are looking at and no way to check it short of grepping the whole tree for a
+struct literal. A reviewer reading `WithHTTPClient` sees a comment naming a caller and has no
+reason to doubt it; the one check that would settle it (`gopls references`) is precisely the
+check the comment discourages, because it appears to have already been answered.
+
+**The asymmetry that makes the second kind worse.** A stale comment that says nothing is
+inert. A stale comment that names a caller, a mechanism, or an exclusive owner actively
+redirects the reader away from verifying it. It converts an open question into a settled one
+in the reader's head, which is the opposite of what a comment is for.
+
+**The rule.** An assertion about the whole repository ("this is the only place X happens",
+"nothing else does Y") belongs in an enforced rule, written in the same commit as the
+sentence. `internal/archtest` is where this project puts them, and the AST walk that finds a
+`jetstream.*Config` composite literal outside one package is about forty lines. If the rule
+is not worth writing, write the weaker sentence that is true without it. The same applies at
+the smaller scale: a doc comment naming a caller is a claim with an expiry date, so either
+name the mechanism instead (which cannot rot the same way) or state plainly that there is no
+caller today and why the shape is kept.
+
+## 156. Sweep for a recurring construction by what the code is trying to say, not by the shape of the instance in front of you, and do it before the fix rather than after the next failure
+
+**The incident.** A "this address must refuse connections" test fixture, built by opening a
+listener, reading its assigned port, closing it, and dialing the number again, has now failed
+in this repository three separate times: `FAILURE_PATTERNS.md` #123, then #177, then #181. A
+just-released loopback port keeps accepting connects on this project's WSL2 development host,
+so the dial sometimes succeeds and the failure the test exists to observe never happens.
+
+#177's fix touched the one file where the failure was observed. Nine more sites carried the
+identical construction, written in the same phase, and one of them flaked in the next
+session's very first full sweep.
+
+**The second miss is the lesson, not the first.** After that flake, a grep did go looking for
+the rest. It matched on the expression shape, `Addr().(*net.TCPAddr).Port` near a `Close`, and
+found four sites, which were fixed and repeat-run clean. A later full sweep then failed on a
+fifth, in a package the grep had walked past, and re-searching turned up five in total that
+the first pass had missed: one spelled `Addr().String()`, one used
+`LocalAddr().(*net.UDPAddr).Port`, one was a second occurrence inside a file that had just
+been edited for the first, and two were in a sibling package whose tests read almost
+identically to ones already fixed.
+
+Searching instead for what the code was *trying to say* found every one of them in a single
+pass: the phrase "nothing is listening", the variable name `deadListener`, the trailing
+comment "nothing is listening now". Those are the things an author writes when reaching for
+this construction, and they vary far less than the expression does.
+
+**Two of the ten sites correctly refused the standard fix, and that matters too.** A sweep
+that mechanically applies one fix everywhere produces tests that pass for new wrong reasons.
+The TFTP test asserts a *timeout budget* bounds the call, so a closed UDP port (which answers
+with an ICMP port-unreachable) or an invalid address (which fails validation earlier still)
+would both end the call before the budget ever bound anything; it needed a real socket held
+open and silent instead. `wait.port`'s helper needs a concrete port that is closed now and
+bindable later, which port 0 cannot express at all, so it closes the race by *checking* instead
+of by construction: it confirms the released port really refuses a connection before handing it
+back, and retries if not.
+
+That second one was first left alone under a comment calling it a considered exception, and the
+very next full sweep failed on it. Which is its own correction to this lesson: "the standard fix
+does not apply here" is a reason to find the fix that does apply, not a reason to stop. A
+documented exception is still a flaky test, and the documentation does not make the gate green.
+
+**The rule.** Finding a recurrence once is evidence the construction is attractive, not
+evidence it appeared once. Sweep the whole tree in the same commit as the fix, search on the
+intent rather than the syntax (comments, variable names, the sentence in the failure message),
+and when a site cannot take the standard fix, write down why it is different rather than
+forcing it or silently skipping it. The grep costs a minute; the alternative is discovering
+each remaining instance separately through a nondeterministic failure, which is exactly what
+happened here twice in one session.

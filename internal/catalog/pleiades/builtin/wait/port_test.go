@@ -216,16 +216,68 @@ func portOpenListenerOn(t *testing.T, host string) (net.Listener, int) {
 	return listener, addr.Port
 }
 
-// portClosedPort returns a port number nothing is listening on, by binding
-// one and releasing it immediately.
+// portClosedPort returns a port number nothing is listening on, by
+// binding one, releasing it, and then confirming for real that it
+// refuses a connection before handing it back.
+//
+// The confirmation is the whole point, and it is what
+// FAILURE_PATTERNS.md #123, #177 and #181 are about. Binding and
+// releasing alone is a race twice over: another process can claim the
+// port in the window, and on this project's own WSL2 development host a
+// just-released loopback port keeps accepting connects for a period
+// afterward because the Linux and Windows sides of loopback are bridged
+// and the release does not propagate immediately. Either one makes the
+// caller's "this port is closed" premise false, and the test then fails
+// with a message about the code under test rather than about its own
+// fixture. That happened: a full parallel sweep reported "a closed port
+// was reported as open by the bash prober" against a prober that was
+// working correctly.
+//
+// The literal port 0 those entries prescribe is not available here, and
+// that is why this helper exists at all rather than being deleted. Every
+// other site in this repository wants an address that can never be
+// reached, and port 0 gives exactly that. These tests want a concrete
+// port that is closed NOW and bindable LATER, because they prove
+// wait.port notices a port opening. Nothing can bind port 0 on purpose,
+// so it cannot express "closed, then open".
+//
+// So the race is closed by checking instead of by construction: probe
+// the candidate, and if anything answers, try another. A caller gets
+// either a port genuinely refusing connections at the moment it is
+// handed over, or a clear failure naming this fixture rather than a
+// confusing assertion several frames away.
 func portClosedPort(t *testing.T) int {
 	t.Helper()
 
-	listener, port := portOpenListener(t)
-	if err := listener.Close(); err != nil {
-		t.Fatalf("releasing the port: %v", err)
+	const attempts = 20
+	for i := 0; i < attempts; i++ {
+		listener, port := portOpenListener(t)
+		if err := listener.Close(); err != nil {
+			t.Fatalf("releasing the port: %v", err)
+		}
+		if portRefusesConnections(port) {
+			return port
+		}
 	}
-	return port
+
+	t.Fatalf("could not find a loopback port that refuses connections in %d attempts", attempts)
+	return 0
+}
+
+// portRefusesConnections reports whether a connect to port on loopback
+// is refused, which is what "closed" has to mean for the callers above.
+//
+// A short timeout is a real answer rather than an optimisation: a
+// loopback connect to a listening socket completes immediately, so
+// anything that neither connects nor is refused within it is not a port
+// these tests can use either way.
+func portRefusesConnections(port int) bool {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), 250*time.Millisecond)
+	if err != nil {
+		return true
+	}
+	_ = conn.Close()
+	return false
 }
 
 // portParams builds a task's params with host key verification off, which

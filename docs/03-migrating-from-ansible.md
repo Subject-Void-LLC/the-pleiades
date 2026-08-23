@@ -201,7 +201,7 @@ verified against Cisco's public DevNet sandbox.
 | `ansible.posix.mount` | `fs.mount`, `fs.unmount` | `LinuxCapable` | target side |
 | `ansible.windows.win_feature` | `win.feature.install`, `.remove` | `WindowsFeatureCapable` | target side |
 | `community.general.archive` | `archive.create` | `POSIXFileSystemCapable` | target side |
-| `community.general.unarchive` | `archive.extract` | `FileTransferCapable` | hybrid |
+| `community.general.unarchive` | `archive.extract` | `POSIXFileSystemCapable` | hybrid |
 | `community.docker.docker_container` | `container.docker.run`, `.stop`, `.remove` | `DockerCapable` | hybrid |
 | `amazon.aws.ec2_instance` | `cloud.aws.ec2.create`, `.terminate` | `AWSAPICapable` | controller side |
 | `amazon.aws.s3_bucket` | `cloud.aws.s3.create_bucket`, `.delete_bucket` | `AWSAPICapable` | controller side |
@@ -474,10 +474,13 @@ the container (it has no source yet for a target's known host key).
 
 `pleiades init` scaffolds an empty `inventory.yaml`. `pleiades add-host <name> --type
 <type> [--set key=value ...] [--tags ...]` adds one device at a time by hand;
-`pleiades inventory sync --plugin <name>` pulls devices from an external source (today,
-only `catalyst_center`, which registers as `implemented`, not `declared`: its
-implementation authenticates, pages the upstream device list, classifies each record, and
-reconciles the result into the project's `inventory.yaml`). Nothing reads an
+`pleiades inventory sync --plugin <name>` pulls devices from an external source. Run
+`pleiades inventory plugins` for the current list and for what each one needs;
+`docs/reference/plugins.md` is the same list generated from the registry. A plugin
+needing a per-deployment value takes it as `--set key=value`, so reading an AWS account
+is `pleiades inventory sync --plugin aws --set region=us-east-1`, and one that
+authenticates resolves its credential from the project credential store by its own name
+unless `--credential` names another. Nothing reads an
 Ansible dynamic inventory script or a Galaxy inventory plugin directly. There is no bulk import path
 from an existing AWX inventory today: migrating one means walking its host list and
 issuing one `add-host` per device, or writing a new sync plugin

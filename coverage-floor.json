@@ -63,7 +63,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/collectionscaffold": 89.9,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/filterscaffold": 88.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/genutil": 100.0,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold": 83.5,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/forge/pluginscaffold": 85.7,
     "github.com/Subject-Void-LLC/the-pleiades/internal/forge/viewscaffold": 87.5,
     "github.com/Subject-Void-LLC/the-pleiades/internal/inventory": 83.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/aws": 79.7,
@@ -75,8 +75,8 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/catalystcenter": 89.4,
     "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/staticyaml": 86.9,
     "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record": 100.0,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin": 90.5,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/launch": 87.4,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/syncplugin": 95.6,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/launch": 91.1,
     "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/playbook": 93.8,
     "github.com/Subject-Void-LLC/the-pleiades/internal/launch/kinds/runbook": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/localauth": 86.0,
@@ -89,7 +89,7 @@
     "github.com/Subject-Void-LLC/the-pleiades/internal/storage": 87.2,
     "github.com/Subject-Void-LLC/the-pleiades/internal/telemetry": 96.6,
     "github.com/Subject-Void-LLC/the-pleiades/internal/tlscert": 88.0,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/topology": 95.4,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/topology": 95.8,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport/hopchain": 100.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial": 100.0,
@@ -127,7 +127,8 @@
     "github.com/Subject-Void-LLC/the-pleiades/tools/gendocs": 90.9,
     "github.com/Subject-Void-LLC/the-pleiades/internal/schedule": 86.0,
     "github.com/Subject-Void-LLC/the-pleiades/internal/schedule/rrule": 84.0,
-    "github.com/Subject-Void-LLC/the-pleiades/internal/schedule/zoneinfo": 93.0
+    "github.com/Subject-Void-LLC/the-pleiades/internal/schedule/zoneinfo": 93.0,
+    "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/devices/console": 100.0
   },
   "_exceptions": {
     "github.com/Subject-Void-LLC/the-pleiades/internal/runner": "Phase 15 (Runner Agent Scaffold) lowered this floor from 93.5 to 87.1, the one deliberate exception to this file's own 'never silently down' rule, recorded here rather than silently edited. The prior 93.5 was measured against a small pull-loop-plus-backoff Agent; this phase roughly quadrupled the package (a bounded worker pool, a per-device lock/heartbeat/self-abort supervisor, and a full Write-Ahead-Log subsystem: wal.go, wal_file.go, agent_wal.go), each with real, RULE-0-representative tests (real lock.NewInProcessManager(), real fileWAL file I/O, a real NATS container for the Release Gate). 87.1% was reached after closing every reasonably-reachable gap; the remainder is concentrated in atomicWriteFile/NewFileWAL's OS-failure branches (CreateTemp/Chmod/Sync/Rename, and a permission-denied probe), which this sandbox cannot exercise because it runs as root (permission bits do not block root writes) -- HANDOFF_DOCUMENT.md's own Phase 15 session notes record this in full.",
