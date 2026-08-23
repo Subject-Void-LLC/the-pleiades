@@ -2,11 +2,13 @@ package resources_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +43,31 @@ import (
 // on a duplicate name by design, so the suite registers exactly once and
 // every test reads the same table the binary would.
 var registerOnce sync.Once
+
+// uniqueNameSeq numbers the names uniqueName hands out.
+var uniqueNameSeq atomic.Int64
+
+// uniqueName returns a record name nothing in this process has used yet.
+//
+// A fixed literal will not do, and neither will one built from t.Name().
+// This package's fixture opens ONE database per process, on a fixed
+// shared-cache in-memory DSN, and deliberately never closes it (see
+// access_fixture_test.go, which records what closing it broke), while
+// registerOnce seeds it exactly once. So every row a test writes is still
+// there for the rest of the process, including for the next iteration of
+// the same test: `go test -count>1` re-runs a top-level test under the
+// IDENTICAL name, because testing only de-duplicates subtest names. A
+// repeated name therefore hits a real unique index and the handler answers
+// 500, which is the failure this exists to remove.
+//
+// Resetting the fixture instead does not work and is worth not
+// rediscovering: the DSN is shared-cache and the first client is never
+// closed, so a second Open reattaches to the same live database with the
+// same rows, and the seed collides before any test does.
+func uniqueName(t *testing.T, prefix string) string {
+	t.Helper()
+	return fmt.Sprintf("%s-%d", prefix, uniqueNameSeq.Add(1))
+}
 
 // conformanceStream is the activity stream the registered views write to,
 // captured at registration so an assertion can read what a UI write

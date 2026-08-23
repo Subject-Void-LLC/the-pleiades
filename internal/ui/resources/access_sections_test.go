@@ -70,12 +70,13 @@ func TestAccessSection_SaysSoWhenThereAreNoGrants(t *testing.T) {
 
 	// A record with no grants on it at all: the second organization in the
 	// fixture has its own, so this uses a freshly created one.
-	w := h.post(t, "/ui/organizations", map[string]string{"name": "ungranted-organization"})
+	ungranted := uniqueName(t, "ungranted-organization")
+	w := h.post(t, "/ui/organizations", map[string]string{"name": ungranted})
 	if w.Code >= 400 {
 		t.Fatalf("POST /ui/organizations = %d, want a successful write", w.Code)
 	}
 
-	id := recordIDNamed(t, h, "organizations", "ungranted-organization")
+	id := recordIDNamed(t, h, "organizations", ungranted)
 	body := h.get(t, "/ui/organizations/"+id).Body.String()
 
 	// An empty table and "nothing grants access to this" look identical,

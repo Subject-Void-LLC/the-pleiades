@@ -466,6 +466,18 @@ func TestStream_RendersOnlyWhereDeclared(t *testing.T) {
 func TestActionForm_PromptsBeforeRunning(t *testing.T) {
 	p := newRecordProbe(t)
 
+	// actionCalls is a package-level spy, so what this test asserts is a
+	// PRECONDITION -- that nothing had run at the moment of the GET below --
+	// and a precondition has to be established here rather than tidied up by
+	// whoever wrote the last test to touch it. TestRunAction_SubmitsAndRedirects
+	// clears it on entry too and leaves "alpha" behind on exit, which is
+	// invisible in source order (it is declared after this test) and shows up
+	// only on the second iteration of -count>1, where iteration one's write is
+	// still sitting here.
+	actionCalls.Lock()
+	actionCalls.id, actionCalls.group = "", ""
+	actionCalls.Unlock()
+
 	rec := p.get(t, "/ui/"+gadgetView+"/alpha/run")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
