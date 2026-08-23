@@ -6088,3 +6088,300 @@ of the file, and the test that supposedly proved it never looked at a
 port mapping. And a readiness strategy is part of the topology, not
 scaffolding around it: this one quietly demanded a host mapping, which
 was exactly what the subject under test forbade.
+
+## 187. One test asserted a fact was present where its twelve siblings asserted a value, so it alone had no environmental guard and was the only one to fail off Linux
+
+**Symptom.** `make test-no-docker` failed on the CI matrix's `macos-latest`
+leg, in `internal/catalog/facts`, on one test:
+
+```
+--- FAIL: TestGather_FilterMatchesAsAGlob
+    gather_test.go:438: ansible_distribution fact is missing, want the glob to have matched it
+    gather_test.go:438: ansible_distribution_version fact is missing, want the glob to have matched it
+    gather_test.go:442: facts = map[], want only the two the glob matches
+```
+
+`build` and `vet` were clean on all three legs, and the whole package
+passed on `ubuntu-latest`.
+
+**Root cause.** Not what it looks like, and the first diagnosis offered for
+it was wrong in a way worth recording, because it was plausible and would
+have made the test strictly worse.
+
+`facts.gather` is a remote SSH method. Its test suite deliberately points
+it at a real in-process SSH server that hands every command to a real
+`/bin/sh` on the machine running the test (`pkg/remoteexec/remoteexectest`),
+which the file's own header states is RULE 0's doing: "a server returning
+canned bytes would only prove the canned bytes were canned". So the
+"device" being probed on the macOS leg is the macOS runner, and the method's
+os-release probe is one `cat /etc/os-release`, a file macOS does not have.
+
+The method therefore behaved **correctly**: it emitted no fact the device
+could not answer, which is the contract its own manifest advertises
+("Returned: when /etc/os-release names one"). Nothing was broken in the
+product, and nothing was broken in the transport.
+
+What was broken was one test's assertion shape. Twelve of the thirteen
+tests in the file reach their expected values through `gatherReadFile`,
+`gatherCommandOutput` or `gatherOSReleaseValue`, each of which `t.Skipf`s
+when this machine cannot answer, so each carries an environmental guard as
+a side effect of computing what it expects. `TestGather_FilterMatchesAsAGlob`
+asserted only that two keys were **present**, never comparing a value, so it
+touched none of those helpers and had no guard to inherit. It was the only
+test in the file that could fail rather than skip on a host without
+`/etc/os-release`, and it did.
+
+The wrong diagnosis was that the gatherer was "likely executing against the
+live runner's OS rather than a mocked dataset", with the recommended fix
+being to inject a static map of fake facts. That inverts the design: the
+live execution is the point, and a static map cannot express what this test
+actually pins, which is that the glob skips the **commands sent** rather
+than filtering the output on the way back. The second suggestion, asserting
+a portable fact like `ansible_system` instead, does not apply either ,
+`facts.gather` does not emit `ansible_system`, and the test is specifically
+about one command answering two facts, which only the os-release pair does.
+
+**Fix.** The glob test now resolves both expected values through
+`gatherOSReleaseValue` before the round trip and compares against them. That
+is one change with two effects: it inherits the same skip its siblings have,
+and it is strictly stronger on Linux, where a glob selecting the right two
+keys but filling them with the wrong values previously passed.
+
+The reproduction did not need a Mac. Hiding `/etc/os-release` in a mount
+namespace on Linux, with `/etc` otherwise intact, produced the CI failure
+byte for byte:
+
+```
+go test -c -o /tmp/facts.test ./internal/catalog/facts
+cp -a /etc /tmp/etc-noosrelease && rm -f /tmp/etc-noosrelease/os-release
+unshare -rm sh -c 'mount --bind /tmp/etc-noosrelease /etc; /tmp/facts.test -test.v'
+```
+
+Before: 10 pass, 2 skip, 1 fail. After: 10 pass, 3 skip, 0 fail.
+
+**Lesson.** The fix closed the failure and opened the real question, which
+is the second half of this entry and is recorded as
+`LESSONS_LEARNED.md` #158: once the test skips politely, macOS reports `ok`
+for the package while three of fourteen tests never ran, including the
+happy path. `TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip`
+was added in the same commit so that the identical skip is a **failure** on
+Linux, where these facts are the whole reason the evidence exists. It is
+controlled by the same namespace recipe above, which turns it red on
+demand.
+
+## 188. Nine packages could not run their own tests twice in one process, and no gate in this repository could ever have noticed
+
+**Symptom.** `go test -count=2` over every non-Docker package failed in
+nine of them: twenty-four tests, two of which were not failures but hard
+panics that killed the test binary and took every later test in the
+package with them.
+
+```
+--- FAIL: TestCollectionActionExecutor_InvokesRegisteredMethod
+    collection_action_test.go:73: registering enginetest.invoked: duplicate registration for "enginetest.invoked"
+panic: collection: duplicate registration for "test.must_register_duplicate" [recovered, repanicked]
+panic: syncplugin: duplicate registration for "stub_must_register" [recovered, repanicked]
+```
+
+Every one of them passed at `-count=1`, which is `go test`'s default and
+therefore what every target in the `Makefile` had always measured.
+
+**Root cause.** Two causes, not one, and separating them was the whole
+diagnosis.
+
+*Cause A, seven packages.* A test registers into a process-global registry
+and never removes the entry, because `pkg/registry.Registry[T]` had no
+unregister, reset or restore of any kind, and neither did any of its
+consumers -- a repo-wide search for `func Reset|Unregister|Clear` returned
+one unrelated hit. The registry outlives the test, so a second iteration
+re-registers a name the first iteration left behind. `Register` returns
+`duplicate registration for %q`; `MustRegister` panics.
+
+`internal/launch` deserves its own note, because it had visibly tried to
+solve this and the attempt looked right. `unknownkind_test.go` named its
+kind after `t.Name()`, which de-duplicates the two tests in that file
+against each other. It does not de-duplicate a test against itself:
+`testing.matcher.fullName` appends a `#01` suffix for SUBTEST names only
+(`$GOROOT/src/testing/match.go:89-91`), so a top-level test re-run by
+`-count` computes the identical name and the identical key.
+
+*Cause B, two packages, unrelated mechanism.* `internal/ui/resources`
+opens its fixture database on a FIXED shared-cache in-memory DSN
+(`file:uiaccessfixture?mode=memory&cache=shared&_fk=1`) and deliberately
+never closes it, behind a `sync.Once` that seeds once per PROCESS. Four
+tests then created records with hard-coded names, so iteration two
+re-inserted a name iteration one had committed and hit a real unique
+index. The handler answered 500 and the test reported only the status
+code, so the actual cause (`access: a record with that name already
+exists`) was invisible until the handler's own log line was surfaced.
+`internal/ui/web` was a package-level spy (`actionCalls`) that one test
+cleared on entry and never on exit, read by an earlier-declared test that
+never cleared it at all.
+
+**What made it invisible.** Nothing here is exotic; the reason it survived
+is that no gate could see it. `go test` defaults to `-count=1`, so `make
+test`, `make test-race`, `make test-no-docker` and every CI leg measured
+exactly one iteration forever. Coverage cannot see it either, since the
+lines do run. `go vet` has no opinion. Two of the nine were panics, which
+means the class was not merely latent -- it was already destroying test
+binaries, and only ever on a run nobody performed.
+
+**Fix.** `pkg/registry.Registry[T].SnapshotForTest()` returns a restore
+closure; the six packages owning a package-level table re-export it as
+`SnapshotForTest()`, and each offending test gained one
+`t.Cleanup(...)` line. No assertion changed. Cause B got per-invocation
+names (`uniqueName`, which counts rather than using `t.Name()`, since
+`t.Name()` repeats across iterations) and one precondition reset.
+
+Two guards, because neither covers the other's cause. `make test-repeat`
+runs the non-Docker set repeatedly and is wired into `ci` and `push-gate`;
+it is the only thing that can catch Cause B, since a 500 from leaked
+fixture state is invisible to any AST rule. And
+`internal/archtest/testseam_test.go` forbids production code from calling
+anything named `*ForTest`, since the seam had to be exported surface rather
+than an `export_test.go` (a `_test.go` file cannot be imported across
+package boundaries, and four of the seven packages isolate a table
+`pkg/collection` owns).
+
+The gate is set at `-count=3`, and the third iteration is the part worth
+recording. `-count=2` catches everything above, and it is VACUOUS against a
+third cause found by going one step further: `pkg/remoteexec.Shared`
+memoizes one Runner per Options for the life of the process, its circuit
+breaker counts consecutive failures with no window and no decay, and one
+`net.ssh.ping` spends three dial attempts against a threshold of five. So a
+test whose whole subject is a dial failure passes at 1 and at 2 and fails
+from 3, where the error stops naming the dial failure and says "circuit
+open" instead. State that accumulates toward a threshold does not collide
+on first repeat, which is the assumption `-count=2` encodes. `pkg/remoteexec`
+got the same seam, with one difference forced by what it holds: it EMPTIES
+the memo as well as capturing it, because the map holds Runner POINTERS and
+handing the same map back returns the same Runner with its counter intact.
+
+**Lesson.** Recorded as `LESSONS_LEARNED.md` #159. The sweep is also its
+own evidence for #157: fixing only `internal/launch`, which is what the
+prior session's handoff had scoped, would have fixed two of twenty-four
+failures. Going one step past the new gate found a tenth package failing for a THIRD
+cause, the circuit breaker described above, which is the same lesson
+arriving a third time in one session and the reason the gate ships at 3
+rather than at the 2 that would have been enough for everything already
+found.
+
+## 189. A lost race returned the same sentinel as a real collision, so the operator was told to rename a credential type that does not exist
+
+**Symptom.** None visible, which is the point. Two controllers cold-starting
+against one shared empty database both reconcile the managed credential
+types this platform ships. One wins. The other logs:
+
+```
+WARN a managed credential type could not be installed because a custom type holds its namespace
+     namespace=aws action="rename the custom credential type to free the namespace"
+```
+
+and `ReconcileManaged` returns a non-nil error, failing a startup that in
+fact succeeded. There is no custom type. The row named is the correct
+managed one the other controller had just written a millisecond earlier.
+
+**Root cause.** `EnsureManagedType` reads the namespace with `Only()` and
+creates on `ent.IsNotFound`. Between those two statements another process
+can claim the namespace, and the `Create` then violates the unique index
+`internal/ent/schema/credential_type.go` declares on it. That constraint
+error went through `wrapConstraint`, which returns `ErrExists`, and
+`ErrExists` is **the same sentinel** the method returns when a genuine
+CUSTOM type already holds the namespace. `ReconcileManaged` branches on
+that sentinel alone, so the two situations were indistinguishable at the
+only place that had to tell them apart.
+
+The window is small but the exposure is not theoretical: driving eight
+concurrent reconciles against one shared WAL database produced at least one
+bogus `ErrExists` in 84 of 100 runs.
+
+Two things made it survive. The branch had **0% coverage**, and it is
+unreachable by any sequential test as the method is written: the query is
+on the exact namespace about to be written, so a single-threaded caller
+reaching the create arm has already proven no row holds it. And the method's
+own doc comment claims it is "idempotent by construction", which is true
+right up until two callers run at once, i.e. exactly the situation the
+sentence exists to describe.
+
+**Fix.** The create arm now distinguishes a constraint error from any other
+write failure. On a constraint it re-reads the row that beat it and hands
+it to `adoptExistingType`, the same helper the "row was already there"
+branch uses, so the two paths agree by construction rather than by two
+similar blocks staying in sync: a managed winner is adopted and reconciled
+onto, and a custom winner still returns `ErrExists`, which is the one case
+an operator does have to act on. Any non-constraint failure is still
+reported, because re-reading after a disk error would report a success that
+never happened.
+
+The tests manufacture the collision two ways rather than one. An ent
+mutation hook writes the rival row inside the store's own insert, which
+produces a REAL constraint violation from the real database at a
+deterministic moment, and pins the branch; a starting-gate test with eight
+goroutines pins the property. Both were run against the unfixed code first,
+where the deterministic one fails with the misleading `ErrExists` verbatim.
+One trap worth recording: the hook's own write re-enters the hook, so
+guarding it with `sync.Once` deadlocks, because `Do` is not reentrant.
+
+**Lesson.** Two sentinels that mean different things to the caller must not
+be the same value, and the compiler will never tell you. The tell here was
+available years before the incident: a method documented as idempotent, a
+branch at 0% coverage, and a caller switching on a sentinel to choose an
+operator-facing instruction. Any one of those is a question worth asking;
+all three together describe this bug exactly.
+
+## 190. A capability added to a device type left the Grand Integration Test asserting a set that no longer matched, and main stayed red at test-integration across three merged pull requests
+
+**Symptom.** `make ci` fails at `test-integration`, in the one test that
+drives the real binaries against real PostgreSQL and real NATS:
+
+```
+--- FAIL: TestGrandIntegration (11.33s)
+    integration_test.go:114: rtr1 payload capabilities = [SSHTransportCapable CiscoIOSCapable NetworkAddressableCapable],
+        want the set map[CiscoIOSCapable:true SSHTransportCapable:true]
+```
+
+The device carries one capability MORE than the assertion allows.
+
+**Root cause.** `cc71f55` gave `cisco.Router` an `IPAddress()` accessor,
+which is what makes a device satisfy `NetworkAddressableCapable`, so that
+`pleiades.builtin.wait.port` could dispatch against a real device at all.
+That was correct and deliberate, and `internal/archtest`'s own sweep
+records the reasoning: this capability was "fixed for real instead of
+allowlisted", because `IPAddress()` is trivial, already-known data on
+every network-reachable device type.
+
+`tests/e2e`'s `wantCaps` compares the dispatch payload against an EXACT
+set, by length and then by membership. Nobody updated it. The capability
+was added on the Phase 73 branch and merged in PR #23; the expectation
+was last touched many phases earlier.
+
+**What made it survive.** The assertion is exact on both sides, which is
+the right shape for this test and is also what made it break silently
+from the other direction: a capability ADDED anywhere in the device tree
+breaks a test that names none of the packages involved, and the failure
+surfaces only in the slowest, most expensive, most easily-assumed-flaky
+suite in the module. `tests/e2e` is the first entry in
+`flaky-packages.json` and `FAILURE_PATTERNS.md` #61 names
+`TestGrandIntegration` specifically, so a red run here reads as known
+noise. It is not: #61's signature is a container port-mapping race or a
+lock-contention hang, and this was a deterministic assertion that failed
+identically every time.
+
+Verified pre-existing rather than assumed. A `git worktree` at clean
+`origin/main` (`bfdd9a2`) reproduced the identical message, byte for
+byte, with none of the current branch's changes present.
+
+**Fix.** The expectation gains `capability.NameNetworkAddressable`, with
+a comment naming the phase that added it and pointing at the archtest
+sweep that records why it is deliberate.
+
+**Lesson.** An exact-set assertion in an end-to-end test is a
+cross-repository invariant wearing local clothes: it constrains every
+device type, in packages it never names, and it can be broken by a change
+that is correct in itself. That is worth keeping rather than loosening,
+because the alternative (a subset check) would have let a real capability
+regression through silently. What has to change is where the failure is
+noticed: this one sat behind a suite everybody already treats as flaky,
+which is how a hard, repeatable failure hid for three merged pull
+requests. When a package on `flaky-packages.json` fails, read the actual
+assertion before reaching for the rerun.

@@ -4,232 +4,141 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Capability-Reachability-And-Plugin-Wiring`, cut at the start of this session off
-`feature/aws-collection`'s HEAD (`505c203`, "cleanup chore for swapped crawl/walk phases"). HEAD is
-now `afb6569`, a commit **the user made themselves, mid-session**, fixing CI on all three matrix
-legs; it is unrelated to the work below except that it swept this session's already-written
-`FAILURE_PATTERNS` entries into itself alongside the user's own. `origin/main` was then merged in,
-which collided on numbering in both living documents (see the note directly below); the merge
-resolution is part of this branch. A drafted
-commit message is in this session's final message.**
+**Branch `feature/Test-Isolation-the-Lost-Race-and-the-Unreached-Endpoint`, cut off `main`
+(`bfdd9a2`, the merge of PR #25). Nothing is committed: every change below is in the working tree,
+and the standing rule that the assistant never runs `git commit` without the user's own live word
+was held throughout. `internal/archtest/testseam_test.go`, `internal/credstore/lostrace_test.go`,
+`pkg/remoteexec/sharedseam_test.go` and `changelog/duplicate-name-field-error.fixed.md` are
+UNTRACKED and need `git add`; `make ci` stays green without the first of them, because its absence
+removes a rule rather than failing one.**
 
-This session fixed one class of defect and the guard gap that let it through: **things that are
-built, tested, documented, and reached by nothing that ships.** Three live instances, three new
-`internal/archtest` sweeps, and the lower-priority audit items that were re-verified before being
-acted on.
+This session closed the three follow-ups the previous one deliberately left undone, plus the macOS
+CI failure the user brought mid-session. Two of the three changed shape once re-derived from
+source, which is the previous handoff's own instruction, and one of the four turned out to be nine
+packages rather than one.
 
-### The three live defects
+### What was done, in the order the commits should land
 
-**1. `pleiades inventory sync --plugin aws` was broken unconditionally, from the day the plugin
-landed.** `aws.WithRegion` and `aws.WithCredentialStore` had test callers and nothing else
-(`gopls references`), while the registry's own `Descriptor.New` took no arguments, so the CLI built
-the plugin with `region == ""` and `creds == nil` and `Connect` refused every time. Three suites
-were green throughout, because each constructed the plugin its own way.
-`cmd/pleiades/inventory.go`'s `buildSyncPlugin` type switch wired exactly one plugin and its own
-comment had predicted the failure ("when a third plugin needs it, this becomes an optional
-interface..."). Fixed by making the dependency a constructor parameter rather than an option:
-`syncplugin.Constructor` is now `func(Deps) Plugin`, `Deps` carries the credential store, a
-per-deployment value is declared data (`Descriptor.Settings []SettingSpec`) supplied as
-`--set key=value`, and `syncplugin.Open` is the one construction path both `cmd/pleiades` and the
-conformance suite go through. `buildSyncPlugin` is gone. `static_yaml` was checked and had no such
-gap; it is now the control case proving `Deps` and `Settings` are genuinely optional.
+1. **The red macOS leg (`internal/catalog/facts`).** One test asserted a fact was PRESENT where its
+   twelve siblings assert a VALUE, so it alone had no environmental guard and was the only one of
+   thirteen to fail on a host with no `/etc/os-release`. It now compares values through
+   `gatherOSReleaseValue`, which is both stronger on Linux and gives it the same skip its siblings
+   have, and `TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip` makes that skip a
+   FAILURE on Linux so the platform the evidence comes from cannot start skipping quietly.
+   `FAILURE_PATTERNS` #187, `LESSONS_LEARNED` #158.
 
-**2. Phase 73's serial/console/telnet transports were unreachable.** No production device type
-implemented `SerialCapable`, `RawPassthroughCapable`, `RFC2217Capable` or `TelnetCapable`; the only
-implementers were stubs in `internal/engine/action_ssh_test.go`. Fixed with a real
-`console_device` type (`internal/inventory/devices/console`), scaffolded through the actual
-`pleiades forge new-device` CLI and hand-completed, hydrating from `pkg/inventory.Properties` the
-way `linux.Server.SSHPort` does. It declares each capability **per record** rather than all four
-unconditionally, because they are alternative ways to reach one device rather than four facts about
-it; the package doc argues that at length, and the deviation from `container.Host`'s unconditional
-baseline is deliberate and disclosed (including in the generated `docs/reference/devices.md`, whose
-marker is derived by hydrating each type rather than hardcoded).
+   The diagnosis handed to the assistant was wrong and is worth not repeating: it read the suite's
+   use of the live host as an accident and recommended a static fake-facts map. That suite runs a
+   real in-process SSH server against a real `/bin/sh` on purpose, says so in its own header, and
+   the mock would have deleted the one thing the test proves (that the glob skips the COMMANDS, not
+   the output). Reproduced without a Mac by hiding `/etc/os-release` in a mount namespace.
 
-**3. The guard gap, which mattered most.** `TestImplementedCollectionCapabilitiesAreSatisfiable`
-walks `catalogdata.Collections` only, so transport fqcns were entirely outside its coverage; Phase
-73 shipped that guard and this defect in the same commit. Three new sweeps in
-`internal/archtest`, each with a permanent negative control rather than a one-off manual
-un-wiring:
+2. **Test isolation, nine packages.** `go test -count=2` failed in nine, 24 tests, 2 of them hard
+   panics. Two causes: seven packages register into a process-global registry and never remove the
+   entry, two leak fixture state (a never-closed shared-cache SQLite on a fixed DSN plus hard-coded
+   record names, and a package-level spy). `pkg/registry` gained `SnapshotForTest`, six owning
+   packages re-export it, and each offending test gained one `t.Cleanup`. `FAILURE_PATTERNS` #188,
+   `LESSONS_LEARNED` #159 and #160.
 
-- `TestDispatchableTransportCapabilitiesAreSatisfiable` / `TestBoundTransportCapabilitiesAreSatisfiable`
-  (`transport_reachability_test.go`) cover `engine.ActionCapability` and the real
-  `NewDefaultTransportBindings` registry. Running them for the first time reproduced all three
-  failures verbatim.
-- `TestRegisteredCapabilitiesAreReachable` covers the class neither of the other two can see: a
-  capability nothing requires **and** nothing satisfies. It found `FileTransferCapable`, which
-  `docs/03-migrating-from-ansible.md` was telling users `archive.extract` requires (it requires
-  `POSIXFileSystemCapable`).
-- `TestEveryRegisteredPluginOpensFromTheSharedPath` and
-  `TestCompositionRootsBuildPluginsThroughTheRegistry` (`plugin_reachability_test.go`) are the
-  same shape one level up. The second is the one that would have caught #1 outright: it forbids
-  any `cmd/` package from importing an individual plugin package, which forbids the type switch
-  that made a per-plugin arrangement expressible at all.
+3. **`internal/ui/resources` and `internal/ui/web`** got per-invocation names and a precondition
+   reset. Note `uniqueName` counts rather than using `t.Name()`: `-count` does NOT make top-level
+   test names unique, only subtest names.
 
-### The forge, which the user asked about first
+4. **A duplicate name is now a field error, not a 500.** Found only because the `-count=2` failure
+   forced the handler's real error into the open. Both writers on organizations and templates, on
+   create AND update, now map their store's `ErrExists` to `view.FieldFault`. Changelog fragment
+   added.
 
-Yes, it needed updating, and the update is what stops #1 recurring one generation later.
-`pluginscaffold.Config` gained `RequiresCredentials` and `Settings`; the template emits a
-constructor taking `syncplugin.Deps`, a descriptor declaring both, and a `Connect` whose TODOs name
-`p.creds` and `cfg.Setting("...")`. `pleiades forge new-plugin` gained `--requires-credentials` and
-`--settings-json` (following `--doc-json`'s established `@file` convention), `tools/gencatalog`
-threads both through the real CLI, and `catalogdata.Plugins` now declares AWS's region and
-credential requirement so a regenerated skeleton comes out wired.
+5. **`credstore.EnsureManagedType`'s lost race.** Confirmed and worse than described: the create
+   arm returned the SAME `ErrExists` sentinel a genuine custom-type collision returns, so
+   `ReconcileManaged` told the operator to rename a custom credential type that does not exist,
+   and failed a startup that had succeeded. Now re-reads and routes through one shared
+   `adoptExistingType`, so the raced and unraced paths agree by construction.
+   `FAILURE_PATTERNS` #189.
 
-### Lower-priority audit items: re-verified first, then acted on selectively
+6. **`transport.DockerExecEndpoint` deleted.** 32 lines, one file. `gopls` found exactly one
+   reference, its own marker method. The reason recorded last session for keeping it was wrong:
+   it is under `internal/`, so nothing outside this module could ever have imported it. No
+   changelog fragment, per `changelog/README.md`: nothing a user can see changed.
 
-A six-agent workflow re-derived each claim from source with `gopls` (the user authorized workflows
-mid-session). Two claims came back materially corrected, and both corrections are recorded rather
-than quietly absorbed:
+### Two guards, and why the gate is at `-count=3`
 
-- **NATS KV bucket: acted on, but the reported diagnosis was wrong.** There was one config literal
-  reached through one constructor, not two independent declarations, so the "multi-declaration
-  drift" framing would send a reader hunting for a second literal that does not exist. The real
-  exposure is version skew across a rolling upgrade of two separately-built images. Fixed by moving
-  the shape to `topology.LockBucketConfig()` and adding
-  `TestOnlyTopologyDeclaresJetStreamShapes`, an AST rule that makes topology's own doc claim (and
-  `layering_test.go`'s repetition of it, both false when written) true.
-- **`credstore.ReconcileManaged`: NOT acted on, deliberately.** The equality guard the audit asked
-  for is the wrong fix: it saves six no-op UPDATEs nothing observes and leaves the same TOCTOU
-  window. The real (minor) issue is a lost-race warning on a concurrent cold start against an empty
-  shared database, and the honest fix is in `EnsureManagedType`'s constraint-error branch, which
-  changes error semantics and deserves its own change with its own tests. Left undone and reported.
-- **`internal/pki` and `lock.CapacityCounter`: not dead, do not delete.** Both are deliberate
-  Build-Once declarations already documented elsewhere; `internal/pki` gained the package-level
-  disclosure it was missing.
-- **`transport.DockerExecEndpoint`: disclosed rather than deleted.** Deleting shipped API surface
-  was beyond what was asked; the doc comment now states why nothing constructs it and why the
-  variant is kept. The delete option is reported.
-- **`catalystcenter.WithClientOption`: deleted** (zero callers, and its "tests use it" claim was
-  false). **`pkg/catalystcenter.WithHTTPClient`: comment fixed, not deleted** (it is on `pkg/`, the
-  surface a Collection may import, and a TLS/proxy escape hatch is a normal thing to offer); its
-  ordering hazard against `WithInsecureSkipVerify` is now documented on both.
-- **`go mod tidy`: run.** 8 modules promoted indirect to direct, **6 removed** (aws-sdk-v2
-  config/sso/ssooidc/sts/signin/imds), 3 stale go.sum pairs dropped. The removals are the part a
-  reviewer needs to see: anything later wanting `config.LoadDefaultConfig` re-adds them.
-  `make ci` and `make push-gate` gained a `tidy-check` target so this cannot drift again.
+`make test-repeat` runs the non-Docker set at `-count=3` and is wired into `ci` and `push-gate`.
+`internal/archtest/testseam_test.go` forbids production code from calling anything named
+`*ForTest`, which is what makes the seam safe to have as exported surface at all (an
+`export_test.go` cannot be imported across package boundaries, and four of the seven packages
+isolate a table `pkg/collection` owns). Both guards were negative-controlled live against the real
+tree and restored from a scratchpad copy.
 
-### One real flake found and fixed, in ten places, after the first sweep for it missed five
-
-A full sweep failed once on `internal/transport/serialtcp`'s bastion test: `FAILURE_PATTERNS.md`
-#177 verbatim, in a file #177's own fix did not touch. A grep on the expression shape found four
-sites, which were fixed; the next full sweep then failed on a fifth, and re-searching on the
-code's *intent* instead ("nothing is listening", `deadListener`, "listening now") found all ten in
-one pass. Eight now use literal port 0 and cite #123/#177/#181 by number. Two cannot: `pkg/tftpxfer`'s test
-asserts a timeout budget, which a closed UDP port or an invalid address would both short-circuit,
-so it holds a real socket open and silent instead; and
-`internal/catalog/pleiades/builtin/wait`'s `portClosedPort` needs a port that is closed now and
-bindable later, which port 0 cannot express. That second one was first written up as a considered
-exception and left alone, and the very next full sweep failed on it ("a closed port was reported as
-open by the bash prober", against a prober that was working correctly), so it now closes the race
-by checking rather than by construction: it confirms the released port really refuses a connection
-before handing it back, and retries if not. Three direct-dial assertions were also strengthened
-from "an error occurred" to "the error names the address", which is what their own doc comments
-already claimed. Verified `-count=8 -race` across all seven affected packages and `-count=6 -race`
-on the wait package.
-
-### Documentation
-
-`FAILURE_PATTERNS.md`/`_ARCHIVE.md` #180-#183 (this session) and #184-#186 (the user's own CI-fixing commit), `LESSONS_LEARNED.md`/`_ARCHIVE.md` #154-#157. Numbers as resolved against `main`; see the merge note above.
-`docs/10-running-in-production.md` gained the `console_device` configuration section its serial
-transport docs were describing without ever saying how to declare one.
-`docs/03-migrating-from-ansible.md`'s stale "only catalyst_center" claim and its wrong
-`archive.extract` capability row are fixed. `docs/reference/{devices,plugins,cli}.md` regenerate
-clean, and `plugins.md` gained a **Needs** column derived from each descriptor.
+**The third iteration is not padding.** `-count=2` catches everything in item 2 and is VACUOUS
+against a third cause found by going further: `pkg/remoteexec.Shared` memoizes one Runner per
+Options for the process lifetime, its breaker counts consecutive failures with no decay, and one
+`net.ssh.ping` spends three attempts against a threshold of five, so a dial-failure test passes at
+1 and 2 and fails from 3. State that accumulates toward a THRESHOLD does not collide on first
+repeat, which is the assumption `-count=2` encodes.
 
 ### Read this first
 
-**The audit's own claims needed re-verification, and two were materially wrong.** The user said so
-up front and was right. Do not carry an audit finding into a fix without re-deriving it; the NATS
-KV item in particular would have produced a commit message describing a defect that does not exist.
+**An audit finding handed to you can be confidently wrong about the mechanism AND about the fix.**
+The macOS diagnosis above was both. The previous session said the same thing about its own audit.
+Re-derive before acting, every time.
 
-**A negative control belongs in the test file, not in a session transcript.** Every sweep added
-here carries a permanent synthetic control, because Phase 73's own guards were controlled by
-temporarily un-wiring a device type, which is real evidence that leaves no trace for the next
-reader. Two of the new rules were additionally controlled live against the real tree (a probe file
-in `internal/lock`, and removing an allowlist entry with a scratchpad backup rather than
-`git checkout --`, per the prior session's own lesson).
+**A fix can make another test weaker without failing it.** Cleaning up the leaked registrations
+dropped `internal/inventory/syncplugin` below its coverage floor, and the cause was
+`TestNames_IsSorted` asserting over an empty slice: it had only ever been testing a sort because
+OTHER tests were leaking entries into the registry it read. It now registers its own. A coverage
+drop after an isolation fix is a signal to look for that shape, not a number to re-baseline.
 
-**`console_device` deliberately breaks the "baseline capabilities" invariant every other device
-type follows.** That is the one design decision here a reviewer should push back on if they
-disagree. The reasoning is Architecture Principle 5 (type safety moves left): declaring all four
-unconditionally would make `validate.CapabilityRule` answer "yes, serial_exec is fine" for a
-Telnet-only device.
+**Scope discovered mid-flight, and deliberately not taken.** A review of the UI fix found that 8 of
+9 write ports in `internal/ui/resources` pass their port's error through raw, so the same 500 is
+reachable on more than the two resources fixed here, and `view.FieldFault` has had exactly one
+production caller in the whole module. Fixing the other ports is a real follow-up and is NOT done.
 
-**No commit without the user's own live word.** Held throughout.
+### One pre-existing failure found by running the gate, and fixed
+
+`make ci` failed at `test-integration` on `tests/e2e`'s `TestGrandIntegration`:
+`rtr1 payload capabilities = [SSHTransportCapable CiscoIOSCapable NetworkAddressableCapable], want the
+set map[CiscoIOSCapable:true SSHTransportCapable:true]`. It is NOT this branch's doing and it is NOT
+the known flake. `cc71f55` gave `cisco.Router` an `IPAddress()` accessor so
+`pleiades.builtin.wait.port` could dispatch against a real device, which makes every router
+`NetworkAddressableCapable`; the e2e expectation compares an EXACT set and was never updated. So
+`main` has been red at `test-integration` since PR #23 merged.
+
+Verified rather than assumed: a `git worktree` at clean `origin/main` (`bfdd9a2`) reproduces the
+identical message byte for byte, with none of this branch's changes present. The capability is
+deliberate, and `internal/archtest/registry_sweep_test.go` records why ("fixed for real instead of
+allowlisted"), so the stale side is the test. `FAILURE_PATTERNS.md` #190.
+
+It is fixed here, in its own commit, because it blocks any green gate on this branch. It is outside
+the four items this branch set out to close and should be reviewed as its own thing.
+
+Why it survived three merged pull requests is worth carrying: `tests/e2e` is the first entry in
+`flaky-packages.json` and `FAILURE_PATTERNS.md` #61 names `TestGrandIntegration` by name, so a red run
+there reads as known noise. #61's signature is a container port-mapping race or a hang; this was a
+deterministic assertion failing identically every time.
 
 ### Verification state
 
-`go build ./...`, `go vet ./...`, `go vet -tags integration ./...`, `make fmt` and `make tidy-check`
-all clean. `go test ./... -race`: **144 packages, zero failures**, run to completion three times
-(the first two each surfaced one more instance of the port-reuse flake, which is how the count went
-from four to ten). `make gosec` clean (9 findings, all pre-existing and individually waived; this
-session introduced none). `make govulncheck` clean. `make docs-lint` clean. `make arch` clean.
-`tools/gendocs` is idempotent, proven by diffing a second run's output byte for byte rather than by
-assertion.
+`go build ./...`, `go vet ./...`, `make fmt` clean. `make test-repeat` (the whole non-Docker set at
+`-count=3`) clean. `internal/catalog/net/ssh` and `pkg/remoteexec` clean at `-count=8`.
+`internal/credstore` clean at `-race -count=4`. `make arch` clean. Every new test was run against
+the UNFIXED code first and observed to fail with the exact reported symptom.
 
-Coverage: `make coverage` is **clean, with no regressions**. `internal/inventory/devices/console`
-100%, `internal/inventory/syncplugin` 90.5 to 95.6, `internal/topology` 95.4 to 95.8,
-`internal/forge/pluginscaffold` 83.5 to 85.7, `internal/launch` 87.4 to 91.1; all five floors
-recorded.
+Coverage: `internal/credstore` 87.3 to 88.1 and `pkg/remoteexec` 97.5 to 98.0, both floors
+ratcheted; every other touched package back at or above its floor. `internal/catalog/cloud/aws/{ec2,s3}`
+report below floor in any run without a LocalStack token, which is environmental and pre-existing.
 
-`internal/launch` needs a note, because its regression was not this branch's and was fixed anyway
-at the user's request. It measured 87.0% against a floor of 87.4%, verified as pre-existing by
-stashing this session's entire diff (untracked files included) and measuring 87.0% on a clean
-`afb6569`, deterministically, with zero skipped tests. The floor dates to Phase 22b on 2026-08-13.
-The gap was real rather than cosmetic: `KindCatalogFuncs.Verify` and `staticCatalog.List` were at
-0.0%, meaning the catalog port's own happy path (its entire reason for existing, answering "yes,
-this is launchable here" at template create) had never once run; `Fields.Int` and `Fields.List` were
-covered only for the Go shape, while their doc comments name the JSON and HTML-form shapes and state
-outright that a reader handling only the first "would work in tests and fail on the wire"; and
-`ResolveKind`, the single place the default-kind rule lives after being consolidated from two, had
-no test at all. Those are the gaps that were filled, not padding: the package is at 91.1%.
-
-One thing found there and deliberately left: `internal/launch` cannot be run with `-count>1` in one
-process. `unknownkind_test.go` registers process-global kinds named after the test with no cleanup,
-so a second iteration collides on a duplicate registration. Confirmed pre-existing (four identical
-failures on a clean tree). `make ci` runs `-count=1`, so no gate is affected.
-
-The real-binary AWS sync gate (`tests/e2e/inventory_sync_cli_test.go`, integration-tagged) passes
-against real LocalStack, as does the whole plugin conformance suite through the new shared
-construction path.
+`make ci` had not been run to completion at the time of writing.
 
 ### Next steps
 
-### The merge with `main`, and what it changed beyond numbers
-
-`origin/main` gained `FAILURE_PATTERNS` #178-#179 and `LESSONS_LEARNED` #152 from PR #24 (Phase
-96-101) while this branch was open, and this branch had independently used the same numbers. Four
-files conflicted. The trunk's numbers were kept and this branch's entries shifted: failure patterns
-#178-#184 became **#180-#186**, lessons #152-#156 became **#153-#157**. Every cross-reference was
-updated with them.
-
-**One conflict was not a numbering conflict, and a naive resolution would have shipped it broken.**
-This branch's JetStream entry (now #182) argued that several composition roots reshaping one
-JetStream object at startup is "this codebase's deliberate pattern," citing `topology.EnsureStream`
-doing exactly that for the main stream from three roots, and concluded the only real problem was
-that the lock bucket's shape was written down in two places. `main`'s #178 reaches the opposite and
-correct judgement about the same unchanged code: last-writer-wins over shared infrastructure with no
-owner is a latent defect, and the Runner is the process whose opinion should carry the least weight
-precisely because it is the one most likely to be an older build. Phase 96 is planning at the time
-of this merge, so no code moved under either entry. #182 now records that it was half wrong and
-points at #178; its `LockBucketConfig` move is described as a prerequisite for #178's single-owner
-fix rather than a substitute for it.
-
-`main`'s #179 is the same class this whole branch is about, seen from the other end: two fully-built
-shared primitives with zero production callers, and the observation that "a port with no callers is
-invisible to every automated gate this repository runs." #181 now cross-references it and states
-honestly that these sweeps give three registries such a gate rather than closing the general case.
-#179's own subjects (`event.NewIdempotentBus`, `pkg/policy`) remain unreached.
-
-**`LESSONS_LEARNED.md` auto-merged into two `152.` entries in different regions, and git did not
-flag it.** Only the archive conflicted. Anyone resolving these four files by accepting the flagged
-hunks alone would have committed a duplicate-numbered index; it was found by grepping the merged
-index for duplicate numbers rather than by the merge tool.
-
-The user reviews and commits. Three things are deliberately left undone and are the natural
-follow-ups: `internal/launch`'s inability to run under `-count>1` (above),
-`credstore.EnsureManagedType`'s lost-race branch, and a decision on whether
-`transport.DockerExecEndpoint` should be deleted rather than disclosed.
+The user reviews and commits. Known open items: the 8-of-9 UI write ports above;
+`transport.LocalSocketEndpoint`, now used only by two negative-control test fixtures and one step
+behind `DockerExecEndpoint` on the same path; and a PRE-EXISTING duplicate entry number in
+`LESSONS_LEARNED.md`, where two different rules are both numbered 13 (lines 15 and 19). That last
+one is the second instance of the defect the previous session's handoff describes finding by
+grepping the merged index, and it is left alone deliberately because the rule against renumbering
+is explicit.
 
 ## Previous session (Phase 72: Transport Foundation)
 

@@ -37,9 +37,12 @@ func (f *recordingFallback) Execute(_ context.Context, task *engine.Task, _ inve
 // the calling test, returning that name.
 //
 // Registration is process-wide and duplicate names are refused outright, so
-// every test needs its own name; there is deliberately no unregister.
+// every test needs its own name. It also outlives the test, which is why the
+// snapshot below is not optional: without it a second iteration under
+// -count>1 finds this name already taken and fails on the duplicate.
 func registerTestMethod(t *testing.T, suffix string, status collection.Status, fn collection.Method) string {
 	t.Helper()
+	t.Cleanup(collection.SnapshotForTest())
 
 	name := "enginetest." + suffix
 	if err := collection.Register(collection.Descriptor{
@@ -173,6 +176,7 @@ func TestCollectionActionExecutor_PropagatesMethodError(t *testing.T) {
 // partway through a runbook. This is the "type safety moves left" rule the
 // rest of the registry follows.
 func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	err := collection.Register(collection.Descriptor{
 		Name:     "enginetest.liar",
 		Manifest: collection.Manifest{Status: collection.StatusImplemented, Reversibility: collection.Reversibility{Notes: "a test fixture that changes nothing"}},

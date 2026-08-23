@@ -24,6 +24,23 @@ type Constructor func(Record) (inventory.InventoryItem, error)
 // explains it exists to avoid.
 var typesRegistry = registry.New[Constructor]()
 
+// SnapshotForTest captures the process-wide device type registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(record.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return typesRegistry.SnapshotForTest()
+}
+
 // RegisterType adds deviceType's constructor to the shared registry. Each
 // vendor device package calls this from its own init() (see
 // devices/cisco/router.go, devices/linux/server.go) instead of

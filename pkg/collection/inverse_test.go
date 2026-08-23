@@ -55,6 +55,7 @@ func implemented(name string, r collection.Reversibility) collection.Descriptor 
 // is that working out the inverse looked like effort. Requiring the
 // reason is what keeps the field from becoming a shrug.
 func TestRegister_NotReversibleMustSayWhy(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	err := collection.Register(implemented("test.rev_bare_false", collection.Reversibility{}))
 	if err == nil {
 		t.Fatal("expected an implemented, non-reversible method with no Notes to be refused")
@@ -70,6 +71,7 @@ func TestRegister_NotReversibleMustSayWhy(t *testing.T) {
 }
 
 func TestRegister_ReversibilityAccepted(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	tests := []struct {
 		name          string
 		fqcn          string
@@ -108,6 +110,7 @@ func TestRegister_ReversibilityAccepted(t *testing.T) {
 // nobody has written would produce a table of guesses, which is worse
 // than an empty field because it would look like an answer.
 func TestRegister_DeclaredStubIsExempt(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{
 		Name:     "test.rev_declared_stub",
 		Manifest: collection.Manifest{Status: collection.StatusDeclared},

@@ -525,6 +525,7 @@ func TestDetailModel_RefreshAnnouncementChangesWithTheRecord(t *testing.T) {
 // open tab by ten requests a second against the handler that renders the
 // page, which is a fail-fast worth having.
 func TestRegister_RefusesAnUnservableRefresh(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
 	for _, tc := range []struct {
 		name    string
 		mutate  func(*view.Descriptor)

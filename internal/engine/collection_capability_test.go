@@ -24,9 +24,11 @@ import (
 
 // registerCapabilityMethod registers an implemented method requiring
 // caps, recording whether its body ever ran. Registration is global and
-// has no unregister, so each test needs its own name.
+// outlives the test, so each test needs its own name AND the snapshot
+// below, which is what lets this package run under -count>1 at all.
 func registerCapabilityMethod(t *testing.T, suffix string, caps []capability.Name, ran *bool) string {
 	t.Helper()
+	t.Cleanup(collection.SnapshotForTest())
 	name := "captest." + suffix
 	err := collection.Register(collection.Descriptor{
 		Name: name,

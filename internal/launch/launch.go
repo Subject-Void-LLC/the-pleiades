@@ -182,6 +182,23 @@ type Descriptor struct {
 // Collection or a device type does.
 var kinds = registry.New[Descriptor]()
 
+// SnapshotForTest captures the process-wide launchable kind registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(launch.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return kinds.SnapshotForTest()
+}
+
 // Register adds a kind. It is called from a kind's own file, reached only
 // by a blank import in builtins.go, which is the deliberate one-line step
 // that makes a kind visible to the running binary.

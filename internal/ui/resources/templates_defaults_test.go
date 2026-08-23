@@ -163,8 +163,9 @@ func TestTemplatesView_TheListShowsActivityAndLastRan(t *testing.T) {
 func TestTemplatesView_TickingAPromptCheckboxOpensTheFieldOnTheLaunchForm(t *testing.T) {
 	h := newHarness(t, adminIdentity)
 
+	tmplName := uniqueName(t, "conformance-b1-gate")
 	w := h.post(t, "/ui/templates", map[string]string{
-		"name":       "conformance-b1-gate",
+		"name":       tmplName,
 		"definition": "runbook:conformance",
 		"inventory":  "1",
 	})
@@ -180,7 +181,7 @@ func TestTemplatesView_TickingAPromptCheckboxOpensTheFieldOnTheLaunchForm(t *tes
 	// Tick verbosity's checkbox and save a value behind it: ticking a
 	// checkbox with nothing set would open a field onto nothing.
 	w = h.post(t, "/ui/templates/"+id, map[string]string{
-		"name":             "conformance-b1-gate",
+		"name":             tmplName,
 		"verbosity":        "2",
 		"verbosity_prompt": "true",
 	})
@@ -193,7 +194,7 @@ func TestTemplatesView_TickingAPromptCheckboxOpensTheFieldOnTheLaunchForm(t *tes
 
 	// Unticking it again closes it.
 	w = h.post(t, "/ui/templates/"+id, map[string]string{
-		"name":      "conformance-b1-gate",
+		"name":      tmplName,
 		"verbosity": "2",
 	})
 	if w.Code != http.StatusSeeOther {

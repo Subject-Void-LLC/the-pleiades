@@ -83,6 +83,7 @@ func TestTemplate_KindAnswersItsOwnStoredKind(t *testing.T) {
 // one kind must take the process down at start rather than leave which
 // descriptor wins depending on import order.
 func TestMustRegister_PanicsRatherThanShadowingARegistration(t *testing.T) {
+	t.Cleanup(launch.SnapshotForTest())
 	existing, ok := launch.Lookup(launch.DefaultKind)
 	if !ok {
 		t.Fatalf("%q is not registered, so this test has no duplicate to attempt", launch.DefaultKind)

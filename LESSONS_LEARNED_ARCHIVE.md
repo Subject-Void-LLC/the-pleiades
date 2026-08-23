@@ -3330,3 +3330,122 @@ and when a site cannot take the standard fix, write down why it is different rat
 forcing it or silently skipping it. The grep costs a minute; the alternative is discovering
 each remaining instance separately through a nondeterministic failure, which is exactly what
 happened here twice in one session.
+
+## 158. Asserting a value rather than a presence is the cheaper test and the more portable one, because naming where the truth comes from is what gives a test somewhere to skip, and a skip that can fire on the platform the evidence came from needs a control of its own
+
+**The incident.** `internal/catalog/facts` has thirteen tests. Twelve computed their
+expectations by reading the same source the method reads, through helpers that `t.Skipf` when
+this machine cannot answer. One asserted only that two keys were present in the result map. That
+one was the only test in the package to fail on the CI matrix's macOS leg, and it failed for a
+reason that was not a defect: macOS has no `/etc/os-release`, the method correctly emitted no
+fact for it, and the test had no way to know the question was unanswerable here. See
+`FAILURE_PATTERNS.md` #187.
+
+The guard the other twelve had was not designed as a guard. It is a side effect of how they
+state their expectations: to compare a value you must say where the true value comes from, and
+saying so is what gives you somewhere to notice it is missing. The presence assertion skipped
+that step, so it had nothing to notice.
+
+That makes the weaker assertion the less portable one, which is the part worth carrying
+forward. It is easy to read a presence check as the conservative choice, fewer commitments,
+less to break across environments. It is the opposite. A glob that selected the right two facts
+and filled them with wrong values passed this test for as long as it existed, and the same
+missing commitment is what made it the one test that could not survive a different host.
+
+**The second half, which the fix created rather than closed.** Once that test skips politely,
+the macOS leg reports `ok` for the package while three of fourteen tests never run, including
+the happy path. Nothing shows it: `go test` prints SKIP only under `-v`, neither `make
+test-race` nor `make test-no-docker` passes `-v`, and the coverage floor cannot catch it either,
+because a skipped test's lines were never counted in the first place. A `t.Skipf` is invisible
+to every gate this repository runs, in exactly the way `FAILURE_PATTERNS.md` #179 observes of a
+port with no callers.
+
+So the skip needed a boundary. `TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip`
+makes the identical missing file a **failure** on Linux, the platform all these facts were
+recorded against and the only leg running the full `make ci`. macOS keeps skipping, legitimately
+and for a documented reason; Linux loses the ability to skip silently. This is the same
+reasoning `.github/workflows/ci.yml` already applies to socat, which it installs on both legs
+precisely so that an `exec.LookPath` skip cannot drop real evidence without failing anything.
+
+**The rule.** Prefer asserting the value over asserting the presence: it is a stronger check and
+it is what earns the test an honest skip, because naming the source of truth is the same act as
+learning when there is none. Then treat every `t.Skipf` as conditional coverage that some
+platform is relying on, decide which platform is allowed to skip it and which is not, and give
+the second one a test that goes red instead. A skip is invisible to `go test` without `-v`, to
+the coverage ratchet, and to CI; it will not announce that it started firing where the evidence
+was supposed to come from.
+
+## 159. A shared primitive with no removal operation makes every consumer's tests order-dependent and count-dependent, and `-count=1` hides that from every gate you have
+
+**The incident.** `pkg/registry.Registry[T]` is this module's Section 25 shared primitive: one
+thread-safe string-keyed table that device types, capabilities, Collection methods, sync plugins,
+launch kinds, credential targets and the web UI view registry all build on instead of hand-rolling
+a map. It shipped with `Register`, `MustRegister`, `Get` and `All`. It shipped with no way to
+remove anything, and neither did any of its eight consumers.
+
+That is a perfectly reasonable production API -- nothing in a running controller should ever
+unregister a built-in. It is also the reason nine packages could not run their own tests twice in
+one process, twenty-four tests, two of them panicking outright. See `FAILURE_PATTERNS.md` #188.
+
+The part worth generalising is not the missing method. It is that the absence was invisible to
+every automated check this repository runs. `go test` defaults to `-count=1`, so `make test`,
+`make test-race`, `make test-no-docker` and all three CI legs had only ever measured one iteration
+of each test, forever. Coverage says nothing, because the lines do run. `go vet` has no opinion.
+`internal/archtest` had no rule, and could not easily have had one, because the defect is not
+visible in the shape of any single file: a test calling `Register` is correct, and it is only
+incorrect in combination with the fact that nobody ever calls it twice.
+
+`internal/launch` is the instructive case, because it had already noticed the problem and its fix
+looked right. It named its test kind after `t.Name()`. That de-duplicates the two tests in the
+file against each other, and does nothing at all against a second iteration of the same test:
+Go's `testing.matcher` makes SUBTEST names unique with a `#01` suffix, never top-level ones. A
+guard that reasons about the wrong axis is worse than no guard, because it stops the next reader
+from asking the question.
+
+The second half arrived from going one step past the new gate. With `-count=2` clean everywhere,
+`-count=4` failed a tenth package for an entirely different reason: `pkg/remoteexec`'s circuit
+breaker is process-wide and keyed by address, so four consecutive dial failures to this
+repository's standard "nothing can listen here" address opened it and changed the error message a
+test was asserting on. Same shape -- process-wide state outliving the test that touched it --
+reached through a production singleton rather than a registry, and invisible for the same reason.
+
+**The rule.** When you build a shared primitive that holds process-wide state, decide at the same
+time how a test puts it back, and treat "no consumer should ever need this in production" as an
+argument about naming and access, not about whether the operation should exist. Then make the
+absence detectable: a `-count>1` run is cheap (115s against 90s across 187 packages here) and it is
+the only check that can see this entire class, including the variants no AST rule can reach, such
+as a leaked database row or an open circuit breaker. Where the seam has to be exported surface
+because `export_test.go` cannot cross a package boundary, ship the AST rule forbidding production
+callers in the same commit, per #156 -- and control it live by adding a real violation and watching
+it go red, not by asserting it works.
+
+## 160. A coverage drop straight after an isolation fix is usually a test that was only ever covered by another test's leftovers
+
+**The incident.** Cleaning up leaked registry registrations (see `FAILURE_PATTERNS.md` #188) put
+`internal/inventory/syncplugin` below its recorded coverage floor, 95.0 against 95.6. Nothing had
+been deleted and no test had been weakened on purpose, so the obvious reading was that the floor
+needed re-baselining down by half a point.
+
+That reading was wrong, and the uncovered line said so: the loop body inside `Names()`, which
+appends each registered plugin name before sorting. `Names()` was being called against an EMPTY
+registry.
+
+`TestNames_IsSorted` had never registered anything. It called `syncplugin.Names()` and checked the
+result was ordered, and in that package's own test binary the real plugins are never linked at all,
+because they live in `internal/inventory/plugins`. So it had been asserting over whatever earlier
+tests happened to have left in the process-wide registry. Take the leftovers away and it asserts
+over an empty slice: a sort test whose loop never runs, passing for a reason that has nothing to do
+with sorting. It now registers three plugins in an order that is not the sorted one, and the
+coverage came back on its own.
+
+The general shape is worth naming. An isolation fix does not usually change what a test executes;
+it changes what the test can SEE. Any coverage that disappears was therefore coverage produced by
+cross-test pollution, which means some assertion was reading state its own test did not create. The
+number going down is the only signal, and it arrives looking exactly like a fix that overreached.
+
+**The rule.** When coverage falls after a test-isolation change, do not re-baseline the floor. Find
+the specific lines that stopped executing and ask which test used to reach them and how, because
+the answer is almost always a test asserting over state some other test left behind, and that test
+was weaker than its name claimed for as long as it has existed. Fix it by giving it its own data.
+The floor doing its job here is the argument for a coverage ratchet being per package and hard to
+lower: a global percentage would have absorbed this without anybody noticing.

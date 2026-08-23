@@ -71,6 +71,7 @@ func TestImplementsUnknownCapability(t *testing.T) {
 }
 
 func TestRegisterDuplicatePanics(t *testing.T) {
+	t.Cleanup(capability.SnapshotForTest())
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("expected Register to panic on a duplicate capability name")

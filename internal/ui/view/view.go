@@ -598,6 +598,23 @@ func filterFields(fields []Field, keep func(Field) bool) []Field {
 // hand-rolled map.
 var views = registry.New[Descriptor]()
 
+// SnapshotForTest captures the process-wide web UI view registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(view.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return views.SnapshotForTest()
+}
+
 // MustRegister adds d to the view registry, panicking on an invalid or
 // duplicate descriptor. Resource packages call it from their own init(),
 // so a malformed view fails at process start rather than as a broken page

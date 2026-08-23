@@ -227,24 +227,7 @@ func (s *entStore) EnsureManagedType(ctx context.Context, ct credtype.Credential
 		Only(ctx)
 	switch {
 	case err == nil:
-		if !existing.Managed {
-			// A custom type already holds this namespace. Overwriting it
-			// would silently replace something an operator wrote with
-			// something this platform ships.
-			return CredentialType{}, fmt.Errorf(
-				"%w: the namespace %q is held by a custom credential type", ErrExists, ct.Namespace)
-		}
-		row, updateErr := s.client.CredentialType.UpdateOneID(existing.ID).
-			SetName(ct.Name).
-			SetDescription(ct.Description).
-			SetKind(string(ct.Kind)).
-			SetInputs(ct.Inputs).
-			SetInjectors(ct.Injectors).
-			Save(ctx)
-		if updateErr != nil {
-			return CredentialType{}, fmt.Errorf("credstore: reconciling managed type %q: %w", ct.Namespace, updateErr)
-		}
-		return s.loadType(ctx, credentialtype.IDEQ(row.ID))
+		return s.adoptExistingType(ctx, existing, ct)
 
 	case ent.IsNotFound(err):
 		row, createErr := s.client.CredentialType.Create().
@@ -256,14 +239,76 @@ func (s *entStore) EnsureManagedType(ctx context.Context, ct credtype.Credential
 			SetInputs(ct.Inputs).
 			SetInjectors(ct.Injectors).
 			Save(ctx)
-		if createErr != nil {
+		if createErr == nil {
+			return s.loadType(ctx, credentialtype.IDEQ(row.ID))
+		}
+		if !ent.IsConstraintError(createErr) {
 			return CredentialType{}, wrapConstraint(createErr, "credential type")
 		}
-		return s.loadType(ctx, credentialtype.IDEQ(row.ID))
+
+		// The namespace was free at the Query above and taken by the time
+		// this Create ran, so somebody else installed it in between. That
+		// is the ordinary outcome of two controllers cold-starting against
+		// one shared database, not an error: this method is documented as
+		// idempotent precisely because it is reconciled at every startup.
+		//
+		// Reporting the constraint as ErrExists is what this used to do and
+		// is wrong twice over. It is the same sentinel a genuine collision
+		// with a CUSTOM type returns, so ReconcileManaged cannot tell them
+		// apart and tells the operator to "rename the custom credential
+		// type to free the namespace" -- naming a type that does not exist,
+		// over a row that is already correct. And it fails a reconcile that
+		// in fact succeeded, just not by our hand.
+		//
+		// Re-reading and running the row through the same handler the
+		// err == nil branch uses is what makes the two paths agree by
+		// construction: a managed winner is adopted, and a custom winner
+		// still returns ErrExists, which is the one case an operator does
+		// have to act on.
+		winner, reReadErr := s.client.CredentialType.Query().
+			Where(credentialtype.NamespaceEQ(ct.Namespace)).
+			Only(ctx)
+		if reReadErr != nil {
+			return CredentialType{}, fmt.Errorf(
+				"credstore: the namespace %q was claimed while installing managed type %q and could not be re-read: %w",
+				ct.Namespace, ct.Name, reReadErr)
+		}
+		return s.adoptExistingType(ctx, winner, ct)
 
 	default:
 		return CredentialType{}, fmt.Errorf("credstore: looking up managed type %q: %w", ct.Namespace, err)
 	}
+}
+
+// adoptExistingType reconciles ct onto a row that already holds its
+// namespace, whether this call found that row itself or lost a race to
+// whoever created it.
+//
+// Both callers must behave identically, which is the entire reason this is
+// one function rather than two similar blocks: the difference between "the
+// row was there when I looked" and "the row appeared while I was writing"
+// is timing, and an operator reading the result should not be able to tell
+// which happened.
+func (s *entStore) adoptExistingType(ctx context.Context, existing *ent.CredentialType, ct credtype.CredentialType) (CredentialType, error) {
+	if !existing.Managed {
+		// A custom type already holds this namespace. Overwriting it
+		// would silently replace something an operator wrote with
+		// something this platform ships.
+		return CredentialType{}, fmt.Errorf(
+			"%w: the namespace %q is held by a custom credential type", ErrExists, ct.Namespace)
+	}
+
+	row, updateErr := s.client.CredentialType.UpdateOneID(existing.ID).
+		SetName(ct.Name).
+		SetDescription(ct.Description).
+		SetKind(string(ct.Kind)).
+		SetInputs(ct.Inputs).
+		SetInjectors(ct.Injectors).
+		Save(ctx)
+	if updateErr != nil {
+		return CredentialType{}, fmt.Errorf("credstore: reconciling managed type %q: %w", ct.Namespace, updateErr)
+	}
+	return s.loadType(ctx, credentialtype.IDEQ(row.ID))
 }
 
 // wrapNotFound turns ent's own not-found into this package's sentinel.

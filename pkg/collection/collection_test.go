@@ -9,6 +9,7 @@ import (
 )
 
 func TestRegisterAndLookup(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{
 		Name:     "test.register_and_lookup",
 		Manifest: collection.Manifest{Status: collection.StatusDeclared},
@@ -37,6 +38,7 @@ func TestLookup_Miss(t *testing.T) {
 // method name is rejected with a message naming the actual requirement,
 // not a citation into an internal document a user never receives.
 func TestRegister_RejectsBareName(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	err := collection.Register(collection.Descriptor{Name: "install"})
 	if err == nil {
 		t.Fatal("Register(bare name): expected an error, got nil")
@@ -51,18 +53,21 @@ func TestRegister_RejectsBareName(t *testing.T) {
 }
 
 func TestRegister_RejectsEmptyNamespace(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	if err := collection.Register(collection.Descriptor{Name: ".install"}); err == nil {
 		t.Fatal("Register(\".install\"): expected an error, got nil")
 	}
 }
 
 func TestRegister_RejectsEmptyMethod(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	if err := collection.Register(collection.Descriptor{Name: "pkg."}); err == nil {
 		t.Fatal("Register(\"pkg.\"): expected an error, got nil")
 	}
 }
 
 func TestRegister_RejectsUnknownCapability(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{
 		Name: "test.unknown_capability",
 		Manifest: collection.Manifest{
@@ -86,6 +91,7 @@ func TestRegister_RejectsUnknownCapability(t *testing.T) {
 // a runbook dispatched to it, so Register refuses it at registration time
 // instead.
 func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{
 		Name:     "test.implemented_without_invoke",
 		Manifest: collection.Manifest{Status: collection.StatusImplemented},
@@ -106,6 +112,7 @@ func TestRegister_RejectsImplementedWithoutInvoke(t *testing.T) {
 }
 
 func TestRegister_RejectsDuplicate(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{Name: "test.duplicate", Manifest: collection.Manifest{Status: collection.StatusDeclared}}
 
 	if err := collection.Register(d); err != nil {
@@ -124,6 +131,7 @@ func TestRegister_RejectsDuplicate(t *testing.T) {
 }
 
 func TestMustRegister_PanicsOnDuplicate(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{Name: "test.must_register_duplicate"}
 	collection.MustRegister(d)
 
@@ -136,6 +144,7 @@ func TestMustRegister_PanicsOnDuplicate(t *testing.T) {
 }
 
 func TestMustRegister_SucceedsOnFreshName(t *testing.T) {
+	t.Cleanup(collection.SnapshotForTest())
 	d := collection.Descriptor{Name: "test.must_register_fresh"}
 
 	defer func() {

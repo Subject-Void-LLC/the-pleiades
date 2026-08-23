@@ -68,6 +68,23 @@ type Descriptor struct {
 // Registry implementation sitting beside it.
 var collections = registry.New[Descriptor]()
 
+// SnapshotForTest captures the process-wide Collection method registry and returns a
+// function that puts it back, for a test that registers into it.
+//
+// Without this a test's registration outlives the test, so a second
+// iteration under `go test -count>1` fails on a duplicate registration
+// rather than starting clean. Call it once at the top of such a test:
+//
+//	t.Cleanup(collection.SnapshotForTest())
+//
+// It is exported rather than living in an export_test.go because a
+// _test.go file cannot be imported across package boundaries, and tests in
+// other packages register here too. internal/archtest forbids production
+// code from calling it.
+func SnapshotForTest() func() {
+	return collections.SnapshotForTest()
+}
+
 // Register adds d under d.Name, rejecting a bare (non-namespaced) name, an
 // empty namespace or method segment, an unknown required capability, or a
 // duplicate name. It returns an error rather than panicking, for genuine

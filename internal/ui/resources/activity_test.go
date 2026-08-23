@@ -45,7 +45,7 @@ func findEntry(entries []activity.Entry, action activity.Action, name string) (a
 func TestActivityStream_RecordsAWriteMadeThroughTheWebUI(t *testing.T) {
 	h := newHarness(t, adminIdentity)
 
-	const name = "ui-recorded-organization"
+	name := uniqueName(t, "ui-recorded-organization")
 	w := h.post(t, "/ui/organizations", map[string]string{"name": name})
 	if w.Code != http.StatusOK && w.Code != http.StatusSeeOther {
 		t.Fatalf("POST /ui/organizations = %d, want a successful write", w.Code)
@@ -74,7 +74,7 @@ func TestActivityStream_RecordsAWriteMadeThroughTheWebUI(t *testing.T) {
 func TestActivityStream_RendersWhatItRecorded(t *testing.T) {
 	h := newHarness(t, adminIdentity)
 
-	const name = "ui-rendered-organization"
+	name := uniqueName(t, "ui-rendered-organization")
 	if w := h.post(t, "/ui/organizations", map[string]string{"name": name}); w.Code >= http.StatusBadRequest {
 		t.Fatalf("POST /ui/organizations = %d, want a successful write", w.Code)
 	}
@@ -107,5 +107,38 @@ func TestActivityStream_OffersNoWayToChangeWhatItSays(t *testing.T) {
 	// refuses elsewhere for the same reason.
 	if w := h.post(t, "/ui/activity", map[string]string{"actor": "somebody-else"}); w.Code < http.StatusBadRequest {
 		t.Errorf("POST /ui/activity = %d, want a refusal: an audit trail a caller can append to is forgeable", w.Code)
+	}
+}
+
+// TestDuplicateName_IsAFieldErrorRatherThanAnInternalError pins what a
+// person sees after typing a name something else already has.
+//
+// It used to be HTTP 500 and the plain text "internal error", with the
+// rest of the form discarded: the resource's Writer handed the store's
+// uniqueness sentinel straight back, and view.Bind routes any error it
+// cannot attribute to a field to serverError. view.FieldFault's own doc
+// comment names this exact case ("a name already taken") as one of the
+// three it exists for, and until now the only production caller of it in
+// the module was the schedules resource.
+//
+// Both resources are checked here rather than one, because they failed
+// through two different sentinels (access.ErrExists and launch.ErrExists)
+// reaching the same place, and a fix that only proved one would say
+// nothing about the other.
+func TestDuplicateName_IsAFieldErrorRatherThanAnInternalError(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	name := uniqueName(t, "already-taken-organization")
+	if w := h.post(t, "/ui/organizations", map[string]string{"name": name}); w.Code >= http.StatusBadRequest {
+		t.Fatalf("the first POST /ui/organizations = %d, want it to succeed", w.Code)
+	}
+
+	w := h.post(t, "/ui/organizations", map[string]string{"name": name})
+	if w.Code >= http.StatusInternalServerError {
+		t.Fatalf("the second POST /ui/organizations = %d and body %q, want the form back rather than an error page",
+			w.Code, strings.TrimSpace(w.Body.String()))
+	}
+	if body := w.Body.String(); !strings.Contains(body, "already exists") {
+		t.Errorf("the response does not tell the submitter the name is taken; body = %q", body)
 	}
 }

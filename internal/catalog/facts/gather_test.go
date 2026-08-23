@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -206,6 +207,69 @@ func gatherOSReleaseValue(t *testing.T, key string) string {
 	}
 	t.Skipf("this machine's /etc/os-release has no %s", key)
 	return ""
+}
+
+// TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip is the
+// negative control on every t.Skipf in this file.
+//
+// The skips are correct and load-bearing. This suite probes THIS machine
+// through a real SSH server and a real /bin/sh, so on a host that has no
+// /etc/os-release and no /proc -- macOS, which the CI matrix runs as a
+// blocking leg -- four of the seven facts genuinely cannot be answered,
+// and a test asserting them would be asserting nothing about the method.
+//
+// The danger is the identical skip firing on Linux, which is the platform
+// every one of those facts was recorded against and the only leg that
+// runs the full `make ci`. It would be completely silent: `go test`
+// prints SKIP only under -v, neither `make test-race` nor
+// `make test-no-docker` passes -v, the package still reports ok, and the
+// coverage floor does not move either, because a skipped test's lines
+// were never counted in the first place. A minimal container image with
+// no /etc/os-release is all it would take, and the first anyone would
+// know is a bug shipping in a fact nothing had exercised for months.
+//
+// So the same missing file that is a legitimate skip elsewhere is a
+// failure here. This mirrors the reasoning .github/workflows/ci.yml
+// already applies to socat, installed on both the Linux and macOS legs
+// precisely because that test's own exec.LookPath skip would otherwise
+// drop real evidence without failing anything.
+//
+// Every path and key below is one this file actually reads, taken from
+// the gatherReadFile, gatherCommandOutput and gatherOSReleaseValue call
+// sites rather than from gather.go's probe table: /proc/uptime is absent
+// deliberately, because the method reads it but no test here does, so it
+// cannot produce a skip.
+func TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("%s is not expected to answer the Linux facts; this guard exists to catch Linux quietly stopping to", runtime.GOOS)
+	}
+
+	if _, err := exec.Command("uname", "-n").Output(); err != nil {
+		t.Errorf("uname is not usable on this Linux machine, so every test reading it skipped instead of running: %v", err)
+	}
+
+	for _, path := range []string{"/etc/os-release", "/proc/meminfo", "/proc/cpuinfo"} {
+		if _, err := os.ReadFile(path); err != nil { // #nosec G304 -- fixed system paths written in this test
+			t.Errorf("this Linux machine cannot read %s, so every test reading it skipped instead of running: %v", path, err)
+		}
+	}
+
+	release, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return // Already reported above; the key check below has nothing to read.
+	}
+	for _, key := range []string{"NAME", "VERSION_ID"} {
+		found := false
+		for _, line := range strings.Split(string(release), "\n") {
+			if name, _, ok := strings.Cut(strings.TrimSpace(line), "="); ok && name == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("this Linux machine's /etc/os-release has no %s, so the tests comparing against it skipped instead of running", key)
+		}
+	}
 }
 
 // TestGather_Registered proves the method registered itself as
@@ -423,7 +487,30 @@ func TestGather_FilterNarrowsToOneFactOfAProbeThatAnswersTwo(t *testing.T) {
 
 // TestGather_FilterMatchesAsAGlob proves the patterns are shell-style,
 // the way ansible.builtin.setup's filter is, rather than exact names.
+//
+// Both expected values are read off this machine BEFORE the round trip,
+// for two reasons that are really one. It asserts the values rather than
+// the keys, so a glob that selected the right two facts and filled them
+// with the wrong ones cannot pass; and reading them is what gives this
+// test the same environmental guard every one of its siblings already
+// has, since gatherOSReleaseValue skips when the machine cannot answer.
+//
+// That guard is not a macOS special case, though macOS is where its
+// absence was found. This suite probes THIS machine through a real SSH
+// server and a real /bin/sh, and gather.go's os-release probe is one
+// `cat /etc/os-release`: a host without that file answers neither fact,
+// which is the documented contract rather than a defect. Asking whether
+// the glob matched two facts the device never had is a question with no
+// meaningful answer, so the test declines to ask it.
+//
+// TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip is what
+// stops that skip firing where the evidence is supposed to come from.
 func TestGather_FilterMatchesAsAGlob(t *testing.T) {
+	want := map[string]any{
+		"ansible_distribution":         gatherOSReleaseValue(t, "NAME"),
+		"ansible_distribution_version": gatherOSReleaseValue(t, "VERSION_ID"),
+	}
+
 	server := startGatherServer(t)
 	rc := newGatherContext(server)
 
@@ -433,9 +520,9 @@ func TestGather_FilterMatchesAsAGlob(t *testing.T) {
 		t.Fatalf("Gather: %v", err)
 	}
 
-	for _, key := range []string{"ansible_distribution", "ansible_distribution_version"} {
-		if _, present := rc.facts[key]; !present {
-			t.Errorf("%s fact is missing, want the glob to have matched it", key)
+	for key, value := range want {
+		if got := rc.facts[key]; got != value {
+			t.Errorf("%s fact = %v, want %v read straight off this machine: the glob should have matched it", key, got, value)
 		}
 	}
 	if len(rc.facts) != 2 {

@@ -35,6 +35,7 @@ func (stubPlugin) Close() error { return nil }
 // plugin ever reaches the table. Each rejection exists because the
 // alternative is a failure much further away from its cause.
 func TestRegister_Rejects(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
 	tests := []struct {
 		name    string
 		desc    syncplugin.Descriptor
@@ -86,6 +87,7 @@ func TestRegister_Rejects(t *testing.T) {
 // retrievable and that a second registration under the same name is
 // refused rather than silently replacing the first.
 func TestRegister_RoundTripAndDuplicate(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
 	const name = "registry_test_roundtrip"
 
 	desc := syncplugin.Descriptor{
@@ -116,8 +118,34 @@ func TestRegister_RoundTripAndDuplicate(t *testing.T) {
 
 // TestNames_IsSorted proves Names returns a stable ordering, which help
 // text and tests both depend on.
+//
+// It registers its own plugins, in an order that is not the sorted one, so
+// that it actually exercises the sort. It used to assert over whatever
+// happened to be in the process-wide registry, which in this package's own
+// test binary is nothing at all: the real plugins live in
+// internal/inventory/plugins and are never linked here. That made this a
+// test over an empty slice whose loop body never ran, passing for a reason
+// unrelated to sorting -- visible only once the registrations other tests
+// were leaking got cleaned up, which is what turned "0 or 1 entries" into
+// the honest three below.
 func TestNames_IsSorted(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
+
+	for _, name := range []string{"zulu_sorted", "alpha_sorted", "mike_sorted"} {
+		if err := syncplugin.Register(syncplugin.Descriptor{
+			Name:          name,
+			Description:   "a stub used only by this test",
+			DefaultConfig: syncplugin.Config{Name: name, ReadOnly: true},
+			New:           func(syncplugin.Deps) syncplugin.Plugin { return stubPlugin{} },
+		}); err != nil {
+			t.Fatalf("Register(%q): %v", name, err)
+		}
+	}
+
 	names := syncplugin.Names()
+	if len(names) < 3 {
+		t.Fatalf("Names() = %v, want at least the three just registered", names)
+	}
 	for i := 1; i < len(names); i++ {
 		if names[i-1] > names[i] {
 			t.Fatalf("Names() is not sorted: %q came before %q", names[i-1], names[i])

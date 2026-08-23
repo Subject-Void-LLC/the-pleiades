@@ -27,6 +27,12 @@ import (
 // whatever the seventh kind turns out to be.
 func terraformKind(t *testing.T) launch.Descriptor {
 	t.Helper()
+	// The kind registry is process-wide and outlives this test. Naming the
+	// kind after t.Name() de-duplicates the two tests here against each
+	// other, but not against a second iteration of themselves: top-level
+	// test names are not made unique by -count, unlike subtest names, so
+	// without this snapshot iteration two collides with iteration one.
+	t.Cleanup(launch.SnapshotForTest())
 
 	d := launch.Descriptor{
 		Kind:       "terraform-" + strings.ToLower(t.Name()),
@@ -132,6 +138,7 @@ func TestAnUnknownKindEnforcesItsOwnDefinitionRule(t *testing.T) {
 }
 
 func TestRegister_RefusesADescriptorNobodyCouldUse(t *testing.T) {
+	t.Cleanup(launch.SnapshotForTest())
 	cases := map[string]launch.Descriptor{
 		"no kind": {Adapter: "native"},
 		// A kind with no adapter is one the runner accepts a dispatch for

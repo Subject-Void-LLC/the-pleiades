@@ -231,6 +231,7 @@ func TestConfig_Setting(t *testing.T) {
 // or look up is refused at registration, where the mistake is, rather
 // than at the first sync that needs the value.
 func TestRegister_RefusesAMalformedSetting(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
 	tests := []struct {
 		name     string
 		settings []syncplugin.SettingSpec
@@ -277,6 +278,7 @@ func TestDescriptor_Implemented(t *testing.T) {
 // descriptors, which is what the CLI's plugin listing and every archtest
 // sweep read.
 func TestAll_ReturnsASnapshot(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
 	const name = "stub_all_snapshot"
 	desc, _ := openDescriptor(name, nil, false)
 	if err := syncplugin.Register(desc); err != nil {
@@ -298,6 +300,7 @@ func TestAll_ReturnsASnapshot(t *testing.T) {
 // the process down at start rather than silently shadow one
 // registration with another.
 func TestMustRegister_PanicsOnADuplicate(t *testing.T) {
+	t.Cleanup(syncplugin.SnapshotForTest())
 	const name = "stub_must_register"
 	desc, _ := openDescriptor(name, nil, false)
 	syncplugin.MustRegister(desc)
