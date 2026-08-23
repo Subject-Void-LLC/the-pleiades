@@ -23,6 +23,7 @@ package templates
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -363,9 +364,21 @@ type writer struct{ store launch.Store }
 func (w writer) Create(ctx context.Context, tmpl launch.Template) (string, error) {
 	created, err := w.store.Create(ctx, tmpl)
 	if err != nil {
-		return "", err
+		return "", nameTaken(err)
 	}
 	return strconv.Itoa(created.ID), nil
+}
+
+// nameTaken turns the store's uniqueness refusal into a fault the form can
+// render against the field that caused it, rather than the 500 and the
+// plain text "internal error" an unwrapped launch.ErrExists produces. See
+// the identical helper in the organizations resource, and actions.go's own
+// launch.ErrExists case, which has always got this right one layer over.
+func nameTaken(err error) error {
+	if errors.Is(err, launch.ErrExists) {
+		return view.FieldFault{Field: "name", Message: "A template with that name already exists in this organization."}
+	}
+	return err
 }
 
 func (w writer) Update(ctx context.Context, id string, tmpl launch.Template) error {
@@ -387,7 +400,7 @@ func (w writer) Update(ctx context.Context, id string, tmpl launch.Template) err
 	tmpl.ID = numeric
 	tmpl.Survey = existing.Survey
 	tmpl.RequiredCaps = existing.RequiredCaps
-	return w.store.Update(ctx, tmpl)
+	return nameTaken(w.store.Update(ctx, tmpl))
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {

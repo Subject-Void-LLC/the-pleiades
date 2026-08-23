@@ -12,6 +12,7 @@ package organizations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -195,7 +196,7 @@ type writer struct{ store access.Organizations }
 func (w writer) Create(ctx context.Context, org access.Organization) (string, error) {
 	created, err := w.store.CreateOrganization(ctx, org)
 	if err != nil {
-		return "", err
+		return "", nameTaken(err)
 	}
 	return strconv.Itoa(created.ID), nil
 }
@@ -206,7 +207,29 @@ func (w writer) Update(ctx context.Context, id string, org access.Organization) 
 		return access.ErrNotFound
 	}
 	org.ID = numeric
-	return w.store.UpdateOrganization(ctx, org)
+	return nameTaken(w.store.UpdateOrganization(ctx, org))
+}
+
+// nameTaken turns the store's uniqueness refusal into a fault the form can
+// render against the field that caused it.
+//
+// Without it access.ErrExists reaches view.Bind as an ordinary error, which
+// routes to serverError: somebody who typed a name another organization
+// already has gets a 500 and the plain text "internal error", and the rest
+// of what they typed is gone. A name collision is the submitter's to fix
+// and it is knowable only here, which is exactly what view.FieldFault is
+// for -- see its doc comment, which names "a name already taken" as one of
+// the three cases it exists for.
+//
+// The message deliberately does not echo the name back. That is the same
+// restraint credstore.wrapConstraint records for its own collision text:
+// the value is not secret, but repeating a submitted string into a
+// rendered page is a habit worth not forming.
+func nameTaken(err error) error {
+	if errors.Is(err, access.ErrExists) {
+		return view.FieldFault{Field: "name", Message: "An organization with that name already exists."}
+	}
+	return err
 }
 
 func (w writer) Delete(ctx context.Context, id string) error {
