@@ -719,9 +719,12 @@ func TestTouch_RefusesSomethingThatIsNotARegularFile(t *testing.T) {
 		},
 		{
 			name: "a socket",
-			setUp: func(t *testing.T, dir string) string {
+			setUp: func(t *testing.T, _ string) string {
 				t.Helper()
-				path := filepath.Join(dir, "asocket")
+				// shortTempDir, not the shared dir this case is handed:
+				// a Unix socket path has a hard length limit the shared
+				// one can overrun. See directory_test.go's own comment.
+				path := filepath.Join(shortTempDir(t), "asocket")
 				listener, err := net.Listen("unix", path)
 				if err != nil {
 					t.Fatalf("creating the socket under test: %v", err)

@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -250,17 +249,17 @@ func copyFileNames(t *testing.T, path string) (string, string) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	uid, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	owner, err := user.LookupId(strconv.Itoa(int(sys.Uid)))
+	owner, err := user.LookupId(strconv.Itoa(uid))
 	if err != nil {
-		t.Skipf("uid %d has no name on this machine: %v", sys.Uid, err)
+		t.Skipf("uid %d has no name on this machine: %v", uid, err)
 	}
-	group, err := user.LookupGroupId(strconv.Itoa(int(sys.Gid)))
+	group, err := user.LookupGroupId(strconv.Itoa(gid))
 	if err != nil {
-		t.Skipf("gid %d has no name on this machine: %v", sys.Gid, err)
+		t.Skipf("gid %d has no name on this machine: %v", gid, err)
 	}
 	return owner.Username, group.Name
 }
@@ -280,11 +279,10 @@ func copyOtherGroup(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, current, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	current := int(sys.Gid)
 
 	candidates, err := os.Getgroups()
 	if err != nil {
@@ -866,12 +864,12 @@ func TestCopy_ChangesTheGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", dest, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	if strconv.Itoa(int(sys.Gid)) != resolved.Gid {
-		t.Errorf("the file's gid is %d on disk, want %s: the group was never applied", sys.Gid, resolved.Gid)
+	if strconv.Itoa(gid) != resolved.Gid {
+		t.Errorf("the file's gid is %d on disk, want %s: the group was never applied", gid, resolved.Gid)
 	}
 	if got := rc.stats["group"]; got != wanted {
 		t.Errorf("group stat = %v, want %q", got, wanted)

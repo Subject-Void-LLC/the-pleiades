@@ -5593,3 +5593,349 @@ fixture, not just recorded for whoever happens to hit the failure and go
 looking. Grepping this file for "listening" or "released" before writing
 a new such fixture is cheap; discovering the recurrence via a
 nondeterministic CI-equivalent failure is not.
+
+## 178. A sync plugin's two dependencies arrived through constructor options only its tests ever passed, so the CLI built it broken every time
+
+**Symptom.** `pleiades inventory sync --plugin aws` failed 100% of the
+time, from the day the plugin landed, with `sync plugin "aws": no region
+configured, use WithRegion`. Three separate test suites were green the
+whole time: the plugin's own package suite, a real-LocalStack
+integration suite, and `internal/inventory/plugins`' shared conformance
+suite, which drives every plugin through one identical set of
+assertions.
+
+**Root cause.** The plugin took its two dependencies as functional
+options, `aws.WithRegion` and `aws.WithCredentialStore`. `gopls
+references` on both returns test files and nothing else. The registry's
+own `Descriptor.New` was `func() Plugin`, taking no arguments, so the
+instance every real caller got had `region == ""` and `creds == nil`,
+and `Connect` refused before touching the network.
+`cmd/pleiades/inventory.go`'s `buildSyncPlugin` did wire one plugin, via
+a `desc.Name == catalystcenter.Name` type switch whose own doc comment
+had already predicted its successor: "when a third plugin needs it, this
+becomes an optional interface the plugin asserts rather than a longer
+switch." The third plugin arrived and the switch was not extended.
+
+**Why the conformance suite did not catch it.** Because it constructed
+the plugin the same way the plugin's own tests did:
+`awsplugin.New(awsplugin.WithRegion(...), awsplugin.WithCredentialStore(...))`.
+Every suite built its subject correctly and independently, so none of
+them was exercising the arrangement the product ships. That is RULE 0's
+thesis in a shape the rule's usual example (a mocked transport) does not
+cover: nothing here was mocked, and the wiring was still fictional.
+
+**Fix.** The dependency became a parameter of every constructor rather
+than an option one caller might remember. `Constructor` is now
+`func(Deps) Plugin`; `Deps` carries the credential store. A
+per-deployment value an operator types is now declared data on the
+descriptor (`Descriptor.Settings []SettingSpec`) supplied as
+`--set key=value` through `Config.Settings`, so `aws` declares `region`
+and `syncplugin.Open` refuses by name, with the setting's own
+description, before anything dials. `Descriptor.RequiresCredentials`
+makes "the composition root forgot to wire the store" a refusal in
+shared code instead of a per-plugin string inside `Connect`.
+`buildSyncPlugin` and its type switch are gone; `cmd/pleiades` and the
+conformance suite both call `syncplugin.Open`.
+
+**Guards.** Three, of decreasing generality.
+`internal/archtest.TestCompositionRootsBuildPluginsThroughTheRegistry`
+fails if any `cmd/` package imports an individual plugin package, which
+forbids the type switch that made a per-plugin arrangement expressible
+at all, and which would have failed on the tree that shipped this defect.
+`TestEveryRegisteredPluginOpensFromTheSharedPath` opens every registered
+plugin through `Open` with only what a user can supply, and again with
+no store, so `RequiresCredentials` cannot become a field nobody reads.
+The conformance suite now constructs through `Open`.
+`tests/e2e/inventory_sync_cli_test.go` runs the real binary against a
+real LocalStack and reads the `inventory.yaml` a user would open.
+
+**Lesson.** See `LESSONS_LEARNED.md` #153.
+
+## 179. Four capabilities, three transports and three fqcns shipped with no device type able to satisfy any of them, in the same commit that added the guard against exactly that
+
+**Symptom.** `serial_exec`, `serialtcp_exec` and `telnet_exec` were
+refused for every device the platform can build, twice over:
+`validate.CapabilityRule` rejected the runbook because no device had
+`SerialCapable`/`RawPassthroughCapable`/`TelnetCapable`, and
+`engine.SerialTarget`'s type assertion would have failed anyway. The
+transports behind them are real, tested against real containers, and
+documented in `docs/10-running-in-production.md` as usable.
+
+**Root cause.** No production device type implemented any of the four
+serial-family capability interfaces. The only implementers in the module
+were stubs in `internal/engine/action_ssh_test.go` wrapping
+`inventorytest.Stub`, which deliberately matches a capability by name and
+skips the structural assertion a real device type performs. So
+`TestSerialTarget` proved `SerialTarget` reads the accessors it is
+handed; it could not prove any device the platform can hydrate has them.
+
+**Why the existing guard did not catch it.** Phase 73's Workstream A had
+just fixed this exact class for `DockerCapable` and added
+`internal/archtest.TestImplementedCollectionCapabilitiesAreSatisfiable`
+against recurrence. That sweep walks `catalogdata.Collections` and skips
+anything not `StatusImplemented`. A transport fqcn is not a Collection
+method and appears nowhere in that table, so the entire transport
+dispatch surface was outside its coverage, and the defect shipped in the
+same commit as the guard.
+
+**Fix.** A real `console_device` type
+(`internal/inventory/devices/console`), scaffolded through the actual
+`pleiades forge new-device` CLI and hand-completed, hydrating every
+accessor from `pkg/inventory.Properties` the way `linux.Server.SSHPort`
+already does. It declares each of the four per record rather than all
+four unconditionally, because they are alternative ways to reach one
+device rather than four facts about it: a switch on a terminal server is
+not also on the local host's `/dev/ttyUSB0`, and declaring otherwise
+would let `validate` pass a `serial_exec` task that then dials an empty
+device name. A line setting that does not parse is refused at
+construction rather than defaulted, since a wrong parity does not fail a
+serial line, it silently corrupts every byte crossing it.
+
+**Guards.** `TestDispatchableTransportCapabilitiesAreSatisfiable` and
+`TestBoundTransportCapabilitiesAreSatisfiable` cover
+`engine.ActionCapability` and the real `NewDefaultTransportBindings`
+registry, both negative-controlled by a permanent synthetic case rather
+than a one-off manual un-wiring. Running them for the first time
+reproduced all three failures verbatim.
+`TestRegisteredCapabilitiesAreReachable` is a third sweep covering the
+class neither of the other two can see: a capability nothing requires
+and nothing satisfies, which refuses nothing and misleads only a reader
+of the published vocabulary. It found `FileTransferCapable`, which
+`docs/03-migrating-from-ansible.md` was telling migrating users that
+`archive.extract` requires, when that method requires
+`POSIXFileSystemCapable`.
+
+**Lesson.** See `LESSONS_LEARNED.md` #154.
+
+## 180. The one JetStream object whose shape was declared outside internal/topology was the lock bucket, and two documents claimed otherwise
+
+**Symptom.** No runtime symptom, which is the point of recording it.
+`internal/topology`'s package doc calls it "the single owner of every
+NATS JetStream subject, stream, consumer, and retention/replica setting,"
+and `internal/archtest/layering_test.go`'s own comment repeats that it is
+"the one place jetstream.StreamConfig/ConsumerConfig/KeyValueConfig
+shapes are declared." Both sentences were false when written.
+
+**Root cause.** `lock.NewNatsLockManager` built a
+`jetstream.KeyValueConfig` literal inline for the `Pleiades_Locks`
+bucket, which carries both the leader-election leases `cmd/controller`
+holds and the per-device execution leases `cmd/runner` takes. Both
+binaries call that constructor on startup, and
+`CreateOrUpdateKeyValue` reaches `CreateOrUpdateStream`, which issues an
+unconditional `UpdateStream` first. Several roots reshaping one
+JetStream object at startup is this codebase's deliberate pattern
+(`topology.EnsureStream` does it for the main stream from three roots);
+what makes it safe is that the shape is written down once, and this one
+was not.
+
+**Correcting the original report.** The audit that surfaced this called
+it "the same shape" as a prior multi-declaration stream-drift finding.
+That characterization is wrong and would send a reader hunting for a
+second config literal that does not exist: there was exactly one
+literal, reached through one constructor, so the two roots could not
+disagree within a build. The real exposure is narrower and version-skew
+shaped: `docker-compose.yml` ships controller and runner as separate
+images, so a rolling upgrade can run a build whose `lockBucketTTL`
+changed against one where it did not, and a lowered bucket TTL lands as a
+lowered stream `MaxAge`, expiring live lock entries and releasing a
+device lease that two runners could then both take.
+
+**Fix.** `topology.LockBucketConfig()` plus `LockBucketName`,
+`LockMarkerTTL` and `LockBucketTTL`, sitting beside the dedup bucket's
+existing config; `internal/lock` calls it. `CreateOrUpdateKeyValue`
+stayed as it was, deliberately: it is not the bug.
+
+**Guard.** `internal/archtest.TestOnlyTopologyDeclaresJetStreamShapes`
+parses every non-test Go file in the module and fails on a
+`jetstream.StreamConfig`, `ConsumerConfig` or `KeyValueConfig` composite
+literal outside `internal/topology`. Negative-controlled twice: against
+synthetic source in the same file, and against a real probe file
+temporarily added to `internal/lock`, which it reported by path.
+
+**Lesson.** A doc comment asserting exclusive ownership of a pattern
+("this is the one place X is declared") is a claim about the whole
+repository that no reader can verify by reading the file making it, and
+that no compiler checks. Either write the AST rule that enforces it in
+the same commit, or write the weaker sentence that is actually true.
+
+## 181. Entry #177's fix was applied to one of five sites carrying the identical construction, and one of the other four flaked in the very next session
+
+**Symptom.** A full `go test ./...` sweep failed once on
+`internal/transport/serialtcp.TestExec_UnreachableConsoleServerThroughBastionFailsWithChannelError`
+("expected a channel-open failure against an address nothing is
+listening on"), then passed on every isolated rerun. The package is not
+in `flaky-packages.json`, so `make push-gate` would have blocked a push
+on it, at random.
+
+**Root cause.** Exactly entry #177, in a file #177's own fix did not
+touch. #177 was found in `pkg/remoteexec/tunnel_test.go` and fixed
+there. The identical open-a-listener, read-its-port, close-it, dial-the-
+number-again construction was live in four more files, all written in the
+same phase: `internal/transport/serialtcp`, `pkg/serialtcp`,
+`pkg/rfc2217` and `pkg/telnetexec`. A just-released loopback port keeps
+accepting connects on this project's WSL2 host, so the dial sometimes
+succeeds and the failure the test exists to observe never happens.
+
+**Fix.** The literal port `0` at all four sites, #123's and #177's
+established fix: port 0 is the sockets API's "assign me any free port"
+value for `bind`, so nothing can ever be listening on it. Each site
+gained a comment citing both entries by number, so the next reader finds
+the reasoning at the code rather than by searching. The three direct-dial
+assertions were also strengthened from "an error occurred" to "the error
+names the address," which is what their own doc comments already claimed
+and what makes them non-vacuous. Verified with `-count=10 -race` across
+all four packages.
+
+**Lesson.** Fixing a recurrence in the file where it was observed is half
+the work. The other half is grepping for the construction across the
+whole tree in the same commit, because a recurrence found once is
+evidence the pattern is attractive, not evidence it appeared once: here
+one phase produced five instances and the fix reached one of them. The
+grep is mechanical (`Addr().(*net.TCPAddr).Port` followed by a `Close`)
+and takes a minute; the alternative is discovering each remaining
+instance separately through a nondeterministic failure, which is what
+happened.
+
+## 182. t.TempDir plus a Unix socket overruns macOS's sun_path, and bind reports "invalid argument" rather than anything about length
+
+**Symptom.** CI's `macos-latest` leg failed nine tests in `pkg/dockerexec`
+with `net.Listen: listen unix
+/var/folders/df/djsxfhc17x95674wsm_g8s980000gn/T/TestExec_RoundTripsAgainstARealFakeDaemon3888082138/001/docker.sock:
+bind: invalid argument`. Every one of them passed on Linux, locally and
+in CI, every time.
+
+**Root cause.** `sockaddr_un.sun_path` is 104 bytes on macOS and the BSDs
+and 108 on Linux. `t.TempDir` builds its directory name out of the
+calling test's own NAME, and macOS puts `TMPDIR` under a 49-character
+`/var/folders/<2>/<28>/T/`. Prefix plus a descriptive Go test name plus
+`t.TempDir`'s random suffix plus its `/001/` subdirectory plus the socket
+filename runs past 104. Linux's limit is four bytes larger and its
+`TMPDIR` is `/tmp`, so the identical code has roughly 44 bytes of
+headroom there and the bug cannot appear. `bind` returns `EINVAL`, not
+`ENAMETOOLONG`, so the error names nothing about length and reads like a
+malformed address.
+
+The construction was live at five sites in four packages
+(`pkg/dockerexec`, `internal/catalog/container/docker`,
+`internal/catalog/file` twice, `internal/tlscert`) — entry #181's lesson,
+demonstrated again in the very next phase. One of the five,
+`internal/tlscert`, wrapped the failure in `t.Skipf("this platform cannot
+create a unix socket")`, so on macOS it would have gone on silently
+skipping real evidence rather than failing: a second copy of #164's
+skip-shaped hole, arrived at from a different direction.
+
+**Fix.** A `shortTempDir` helper at each site (`os.MkdirTemp("", "px")`
+with a `t.Cleanup` removal), which keeps the whole path near 70 bytes on
+either platform because the name no longer carries the test's. The
+failure was reproduced on Linux BEFORE fixing it, by pointing `TMPDIR` at
+a 52-character path — Linux's 108-byte limit less macOS's 104 is exactly
+the 4 bytes that make a 49-character macOS prefix equivalent to a
+53-character Linux one — which produced the identical nine failures and
+the identical error string, and then proving them green under the same
+`TMPDIR` afterwards.
+
+**Lesson.** A platform constant that differs by four bytes between two
+OSes produces a bug only one CI leg can ever see, and whether it fires is
+decided by something as arbitrary as how descriptive a test's name is.
+Nothing that builds a Unix socket path may derive it from a test name.
+And a cross-platform failure that "cannot be reproduced locally" usually
+can be: find the limit the remote platform is hitting and simulate it,
+rather than treating the remote leg as the only oracle and fixing blind.
+
+## 183. syscall.Stat_t in a test file is a compile error on Windows, and the ok guard beside it reads exactly like it already handles that
+
+**Symptom.** CI's `windows-latest` leg failed `go vet ./...` with
+`undefined: syscall.Stat_t` in `internal/catalog/file` and
+`internal/catalog/file/line`. Nothing was wrong on Linux or macOS.
+
+**Root cause.** Six sites wrote `sys, ok := info.Sys().(*syscall.Stat_t)`
+followed by `t.Skip("this platform does not report POSIX owner and group
+ids")`. That skip makes the code look platform-aware, and it is a RUNTIME
+guard for a COMPILE-TIME problem: `syscall.Stat_t` does not merely go
+unpopulated on Windows, it does not exist there, so the entire test
+package fails to type-check and no line of the guard ever runs. A comment
+that names the right concern is not the same as handling it, and here the
+wrong handling was actively reassuring.
+
+**Fix.** `posixOwnerIDs(fs.FileInfo) (uid, gid int, ok bool)` in a
+build-tagged pair per package — `ownership_posix_test.go` under
+`//go:build !windows` doing the assertion, `ownership_windows_test.go`
+returning `ok == false` — with every caller keeping its existing skip,
+which now means what it says. Verified with `GOOS=windows go vet` and
+`GOOS=darwin go vet` over the affected packages, not just the native
+build.
+
+**Lesson.** Only a build tag can express "this identifier does not exist
+on that GOOS". A type assertion's `ok` result cannot, however plausible
+the skip beside it reads. This is the same family as the platform-suffix
+trap `.github/workflows/ci.yml`'s own comment describes (#51), approached
+from the other side: there a file silently never compiled, here a file
+silently never could. The advisory Windows leg exists to catch exactly
+this, and it only works if somebody reads a leg that is allowed to be
+red.
+
+## 184. The bastion proof's console server was published to the host, and publishing it is precisely what let a different Docker network reach it
+
+**Symptom.** CI's `ubuntu-latest` leg failed
+`TestBastionProof/DirectDialToConsoleServerFails`: a direct TCP dial from
+the test process to the console server's container address SUCCEEDED,
+where the test asserted it must fail because that container is attached
+only to the isolated management network. Green on the author's Docker
+Desktop/WSL2 host every single time.
+
+**Root cause.** Two independent defects, the first hiding the second.
+
+(a) The assertion was environment-dependent rather than a property of the
+topology. Under Docker Desktop the daemon runs inside a VM whose bridge
+subnets the host cannot route to, so the dial failed and looked like
+evidence. Under a native-Linux daemon — GitHub's `ubuntu-latest`, the
+only leg that runs this package at all — the host routes to every bridge
+network directly and the dial succeeds. Host-to-bridge routability is a
+property of how the daemon is installed, so no assertion about it can
+prove anything about the topology.
+
+(b) Chasing (a) surfaced the real one. The console server had a published
+host port the entire time (`0.0.0.0:35480 -> 7000/tcp`), while the file's
+own doc comment claimed it had "NO port published to the host at all" and
+its readiness strategy was described as deliberately avoiding one. Cause:
+testcontainers-go publishes the IMAGE's own `EXPOSE` ports when the
+`ContainerRequest` declares no `ExposedPorts` of its own (`lifecycle.go`,
+"Expose ports automatically if the container request exposes zero
+ports"). Asking for no ports is what produced a binding. Compounding it,
+`wait.ForListeningPort(...).SkipExternalCheck()` does not avoid a mapping
+either: `SkipExternalCheck` only suppresses the dial FROM the host, while
+`HostPortStrategy.WaitUntilReady` still blocks on `target.MappedPort`
+first — so that readiness gate can only ever be satisfied by a published
+container, and it silently required the exact thing the test existed to
+disprove.
+
+The publish was not cosmetic. Measured directly, with two networks and
+two otherwise-identical containers: the published one was reachable from
+a container on the OTHER bridge network, the unpublished one was not. A
+published port installs an ACCEPT rule in the daemon's `DOCKER` chain
+that matches traffic arriving from ANY bridge, not just from the host, so
+it punches straight through the inter-network isolation this entire file
+exists to demonstrate.
+
+**Fix.** `EXPOSE 7000` removed from `testdata/consoleserver/Dockerfile`,
+with a comment recording why it must not come back. Readiness swapped to
+`wait.ForExec` reading the listening socket out of `/proc/net/tcp` inside
+the container, which needs no host mapping — the same check
+`wait.ForListeningPort` performs internally, minus the mapped-port
+precondition. The host-routing-dependent control was replaced by two that
+hold wherever the daemon runs: the console server has no host port
+binding at all, and it is unreachable from a host attached only to the
+outer network BY ADDRESS. That last distinction matters — the
+pre-existing one-hop control dialed the DNS alias `consoleserver`, which
+only the management network's embedded DNS answers, so on its own it
+proved the name does not resolve and not that there is no route.
+
+**Lesson.** Three. A control assertion has to fail for the reason it
+claims: "the dial failed" and "there is no route" are different
+propositions, and the gap between them only becomes visible on a
+differently-installed daemon. A negative claim in a doc comment ("no port
+published") is not an assertion — this one was false for the entire life
+of the file, and the test that supposedly proved it never looked at a
+port mapping. And a readiness strategy is part of the topology, not
+scaffolding around it: this one quietly demanded a host mapping, which
+was exactly what the subject under test forbade.

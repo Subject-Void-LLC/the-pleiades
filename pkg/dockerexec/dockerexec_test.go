@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,11 +25,32 @@ import (
 // mechanism a real Docker daemon (itself written in Go) uses to serve
 // this exact endpoint.
 
+// shortTempDir returns a fresh temporary directory, removed when the test
+// ends, whose path is short enough to hold a Unix socket.
+//
+// t.TempDir is the obvious thing to reach for and is the wrong one here:
+// it builds its directory name out of the test's own name, and macOS puts
+// TMPDIR under /var/folders/<2>/<28>/T/, so a descriptively named test
+// pushes the socket path past sockaddr_un's 104-byte sun_path limit and
+// net.Listen fails with the famously unhelpful "bind: invalid argument".
+// Linux allows 108 bytes and puts TMPDIR at /tmp, which is why this was
+// invisible until CI grew a macos-latest leg. A two-character prefix keeps
+// the whole path near 70 bytes on either platform.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "px")
+	if err != nil {
+		t.Fatalf("os.MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // fakeDaemon starts a real net/http.Server listening on a real Unix
-// socket under t.TempDir(), serving mux, and returns the socket path.
+// socket under shortTempDir, serving mux, and returns the socket path.
 func fakeDaemon(t *testing.T, mux *http.ServeMux) string {
 	t.Helper()
-	sockPath := filepath.Join(t.TempDir(), "docker.sock")
+	sockPath := filepath.Join(shortTempDir(t), "docker.sock")
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		t.Fatalf("net.Listen: %v", err)

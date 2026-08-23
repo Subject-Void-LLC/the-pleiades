@@ -44,6 +44,23 @@ import (
 // the host at all: that is the one boundary this file's own control
 // assertions exist to prove, not a testing convenience.
 //
+// Those controls deliberately do NOT include a direct dial from this test
+// process to the console server's container address. One used to, and it
+// was environment-dependent rather than true: on a Docker Desktop host
+// (macOS, Windows, WSL2) the daemon runs inside a VM whose bridge subnets
+// the host cannot route to, so the dial failed and the assertion looked
+// like evidence; on a native-Linux daemon -- GitHub Actions'
+// ubuntu-latest, the only leg that runs this package at all -- the host
+// routes to every bridge network directly, the dial SUCCEEDED, and the
+// test failed. Host-to-bridge routing is a property of how the daemon is
+// installed, not of this topology, so no assertion about it can prove
+// anything about the topology. What the controls below assert instead is
+// the pair of things that are true wherever the daemon runs: the console
+// server has no host port binding at all, and it is unreachable from a
+// host attached only to the outer network -- by address, not merely by
+// name, so it is Docker's own inter-network isolation being tested and
+// not the embedded DNS.
+//
 // # What this proves, and what it honestly does not
 //
 // A real socat PTY pair proves the RFC 2217 negotiation, subnegotiation
@@ -139,10 +156,30 @@ func startBastionProofInnerBastion(t *testing.T, outerNet, mgmtNet string) testc
 	return c
 }
 
+// consoleServerListeningCheck is the readiness probe for the console
+// server: ser2net's own listening socket, read out of the container's
+// /proc/net/tcp, from inside the container.
+//
+// 1B58 is 7000 in the hex, network-byte-order form /proc/net/tcp prints
+// its local_address column in, and this is the same check
+// wait.ForListeningPort itself performs internally
+// (wait/host_port.go's buildInternalCheckCommand).
+//
+// wait.ForListeningPort cannot be used here, which is the whole reason
+// this exists. Its SkipExternalCheck only suppresses the dial FROM the
+// host; the strategy still blocks first on target.MappedPort until the
+// port has a host binding, so it can only ever be satisfied by a
+// container whose port is published -- and a published port is exactly
+// what this topology must not have (see testdata/consoleserver's
+// Dockerfile for what publishing costs). A readiness strategy that
+// silently requires the thing under test to be false is worse than no
+// strategy at all.
+const consoleServerListeningCheck = `cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '{print $2}' | grep -qi ':1B58$'`
+
 // startBastionProofConsoleServer builds and starts the real ser2net +
 // socat console-server emulator (testdata/consoleserver), attached ONLY
 // to mgmtNet, with NO port published to the host at all: readiness is
-// checked from INSIDE the container (SkipExternalCheck), not via a host
+// checked by running a real command INSIDE the container, not via a host
 // mapping this container deliberately never gets.
 func startBastionProofConsoleServer(t *testing.T, mgmtNet string) testcontainers.Container {
 	t.Helper()
@@ -151,7 +188,7 @@ func startBastionProofConsoleServer(t *testing.T, mgmtNet string) testcontainers
 			Context:    "testdata/consoleserver",
 			Dockerfile: "Dockerfile",
 		},
-		WaitingFor:     wait.ForListeningPort("7000/tcp").SkipExternalCheck().WithStartupTimeout(2 * time.Minute),
+		WaitingFor:     wait.ForExec([]string{"/bin/sh", "-c", consoleServerListeningCheck}).WithStartupTimeout(2 * time.Minute),
 		Networks:       []string{mgmtNet},
 		NetworkAliases: map[string][]string{mgmtNet: {"consoleserver"}},
 	}
@@ -316,17 +353,19 @@ func TestBastionProof(t *testing.T) {
 		t.Logf("AssertDTR failed as expected after %v: %v", elapsed, dtrErr)
 	})
 
-	t.Run("DirectDialToConsoleServerFails", func(t *testing.T) {
-		consoleIP, err := consoleServer.ContainerIP(ctx)
+	t.Run("ConsoleServerPublishesNoHostPort", func(t *testing.T) {
+		if _, err := consoleServer.MappedPort(ctx, "7000/tcp"); err == nil {
+			t.Error("the console server has a host port mapping: the whole point of this topology is that the only way in is through both bastions in order, and a published port is a second way in that every subtest above would then be silently free to have used")
+		}
+		ports, err := consoleServer.Ports(ctx)
 		if err != nil {
-			t.Fatalf("console server container IP: %v", err)
+			t.Fatalf("console server port bindings: %v", err)
 		}
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(consoleIP, "7000"), 3*time.Second)
-		if err == nil {
-			_ = conn.Close()
-			t.Fatal("expected a direct dial to the console server (no hop chain at all) to fail: it is attached only to the management network, with no route from outside it")
+		for port, bindings := range ports {
+			if len(bindings) > 0 {
+				t.Errorf("console server port %s is bound to the host at %v", port, bindings)
+			}
 		}
-		t.Logf("direct dial failed as expected: %v", err)
 	})
 
 	t.Run("DialThroughOuterJumpHostAloneFails", func(t *testing.T) {
@@ -336,6 +375,34 @@ func TestBastionProof(t *testing.T) {
 			t.Fatal("expected dialing through the outer jump host ALONE (skipping the inner bastion) to fail: the outer jump host is attached only to the outer network and has no route to the management network at all")
 		}
 		t.Logf("outer-jump-host-alone dial failed as expected: %v", err)
+	})
+
+	// The subtest above reaches for "consoleserver", a name only the
+	// management network's embedded DNS answers, so on its own it proves
+	// the name does not resolve from the outer network -- which is true,
+	// and weaker than the claim being made. This one asks for the console
+	// server's real management-network address, so the only thing left
+	// that can refuse it is the absence of a route.
+	t.Run("DialToTheConsoleServersOwnAddressThroughTheOuterJumpHostAloneFails", func(t *testing.T) {
+		consoleIP, err := consoleServer.ContainerIP(ctx)
+		if err != nil {
+			t.Fatalf("console server container IP: %v", err)
+		}
+
+		// Bounded explicitly: Docker's inter-network isolation DROPs the
+		// forwarded packet rather than rejecting it, so the outer jump
+		// host's own connect(2) can sit in SYN retries far longer than
+		// this test should wait. Either shape -- a refusal the sshd
+		// reports back, or this deadline -- is the same answer.
+		attemptCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+
+		conn, err := runner.DialThroughHops(attemptCtx, []remoteexec.Hop{outerHop}, remoteexec.Target{Host: consoleIP, Port: 7000})
+		if err == nil {
+			_ = conn.Close()
+			t.Fatalf("expected a dial to the console server's own management-network address %s:7000, from a host attached only to the outer network, to fail: nothing but Docker's own inter-network isolation stands between them, and this is the assertion that it holds", consoleIP)
+		}
+		t.Logf("outer-network-to-management-network dial failed as expected: %v", err)
 	})
 
 	goleak.VerifyNone(t, leakOpts)

@@ -6,7 +6,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/capability"
@@ -215,13 +214,13 @@ func lineGroupOnDisk(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, gid, ok := posixOwnerIDs(info)
 	if !ok {
 		t.Skip("this platform does not report POSIX owner and group ids")
 	}
-	group, err := user.LookupGroupId(strconv.Itoa(int(sys.Gid)))
+	group, err := user.LookupGroupId(strconv.Itoa(gid))
 	if err != nil {
-		t.Skipf("gid %d has no name on this machine: %v", sys.Gid, err)
+		t.Skipf("gid %d has no name on this machine: %v", gid, err)
 	}
 	return group.Name
 }
@@ -242,11 +241,10 @@ func lineHandToAnotherGroup(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	sys, ok := info.Sys().(*syscall.Stat_t)
+	_, current, ok := posixOwnerIDs(info)
 	if !ok {
 		return ""
 	}
-	current := int(sys.Gid)
 
 	candidates, err := os.Getgroups()
 	if err != nil {
