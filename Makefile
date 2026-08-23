@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -216,6 +216,60 @@ test-no-docker:
 	done; \
 	go test -race -timeout $(GO_TEST_TIMEOUT) $$packages
 
+# test-repeat is the gate against a test that only passes the first time
+# it runs in a process. `go test` defaults to -count=1, so every other
+# target in this file, and therefore all of CI, has always measured
+# exactly one iteration of each test -- which meant a test that registered
+# into a process-wide table and never removed the entry passed forever.
+# Nine packages were in that state simultaneously when this target was
+# written, twenty-four tests across them, two failing as outright panics
+# rather than as errors.
+#
+# -count=3, not 2, and the third iteration is not padding. Two catches a
+# test that leaves an entry behind, because the second iteration collides
+# with the first. It does NOT catch state that accumulates toward a
+# THRESHOLD rather than colliding on first repeat: pkg/remoteexec memoizes
+# one Runner per Options for the life of the process, its breaker counts
+# consecutive failures with no window and no decay, and one Ping spends
+# three attempts against a threshold of five -- so a test whose subject is
+# a dial failure passes at -count=1 and -count=2 and fails from -count=3,
+# when the error stops naming the dial failure and says "circuit open".
+# A gate set at 2 would have been green on a defect this very change had
+# to fix, which is the argument for 3 and also the argument against
+# reading any particular number as sufficient.
+#
+# It reuses test-no-docker's package filter rather than declaring a second
+# one, for the reason DOCKER_DEPENDENT_PACKAGES' own comment gives: a
+# second copy of an exclusion list drifts from the first and nobody
+# notices. Container-backed packages are excluded on purpose -- running
+# real NATS, sshd and LocalStack containers three times buys noise, not
+# evidence, and those are precisely the packages flaky-packages.json
+# already documents as timing-sensitive under load.
+#
+# That reuse is also what lets this be a bare `go test` in push-gate,
+# where test-race, test-integration and coverage all go through
+# tools/testgate's flaky tolerance instead. Every package
+# flaky-packages.json names is inside the filter above, so this target
+# cannot reach one and the tolerance would be a no-op here. That is a
+# claim about two lists nothing else connects, so it is asserted by
+# tools/internal/flakegate's TestEveryFlakyPackageIsExcludedFromTestRepeat
+# rather than trusted to stay true.
+#
+# No -race, deliberately. test-race already covers that axis at -count=1
+# over the same code, and the defect class this target exists for
+# (process-wide state surviving a test) is not a data race and is not
+# made more visible by the detector, only slower.
+#
+# Cost, measured rather than estimated: 115s against 90s for the same 187
+# packages at -count=1. The build is shared, so only the test bodies run
+# twice.
+test-repeat:
+	@packages="$$(go list ./...)"; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		packages="$$(echo "$$packages" | grep -v "^$$pkg$$")"; \
+	done; \
+	go test -count=3 -timeout $(GO_TEST_TIMEOUT) $$packages
+
 # test-integration runs everything behind the `integration` build tag:
 # the Grand Integration Test (the real controller and runner binaries
 # against real Postgres and NATS containers) and internal/ent's
@@ -338,7 +392,7 @@ helm-lint:
 # target itself becoming any less strict. Never make ci itself tolerant of
 # anything; it is the one target whose pass/fail this repository's actual
 # merge gate depends on.
-ci: build devtools vet fmt tidy-check test-race test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
+ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
 
 # push-gate-race and push-gate-integration run through tools/testgate
@@ -383,7 +437,7 @@ push-gate-coverage:
 # comment above), so nothing here weakens what actually gates a merge; it
 # only reduces how much known-flaky local noise a developer has to fight
 # through, and re-run, before a push reaches that real gate.
-push-gate: build devtools vet fmt tidy-check push-gate-race push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
+push-gate: build devtools vet fmt tidy-check push-gate-race test-repeat push-gate-integration gosec govulncheck push-gate-coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "push-gate: all checks passed (a warning above, if any, is a known-flaky package from flaky-packages.json, not a blocking failure)"
 
 # templ-gen regenerates the view layer's templates. templ emits a

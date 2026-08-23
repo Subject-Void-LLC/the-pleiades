@@ -22,12 +22,27 @@ import "testing"
 // fifth). The UI entry matters for the same reason as the rest: a view
 // registry is exactly the kind of table somebody would otherwise hand-roll
 // as a map[string]Descriptor beside the four that already exist.
+//
+// The last three arrived when this list was found to be asking its
+// question in one direction only. internal/launch's kind table and
+// internal/credtype's target table are both package-level registries that
+// had never been recorded here, and internal/engine builds a
+// Registry[TransportBinding] per call rather than at package scope -- its
+// own doc comment at transport_bindings.go calls it "a fourth consumer of
+// the one shared generic Registry primitive", a claim the guard meant to
+// track consumers could not see. That is LESSONS_LEARNED.md #155's "ask
+// the question from both ends" missing from the very file the rule is
+// about; TestEveryPkgRegistryImporterIsOnTheAllowlist below is the other
+// end.
 var registryConsumers = map[string]bool{
 	modulePath + "/pkg/capability":                true,
 	modulePath + "/internal/inventory/record":     true,
 	modulePath + "/pkg/collection":                true,
 	modulePath + "/internal/inventory/syncplugin": true,
 	modulePath + "/internal/ui/view":              true,
+	modulePath + "/internal/launch":               true,
+	modulePath + "/internal/credtype":             true,
+	modulePath + "/internal/engine":               true,
 }
 
 // TestKnownRegistryConsumersImportPkgRegistry asserts every package on the
@@ -64,6 +79,40 @@ func TestRegistryConsumerAllowlistHasNoStaleEntries(t *testing.T) {
 	for pkg := range registryConsumers {
 		if !seen[pkg] {
 			t.Errorf("registryConsumers entry %q does not match any package in the module", pkg)
+		}
+	}
+}
+
+// TestEveryPkgRegistryImporterIsOnTheAllowlist asks the question the two
+// tests above do not: not "does every listed package still use the shared
+// primitive", but "is every package that uses it listed".
+//
+// Both directions are needed and neither implies the other. Without this
+// one the allowlist degrades into a list of the consumers somebody
+// remembered, which is what it had become: it named five while go list
+// reported eight, and the three it omitted included the package whose own
+// doc comment advertises itself as a consumer. A list that cannot notice
+// its own omissions documents nothing and guards nothing.
+//
+// It matters beyond bookkeeping because this list is where a reader looks
+// to answer "which tables in this module are process-wide". Every entry
+// here except internal/engine's, which builds its registry per call, owns
+// a package-level table that outlives any single test -- the property that
+// made nine packages unable to run under -count>1 at once. A consumer
+// missing from this list is a table nobody thought to check.
+func TestEveryPkgRegistryImporterIsOnTheAllowlist(t *testing.T) {
+	for _, pkg := range goList(t, false, modulePath+"/...") {
+		if registryConsumers[pkg.ImportPath] {
+			continue
+		}
+		for _, imp := range pkg.Imports {
+			if imp != modulePath+"/pkg/registry" {
+				continue
+			}
+			t.Errorf("%s imports %s/pkg/registry but is not on registryConsumers. "+
+				"Add it: this list is where a reader looks to find every table in this module built on "+
+				"the shared primitive, and one that is missing is one nobody knows to check",
+				pkg.ImportPath, modulePath)
 		}
 	}
 }
