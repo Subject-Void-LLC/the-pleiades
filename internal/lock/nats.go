@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -44,14 +45,28 @@ type natsLockManager struct {
 // lock be reclaimed without any client comparing wall-clock timestamps
 // across machines) depends on jetstream.KeyValueConfig.LimitMarkerTTL,
 // which an older server rejects at bucket-creation time below.
-func NewNatsLockManager(ctx context.Context, url string) (Manager, error) {
-	nc, err := nats.Connect(url)
+//
+// The dial goes through topology.Connect for the same reason every other
+// dial in this module does, and this package specifically is not optional
+// there. cmd/runner opens three independent NATS connections: the event
+// bus, a raw one for the dispatch consumer, and this one. Giving the
+// first two an unbounded reconnect budget while leaving this one on the
+// nats.go default would be worse than changing none of them, because the
+// lease KeepAlive this connection carries is what internal/runner reads
+// as "the link to the Controller is gone". A lease connection that died
+// permanently at 2m3s while the dispatch connection recovered would abort
+// in-flight work on a link that had already come back.
+//
+// logger may be nil, in which case slog.Default() is used.
+func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger) (Manager, error) {
+	nc, err := topology.Connect(ctx, url, logger, "lock-manager")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("failed to init jetstream: %w", err)
 	}
 
@@ -63,6 +78,7 @@ func NewNatsLockManager(ctx context.Context, url string) (Manager, error) {
 	// rolling upgrade the way two copies could.
 	kv, err := js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("failed to init lock bucket: %w", err)
 	}
 

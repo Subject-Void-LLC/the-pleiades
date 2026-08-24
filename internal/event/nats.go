@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/google/uuid"
@@ -19,18 +20,31 @@ type natsBus struct {
 // NewNatsBus connects to an external NATS broker and ensures the single
 // Pleiades stream (topology.EnsureStream) exists.
 // It adheres to the Liskov Substitution Principle by perfectly substituting the event.Bus interface.
-func NewNatsBus(ctx context.Context, url string) (Bus, error) {
-	nc, err := nats.Connect(url)
+//
+// topology.Connect is the module's one way to obtain a NATS connection:
+// it dials with the shared options and returns only once the connection
+// is actually usable, which matters here because jetstream.New and
+// EnsureStream below both talk to the server immediately. Once connected,
+// the bus survives an outage of any length rather than dying permanently
+// after about two minutes, which is what it did before Phase 96a.
+//
+// logger may be nil, in which case slog.Default() is used. Production
+// callers pass the composition root's own logger so the connection
+// lifecycle events reach the same masked handler everything else does.
+func NewNatsBus(ctx context.Context, url string, logger *slog.Logger) (Bus, error) {
+	nc, err := topology.Connect(ctx, url, logger, "event-bus")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats at %s: %w", url, err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("failed to initialize jetstream: %w", err)
 	}
 
 	if _, err := topology.EnsureStream(ctx, js); err != nil {
+		nc.Close()
 		return nil, err
 	}
 

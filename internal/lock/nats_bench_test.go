@@ -34,7 +34,7 @@ func startBenchNats(b *testing.B) (context.Context, lock.Manager) {
 		b.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
 	if err != nil {
 		b.Fatalf("failed to init lock manager: %v", err)
 	}

@@ -140,12 +140,18 @@ func main() {
 	// connections are a known, documented tradeoff (mirroring
 	// internal/lock's own separate connection), not an oversight -- see
 	// HANDOFF_DOCUMENT.md.
-	bus, err := event.NewNatsBus(ctx, nats.DefaultURL)
+	//
+	// Both dials pass nil for the logger, which is the one place in the
+	// module that is right: cmd/demo installs its masking on the standard
+	// log package's writer and never builds an slog.Logger of its own, so
+	// there is nothing to pass and topology.DialOptions falls back to
+	// slog.Default().
+	bus, err := event.NewNatsBus(ctx, nats.DefaultURL, nil)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
 
-	nc, err := nats.Connect(nats.DefaultURL)
+	nc, err := topology.Connect(ctx, nats.DefaultURL, nil, "demo-logstream")
 	if err != nil {
 		log.Fatalf("failed to connect to nats: %v", err)
 	}

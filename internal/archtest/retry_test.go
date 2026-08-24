@@ -23,9 +23,20 @@ import "testing"
 func TestNoSecondRetryLoopOrCircuitBreaker(t *testing.T) {
 	const retryPkg = modulePath + "/pkg/retry"
 
+	// internal/topology and internal/event joined this list in Phase 96a.
+	// topology.ReconnectDelay is the CustomReconnectDelay callback every
+	// NATS connection in the module now reconnects on, and
+	// internal/event/dlq.go computes its NakWithDelay backoff the same
+	// way. Both are delay computations with no loop of their own, because
+	// nats.go and JetStream respectively already own the loop, which is
+	// exactly the half of pkg/retry they should be consuming; a
+	// hand-rolled exponent in either would have been invisible to this
+	// rule before they were listed.
 	for _, importPath := range []string{
 		modulePath + "/internal/lock",
 		modulePath + "/pkg/remoteexec",
+		modulePath + "/internal/topology",
+		modulePath + "/internal/event",
 	} {
 		pkgs := goList(t, false, importPath)
 		if len(pkgs) != 1 {

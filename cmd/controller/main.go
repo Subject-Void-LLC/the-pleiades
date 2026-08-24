@@ -596,7 +596,7 @@ func main() {
 		fatal("failed to init auth evaluator", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, natsURL)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger)
 	if err != nil {
 		fatal("failed to connect event bus", err)
 	}
@@ -605,7 +605,7 @@ func main() {
 	// LogStreamer connection just below, this is a distinct NATS
 	// connection from event.NewNatsBus's own internal one: lock.Manager
 	// and event.Bus are separate ports with no shared adapter today.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger)
 	if err != nil {
 		fatal("failed to init lock manager", err)
 	}
@@ -627,7 +627,7 @@ func main() {
 	// every line, which a shared durable consumer group cannot give). A
 	// second, independent NATS connection backs it -- the same documented
 	// tradeoff cmd/demo/main.go already accepts, not an oversight.
-	nc, err := nats.Connect(natsURL)
+	nc, err := topology.Connect(ctx, natsURL, logger, "controller-logstream")
 	if err != nil {
 		fatal("failed to connect to nats", err)
 	}

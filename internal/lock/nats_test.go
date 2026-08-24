@@ -39,7 +39,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 	}
 
 	// 2. Initialize Lock Manager
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -113,15 +113,32 @@ func TestThunderingHerdLocking(t *testing.T) {
 }
 
 // TestNewNatsLockManagerConnectError asserts that NewNatsLockManager
-// surfaces a wrapped error instead of panicking or hanging when the
-// underlying nats.Connect call cannot even parse the given URL. This
-// exercises the constructor's connect-failure branch without needing a
-// live NATS server or Docker, since a malformed URL fails address
-// resolution near-instantly.
+// surfaces a wrapped error instead of panicking or hanging when it cannot
+// reach a broker.
+//
+// This test used to say it exercised "the connect-failure branch", on the
+// reasoning that a malformed URL fails address resolution near-instantly.
+// That stopped being true when topology.DialOptions set
+// RetryOnFailedConnect: nats.Connect now returns a NIL error in 310
+// microseconds for this exact URL and hands back a connection that is
+// retrying in the background, so the branch this reaches is the bounded
+// wait in topology.Connect, not the parse failure. The test kept passing
+// while proving something else, which is the failure mode a test with a
+// confidently wrong doc comment always has.
+//
+// The context deadline is deliberate and is doing real work: without it
+// this inherits topology.ConnectWaitTimeout and costs ten seconds in a
+// package whose other non-container tests are instant.
 func TestNewNatsLockManagerConnectError(t *testing.T) {
-	_, err := lock.NewNatsLockManager(context.Background(), "not-a-valid-url::::")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := lock.NewNatsLockManager(ctx, "not-a-valid-url::::", nil)
 	if err == nil {
-		t.Fatal("expected an error from a malformed nats URL, got nil")
+		t.Fatal("expected an error when no broker can be reached, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want it to wrap context.DeadlineExceeded: the failure now comes from the bounded connect wait, not from URL parsing", err)
 	}
 }
 
@@ -154,7 +171,7 @@ func TestNewNatsLockManagerRejectsOldServer(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	_, err = lock.NewNatsLockManager(ctx, url)
+	_, err = lock.NewNatsLockManager(ctx, url, nil)
 	if err == nil {
 		t.Fatal("expected NewNatsLockManager to fail against a pre-2.11 nats-server, got nil error")
 	}
@@ -185,7 +202,7 @@ func TestNatsLockManagerAcquireContextAlreadyCanceled(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -225,7 +242,7 @@ func TestNatsManagerConformance(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}

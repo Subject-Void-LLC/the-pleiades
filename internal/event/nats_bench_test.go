@@ -44,7 +44,7 @@ func BenchmarkNatsBusPublish(b *testing.B) {
 	ctx := context.Background()
 	url := startBenchNatsContainer(b)
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		b.Fatalf("failed to init bus: %v", err)
 	}
@@ -121,7 +121,7 @@ func BenchmarkNatsBusPublishSubscribeRoundTrip(b *testing.B) {
 	ctx := context.Background()
 	url := startBenchNatsContainer(b)
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		b.Fatalf("failed to init bus: %v", err)
 	}

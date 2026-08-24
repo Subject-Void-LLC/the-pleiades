@@ -70,7 +70,7 @@ func BenchmarkLeaderElectorKeepAlive(b *testing.B) {
 		b.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
 	if err != nil {
 		b.Fatalf("failed to init nats lock manager: %v", err)
 	}

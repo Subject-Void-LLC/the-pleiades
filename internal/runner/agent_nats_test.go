@@ -68,7 +68,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("nats bus: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating(t *testing.T) {
 		t.Fatalf("connection string: %v", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("nats bus: %v", err)
 	}

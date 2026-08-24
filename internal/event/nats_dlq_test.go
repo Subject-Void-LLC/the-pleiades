@@ -23,7 +23,7 @@ func TestNatsBusSubscribe_HandlerErrorEventuallyDeadLetters(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestNatsBusSubscribe_PanicIsRecoveredAndDeadLetters(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestNatsBusSubscribe_MalformedPayloadIsTerminatedNotRetriedForever(t *testi
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
