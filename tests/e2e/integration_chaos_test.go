@@ -40,7 +40,7 @@ import (
 
 // toxiproxyImage is pinned rather than floating, for the same reason
 // internal/testsupport pins every other image this suite runs.
-const toxiproxyImage = "ghcr.io/shopify/toxiproxy:2.12.0"
+const toxiproxyImage = testsupport.ToxiproxyImage
 
 // chaosHarness is a harness whose database and broker can be cut.
 type chaosHarness struct {

@@ -345,6 +345,7 @@ func TestPinsNameAnExactVersion(t *testing.T) {
 		"SSHDImage":       testsupport.SSHDImage,
 		"PostgresImage":   testsupport.PostgresImage,
 		"LocalStackImage": testsupport.LocalStackImage,
+		"ToxiproxyImage":  testsupport.ToxiproxyImage,
 	}
 
 	for name, ref := range pins {
@@ -372,10 +373,14 @@ func TestExactVersionRule(t *testing.T) {
 		ref    string
 		reject bool
 	}{
-		// The three real pins, which must stay acceptable.
+		// The real pins, which must stay acceptable. This list said
+		// "the three real pins" while listing three of four, and is now
+		// four of five; the map above is the authority, and this table
+		// exists to prove rejectPin's judgement rather than to enumerate.
 		{"nats:2.14.4-alpine", false},
 		{"postgres:15.19-alpine", false},
 		{"lscr.io/linuxserver/openssh-server:version-10.3_p1-r0", false},
+		{"ghcr.io/shopify/toxiproxy:2.12.0", false},
 
 		// A bare major is the failure this rule was added for.
 		{"postgres:15-alpine", true},
