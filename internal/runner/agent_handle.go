@@ -109,6 +109,25 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 	// per-device lock lease (PLAN.md Section 13) with a heartbeat-driven
 	// self-abort (PLAN.md Section 16's Network Partitions mitigation).
 	// See executeWithLease's own doc comment (agent_exec.go).
+	// Suppress a redelivery of work that already completed. The hazard
+	// is real and narrow: a dispatch publish can report failure to the
+	// Controller and have succeeded anyway, because nats.go buffers the
+	// message while reconnecting and the caller's own context expires
+	// before the acknowledgement arrives. The Controller then has no
+	// record for that device, and internal/dispatch.Reaper republishes,
+	// roughly ten to twenty minutes later and therefore far outside
+	// JetStream's producer-side duplicate window.
+	if a.alreadyExecuted(ctx, payload) {
+		a.logger.Info("skipping a dispatch that already executed",
+			slog.String("job", payload.JobID),
+			slog.String("device", payload.DeviceName))
+		if err := msg.Ack(); err != nil {
+			a.logger.Warn("failed to ack an already-executed dispatch", slog.String("error", err.Error()))
+		}
+		span.SetAttributes(attribute.Bool("pleiades.dispatch.duplicate", true))
+		return
+	}
+
 	execErr := a.executeWithLease(ctx, payload)
 	if execErr != nil && errorsIsContention(execErr) {
 		// Not an execution failure, so it is deliberately not reported to
@@ -179,6 +198,11 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		}
 		return
 	}
+
+	// Marked only here, on the success path, and before the ack: a
+	// dispatch that failed must stay eligible for redelivery, or the
+	// Dead Letter Queue path above becomes unreachable.
+	a.markExecuted(ctx, payload)
 
 	// Acknowledge the message as complete
 	if err := msg.Ack(); err != nil {

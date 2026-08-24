@@ -179,6 +179,9 @@ story, per `.AGENTS/AGENTS.md`.
 163. **Narrowing who may write shared infrastructure is a worse fix than removing the ability to change it: ask which OPERATION is defective before reducing the number of writers, because fewer writers buys coordination, ordering and a new startup failure class, while create-if-absent-but-never-reshape closes the same defect for free and keeps self-healing.**
 
 164. **During a rolling upgrade, enforcement cannot help and the warning is the deliverable: an old build stripped of its ability to reshape is no longer doing damage but is also not applying the new shape, so read the live config back and log every DECLARED field that differs, comparing only the fields the project sets and ignoring server-filled defaults and subject ordering.**
+165. **A derived constant needs its non-linear cap inside the derivation and asserted by a test, never in a comment: when a value becomes configurable, enumerate everything that depends on its MAGNITUDE rather than its identity, because such a dependency names no constant, survives review, and breaks only at a value nobody has tried.**
+
+166. **Producer-side idempotency is only as good as the gap between the original and the retry: a correct, retry-stable key reaching the driver's own duplicate suppression protected nothing here, because the window was two minutes and the only thing that reissues an unconfirmed publish fires after ten, so ask what actually retries and how long after, not just whether the key is stable.**
 
 ---
 

@@ -189,6 +189,7 @@ Kubernetes itself would reject, and a runbook source given twice.
 {{- end -}}
 {{- end -}}
 {{- include "the-pleiades.validate.heartbeat" . -}}
+{{- include "the-pleiades.validate.outagebudget" . -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "controller.podDisruptionBudget" "pdb" .Values.controller.podDisruptionBudget "example" "2") -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "runner.podDisruptionBudget" "pdb" .Values.runner.podDisruptionBudget "example" "1") -}}
 {{- if and .Values.runbooks.configMapName .Values.runbooks.existingClaim -}}
@@ -330,3 +331,19 @@ read or use postgresql.persistence.existingClaim, which skips this check.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The chart must not claim an outage budget its own probes cancel.
+
+The runner's liveness probe reads a heartbeat that only advances when the
+broker answers, so crossing livenessStaleAfterSeconds RESTARTS the pod and
+abandons whatever it was executing. If that limit is shorter than
+mesh.maxOutageSeconds, Kubernetes kills the runner partway through the
+very outage the budget promises to survive, and the promise is false of
+the product while being true of the binary.
+*/}}
+{{- define "the-pleiades.validate.outagebudget" -}}
+{{- if gt (int .Values.mesh.maxOutageSeconds) (int .Values.runner.heartbeat.livenessStaleAfterSeconds) -}}
+{{- fail (printf "mesh.maxOutageSeconds is %d but runner.heartbeat.livenessStaleAfterSeconds is %d. The liveness probe restarts the runner and abandons its work once the heartbeat is that stale, so an outage budget longer than it cannot be survived on Kubernetes. Raise runner.heartbeat.livenessStaleAfterSeconds to at least the budget, or lower the budget." (int .Values.mesh.maxOutageSeconds) (int .Values.runner.heartbeat.livenessStaleAfterSeconds)) -}}
+{{- end -}}
+{{- end -}}

@@ -89,7 +89,7 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 	// natsBus connects THROUGH the proxy, not directly to the NATS
 	// container: every publish and subscribe below crosses the boundary
 	// this test severs.
-	bus, err := event.NewNatsBus(ctx, "nats://"+proxiedHost+":"+proxiedPort, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, "nats://"+proxiedHost+":"+proxiedPort, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}

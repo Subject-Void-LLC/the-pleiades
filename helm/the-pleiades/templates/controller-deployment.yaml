@@ -145,6 +145,8 @@ spec:
               value: /app/runbooks
             - name: NATS_URL
               value: {{ include "the-pleiades.natsURL" . | quote }}
+            - name: PLEIADES_MAX_OUTAGE
+              value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
             - name: DB_DSN
               valueFrom:
                 secretKeyRef:

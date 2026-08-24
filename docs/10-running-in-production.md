@@ -364,16 +364,53 @@ drops is still subject to the device lease expiring, and a command already sent 
 still never retried (above). Surviving the outage means the Runner comes back and
 keeps pulling work, not that in-flight work is resumed where it stopped.
 
-**On Kubernetes, the chart's own defaults currently cut this short.** The Runner's
-liveness probe reads a heartbeat that only advances when the broker answers, and
-the shipped defaults restart the pod 60 to 105 seconds into an outage, which is
-sooner than the client would have given up even before this work. So under the
-default chart you get the unlimited reconnection for outages shorter than about a
-minute, and a pod restart (abandoning in-flight work) for anything longer. If your
-links drop for minutes at a time, raise `runner.heartbeat.livenessStaleAfterSeconds`
-past the longest outage you intend to ride out. A budget derived from one stated
-maximum-survivable-outage figure, rather than three independently chosen numbers,
-is planned work and is not in this release.
+### One number sets how long an outage may last
+
+You state one thing, and everything retention-shaped is derived from it:
+
+```
+PLEIADES_MAX_OUTAGE=30m          # env, on the controller AND the runner
+mesh.maxOutageSeconds: 1800      # the Helm equivalent
+```
+
+Thirty minutes is the default. The accepted range is one minute to twelve hours.
+Set the same value on every service: they each derive the stream's retention from
+it, and a service whose value differs logs a warning naming the mismatch on every
+start.
+
+What it derives: how long the stream keeps a message, how long the broker
+remembers a message identity for duplicate suppression, and how long a runner
+remembers that it already executed a piece of work. Before this, those were three
+unrelated numbers that happened to sit near each other, and two of them sat three
+seconds apart by pure coincidence.
+
+**Raising it is safe. Lowering it is not always.** Retention is derived from the
+budget, so shortening the budget shortens retention, and shortening retention
+deletes every message already older than the new value. The controller refuses to
+do that. It tells you how many messages it would delete and how old the oldest is,
+and you either raise the budget or set
+`PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true` to accept the deletion. Note also that a
+dispatch message carries the credentials its job runs with, so a longer retention
+means those sit on the broker for longer: raising the budget is free in terms of
+message loss and is not free in terms of exposure.
+
+**The Helm chart now refuses to install a budget it would cancel.** The runner's
+liveness probe restarts the pod when its heartbeat goes stale, and that restart
+abandons in-flight work, so a staleness limit shorter than the budget means
+Kubernetes kills the runner partway through the outage the budget claims to
+survive. `runner.heartbeat.livenessStaleAfterSeconds` now defaults to the same
+1800 seconds, and the chart fails the install if you make it shorter than
+`mesh.maxOutageSeconds`. The cost of that is real and worth knowing: a runner
+wedged for a reason reconnection cannot fix now takes up to the budget to be
+noticed and restarted, where it used to take about a minute.
+
+**What the budget does not fix.** Two things still cut an outage shorter than the
+budget, and neither is a retention setting. A runner cannot begin new work during
+an outage at all, because starting a job publishes a log event first. And a job
+already running on a device is abandoned about a minute into an outage, when the
+device lease heartbeat fails. So the honest reading is that the budget governs how
+long the fleet can be out of contact and still pick up where it left off, not how
+long work already in progress keeps running.
 
 **The bus is not authenticated.** Reconnection resilience is not security: any
 client that can reach the broker can publish and subscribe, and a dispatch message

@@ -198,6 +198,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 195. A design's load-bearing precedent cited a source file that does not exist, and the real one argued the opposite way
 196. The safety-critical half of a multi-writer provisioning defect went uncatalogued for a phase because only the retention half had been noticed
 197. A test's own output capture raced its cleanup, and the race report replaced the assertion message that would have explained the failure
+198. A publish reported failure and had succeeded, and the only thing that would have re-run the work was a reclaim ten minutes later, far outside the window meant to make retrying safe
+199. Deriving a resilience budget exposed that the deployment's own probe cancelled it, and the default chart would have failed its own new check
 
 ---
 

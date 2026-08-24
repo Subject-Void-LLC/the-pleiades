@@ -140,3 +140,41 @@ func BindLockBucket(ctx context.Context, js jetstream.JetStream, role StreamRole
 		return nil, fmt.Errorf("invalid stream role %d: use topology.StreamProvisioner or topology.StreamReader", int(role))
 	}
 }
+
+// BindDedupBucket applies role to the application-level deduplication
+// bucket, mirroring BindStream and BindLockBucket.
+//
+// The bucket existed before Phase 96c and was reachable only from tests:
+// event.NewIdempotentBus, its DedupStore port and both adapters were
+// fully built with no production caller at all, which
+// FAILURE_PATTERNS.md #179 records as a decoration rather than an
+// implemented pattern. Phase 96c is what consumes it, from the Runner's
+// raw dispatch loop rather than through the bus decorator, because that
+// loop is the path the decorator provably cannot reach.
+func BindDedupBucket(ctx context.Context, js jetstream.JetStream, role StreamRole) (jetstream.KeyValue, error) {
+	switch role {
+	case StreamProvisioner:
+		kv, err := js.CreateOrUpdateKeyValue(ctx, DedupBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision the %s bucket: %w", DedupBucketName, err)
+		}
+		return kv, nil
+
+	case StreamReader:
+		kv, err := js.KeyValue(ctx, DedupBucketName)
+		if err == nil {
+			return kv, nil
+		}
+		if !errors.Is(err, jetstream.ErrBucketNotFound) {
+			return nil, fmt.Errorf("failed to read the %s bucket: %w", DedupBucketName, err)
+		}
+		created, err := js.CreateOrUpdateKeyValue(ctx, DedupBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the missing %s bucket: %w", DedupBucketName, err)
+		}
+		return created, nil
+
+	default:
+		return nil, fmt.Errorf("invalid stream role %d: use topology.StreamProvisioner or topology.StreamReader", int(role))
+	}
+}

@@ -26,11 +26,11 @@ func TestNatsBusSubscribe_DurableConsumerGroupSplitsMessages(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	busA, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	busA, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus A: %v", err)
 	}
-	busB, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	busB, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus B: %v", err)
 	}

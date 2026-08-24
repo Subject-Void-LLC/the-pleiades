@@ -479,6 +479,21 @@ func main() {
 	}
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
+
+	// The one number that says how long this deployment promises to
+	// survive a link outage. Every retention-shaped window in
+	// internal/topology derives from it, so the two binaries must be
+	// given the same value or they will disagree about the stream's
+	// shape and say so on every start.
+	outageBudget, err := topology.ParseOutageBudget(os.Getenv("PLEIADES_MAX_OUTAGE"))
+	if err != nil {
+		fatal("invalid PLEIADES_MAX_OUTAGE", err)
+	}
+	// Named for its consequence rather than being a generic force flag,
+	// so a compose or chart line that carries it also carries the
+	// warning. Only the Controller reads it: a Runner cannot reshape the
+	// stream at all, which is Phase 96b's whole point.
+	allowRetentionDiscard := os.Getenv("PLEIADES_MAX_OUTAGE_ALLOW_DISCARD") == "true"
 	dbDSN, err := resolveDatabaseDSN()
 	if err != nil {
 		fatal("failed to resolve database configuration", err)
@@ -596,7 +611,7 @@ func main() {
 		fatal("failed to init auth evaluator", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner, outageBudget, allowRetentionDiscard)
 	if err != nil {
 		fatal("failed to connect event bus", err)
 	}

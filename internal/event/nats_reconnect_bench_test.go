@@ -45,7 +45,7 @@ func BenchmarkNatsBus_RecoveryAfterSeverance(b *testing.B) {
 	ctx := context.Background()
 
 	url, proxy := natsThroughToxiproxy(b)
-	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		b.Fatalf("failed to init nats bus through proxy: %v", err)
 	}

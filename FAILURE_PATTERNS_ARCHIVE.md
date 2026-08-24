@@ -6641,3 +6641,81 @@ into an in-memory buffer must use `cmd.Wait()`. More generally, when a race
 report and an assertion failure arrive together, read the assertion first: a
 race inside test scaffolding is frequently a consequence of the failure path
 running, not the cause of it.
+
+## 198. A publish reported failure and had succeeded, and the only thing that would have re-run the work was a reclaim ten minutes later, far outside the window meant to make retrying safe
+
+**Symptom.** Measured against real NATS behind real Toxiproxy: a JetStream
+publish while the link was severed did not fail fast. It blocked for the
+caller's whole context, returned `context deadline exceeded`, and **the
+message was persisted anyway**. The stream held three messages before the
+outage and five after the heal, and a durable consumer drained all five.
+
+**Root cause, at source level.** `nats.go`'s `Conn.publish` does not reject a
+write while the connection is RECONNECTING: it appends to the pending
+buffer and returns nil. The JetStream request layer then waits for an
+acknowledgement on the caller's context, and on expiry deletes its own
+response-map token and returns the context error. When the link heals,
+`flushReconnectPendingItems` sends the buffered message. So the write
+succeeded, the acknowledgement was abandoned, and the caller was told it
+failed. There is also a ceiling nobody had written down: past the 8MB
+reconnect buffer the publish genuinely fails and is genuinely not
+persisted, and the two outcomes are indistinguishable to the caller.
+
+**Why the obvious defence did not work.** Producer-side deduplication was
+already correct and already wired: the fan-out stamps a retry-stable
+`jobID:deviceID` identity that reaches `jetstream.WithMsgID`. But the
+stream's duplicate window was two minutes, and the only thing that
+re-issues an unconfirmed dispatch is the stale-job reclaim, which fires
+after ten. The dedup memory expired eight minutes before the duplicate it
+existed to catch. And the window could not simply be lengthened, because
+the reclaim's own correctness depends on the window having closed by the
+time it republishes.
+
+**Fix.** Consumer-side suppression, in the Runner's raw pull loop, keyed on
+the same `jobID:deviceID` identity the producer and the write-ahead log
+already use, backed by the KV dedup store that `FAILURE_PATTERNS.md` #179
+recorded as fully built with no production caller. It is marked only after
+a successful execution, never on receipt, or a first attempt that failed
+becomes indistinguishable from one that succeeded and the dead-letter path
+stops being reachable. A store failure runs the work rather than skipping
+it, so a storage blip cannot turn into silently skipped automation.
+
+**Lesson.** Producer-side idempotency is bounded by a window, so it only
+helps if the retry happens inside that window, and the thing to check is
+not whether a key is stable but how long after the original the retry
+actually occurs. Measure the gap. Here it was ten to twenty minutes
+against a two minute window, and the mechanism had looked complete for
+several phases because every piece of it was individually correct.
+
+## 199. Deriving a resilience budget exposed that the deployment's own probe cancelled it, and the default chart would have failed its own new check
+
+**Symptom.** Adding one operator-facing outage budget, with a validation
+that the chart must not claim a budget its own probes cancel, made the
+DEFAULT installation refuse to render: `mesh.maxOutageSeconds` defaulted to
+1800 while `runner.heartbeat.livenessStaleAfterSeconds` defaulted to 60.
+
+**Root cause.** The 60 second staleness limit was correct when it was
+chosen. The NATS client gave up permanently after about two minutes and
+logged nothing, so an unreachable broker really did mean a dead process and
+restarting was the only recovery. A later phase made the client reconnect
+for as long as the process lives, which removed the cause without anyone
+revisiting the probe that existed for it. The two numbers were then in
+direct contradiction, and nothing connected them, so nothing complained.
+
+**Why the failing default was the useful outcome.** The validation was
+written to catch an operator setting an incoherent pair. The first thing it
+caught was the chart's own shipped defaults, which is the strongest
+possible evidence that the contradiction was real rather than theoretical,
+and it caught it at template time rather than in production.
+
+**Fix.** The liveness staleness limit now defaults to the budget, and the
+chart refuses any configuration where it is shorter. The cost is stated
+rather than hidden: a runner wedged for a reason reconnection cannot fix
+now takes up to the budget to be noticed instead of about a minute.
+
+**Lesson.** When a change removes the reason a timeout exists, the timeout
+does not become harmless, it becomes wrong in the other direction. And when
+you add a rule connecting two previously unconnected values, run it against
+the shipped defaults first: if the defaults fail, the rule has already paid
+for itself, and the failing default is a finding rather than an obstacle to
+the rule.

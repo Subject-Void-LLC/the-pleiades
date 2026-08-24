@@ -123,6 +123,16 @@ func main() {
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 
+	// The one number that says how long this deployment promises to
+	// survive a link outage. Every retention-shaped window in
+	// internal/topology derives from it, so the two binaries must be
+	// given the same value or they will disagree about the stream's
+	// shape and say so on every start.
+	outageBudget, err := topology.ParseOutageBudget(os.Getenv("PLEIADES_MAX_OUTAGE"))
+	if err != nil {
+		log.Fatalf("invalid PLEIADES_MAX_OUTAGE: %v", err)
+	}
+
 	// This process handles secrets more directly than any other: it holds
 	// a dispatch's credentials in memory and shells out to real transports
 	// with them, so it is the last place that should log unmasked.
@@ -156,7 +166,7 @@ func main() {
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
 	// Pleiades stream (topology.EnsureStream) exists.
-	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader, outageBudget, false)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
@@ -201,6 +211,24 @@ func main() {
 
 	poolSize := envInt("RUNNER_POOL_SIZE", 0) // 0 means "unset"; NewAgent's own WithPoolSize ignores n<=0 and keeps defaultPoolSize
 	agentOpts := []runner.AgentOption{runner.WithPoolSize(poolSize)}
+
+	// Consumer-side duplicate suppression. A dispatch publish can report
+	// failure to the Controller and have succeeded anyway, and the
+	// Controller's stale-job reclaim then republishes it well outside
+	// JetStream's producer-side duplicate window, so the same unit of
+	// work can arrive twice. This is what recognises the second one.
+	//
+	// A Runner that cannot reach the bucket starts without the check
+	// rather than refusing to start: the check is an improvement on a
+	// narrow hazard, and trading it for unavailability would be the wrong
+	// way round.
+	if dedupKV, err := topology.BindDedupBucket(ctx, js, topology.StreamReader); err != nil {
+		logger.Warn("dispatch duplicate suppression is disabled: could not bind the dedup bucket",
+			"error", err.Error())
+	} else {
+		agentOpts = append(agentOpts, runner.WithDedupStore(
+			event.NewNatsDedupStore(dedupKV), topology.DerivedDedupTTLFloor(outageBudget)))
+	}
 
 	// WAL result buffering (PLAN.md Section 16's State Desync
 	// Mitigation) is opt-in: only constructed, and only fail-closed at

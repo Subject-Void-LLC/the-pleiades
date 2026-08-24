@@ -11,37 +11,20 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// streamMaxAge is a generous, single-node-dev-cluster-appropriate default
-// retention window. No production deployment topology exists yet (Phase 2's
-// own checklist scope is the bus mechanism and its composition roots, not
-// clustering or capacity planning), so this is deliberately conservative
-// rather than tuned; a later phase that needs a different value changes it
-// here, once, rather than at each of the independent declarations this
-// package replaces.
-const streamMaxAge = 7 * 24 * time.Hour
-
-// streamDuplicateWindow is how long JetStream remembers a message's
-// Nats-Msg-Id (set via jetstream.WithMsgID on Publish) to reject a
-// duplicate publish of the same idempotency key. Set explicitly rather
-// than left at zero (which defers to the server's own default, currently 2
-// minutes) so this codebase's own producer-side dedup guarantee does not
-// silently change if the server's default ever does.
-const streamDuplicateWindow = 2 * time.Minute
-
 // StreamConfig returns the one JetStream stream configuration every
-// Pleiades subject is published on. There is exactly one stream: see
+// Pleiades subject is published on, for the stated outage budget. There is exactly one stream: see
 // StreamName's doc comment for why splitting subjects across several
 // streams (as this package's predecessor declarations did) is the drift
 // this package exists to prevent.
-func StreamConfig() jetstream.StreamConfig {
+func StreamConfig(budget OutageBudget) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:       StreamName,
 		Subjects:   []string{StreamSubjectRoot},
 		Retention:  jetstream.LimitsPolicy,
 		Storage:    jetstream.FileStorage,
-		MaxAge:     streamMaxAge,
+		MaxAge:     DerivedMaxAge(budget),
 		Replicas:   1,
-		Duplicates: streamDuplicateWindow,
+		Duplicates: DerivedDuplicateWindow(budget),
 	}
 }
 
@@ -74,8 +57,8 @@ func (d StreamDrift) String() string {
 // Subjects compares as a set rather than a slice: the server is free to
 // return them in its own order, and an ordering difference is not a
 // configuration difference.
-func StreamConfigDrift(live jetstream.StreamConfig) []StreamDrift {
-	declared := StreamConfig()
+func StreamConfigDrift(live jetstream.StreamConfig, budget OutageBudget) []StreamDrift {
+	declared := StreamConfig(budget)
 	var drift []StreamDrift
 
 	if live.Name != declared.Name {
@@ -148,11 +131,28 @@ func sameSubjects(live, declared []string) bool {
 // subject today so this cannot currently trigger, which is exactly when
 // the guard is cheap. Any drift found after reconciling is returned for
 // the caller to log.
-func ProvisionStream(ctx context.Context, js jetstream.JetStream) (jetstream.Stream, []StreamDrift, error) {
-	desired := StreamConfig()
+func ProvisionStream(ctx context.Context, js jetstream.JetStream, budget OutageBudget, allowDiscard bool) (jetstream.Stream, []StreamDrift, error) {
+	desired := StreamConfig(budget)
 
 	if live, err := js.Stream(ctx, StreamName); err == nil {
-		if orphaned := subjectsThatWouldBeOrphaned(live.CachedInfo().Config.Subjects, desired.Subjects); len(orphaned) > 0 {
+		info := live.CachedInfo()
+
+		// The one-way door. Raising retention is free; lowering it
+		// DELETES every message older than the new value, and the server
+		// does it immediately and without complaint. The refusal is
+		// deliberately conditional on there being something to lose: if
+		// nothing on the stream is older than the new retention, lowering
+		// discards nothing and is applied silently, which is the same
+		// "the guard is cheap exactly when it cannot trigger" reasoning
+		// the subject check below uses, run in the other direction.
+		oldest := time.Since(info.State.FirstTime)
+		if !allowDiscard && retentionWouldDiscard(info.Config.MaxAge, desired.MaxAge, info.State.Msgs, oldest) {
+			return nil, nil, fmt.Errorf(
+				"refusing to shorten the %s stream's retention from %s to %s: this stream holds %d messages whose oldest is %s old, so applying it deletes them; raise PLEIADES_MAX_OUTAGE, or set PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true to accept the deletion",
+				StreamName, info.Config.MaxAge, desired.MaxAge, info.State.Msgs, oldest.Truncate(time.Second))
+		}
+
+		if orphaned := subjectsThatWouldBeOrphaned(info.Config.Subjects, desired.Subjects); len(orphaned) > 0 {
 			return nil, nil, fmt.Errorf(
 				"refusing to reshape %s stream: it would stop capturing %s, orphaning anything already published there; widen StreamConfig's Subjects or migrate deliberately",
 				StreamName, strings.Join(orphaned, ", "))
@@ -165,7 +165,7 @@ func ProvisionStream(ctx context.Context, js jetstream.JetStream) (jetstream.Str
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to provision %s stream: %w", StreamName, err)
 	}
-	return stream, StreamConfigDrift(stream.CachedInfo().Config), nil
+	return stream, StreamConfigDrift(stream.CachedInfo().Config, budget), nil
 }
 
 // AttachStream binds to the Pleiades stream, creating it only when it does
@@ -192,10 +192,10 @@ func ProvisionStream(ctx context.Context, js jetstream.JetStream) (jetstream.Str
 // signal there is: the old binary is no longer reverting anything, but it
 // is also not applying the new shape, and nothing else in the system would
 // say so.
-func AttachStream(ctx context.Context, js jetstream.JetStream) (jetstream.Stream, []StreamDrift, error) {
+func AttachStream(ctx context.Context, js jetstream.JetStream, budget OutageBudget) (jetstream.Stream, []StreamDrift, error) {
 	stream, err := js.Stream(ctx, StreamName)
 	if err == nil {
-		return stream, StreamConfigDrift(stream.CachedInfo().Config), nil
+		return stream, StreamConfigDrift(stream.CachedInfo().Config, budget), nil
 	}
 	if !errors.Is(err, jetstream.ErrStreamNotFound) {
 		return nil, nil, fmt.Errorf("failed to read %s stream: %w", StreamName, err)
@@ -204,7 +204,7 @@ func AttachStream(ctx context.Context, js jetstream.JetStream) (jetstream.Stream
 	// Absent, so bootstrap it. A concurrent creator racing here is not an
 	// error: CreateOrUpdateStream converges on the same declared shape,
 	// and every binary that can reach this line declares the same one.
-	created, err := js.CreateOrUpdateStream(ctx, StreamConfig())
+	created, err := js.CreateOrUpdateStream(ctx, StreamConfig(budget))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create the missing %s stream: %w", StreamName, err)
 	}
@@ -278,13 +278,39 @@ func (r StreamRole) String() string {
 // It is the one place the two entry points are selected between, so a
 // caller states its authority once and cannot accidentally reach the
 // wrong half.
-func BindStream(ctx context.Context, js jetstream.JetStream, role StreamRole) (jetstream.Stream, []StreamDrift, error) {
+func BindStream(ctx context.Context, js jetstream.JetStream, role StreamRole, budget OutageBudget, allowDiscard bool) (jetstream.Stream, []StreamDrift, error) {
 	switch role {
 	case StreamProvisioner:
-		return ProvisionStream(ctx, js)
+		return ProvisionStream(ctx, js, budget, allowDiscard)
 	case StreamReader:
-		return AttachStream(ctx, js)
+		return AttachStream(ctx, js, budget)
 	default:
 		return nil, nil, fmt.Errorf("invalid stream role %d: use topology.StreamProvisioner or topology.StreamReader", int(role))
 	}
+}
+
+// retentionWouldDiscard reports whether applying desired retention to a
+// stream currently holding msgs messages, the oldest of them oldest old,
+// would delete any of them.
+//
+// It is a pure function rather than three conditions inline because the
+// case it exists for cannot be reached from a test against a real broker:
+// the shortest retention any legal outage budget derives is several hours,
+// so making a freshly published message "too old" would require waiting
+// that long. The decision is the part worth verifying, so it is separated
+// from the round trip that supplies its inputs.
+//
+// All three conditions matter. A lowering that is not actually a lowering
+// deletes nothing. An empty stream has nothing to lose. And a stream whose
+// oldest message is still younger than the new retention keeps every
+// message it holds, which is the common case for an operator tuning a
+// young deployment and must not be refused.
+func retentionWouldDiscard(liveMaxAge, desiredMaxAge time.Duration, msgs uint64, oldest time.Duration) bool {
+	if desiredMaxAge >= liveMaxAge {
+		return false
+	}
+	if msgs == 0 {
+		return false
+	}
+	return oldest > desiredMaxAge
 }

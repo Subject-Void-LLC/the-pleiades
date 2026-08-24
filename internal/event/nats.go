@@ -41,7 +41,7 @@ type natsBus struct {
 // logger may be nil, in which case slog.Default() is used. Production
 // callers pass the composition root's own logger so the connection
 // lifecycle events reach the same masked handler everything else does.
-func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole) (Bus, error) {
+func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole, budget topology.OutageBudget, allowDiscard bool) (Bus, error) {
 	nc, err := topology.Connect(ctx, url, logger, "event-bus")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats at %s: %w", url, err)
@@ -53,7 +53,7 @@ func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topol
 		return nil, fmt.Errorf("failed to initialize jetstream: %w", err)
 	}
 
-	_, drift, err := topology.BindStream(ctx, js, role)
+	_, drift, err := topology.BindStream(ctx, js, role, budget, allowDiscard)
 	if err != nil {
 		nc.Close()
 		return nil, err
@@ -71,8 +71,15 @@ func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topol
 		if log == nil {
 			log = slog.Default()
 		}
+		// The budget is named because it is the most likely cause: two
+		// binaries given different PLEIADES_MAX_OUTAGE values derive
+		// different MaxAge and Duplicates, and without this an operator
+		// who set it on one Deployment and not the other reads a warning
+		// that points at the wrong thing.
 		log.Warn("the live stream shape differs from what this build declares",
-			"role", role.String(), "drift", strings.Join(fields, "; "))
+			"role", role.String(), "outage_budget", budget.String(),
+			"likely_cause", "PLEIADES_MAX_OUTAGE differs between processes, or an upgrade is mid-rollout",
+			"drift", strings.Join(fields, "; "))
 	}
 
 	return &natsBus{

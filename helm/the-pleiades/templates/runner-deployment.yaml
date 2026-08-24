@@ -173,6 +173,8 @@ spec:
           env:
             - name: NATS_URL
               value: {{ include "the-pleiades.natsURL" . | quote }}
+            - name: PLEIADES_MAX_OUTAGE
+              value: {{ printf "%ds" (int .Values.mesh.maxOutageSeconds) | quote }}
             {{- /* The same path the controller sets, for the reason written
                  in controller-deployment.yaml: the two resolve a dispatched
                  runbook independently, and this image's own default is a

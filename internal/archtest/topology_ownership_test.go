@@ -313,7 +313,7 @@ import "github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 
 func wire() {
 	_ = topology.StreamProvisioner
-	_, _, _ = topology.ProvisionStream(ctx, js)
+	_, _, _ = topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false)
 	_ = topology.StreamReader
 	_ = topology.StreamProvisionerish
 	_ = notProvisionStream

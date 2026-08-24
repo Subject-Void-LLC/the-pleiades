@@ -134,7 +134,7 @@ func TestNatsBus_RecoversFromAnOutageBeyondTheOldReconnectBudget(t *testing.T) {
 	ctx := context.Background()
 
 	url, proxy := natsThroughToxiproxy(t)
-	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestNatsBus_ConnectsWhenTheBrokerAppearsAfterStartup(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+		bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 		done <- result{bus: bus, err: err}
 	}()
 
@@ -270,7 +270,7 @@ func TestNatsBus_ColdStartStillFailsWhenTheBrokerNeverAppears(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	bus, err := event.NewNatsBus(ctx, "nats://192.0.2.1:4222", nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, "nats://192.0.2.1:4222", nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -319,7 +319,7 @@ func TestNatsBus_LogsTheConnectionLifecycle(t *testing.T) {
 	}
 
 	url, proxy := natsThroughToxiproxy(t)
-	bus, err := event.NewNatsBus(ctx, url, logger, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, logger, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers(t *testing.T) {
 	url, _ := natsThroughToxiproxy(t)
 
 	// A Controller provisions, then an operator widens retention.
-	provisioner, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	provisioner, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("provisioning bus: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jetstream.New: %v", err)
 	}
-	widened := topology.StreamConfig()
+	widened := topology.StreamConfig(topology.DefaultOutageBudget)
 	widened.MaxAge = 30 * 24 * time.Hour
 	if _, err := js.UpdateStream(ctx, widened); err != nil {
 		t.Fatalf("widening retention: %v", err)
@@ -423,7 +423,7 @@ func TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&safeWriter{mu: &mu, w: &buf}, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	reader, err := event.NewNatsBus(ctx, url, logger, topology.StreamReader)
+	reader, err := event.NewNatsBus(ctx, url, logger, topology.StreamReader, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("reader bus: %v", err)
 	}

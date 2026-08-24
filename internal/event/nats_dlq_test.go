@@ -23,7 +23,7 @@ func TestNatsBusSubscribe_HandlerErrorEventuallyDeadLetters(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestNatsBusSubscribe_PanicIsRecoveredAndDeadLetters(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestNatsBusSubscribe_MalformedPayloadIsTerminatedNotRetriedForever(t *testi
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestHandleDeliveryFailure_NonPositiveMaxDeliverDeadLettersImmediately(t *te
 	if err != nil {
 		t.Fatalf("jetstream: %v", err)
 	}
-	if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("ensure stream: %v", err)
 	}
 

@@ -359,11 +359,24 @@ runner:
   # than rendering it.
   heartbeat:
     intervalSeconds: 10
-    # -- Six missed beats before a pod is RESTARTED. Deliberately the more
-    # forgiving of the two: crossing it abandons whatever that runner was
-    # executing, so the bar is a broker that has been unreachable for a
-    # minute rather than one that hiccupped.
-    livenessStaleAfterSeconds: 60
+    # -- How stale the heartbeat may get before a pod is RESTARTED.
+    # Crossing it abandons whatever that runner was executing.
+    #
+    # This was 60 seconds, chosen when an unreachable broker really did
+    # mean a dead process: the NATS client gave up permanently after about
+    # two minutes and nothing logged it, so restarting was the only
+    # recovery. That is no longer true. The client now reconnects for as
+    # long as the process lives, so a broker outage no longer wedges a
+    # runner, and killing the pod one minute into an outage would destroy
+    # the resilience rather than protect it.
+    #
+    # It now matches mesh.maxOutageSeconds, and the chart refuses to
+    # install if it is shorter, because a runner restarted partway through
+    # an outage has not survived that outage whatever the message stream
+    # retained. What it still catches is a runner wedged for a reason
+    # reconnection cannot fix, such as a broker answering TCP but not
+    # JetStream, at the cost of taking the budget to notice.
+    livenessStaleAfterSeconds: 1800
     # -- Three missed beats before a pod is marked NOT READY, which costs
     # nothing but a paused rollout. See the readinessProbe comment in
     # templates/runner-deployment.yaml for what a readiness probe does for a
@@ -548,6 +561,31 @@ externalDatabase:
   # it out of Helm's release storage entirely.
   existingSecret: ""
   existingSecretKey: DB_DSN
+
+# mesh carries the one number that says how long this deployment promises
+# to survive a link outage. Every retention-shaped window in the message
+# bus derives from it, so the controller and the runner must be given the
+# same value, and both Deployments render it from here for that reason.
+#
+# It is a top level block rather than a key under nats, because it is
+# consumed by the controller and the runner rather than by the broker, and
+# nats.enabled=false with an external broker is a supported profile. A
+# budget parked under a disabled block would be a trap.
+mesh:
+  # The longest link outage this deployment must survive, in seconds.
+  # 1800 is thirty minutes, which covers a satellite pass gap and a
+  # datacenter broker restart with margin.
+  #
+  # RAISING THIS IS SAFE. LOWERING IT IS NOT ALWAYS: retention is derived
+  # from it, and shortening retention deletes messages already older than
+  # the new value. The controller refuses that rather than doing it, and
+  # names what would be lost.
+  #
+  # Accepted range is 60 to 43200 seconds. It must also be no greater than
+  # runner.heartbeat.livenessStaleAfterSeconds, or Kubernetes restarts the
+  # runner partway through the outage this value claims to survive, which
+  # the chart refuses to install.
+  maxOutageSeconds: 1800
 
 nats:
   # -- Deploy NATS with JetStream as part of this release.

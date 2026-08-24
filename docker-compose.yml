@@ -427,6 +427,11 @@ services:
       # the healthchecked postgres service above sat unused.
       - DB_DSN=postgres://pleiades:password@postgres:5432/pleiades?sslmode=disable
       - NATS_URL=nats://nats:4222
+      # The one number that says how long this deployment promises to survive
+      # a link outage. Set on BOTH services deliberately: every retention
+      # window in the message bus derives from it, and two services agreeing
+      # should not hold by coincidence across two images.
+      - PLEIADES_MAX_OUTAGE=30m
       # Both of these are required at startup and the controller exits if
       # either is missing, so without them this service could never have
       # come up at all. The values are throwaway local-development
@@ -674,6 +679,11 @@ services:
         VERSION: ${VERSION:-unknown}
     environment:
       - NATS_URL=nats://nats:4222
+      # The one number that says how long this deployment promises to survive
+      # a link outage. Set on BOTH services deliberately: every retention
+      # window in the message bus derives from it, and two services agreeing
+      # should not hold by coincidence across two images.
+      - PLEIADES_MAX_OUTAGE=30m
       - RUNBOOK_DIR=/app/runbooks
     volumes:
       # The same host directory the controller mounts, at the same path.

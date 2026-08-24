@@ -3566,3 +3566,54 @@ same code just provisioned. And compare order-insensitively where the server is
 free to reorder, because an ordering difference is not a configuration
 difference. A warning that fires constantly is worse than none, because it
 trains the reader to ignore the one that matters.
+
+## 165. A derived constant needs its non-linear cap in the derivation, not in a comment, because the linear case is the one that looks safe
+
+Phase 96c replaced three independent retention literals with derivations
+from one stated outage budget. Two of the three scale linearly and are
+uninteresting. The third, the stream's duplicate window, must NOT: a
+separate mechanism, the stale-job reclaim, republishes after ten minutes
+and its own doc comment explains that this is safe "precisely because it is
+not a retry within that window". A duplicate window grown past the reclaim
+interval would silently convert that republish from a fresh delivery into a
+suppressed duplicate, so a stranded job would stop being recovered at all,
+with no error anywhere.
+
+The dependency was written down, in prose, in the right file, by someone who
+understood it. That was not enough, because the prose lived in the consumer
+of the constant and the constant was about to become configurable in a
+different package. What makes it safe is that the cap is inside the
+derivation function and asserted by a test that runs the minimum, the
+default and the maximum budget through it.
+
+The general rule: when a value becomes derived, enumerate everything that
+depends on its current magnitude rather than on its identity. A dependency
+on magnitude is invisible to every tool, survives review because the code
+that relies on it does not mention the constant by name, and breaks only at
+a value nobody has tried yet. If a derivation has a cap, the cap belongs in
+the function, and the reason belongs in a test, because a comment cannot
+fail.
+
+## 166. Producer-side idempotency is only as good as the gap between the original and the retry, so measure the gap rather than checking the key
+
+This codebase had a retry-stable idempotency key, correctly derived, stamped
+on every dispatch publish, reaching the driver's own duplicate suppression.
+Every piece was right, and the mechanism had read as complete for several
+phases.
+
+It protected nothing, because the window was two minutes and the only thing
+that ever re-issues an unconfirmed dispatch is a reclaim that fires after
+ten. The dedup memory expired eight minutes before the duplicate it existed
+to catch. Nobody had compared the two numbers, because they live in
+different packages and neither mentions the other.
+
+Lengthening the window was not available either: the reclaim's own
+correctness depends on the window having closed by the time it runs. So the
+answer was a second mechanism at the consumer, keyed on the same identity,
+with a lifetime governed by something other than the stream.
+
+The rule to carry: when reviewing an idempotency story, do not stop at "is
+the key stable". Ask what actually retries, how long after the original,
+and whether the suppression is still remembering by then. Write the gap and
+the window next to each other, because they are almost never in the same
+file and the comparison is the whole of the argument.

@@ -12,7 +12,7 @@ import (
 // makes the comparator usable at all: the shape this project declares
 // must not drift from itself, or every process would warn on every start.
 func TestStreamConfigDriftReportsNothingAgainstItself(t *testing.T) {
-	if drift := topology.StreamConfigDrift(topology.StreamConfig()); len(drift) != 0 {
+	if drift := topology.StreamConfigDrift(topology.StreamConfig(topology.DefaultOutageBudget), topology.DefaultOutageBudget); len(drift) != 0 {
 		t.Fatalf("StreamConfigDrift(StreamConfig()) = %v, want none", drift)
 	}
 }
@@ -27,7 +27,7 @@ func TestStreamConfigDriftReportsNothingAgainstItself(t *testing.T) {
 // which is the failure mode that would have made the warning worthless by
 // firing constantly.
 func TestStreamConfigDriftIgnoresUndeclaredFields(t *testing.T) {
-	live := topology.StreamConfig()
+	live := topology.StreamConfig(topology.DefaultOutageBudget)
 
 	// Fields the project does not declare, as a server would populate them.
 	live.Description = "set by someone else"
@@ -38,7 +38,7 @@ func TestStreamConfigDriftIgnoresUndeclaredFields(t *testing.T) {
 	live.NoAck = true
 	live.MaxConsumers = 17
 
-	if drift := topology.StreamConfigDrift(live); len(drift) != 0 {
+	if drift := topology.StreamConfigDrift(live, topology.DefaultOutageBudget); len(drift) != 0 {
 		t.Fatalf("StreamConfigDrift reported %v for fields this project does not declare", drift)
 	}
 }
@@ -63,10 +63,10 @@ func TestStreamConfigDriftReportsEveryDeclaredField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
-			live := topology.StreamConfig()
+			live := topology.StreamConfig(topology.DefaultOutageBudget)
 			tt.mutate(&live)
 
-			drift := topology.StreamConfigDrift(live)
+			drift := topology.StreamConfigDrift(live, topology.DefaultOutageBudget)
 			if len(drift) != 1 {
 				t.Fatalf("StreamConfigDrift = %v, want exactly one entry for %s", drift, tt.field)
 			}
@@ -84,28 +84,28 @@ func TestStreamConfigDriftReportsEveryDeclaredField(t *testing.T) {
 // The server is free to return subjects in its own order, and an ordering
 // difference is not a configuration difference.
 func TestStreamConfigDriftIgnoresSubjectOrder(t *testing.T) {
-	declared := topology.StreamConfig()
+	declared := topology.StreamConfig(topology.DefaultOutageBudget)
 	if len(declared.Subjects) < 2 {
 		// One subject today, so reversing proves nothing on its own.
 		// Compare a two-element list against its own reverse instead,
 		// which is the property the set comparison actually claims.
-		probe := topology.StreamConfig()
+		probe := topology.StreamConfig(topology.DefaultOutageBudget)
 		probe.Subjects = []string{"a.>", "b.>"}
-		forward := topology.StreamConfigDrift(probe)
+		forward := topology.StreamConfigDrift(probe, topology.DefaultOutageBudget)
 		probe.Subjects = []string{"b.>", "a.>"}
-		reverse := topology.StreamConfigDrift(probe)
+		reverse := topology.StreamConfigDrift(probe, topology.DefaultOutageBudget)
 		if len(forward) != len(reverse) {
 			t.Fatalf("subject order changed the result: %v vs %v", forward, reverse)
 		}
 		return
 	}
 
-	probe := topology.StreamConfig()
+	probe := topology.StreamConfig(topology.DefaultOutageBudget)
 	probe.Subjects = make([]string, len(declared.Subjects))
 	for i, s := range declared.Subjects {
 		probe.Subjects[len(declared.Subjects)-1-i] = s
 	}
-	if drift := topology.StreamConfigDrift(probe); len(drift) != 0 {
+	if drift := topology.StreamConfigDrift(probe, topology.DefaultOutageBudget); len(drift) != 0 {
 		t.Fatalf("StreamConfigDrift reported %v for a reordered subject list", drift)
 	}
 }
@@ -132,7 +132,7 @@ func FuzzStreamConfigDrift(f *testing.F) {
 			Replicas:   replicas,
 		}
 
-		drift := topology.StreamConfigDrift(live)
+		drift := topology.StreamConfigDrift(live, topology.DefaultOutageBudget)
 
 		declared := map[string]bool{
 			"Name": true, "Subjects": true, "Retention": true,
@@ -157,7 +157,7 @@ func FuzzStreamConfigDrift(f *testing.F) {
 // iota+1 construction exists to make rejectable rather than silently
 // meaningful.
 func TestBindStreamRejectsAnInvalidRole(t *testing.T) {
-	if _, _, err := topology.BindStream(t.Context(), nil, topology.StreamRole(0)); err == nil {
+	if _, _, err := topology.BindStream(t.Context(), nil, topology.StreamRole(0), topology.DefaultOutageBudget, false); err == nil {
 		t.Fatal("BindStream accepted the zero role")
 	}
 	if _, err := topology.BindLockBucket(t.Context(), nil, topology.StreamRole(0)); err == nil {

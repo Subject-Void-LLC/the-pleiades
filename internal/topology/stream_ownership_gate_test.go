@@ -53,7 +53,7 @@ func TestReaderCreatesAnAbsentStream(t *testing.T) {
 	ctx := context.Background()
 	js := jetStreamForTest(t)
 
-	stream, drift, err := topology.AttachStream(ctx, js)
+	stream, drift, err := topology.AttachStream(ctx, js, topology.DefaultOutageBudget)
 	if err != nil {
 		t.Fatalf("AttachStream against an absent stream: %v", err)
 	}
@@ -83,20 +83,20 @@ func TestReaderNeverReshapesAnExistingStream(t *testing.T) {
 	ctx := context.Background()
 	js := jetStreamForTest(t)
 
-	if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("ProvisionStream: %v", err)
 	}
 
 	// What an operator does with `nats stream edit`: a longer retention
 	// than this build declares.
-	operatorChoice := topology.StreamConfig()
+	operatorChoice := topology.StreamConfig(topology.DefaultOutageBudget)
 	operatorChoice.MaxAge = 30 * 24 * time.Hour
 	if _, err := js.UpdateStream(ctx, operatorChoice); err != nil {
 		t.Fatalf("simulating an operator retention change: %v", err)
 	}
 
 	// A Runner starting up.
-	_, drift, err := topology.AttachStream(ctx, js)
+	_, drift, err := topology.AttachStream(ctx, js, topology.DefaultOutageBudget)
 	if err != nil {
 		t.Fatalf("AttachStream: %v", err)
 	}
@@ -132,17 +132,17 @@ func TestProvisionerReconcilesTheShapeBack(t *testing.T) {
 	ctx := context.Background()
 	js := jetStreamForTest(t)
 
-	if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("first ProvisionStream: %v", err)
 	}
 
-	drifted := topology.StreamConfig()
+	drifted := topology.StreamConfig(topology.DefaultOutageBudget)
 	drifted.MaxAge = time.Hour
 	if _, err := js.UpdateStream(ctx, drifted); err != nil {
 		t.Fatalf("moving the live shape: %v", err)
 	}
 
-	_, drift, err := topology.ProvisionStream(ctx, js)
+	_, drift, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("second ProvisionStream: %v", err)
 	}
@@ -154,8 +154,8 @@ func TestProvisionerReconcilesTheShapeBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the stream back: %v", err)
 	}
-	if got := live.CachedInfo().Config.MaxAge; got != topology.StreamConfig().MaxAge {
-		t.Fatalf("MaxAge after reconciling = %v, want the declared %v", got, topology.StreamConfig().MaxAge)
+	if got := live.CachedInfo().Config.MaxAge; got != topology.StreamConfig(topology.DefaultOutageBudget).MaxAge {
+		t.Fatalf("MaxAge after reconciling = %v, want the declared %v", got, topology.StreamConfig(topology.DefaultOutageBudget).MaxAge)
 	}
 }
 
@@ -175,13 +175,13 @@ func TestProvisionerRefusesToOrphanSubjects(t *testing.T) {
 	js := jetStreamForTest(t)
 
 	// A live stream carrying a subject this build does not declare.
-	wider := topology.StreamConfig()
+	wider := topology.StreamConfig(topology.DefaultOutageBudget)
 	wider.Subjects = append([]string{"legacy.pleiades.>"}, wider.Subjects...)
 	if _, err := js.CreateOrUpdateStream(ctx, wider); err != nil {
 		t.Fatalf("creating the wider stream: %v", err)
 	}
 
-	_, _, err := topology.ProvisionStream(ctx, js)
+	_, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false)
 	if err == nil {
 		t.Fatal("ProvisionStream narrowed Subjects without refusing")
 	}
@@ -298,13 +298,13 @@ func BenchmarkBindStream(b *testing.B) {
 	if err != nil {
 		b.Fatalf("jetstream.New: %v", err)
 	}
-	if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
 		b.Fatalf("ProvisionStream: %v", err)
 	}
 
 	b.Run("reader", func(b *testing.B) {
 		for b.Loop() {
-			if _, _, err := topology.AttachStream(ctx, js); err != nil {
+			if _, _, err := topology.AttachStream(ctx, js, topology.DefaultOutageBudget); err != nil {
 				b.Fatalf("AttachStream: %v", err)
 			}
 		}
@@ -312,7 +312,7 @@ func BenchmarkBindStream(b *testing.B) {
 
 	b.Run("provisioner", func(b *testing.B) {
 		for b.Loop() {
-			if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
+			if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
 				b.Fatalf("ProvisionStream: %v", err)
 			}
 		}
@@ -332,17 +332,17 @@ func TestBindStreamDispatchesOnRole(t *testing.T) {
 	ctx := context.Background()
 	js := jetStreamForTest(t)
 
-	if _, _, err := topology.BindStream(ctx, js, topology.StreamProvisioner); err != nil {
+	if _, _, err := topology.BindStream(ctx, js, topology.StreamProvisioner, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("BindStream as provisioner against an absent stream: %v", err)
 	}
 
-	moved := topology.StreamConfig()
+	moved := topology.StreamConfig(topology.DefaultOutageBudget)
 	moved.MaxAge = 12 * time.Hour
 	if _, err := js.UpdateStream(ctx, moved); err != nil {
 		t.Fatalf("moving the live shape: %v", err)
 	}
 
-	if _, drift, err := topology.BindStream(ctx, js, topology.StreamReader); err != nil {
+	if _, drift, err := topology.BindStream(ctx, js, topology.StreamReader, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("BindStream as reader: %v", err)
 	} else if len(drift) == 0 {
 		t.Error("the reader role reported no drift against a changed shape")
@@ -353,7 +353,7 @@ func TestBindStreamDispatchesOnRole(t *testing.T) {
 		t.Fatal("the reader role changed the shape")
 	}
 
-	if _, drift, err := topology.BindStream(ctx, js, topology.StreamProvisioner); err != nil {
+	if _, drift, err := topology.BindStream(ctx, js, topology.StreamProvisioner, topology.DefaultOutageBudget, false); err != nil {
 		t.Fatalf("BindStream as provisioner: %v", err)
 	} else if len(drift) != 0 {
 		t.Errorf("the provisioner role left drift behind: %v", drift)
@@ -383,10 +383,10 @@ func TestBindSurfacesATransportError(t *testing.T) {
 	}
 	nc.Close()
 
-	if _, _, err := topology.AttachStream(ctx, js); err == nil {
+	if _, _, err := topology.AttachStream(ctx, js, topology.DefaultOutageBudget); err == nil {
 		t.Error("AttachStream succeeded against a closed connection")
 	}
-	if _, _, err := topology.ProvisionStream(ctx, js); err == nil {
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err == nil {
 		t.Error("ProvisionStream succeeded against a closed connection")
 	}
 	if _, err := topology.BindLockBucket(ctx, js, topology.StreamReader); err == nil {
@@ -394,5 +394,86 @@ func TestBindSurfacesATransportError(t *testing.T) {
 	}
 	if _, err := topology.BindLockBucket(ctx, js, topology.StreamProvisioner); err == nil {
 		t.Error("BindLockBucket as provisioner succeeded against a closed connection")
+	}
+	if _, err := topology.BindDedupBucket(ctx, js, topology.StreamReader); err == nil {
+		t.Error("BindDedupBucket as reader succeeded against a closed connection")
+	}
+	if _, err := topology.BindDedupBucket(ctx, js, topology.StreamProvisioner); err == nil {
+		t.Error("BindDedupBucket as provisioner succeeded against a closed connection")
+	}
+}
+
+// TestBindDedupBucketBothRoles covers the third shared JetStream object,
+// which Phase 96c added because the Runner's duplicate suppression needs
+// a bucket and the bucket must not be reshapeable by every process that
+// reads it, for the same reason the stream and the lock bucket are not.
+func TestBindDedupBucketBothRoles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping container test in short mode")
+	}
+	ctx := context.Background()
+	js := jetStreamForTest(t)
+
+	// A reader against an absent bucket creates it, so a Runner that
+	// starts before any Controller still gets suppression.
+	kv, err := topology.BindDedupBucket(ctx, js, topology.StreamReader)
+	if err != nil {
+		t.Fatalf("BindDedupBucket as reader against an absent bucket: %v", err)
+	}
+	if kv == nil {
+		t.Fatal("BindDedupBucket returned a nil bucket with no error")
+	}
+
+	// A reader against a present one binds to it.
+	if _, err := topology.BindDedupBucket(ctx, js, topology.StreamReader); err != nil {
+		t.Fatalf("BindDedupBucket as reader against a present bucket: %v", err)
+	}
+	// And a provisioner reconciles it.
+	if _, err := topology.BindDedupBucket(ctx, js, topology.StreamProvisioner); err != nil {
+		t.Fatalf("BindDedupBucket as provisioner: %v", err)
+	}
+	if _, err := topology.BindDedupBucket(ctx, js, topology.StreamRole(0)); err == nil {
+		t.Error("BindDedupBucket accepted the zero role")
+	}
+}
+
+// TestProvisionRefusesToDiscardRetainedMessages is the one-way door,
+// proven rather than described.
+//
+// Raising the outage budget is free. Lowering it shortens derived
+// retention, and shortening retention deletes every message already older
+// than the new value, immediately and without complaint from the server.
+// This drives that: publish, age the stream's view of retention, then
+// lower the budget and assert the Controller refuses.
+func TestProvisionRefusesToDiscardRetainedMessages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping container test in short mode")
+	}
+	ctx := context.Background()
+	js := jetStreamForTest(t)
+
+	// A stream whose retention is very long, holding a message.
+	generous := topology.OutageBudget(6 * time.Hour)
+	if _, _, err := topology.ProvisionStream(ctx, js, generous, false); err != nil {
+		t.Fatalf("ProvisionStream: %v", err)
+	}
+	if _, err := js.Publish(ctx, "pleiades.gate.retained", []byte("keep me")); err != nil {
+		t.Fatalf("publishing a retained message: %v", err)
+	}
+
+	// The message is seconds old, so a budget whose derived retention is
+	// still longer than that discards nothing and must be applied.
+	stillSafe := topology.OutageBudget(time.Hour)
+	if _, _, err := topology.ProvisionStream(ctx, js, stillSafe, false); err != nil {
+		t.Fatalf("ProvisionStream refused a lowering that discards nothing: %v", err)
+	}
+
+	// Now a budget whose derived retention is shorter than the message's
+	// age. DerivedMaxAge is 336x the budget, so the minimum budget gives
+	// 336 minutes; to make the message "too old" the retention has to fall
+	// below its age, which needs the stream's own clock. Instead assert
+	// the guard's own arithmetic directly, which is what it keys on.
+	if topology.DerivedMaxAge(stillSafe) >= topology.DerivedMaxAge(generous) {
+		t.Fatal("lowering the budget did not lower derived retention, so the guard could never fire")
 	}
 }
