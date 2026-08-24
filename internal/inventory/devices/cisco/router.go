@@ -45,7 +45,7 @@ type Router struct {
 // than a bespoke dedup loop here).
 func NewRouter(rec record.Record) (inventory.InventoryItem, error) {
 	caps := policy.UnionSlices(
-		[]capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS, capability.NameNetworkAddressable},
+		netconfBaseline(rec, []capability.Name{capability.NameSSHTransport, capability.NameCiscoIOS, capability.NameNetworkAddressable}),
 		rec.Capabilities,
 	)
 	base := record.NewBase(rec, caps)
@@ -87,9 +87,34 @@ func (c *Router) IOSVersion() string {
 }
 
 // SupportsNETCONF reports whether NETCONF/YANG is enabled on this router.
+//
+// It is redundant with NetconfPort below plus the netconf_enabled
+// property netconfBaseline reads, and is kept rather than removed
+// because it is a method on capability.CiscoIOSCapable: dropping it
+// would change that interface, which every Cisco device type and every
+// CiscoIOSCapable-requiring method depends on. That is a separate
+// breaking change with its own blast radius, named here as debt rather
+// than made a second one.
 func (c *Router) SupportsNETCONF() bool {
 	v, _ := c.Properties().Bool("netconf_enabled")
 	return v
+}
+
+// NetconfPort returns the router's NETCONF listener port, the structural
+// half of capability.NetconfCapable (netconfBaseline supplies the data
+// half). It defaults to 830, matching SSHPort's own default-22 shape.
+//
+// The default is not a formality. NETCONF over SSH is a subsystem on an
+// ordinary SSH connection, so reaching it on port 22 SHOULD work; a real
+// Cisco IOS XE 17.12 device ACCEPTS the subsystem request on 22 and then
+// immediately ends the channel, serving NETCONF only on 830. A client
+// that assumed the SSH port would report that device as working, which
+// is why this is a separate accessor rather than a reuse of SSHPort.
+func (c *Router) NetconfPort() int {
+	if port, ok := c.Properties().Int("netconf_port"); ok && port != 0 {
+		return port
+	}
+	return 830
 }
 
 // CLIPrompt returns the router's configured CLI prompt string, the
@@ -98,4 +123,37 @@ func (c *Router) SupportsNETCONF() bool {
 func (c *Router) CLIPrompt() string {
 	v, _ := c.Properties().String("cli_prompt")
 	return v
+}
+
+// netconfBaseline returns the vendor capability baseline with
+// capability.NameNetconf appended when this record's own properties say
+// NETCONF is enabled on the device.
+//
+// This is the DATA half of NetconfCapable, and without it the
+// NetconfPort accessor above would be useless. record.Base.HasCapability is
+// Declares(name) AND capability.Implements(c, name), and NetconfCapable
+// is a SIBLING of CiscoIOSCapable under NetworkCLICapable rather than an
+// ancestor of it, so declaring CiscoIOSCapable does not resolve to it.
+// Meanwhile "pleiades add-host" has no capability flag at all and a
+// --type-created record carries a nil Capabilities slice, so nothing
+// else could put the name there. A NetconfPort accessor on its own
+// would therefore have produced a capability that internal/archtest
+// reports as satisfiable (its probe hydrates every capability name) and
+// that no real inventory item could ever be dispatched to.
+//
+// Keying it on netconf_enabled rather than granting it unconditionally
+// is the honest reading of what the property means: NETCONF is
+// configuration on a Cisco device, not a property of the model, and
+// this same sandbox device answers NETCONF on port 830 while refusing to
+// serve it on 22. It also gives the pre-existing SupportsNETCONF
+// accessor a real job. That method was previously a bare boolean
+// asserting a claim the type system could not check; the property it
+// reads is now the classification data half of a capability whose
+// structural half NetconfPort proves, which is how every other
+// capability here works.
+func netconfBaseline(rec record.Record, baseline []capability.Name) []capability.Name {
+	if enabled, _ := inventory.NewProperties(rec.Properties).Bool("netconf_enabled"); enabled {
+		return append(baseline, capability.NameNetconf)
+	}
+	return baseline
 }

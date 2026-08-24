@@ -82,10 +82,37 @@ var networkCollections = []collectionscaffold.Config{
 	},
 	{
 		Name:          "net.netconf.config",
-		Capabilities:  []capability.Name{capability.NameNetconf},
-		Transports:    []string{"ssh"},
+		Capabilities:  []capability.Name{capability.NameNetconf, capability.NameSSHTransport},
+		Transports:    []string{"netconf"},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Applies configuration to a device over NETCONF."},
+		Doc: collection.Doc{
+			Summary:     "Applies a configuration document to a device over NETCONF, with an optional pre-change backup.",
+			Description: "Opens an RFC 6241 NETCONF session over the SSH \"netconf\" subsystem and applies content to the target datastore with edit-config. Parameter names are ansible.netcommon.netconf_config's own. The session negotiates RFC 6242 chunked framing whenever the device offers base:1.1, and requests rollback-on-error whenever the device advertises it, so a rejected document leaves the device unchanged rather than half configured; that matters most on a device offering only writable-running, which is what Cisco IOS XE offers, because such a device has no staging area and every element lands on the live configuration as it is applied. A datastore the device never advertised support for is refused when the session opens rather than at the first write, naming the missing capability. Unlike the net.cli.* and net.ios.config methods, a rejected element comes back as a structured error carrying the device's own error-tag and the XPath of the element it objected to. Reports changed whenever the document reaches the device and the device answers ok.",
+			Params: []collection.Param{
+				{Name: "content", Type: "string", Required: true, Description: "The configuration document to apply, as the XML that goes inside edit-config's <config> element. Per-element operations are expressed the standard way, with an nc:operation attribute; pair that with default_operation: none so the device changes only what the document explicitly names."},
+				{Name: "target", Type: "string", Default: "running", Description: "The datastore to configure: running, candidate or startup. A datastore the device does not advertise support for is refused before anything is applied. Cisco IOS XE offers only running."},
+				{Name: "default_operation", Type: "string", Default: "merge", Description: "What the device does with elements carrying no explicit operation attribute: merge, replace or none. RFC 6241 defines no \"delete\" here; express a delete with an nc:operation attribute in content."},
+				{Name: "error_option", Type: "string", Default: "rollback-on-error when the device supports it, otherwise the device's own stop-on-error default", Description: "How the device handles a rejected element: stop-on-error, continue-on-error or rollback-on-error. Left unset this method asks for rollback-on-error whenever the device advertises the capability, because stop-on-error leaves a rejected document half applied."},
+				{Name: "lock", Type: "string", Default: "never", Description: "Whether to lock the target datastore for the duration: never, always, or if_supported. Locking prevents another client changing the datastore mid-edit; it also blocks every other client, which matters on a shared device."},
+				{Name: "commit", Type: "bool", Default: "true", Description: "Commit after a successful edit. Only meaningful when target is candidate, since a running-datastore edit is already live; ignored otherwise."},
+				{Name: "backup", Type: "bool", Default: "false", Description: "Capture the target datastore's full contents with get-config before applying anything, recorded under the backup stat."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "backup", Type: "string", Returned: "when backup is true", Description: "The target datastore's full contents as XML, captured immediately before this task's own document was applied. Not sanitized: a device's configuration genuinely contains its enable secret, local user password hashes, and any TACACS+/RADIUS shared key, in whatever strength of encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Set a device's hostname over NETCONF",
+					RunbookYAML: "- name: Set the hostname\n  net.netconf.config:\n    content: |\n      <native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\">\n        <hostname>edge-01</hostname>\n      </native>\n    backup: true\n  register_mask: backup\n",
+				},
+				{
+					Name:        "Remove an interface, changing nothing else",
+					RunbookYAML: "- name: Remove the loopback\n  net.netconf.config:\n    default_operation: none\n    content: |\n      <native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\">\n        <interface>\n          <Loopback xmlns:nc=\"urn:ietf:params:xml:ns:netconf:base:1.0\" nc:operation=\"delete\">\n            <name>8990</name>\n          </Loopback>\n        </interface>\n      </native>\n",
+				},
+			},
+			SeeAlso: []string{"net.ios.config", "net.ios.save", "net.cli.config"},
+		},
 	},
 	{
 		Name:          "net.ios.config",

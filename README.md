@@ -24,14 +24,15 @@ tested today; nothing here is aspirational. Read this section before the rest.
   the dispatch message, so it sits in the broker's storage until that message ages out,
   and credential storage is still an encrypted local file with no rotation or Vault
   support.
-- **The module catalog has 81 registered methods; 77 are implemented.** Every
+- **The module catalog has 81 registered methods; 78 are implemented.** Every
   `<namespace>.<method>` collection name is registered and
   reachable through the real dispatcher, but a `declared` method refuses to run with
-  an explicit "not implemented" error rather than pretending to succeed. Only four are
-  in that state: `file.template`, `net.netconf.config`, `net.junos.config` and
-  `net.eos.config`. Everything else is real today, across 16 namespaces, including
+  an explicit "not implemented" error rather than pretending to succeed. Only three are
+  in that state: `file.template`, `net.junos.config` and `net.eos.config`. Everything
+  else is real today, across 16 namespaces, including
   `exec.command` and `exec.shell` on any SSH-reachable device, `net.cli.command` and
-  `net.ios.config` on a real network CLI, the four `net.catalyst.*` methods against
+  `net.ios.config` on a real network CLI, `net.netconf.config` over RFC 6241 NETCONF,
+  the four `net.catalyst.*` methods against
   Cisco Catalyst Center, the `svc.*` service managers, and the `pkg.*`, `file.*`,
   `identity.*`, `container.*` and `cloud.aws.*` families. Every
   implemented method also answers whether it can be undone, and a run that changes

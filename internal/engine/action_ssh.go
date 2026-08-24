@@ -38,9 +38,17 @@ const ParamInsecureTelnet = "insecure_telnet"
 // and it mirrors validate.actionCapability's own established shape
 // (internal/validate/capability_rule.go): "data, not a type switch, so a
 // new action is a new map entry, never a change to [the executor]
-// itself." A second protocol (NETCONF, WinRM, ...) is a new
+// itself." A second COMMAND-ORIENTED protocol (WinRM, for one) is a new
 // TransportBinding entry plus a new transport.Transport implementation,
 // never a change to TransportActionExecutor.
+//
+// NETCONF is deliberately NOT an example of that, though it used to be
+// named as one here. It is not Exec-shaped: there is no command string,
+// no stdout, no stderr and no exit code in an XML RPC against a named
+// datastore, so it gets no TransportBinding and never will. The
+// structured-configuration protocols live behind pkg/datastore's own
+// port instead, reached by a Collection method (net.netconf.config)
+// rather than by an engine action.
 type TransportBinding struct {
 	// Capability is the capability.Name a resolved device must declare
 	// (via InventoryItem.HasCapability) before TransportActionExecutor

@@ -18,13 +18,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fw` | 3 | 3 |
 | `http` | 1 | 1 |
 | `identity` | 6 | 6 |
-| `net` | 14 | 11 |
+| `net` | 14 | 12 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
 | `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **81** | **77** |
+| **total** | **81** | **78** |
 
 ## All methods
 
@@ -79,7 +79,7 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.ios.ping](net/ios/ping.md) | implemented | Runs a ping from a Cisco IOS device and reports the result. |
 | [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
-| [net.netconf.config](net/netconf/config.md) | declared | Applies configuration to a device over NETCONF. |
+| [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |
