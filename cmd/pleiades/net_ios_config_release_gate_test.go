@@ -314,3 +314,123 @@ func captureRealHostKeyFor(t *testing.T, addr, user, pass string) ssh.PublicKey 
 	}
 	return captured
 }
+
+// reManagementIP finds the first real IPv4 address in "show ip interface
+// brief" output, skipping the "unassigned" rows a real device also
+// carries. The gate below pings the device's OWN address rather than a
+// public one on purpose: this sandbox has no outbound path (a real
+// "ping 8.8.8.8" from it loses every packet), so a gate asserting a
+// successful ping to the internet would fail for a reason that has
+// nothing to do with this platform.
+var reManagementIP = regexp.MustCompile(`(?m)^\S+\s+(\d+\.\d+\.\d+\.\d+)\s+`)
+
+// TestCLI_RunGathersIOSFactsAndPings is the Release Gate for
+// net.ios.facts and net.ios.ping. Everything it does is read-only, so
+// unlike net.ios.config's own gate it leaves nothing to clean up on a
+// shared device, and it needs no revert step.
+//
+// It proves, against a real device:
+//
+//  1. net.ios.facts parses a real "show version", "show inventory" and
+//     "show ip interface brief" from a real IOS XE device, not from a
+//     fixture written to match the parser.
+//  2. net.ios.ping's success path, against an address this test
+//     discovers over its own independent connection rather than
+//     hardcoding.
+//  3. net.ios.ping's FAILURE path and its state gate together: a ping to
+//     TEST-NET-1 (RFC 5737 192.0.2.0/24, reserved for documentation and
+//     therefore reliably unroutable) loses every packet, which state
+//     absent turns into a PASS. That is the shape IOS prints with no
+//     round-trip clause at all, which is the case a parser gets wrong.
+//
+// net.ios.save is deliberately NOT exercised here. "write memory" would
+// copy whatever other DevNet users have left in running-config into
+// startup-config on a device this test does not own, which is a courtesy
+// and blast-radius decision rather than a technical limit. Its behaviour
+// is covered by internal/catalog/net/ios's own unit tests instead, and
+// that gap is stated here rather than left for a reader to discover.
+func TestCLI_RunGathersIOSFactsAndPings(t *testing.T) {
+	host, user, pass := requireCatalyst8000(t)
+
+	prompt := probeIOSPrompt(t, host, user, pass)
+	if prompt == "" {
+		t.Fatal("probeIOSPrompt returned an empty prompt")
+	}
+
+	brief := verifyOverIOS(t, host, user, pass, "show ip interface brief")
+	m := reManagementIP.FindStringSubmatch(brief)
+	if m == nil {
+		t.Fatalf("could not find an assigned IPv4 address in:\n%s", brief)
+	}
+	selfIP := m[1]
+
+	homeDir := t.TempDir()
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("failed to create %s: %v", sshDir, err)
+	}
+	hostKey := captureRealHostKeyFor(t, host+":22", user, pass)
+	knownHostsLine := knownhosts.Line([]string{host + ":22"}, hostKey)
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(knownHostsLine+"\n"), 0o600); err != nil {
+		t.Fatalf("failed to write known_hosts: %v", err)
+	}
+
+	dir := t.TempDir()
+	if out, err := runPleiadesWithHome(t, dir, homeDir, "init"); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
+	}
+	if out, err := runPleiadesWithHome(t, dir, homeDir, "add-host", "cat8000", "--type", "cisco_router",
+		"--set", "host="+host, "--set", "port=22", "--set", "cli_prompt="+prompt); err != nil {
+		t.Fatalf("add-host failed: %v\n%s", err, out)
+	}
+	if out, err := runPleiadesWithHome(t, dir, homeDir, "add-credential", "cat8000",
+		"--username", user, "--password", pass); err != nil {
+		t.Fatalf("add-credential failed: %v\n%s", err, out)
+	}
+
+	runbook := filepath.Join(dir, "runbooks", "facts.yaml")
+	content := "id: net-ios-facts-gate\n" +
+		"hosts: cat8000\n" +
+		"tasks:\n" +
+		"  - name: gather-everything\n" +
+		"    net.ios.facts:\n" +
+		"      gather_subset:\n" +
+		"        - all\n" +
+		"  - name: ping-the-device-itself\n" +
+		"    net.ios.ping:\n" +
+		"      dest: " + selfIP + "\n" +
+		"      count: 3\n" +
+		"    register: selfping\n" +
+		"  - name: confirm-test-net-1-is-unreachable\n" +
+		"    net.ios.ping:\n" +
+		"      dest: 192.0.2.1\n" +
+		"      count: 2\n" +
+		"      state: absent\n" +
+		"    register: unreachable\n"
+	if err := os.WriteFile(runbook, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write runbook: %v", err)
+	}
+
+	out, err := runPleiadesWithHome(t, dir, homeDir, "run", runbook, "--verbose")
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, out)
+	}
+
+	// The device's own real identity, read independently, must appear in
+	// what the run reported. Asserting against this test's own second
+	// connection rather than against a constant keeps the gate honest when
+	// the sandbox is rebuilt on a different image or hostname.
+	version := verifyOverIOS(t, host, user, pass, "show version")
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^Cisco IOS XE Software, Version (\S+)`),
+		regexp.MustCompile(`(?m)^(\S+) uptime is `),
+	} {
+		want := re.FindStringSubmatch(version)
+		if want == nil {
+			t.Fatalf("could not read an expected field from the device's own show version:\n%s", version)
+		}
+		if !strings.Contains(out, want[1]) {
+			t.Errorf("run output never mentions %q, which the device itself reports:\n%s", want[1], out)
+		}
+	}
+}

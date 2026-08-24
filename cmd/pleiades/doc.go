@@ -240,8 +240,20 @@ func printReturns(doc collection.Doc) {
 // printDocSnippet prints a paste-ready runbook task stanza for fqcn: its
 // first documented Example if it has one, or a bare skeleton naming every
 // parameter this method documents (declared methods document none, so a
-// declared method's snippet is deliberately just fqcn and an empty
-// params map, never a fabricated call).
+// declared method's snippet is deliberately just the module name with no
+// arguments, never a fabricated call).
+//
+// The skeleton is written in module-as-key sugar, the same form every
+// shipped example uses: the module name IS the mapping key and its
+// arguments are that key's value. This output is paste-ready by
+// definition, so it is the last place that should hand somebody the
+// explicit fqcn:/params: pair to copy. Both forms stay valid input
+// forever (internal/engine/task_syntax.go rewrites one into the other);
+// this is about which one the tool teaches.
+//
+// A method with no parameters prints a bare "module.name:" with a null
+// value rather than "{}", which rewriteModuleKeyNode accepts explicitly
+// as "a module with no arguments".
 func printDocSnippet(entries []catalogEntry, fqcn string) error {
 	e, err := lookupEntry(entries, fqcn)
 	if err != nil {
@@ -253,14 +265,9 @@ func printDocSnippet(entries []catalogEntry, fqcn string) error {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "- name: TODO\n  fqcn: %s\n", e.FQCN)
-	if len(e.Manifest.Doc.Params) == 0 {
-		b.WriteString("  params: {}\n")
-	} else {
-		b.WriteString("  params:\n")
-		for _, p := range e.Manifest.Doc.Params {
-			fmt.Fprintf(&b, "    %s: # %s\n", p.Name, p.Type)
-		}
+	fmt.Fprintf(&b, "- name: TODO\n  %s:\n", e.FQCN)
+	for _, p := range e.Manifest.Doc.Params {
+		fmt.Fprintf(&b, "    %s: # %s\n", p.Name, p.Type)
 	}
 	fmt.Print(b.String())
 	return nil

@@ -206,7 +206,7 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 78 registered methods across 16 namespaces; 74 are
+**The module catalog has 81 registered methods across 16 namespaces; 77 are
 implemented and 4 are declared but not implemented.** Every FQCN is registered and
 reachable through the real dispatcher, and the short, decision-relevant list is the one
 that is NOT implemented, all four of them: `file.template`, `net.netconf.config`,
@@ -214,7 +214,7 @@ that is NOT implemented, all four of them: `file.template`, `net.netconf.config`
 `"declared but not implemented"` refusal rather than a silent no-op or a fabricated
 success, whether the call comes from the CLI, the Controller, or a runner, and the
 dispatcher in fact refuses any method whose status is not `implemented` before its body
-is ever entered. By namespace, implemented: `svc` 16, `file` 10, `pkg` 9, `net` 8,
+is ever entered. By namespace, implemented: `svc` 16, `net` 11, `file` 10, `pkg` 9,
 `identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2, `wait` 2,
 `win` 2, `facts` 1, `http` 1, `pleiades` 1. These counts come from the generated
 [module catalog schema](reference/schemas/module-catalog.json), which is authoritative

@@ -83,6 +83,48 @@ catalog. The same file had an orphaned `params:` fragment left by the conversion
 partial snippet with no `fqcn:` line above it for the transform to anchor on; found by sweeping
 for `params:` afterward rather than by assuming the conversion was complete.
 
+### Three more Cisco IOS methods (same session)
+
+`net.ios.facts`, `net.ios.ping` and `net.ios.save`, all built on the Phase 86.5 interactive CLI
+transport, scaffolded through the real `pleiades forge` CLI and then implemented. Catalog goes to
+**81 registered, 77 implemented, 4 declared**.
+
+`net.ios.facts` closes a real hole rather than adding a convenience: `facts.gather` requires
+`FactGathererCapable`, which no Cisco device type declares, so before this a Cisco device could be
+commanded and configured but never described, and the only device facts in the catalog came from
+`net.catalyst.device_facts` over Catalyst Center's REST API. It parses `show version`,
+`show inventory` and `show ip interface brief`, and emits through `EmitFact`, matching
+`facts.gather` and `net.catalyst.device_facts`.
+
+**Every parser was written against output captured from the real device first**, via a new
+read-only diagnostic (`pkg/netcli/live_probe_test.go`'s `TestLiveIOSFactsShapes`), and the captured
+output is pasted verbatim into the unit tests as fixtures. Two shapes only a real device would have
+revealed: an interface status can be TWO words (`administratively down`) followed by a one-word
+protocol column, which a positional split silently truncates; and IOS omits the
+`round-trip min/avg/max` clause ENTIRELY at 0 percent success rather than printing zeroes, which is
+the ping shape a parser written against only the success case gets wrong. Both are covered.
+
+`net.ios.save` is built but deliberately NOT exercised against the DevNet sandbox: `write memory`
+would copy whatever other users have left in running-config into startup-config on a device we do
+not own. Covered by unit tests only, and that gap is stated in the Release Gate's own doc comment
+rather than left for a reader to find.
+
+Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`'s
+`TestCLI_RunGathersIOSFactsAndPings`, read-only so it needs no cleanup, passed against the real
+device (14.0s). It discovers the device's own management address over its own independent
+connection rather than hardcoding one, because this sandbox has no outbound path and a gate
+pinging the public internet would fail for reasons unrelated to this platform.
+
+Two defects in already-staged work were found by running the FULL suite, which the documentation
+pass before it had not done (it covered catalog/engine/forge/archtest only, and that gap is what
+let them through): `cmd/pleiades/doc_test.go` failed because the sugar conversion removed the
+`fqcn:` line it asserted on, and `pleiades doc --snippet` itself generated explicit `fqcn:`/`params:`
+skeletons, meaning the CLI was handing users the very form the examples had just stopped teaching.
+The generator now emits module-as-key sugar; a method with no parameters prints a bare
+`module.name:`, which `rewriteModuleKeyNode` accepts explicitly as a module with no arguments.
+
+`internal/catalog/net/ios` coverage moved 48.8 to 80.3 percent; its floor is raised 47.0 to 79.0.
+
 ### Next step
 
 Nothing is committed. This work is on `feature/cisco-cli-buildout`, cut from `main` at 49386d4; an

@@ -113,6 +113,99 @@ var networkCollections = []collectionscaffold.Config{
 		},
 	},
 	{
+		Name:          "net.ios.facts",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Gathers structured facts from a Cisco IOS device over its CLI.",
+			Description: "Closes a real gap: facts.gather requires FactGathererCapable, which no Cisco device type declares, so before this method a Cisco device could be commanded and configured but never described. Opens an interactive PTY session over SSH using netcli.IOS's own paging and prompt conventions, runs the read-only show commands the requested subsets need, and emits what it parses through EmitFact rather than SetStat, the same choice facts.gather and net.catalyst.device_facts both make: a fact is long-lived drift data worth comparing across weeks, and a software version recorded as a stat answers nothing next month. Every parser in this method was written against output captured from a real Cisco IOS XE device rather than from documentation or memory. A field the device does not report is left out entirely rather than emitted as an empty string, so a condition can tell \"this device does not say\" from \"this device says nothing\". Nothing is changed, so this always reports no change. Two of cisco.ios.ios_facts's own subsets are deliberately absent rather than accepted and ignored: config, because net.ios.config's own backup parameter already captures a running-config and doing it twice invites two answers, and hardware, because the memory and flash figures IOS reports vary enough by platform that parsing them generically would be a guess.",
+			Params: []collection.Param{
+				{Name: "gather_subset", Type: "list of string", Default: "[\"min\"]", Description: "Which subsets to gather: \"min\" (hostname, version, model, serial number, image, uptime, from \"show version\" and \"show inventory\"), \"interfaces\" (from \"show ip interface brief\"), or \"all\" for both. An unrecognized subset is refused rather than skipped."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "ansible_net_hostname", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "The device's own hostname, read from the \"<hostname> uptime is ...\" line of \"show version\"."},
+				{Name: "ansible_net_version", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "The IOS XE version string, e.g. \"17.15.04c\"."},
+				{Name: "ansible_net_model", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "The platform model, e.g. \"C8000V\"."},
+				{Name: "ansible_net_serialnum", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "The chassis serial number, preferring \"show inventory\"'s Chassis SN and falling back to \"show version\"'s Processor board ID."},
+				{Name: "ansible_net_image", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "The running system image file, e.g. \"bootflash:packages.conf\"."},
+				{Name: "ansible_net_uptime", Type: "string", Returned: "when the min subset is gathered and the device reports it", Description: "Uptime exactly as the device words it, e.g. \"1 hour, 32 minutes\". Not converted to seconds: IOS reports a rounded phrase, and parsing it into a precise number would invent precision the device never gave."},
+				{Name: "ansible_net_interfaces", Type: "list of map", Returned: "when the interfaces subset is gathered", Description: "One entry per interface: name, ip_address (omitted when the device says \"unassigned\"), status, and protocol. Status is taken whole, so \"administratively down\" is reported as written rather than truncated at the first space."},
+				{Name: "ansible_net_gather_subset", Type: "list of string", Returned: "always", Description: "The subsets actually gathered, after \"all\" is expanded."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Gather a device's identity before deciding anything",
+					RunbookYAML: "- name: Learn what this router is\n  net.ios.facts:\n  register: device\n",
+				},
+				{
+					Name:        "Gather interfaces as well",
+					RunbookYAML: "- name: Learn the interface list too\n  net.ios.facts:\n    gather_subset:\n      - all\n",
+				},
+			},
+			SeeAlso: []string{"facts.gather", "net.catalyst.device_facts", "net.ios.config"},
+		},
+	},
+	{
+		Name:          "net.ios.ping",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Runs a ping from a Cisco IOS device and reports the result.",
+			Description: "Answers a different question from net.ssh.ping, and the difference is the point: net.ssh.ping proves this platform can reach the device, while this method proves the DEVICE can reach somewhere else, which is the question that actually matters when a routing or ACL change is under review. Runs IOS's own ping from an interactive PTY session and parses its \"Success rate is N percent (rx/tx)\" line, including the trailing \"round-trip min/avg/max = a/b/c ms\" clause that IOS omits entirely when nothing came back. Nothing is changed on the device, so this always reports no change. Use state to turn the result into a gate: state present (the default) fails the task when every packet is lost, and state absent fails it when anything answers, so a runbook can assert reachability or its absence without a separate condition.",
+			Params: []collection.Param{
+				{Name: "dest", Type: "string", Required: true, Description: "The address or hostname to ping from the device."},
+				{Name: "count", Type: "int", Default: "5", Description: "How many echoes to send, passed to IOS as \"repeat\"."},
+				{Name: "source", Type: "string", Description: "Source address or interface for the ping, passed to IOS as \"source\"."},
+				{Name: "vrf", Type: "string", Description: "VRF to ping from, passed to IOS as \"vrf\"."},
+				{Name: "state", Type: "string", Default: "present", Description: "\"present\" fails the task if the destination is unreachable (0 percent success); \"absent\" fails it if the destination answers at all. Set neither expectation by using a when condition on the returned facts instead."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "packet_loss", Type: "string", Returned: "always", Description: "Percentage of packets lost, as a string with a trailing percent sign, e.g. \"0%\"."},
+				{Name: "packets_tx", Type: "int", Returned: "always", Description: "How many echoes the device sent."},
+				{Name: "packets_rx", Type: "int", Returned: "always", Description: "How many replies the device received."},
+				{Name: "rtt", Type: "map", Returned: "when at least one packet returned", Description: "Round-trip times in milliseconds: min, avg, max. Absent entirely when every packet was lost, because IOS prints no round-trip clause in that case."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Assert the device can still reach its gateway",
+					RunbookYAML: "- name: Confirm the upstream gateway answers\n  net.ios.ping:\n    dest: 192.0.2.1\n",
+				},
+				{
+					Name:        "Record reachability without failing the run",
+					RunbookYAML: "- name: Measure reachability to a peer\n  net.ios.ping:\n    dest: 198.51.100.10\n    count: 10\n    state: absent\n  register: peer\n",
+				},
+			},
+			SeeAlso: []string{"net.ssh.ping", "net.ios.facts"},
+		},
+	},
+	{
+		Name:          "net.ios.save",
+		Capabilities:  []capability.Name{capability.NameCiscoIOS},
+		Transports:    []string{"ssh"},
+		EngineVersion: engineVersion,
+		Doc: collection.Doc{
+			Summary:     "Saves a Cisco IOS device's running configuration to startup.",
+			Description: "Runs IOS's \"write memory\", copying running-config over startup-config so the current configuration survives a reload. This is the step that makes every earlier net.ios.config task permanent, and it is deliberately a separate method rather than a parameter on net.ios.config: persisting configuration is a decision about blast radius, not a detail of applying a line, and a runbook that applies several changes should be able to decide once, at the end, whether any of them should outlive the next reload. Reports changed whenever the save completes, since IOS gives no way to know whether startup-config already matched. Aborts on a real IOS \"% ...\" error rather than reporting a save that did not happen.",
+			Params: []collection.Param{
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Whatever the device printed in response to \"write memory\", typically a \"Building configuration...\" line followed by \"[OK]\"."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Persist a change after verifying it",
+					RunbookYAML: "- name: Save the running configuration\n  net.ios.save:\n",
+				},
+			},
+			SeeAlso: []string{"net.ios.config"},
+		},
+	},
+	{
 		Name:          "net.junos.config",
 		Capabilities:  []capability.Name{capability.NameJunos},
 		Transports:    []string{"ssh"},

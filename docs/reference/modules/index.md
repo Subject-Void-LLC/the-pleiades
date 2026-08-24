@@ -18,13 +18,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fw` | 3 | 3 |
 | `http` | 1 | 1 |
 | `identity` | 6 | 6 |
-| `net` | 11 | 8 |
+| `net` | 14 | 11 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
 | `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **78** | **74** |
+| **total** | **81** | **77** |
 
 ## All methods
 
@@ -75,6 +75,9 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.cli.config](net/cli/config.md) | implemented | Applies configuration lines to a network device over its CLI. |
 | [net.eos.config](net/eos/config.md) | declared | Applies configuration to an Arista EOS device. |
 | [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
+| [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
+| [net.ios.ping](net/ios/ping.md) | implemented | Runs a ping from a Cisco IOS device and reports the result. |
+| [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
 | [net.netconf.config](net/netconf/config.md) | declared | Applies configuration to a device over NETCONF. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |

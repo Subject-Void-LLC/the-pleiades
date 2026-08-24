@@ -108,7 +108,7 @@ run complete
 
 `ssh_exec` is a legacy action name, kept working, and it is the shortest thing to
 start with because it needs no module lookup. It is not the only thing that reaches a
-device: 74 of the catalog's 78 methods are implemented and run against real devices,
+device: 77 of the catalog's 81 methods are implemented and run against real devices,
 including `exec.command`, which is the modern equivalent of this task. See the
 [module catalog](reference/modules/index.md). This one checks that a webserver
 answers:

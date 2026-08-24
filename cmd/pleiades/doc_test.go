@@ -101,8 +101,14 @@ func TestRunDoc_Snippet(t *testing.T) {
 			t.Fatalf("runDoc(--snippet ...) error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "fqcn: net.catalyst.device_facts") {
-		t.Errorf("snippet output missing fqcn line, got:\n%s", out)
+	// Module-as-key sugar, not "fqcn: net.catalyst.device_facts": this
+	// output is paste-ready by definition, so it must teach the form every
+	// shipped example uses.
+	if !strings.Contains(out, "net.catalyst.device_facts:") {
+		t.Errorf("snippet output missing the module-as-key line, got:\n%s", out)
+	}
+	if strings.Contains(out, "fqcn:") {
+		t.Errorf("snippet output still emits the explicit fqcn: form, got:\n%s", out)
 	}
 }
 
@@ -112,7 +118,7 @@ func TestRunDoc_SnippetDeclaredFallsBackToSkeleton(t *testing.T) {
 			t.Fatalf("runDoc(--snippet file.template) error: %v", err)
 		}
 	})
-	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "fqcn: file.template") {
+	if !strings.Contains(out, "- name: TODO") || !strings.Contains(out, "file.template:") {
 		t.Errorf("declared snippet should fall back to a bare skeleton, got:\n%s", out)
 	}
 }

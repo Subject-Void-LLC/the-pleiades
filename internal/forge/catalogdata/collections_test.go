@@ -34,10 +34,14 @@ func TestCollections_MatchesDocumentedCount(t *testing.T) {
 	// and the first method reaching a device over a transport other than
 	// SSH or HTTPS. Phase 73's Workstream F added the 78th,
 	// container.docker.exec, the first method to reach a device over a
-	// raw Docker daemon socket instead of SSH, WinRM, or HTTPS. This test
-	// pins the number down so a future accidental entry loss or
-	// duplication is a build failure, not a silent gap.
-	const wantCollections = 78
+	// raw Docker daemon socket instead of SSH, WinRM, or HTTPS. Phase
+	// 86.5's follow-on work added the 79th, 80th and 81st: net.ios.facts,
+	// net.ios.ping and net.ios.save, the first Cisco IOS methods that read
+	// and parse a device's own output rather than only sending lines to
+	// it, all three built on the interactive CLI transport that phase
+	// introduced. This test pins the number down so a future accidental
+	// entry loss or duplication is a build failure, not a silent gap.
+	const wantCollections = 81
 	if got := len(catalogdata.Collections); got != wantCollections {
 		t.Errorf("len(Collections) = %d, want %d", got, wantCollections)
 	}

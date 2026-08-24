@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/pkg/netcli"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/remoteexec"
 )
 
@@ -187,5 +188,76 @@ func TestLiveIOSConfigSubmodePrompt(t *testing.T) {
 	confirm := step("show run interface "+ifName+" (confirm removed)", "show running-config interface "+ifName, execPrompt)
 	if strings.Contains(confirm, ifName) && !strings.Contains(confirm, "% Invalid input") {
 		t.Errorf("cleanup may have failed: %s still appears in running-config: %q", ifName, confirm)
+	}
+}
+
+// TestLiveIOSFactsShapes is the second diagnostic of the same kind, and
+// it exists for the same reason the first one does: net.ios.facts and
+// net.ios.ping both have to PARSE a real device's output, and the only
+// way to write a parser that works is to read what the device actually
+// prints rather than what its documentation, or an author's memory of
+// Cisco output, suggests it prints. Every command here is read-only, so
+// this is safe to run against the shared DevNet sandbox.
+//
+// Its output is meant to be read by a human writing those parsers, not
+// asserted on: it deliberately makes no claim about the shapes it finds,
+// because a Release Gate asserting a shape this test discovered would
+// just be asserting the same guess twice.
+func TestLiveIOSFactsShapes(t *testing.T) {
+	if os.Getenv("PLEIADES_E2E_IOS") == "" {
+		t.Skip("set PLEIADES_E2E_IOS=1 to run this live diagnostic against a real Cisco IOS XE device")
+	}
+	user := os.Getenv("PLEIADES_E2E_IOS_USER")
+	pass := os.Getenv("PLEIADES_E2E_IOS_PASS")
+	if user == "" || pass == "" {
+		t.Skip("PLEIADES_E2E_IOS_USER and PLEIADES_E2E_IOS_PASS must both be set (no default credential: the sandbox issues a unique password per reservation)")
+	}
+	host := os.Getenv("PLEIADES_E2E_IOS_HOST")
+	if host == "" {
+		host = "devnetsandboxiosxec8k.cisco.com"
+	}
+
+	runner := remoteexec.New(remoteexec.Options{InsecureSkipHostKeyVerify: true})
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: host, Port: 22}, remoteexec.PasswordAuth(user, pass))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer conn.Close()
+
+	shell, err := conn.Shell(ctx, remoteexec.ShellOptions{})
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	defer shell.Close()
+
+	session, err := netcli.Open(ctx, shell, netcli.IOS, netcli.Options{})
+	if err != nil {
+		t.Fatalf("netcli.Open: %v", err)
+	}
+
+	for _, line := range []string{
+		"show version",
+		"show inventory",
+		"show ip interface brief",
+		"ping 8.8.8.8",
+		"ping 192.0.2.1 repeat 2",
+		// Both pings above are expected to FAIL from this sandbox, which
+		// has no outbound path, and that is deliberate: a 0 percent result
+		// is the shape with NO trailing round-trip clause, which is the
+		// case a parser gets wrong. The success shape,
+		// "Success rate is 100 percent (3/3), round-trip min/avg/max = 1/1/1 ms",
+		// was pinned separately by pinging the device's own management
+		// address, which is reservation-specific and so is not hardcoded
+		// here.
+	} {
+		out, err := session.Command(ctx, line)
+		if err != nil {
+			t.Errorf("%q: %v", line, err)
+			continue
+		}
+		t.Logf("\n===== %s =====\n%s\n===== end (%d bytes) =====", line, out, len(out))
 	}
 }
