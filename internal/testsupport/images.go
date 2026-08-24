@@ -117,6 +117,18 @@ const (
 // beside the nats service in docker-compose.yml.
 const NATSImage = "nats:2.14.4-alpine"
 
+// ToxiproxyImage is the proxy AGENTS.md's Bulletproof Testing Matrix
+// requires in front of every network boundary a Release Gate severs.
+//
+// It is pinned here for the reason every other image on this page is:
+// the version was previously written out as a string literal in three
+// separate test files (internal/event, internal/transport/ssh and
+// tests/e2e), so a bump reached whichever ones the author happened to
+// grep for. Unlike the images above, this one appears in no deployment
+// artifact, so there is no compose or chart pin for it to match; the
+// duplication was the whole of the problem.
+const ToxiproxyImage = "ghcr.io/shopify/toxiproxy:2.12.0"
+
 // NATSCommand returns the argument list docker-compose.yml passes to the
 // NATS server, so a developer tool that starts its own broker starts the
 // deployment's broker rather than one that merely shares its version.

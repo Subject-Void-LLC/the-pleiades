@@ -136,10 +136,12 @@ func (r *Reaper) sweep(ctx context.Context) {
 //
 // This is safe against JetStream's own producer-side duplicate
 // suppression precisely because it is not a retry within that window:
-// internal/topology's streamDuplicateWindow is two minutes, and this call
-// only ever fires after a job has already sat stale for staleAfter,
-// production ten minutes, so the original publish's own dedup window has
-// long since closed by the time a reap tick republishes.
+// internal/topology's duplicate window is derived from the deployment's
+// outage budget but CAPPED at half the ten minute staleAfter this call
+// waits for, precisely so that this reasoning keeps holding as the budget
+// grows: the original publish's dedup window has always closed by the
+// time a reap tick republishes. topology.DerivedDuplicateWindow carries
+// the cap, and a test asserts it rather than trusting this comment.
 func (r *Reaper) republish(ctx context.Context, jobID string) error {
 	evt, err := event.WrapPayload(uuid.New().String(), "job.requested", jobRequestedPayload{JobID: jobID})
 	if err != nil {

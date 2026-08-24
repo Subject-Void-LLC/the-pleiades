@@ -7,50 +7,67 @@ on:
 
 jobs:
   ci:
-    # Phase 72's cross-platform matrix (Transport Foundation: the Circuit
-    # Breaker, retry.Do, and the Hop Chain). Before this, CI was a single
-    # ubuntu-latest job; the module had zero platform build tags and zero
-    # runtime.GOOS references, so nothing had ever proven this codebase
-    # compiles, let alone runs, anywhere else. PLAN.md's own platform
-    # requirement: Pleiades must run on Linux, and SHOULD run on macOS;
-    # running the controller on Windows is a stretch goal this Part is
-    # allowed to miss.
+    # What this job runs, and deliberately does not.
     #
-    # ubuntu-latest is the ONLY leg with a Docker daemon, so it alone
-    # keeps running the full `make ci` (build vet fmt test-race gosec
-    # govulncheck coverage docs-lint docs-gen-check), including every
-    # real-container conformance test (internal/lock, internal/event,
-    # internal/transport/ssh's own sshd container, the LocalStack-backed
-    # AWS tests). macOS is BLOCKING, matching the SHOULD-run requirement:
-    # build, vet, and `make test-no-docker` (every package except the
-    # ones Makefile's own DOCKER_DEPENDENT_PACKAGES list names).
-    # Windows is ADVISORY: build and vet only, reported via
-    # continue-on-error rather than required, because running the
-    # controller on Windows is a goal this Part is allowed to miss, and a
-    # red required check for it would train everyone to ignore red
+    # It runs the checks that are cheap, deterministic and need no
+    # infrastructure: compilation on three operating systems, vet under
+    # both tag sets, gofmt, module tidiness, the two pinned security
+    # scanners (gosec, govulncheck), the generated-tree checks (docs,
+    # templ), the Helm chart lint and the internal-docs citation lint.
+    # That set is exactly `make ci-remote`.
+    #
+    # It does NOT run the test suite. `make ci` still exists and is still
+    # the strict, whole gate, and it is now a LOCAL gate: a developer runs
+    # it directly, and `.githooks/pre-push` (installed once per clone with
+    # `make hooks`) runs the flake-tolerant `make push-gate` before every
+    # push. The heavy evidence -- test-race, test-repeat, test-integration
+    # and the coverage ratchet -- is produced on a machine with a real
+    # Docker daemon and never here.
+    #
+    # This is a retreat from what this workflow used to attempt, and the
+    # reason is that the attempt did not work. Around twenty packages in
+    # this module provision real ephemeral containers (NATS, sshd,
+    # Postgres, LocalStack, Toxiproxy) through testcontainers-go; `make
+    # ci` runs the suite three times over (test-race, then test-repeat at
+    # -count=3, then test-integration) plus a fourth full run inside
+    # tools/coverage-check; and several of those packages are
+    # timing-sensitive on purpose -- internal/event's Phase 96a release
+    # gate alone severs a real broker for 150 seconds, because the defect
+    # it guards cannot be reproduced by a shorter outage. Anonymous
+    # registry pulls, two-core runners and that workload have never
+    # produced a green result here. A permanently red gate gates nothing,
+    # and it teaches everyone to scroll past red, which costs more than it
+    # was ever buying.
+    #
+    # State the price plainly rather than leave it to be discovered:
+    # nothing in this workflow proves that a single test passes. A pull
+    # request from someone who never ran `make hooks`, or who pushed with
+    # --no-verify, has had its compilation and its static analysis checked
+    # and nothing else. Putting test coverage back here means a runner
+    # with Docker and a deliberately narrow package selection, not simply
+    # restoring `make ci` to the step below.
+    #
+    # The three-OS matrix stays, because build and vet are the whole of
+    # what it was ever proving. PLAN.md's platform requirement: Pleiades
+    # must run on Linux and SHOULD run on macOS; running the controller on
+    # Windows is a stretch goal this Part is allowed to miss. Linux is the
+    # only leg that runs the checks above, since it is the only one where
+    # `make`, gosec, govulncheck and helm are all available; macOS is
+    # BLOCKING and Windows is ADVISORY (continue-on-error), because a red
+    # required check for a stretch goal trains everyone to ignore red
     # checks generally.
     #
-    # Be exact about what a green macOS or Windows leg proves and does
-    # not: compilation, and (macOS only) non-container unit correctness.
-    # Docker-backed testcontainers do not run on GitHub's macOS or
-    # Windows runners at all, so neither leg is evidence of "works
-    # against a real device" -- that conformance evidence stays
-    # ubuntu-only. pkg/remoteexec's own suite is a partial exception
-    # worth naming: it uses an in-process, real-TCP, real-SSH-protocol
-    # fake server (no Docker required), so the macOS leg exercises real
-    # network and protocol behavior there, not merely a compiled stub.
-    #
-    # This matrix is also the guard against the platform-suffix filename
+    # That matrix is also the guard against the platform-suffix filename
     # trap this project has already been bitten by once
-    # (FAILURE_PATTERNS.md #51): Go silently reads a `_windows`,
-    # `_linux`, or `_darwin` filename suffix as an implicit GOOS build
-    # constraint, and pkg/capability/capabilities_windows.go had
-    # therefore never compiled on Linux since the phase that wrote it. A
-    # single-OS job cannot see that bug; this three-OS one can. Watch for
-    # exactly this shape in any file Part XV's later phases add
-    # (serial_linux.go, socket_windows.go, transport_darwin.go are all
-    # names an author would reach for -- Phase 73, which owns local
-    # serial, is the one most likely to want one).
+    # (FAILURE_PATTERNS.md #51): Go silently reads a `_windows`, `_linux`
+    # or `_darwin` filename suffix as an implicit GOOS build constraint,
+    # and pkg/capability/capabilities_windows.go had therefore never
+    # compiled on Linux since the phase that wrote it. A single-OS job
+    # cannot see that bug; this three-OS one can, and it can see it with
+    # compilation alone, which is why dropping the tests below costs
+    # nothing there. Watch for exactly this shape in any file Part XV's
+    # later phases add (serial_linux.go, socket_windows.go,
+    # transport_darwin.go are all names an author would reach for).
     strategy:
       fail-fast: false
       matrix:
@@ -72,23 +89,23 @@ jobs:
 
       # gopls is part of AGENTS.md's own required tooling for anyone
       # editing this repository, but is not something CI itself invokes;
-      # gosec and govulncheck are the two CI actually runs (Makefile's
-      # `ci` target), so only those two are installed here, and only on
-      # the leg that runs `make ci`.
+      # gosec and govulncheck are the two this job actually runs, so only
+      # those two are installed here, and only on the leg that runs them.
       #
       # The versions deliberately are not named here. `make tools`
       # installs the ones pinned in the Makefile (GOSEC_VERSION,
-      # GOVULNCHECK_VERSION), which is also what a developer's own
-      # `make ci` installs, so this job and a local run cannot check with
+      # GOVULNCHECK_VERSION), which is also what a developer's own local
+      # gate installs, so this job and a local run cannot check with
       # different scanners. These steps previously installed @latest,
       # which meant a new scanner release could turn this job red on a
       # commit that changed nothing, and that a local pass said nothing
       # reliable about what would happen here. Bumping a version is a
       # commit against the Makefile, reviewed like any other change.
       #
-      # This step is redundant with `make ci` (which depends on `tools`)
-      # and is kept only so that a tool installation failure shows up as
-      # its own red step rather than inside the ci step's output.
+      # This step is redundant with `make ci-remote` (which depends on
+      # `tools`) and is kept only so that a tool installation failure
+      # shows up as its own red step rather than inside the checks step's
+      # output.
       - name: Install pinned gosec and govulncheck
         if: runner.os == 'Linux'
         run: make tools
@@ -97,8 +114,8 @@ jobs:
       # render helm/the-pleiades and to prove the configurations that chart
       # refuses really are refused. ubuntu-latest does not ship one, and the
       # tool fails rather than skipping when helm is missing, so it has to be
-      # installed here. Only the ubuntu leg runs make ci (and therefore
-      # helm-lint), so only it needs this.
+      # installed here. Only the Linux leg runs helm-lint, so only it needs
+      # this.
       #
       # Downloaded and checksummed rather than pulled in through a third-party
       # action, and pinned to an exact version rather than a channel, for the
@@ -109,21 +126,6 @@ jobs:
       # at https://get.helm.sh/helm-v4.2.4-linux-amd64.tar.gz.sha256sum, so a
       # tampered or truncated download fails this step instead of quietly
       # linting with something else.
-      # pkg/serialexec's own RULE 0 test suite (Phase 73) proves the
-      # local-serial Adapter against a real socat PTY pair, not a mock.
-      # ubuntu-latest does not ship socat, and that test's own skip path
-      # (exec.LookPath) means a missing binary here would silently skip
-      # real evidence rather than fail the build -- exactly the trap this
-      # project's LOCALSTACK_AUTH_TOKEN and flaky-packages.json own
-      # comments already warn about elsewhere. Installed via apt so the
-      # distribution's own package signing is the trust mechanism, the
-      # same as every other apt-installed tool this runner image already
-      # trusts; unlike Helm below, socat has no single canonical upstream
-      # binary release to pin and checksum instead.
-      - name: Install socat (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y socat
-
       - name: Install pinned Helm
         if: runner.os == 'Linux'
         env:
@@ -138,69 +140,31 @@ jobs:
           rm -rf helm.tar.gz linux-amd64
           helm version --short
 
-      # internal/lock, internal/event, and internal/transport/ssh's own
-      # conformance/container tests dial real, ephemeral Docker containers
-      # (NATS, sshd); ubuntu-latest ships Docker already, so this is not a
-      # separate setup step, just a note that `make ci` genuinely needs it.
-      #
-      # internal/catalog/cloud/aws/ec2 and .../s3's own tests dial a real
-      # LocalStack container the same way, and LocalStack's own licensing
-      # requires an auth token to start even its free tier (a real,
-      # verified relicensing, not a Pro-only gate); each test's own
-      # requireLocalStack helper skips cleanly with no token rather than
-      # failing, which is what keeps a fork's pull_request run (GitHub
-      # never exposes a base repo's secrets to a fork's workflow run) from
-      # going red for a reason that has nothing to do with its own change
-      # -- it just measures those two packages without LocalStack coverage
-      # instead, matching a plain local run with no
-      # .IGNORE/.localstack.env. LOCALSTACK_AUTH_TOKEN itself is a
-      # repository secret (Settings -> Secrets and variables -> Actions),
-      # the same value .IGNORE/.localstack.env holds for a local run; a
-      # push to this repository or a same-repository pull request sees it
-      # and gets the real coverage these two packages' floors were
-      # recorded against.
-      - name: ci
+      # The whole of this workflow's judgement, on the one leg that can
+      # make it. See the job comment above for what ci-remote covers and
+      # what it knowingly leaves to the local gate.
+      - name: ci-remote
         if: runner.os == 'Linux'
-        env:
-          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
-        run: make ci
+        run: make ci-remote
 
-      # pkg/serialexec's real socat PTY test needs socat here too:
-      # macos-latest ships Homebrew but not socat itself, and it is not a
-      # DOCKER_DEPENDENT_PACKAGES exclusion (a PTY pair needs no Docker
-      # daemon at all), so without this step that package's own RULE 0
-      # evidence would silently skip on this leg exactly as it would on
-      # Linux without the apt step above.
-      - name: Install socat (macOS)
-        if: runner.os == 'macOS'
-        run: brew install socat
-
-      # macOS: no Docker daemon on this runner at all, so the full `make
-      # ci` cannot run here. build and vet run unconditionally; make
-      # test-no-docker (a real `make` ships with macOS's Xcode Command
-      # Line Tools) then runs every package NOT in the Makefile's own
-      # DOCKER_DEPENDENT_PACKAGES list, for real, under -race.
-      - name: build + vet + non-Docker tests (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          go build ./...
-          go vet ./...
-          make test-no-docker
-
-      # Windows: build and vet only, deliberately. GitHub's
-      # windows-latest runner ships neither Docker nor GNU Make, and
-      # duplicating Makefile's DOCKER_DEPENDENT_PACKAGES exclusion logic
-      # a second time in PowerShell here would be exactly the kind of
-      # second copy that drifts from the first and nobody notices,
-      # for an advisory leg whose main value is catching the
-      # platform-suffix filename trap this comment block's own top-level
-      # note explains -- a compile-time concern, which build and vet
-      # already prove without running a single test. Running the
-      # controller on Windows at all is a stretch goal this Part is
-      # allowed to miss; go test ./... coverage there can follow if that
-      # goal is ever picked up for real.
-      - name: build + vet (Windows)
-        if: runner.os == 'Windows'
+      # macOS and Windows: compilation only, and the same two commands on
+      # both, so there is nothing platform-specific to keep in step. GNU
+      # Make does not ship with GitHub's windows-latest image, which is
+      # why this is a bare `go build`/`go vet` pair rather than a make
+      # target.
+      #
+      # Deliberately NOT a second `go vet -tags integration ./...` pass,
+      # even though the Makefile's own vet target runs one and the
+      # integration-tagged files are the largest tests in this repository.
+      # Those files have never been compiled for darwin or windows by
+      # anything, so adding the pass here would be adding an unverified
+      # check to the one job this change exists to get green, and the
+      # thing it would guard -- the platform-suffix filename trap in the
+      # job comment above -- is already caught by the untagged build and
+      # vet. Worth doing later, on purpose, as its own change that starts
+      # by finding out whether it passes.
+      - name: build + vet (macOS and Windows)
+        if: runner.os != 'Linux'
         run: |
           go build ./...
           go vet ./...

@@ -6,15 +6,16 @@
   "additionalProperties": false,
   "required": [
     "controller",
-    "runner",
-    "runbooks",
-    "secrets",
-    "serviceAccount",
-    "postgresql",
     "externalDatabase",
-    "nats",
     "externalNats",
-    "ingress"
+    "ingress",
+    "mesh",
+    "nats",
+    "postgresql",
+    "runbooks",
+    "runner",
+    "secrets",
+    "serviceAccount"
   ],
   "definitions": {
     "image": {
@@ -649,6 +650,38 @@
         },
         "affinity": {
           "type": "object"
+        },
+        "websocket": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A WebSocket listener for reaching the broker through an HTTP proxy or egress filter. Path traversal, not link resilience.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "tls": {
+              "type": "boolean",
+              "description": "Serve the WebSocket listener over TLS. Requires nats.tls.secretName."
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "TLS for the broker's own listeners. Encrypts the wire; does not authenticate clients.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "secretName": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -742,6 +775,22 @@
               }
             }
           }
+        }
+      }
+    },
+    "mesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxOutageSeconds"
+      ],
+      "description": "The one maximum-survivable-outage budget every retention window in the message bus derives from.",
+      "properties": {
+        "maxOutageSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 43200,
+          "description": "Longest link outage this deployment must survive, in seconds. Raising it is safe; lowering it shortens retention and the controller refuses to delete messages to achieve that."
         }
       }
     }

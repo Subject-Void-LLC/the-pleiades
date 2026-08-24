@@ -21,7 +21,7 @@ func TestNatsBusPublish_ProducerSideDedupSuppressesRetryOfSameEvent(t *testing.T
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestNatsBusPublish_DistinctEventsBothStored(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus: %v", err)
 	}

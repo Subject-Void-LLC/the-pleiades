@@ -3,6 +3,7 @@ package lock_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -39,7 +41,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 	}
 
 	// 2. Initialize Lock Manager
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -113,15 +115,40 @@ func TestThunderingHerdLocking(t *testing.T) {
 }
 
 // TestNewNatsLockManagerConnectError asserts that NewNatsLockManager
-// surfaces a wrapped error instead of panicking or hanging when the
-// underlying nats.Connect call cannot even parse the given URL. This
-// exercises the constructor's connect-failure branch without needing a
-// live NATS server or Docker, since a malformed URL fails address
-// resolution near-instantly.
+// surfaces a wrapped error instead of panicking or hanging when it cannot
+// reach a broker.
+//
+// This test's premise has now moved twice, which is worth recording
+// because the moves were both improvements and both silent. It originally
+// said it exercised "the connect-failure branch", on the reasoning that a
+// malformed URL fails address resolution near-instantly. Phase 96a's
+// RetryOnFailedConnect made nats.Connect return nil for this exact URL in
+// 310 microseconds and retry in the background, so the branch it actually
+// reached became the bounded connect wait, ten seconds later. Phase 96d
+// then added scheme validation ahead of the dial, so the failure is once
+// again immediate, and now comes from the place that can give the operator
+// a useful message.
+//
+// The assertion follows the behaviour rather than the other way round: a
+// value with no scheme is refused before any connection is attempted,
+// because nats.go would otherwise treat it as plaintext and connect
+// successfully to something unencrypted.
 func TestNewNatsLockManagerConnectError(t *testing.T) {
-	_, err := lock.NewNatsLockManager(context.Background(), "not-a-valid-url::::")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err := lock.NewNatsLockManager(ctx, "not-a-valid-url::::", nil, topology.StreamProvisioner)
 	if err == nil {
-		t.Fatal("expected an error from a malformed nats URL, got nil")
+		t.Fatal("expected an error for a URL with no usable scheme, got nil")
+	}
+	if !strings.Contains(err.Error(), "scheme") {
+		t.Errorf("error = %v, want it to explain that the URL needs a scheme", err)
+	}
+	// Immediate, not after the bounded connect wait: a value that can
+	// never work should not cost a startup timeout to reject.
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("rejecting an unusable URL took %v; validation should precede the dial", elapsed)
 	}
 }
 
@@ -154,7 +181,7 @@ func TestNewNatsLockManagerRejectsOldServer(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	_, err = lock.NewNatsLockManager(ctx, url)
+	_, err = lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err == nil {
 		t.Fatal("expected NewNatsLockManager to fail against a pre-2.11 nats-server, got nil error")
 	}
@@ -185,7 +212,7 @@ func TestNatsLockManagerAcquireContextAlreadyCanceled(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -225,7 +252,7 @@ func TestNatsManagerConformance(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}

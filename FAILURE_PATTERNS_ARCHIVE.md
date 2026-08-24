@@ -3113,7 +3113,9 @@ The prefilter is the dangerous one, because a prefilter that does not actually h
 
 ## 119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work
 
-**Status: FOUND, NOT FIXED.** Discovered 2026-08-13 while verifying whether a test-harness container flake could reach production. It cannot; this can, and it is a different and worse thing. Recorded here rather than fixed in place because the fix changes the dispatch plane's failure behavior and the session that found it was building credentials, and folding an unrelated behavior change into that commit is how a change nobody reviewed in its own right ships.
+**Status: CLOSED 2026-08-23 by Phase 96a.** The second half of this entry, the NATS reconnect defaults in `internal/event` and `internal/lock`, is now fixed: `topology.DialOptions` sets `MaxReconnects(-1)` and `RetryOnFailedConnect(true)` and wires all four lifecycle handlers, and `internal/archtest`'s `TestEveryNatsDialCarriesTheSharedOptions` fails any dial that does not carry them. The give-up point this entry describes no longer exists at any outage length, and a disconnect is no longer silent. The original text below is unchanged; the paragraph after it records what was still open until Phase 96a and is now not.
+
+**Original status when found: FOUND, NOT FIXED.** Discovered 2026-08-13 while verifying whether a test-harness container flake could reach production. It cannot; this can, and it is a different and worse thing. Recorded here rather than fixed in place because the fix changes the dispatch plane's failure behavior and the session that found it was building credentials, and folding an unrelated behavior change into that commit is how a change nobody reviewed in its own right ships.
 
 **Symptom (predicted, not yet observed in a real deployment).** A Runner loses its NATS connection for longer than the client's reconnect budget. The process stays up. Its container keeps reporting healthy. It fetches nothing, executes nothing, and reports nothing, indefinitely. Capacity disappears from the mesh with no signal anywhere that says so, and the only visible evidence is a backoff-loop error line repeating in a log nobody is watching for that shape.
 
@@ -6385,3 +6387,415 @@ noticed: this one sat behind a suite everybody already treats as flaky,
 which is how a hard, repeatable failure hid for three merged pull
 requests. When a package on `flaky-packages.json` fails, read the actual
 assertion before reaching for the rerun.
+
+## 191. Registering the four obvious NATS lifecycle handlers left the cold-start path completely silent, because the library routes the initial-connect retry through a different pair
+
+**Symptom.** Phase 96a set `RetryOnFailedConnect(true)` so a Runner started before
+its broker exists waits instead of exiting, and wired
+`DisconnectErrHandler`/`ReconnectHandler`/`ClosedHandler`/`ErrorHandler` so a
+connection could no longer die silently. A process started against an unreachable
+broker then logged **nothing at all** for the whole ten-second wait, and nothing
+when it eventually connected. The documentation shipped in the same change said
+"connection events are logged."
+
+**Root cause.** `nats.go` splits its callbacks by whether the connection has ever
+connected, using an internal `initc` flag, and the split is not symmetric with the
+names. In `doReconnect`, `DisconnectedErrCB` is called only `if !nc.initc`; during
+the initial-connect retry window the library instead consults `ReconnectErrCB`. On
+eventual success it calls `ReconnectedCB` only `&& !nc.initc`, and `ConnectedCB`
+`&& nc.initc`. So the two handlers a reader naturally reaches for
+(disconnect, reconnect) are precisely the two that are suppressed during the exact
+window `RetryOnFailedConnect` exists to create, and the two that fire there
+(`ConnectHandler`, `ReconnectErrHandler`) look redundant when skimming the option
+list.
+
+**Why it was not caught.** The test asserted `opts.DisconnectedErrCB != nil` and
+its three siblings. Every one passed. No test captured a byte of output, so
+"the handlers are registered" was proven and "the handlers say anything" was not.
+
+**Fix.** Register five handlers rather than four, adding `nats.ConnectHandler` and
+`nats.ReconnectErrHandler`, with the asymmetry written into the comment beside
+them. Add a container-backed test that captures a real `slog` logger across a real
+severance and asserts on the text.
+
+**Lesson.** When a library gates callbacks on connection lifecycle state, read the
+gating conditions rather than the callback names: a name that describes an event
+does not promise it fires for every occurrence of that event. And an option that
+creates a new lifecycle phase (here, "connecting for the first time, in the
+background") should prompt the question of which observability covers that phase,
+because it is usually a different set from the steady state.
+
+## 192. Every graceful shutdown logged a WARN saying "reconnecting" and an ERROR saying "closed permanently" about a shutdown that was going exactly to plan
+
+**Symptom.** After wiring the NATS lifecycle handlers, an ordinary SIGTERM produced,
+per process, three `WARN nats connection lost, reconnecting ... error=<nil>` lines
+and three `ERROR nats connection closed permanently ... last_error=<nil>` lines. A
+Runner and a Controller hold three NATS connections each, so a routine rolling
+update emitted six false failure lines per pod, at the two severity levels an
+operator is most likely to alert on.
+
+**Root cause.** `Conn.Close()` calls `nc.close(CLOSED, !nc.Opts.NoCallbacksAfterClientClose, nil)`,
+and `NoCallbacksAfterClientClose` was not set, so `doCBs` was true. Inside `close()`,
+`DisconnectedErrCB` is invoked whenever `nc.conn != nil` (which it still is on that
+path, since the socket is closed by a deferred call and the field is never nilled),
+and `ClosedCB` is invoked unconditionally. Both were therefore doing exactly what
+they were written for, on an event that was not a failure. The `error=<nil>` in the
+output is the tell: `close()` passes a nil error, which no genuine disconnect does.
+
+**Why it was not caught.** Same reason as #191: the only assertions were that the
+callback fields were non-nil. The evidence was actually sitting in the phase's own
+long-severance test log, where the two lines appear at the same second as the
+test's `t.Cleanup` closing the bus, and it was read as expected shutdown output
+rather than as a defect.
+
+**Fix.** Add `nats.NoCallbacksAfterClientClose()` to the shared option set, and
+assert in a container-backed test that a graceful `Close()` emits neither
+"reconnecting" nor "closed permanently".
+
+**Lesson.** A handler wired to a transport's "connection ended" event will fire on
+the deliberate ending too, so decide at wiring time which severity a planned
+shutdown deserves, and prefer a library switch that suppresses the callback over a
+flag the application has to remember to set before every close. A monitoring signal
+that fires on every intentional restart trains the operator to ignore it, which
+costs more than not having it.
+
+## 193. Two constructors leaked their NATS connection on every error path after the dial succeeded
+
+**Symptom.** Latent, found by inspection while changing the same functions.
+`event.NewNatsBus` and `lock.NewNatsLockManager` each dialled NATS, then did two or
+three more things that could fail (`jetstream.New`, `EnsureStream`,
+`CreateOrUpdateKeyValue`), and returned the error from each without closing the
+connection they had just opened. Every failure left a live connection, its reader
+and flusher goroutines, and its reconnect machinery running, owned by nobody.
+
+**Root cause.** The error paths were written before the constructors acquired
+anything that needed releasing, and each new post-dial step was added by pattern
+matching on the one above it, which had the same omission. Nothing in the shape of
+the code marks the transition from "nothing acquired yet" to "must clean up".
+
+**Why it was not caught.** These branches are only reachable against a broker that
+answers TCP and then refuses a JetStream operation, which no test simulated. A
+process that hits them then calls `log.Fatalf` anyway, so in production the leak was
+immediately followed by an exit, which is why it never manifested. It would have
+manifested the moment a caller retried construction instead of exiting, which is
+precisely what the surrounding resilience work was moving toward.
+
+**Fix.** `nc.Close()` on every post-dial error return, and then, better, collapse
+dial-plus-wait into one `topology.Connect` that owns the cleanup once so no future
+caller has to remember it.
+
+**Lesson.** When a constructor acquires a resource and then does more fallible work,
+the acquisition and its release belong in one function that returns either a fully
+usable thing or nothing at all. Spreading the steps across the caller means every
+new step is a new chance to forget, and "the process exits on this path anyway" is
+a property of today's callers, not of the function.
+
+## 194. A guard that matched a function by unqualified name could be defeated by declaring a local function of that name
+
+**Symptom.** Latent, found by adversarial review of a guard added in the same
+change. `internal/archtest`'s new rule required every `nats.Connect` call to spread
+`topology.DialOptions(...)`, and its matcher accepted any call whose final argument
+was a spread of a call to a selector or identifier **named** `DialOptions`, with no
+check on what it was a selector *of*. Two lines defeated it completely:
+`func DialOptions() []nats.Option { return nil }` beside the call site, then
+`nats.Connect(url, DialOptions()...)`, reproducing the exact zero-option defect the
+guard existed to prevent while passing it.
+
+**Root cause.** The matcher was a near-mechanical port of an existing rule that
+matches a METHOD name on a receiver whose type it cannot see, where ignoring the
+qualifier is the deliberate and correct tradeoff. Ported to a package-qualified
+function, the same leniency stopped being a tradeoff and became a hole, because a
+package qualifier is a thing the AST can actually see.
+
+**Why it was not caught.** The negative control proved the matcher found a bare
+call and accepted a correct one. It contained no decoy, so it proved the rule
+worked on honest input and said nothing about hostile input, which is the only kind
+a guard exists for.
+
+**Fix.** Stop matching on how the call is configured and match on who is allowed to
+make it: forbid `nats.Connect` outside `internal/topology` entirely, with the
+options and the mandatory post-connect wait paired inside one `topology.Connect`.
+There is then no name to spell correctly and nothing to alias around.
+
+**Lesson.** A guard phrased as "the call must be configured correctly" invites an
+arms race against every way of spelling the configuration; a guard phrased as "only
+this package may make the call" ends it, and is usually available once the thing
+being guarded has a single owner. When porting a matcher, re-derive which parts of
+its leniency were deliberate: the reason an existing rule ignores something is
+frequently that it *could not see* it, not that it should not care. And a negative
+control without a decoy tests the happy path of the rule itself.
+
+## 195. A design's load-bearing precedent cited a source file that does not exist, and the real one argued the opposite way
+
+**Symptom.** Phase 96b was specified as "the Controller owns stream shape;
+Runners attach and fail loudly if the stream is absent", and both
+`FAILURE_PATTERNS.md` #178 and the phase text justified the refusal with the
+same sentence: it "is the same fail-closed instinct
+`internal/transport/ssh/known_hosts.go` already applies to a missing
+`known_hosts`". That file does not exist. `ls internal/transport/ssh/` lists
+seven files and none of them is `known_hosts.go`.
+
+**Root cause.** The claim was written once, from memory of a real behaviour in
+a package that had since moved, and then copied forward into a second document
+without being re-derived. `LESSONS_LEARNED.md` #152 already names this exact
+mechanism: a `file:line` citation is unverifiable by any tool here and rots
+silently, and copying one forward multiplies the rot into false corroboration
+rather than inheriting a verified fact. Two documents agreeing looked like
+confirmation and was actually one unverified sentence counted twice.
+
+**Why it mattered more than a broken link.** The real site is
+`pkg/remoteexec/knownhosts.go`, and it is not analogous in the way the argument
+needed. It fails ONE CONNECTION rather than a process; its alternative is
+accepting a man-in-the-middle, which is a security boundary rather than an
+availability tradeoff; and it ships both a configured path and a documented
+per-task bypass. A missing stream has none of those three properties. The
+analogy was the only argument offered for refusing to start, and refusing to
+start would have removed self-healing (today a destroyed stream is recreated by
+whichever process arrives first, and a running Controller never re-asserts) and
+introduced a start ordering that neither shipped deployment expresses.
+
+**Fix.** The design was changed before any code was written: the Controller is
+the only process that may CHANGE a shape, every process may create a missing
+one, and a mismatch is a warning rather than a refusal. The precedent actually
+followed is `internal/tlscert`'s lock-free convergence, which the chart already
+documents as "none of them waits on another".
+
+**Lesson.** A citation is a claim, and a claim that is load-bearing for a design
+decision deserves the same verification as a measurement. Before quoting a file
+as precedent, open it: confirm it exists, and confirm it does the thing the
+argument needs rather than something that merely shares a name. When a
+precedent is the ONLY argument for a decision, its absence is not a
+documentation defect, it is the decision being unsupported.
+
+## 196. The safety-critical half of a multi-writer provisioning defect went uncatalogued for a phase because only the retention half had been noticed
+
+**Symptom.** `FAILURE_PATTERNS.md` #178 recorded that three composition roots
+reshape the JetStream stream on every process start from compile-time
+constants, so an operator's retention choice is reverted by whichever binary
+restarts last. It did not record that the "Pleiades_Locks" KV bucket has the
+identical shape from two roots through
+`js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())`.
+
+**Root cause.** #178 was found while chasing a retention question, so retention
+is what it looked at. The bucket was provisioned by a different call in a
+different package and never came up. The tree already contained the sentence
+that should have made it obvious: `internal/archtest`'s own comment says a
+lowered bucket TTL "expires live lock entries and lets two runners execute
+against one device", which is a safety failure where the stream's is a policy
+one.
+
+**Why it was not caught.** Nothing measures "how many composition roots can
+write this object". The stream and the bucket are provisioned through
+completely different call paths (`event.NewNatsBus` and
+`lock.NewNatsLockManager`), so neither grep nor review of the stream's fix would
+surface the bucket.
+
+**Fix.** Phase 96b applied the same read-before-write treatment to both, adding
+`topology.BindLockBucket` beside `topology.BindStream`, with the Controller as
+the only role permitted to reshape either and every other process able to create
+a missing one but not change an existing one.
+
+**Lesson.** When a defect is found in one instance of a pattern, enumerate every
+instance of that pattern in the same pass and rank them by consequence rather
+than by which one was noticed first. "Reachable from more than one composition
+root" is a greppable property, and the entry that generalizes it should list the
+siblings even if it does not fix them. Four more were found this way and
+recorded against later phases, including database migrations running from every
+Controller replica with no advisory lock.
+
+## 197. A test's own output capture raced its cleanup, and the race report replaced the assertion message that would have explained the failure
+
+**Symptom.** `TestControllerScheduler_FiresExactlyOnce_ReleaseGate` failed under
+full parallel `-race` load with two things at once: a real assertion failure
+("three controllers ran the overdue schedule 2 times, want exactly 1") and
+`testing.go:1712: race detected during execution of test`. The race pointed at
+`strings.(*Builder).String()` inside the test's own cleanup.
+
+**Root cause.** The helper that starts each controller subprocess assigns a
+`strings.Builder` to both `cmd.Stdout` and `cmd.Stderr`, then in `t.Cleanup`
+calls `cmd.Process.Kill()` followed by **`cmd.Process.Wait()`** before reading
+`out.String()`. Because Stdout is not an `*os.File`, `os/exec` starts goroutines
+that copy the pipes into the Builder, and **only `cmd.Wait()` waits for those
+goroutines**. `cmd.Process.Wait()` reaps the operating system process and
+returns immediately, so the copiers were still writing into the Builder that the
+next line read.
+
+**Why it was invisible until now.** The cleanup only reads the Builder
+`if t.Failed()`, and the copiers have normally drained by the time a passing
+test tears down. The race therefore required the test to fail first, which meant
+it appeared exclusively in runs that already had something else wrong, and it
+then obscured that something: a reader sees "race detected" and stops reading,
+when the line above it was the real finding. The underlying failure here was in
+fact benign, a slow run letting a second backlogged hourly occurrence come due,
+each occurrence still firing exactly once.
+
+**Fix.** Use `cmd.Wait()` in the cleanup. It reaps the process and joins the
+output copiers, so the Builder has exactly one accessor by the time it is read.
+A repo-wide sweep found this was the only `Process.Wait()` in the module.
+
+**Lesson.** `cmd.Process.Wait()` and `cmd.Wait()` are not interchangeable, and
+the difference is invisible in the common case: the first is a syscall on a pid,
+the second is that plus joining every goroutine `os/exec` created to service a
+non-file Stdout, Stderr or Stdin. Any test that captures a subprocess's output
+into an in-memory buffer must use `cmd.Wait()`. More generally, when a race
+report and an assertion failure arrive together, read the assertion first: a
+race inside test scaffolding is frequently a consequence of the failure path
+running, not the cause of it.
+
+## 198. A publish reported failure and had succeeded, and the only thing that would have re-run the work was a reclaim ten minutes later, far outside the window meant to make retrying safe
+
+**Symptom.** Measured against real NATS behind real Toxiproxy: a JetStream
+publish while the link was severed did not fail fast. It blocked for the
+caller's whole context, returned `context deadline exceeded`, and **the
+message was persisted anyway**. The stream held three messages before the
+outage and five after the heal, and a durable consumer drained all five.
+
+**Root cause, at source level.** `nats.go`'s `Conn.publish` does not reject a
+write while the connection is RECONNECTING: it appends to the pending
+buffer and returns nil. The JetStream request layer then waits for an
+acknowledgement on the caller's context, and on expiry deletes its own
+response-map token and returns the context error. When the link heals,
+`flushReconnectPendingItems` sends the buffered message. So the write
+succeeded, the acknowledgement was abandoned, and the caller was told it
+failed. There is also a ceiling nobody had written down: past the 8MB
+reconnect buffer the publish genuinely fails and is genuinely not
+persisted, and the two outcomes are indistinguishable to the caller.
+
+**Why the obvious defence did not work.** Producer-side deduplication was
+already correct and already wired: the fan-out stamps a retry-stable
+`jobID:deviceID` identity that reaches `jetstream.WithMsgID`. But the
+stream's duplicate window was two minutes, and the only thing that
+re-issues an unconfirmed dispatch is the stale-job reclaim, which fires
+after ten. The dedup memory expired eight minutes before the duplicate it
+existed to catch. And the window could not simply be lengthened, because
+the reclaim's own correctness depends on the window having closed by the
+time it republishes.
+
+**Fix.** Consumer-side suppression, in the Runner's raw pull loop, keyed on
+the same `jobID:deviceID` identity the producer and the write-ahead log
+already use, backed by the KV dedup store that `FAILURE_PATTERNS.md` #179
+recorded as fully built with no production caller. It is marked only after
+a successful execution, never on receipt, or a first attempt that failed
+becomes indistinguishable from one that succeeded and the dead-letter path
+stops being reachable. A store failure runs the work rather than skipping
+it, so a storage blip cannot turn into silently skipped automation.
+
+**Lesson.** Producer-side idempotency is bounded by a window, so it only
+helps if the retry happens inside that window, and the thing to check is
+not whether a key is stable but how long after the original the retry
+actually occurs. Measure the gap. Here it was ten to twenty minutes
+against a two minute window, and the mechanism had looked complete for
+several phases because every piece of it was individually correct.
+
+## 199. Deriving a resilience budget exposed that the deployment's own probe cancelled it, and the default chart would have failed its own new check
+
+**Symptom.** Adding one operator-facing outage budget, with a validation
+that the chart must not claim a budget its own probes cancel, made the
+DEFAULT installation refuse to render: `mesh.maxOutageSeconds` defaulted to
+1800 while `runner.heartbeat.livenessStaleAfterSeconds` defaulted to 60.
+
+**Root cause.** The 60 second staleness limit was correct when it was
+chosen. The NATS client gave up permanently after about two minutes and
+logged nothing, so an unreachable broker really did mean a dead process and
+restarting was the only recovery. A later phase made the client reconnect
+for as long as the process lives, which removed the cause without anyone
+revisiting the probe that existed for it. The two numbers were then in
+direct contradiction, and nothing connected them, so nothing complained.
+
+**Why the failing default was the useful outcome.** The validation was
+written to catch an operator setting an incoherent pair. The first thing it
+caught was the chart's own shipped defaults, which is the strongest
+possible evidence that the contradiction was real rather than theoretical,
+and it caught it at template time rather than in production.
+
+**Fix.** The liveness staleness limit now defaults to the budget, and the
+chart refuses any configuration where it is shorter. The cost is stated
+rather than hidden: a runner wedged for a reason reconnection cannot fix
+now takes up to the budget to be noticed instead of about a minute.
+
+**Lesson.** When a change removes the reason a timeout exists, the timeout
+does not become harmless, it becomes wrong in the other direction. And when
+you add a rule connecting two previously unconnected values, run it against
+the shipped defaults first: if the defaults fail, the rule has already paid
+for itself, and the failing default is a finding rather than an obstacle to
+the rule.
+
+## 200. A bare host and port in NATS_URL was accepted and silently meant unencrypted, and nothing in the module parsed the value at all
+
+**Symptom.** Latent, found while adding TLS support. `NATS_URL` reached
+`nats.Connect` completely unvalidated: there was no `url.Parse` anywhere in
+the composition roots or in the three packages that dial, and the Helm
+chart typed `externalNats.url` as a bare string with no pattern. The first
+thing that looked at the value was the driver.
+
+**Root cause, and why it is a security defect rather than a usability one.**
+The scheme in a NATS URL selects the TRANSPORT: `nats` is plaintext TCP,
+`tls` is TCP with TLS, `ws` and `wss` tunnel over WebSocket. `nats.go`
+treats a value with no scheme as plaintext, so `broker.example.com:4222`
+connects, works, and is unencrypted. An operator who meant to encrypt and
+mistyped `tsl://`, or copied `https://` from a browser, gets the same
+outcome. The failure is silent in the worst direction: everything works.
+
+There is a second shape. A comma separated list is legal for a cluster, and
+a list mixing `tls://` and `nats://` was accepted. Which member a client
+uses is not the caller's choice, so the plaintext member decides what an
+observer sees.
+
+**Why no existing check would have caught it.** `gosec` does not model this,
+there is no type to constrain, and every value involved is a legal string.
+The chart's only NATS validation was a non-emptiness check on
+`externalNats.url`.
+
+**Fix.** An allowlist of the four schemes `nats.go` implements, enforced in
+`topology.Connect`, which is the single point every dial in the module
+passes through. Enforcing it there rather than at each composition root is
+what covers `cmd/demo`, which reads no environment and dials a hardcoded
+default, so an env-level check would have skipped the one site nobody
+watches. A bare host and port gets its own message naming the two
+spellings the operator probably meant, because `url.Parse` reports that
+input as scheme "localhost" and the generic message would have claimed
+"localhost" was an unimplemented transport. Mixed encryption is refused
+outright.
+
+**Lesson.** When a configuration string selects a transport, a codec, or a
+protocol, an allowlist is the only safe check, because the library's own
+default for an unrecognised value is usually the insecure one and it never
+errors. Validate at the single chokepoint every caller shares rather than
+at each entry point: entry points multiply, and the one that gets missed is
+the one that reads no configuration and therefore looked exempt.
+
+## 201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
+
+**Symptom.** Broker TLS was wired into the Helm chart: a ConfigMap for the
+new configuration file, a Secret mount for the certificate, and matching
+`volumeMounts`. Rendering the chart with TLS on and default persistence
+produced the mounts and NO corresponding volumes, which Kubernetes rejects
+at apply time.
+
+**Root cause.** The StatefulSet's `volumes:` key appeared twice, in two
+mutually exclusive branches: one for `persistence.enabled=false` (an
+`emptyDir`) and one for an `existingClaim`. The default is
+`persistence.enabled=true` with no `existingClaim`, which uses
+`volumeClaimTemplates` and therefore needs no `volumes:` entry at all, so
+NEITHER branch renders. Adding the new volumes to the branch that looked
+like the main one put them on a path the default configuration never takes.
+
+**Why it was nearly missed.** The first render tested had TLS off, so no
+volumes were expected. The second had TLS on with a non-default
+persistence setting, and passed. The combination that fails is TLS on with
+DEFAULT persistence, which is the one an operator would actually use, and
+it renders without error: YAML with a mount and no volume is structurally
+valid and fails later, at apply.
+
+**Fix.** One `volumes:` block whose contents are conditional, since YAML
+cannot carry the key twice, with the shared entries in a named template so
+the two data cases cannot drift. Then every combination of persistence and
+TLS was rendered and checked for the mount and the volume together, rather
+than for the absence of an error.
+
+**Lesson.** Before adding a volume to a chart, enumerate every branch in
+which the `volumes:` key does or does not exist, and note that a
+StatefulSet has a third case, `volumeClaimTemplates`, in which it exists in
+neither. And test a matrix rather than a sample: a mount without its volume
+is valid YAML, so `helm template` succeeding proves nothing about it. Assert
+the pair.

@@ -3449,3 +3449,223 @@ the answer is almost always a test asserting over state some other test left beh
 was weaker than its name claimed for as long as it has existed. Fix it by giving it its own data.
 The floor doing its job here is the argument for a coverage ratchet being per package and hard to
 lower: a global percentage would have absorbed this without anybody noticing.
+
+## 161. Asserting that a callback is registered is a tautology about a struct; capture what it writes, or the observability half of a phase is unverified
+
+Phase 96a's third measured defect was that a lost NATS connection produced no log
+line at all. The fix registered lifecycle handlers; the test asserted
+`opts.DisconnectedErrCB != nil` and three siblings, all of which passed
+immediately and none of which executed a single handler body.
+
+Two real defects lived inside those bodies and shipped through review. The
+disconnect handler logged `url=""` on every disconnect, because the library has
+already left CONNECTED by the time it runs. And a graceful `Close()` fired both the
+disconnect and the closed handler, so every deliberate shutdown emitted a WARN
+saying "reconnecting" and an ERROR saying "closed permanently", six false lines per
+pod on a rolling update. Both are visible in one line of captured output and
+invisible to any number of non-nil assertions.
+
+The general shape: a non-nil check on a function value proves the wiring and
+nothing about the behaviour, which makes it the exact analogue of a test that
+asserts a handler is mounted without issuing a request. It is worse than a missing
+test, because it is counted as the test. Where the deliverable is "this is now
+observable", the assertion has to be on the observation: capture the writer, run
+the real event, and read the text. This repository already knew the principle under
+RULE 0; what this entry adds is that a registered callback is a mock of itself.
+
+Corollary worth keeping: the evidence was already on disk. The phase's own
+long-severance test log contained both bad lines, at the same second as the test's
+own cleanup, and they were read as ordinary shutdown output. Output a test emits
+but does not assert on is not evidence, because nobody reads it until it is too
+late.
+
+## 162. Client-side resilience is only as long as the shortest supervisor timeout above it, and those timeouts are usually chosen by someone else
+
+Phase 96a gave every NATS connection an unlimited reconnect budget, closing a
+defect where a link outage past 2m3s killed a Runner permanently. The Helm chart
+that ships the Runner kills the pod after 60 to 105 seconds of broker
+unreachability, because its liveness probe reads a heartbeat that only advances
+when the broker answers.
+
+So the shipped default cancels most of the new capability, and cancels it
+*sooner* than the defect it replaced: the client will now reconnect after an hour,
+and the orchestrator will not let it live that long. The restart also abandons
+in-flight work, which is the thing the resilience was meant to protect. Neither
+number is wrong on its own. The probe interval was chosen when an unreachable
+broker really did mean a dead process, and it was correct then.
+
+The rule: when you extend how long a component tolerates a failure, enumerate every
+timeout above it that can end the process first, and either move them in the same
+change or state in the shipped artifact that you did not. A capability that exists
+in the binary and is cancelled by the deployment is worse than one that does not
+exist, because the datasheet claim is true of the code and false of the product.
+
+In this case the honest resolution was to name it in the chart and the operator
+documentation and hand the derivation to the phase that owns a single
+maximum-survivable-outage budget, rather than guessing a new liveness window to
+match a resilience window that had itself not been derived from anything yet.
+
+## 163. Narrowing who may write shared infrastructure is a worse fix than removing the ability to change it, because the first buys ordering and the second is free
+
+Phase 96b was specified as "the Controller owns the stream; Runners attach and
+refuse to start without one." That is the intuitive reading of single ownership,
+and it is the expensive one. It buys a start ordering that neither shipped
+deployment expresses, it turns a destroyed stream into a permanent outage
+(because a running Controller provisions once at startup and never re-asserts,
+so nothing recreates what was lost), and it does all that in exchange for a
+property the system cannot yet observe, since no configuration surface for the
+shape exists until a later phase.
+
+The fix that costs nothing is to change the VERB rather than the ACTOR. Every
+process may create the object when it is absent; only one process may reshape
+one that exists. The defect being closed is "an older build silently reverts an
+operator's choice", and that is a property of the reshape path, not of the
+create path. Removing the reshape path from the other binaries closes it
+completely, while leaving create-if-absent everywhere preserves self-healing and
+start-order independence untouched.
+
+The general form: when a shared resource has several writers and that is a
+defect, ask which OPERATION is the defective one before deciding to reduce the
+number of writers. Reducing writers introduces coordination, and coordination
+introduces ordering, availability coupling, and a new class of failure at
+startup. Removing a capability introduces none of those. This codebase had
+already discovered this once, in `internal/tlscert`, where several controllers
+sharing one certificate directory converge lock-free by reading first and
+writing only what they find unusable, and the chart documents the resulting
+property in plain words: none of them waits on another.
+
+A corollary worth keeping: "single writer" is usually a fiction anyway. The
+Controller in this system autoscales to five replicas, so narrowing three
+binaries to one binary would have narrowed the writer count from three to five.
+Leader election does not rescue it either, and this repository already says so
+about its own election: leadership bounds how many replicas act, it does not
+make an action unique, which is why schedule firing relies on a database unique
+index instead of on the lease.
+
+## 164. During a rolling upgrade, the thing worth building is the warning, not the enforcement
+
+Every ownership design for shared infrastructure has a window it cannot cover:
+the rollout itself, when old and new builds are both running and disagree about
+what the shape should be. Enforcement does not help there. An old build that has
+been stripped of its ability to reshape is no longer doing damage, but it is
+also not applying the new shape, and nothing in the system would say so. The
+operator sees a successful deploy and a configuration that is not in effect.
+
+So the deliverable that actually covers the gap is a read-back and a warning:
+after binding to the shared object, compare its live shape against what this
+binary declares and log every field that differs. It costs one round trip that
+the bind already made, it works in both directions (an old build noticing a new
+shape, and a new build noticing an old one), and it is the only signal that
+exists during the exact window the ownership rule cannot reach.
+
+Two details decide whether the warning is useful or noise. Compare only the
+fields this project DECLARES: a driver's configuration struct usually carries
+many more, the server fills the rest with its own defaults and returns them, and
+a whole-struct comparison fires against a perfectly healthy cluster that this
+same code just provisioned. And compare order-insensitively where the server is
+free to reorder, because an ordering difference is not a configuration
+difference. A warning that fires constantly is worse than none, because it
+trains the reader to ignore the one that matters.
+
+## 165. A derived constant needs its non-linear cap in the derivation, not in a comment, because the linear case is the one that looks safe
+
+Phase 96c replaced three independent retention literals with derivations
+from one stated outage budget. Two of the three scale linearly and are
+uninteresting. The third, the stream's duplicate window, must NOT: a
+separate mechanism, the stale-job reclaim, republishes after ten minutes
+and its own doc comment explains that this is safe "precisely because it is
+not a retry within that window". A duplicate window grown past the reclaim
+interval would silently convert that republish from a fresh delivery into a
+suppressed duplicate, so a stranded job would stop being recovered at all,
+with no error anywhere.
+
+The dependency was written down, in prose, in the right file, by someone who
+understood it. That was not enough, because the prose lived in the consumer
+of the constant and the constant was about to become configurable in a
+different package. What makes it safe is that the cap is inside the
+derivation function and asserted by a test that runs the minimum, the
+default and the maximum budget through it.
+
+The general rule: when a value becomes derived, enumerate everything that
+depends on its current magnitude rather than on its identity. A dependency
+on magnitude is invisible to every tool, survives review because the code
+that relies on it does not mention the constant by name, and breaks only at
+a value nobody has tried yet. If a derivation has a cap, the cap belongs in
+the function, and the reason belongs in a test, because a comment cannot
+fail.
+
+## 166. Producer-side idempotency is only as good as the gap between the original and the retry, so measure the gap rather than checking the key
+
+This codebase had a retry-stable idempotency key, correctly derived, stamped
+on every dispatch publish, reaching the driver's own duplicate suppression.
+Every piece was right, and the mechanism had read as complete for several
+phases.
+
+It protected nothing, because the window was two minutes and the only thing
+that ever re-issues an unconfirmed dispatch is a reclaim that fires after
+ten. The dedup memory expired eight minutes before the duplicate it existed
+to catch. Nobody had compared the two numbers, because they live in
+different packages and neither mentions the other.
+
+Lengthening the window was not available either: the reclaim's own
+correctness depends on the window having closed by the time it runs. So the
+answer was a second mechanism at the consumer, keyed on the same identity,
+with a lifetime governed by something other than the stream.
+
+The rule to carry: when reviewing an idempotency story, do not stop at "is
+the key stable". Ask what actually retries, how long after the original,
+and whether the suppression is still remembering by then. Write the gap and
+the window next to each other, because they are almost never in the same
+file and the comparison is the whole of the argument.
+
+## 167. A configuration string that selects a transport needs an allowlist, because the library's default for an unrecognised value is the insecure one and it never errors
+
+`NATS_URL` reached the driver unvalidated for the whole life of this
+project. The scheme in that URL is not decoration: it chooses between
+plaintext TCP, TCP with TLS, and two WebSocket variants. `nats.go` treats a
+value with no scheme as plaintext, so `broker.example.com:4222` connects
+and works and is unencrypted, and so does a mistyped `tsl://` or a copied
+`https://`. Everything succeeds. The operator's intention to encrypt is the
+only casualty and nothing reports its loss.
+
+Two properties make this class worth a rule. The failure is silent in the
+insecure direction, which is the opposite of how a parse error usually
+behaves. And no automated gate can see it: there is no type to constrain,
+every value is a legal string, and a security scanner has no model of what
+this particular string means.
+
+So: whenever a configuration value selects a transport, a codec, a cipher,
+an auth mode, or a protocol version, write the allowlist. A denylist admits
+everything nobody thought of, which is exactly the set a typo lands in.
+
+The second half of the rule is where to enforce it. Put the check at the
+single chokepoint every caller shares, not at each entry point that reads
+configuration. Here the entry points were two composition roots reading an
+environment variable, and a third that reads no environment at all and
+dials a hardcoded default. An env-level check would have covered two of
+three and skipped the one nobody watches. The dial function all three call
+covered all of them and cannot be bypassed by a fourth caller written later.
+
+## 168. Rendering without an error is not evidence a chart is correct, because a mount without its volume is valid YAML
+
+Adding broker TLS to a Helm chart meant a new ConfigMap, a Secret mount and
+matching `volumeMounts`. The StatefulSet's `volumes:` key turned out to
+exist in only two mutually exclusive branches, and the DEFAULT
+configuration takes neither, because a StatefulSet with managed persistence
+uses `volumeClaimTemplates` and needs no `volumes:` entry at all. The new
+volumes went into the branch that looked like the main one, and rendered
+perfectly, with mounts and no volumes, on the path an operator would
+actually use.
+
+`helm template` reported success because the output was structurally valid
+YAML. Kubernetes would have rejected it at apply, in a cluster, later.
+
+Two habits come out of this. Before adding a volume, enumerate every branch
+in which the `volumes:` key does and does not exist, and remember that a
+StatefulSet has a third state in which it exists in neither. And verify a
+MATRIX rather than a sample, asserting the mount and its volume together:
+the assertion has to be "both are present", because "no error" is satisfied
+by exactly the broken case. When a chart's structure forces the same list
+into two places, put the shared part in a named template so the two cannot
+drift, which is the same reasoning that applies to any duplicated
+declaration.

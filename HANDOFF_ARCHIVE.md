@@ -1,5 +1,570 @@
 # Handoff Document Archive
 
+## Previous session: Phase 96c (One Outage Budget, Derived Constants)
+
+**Branch `feature/Phase-96b-Stream-Ownership`, which now carries 96b AND 96c, cut from
+`feature/Phase-96a-Resilience-Core` (`725d463`), itself unmerged. Working through Phase 96 end to end:
+96a and 96b are committed, 96c is complete and being committed, 96d remains.**
+
+### 96c: one outage budget, and the finding that reframes it
+
+`PLEIADES_MAX_OUTAGE` (Helm: `mesh.maxOutageSeconds`) is one operator-facing duration, default **30
+minutes**, range 1m to 12h, parsed once in `topology.ParseOutageBudget`. `topology.OutageBudget` is a
+named type whose zero value is not a budget. Three retention-shaped constants that used to be
+independent literals are now derived from it, with the relationships asserted by tests rather than
+described in prose.
+
+**The derivation that is deliberately NOT linear, and the reason.** `DerivedDuplicateWindow` is capped
+at half the ten-minute stale-job reclaim interval. `internal/dispatch.Reaper`'s own doc comment says
+its republish is safe "precisely because it is not a retry within that window", so a duplicate window
+grown past the reclaim interval would silently convert that republish into a suppressed duplicate and
+a stranded job would stop being recovered at all. The cap lives in the function and a test asserts it
+across the minimum, default and maximum budget. `LESSONS_LEARNED.md` #165 generalizes it.
+
+**The real D3 fix is consumer-side, and it closes an unwired primitive.** Producer-side dedup was
+already correct: the fan-out stamps a retry-stable `jobID:deviceID` that reaches
+`jetstream.WithMsgID`. It protected nothing, because the window was 2 minutes and the only thing that
+reissues an unconfirmed dispatch is a reclaim firing after 10. Nobody had compared the two numbers.
+The fix is an admission check in the Runner's raw pull loop (`internal/runner/agent_dedup.go`), keyed
+on the same identity the producer and the write-ahead log already use, backed by the KV store
+`FAILURE_PATTERNS.md` #179 recorded as fully built with no production caller. Marked only on success,
+never on receipt, or the dead-letter path stops being reachable. A store failure runs the work rather
+than skipping it. `FAILURE_PATTERNS.md` #198 and `LESSONS_LEARNED.md` #166.
+
+**The one-way door refuses rather than warns**, and only when there is something to lose:
+`ProvisionStream` reads `State.Msgs` and `FirstTime` and refuses a shortening that would delete
+retained messages, naming the count and the age, with `PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true` as a
+consequence-named opt-in that only the Controller reads. The decision is a pure function
+(`retentionWouldDiscard`) because the refusal cannot be reached from a container test: the shortest
+retention any legal budget derives is several hours.
+
+**The chart now refuses to install a budget it would cancel, and the first thing that rule caught was
+the shipped defaults.** `runner.heartbeat.livenessStaleAfterSeconds` was 60 while the budget defaults
+to 1800, so Kubernetes would restart the Runner 60 to 105 seconds into an outage the budget claims to
+survive. The default is now 1800 and `_validations.tpl` fails the install if it is shorter.
+`FAILURE_PATTERNS.md` #199: when a change removes the reason a timeout exists, the timeout becomes
+wrong in the other direction.
+
+**Stated honestly in the docs rather than buried:** two things still cut an outage shorter than the
+budget and neither is a retention setting. A Runner cannot begin new work during an outage at all
+(starting a job publishes a log event first), and work already running on a device is abandoned about
+a minute in when the device lease heartbeat fails. So the budget governs how long the fleet can be out
+of contact and still pick up, not how long in-flight work keeps running.
+
+### Evidence
+
+`make ci` green for 96b in one invocation. 96c: all tests pass; `internal/topology` 96.7 against a
+95.8 floor, `internal/runner` 88.0 against 86.8. `FuzzOutageBudgetDerivation` clean at 554k execs
+asserting the invariant a real server enforces (Duplicates must not exceed MaxAge).
+`FuzzStreamConfigDrift` clean at 629k. The chart's refusal was verified by rendering.
+
+### Next step
+
+**96d**: `wss://` path traversal, server-side TLS, and a `NATS_URL` scheme allowlist. Note its real
+cost, recorded in the phase text: both deliverables are `nats-server` CONFIG FILE features and this
+repo has no NATS config file, because compose and Helm each deliberately replace the image's shipped
+one with a three-flag command that is test-pinned in three directions, under `readOnlyRootFilesystem`
+with only `/data` writable.
+
+### Environment note that costs a CI run if missed
+
+`make ci` needs `LOCALSTACK_AUTH_TOKEN` or `internal/catalog/cloud/aws/{ec2,s3}` skip their tests and
+the coverage ratchet fails with what looks exactly like a real regression. The token is in
+`~/.bashrc` at line 111, BELOW the stock `[ -z "$PS1" ] && return` at line 15, so plain
+`source ~/.bashrc` and `bash -lc` both leave it unset. Only `PS1=x; source ~/.bashrc` works.
+
+### Debt, carried deliberately
+
+- The 96a recovery-latency benchmark exists but its result has never been recorded, which
+  `.AGENTS/AGENTS.md` asks for.
+- `main`'s GitHub Actions is red, unrelated to this work: `pkg/remotesvc`'s
+  `TestOperations_NonZeroExitIsAnError` fails at `-count=3` with `EOF` where it wants "masked", the
+  same class as `FAILURE_PATTERNS.md` #188, and that package is not in `flaky-packages.json`.
+- Four more multi-writer provisioning sites recorded in 96b's phase text, most seriously database
+  migrations running from every Controller replica with no advisory lock.
+
+## Previous session: Phase 96b (Stream Shape Has One Writer That Can Change It)
+
+**Branch `feature/Phase-96b-Stream-Ownership`, cut from `feature/Phase-96a-Resilience-Core`'s HEAD
+(`725d463`), which is itself unmerged. 96a is committed in three commits on its own branch; 96b is
+committed on this one. The user gave live go-ahead to commit between sub-phases.**
+
+Working through Phase 96 end to end. 96a is done and committed. 96b is done and committed. 96c and
+96d remain.
+
+### 96b changed design before any code was written, and that is the headline
+
+The phase was specified as **"the Controller owns stream shape; Runners ATTACH and fail loudly if the
+stream is absent."** That design is rejected. Six findings, each verified against the tree, are
+written into `.SPECIFICATION/IMPLEMENTATION.md`'s 96b section:
+
+1. **Its load-bearing precedent does not exist.** `FAILURE_PATTERNS.md` #178 and the phase text both
+   cite `internal/transport/ssh/known_hosts.go` as the fail-closed instinct to copy. That file is not
+   in the tree. The real site is `pkg/remoteexec/knownhosts.go`, and it fails ONE CONNECTION rather
+   than a process, its alternative is a man-in-the-middle, and it ships a documented bypass.
+2. **Attach-only is strictly worse on infrastructure loss.** Today a destroyed stream is recreated by
+   whichever process starts next. A running Controller never re-asserts (it provisions once at
+   startup), so attach-only would turn a lost stream into a permanent outage.
+3. **"The Controller" is already five writers** (HPA `maxReplicas: 5`).
+4. **Leader-gating cannot fix that**, and `internal/schedule/scanner.go` already says so about this
+   codebase's own election: leadership bounds how many replicas act, it does not make an action unique.
+5. **It would falsify a shipped promise.** `docs/10-running-in-production.md` says services need no
+   ordering, and nothing orders Controller before Runner in either compose or Helm.
+6. **It cannot be observed yet.** No configuration surface for stream shape exists until 96c.
+
+**What was built instead: change the VERB, not the ACTOR.** `topology.ProvisionStream` reconciles the
+shape and belongs to `cmd/controller` alone. `topology.AttachStream` binds, creates only when absent,
+and never reshapes. `topology.BindStream`/`BindLockBucket` select on a required
+`topology.StreamRole` (iota+1, so the zero value is rejectable, per `LESSONS_LEARNED.md` #154 on
+required decisions belonging in the signature). The defect closes completely, and self-healing and
+start-order independence both survive untouched. The precedent actually followed is
+`internal/tlscert`'s lock-free convergence.
+
+**Drift detection is the real deliverable.** Ownership cannot help during a rolling upgrade, when an
+old build is no longer reverting anything but is also not applying the new shape.
+`topology.StreamConfigDrift` compares only the seven fields this project declares (the struct has far
+more and the server fills the rest), order-insensitively on Subjects, and every bind logs a warning
+naming each field that differs.
+
+**The lock KV bucket got the same treatment**, and its case was more urgent: `internal/archtest`'s own
+comment records that a lowered TTL there "lets two runners execute against one device".
+`FAILURE_PATTERNS.md` #196 records why it went uncatalogued for a phase.
+
+### Guard, gate, and evidence
+
+- `internal/archtest.TestOnlyTheControllerProvisionsSharedInfrastructure` matches the symbol NAMES
+  (`StreamProvisioner`, `ProvisionStream`) against a one-entry allowlist, because an import-graph rule
+  provably cannot work (both roots link `internal/event`) and a rule on the `CreateOrUpdate` call
+  would be vacuous (one call, inside the owning package). Live-controlled: red when `cmd/runner` is
+  given provisioning authority, green on restore. Carries the non-vacuity assertion.
+- Six container-backed release-gate assertions in `internal/topology/stream_ownership_gate_test.go`,
+  all passing, including the two that matter most: a reader creates an absent stream (the self-healing
+  property the rejected design would have destroyed), and a reader does not revert an operator's
+  `MaxAge` while warning that it differs.
+- `FuzzStreamConfigDrift` clean at 629k execs. `BenchmarkBindStream` measures reader 786us against
+  provisioner 2.3ms, so the fleet-wide effect is that the cheaper path became the common one.
+
+### Recorded, not fixed
+
+Four more instances of the same multi-writer provisioning shape, in
+`.SPECIFICATION/IMPLEMENTATION.md`'s 96b section: the shared dispatch consumer, `Bus.Subscribe`'s
+durable consumer, the SSE log viewer's per-request consumer, and most seriously **database migrations,
+which `internal/ent`'s `Apply` runs from every Controller replica with no advisory lock**, so two
+replicas racing a fresh Postgres install can both run the first migration.
+
+### Environment note that costs a CI run if missed
+
+`make ci` needs `LOCALSTACK_AUTH_TOKEN` or `internal/catalog/cloud/aws/{ec2,s3}` skip their tests and
+the coverage ratchet fails with what looks exactly like a real regression. The token IS in
+`~/.bashrc`, but at line 111, BELOW the stock `[ -z "$PS1" ] && return` at line 15, so plain
+`source ~/.bashrc` and `bash -lc` both leave it unset. Only `PS1=x; source ~/.bashrc` works. The Go
+tool PATH block is fine: it sits at line 9, above the early return.
+
+### Next step
+
+96c (one outage budget, three derived constants, and the D3 inversion), then 96d (`wss://` traversal,
+server-side TLS, `NATS_URL` scheme allowlist). Note 96c is where stream shape finally becomes
+configurable, which is what makes 96b observable at all.
+
+**Separately, and unrelated to this work:** `main`'s GitHub Actions is red at `test-repeat`.
+`pkg/remotesvc`'s `TestOperations_NonZeroExitIsAnError` fails at `-count=3` with `EOF` where it wants
+"masked", the same class as `FAILURE_PATTERNS.md` #188. That package is not in `flaky-packages.json`,
+so it fails hard.
+
+## Previous session: Phase 96a (The Disrupted-Link Mesh, Resilience Core)
+
+**Branch `feature/Phase-96a-Resilience-Core`, cut from `d689184` (the merge of PR #26) at the start
+of this session. Nothing is committed: only the user commits, with their own live go-ahead, and this
+session never ran `git commit`. This is a phase-complete handoff.**
+
+This session split Phase 96 into four sub-phases and built the first one.
+
+### The split (spec work, in the gitignored `.SPECIFICATION/IMPLEMENTATION.md`)
+
+Phase 96 was one flat checklist of 22 items carrying dial options, reconnect semantics,
+observability, the stream-ownership defect, budget derivation, `wss://` traversal and server-side
+TLS. It is now four phases with 50 items, each carrying its own full gate set including the
+Fuzz/Stress and Security items the original never had:
+
+| Phase | Owns | Blocked on |
+|---|---|---|
+| **96a** (built this session) | `topology.Connect`/`DialOptions`, reconnect semantics, observability, the archtest guard | -- |
+| **96b** | Controller owns stream shape, Runners attach, plus the cold-start ordering that requires | 96a |
+| **96c** | ONE maximum-survivable-outage budget and the three retention constants derived from it | 96b |
+| **96d** | `wss://` traversal, server-side TLS, `NATS_URL` scheme allowlist | 96a |
+
+**96d was split out on evidence.** Both its deliverables are `nats-server` CONFIG FILE features, and
+this repo has no NATS config file: compose and Helm each deliberately replace the image's shipped
+`nats-server.conf` with a three-flag command that is test-pinned in three directions, under
+`readOnlyRootFilesystem` with only `/data` writable. That is a config mechanism introduction, not a
+value change. All 13 cross-references from Phases 83, 101 and 102 were re-pointed at the owning
+sub-phase.
+
+### What 96a landed
+
+**The defect, measured rather than inferred.** Every `nats.Connect` in the module was bare, inheriting
+`nats.go` defaults. A real broker behind a real Toxiproxy, severed for 2m3s, closed the connection
+permanently and never came back through a fully healed network, silently.
+
+- **`internal/topology/connect.go`: `Connect` is the single entry point.** It dials with the shared
+  options and returns only once the connection is usable. `internal/topology/dial.go`'s `DialOptions`
+  sets `MaxReconnects(-1)`, `RetryOnFailedConnect(true)`, a `Timeout` from D2b's measured 2s,
+  `PingInterval`/`MaxPingsOutstanding` for a 60s black-hole window, and `CustomReconnectDelay`
+  delegating to `pkg/retry.Backoff` (consumed, not reimplemented).
+- **All five production dials converted**, `internal/lock` included: `cmd/runner` opens three NATS
+  connections, and leaving the lease one on the defaults would have been worse than changing nothing.
+- **`internal/archtest.TestOnlyTopologyDialsNats`** forbids `nats.Connect` outside `internal/topology`
+  entirely, with a source-string negative control. Live-controlled: red on a reintroduced dial, green
+  on restore.
+- **Release gate**: D1 and D2 promoted to permanent container-backed tests, inverted, each citing the
+  measurement it replaces. D1 severs for 150s (the old code died at 123s) and passed, reconnecting on
+  its own at 2m38s after 11 attempts. Plus a fuzz target (634k execs clean) and a recovery-latency
+  benchmark.
+- **`cmd/runner`'s `err != context.Canceled`** fixed to `errors.Is`, a latent defect this phase would
+  otherwise have activated.
+
+### Four defects found by adversarial review, all fixed, all recorded
+
+`FAILURE_PATTERNS.md` #191-#194 and `LESSONS_LEARNED.md` #161-#162. The two that matter most:
+
+- **#191**: `nats.go` routes the initial-connect retry through `ConnectedCB`/`ReconnectErrCB`, not the
+  four handlers a reader naturally reaches for, so the cold-start path was completely silent while the
+  docs claimed otherwise. Five handlers now, not four.
+- **#192**: a graceful `Close()` fired the disconnect and closed handlers, so every SIGTERM logged
+  6 false failure lines per pod. Fixed with `NoCallbacksAfterClientClose()`.
+
+**Both got through because the only assertion was that the callback fields were non-nil**, which is a
+tautology about a struct. That is `LESSONS_LEARNED.md` #161, and the fix is
+`internal/event.TestNatsBus_LogsTheConnectionLifecycle`, which captures a real logger across a real
+severance and asserts a graceful close is quiet.
+
+### The honest caveat, stated in the chart and the docs rather than buried
+
+**The Helm chart's own defaults cancel most of this.** The Runner's liveness probe restarts the pod
+60 to 105 seconds into an outage, which is SOONER than the old client gave up, and the restart
+abandons in-flight work. So under the default chart you get unlimited reconnection for outages under
+a minute and a pod restart for anything longer. Deriving a liveness window from a stated
+maximum-survivable-outage budget is **96c's** job and was not guessed here.
+`runner-deployment.yaml`'s header and `docs/10-running-in-production.md` both say this plainly.
+
+Also corrected: the docs now name the **control plane / execution plane** boundary explicitly. Nothing
+here makes a session to a device survive anything.
+
+### State
+
+`go build`, `go vet` (both tag sets), `gofmt` clean. `internal/topology` coverage 58.4 -> 97.0 against
+its 95.8 floor; `internal/event` 86.5 against 86.2. `FAILURE_PATTERNS.md` #119's remaining open half is
+now closed. Handoff rotated: two sections moved into `HANDOFF_ARCHIVE.md`.
+
+### Next step
+
+Run `make ci` to completion and act on it, then 96b. **Separately and already diagnosed:** `main`'s
+GitHub Actions is red at `test-repeat`, `pkg/remotesvc`'s `TestOperations_NonZeroExitIsAnError` failing
+at `-count=3` with `EOF` where it wants "masked". Same class as `FAILURE_PATTERNS.md` #188, a fixture
+that does not survive a second run in one process. That package is not in `flaky-packages.json`, so it
+fails hard. Unrelated to this branch.
+
+## Previous session: Test Isolation, the Lost Race and the Unreached Endpoint
+
+**Branch `feature/Test-Isolation-the-Lost-Race-and-the-Unreached-Endpoint`, cut off `main`
+(`bfdd9a2`, the merge of PR #25). Nothing is committed: every change below is in the working tree,
+and the standing rule that the assistant never runs `git commit` without the user's own live word
+was held throughout. `internal/archtest/testseam_test.go`, `internal/credstore/lostrace_test.go`,
+`pkg/remoteexec/sharedseam_test.go` and `changelog/duplicate-name-field-error.fixed.md` are
+UNTRACKED and need `git add`; `make ci` stays green without the first of them, because its absence
+removes a rule rather than failing one.**
+
+This session closed the three follow-ups the previous one deliberately left undone, plus the macOS
+CI failure the user brought mid-session. Two of the three changed shape once re-derived from
+source, which is the previous handoff's own instruction, and one of the four turned out to be nine
+packages rather than one.
+
+### What was done, in the order the commits should land
+
+1. **The red macOS leg (`internal/catalog/facts`).** One test asserted a fact was PRESENT where its
+   twelve siblings assert a VALUE, so it alone had no environmental guard and was the only one of
+   thirteen to fail on a host with no `/etc/os-release`. It now compares values through
+   `gatherOSReleaseValue`, which is both stronger on Linux and gives it the same skip its siblings
+   have, and `TestGather_LinuxAnswersEverythingThisSuiteWouldOtherwiseSkip` makes that skip a
+   FAILURE on Linux so the platform the evidence comes from cannot start skipping quietly.
+   `FAILURE_PATTERNS` #187, `LESSONS_LEARNED` #158.
+
+   The diagnosis handed to the assistant was wrong and is worth not repeating: it read the suite's
+   use of the live host as an accident and recommended a static fake-facts map. That suite runs a
+   real in-process SSH server against a real `/bin/sh` on purpose, says so in its own header, and
+   the mock would have deleted the one thing the test proves (that the glob skips the COMMANDS, not
+   the output). Reproduced without a Mac by hiding `/etc/os-release` in a mount namespace.
+
+2. **Test isolation, nine packages.** `go test -count=2` failed in nine, 24 tests, 2 of them hard
+   panics. Two causes: seven packages register into a process-global registry and never remove the
+   entry, two leak fixture state (a never-closed shared-cache SQLite on a fixed DSN plus hard-coded
+   record names, and a package-level spy). `pkg/registry` gained `SnapshotForTest`, six owning
+   packages re-export it, and each offending test gained one `t.Cleanup`. `FAILURE_PATTERNS` #188,
+   `LESSONS_LEARNED` #159 and #160.
+
+3. **`internal/ui/resources` and `internal/ui/web`** got per-invocation names and a precondition
+   reset. Note `uniqueName` counts rather than using `t.Name()`: `-count` does NOT make top-level
+   test names unique, only subtest names.
+
+4. **A duplicate name is now a field error, not a 500.** Found only because the `-count=2` failure
+   forced the handler's real error into the open. Both writers on organizations and templates, on
+   create AND update, now map their store's `ErrExists` to `view.FieldFault`. Changelog fragment
+   added.
+
+5. **`credstore.EnsureManagedType`'s lost race.** Confirmed and worse than described: the create
+   arm returned the SAME `ErrExists` sentinel a genuine custom-type collision returns, so
+   `ReconcileManaged` told the operator to rename a custom credential type that does not exist,
+   and failed a startup that had succeeded. Now re-reads and routes through one shared
+   `adoptExistingType`, so the raced and unraced paths agree by construction.
+   `FAILURE_PATTERNS` #189.
+
+6. **`transport.DockerExecEndpoint` deleted.** 32 lines, one file. `gopls` found exactly one
+   reference, its own marker method. The reason recorded last session for keeping it was wrong:
+   it is under `internal/`, so nothing outside this module could ever have imported it. No
+   changelog fragment, per `changelog/README.md`: nothing a user can see changed.
+
+### Two guards, and why the gate is at `-count=3`
+
+`make test-repeat` runs the non-Docker set at `-count=3` and is wired into `ci` and `push-gate`.
+`internal/archtest/testseam_test.go` forbids production code from calling anything named
+`*ForTest`, which is what makes the seam safe to have as exported surface at all (an
+`export_test.go` cannot be imported across package boundaries, and four of the seven packages
+isolate a table `pkg/collection` owns). Both guards were negative-controlled live against the real
+tree and restored from a scratchpad copy.
+
+**The third iteration is not padding.** `-count=2` catches everything in item 2 and is VACUOUS
+against a third cause found by going further: `pkg/remoteexec.Shared` memoizes one Runner per
+Options for the process lifetime, its breaker counts consecutive failures with no decay, and one
+`net.ssh.ping` spends three attempts against a threshold of five, so a dial-failure test passes at
+1 and 2 and fails from 3. State that accumulates toward a THRESHOLD does not collide on first
+repeat, which is the assumption `-count=2` encodes.
+
+### Read this first
+
+**An audit finding handed to you can be confidently wrong about the mechanism AND about the fix.**
+The macOS diagnosis above was both. The previous session said the same thing about its own audit.
+Re-derive before acting, every time.
+
+**A fix can make another test weaker without failing it.** Cleaning up the leaked registrations
+dropped `internal/inventory/syncplugin` below its coverage floor, and the cause was
+`TestNames_IsSorted` asserting over an empty slice: it had only ever been testing a sort because
+OTHER tests were leaking entries into the registry it read. It now registers its own. A coverage
+drop after an isolation fix is a signal to look for that shape, not a number to re-baseline.
+
+**Scope discovered mid-flight, and deliberately not taken.** A review of the UI fix found that 8 of
+9 write ports in `internal/ui/resources` pass their port's error through raw, so the same 500 is
+reachable on more than the two resources fixed here, and `view.FieldFault` has had exactly one
+production caller in the whole module. Fixing the other ports is a real follow-up and is NOT done.
+
+### One pre-existing failure found by running the gate, and fixed
+
+`make ci` failed at `test-integration` on `tests/e2e`'s `TestGrandIntegration`:
+`rtr1 payload capabilities = [SSHTransportCapable CiscoIOSCapable NetworkAddressableCapable], want the
+set map[CiscoIOSCapable:true SSHTransportCapable:true]`. It is NOT this branch's doing and it is NOT
+the known flake. `cc71f55` gave `cisco.Router` an `IPAddress()` accessor so
+`pleiades.builtin.wait.port` could dispatch against a real device, which makes every router
+`NetworkAddressableCapable`; the e2e expectation compares an EXACT set and was never updated. So
+`main` has been red at `test-integration` since PR #23 merged.
+
+Verified rather than assumed: a `git worktree` at clean `origin/main` (`bfdd9a2`) reproduces the
+identical message byte for byte, with none of this branch's changes present. The capability is
+deliberate, and `internal/archtest/registry_sweep_test.go` records why ("fixed for real instead of
+allowlisted"), so the stale side is the test. `FAILURE_PATTERNS.md` #190.
+
+It is fixed here, in its own commit, because it blocks any green gate on this branch. It is outside
+the four items this branch set out to close and should be reviewed as its own thing.
+
+Why it survived three merged pull requests is worth carrying: `tests/e2e` is the first entry in
+`flaky-packages.json` and `FAILURE_PATTERNS.md` #61 names `TestGrandIntegration` by name, so a red run
+there reads as known noise. #61's signature is a container port-mapping race or a hang; this was a
+deterministic assertion failing identically every time.
+
+### Verification state
+
+`go build ./...`, `go vet ./...`, `make fmt` clean. `make test-repeat` (the whole non-Docker set at
+`-count=3`) clean. `internal/catalog/net/ssh` and `pkg/remoteexec` clean at `-count=8`.
+`internal/credstore` clean at `-race -count=4`. `make arch` clean. Every new test was run against
+the UNFIXED code first and observed to fail with the exact reported symptom.
+
+Coverage: `internal/credstore` 87.3 to 88.1 and `pkg/remoteexec` 97.5 to 98.0, both floors
+ratcheted; every other touched package back at or above its floor. `internal/catalog/cloud/aws/{ec2,s3}`
+report below floor in any run without a LocalStack token, which is environmental and pre-existing.
+
+`make ci` had not been run to completion at the time of writing.
+
+### Next steps
+
+The user reviews and commits. Known open items: the 8-of-9 UI write ports above;
+`transport.LocalSocketEndpoint`, now used only by two negative-control test fixtures and one step
+behind `DockerExecEndpoint` on the same path; and a PRE-EXISTING duplicate entry number in
+`LESSONS_LEARNED.md`, where two different rules are both numbered 13 (lines 15 and 19). That last
+one is the second instance of the defect the previous session's handoff describes finding by
+grepping the merged index, and it is left alone deliberately because the rule against renumbering
+is explicit.
+
+## Previous session: Phase 72: Transport Foundation
+
+**Branch `feature/Transport-Foundation-the-Circuit-Breaker`, off `main`. HEAD is `dc8e2df`. All of
+Phase 72's actual code is committed, across two commits the user made themselves (no live go-ahead
+was ever given to the assistant this session, so the assistant itself never ran `git commit`,
+matching the standing rule): `835431b` (Workstream A, the `pkg/retry.Do` consolidation) and
+`dc8e2df` (Workstreams B-F: the hop chain, hierarchical bastion config, engine wiring, the CI
+matrix, and chaos/fuzz/adversarial/hardening/docs). The only thing left uncommitted at the moment
+this section was written is this session's own documentation bookkeeping: two new
+`FAILURE_PATTERNS.md`/`FAILURE_PATTERNS_ARCHIVE.md` entries (#168, #169, below) and this
+handoff rotation itself. No commit message is needed for the code — it is already in history: see
+`git show dc8e2df` for the full message.**
+
+This session implemented **Phase 72: Transport Foundation (the Circuit Breaker, `retry.Do`, and the
+Hop Chain)** end to end — the foundational phase of Part XV (the Transport Layer) that Phases 73-77
+depend on.
+
+### What landed
+
+**Workstream A — `pkg/retry.Do[T]`/`Sleep`.** One generic, context-aware retry loop replacing three
+independent hand-rolled ones (`internal/lock/queue.go`'s `acquireWithContention`,
+`internal/lock/nats.go`'s timer half, `pkg/remoteexec/dial.go`'s `dialWithRetry`). Circuit-breaker
+`Allow`/`RecordFailure` calls stayed at the SSH-dial call site, deliberately, since they are
+dial-specific, not generic retry behavior. All three migrations were behavior-preserving — existing
+tests passed unmodified, which is the actual proof. A new `internal/archtest` rule now asserts no
+second retry loop or second breaker exists anywhere in the module.
+
+**Workstream B — the N-hop SSH tunnel (`pkg/remoteexec`, `internal/transport`).**
+`transport.Target` gained `Route []Hop` (`Host`, `Port`, `DeviceName`, a resolved
+`credential.Credential`); an empty `Route` is exactly today's behavior, so every existing caller is
+unedited. `pkg/remoteexec` gained the matching hop-chain shape and does the real tunneling: hop 1
+dials with the existing `dialWithRetry`, each subsequent hop opens a `direct-tcpip` channel through
+the previous hop's already-authenticated `*ssh.Client` via `DialContext`, then a fresh
+`ssh.NewClientConn` runs a genuinely independent SSH handshake over that channel. Host key
+verification and `InsecureSkipHostKeyVerify` are both per-hop, not global. `internal/transport/ssh`
+stayed a thin translator, looping the same single-target conversion it already did.
+
+**Workstream C — hierarchical bastion configuration (new storage + resolver).** `Group` and
+`Inventory` both gained a `properties` field (`field.JSON`, matching `Device`'s existing shape),
+with real migrations for both dialects
+(`internal/ent/migrate/migrations/{sqlite/0017,postgres/0014}_add_group_inventory_properties.sql`).
+`internal/inventory.Repository.GroupAncestry` (`internal/inventory/ent_group_ancestry.go`) is the
+first real BFS walk of Group's parent/child DAG this codebase has ever needed — group nesting is a
+graph, not a tree, so it needed a deterministic tiebreak (ascending name) for siblings at equal
+distance. `engine.ResolveRoute` (`internal/engine/hop_resolve.go`) feeds the ancestry chain through
+the existing `policy.Resolve`, most-specific-wins, capped at 16 hops
+(`maxRouteHops`), rejected at resolve time before any per-hop lookup happens.
+
+**Workstream D — engine wiring.** `NewTransportActionExecutor` gained a fourth constructor
+parameter, an inventory-lookup dependency (`hopChainInventory`), needed because resolving hop *N*
+requires looking up hop *N*'s own device (for `SSHHost()`/`SSHPort()`) and hop *N*'s own credential
+independently of the primary target's. Every composition root that builds one was updated
+(`cmd/pleiades/run.go` and others). The secret-masking union at
+`internal/engine/action_ssh.go` was extended to cover every hop's `Password`/`PrivateKeyPEM`/
+`Passphrase`, not just the target's — the same class of gap `FAILURE_PATTERNS.md` #22 already
+recorded for `MarshalJSON`, recurring in a new shape. `internal/adapters/native`'s per-task
+subprocess path deliberately skips route resolution rather than half-implementing it (no live
+inventory connection there, a credential store scoped to one device) — recorded as a named gap, not
+silently worked around.
+
+**Workstream E — the CI matrix.** `.github/workflows/ci.yml` went from one `ubuntu-latest` job to
+three: ubuntu (blocking, unchanged, still the only leg with Docker and therefore the only one
+running the container-backed conformance tests) and macOS (blocking: build, vet, and every
+non-Docker-dependent unit test, verified concretely — `pkg/remoteexec`'s own suite uses an
+in-process fake SSH server, no Docker, so it genuinely runs for real on macOS) both required;
+Windows is advisory/non-blocking (`remoteexectest` shells out to `/bin/sh`, which doesn't exist
+there). A new Makefile target names the non-Docker package set explicitly rather than by a fragile
+glob, so a future container-backed test doesn't silently join or leave a leg it shouldn't. A code
+comment next to the matrix records the `_windows`/`_linux`/`_darwin` implicit-build-constraint trap
+(`FAILURE_PATTERNS.md` #51) for whoever reaches for a platform-suffixed file in Phase 73/75.
+
+**Workstream F — chaos, fuzz, stress, adversarial, hardening, docs.** A real Toxiproxy-fronted SSH
+container severed at three moments (mid-dial: retry then breaker trip; after session establishment:
+error, no retry, per the existing no-retry-after-send rule; mid-tunneled-command on the bastion hop:
+error naming the failed hop, never a silent zero-value `Result`) — all under `-race` and `goleak`.
+Route parsing is fuzzed against deeply nested/self-referential/absurdly long chains: never panics,
+fails closed naming the offending hop, and fails at parse time rather than dial time. 300 concurrent
+hop-chained sessions ran clean under `-race`, with a per-hop cost benchmark. An adversarial pair
+proves per-hop key confusion (bastion's key known, tunneled endpoint's deliberately absent from
+`known_hosts`) fails closed and is attributable to the right hop, then proves the same chain
+succeeds once the real key is added. `PATTERNS.md`'s Circuit Breaker entry moved from `POTENTIALLY`
+to **YES**, correctly naming `pkg/remoteexec` (not the stale spec's assumed
+`internal/transport/resilience`) as where it actually lives — see the "stale spec" note below.
+`docs/10-running-in-production.md` and a changelog fragment
+(`changelog/ssh-bastion-hop-chains.added.md`) cover the bastion/hop-chain configuration, the
+per-hop credential rule, and the per-hop host-key requirement.
+
+### Two real bugs these gates found, both fixed and recorded
+
+See `FAILURE_PATTERNS.md` #168 and #169 (full detail in `FAILURE_PATTERNS_ARCHIVE.md`):
+
+1. **#168 — `Connect`'s per-hop loop only kept the last `*ssh.Client`, leaking every earlier hop's
+   connection.** Found by a real `goleak`-based container test failure, not by inspection. `Conn`
+   gained a `chain []*ssh.Client`; `Close()` walks it in reverse; `Connect` also gained a `defer`
+   cleanup for the partial-failure case (a later hop fails after earlier ones succeeded).
+2. **#169 — a `goleak` check in the new Toxiproxy chaos test depended on a `sync.Once`-populated
+   package-level baseline an unrelated test happened to populate first**, so the check passed only
+   when run as part of the full suite and failed when run in isolation. Fixed with a local
+   `goleak.IgnoreCurrent()` snapshot taken after the test's own setup completed, independent of
+   execution order.
+
+### Read this first
+
+**A stale spec section is a starting hypothesis, not an instruction to follow literally — verify
+against the real code first.** Phase 72's own checklist in `.SPECIFICATION/IMPLEMENTATION.md` said
+to extract the circuit breaker out of `internal/transport/ssh` into a new
+`internal/transport/resilience` package. Reading the actual code first showed the breaker already
+lived in `pkg/remoteexec` (built after the checklist was written) and was already unexported/
+encapsulated, so the concern the checklist was guarding against was already handled. Relocating
+working, already-encapsulated code to satisfy a stale doc's literal file path would have been pure
+churn. Decision, made explicit in the plan before any code was written: leave it where it is. This
+matches the Architecture Mismatch/Map Verification protocol in `.AGENTS/AGENTS.md` — it existed for
+exactly this situation.
+
+**`AllowTcpForwarding no` is the default in the SSH test image** (`lscr.io/linuxserver/openssh-server`),
+which silently breaks any hop-chain test relying on `direct-tcpip` tunneling until it's overridden.
+Found by starting a real probe container and reading its `sshd_config` directly, not by guessing.
+Fixed by mounting a `.conf` snippet at `/config/sshd/sshd_config.d/allow-tcp-forwarding.conf` via
+testcontainers' `Files` field — verify this with a real throwaway `ssh -L` test before trusting it,
+the same way this session did, if a future phase (73/75/77) touches this container setup again.
+
+**`command | tee file` reports `tee`'s exit code, not the piped command's.** Cost real time this
+session: a `make ci 2>&1 | tee log` was assumed to have succeeded because the harness reported exit
+code 0, when the real failure was buried in the log body (a known-flaky `cmd/runner` container
+test — confirmed via `flaky-packages.json` and five clean isolated reruns, not a regression). Always
+read the log tail directly, or use `PIPESTATUS`/`set -o pipefail`, never trust a piped command's
+reported exit code.
+
+**`LOCALSTACK_AUTH_TOKEN` must be exported before a full `coverage-check`/`-race` run, or unrelated
+AWS-backed packages report false regressions.** Unchanged gotcha from prior sessions:
+`.IGNORE/.localstack.env`'s key is `token=`, not `LOCALSTACK_AUTH_TOKEN=` — it must be manually
+translated before export, or LocalStack-backed tests silently skip rather than fail, and coverage
+reads as a regression that isn't one.
+
+**No commit without the user's own live word in the current conversation.** Held throughout — both
+of this session's commits (`835431b`, `dc8e2df`) were made by the user, not the assistant, even
+after the assistant offered drafted commit message text both times.
+
+**Never use the Agent or Workflow tool to delegate without being asked, even with Ultracode on.**
+Held throughout this session.
+
+### Verification state
+
+`go build ./...`, `go vet ./...`, `gofmt -l` all clean. `go test ./internal/transport/...
+./pkg/remoteexec/... ./pkg/retry/... ./internal/lock/... ./internal/engine/... -race` clean —
+proves the `retry.Do` migration is behavior-preserving. `internal/ent/migrate/parity_test.go`
+clean (both dialects have the new `properties` field). `go test ./internal/archtest/...` clean,
+including the new no-second-breaker/no-second-retry-loop rule. `make ci` and `make push-gate` both
+run to completion; the only failure seen anywhere was the pre-documented `cmd/runner`
+container-port-mapping flake (`flaky-packages.json`), confirmed not a regression via five clean
+isolated reruns. `make gosec`/`make govulncheck` clean. Coverage: all touched packages at or above
+their recorded floor; new `coverage-floor.json` entries added for packages crossing a boundary for
+the first time.
+
+### Next steps
+
+Phase 72 is done; Phases 73-77 of Part XV (non-network endpoints + the full hostile-bastion proof;
+NETCONF/RESTCONF/gNMI; WinRM; `internal/psdiag`; SFTP) are unstarted and out of scope for this
+session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than building its own —
+read this section before assuming any of their own scope from `.SPECIFICATION/IMPLEMENTATION.md`
+alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
+current code first.
+
 ## Previous session: Capability Reachability and Plugin Wiring (merged as PR #25)
 
 **Branch `feature/Capability-Reachability-And-Plugin-Wiring`, cut at the start of this session off

@@ -172,3 +172,168 @@ func build() {
 		}
 	}
 }
+
+// provisionerSymbols are the names that grant a process authority to
+// CHANGE the shape of shared JetStream infrastructure other processes are
+// already using. Naming any of them is the decision this rule governs.
+var provisionerSymbols = map[string]bool{
+	"StreamProvisioner": true,
+	"ProvisionStream":   true,
+}
+
+// provisionerAllowlist is every shipping file permitted to name one.
+//
+// It is a one-entry list, and that is the point: FAILURE_PATTERNS.md #178
+// records that all three composition roots reshaped the stream on every
+// process start from compile-time constants, so an operator's retention
+// choice was reverted by whichever binary restarted last. Phase 96b did
+// not narrow that by convention; it removed the code path, and this is
+// what stops it growing back.
+//
+// Paths are repo-relative and use forward slashes.
+var provisionerAllowlist = map[string]bool{
+	"cmd/controller/main.go": true,
+}
+
+// TestOnlyTheControllerProvisionsSharedInfrastructure asserts that no
+// shipping file outside the allowlist names a provisioner symbol.
+//
+// It is deliberately a rule about a NAME rather than about a call to
+// CreateOrUpdateStream. An import-graph rule cannot work here at all:
+// cmd/controller and cmd/runner both link internal/event, where the
+// binding happens, so no dependency edge separates them. And a rule about
+// the CreateOrUpdate call itself would be vacuous, because there is
+// exactly one such call and it lives inside the owning package, which the
+// rule would have to exempt. What a future author actually writes is the
+// role constant at a call site, so that is what this reads.
+//
+// Test files are excluded, on the same reasoning
+// TestOnlyTopologyDeclaresJetStreamShapes states: a test that stands up a
+// throwaway broker is the provisioner for its own container, and
+// forbidding that would push every such test into contortions for no
+// safety gained.
+func TestOnlyTheControllerProvisionsSharedInfrastructure(t *testing.T) {
+	root := moduleRoot(t)
+	owner := filepath.Join(root, "internal", "topology")
+
+	var checked, allowed int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if name := d.Name(); name == ".git" || name == ".claude" {
+				return filepath.SkipDir
+			}
+			// internal/topology declares these symbols, so of course it
+			// names them.
+			if path == owner {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		fset := token.NewFileSet()
+		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if parseErr != nil {
+			return nil
+		}
+		checked++
+
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		rel = filepath.ToSlash(rel)
+
+		names := provisionerNames(file)
+		if provisionerAllowlist[rel] {
+			allowed += len(names)
+			return nil
+		}
+		for _, name := range names {
+			t.Errorf("%s names topology.%s: only the Controller may change the shape of shared JetStream infrastructure. Every other process passes topology.StreamReader, which binds to what exists and creates it only when absent, so an older build cannot revert an operator's retention choice (FAILURE_PATTERNS.md #178)",
+				rel, name)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the module: %v", err)
+	}
+
+	if checked == 0 {
+		t.Fatal("no Go files were scanned, so this test proved nothing")
+	}
+	// A rule governing a symbol that legitimately appears in one file
+	// cannot tell "the tree is clean" from "the matcher stopped
+	// matching". mesh_dial_test.go carries the same assertion for the
+	// same reason.
+	if allowed == 0 {
+		t.Fatalf("no allowlisted file named a provisioner symbol, so this rule is matching nothing; if the Controller genuinely no longer provisions, delete the rule rather than letting it pass vacuously. Allowlist: %v", provisionerAllowlist)
+	}
+}
+
+// provisionerNames returns every provisioner symbol named in file,
+// whether qualified (topology.StreamProvisioner) or bare.
+//
+// It is a separate function so the rule can run against source this test
+// controls, which is what TestProvisionerNamesDetectsAReference below
+// does.
+func provisionerNames(file *ast.File) []string {
+	var found []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.SelectorExpr:
+			if provisionerSymbols[node.Sel.Name] {
+				found = append(found, node.Sel.Name)
+			}
+			// Do not descend: the selector's own X is a package ident,
+			// never a provisioner name.
+			return false
+		case *ast.Ident:
+			if provisionerSymbols[node.Name] {
+				found = append(found, node.Name)
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// TestProvisionerNamesDetectsAReference is the negative control. It
+// proves the matcher finds both spellings, is not fooled by a name that
+// merely contains one, and does not fire on the reader role.
+func TestProvisionerNamesDetectsAReference(t *testing.T) {
+	const src = `package probe
+
+import "github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+
+func wire() {
+	_ = topology.StreamProvisioner
+	_, _, _ = topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false)
+	_ = topology.StreamReader
+	_ = topology.StreamProvisionerish
+	_ = notProvisionStream
+	_ = ProvisionStream
+}`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "probe.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing the probe source: %v", err)
+	}
+
+	got := provisionerNames(file)
+	want := []string{"StreamProvisioner", "ProvisionStream", "ProvisionStream"}
+	if len(got) != len(want) {
+		t.Fatalf("provisionerNames() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("provisionerNames() = %v, want %v", got, want)
+		}
+	}
+}

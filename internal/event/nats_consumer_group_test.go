@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 // TestNatsBusSubscribe_DurableConsumerGroupSplitsMessages is this phase's
@@ -25,11 +26,11 @@ func TestNatsBusSubscribe_DurableConsumerGroupSplitsMessages(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	busA, err := event.NewNatsBus(ctx, url)
+	busA, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus A: %v", err)
 	}
-	busB, err := event.NewNatsBus(ctx, url)
+	busB, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		t.Fatalf("failed to init bus B: %v", err)
 	}

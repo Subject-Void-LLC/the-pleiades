@@ -8,6 +8,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	natscontainer "github.com/testcontainers/testcontainers-go/modules/nats"
@@ -44,7 +45,7 @@ func BenchmarkNatsBusPublish(b *testing.B) {
 	ctx := context.Background()
 	url := startBenchNatsContainer(b)
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		b.Fatalf("failed to init bus: %v", err)
 	}
@@ -121,7 +122,7 @@ func BenchmarkNatsBusPublishSubscribeRoundTrip(b *testing.B) {
 	ctx := context.Background()
 	url := startBenchNatsContainer(b)
 
-	bus, err := event.NewNatsBus(ctx, url)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner, topology.DefaultOutageBudget, false)
 	if err != nil {
 		b.Fatalf("failed to init bus: %v", err)
 	}

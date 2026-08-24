@@ -1,4 +1,17 @@
 {{- include "the-pleiades.validate" . -}}
+{{- define "the-pleiades.nats.configVolumes" -}}
+{{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+- name: config
+  configMap:
+    name: {{ include "the-pleiades.nats.fullname" . }}-config
+{{- end }}
+{{- if .Values.nats.tls.enabled }}
+- name: tls
+  secret:
+    secretName: {{ .Values.nats.tls.secretName }}
+    defaultMode: 0400
+{{- end }}
+{{- end -}}
 {{- if .Values.nats.enabled }}
 {{- /*
 NATS with JetStream, deployed as part of this release.
@@ -76,6 +89,14 @@ spec:
           image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
           imagePullPolicy: {{ .Values.nats.image.pullPolicy | quote }}
           args:
+            {{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+            # Additive, not a replacement: the flags below stay the source
+            # of truth for everything that was already a flag, and the file
+            # carries only the tls and websocket blocks, which nats-server
+            # accepts from nowhere else.
+            - "-c"
+            - "/etc/nats/nats.conf"
+            {{- end }}
             - "-js"
             - "-sd"
             - "/data"
@@ -135,21 +156,44 @@ spec:
           resources:
             {{- toYaml .Values.nats.resources | nindent 12 }}
           volumeMounts:
+            {{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+            - name: config
+              mountPath: /etc/nats/nats.conf
+              subPath: nats.conf
+              readOnly: true
+            {{- end }}
+            {{- if .Values.nats.tls.enabled }}
+            - name: tls
+              mountPath: /etc/nats/tls
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /data
-      {{- if not .Values.nats.persistence.enabled }}
+      {{/*
+      ONE volumes block, whose contents are conditional, because YAML
+      cannot carry the key twice. The persistence default is enabled with
+      no existingClaim, which uses volumeClaimTemplates and therefore
+      needs no volumes entry for data at all; an earlier arrangement here
+      branched on persistence and so silently dropped the config and TLS
+      volumes in exactly that, the default, configuration.
+      */}}
+      {{- $needsConfig := or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+      {{- $needsData := or (not .Values.nats.persistence.enabled) .Values.nats.persistence.existingClaim }}
+      {{- if or $needsConfig $needsData }}
       volumes:
+        {{- include "the-pleiades.nats.configVolumes" . | nindent 8 }}
+        {{- if not .Values.nats.persistence.enabled }}
         {{- /* Everything JetStream holds, in RAM, gone with the pod: every
              stream, every durable consumer position, and the KV bucket
              carrying the scheduler and fan-out reaper leases. In-flight work
              and every unacknowledged job go with it. */}}
         - name: data
           emptyDir: {}
-      {{- else if .Values.nats.persistence.existingClaim }}
-      volumes:
+        {{- else if .Values.nats.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ .Values.nats.persistence.existingClaim | quote }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nats.nodeSelector }}
       nodeSelector:

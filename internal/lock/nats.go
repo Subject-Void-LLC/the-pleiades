@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -44,26 +45,42 @@ type natsLockManager struct {
 // lock be reclaimed without any client comparing wall-clock timestamps
 // across machines) depends on jetstream.KeyValueConfig.LimitMarkerTTL,
 // which an older server rejects at bucket-creation time below.
-func NewNatsLockManager(ctx context.Context, url string) (Manager, error) {
-	nc, err := nats.Connect(url)
+//
+// The dial goes through topology.Connect for the same reason every other
+// dial in this module does, and this package specifically is not optional
+// there. cmd/runner opens three independent NATS connections: the event
+// bus, a raw one for the dispatch consumer, and this one. Giving the
+// first two an unbounded reconnect budget while leaving this one on the
+// nats.go default would be worse than changing none of them, because the
+// lease KeepAlive this connection carries is what internal/runner reads
+// as "the link to the Controller is gone". A lease connection that died
+// permanently at 2m3s while the dispatch connection recovered would abort
+// in-flight work on a link that had already come back.
+//
+// logger may be nil, in which case slog.Default() is used.
+func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole, connOpts ...topology.ConnectOption) (Manager, error) {
+	nc, err := topology.Connect(ctx, url, logger, "lock-manager", connOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("failed to init jetstream: %w", err)
 	}
 
-	// Create or update the distributed lock bucket. The shape comes from
-	// internal/topology, which owns every JetStream object's declared
-	// configuration, rather than from a literal here: cmd/controller and
-	// cmd/runner both run this constructor against one NATS, and a shape
-	// written down in one place cannot disagree with itself across a
-	// rolling upgrade the way two copies could.
-	kv, err := js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())
+	// The bucket shape comes from internal/topology, and role decides
+	// whether this process may CHANGE it. Only cmd/controller passes
+	// StreamProvisioner. A reader binds to an existing bucket and creates
+	// one only when it is absent, so an older Runner can no longer lower
+	// this bucket's TTL underneath a running fleet, which is the failure
+	// internal/archtest describes as letting two runners execute against
+	// one device.
+	kv, err := topology.BindLockBucket(ctx, js, role)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init lock bucket: %w", err)
+		nc.Close()
+		return nil, err
 	}
 
 	return &natsLockManager{nc: nc, js: js, kv: kv}, nil

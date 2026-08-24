@@ -314,6 +314,206 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
 
+### The message bus survives a link outage of any length
+
+**This section is about the control plane only, and the distinction is the whole
+point of reading it.** Pleiades has two independent network planes:
+
+- The **control plane** is Controller to NATS to Runner: dispatches out, logs and
+  results back, device leases held. Everything below is about that link.
+- The **execution plane** is Runner to device: SSH, serial, WinRM. Its resilience
+  rules are different and are described in the section above. A command already
+  sent to a device is never retried, whatever the network does.
+
+Nothing here makes a session to a device survive anything. What it makes survivable
+is a Runner losing contact with the Controller, which in an edge deployment (the
+Runner at the far end of a satellite or radio link, the Controller at the teleport)
+is the link most likely to disappear. If your Runner sits in the datacentre and
+reaches devices over the bad link, this section does not help you; the execution
+plane's dial-phase retry and circuit breaker are what apply.
+
+Every connection the Controller and Runner open to NATS is configured from one
+place, and that configuration is built for a link that disappears rather than a
+datacentre LAN. Three properties matter operationally.
+
+**Reconnection is unlimited.** A connection that drops keeps trying to come back
+for as long as the process is running, with exponential backoff between attempts
+(250ms growing to a 30s ceiling). There is no outage length at which a process
+gives up and needs a manual restart. This was not always true: before this
+behaviour was added, an outage longer than roughly two minutes closed the
+connection permanently, and the process stayed running and looked healthy while
+doing no work at all.
+
+**Startup does not require the broker to exist yet.** A Controller or Runner
+started before NATS is reachable waits up to ten seconds for it rather than
+exiting immediately. Past that it does exit, and its supervisor restarts it
+(Kubernetes `restartPolicy`, compose `restart`), so a slow broker still converges
+without you ordering the three services, it just converges by restart. The bound
+is what keeps a wrong `NATS_URL` a startup failure with a clear error rather than
+a hang.
+
+**Connection events are logged.** A lost connection logs at WARN, a recovery logs
+at INFO with the reconnect count, and asynchronous errors log at ERROR, all tagged
+with the component that owns the connection (`event-bus`, `lock-manager`,
+`runner-dispatch`, `controller-logstream`). A Runner opens three connections and
+they are named separately on the server, so `nats server report connections`
+distinguishes them.
+
+What this does **not** change: a job already running on a device when the link
+drops is still subject to the device lease expiring, and a command already sent is
+still never retried (above). Surviving the outage means the Runner comes back and
+keeps pulling work, not that in-flight work is resumed where it stopped.
+
+### One number sets how long an outage may last
+
+You state one thing, and everything retention-shaped is derived from it:
+
+```
+PLEIADES_MAX_OUTAGE=30m          # env, on the controller AND the runner
+mesh.maxOutageSeconds: 1800      # the Helm equivalent
+```
+
+Thirty minutes is the default. The accepted range is one minute to twelve hours.
+Set the same value on every service: they each derive the stream's retention from
+it, and a service whose value differs logs a warning naming the mismatch on every
+start.
+
+What it derives: how long the stream keeps a message, how long the broker
+remembers a message identity for duplicate suppression, and how long a runner
+remembers that it already executed a piece of work. Before this, those were three
+unrelated numbers that happened to sit near each other, and two of them sat three
+seconds apart by pure coincidence.
+
+**Raising it is safe. Lowering it is not always.** Retention is derived from the
+budget, so shortening the budget shortens retention, and shortening retention
+deletes every message already older than the new value. The controller refuses to
+do that. It tells you how many messages it would delete and how old the oldest is,
+and you either raise the budget or set
+`PLEIADES_MAX_OUTAGE_ALLOW_DISCARD=true` to accept the deletion. Note also that a
+dispatch message carries the credentials its job runs with, so a longer retention
+means those sit on the broker for longer: raising the budget is free in terms of
+message loss and is not free in terms of exposure.
+
+**The Helm chart now refuses to install a budget it would cancel.** The runner's
+liveness probe restarts the pod when its heartbeat goes stale, and that restart
+abandons in-flight work, so a staleness limit shorter than the budget means
+Kubernetes kills the runner partway through the outage the budget claims to
+survive. `runner.heartbeat.livenessStaleAfterSeconds` now defaults to the same
+1800 seconds, and the chart fails the install if you make it shorter than
+`mesh.maxOutageSeconds`. The cost of that is real and worth knowing: a runner
+wedged for a reason reconnection cannot fix now takes up to the budget to be
+noticed and restarted, where it used to take about a minute.
+
+**What the budget does not fix.** Two things still cut an outage shorter than the
+budget, and neither is a retention setting. A runner cannot begin new work during
+an outage at all, because starting a job publishes a log event first. And a job
+already running on a device is abandoned about a minute into an outage, when the
+device lease heartbeat fails. So the honest reading is that the budget governs how
+long the fleet can be out of contact and still pick up where it left off, not how
+long work already in progress keeps running.
+
+**The bus is not authenticated.** Reconnection resilience is not security: any
+client that can reach the broker can publish and subscribe, and a dispatch message
+carries the credentials its job runs with. Restrict network access to the broker
+accordingly, and prefer an external, access-controlled NATS over the in-chart one
+for anything real.
+
+### Only the controller changes the message stream's shape
+
+The controller, the runners and the demo binary all connect to the same JetStream
+stream and the same key-value bucket for device locks. Only the **controller** ever
+changes their configuration. Every other service binds to whatever is already
+there.
+
+This matters the moment you tune anything. Retention, the duplicate window and the
+replica count used to be re-applied by every service on every start from values
+compiled into that particular binary, so a setting you changed by hand was silently
+reverted by the next runner restart, with nothing logged. A runner has no code path
+that rewrites a live stream any more, so it cannot do that.
+
+**You still do not need to order your services.** A service that finds the stream or
+the bucket missing creates it, so a fresh install works whichever process starts
+first, and a stream lost to a disk failure comes back on its own without waiting for
+a controller restart. What changed is only the ability to *reshape* something that
+already exists, not the ability to create what is absent.
+
+**A mismatch is a warning, not a refusal.** During a rolling upgrade you will
+briefly have services whose builds expect different settings. Any service that finds
+a live shape different from the one its build declares logs a warning naming each
+setting that differs, and carries on. That warning is worth reading: it means a
+service is running against settings it does not expect, which during an upgrade is
+normal and afterwards is not.
+
+One reshape is refused rather than performed. Narrowing the set of subjects the
+stream captures would orphan anything already published under a removed subject,
+with no error from the server, so the controller refuses that change and says so
+instead of making it.
+
+### Reaching the broker through somebody else's network, and encrypting the wire
+
+Two separate things, often confused, and the confusion matters enough to state
+plainly before either.
+
+**WebSocket is path traversal. It is not link resilience.** A `wss://` connection
+gets you to a broker on port 443, through an HTTP proxy, a corporate egress filter,
+or a CDN that terminates TLS. That is genuinely valuable for a runner on a network
+you do not control. What it does **not** do is tolerate a link that drops. WebSocket
+runs over TCP: a reset kills it exactly as it kills `nats://`, and reconnecting
+costs a TLS handshake plus an HTTP upgrade, which is strictly more work than plain
+NATS. Surviving an outage is the reconnection behaviour described above, and that
+applies to every transport equally. Choose a WebSocket transport for reachability,
+never for resilience.
+
+QUIC is the thing that actually survives a path change, because its connection
+identifiers outlive the address and port tuple. NATS does not speak it, on either
+side: there is no QUIC dialer in the client and no QUIC listener in the server.
+Riding QUIC means an external tunnel process, which is a deployment choice rather
+than something this software does.
+
+**Accepted URL schemes.** `NATS_URL` is now validated at startup, and anything
+outside this list is refused rather than guessed at:
+
+| Scheme | Transport | Encrypted |
+|---|---|---|
+| `nats://` | TCP | no |
+| `tls://` | TCP | yes |
+| `ws://` | WebSocket | no |
+| `wss://` | WebSocket | yes |
+
+Two mistakes it exists to catch. A bare `host:port` with no scheme used to be
+accepted and treated as plaintext, so an omitted scheme silently meant
+unencrypted; it is now refused with the two spellings you probably meant. And a
+comma separated list mixing encrypted and plaintext entries is refused, because
+which member a client picks is not something you control, so the plaintext one
+decides what an attacker sees.
+
+**Encrypting the wire.** Point `NATS_URL` at `tls://` (or `wss://`) and, if your
+broker uses a private authority, set `NATS_CA_FILE` to the certificate that signed
+it. Leaving it unset verifies against the system pool, which is right for a
+publicly signed broker. Setting `NATS_CA_FILE` while the URL is plaintext is a
+startup error rather than a warning: that pair reads as a protected connection and
+is not one.
+
+For the in-chart broker, `nats.tls.enabled` with `nats.tls.secretName` naming a
+`kubernetes.io/tls` Secret serves TLS, and `nats.websocket.enabled` adds a
+WebSocket listener (`nats.websocket.tls` serves it over TLS using the same
+material). Enabling either writes the broker's first configuration file; everything
+that was already a command line flag stays one.
+
+**This encrypts. It does not authenticate.** The broker still accepts any client
+that completes a handshake, and a dispatch message carries the credentials its job
+runs with. TLS stops a network observer reading your traffic and lets a client
+verify it is talking to your broker. It does nothing about which clients may
+connect, or what subjects they may read. Restrict network access to the broker
+regardless of whether TLS is on.
+
+Two things worth knowing because they fail quietly. The chart's readiness probe for
+the broker is a plain TCP connect, so it keeps passing even if the TLS
+configuration is wrong, and the first sign of a bad certificate will be clients
+failing rather than the pod. And the compose stack's broker healthcheck connects
+anonymously and without TLS, so turning on broker TLS there needs that probe
+changed too.
+
 ### Blast radius is always computed, never authored
 
 Before `pleiades run` executes a runbook, it prints the blast radius: the number of

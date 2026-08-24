@@ -189,6 +189,8 @@ Kubernetes itself would reject, and a runbook source given twice.
 {{- end -}}
 {{- end -}}
 {{- include "the-pleiades.validate.heartbeat" . -}}
+{{- include "the-pleiades.validate.outagebudget" . -}}
+{{- include "the-pleiades.validate.natstls" . -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "controller.podDisruptionBudget" "pdb" .Values.controller.podDisruptionBudget "example" "2") -}}
 {{- include "the-pleiades.validate.pdb" (dict "key" "runner.podDisruptionBudget" "pdb" .Values.runner.podDisruptionBudget "example" "1") -}}
 {{- if and .Values.runbooks.configMapName .Values.runbooks.existingClaim -}}
@@ -330,3 +332,37 @@ read or use postgresql.persistence.existingClaim, which skips this check.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The chart must not claim an outage budget its own probes cancel.
+
+The runner's liveness probe reads a heartbeat that only advances when the
+broker answers, so crossing livenessStaleAfterSeconds RESTARTS the pod and
+abandons whatever it was executing. If that limit is shorter than
+mesh.maxOutageSeconds, Kubernetes kills the runner partway through the
+very outage the budget promises to survive, and the promise is false of
+the product while being true of the binary.
+*/}}
+{{- define "the-pleiades.validate.outagebudget" -}}
+{{- if gt (int .Values.mesh.maxOutageSeconds) (int .Values.runner.heartbeat.livenessStaleAfterSeconds) -}}
+{{- fail (printf "mesh.maxOutageSeconds is %d but runner.heartbeat.livenessStaleAfterSeconds is %d. The liveness probe restarts the runner and abandons its work once the heartbeat is that stale, so an outage budget longer than it cannot be survived on Kubernetes. Raise runner.heartbeat.livenessStaleAfterSeconds to at least the budget, or lower the budget." (int .Values.mesh.maxOutageSeconds) (int .Values.runner.heartbeat.livenessStaleAfterSeconds)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Broker TLS needs certificate material, and a websocket listener asked to
+serve TLS needs the same. Enabling either without a Secret produces a
+broker that fails to start with a message about a file it cannot open,
+which is a worse way to learn this than the install refusing.
+*/}}
+{{- define "the-pleiades.validate.natstls" -}}
+{{- if and .Values.nats.tls.enabled (not .Values.nats.tls.secretName) -}}
+{{- include "the-pleiades.refuse" "nats.tls.enabled is true but nats.tls.secretName is empty. Name an existing kubernetes.io/tls Secret holding tls.crt and tls.key; this chart does not mint broker certificates." -}}
+{{- end -}}
+{{- if and .Values.nats.websocket.tls (not .Values.nats.tls.secretName) -}}
+{{- include "the-pleiades.refuse" "nats.websocket.tls is true but nats.tls.secretName is empty. The websocket listener serves the same certificate material as the client listener, so it needs the same Secret." -}}
+{{- end -}}
+{{- if and .Values.nats.websocket.tls (not .Values.nats.websocket.enabled) -}}
+{{- include "the-pleiades.refuse" "nats.websocket.tls is true but nats.websocket.enabled is false, so there is no websocket listener for it to apply to. Enable the listener or unset its tls flag." -}}
+{{- end -}}
+{{- end -}}

@@ -33,6 +33,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"os"
@@ -122,6 +123,16 @@ func main() {
 
 	natsURL := getenv("NATS_URL", nats.DefaultURL)
 
+	// The one number that says how long this deployment promises to
+	// survive a link outage. Every retention-shaped window in
+	// internal/topology derives from it, so the two binaries must be
+	// given the same value or they will disagree about the stream's
+	// shape and say so on every start.
+	outageBudget, err := topology.ParseOutageBudget(os.Getenv("PLEIADES_MAX_OUTAGE"))
+	if err != nil {
+		log.Fatalf("invalid PLEIADES_MAX_OUTAGE: %v", err)
+	}
+
 	// This process handles secrets more directly than any other: it holds
 	// a dispatch's credentials in memory and shells out to real transports
 	// with them, so it is the last place that should log unmasked.
@@ -151,11 +162,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
+	// Client TLS for the mesh, if the broker speaks it. A CA file named
+	// for a plaintext URL is refused rather than ignored: the dangerous
+	// reading of that pair is that the connection is protected.
+	meshTLS, err := topology.TLSFromEnv(natsURL, os.Getenv("NATS_CA_FILE"), logger)
+	if err != nil {
+		log.Fatalf("invalid NATS TLS configuration: %v", err)
+	}
+	var meshConnOpts []topology.ConnectOption
+	if meshTLS != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
+	}
 
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
 	// Pleiades stream (topology.EnsureStream) exists.
-	bus, err := event.NewNatsBus(ctx, natsURL)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader, outageBudget, false, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
@@ -165,8 +187,11 @@ func main() {
 	// this is deliberate, not routed through Bus.Subscribe) and the
 	// jetstream.JetStream handle Agent's own Dead Letter Queue handling
 	// needs. Same documented two-connection tradeoff cmd/controller and
-	// cmd/demo already accept.
-	nc, err := nats.Connect(natsURL)
+	// cmd/demo already accept. It carries topology.DialOptions like every
+	// other dial in the module, which for this connection specifically is
+	// what keeps a Runner pulling work after a link outage longer than two
+	// minutes instead of going quiet forever.
+	nc, err := topology.Connect(ctx, natsURL, logger, "runner-dispatch", meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect to nats: %v", err)
 	}
@@ -190,13 +215,31 @@ func main() {
 	// and the raw jetstream one above, the same documented
 	// multi-connection tradeoff cmd/controller's own lockMgr construction
 	// already accepts.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamReader, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to init lock manager: %v", err)
 	}
 
 	poolSize := envInt("RUNNER_POOL_SIZE", 0) // 0 means "unset"; NewAgent's own WithPoolSize ignores n<=0 and keeps defaultPoolSize
 	agentOpts := []runner.AgentOption{runner.WithPoolSize(poolSize)}
+
+	// Consumer-side duplicate suppression. A dispatch publish can report
+	// failure to the Controller and have succeeded anyway, and the
+	// Controller's stale-job reclaim then republishes it well outside
+	// JetStream's producer-side duplicate window, so the same unit of
+	// work can arrive twice. This is what recognises the second one.
+	//
+	// A Runner that cannot reach the bucket starts without the check
+	// rather than refusing to start: the check is an improvement on a
+	// narrow hazard, and trading it for unavailability would be the wrong
+	// way round.
+	if dedupKV, err := topology.BindDedupBucket(ctx, js, topology.StreamReader); err != nil {
+		logger.Warn("dispatch duplicate suppression is disabled: could not bind the dedup bucket",
+			"error", err.Error())
+	} else {
+		agentOpts = append(agentOpts, runner.WithDedupStore(
+			event.NewNatsDedupStore(dedupKV), topology.DerivedDedupTTLFloor(outageBudget)))
+	}
 
 	// WAL result buffering (PLAN.md Section 16's State Desync
 	// Mitigation) is opt-in: only constructed, and only fail-closed at
@@ -312,7 +355,12 @@ func main() {
 	}()
 
 	logger.Info("runner agent starting", slog.String("nats_url", natsURL), slog.String("durable", topology.DispatchDurableName))
-	if err := agent.Run(ctx); err != nil && err != context.Canceled {
+	// errors.Is rather than !=: agent_run.go returns ctx.Err() unwrapped
+	// today, so a bare comparison happens to work, but any wrapping added
+	// to the fetch loop turns a clean SIGTERM shutdown into a Fatalf exit
+	// 1, which under a restartPolicy of Always reads as a crash loop on
+	// every rolling update.
+	if err := agent.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("agent run failed: %v", err)
 	}
 

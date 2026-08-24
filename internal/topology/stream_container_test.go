@@ -49,9 +49,9 @@ func TestEnsureStream(t *testing.T) {
 		t.Fatalf("jetstream: %v", err)
 	}
 
-	stream, err := topology.EnsureStream(ctx, js)
+	stream, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false)
 	if err != nil {
-		t.Fatalf("EnsureStream: %v", err)
+		t.Fatalf("ProvisionStream: %v", err)
 	}
 	if stream == nil {
 		t.Fatal("EnsureStream returned a nil stream with no error")
@@ -68,7 +68,7 @@ func TestEnsureStream(t *testing.T) {
 	// Calling EnsureStream again (the "update" half of CreateOrUpdate,
 	// exercised for real since every one of the real adapters/binaries
 	// calls this on every startup, not just once ever) must not error.
-	if _, err := topology.EnsureStream(ctx, js); err != nil {
-		t.Fatalf("second EnsureStream call: %v", err)
+	if _, _, err := topology.ProvisionStream(ctx, js, topology.DefaultOutageBudget, false); err != nil {
+		t.Fatalf("second ProvisionStream call: %v", err)
 	}
 }

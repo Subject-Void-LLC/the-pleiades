@@ -8,7 +8,7 @@ import (
 )
 
 func TestStreamConfig(t *testing.T) {
-	cfg := topology.StreamConfig()
+	cfg := topology.StreamConfig(topology.DefaultOutageBudget)
 
 	if cfg.Name != topology.StreamName {
 		t.Errorf("StreamConfig().Name = %q, want %q", cfg.Name, topology.StreamName)

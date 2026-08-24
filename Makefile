@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -148,7 +148,12 @@ fmt-fix:
 # is the failure mode this value exists to prevent, not merely a slower
 # one. 20m covers that worst case with room for the tests themselves,
 # while still bounding a genuinely hung run; the slowest package today is
-# internal/event at roughly two minutes.
+# internal/event at roughly six minutes, most of which is one deliberate
+# sleep: Phase 96a's release gate severs a real broker for 150 seconds,
+# because the defect it guards (a connection that gave up for good at
+# 2m3s) cannot be reproduced by any shorter outage. The 5-second severance
+# in the older chaos test in the same package is why that test passed for
+# the whole time the bug existed.
 #
 # tools/coverage-check runs its own `go test ./...` and passes the same
 # value from a constant of its own, rather than reading this one out of
@@ -168,8 +173,10 @@ test-race:
 # testcontainers-go directly (a real, ephemeral Docker container: NATS,
 # sshd, LocalStack, Postgres), verified by grepping every .go file in the
 # module for that import rather than assumed or guessed from directory
-# names. Phase 72's CI matrix (.github/workflows/ci.yml) added macOS and
-# Windows legs, and GitHub's runners for both ship no Docker daemon.
+# names. It was written for Phase 72's CI matrix, whose macOS and Windows
+# legs run on GitHub runners that ship no Docker daemon; those legs now
+# build and vet only, so the two targets below (test-no-docker,
+# test-repeat) are the list's remaining readers, both of them local.
 #
 # This is a named list, not a glob or a directory-name pattern, on
 # purpose: a fragile pattern (skip anything under a path containing
@@ -200,15 +207,19 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
-# test-no-docker is what the CI matrix's macOS and Windows legs run
-# instead of test-race: build and vet already ran identically on every
-# leg, so this proves every package NOT in DOCKER_DEPENDENT_PACKAGES
-# genuinely executes for real on that OS, not merely compiles. It is
-# still real conformance evidence where it runs (pkg/remoteexec's own
-# suite uses an in-process, real-TCP, real-SSH-protocol fake server, no
-# Docker required, so it is not merely a unit test in disguise); the
-# packages this excludes are exactly the ones whose real evidence stays
-# ubuntu-only, per test-race.
+# test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so
+# it proves those packages genuinely execute on the machine running it
+# rather than merely compiling. It is real conformance evidence where it
+# runs (pkg/remoteexec's own suite uses an in-process, real-TCP,
+# real-SSH-protocol fake server, no Docker required, so it is not a unit
+# test in disguise); the packages it excludes are the ones whose evidence
+# needs a Docker daemon, per test-race.
+#
+# The CI matrix's macOS leg used to run this target, and no longer does:
+# that workflow builds and vets on macOS and Windows and runs no tests at
+# all (see ci-remote below). So this is now a target for a developer on a
+# machine without a working Docker daemon, and for test-repeat below,
+# which reuses its exclusion list. Nothing runs it automatically.
 test-no-docker:
 	@packages="$$(go list ./...)"; \
 	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
@@ -379,21 +390,56 @@ docs-gen-check:
 helm-lint:
 	go run ./tools/helm-lint
 
-# ci is what a pull request must pass. -race, not plain test, is
-# deliberately included here (not just in a separate target) because the
-# Phase 0 item lists `go test -race ./...` as one thing CI must run, and
-# splitting it out would make it easy to merge a PR that only ran the
-# non-race target.
+# ci is the whole gate, and it is now a LOCAL one. -race, not plain test,
+# is deliberately included here (not just in a separate target) because
+# the Phase 0 item lists `go test -race ./...` as one thing CI must run,
+# and splitting it out would make it easy to land a change that only ran
+# the non-race target.
 #
-# This is also, verbatim, what .github/workflows/ci.yml runs (its own `ci`
-# step is `make ci`, nothing narrower): the two targets below
+# It is no longer what .github/workflows/ci.yml runs. That workflow runs
+# ci-remote below -- everything on this line EXCEPT test-race, test-repeat,
+# test-integration and coverage -- because the four it drops need a real
+# Docker daemon for around twenty packages' worth of ephemeral containers
+# and have never produced a green result on a hosted runner. The evidence
+# those four produce is real and still required; it is produced here,
+# before a push, rather than after one. See ci-remote's own comment for
+# what that costs and .github/workflows/ci.yml's job comment for the full
+# reasoning.
+#
+# Never make ci itself tolerant of anything: the two targets below
 # (push-gate-race, push-gate-integration) exist so that .githooks/pre-push
-# can run something more tolerant of known local flakiness without this
-# target itself becoming any less strict. Never make ci itself tolerant of
-# anything; it is the one target whose pass/fail this repository's actual
-# merge gate depends on.
+# can run something more forgiving of known local flakiness without this
+# target becoming any less strict.
 ci: build devtools vet fmt tidy-check test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
 	@echo "ci: all checks passed"
+
+# ci-remote is the subset .github/workflows/ci.yml runs: every check that
+# is cheap, deterministic and needs no infrastructure. It is `ci` minus
+# exactly four targets -- test-race, test-repeat, test-integration and
+# coverage -- and it is written as its own explicit prerequisite list
+# rather than as a filter over ci's, because a filter would silently drop
+# or silently adopt a target added to ci later, and which of those two
+# happened would depend on a name.
+#
+# The four it omits are the four that provision real containers (NATS,
+# sshd, Postgres, LocalStack, Toxiproxy) or run the full suite again to
+# measure it. Everything remaining is a compiler, a scanner, a formatter
+# or a generator over the checked-out tree.
+#
+# What this does not prove, stated here as well as in the workflow because
+# this is the line someone will read first: ci-remote does not run one
+# test. A change that compiles, vets, formats, scans and regenerates
+# cleanly passes it while breaking any behavior in this repository. It is
+# a smoke gate, not a merge gate; the merge gate is `make ci`, run by a
+# human, or `make push-gate` run by .githooks/pre-push.
+#
+# devtools is kept rather than dropped with the other test-running
+# targets: its `go test -tags devtools ./tools/...` pass is seconds long,
+# reaches no container, and is the only thing in this file that compiles
+# the tag-gated developer commands at all, so dropping it would stop
+# building tools/devcert and tools/uidev anywhere in this workflow.
+ci-remote: build devtools vet fmt tidy-check gosec govulncheck docs-lint docs-gen-check helm-lint templ-gen-check
+	@echo "ci-remote: all checks passed (no tests were run; see this target's comment)"
 
 # push-gate-race and push-gate-integration run through tools/testgate
 # instead of a bare `go test`, so a test failure confined to a package

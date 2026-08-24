@@ -101,7 +101,7 @@ func TestSSHHopChain_SeveredBastionMidTunneledCommandSurfacesANamedError(t *test
 	// alias and its own internal sshd port), reachable from the
 	// toxiproxy container because both share nw.
 	toxiproxyContainer, err := tctoxiproxy.Run(ctx,
-		"ghcr.io/shopify/toxiproxy:2.12.0",
+		testsupport.ToxiproxyImage,
 		tctoxiproxy.WithProxy("sshbastion", "sshbastion:2222"),
 		network.WithNetwork([]string{"toxiproxy"}, nw),
 	)

@@ -1,6 +1,9 @@
 package topology
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -88,5 +91,90 @@ func LockBucketConfig() jetstream.KeyValueConfig {
 		Bucket:         LockBucketName,
 		TTL:            LockBucketTTL,
 		LimitMarkerTTL: LockMarkerTTL,
+	}
+}
+
+// BindLockBucket applies role to the distributed lock bucket, mirroring
+// BindStream exactly.
+//
+// The bucket gets the same treatment as the stream, and its case is the
+// more urgent of the two. It is reshaped from both cmd/controller and
+// cmd/runner on every process start through
+// js.CreateOrUpdateKeyValue(ctx, LockBucketConfig()), which is the same
+// multi-writer provisioning defect FAILURE_PATTERNS.md #178 records for
+// the stream, but the consequence is worse than a wrong retention window:
+// this bucket carries every leader-election lease and every per-device
+// execution lease, and internal/archtest's own comment already records
+// that a lowered TTL here "lets two runners execute against one device".
+// Fixing the retention budget while leaving the safety-critical bucket on
+// the defective pattern would have been the wrong order of priority.
+//
+// A reader creates the bucket when it is absent, for the same reason
+// AttachStream does: a Runner that cannot acquire a device lease because
+// nobody has provisioned a bucket yet is unavailable for no benefit, and
+// nothing orders the Controller first.
+func BindLockBucket(ctx context.Context, js jetstream.JetStream, role StreamRole) (jetstream.KeyValue, error) {
+	switch role {
+	case StreamProvisioner:
+		kv, err := js.CreateOrUpdateKeyValue(ctx, LockBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision the %s bucket: %w", LockBucketName, err)
+		}
+		return kv, nil
+
+	case StreamReader:
+		kv, err := js.KeyValue(ctx, LockBucketName)
+		if err == nil {
+			return kv, nil
+		}
+		if !errors.Is(err, jetstream.ErrBucketNotFound) {
+			return nil, fmt.Errorf("failed to read the %s bucket: %w", LockBucketName, err)
+		}
+		created, err := js.CreateOrUpdateKeyValue(ctx, LockBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the missing %s bucket: %w", LockBucketName, err)
+		}
+		return created, nil
+
+	default:
+		return nil, fmt.Errorf("invalid stream role %d: use topology.StreamProvisioner or topology.StreamReader", int(role))
+	}
+}
+
+// BindDedupBucket applies role to the application-level deduplication
+// bucket, mirroring BindStream and BindLockBucket.
+//
+// The bucket existed before Phase 96c and was reachable only from tests:
+// event.NewIdempotentBus, its DedupStore port and both adapters were
+// fully built with no production caller at all, which
+// FAILURE_PATTERNS.md #179 records as a decoration rather than an
+// implemented pattern. Phase 96c is what consumes it, from the Runner's
+// raw dispatch loop rather than through the bus decorator, because that
+// loop is the path the decorator provably cannot reach.
+func BindDedupBucket(ctx context.Context, js jetstream.JetStream, role StreamRole) (jetstream.KeyValue, error) {
+	switch role {
+	case StreamProvisioner:
+		kv, err := js.CreateOrUpdateKeyValue(ctx, DedupBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision the %s bucket: %w", DedupBucketName, err)
+		}
+		return kv, nil
+
+	case StreamReader:
+		kv, err := js.KeyValue(ctx, DedupBucketName)
+		if err == nil {
+			return kv, nil
+		}
+		if !errors.Is(err, jetstream.ErrBucketNotFound) {
+			return nil, fmt.Errorf("failed to read the %s bucket: %w", DedupBucketName, err)
+		}
+		created, err := js.CreateOrUpdateKeyValue(ctx, DedupBucketConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the missing %s bucket: %w", DedupBucketName, err)
+		}
+		return created, nil
+
+	default:
+		return nil, fmt.Errorf("invalid stream role %d: use topology.StreamProvisioner or topology.StreamReader", int(role))
 	}
 }

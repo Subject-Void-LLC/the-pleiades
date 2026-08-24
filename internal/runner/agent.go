@@ -38,6 +38,17 @@ type Agent struct {
 	baseSleep  time.Duration
 	maxSleep   time.Duration
 
+	// dedup suppresses a redelivered dispatch that already executed to
+	// completion. Nil disables the check entirely, which is the
+	// pre-Phase-96c behaviour and what a Runner started without a
+	// reachable dedup bucket falls back to. See WithDedupStore.
+	dedup DedupStore
+
+	// dedupTTL is how long a completed dispatch is remembered. It must
+	// exceed the deployment's outage budget, or the memory expires
+	// before the redelivery it exists to suppress.
+	dedupTTL time.Duration
+
 	// poolSize is the number of concurrent handleMessage workers Run
 	// starts. See WithPoolSize and defaultPoolSize.
 	poolSize int
@@ -192,4 +203,25 @@ func NewAgent(consumer jetstream.Consumer, adapter ExecutionAdapter, js jetstrea
 		opt(a)
 	}
 	return a
+}
+
+// WithDedupStore gives the Agent a durable memory of which dispatches
+// have already executed, so a redelivery of work that completed is
+// suppressed rather than run twice.
+//
+// It is an option rather than a constructor parameter because the check
+// degrades safely: an Agent without one behaves exactly as it did before
+// Phase 96c. That is the opposite of the reasoning
+// LESSONS_LEARNED.md #154 applies to required dependencies, and the
+// difference is that this one has a correct and previously shipped
+// behaviour to fall back to.
+//
+// ttl must exceed the deployment's outage budget. A memory shorter than
+// the outage it covers is worse than none, because it looks like
+// protection and is not.
+func WithDedupStore(store DedupStore, ttl time.Duration) AgentOption {
+	return func(a *Agent) {
+		a.dedup = store
+		a.dedupTTL = ttl
+	}
 }
