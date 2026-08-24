@@ -3113,7 +3113,9 @@ The prefilter is the dangerous one, because a prefilter that does not actually h
 
 ## 119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work
 
-**Status: FOUND, NOT FIXED.** Discovered 2026-08-13 while verifying whether a test-harness container flake could reach production. It cannot; this can, and it is a different and worse thing. Recorded here rather than fixed in place because the fix changes the dispatch plane's failure behavior and the session that found it was building credentials, and folding an unrelated behavior change into that commit is how a change nobody reviewed in its own right ships.
+**Status: CLOSED 2026-08-23 by Phase 96a.** The second half of this entry, the NATS reconnect defaults in `internal/event` and `internal/lock`, is now fixed: `topology.DialOptions` sets `MaxReconnects(-1)` and `RetryOnFailedConnect(true)` and wires all four lifecycle handlers, and `internal/archtest`'s `TestEveryNatsDialCarriesTheSharedOptions` fails any dial that does not carry them. The give-up point this entry describes no longer exists at any outage length, and a disconnect is no longer silent. The original text below is unchanged; the paragraph after it records what was still open until Phase 96a and is now not.
+
+**Original status when found: FOUND, NOT FIXED.** Discovered 2026-08-13 while verifying whether a test-harness container flake could reach production. It cannot; this can, and it is a different and worse thing. Recorded here rather than fixed in place because the fix changes the dispatch plane's failure behavior and the session that found it was building credentials, and folding an unrelated behavior change into that commit is how a change nobody reviewed in its own right ships.
 
 **Symptom (predicted, not yet observed in a real deployment).** A Runner loses its NATS connection for longer than the client's reconnect budget. The process stays up. Its container keeps reporting healthy. It fetches nothing, executes nothing, and reports nothing, indefinitely. Capacity disappears from the mesh with no signal anywhere that says so, and the only visible evidence is a backoff-loop error line repeating in a log nobody is watching for that shape.
 
@@ -6385,3 +6387,140 @@ noticed: this one sat behind a suite everybody already treats as flaky,
 which is how a hard, repeatable failure hid for three merged pull
 requests. When a package on `flaky-packages.json` fails, read the actual
 assertion before reaching for the rerun.
+
+## 191. Registering the four obvious NATS lifecycle handlers left the cold-start path completely silent, because the library routes the initial-connect retry through a different pair
+
+**Symptom.** Phase 96a set `RetryOnFailedConnect(true)` so a Runner started before
+its broker exists waits instead of exiting, and wired
+`DisconnectErrHandler`/`ReconnectHandler`/`ClosedHandler`/`ErrorHandler` so a
+connection could no longer die silently. A process started against an unreachable
+broker then logged **nothing at all** for the whole ten-second wait, and nothing
+when it eventually connected. The documentation shipped in the same change said
+"connection events are logged."
+
+**Root cause.** `nats.go` splits its callbacks by whether the connection has ever
+connected, using an internal `initc` flag, and the split is not symmetric with the
+names. In `doReconnect`, `DisconnectedErrCB` is called only `if !nc.initc`; during
+the initial-connect retry window the library instead consults `ReconnectErrCB`. On
+eventual success it calls `ReconnectedCB` only `&& !nc.initc`, and `ConnectedCB`
+`&& nc.initc`. So the two handlers a reader naturally reaches for
+(disconnect, reconnect) are precisely the two that are suppressed during the exact
+window `RetryOnFailedConnect` exists to create, and the two that fire there
+(`ConnectHandler`, `ReconnectErrHandler`) look redundant when skimming the option
+list.
+
+**Why it was not caught.** The test asserted `opts.DisconnectedErrCB != nil` and
+its three siblings. Every one passed. No test captured a byte of output, so
+"the handlers are registered" was proven and "the handlers say anything" was not.
+
+**Fix.** Register five handlers rather than four, adding `nats.ConnectHandler` and
+`nats.ReconnectErrHandler`, with the asymmetry written into the comment beside
+them. Add a container-backed test that captures a real `slog` logger across a real
+severance and asserts on the text.
+
+**Lesson.** When a library gates callbacks on connection lifecycle state, read the
+gating conditions rather than the callback names: a name that describes an event
+does not promise it fires for every occurrence of that event. And an option that
+creates a new lifecycle phase (here, "connecting for the first time, in the
+background") should prompt the question of which observability covers that phase,
+because it is usually a different set from the steady state.
+
+## 192. Every graceful shutdown logged a WARN saying "reconnecting" and an ERROR saying "closed permanently" about a shutdown that was going exactly to plan
+
+**Symptom.** After wiring the NATS lifecycle handlers, an ordinary SIGTERM produced,
+per process, three `WARN nats connection lost, reconnecting ... error=<nil>` lines
+and three `ERROR nats connection closed permanently ... last_error=<nil>` lines. A
+Runner and a Controller hold three NATS connections each, so a routine rolling
+update emitted six false failure lines per pod, at the two severity levels an
+operator is most likely to alert on.
+
+**Root cause.** `Conn.Close()` calls `nc.close(CLOSED, !nc.Opts.NoCallbacksAfterClientClose, nil)`,
+and `NoCallbacksAfterClientClose` was not set, so `doCBs` was true. Inside `close()`,
+`DisconnectedErrCB` is invoked whenever `nc.conn != nil` (which it still is on that
+path, since the socket is closed by a deferred call and the field is never nilled),
+and `ClosedCB` is invoked unconditionally. Both were therefore doing exactly what
+they were written for, on an event that was not a failure. The `error=<nil>` in the
+output is the tell: `close()` passes a nil error, which no genuine disconnect does.
+
+**Why it was not caught.** Same reason as #191: the only assertions were that the
+callback fields were non-nil. The evidence was actually sitting in the phase's own
+long-severance test log, where the two lines appear at the same second as the
+test's `t.Cleanup` closing the bus, and it was read as expected shutdown output
+rather than as a defect.
+
+**Fix.** Add `nats.NoCallbacksAfterClientClose()` to the shared option set, and
+assert in a container-backed test that a graceful `Close()` emits neither
+"reconnecting" nor "closed permanently".
+
+**Lesson.** A handler wired to a transport's "connection ended" event will fire on
+the deliberate ending too, so decide at wiring time which severity a planned
+shutdown deserves, and prefer a library switch that suppresses the callback over a
+flag the application has to remember to set before every close. A monitoring signal
+that fires on every intentional restart trains the operator to ignore it, which
+costs more than not having it.
+
+## 193. Two constructors leaked their NATS connection on every error path after the dial succeeded
+
+**Symptom.** Latent, found by inspection while changing the same functions.
+`event.NewNatsBus` and `lock.NewNatsLockManager` each dialled NATS, then did two or
+three more things that could fail (`jetstream.New`, `EnsureStream`,
+`CreateOrUpdateKeyValue`), and returned the error from each without closing the
+connection they had just opened. Every failure left a live connection, its reader
+and flusher goroutines, and its reconnect machinery running, owned by nobody.
+
+**Root cause.** The error paths were written before the constructors acquired
+anything that needed releasing, and each new post-dial step was added by pattern
+matching on the one above it, which had the same omission. Nothing in the shape of
+the code marks the transition from "nothing acquired yet" to "must clean up".
+
+**Why it was not caught.** These branches are only reachable against a broker that
+answers TCP and then refuses a JetStream operation, which no test simulated. A
+process that hits them then calls `log.Fatalf` anyway, so in production the leak was
+immediately followed by an exit, which is why it never manifested. It would have
+manifested the moment a caller retried construction instead of exiting, which is
+precisely what the surrounding resilience work was moving toward.
+
+**Fix.** `nc.Close()` on every post-dial error return, and then, better, collapse
+dial-plus-wait into one `topology.Connect` that owns the cleanup once so no future
+caller has to remember it.
+
+**Lesson.** When a constructor acquires a resource and then does more fallible work,
+the acquisition and its release belong in one function that returns either a fully
+usable thing or nothing at all. Spreading the steps across the caller means every
+new step is a new chance to forget, and "the process exits on this path anyway" is
+a property of today's callers, not of the function.
+
+## 194. A guard that matched a function by unqualified name could be defeated by declaring a local function of that name
+
+**Symptom.** Latent, found by adversarial review of a guard added in the same
+change. `internal/archtest`'s new rule required every `nats.Connect` call to spread
+`topology.DialOptions(...)`, and its matcher accepted any call whose final argument
+was a spread of a call to a selector or identifier **named** `DialOptions`, with no
+check on what it was a selector *of*. Two lines defeated it completely:
+`func DialOptions() []nats.Option { return nil }` beside the call site, then
+`nats.Connect(url, DialOptions()...)`, reproducing the exact zero-option defect the
+guard existed to prevent while passing it.
+
+**Root cause.** The matcher was a near-mechanical port of an existing rule that
+matches a METHOD name on a receiver whose type it cannot see, where ignoring the
+qualifier is the deliberate and correct tradeoff. Ported to a package-qualified
+function, the same leniency stopped being a tradeoff and became a hole, because a
+package qualifier is a thing the AST can actually see.
+
+**Why it was not caught.** The negative control proved the matcher found a bare
+call and accepted a correct one. It contained no decoy, so it proved the rule
+worked on honest input and said nothing about hostile input, which is the only kind
+a guard exists for.
+
+**Fix.** Stop matching on how the call is configured and match on who is allowed to
+make it: forbid `nats.Connect` outside `internal/topology` entirely, with the
+options and the mandatory post-connect wait paired inside one `topology.Connect`.
+There is then no name to spell correctly and nothing to alias around.
+
+**Lesson.** A guard phrased as "the call must be configured correctly" invites an
+arms race against every way of spelling the configuration; a guard phrased as "only
+this package may make the call" ends it, and is usually available once the thing
+being guarded has a single owner. When porting a matcher, re-derive which parts of
+its leniency were deliberate: the reason an existing rule ignores something is
+frequently that it *could not see* it, not that it should not care. And a negative
+control without a decoy tests the happy path of the rule itself.

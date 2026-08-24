@@ -3449,3 +3449,58 @@ the answer is almost always a test asserting over state some other test left beh
 was weaker than its name claimed for as long as it has existed. Fix it by giving it its own data.
 The floor doing its job here is the argument for a coverage ratchet being per package and hard to
 lower: a global percentage would have absorbed this without anybody noticing.
+
+## 161. Asserting that a callback is registered is a tautology about a struct; capture what it writes, or the observability half of a phase is unverified
+
+Phase 96a's third measured defect was that a lost NATS connection produced no log
+line at all. The fix registered lifecycle handlers; the test asserted
+`opts.DisconnectedErrCB != nil` and three siblings, all of which passed
+immediately and none of which executed a single handler body.
+
+Two real defects lived inside those bodies and shipped through review. The
+disconnect handler logged `url=""` on every disconnect, because the library has
+already left CONNECTED by the time it runs. And a graceful `Close()` fired both the
+disconnect and the closed handler, so every deliberate shutdown emitted a WARN
+saying "reconnecting" and an ERROR saying "closed permanently", six false lines per
+pod on a rolling update. Both are visible in one line of captured output and
+invisible to any number of non-nil assertions.
+
+The general shape: a non-nil check on a function value proves the wiring and
+nothing about the behaviour, which makes it the exact analogue of a test that
+asserts a handler is mounted without issuing a request. It is worse than a missing
+test, because it is counted as the test. Where the deliverable is "this is now
+observable", the assertion has to be on the observation: capture the writer, run
+the real event, and read the text. This repository already knew the principle under
+RULE 0; what this entry adds is that a registered callback is a mock of itself.
+
+Corollary worth keeping: the evidence was already on disk. The phase's own
+long-severance test log contained both bad lines, at the same second as the test's
+own cleanup, and they were read as ordinary shutdown output. Output a test emits
+but does not assert on is not evidence, because nobody reads it until it is too
+late.
+
+## 162. Client-side resilience is only as long as the shortest supervisor timeout above it, and those timeouts are usually chosen by someone else
+
+Phase 96a gave every NATS connection an unlimited reconnect budget, closing a
+defect where a link outage past 2m3s killed a Runner permanently. The Helm chart
+that ships the Runner kills the pod after 60 to 105 seconds of broker
+unreachability, because its liveness probe reads a heartbeat that only advances
+when the broker answers.
+
+So the shipped default cancels most of the new capability, and cancels it
+*sooner* than the defect it replaced: the client will now reconnect after an hour,
+and the orchestrator will not let it live that long. The restart also abandons
+in-flight work, which is the thing the resilience was meant to protect. Neither
+number is wrong on its own. The probe interval was chosen when an unreachable
+broker really did mean a dead process, and it was correct then.
+
+The rule: when you extend how long a component tolerates a failure, enumerate every
+timeout above it that can end the process first, and either move them in the same
+change or state in the shipped artifact that you did not. A capability that exists
+in the binary and is cancelled by the deployment is worse than one that does not
+exist, because the datasheet claim is true of the code and false of the product.
+
+In this case the honest resolution was to name it in the chart and the operator
+documentation and hand the derivation to the phase that owns a single
+maximum-survivable-outage budget, rather than guessing a new liveness window to
+match a resilience window that had itself not been derived from anything yet.

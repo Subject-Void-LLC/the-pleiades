@@ -173,6 +173,9 @@ story, per `.AGENTS/AGENTS.md`.
 159. **A shared primitive holding process-wide state must decide, at the time it is built, how a test puts it back: "no production caller should ever need this" is an argument about naming and access, not about whether the operation should exist. Its absence is invisible to every gate you have, because `go test` defaults to `-count=1`, coverage counts lines that do run, and no AST rule can see a defect that exists only in the combination of two correct-looking runs. A `-count>1` leg is cheap and is the only check that catches the whole class, leaked database rows and open circuit breakers included.**
 
 160. **A coverage drop straight after a test-isolation change is not a floor to re-baseline, it is a test that was only ever covered by another test's leftovers: an isolation fix does not change what a test executes, only what it can see, so any coverage that disappears was produced by cross-test pollution and some assertion was reading state its own test never created. Find the lines that stopped executing and give that test its own data.**
+161. **Asserting that a callback is registered is a tautology about a struct, not evidence about behaviour: where the deliverable is "this is now observable", capture the writer and assert on the text, because a non-nil function field is a mock of itself and two real defects shipped inside handler bodies that four passing non-nil assertions could never enter.**
+
+162. **Client-side resilience is only as long as the shortest supervisor timeout above it, and those timeouts were usually chosen by someone else for a world where the failure was fatal: when you extend how long a component tolerates a failure, enumerate every timeout that can still end the process first and either move them in the same change or say plainly in the shipped artifact that you did not.**
 
 ---
 

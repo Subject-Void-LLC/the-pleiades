@@ -18,12 +18,43 @@ reading before changing any number below.
 
 THE FAILURE THEY EXIST FOR. FAILURE_PATTERNS.md #119: a runner whose NATS
 connection closes for good stays alive, stays healthy-looking, and silently
-stops doing any work. nats.Connect is called with the library defaults, which
-give up permanently after about two minutes of unreachability; nothing
-registers a ClosedHandler; and the fetch loop backs off and retries forever,
-which is right for a transient error and indistinguishable from right for a
-permanent one. Kubernetes made that permanent rather than merely likely,
-because a pod nobody probes is never restarted.
+stops doing any work. The fetch loop backs off and retries forever, which is
+right for a transient error and indistinguishable from right for a permanent
+one. Kubernetes made that permanent rather than merely likely, because a pod
+nobody probes is never restarted.
+
+WHAT CHANGED, AND WHY THESE PROBES STILL EARN THEIR PLACE. This comment used to
+say nats.Connect is called with the library defaults, which give up permanently
+after about two minutes of unreachability, and that nothing registers a
+ClosedHandler. Phase 96a made both sentences false: every dial in the module now
+carries topology.DialOptions, which sets MaxReconnects(-1) and
+RetryOnFailedConnect(true) and wires all four lifecycle handlers to the
+structured logger. A link outage no longer has a length at which the runner
+stops trying, and a disconnect is now loud rather than silent.
+
+That removes the cause these probes were written for; it does not remove the
+need for them. A runner can still be wedged for reasons the reconnect loop
+cannot fix (a broker that answers TCP but not JetStream, a stream deleted out
+from under the durable consumer), and `runner healthcheck` reads a heartbeat
+that only advances after a real round trip, so it still detects all of those.
+
+READ THIS BEFORE QUOTING THE RESILIENCE ABOVE. The numbers below cancel most of
+it inside Kubernetes, deliberately and visibly rather than by accident. The
+heartbeat stops advancing as soon as the broker is unreachable, so the defaults
+here (60s staleness, then three probes 15s apart) kill the pod 60 to 105 seconds
+into an outage, which is SHORTER than the roughly two minutes at which the old
+client used to give up. The client will now happily reconnect after an hour; this
+chart will not let it live that long, and the restart abandons whatever the
+runner was executing.
+
+That is the correct conservative default for a datacenter, where an unreachable
+broker for a minute really is a broken pod, and the wrong one for the disrupted
+links this resilience was built for. Deriving a liveness window from a stated
+maximum-survivable-outage budget is Phase 96c's job and is not guessed here. Until
+then, an operator running over a link that drops for minutes at a time should
+raise runner.heartbeat.livenessStaleAfterSeconds past the longest outage they
+intend to ride out, and re-check _validations.tpl's readiness-below-liveness rule
+after doing so.
 
 WHAT `runner healthcheck` ACTUALLY READS. Not a port, and not a log line. The
 agent touches a heartbeat file on a bounded interval, but ONLY after a real

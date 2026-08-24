@@ -148,7 +148,12 @@ fmt-fix:
 # is the failure mode this value exists to prevent, not merely a slower
 # one. 20m covers that worst case with room for the tests themselves,
 # while still bounding a genuinely hung run; the slowest package today is
-# internal/event at roughly two minutes.
+# internal/event at roughly six minutes, most of which is one deliberate
+# sleep: Phase 96a's release gate severs a real broker for 150 seconds,
+# because the defect it guards (a connection that gave up for good at
+# 2m3s) cannot be reproduced by any shorter outage. The 5-second severance
+# in the older chaos test in the same package is why that test passed for
+# the whole time the bug existed.
 #
 # tools/coverage-check runs its own `go test ./...` and passes the same
 # value from a constant of its own, rather than reading this one out of

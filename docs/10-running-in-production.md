@@ -314,6 +314,73 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
 
+### The message bus survives a link outage of any length
+
+**This section is about the control plane only, and the distinction is the whole
+point of reading it.** Pleiades has two independent network planes:
+
+- The **control plane** is Controller to NATS to Runner: dispatches out, logs and
+  results back, device leases held. Everything below is about that link.
+- The **execution plane** is Runner to device: SSH, serial, WinRM. Its resilience
+  rules are different and are described in the section above. A command already
+  sent to a device is never retried, whatever the network does.
+
+Nothing here makes a session to a device survive anything. What it makes survivable
+is a Runner losing contact with the Controller, which in an edge deployment (the
+Runner at the far end of a satellite or radio link, the Controller at the teleport)
+is the link most likely to disappear. If your Runner sits in the datacentre and
+reaches devices over the bad link, this section does not help you; the execution
+plane's dial-phase retry and circuit breaker are what apply.
+
+Every connection the Controller and Runner open to NATS is configured from one
+place, and that configuration is built for a link that disappears rather than a
+datacentre LAN. Three properties matter operationally.
+
+**Reconnection is unlimited.** A connection that drops keeps trying to come back
+for as long as the process is running, with exponential backoff between attempts
+(250ms growing to a 30s ceiling). There is no outage length at which a process
+gives up and needs a manual restart. This was not always true: before this
+behaviour was added, an outage longer than roughly two minutes closed the
+connection permanently, and the process stayed running and looked healthy while
+doing no work at all.
+
+**Startup does not require the broker to exist yet.** A Controller or Runner
+started before NATS is reachable waits up to ten seconds for it rather than
+exiting immediately. Past that it does exit, and its supervisor restarts it
+(Kubernetes `restartPolicy`, compose `restart`), so a slow broker still converges
+without you ordering the three services, it just converges by restart. The bound
+is what keeps a wrong `NATS_URL` a startup failure with a clear error rather than
+a hang.
+
+**Connection events are logged.** A lost connection logs at WARN, a recovery logs
+at INFO with the reconnect count, and asynchronous errors log at ERROR, all tagged
+with the component that owns the connection (`event-bus`, `lock-manager`,
+`runner-dispatch`, `controller-logstream`). A Runner opens three connections and
+they are named separately on the server, so `nats server report connections`
+distinguishes them.
+
+What this does **not** change: a job already running on a device when the link
+drops is still subject to the device lease expiring, and a command already sent is
+still never retried (above). Surviving the outage means the Runner comes back and
+keeps pulling work, not that in-flight work is resumed where it stopped.
+
+**On Kubernetes, the chart's own defaults currently cut this short.** The Runner's
+liveness probe reads a heartbeat that only advances when the broker answers, and
+the shipped defaults restart the pod 60 to 105 seconds into an outage, which is
+sooner than the client would have given up even before this work. So under the
+default chart you get the unlimited reconnection for outages shorter than about a
+minute, and a pod restart (abandoning in-flight work) for anything longer. If your
+links drop for minutes at a time, raise `runner.heartbeat.livenessStaleAfterSeconds`
+past the longest outage you intend to ride out. A budget derived from one stated
+maximum-survivable-outage figure, rather than three independently chosen numbers,
+is planned work and is not in this release.
+
+**The bus is not authenticated.** Reconnection resilience is not security: any
+client that can reach the broker can publish and subscribe, and a dispatch message
+carries the credentials its job runs with. Restrict network access to the broker
+accordingly, and prefer an external, access-controlled NATS over the in-chart one
+for anything real.
+
 ### Blast radius is always computed, never authored
 
 Before `pleiades run` executes a runbook, it prints the blast radius: the number of

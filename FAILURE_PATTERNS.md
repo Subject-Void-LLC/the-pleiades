@@ -119,7 +119,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 116. A resolver's output was correctly computed and never read by anything downstream of the function that computed it
 117. A job's completion state and tallies were fan-out publish outcomes, reported as though they were execution outcomes, while the real per-device outcome was already being reliably published to a subject nothing subscribed to
 118. A security control's first working version cost 26x the thing it protected, which is how a control gets turned off
-119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FIXED 2026-08-16, Phase 20: a heartbeat driven by the consumer answering, plus a `runner healthcheck` subcommand; the NATS reconnect defaults in `internal/event` and `internal/lock` are still open)
+119. A Runner whose NATS connection closes for good stays alive, stays healthy-looking, and silently stops doing any work (FIXED in two halves: 2026-08-16, Phase 20, a heartbeat driven by the consumer answering plus a `runner healthcheck` subcommand; and 2026-08-23, Phase 96a, the reconnect defaults in `internal/event` and `internal/lock` that were the remaining open half)
 120. A process registered every value it was handed as a secret, and masked the ordinary ones out of its own output
 121. Strict-undefined turned a blank optional credential input into a total injection failure, and only real vendor data revealed it
 122. A build that compiles green produces a binary that cannot open its own default database, because the driver became a stub rather than a compile error
@@ -191,6 +191,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 188. Nine packages could not run their own tests twice in one process, and no gate in this repository could ever have noticed
 189. A lost race returned the same sentinel as a real collision, so the operator was told to rename a credential type that does not exist
 190. A capability added to a device type left the Grand Integration Test asserting a set that no longer matched, and main stayed red at test-integration across three merged pull requests
+191. Registering the four obvious NATS lifecycle handlers left the cold-start path completely silent, because the library routes the initial-connect retry through a different pair
+192. Every graceful shutdown logged a WARN saying "reconnecting" and an ERROR saying "closed permanently" about a shutdown that was going exactly to plan
+193. Two constructors leaked their NATS connection on every error path after the dial succeeded
+194. A guard that matched a function by unqualified name could be defeated by declaring a local function of that name
 
 ---
 
