@@ -54,8 +54,7 @@ Mount and persist a data volume:
 
 ```yaml
 - name: Mount the data volume
-  fqcn: fs.mount
-  params:
+  fs.mount:
     path: /data
     src: /dev/sdb1
     fstype: ext4
@@ -65,8 +64,7 @@ Mount without touching fstab:
 
 ```yaml
 - name: Mount a scratch volume for this run only
-  fqcn: fs.mount
-  params:
+  fs.mount:
     path: /mnt/scratch
     src: /dev/sdb2
     fstype: ext4

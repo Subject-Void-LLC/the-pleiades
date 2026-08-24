@@ -42,13 +42,11 @@ Persist a rule and apply it now:
 
 ```yaml
 - name: Allow HTTPS permanently
-  fqcn: fw.firewalld.allow
-  params:
+  fw.firewalld.allow:
     port: 443
     immediate: false
 
 - name: Apply it
-  fqcn: fw.firewalld.reload
-  params: {}
+  fw.firewalld.reload: {}
 ```
 

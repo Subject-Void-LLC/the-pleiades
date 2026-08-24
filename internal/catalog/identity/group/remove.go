@@ -52,7 +52,7 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Remove a group",
-				RunbookYAML: "- name: Make sure the old admins group is gone\n  fqcn: identity.group.remove\n  params:\n    name: admins\n",
+				RunbookYAML: "- name: Make sure the old admins group is gone\n  identity.group.remove:\n    name: admins\n",
 			},
 		},
 		SeeAlso: []string{"identity.group.create", "identity.group.modify"},

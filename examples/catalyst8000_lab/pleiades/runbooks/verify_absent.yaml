@@ -1,0 +1,22 @@
+# Read-only. Run this AFTER round_trip.yaml to confirm cleanup: IOS
+# refuses "show running-config interface <name>" for an interface that
+# does not exist ("% Invalid input detected at '^' marker.", verified
+# directly against this device) rather than returning empty output, so
+# that refusal IS the proof of absence, not a missing feature.
+# Shared device: change Loopback8990 to a number of your own before
+# running this, and use the same number in all four runbooks here.
+# See README.md; a runbook cannot yet compute one per run.
+id: catalyst8000-verify-absent
+hosts: cat8000
+metadata:
+  service_effecting: false
+  mcp: true
+  mcp_impact: "Read-only: shows one loopback interface's running configuration (expected to be refused, proving absence)."
+  mcp_impact_duration: "A few seconds."
+  mcp_description: "Confirms round_trip.yaml's loopback interface was really removed from the device."
+
+tasks:
+  - name: Show the loopback interface's running configuration
+    net.cli.command:
+      command: show running-config interface Loopback8990
+    register: check

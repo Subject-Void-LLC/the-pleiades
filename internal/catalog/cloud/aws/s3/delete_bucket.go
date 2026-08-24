@@ -47,7 +47,7 @@ func deleteBucketDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Delete a bucket",
-				RunbookYAML: "- name: Remove the release artifacts bucket\n  fqcn: cloud.aws.s3.delete_bucket\n  params:\n    bucket: my-release-artifacts\n",
+				RunbookYAML: "- name: Remove the release artifacts bucket\n  cloud.aws.s3.delete_bucket:\n    bucket: my-release-artifacts\n",
 			},
 		},
 		SeeAlso: []string{"cloud.aws.s3.create_bucket"},

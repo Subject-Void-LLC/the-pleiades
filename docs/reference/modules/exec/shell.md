@@ -58,8 +58,7 @@ Use a pipeline:
 
 ```yaml
 - name: Count the failed units
-  fqcn: exec.shell
-  params:
+  exec.shell:
     cmd: systemctl list-units --state=failed --no-legend | wc -l
   register: failed
 ```
@@ -68,8 +67,7 @@ Redirect output to a file, once:
 
 ```yaml
 - name: Snapshot the package list
-  fqcn: exec.shell
-  params:
+  exec.shell:
     cmd: dpkg -l > /var/backups/packages.txt
     creates: /var/backups/packages.txt
 ```
@@ -78,8 +76,7 @@ Choose the shell:
 
 ```yaml
 - name: Use a bash-only construct
-  fqcn: exec.shell
-  params:
+  exec.shell:
     cmd: "[[ -f /etc/os-release ]] && echo present"
     executable: /bin/bash
 ```

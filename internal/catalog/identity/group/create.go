@@ -55,11 +55,11 @@ func createDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Create a plain group",
-				RunbookYAML: "- name: Make sure admins exists\n  fqcn: identity.group.create\n  params:\n    name: admins\n",
+				RunbookYAML: "- name: Make sure admins exists\n  identity.group.create:\n    name: admins\n",
 			},
 			{
 				Name:        "Pin a gid",
-				RunbookYAML: "- name: Create a service group\n  fqcn: identity.group.create\n  params:\n    name: appsvc\n    gid: 5000\n    system: true\n",
+				RunbookYAML: "- name: Create a service group\n  identity.group.create:\n    name: appsvc\n    gid: 5000\n    system: true\n",
 			},
 		},
 		SeeAlso: []string{"identity.group.modify", "identity.group.remove", "identity.user.create"},

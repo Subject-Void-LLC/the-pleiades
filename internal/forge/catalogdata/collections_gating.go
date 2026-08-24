@@ -37,11 +37,11 @@ var gatingCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Check that a service answers",
-					RunbookYAML: "- name: Wait for the health endpoint\n  fqcn: http.request\n  params:\n    url: https://api.example.com/healthz\n    timeout: 5\n",
+					RunbookYAML: "- name: Wait for the health endpoint\n  http.request:\n    url: https://api.example.com/healthz\n    timeout: 5\n",
 				},
 				{
 					Name:        "Post JSON to an API",
-					RunbookYAML: "- name: Register the release\n  fqcn: http.request\n  params:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n",
+					RunbookYAML: "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n",
 				},
 			},
 			SeeAlso: []string{"exec.command", "pleiades.builtin.wait.port"},
@@ -83,15 +83,15 @@ var gatingCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Wait for a database to come back after a restart",
-					RunbookYAML: "- name: Wait for postgres to accept connections\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 5432\n    timeout: 120\n",
+					RunbookYAML: "- name: Wait for postgres to accept connections\n  pleiades.builtin.wait.port:\n    port: 5432\n    timeout: 120\n",
 				},
 				{
 					Name:        "Wait for a port to be released before rebinding it",
-					RunbookYAML: "- name: Wait for the old listener to go away\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 8080\n    state: stopped\n    timeout: 60\n",
+					RunbookYAML: "- name: Wait for the old listener to go away\n  pleiades.builtin.wait.port:\n    port: 8080\n    state: stopped\n    timeout: 60\n",
 				},
 				{
 					Name:        "Give a service a head start, then poll slowly",
-					RunbookYAML: "- name: Wait for the API on its private address\n  fqcn: pleiades.builtin.wait.port\n  params:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n",
+					RunbookYAML: "- name: Wait for the API on its private address\n  pleiades.builtin.wait.port:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n",
 				},
 			},
 			SeeAlso: []string{"wait.path", "wait.search", "exec.command"},
@@ -121,15 +121,15 @@ var gatingCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Wait for a service to write its socket",
-					RunbookYAML: "- name: Wait for the socket to appear\n  fqcn: wait.path\n  params:\n    path: /run/pleiades/api.sock\n    timeout: 60\n",
+					RunbookYAML: "- name: Wait for the socket to appear\n  wait.path:\n    path: /run/pleiades/api.sock\n    timeout: 60\n",
 				},
 				{
 					Name:        "Wait for a lock file to be released",
-					RunbookYAML: "- name: Wait for the package manager to finish\n  fqcn: wait.path\n  params:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n",
+					RunbookYAML: "- name: Wait for the package manager to finish\n  wait.path:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n",
 				},
 				{
 					Name:        "Give a slow starter a head start",
-					RunbookYAML: "- name: Wait for the pid file, but not immediately\n  fqcn: wait.path\n  params:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n",
+					RunbookYAML: "- name: Wait for the pid file, but not immediately\n  wait.path:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n",
 				},
 			},
 			SeeAlso: []string{"wait.search", "pleiades.builtin.wait.port"},
@@ -163,15 +163,15 @@ var gatingCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Wait for a service to log that it started",
-					RunbookYAML: "- name: Wait for the API to finish starting\n  fqcn: wait.search\n  params:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n",
+					RunbookYAML: "- name: Wait for the API to finish starting\n  wait.search:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n",
 				},
 				{
 					Name:        "Capture the port a service chose",
-					RunbookYAML: "- name: Read the port out of the log\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n",
+					RunbookYAML: "- name: Read the port out of the log\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n",
 				},
 				{
 					Name:        "Wait for an error line to be rotated away",
-					RunbookYAML: "- name: Wait for the log to stop showing the failure\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n",
+					RunbookYAML: "- name: Wait for the log to stop showing the failure\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n",
 				},
 			},
 			SeeAlso: []string{"wait.path", "pleiades.builtin.wait.port"},
@@ -202,11 +202,11 @@ var gatingCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Gather everything before deciding what to do",
-					RunbookYAML: "- name: Learn what this device is\n  fqcn: facts.gather\n",
+					RunbookYAML: "- name: Learn what this device is\n  facts.gather:\n",
 				},
 				{
 					Name:        "Gather only what a later condition reads",
-					RunbookYAML: "- name: Learn which distribution this is\n  fqcn: facts.gather\n  params:\n    filter:\n      - ansible_distribution*\n",
+					RunbookYAML: "- name: Learn which distribution this is\n  facts.gather:\n    filter:\n      - ansible_distribution*\n",
 				},
 			},
 			SeeAlso: []string{"exec.command", "net.catalyst.device_facts"},

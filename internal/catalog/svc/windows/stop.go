@@ -44,11 +44,11 @@ func stopDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Stop a service",
-				RunbookYAML: "- name: Stop the print spooler before changing its config\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Stop the print spooler before changing its config\n  svc.windows.stop:\n    name: Spooler\n",
 			},
 			{
 				Name:        "Stop it now and keep it from coming back at boot",
-				RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n",
 			},
 		},
 		[]string{"svc.windows.start", "svc.windows.disable", "svc.stop"},

@@ -50,8 +50,7 @@ Keep a service from starting at boot:
 
 ```yaml
 - name: Make sure the print spooler cannot start at boot
-  fqcn: svc.windows.disable
-  params:
+  svc.windows.disable:
     name: Spooler
 ```
 
@@ -59,13 +58,11 @@ Disable it and stop it running now too:
 
 ```yaml
 - name: Stop the print spooler
-  fqcn: svc.windows.stop
-  params:
+  svc.windows.stop:
     name: Spooler
 
 - name: Keep the print spooler from starting at boot
-  fqcn: svc.windows.disable
-  params:
+  svc.windows.disable:
     name: Spooler
 ```
 

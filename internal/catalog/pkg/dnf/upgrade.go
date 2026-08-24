@@ -49,7 +49,7 @@ func upgradeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Keep a package at its newest available version",
-				RunbookYAML: "- name: Keep openssl current\n  fqcn: pkg.dnf.upgrade\n  params:\n    name: openssl\n",
+				RunbookYAML: "- name: Keep openssl current\n  pkg.dnf.upgrade:\n    name: openssl\n",
 			},
 		},
 		SeeAlso: []string{"pkg.dnf.install", "pkg.dnf.remove", "pkg.apt.upgrade", "pkg.upgrade"},

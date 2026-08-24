@@ -4,95 +4,149 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 96 is complete, all four sub-phases, across two branches.**
-`feature/Phase-96a-Resilience-Core` carries 96a in three commits.
-`feature/Phase-96b-Stream-Ownership`, cut from it, carries 96b, 96c and 96d. Both are unmerged and
-neither has a pull request yet. Every commit was made with the user's own live go-ahead.
+**Phase 86.5 is complete, built for real this time.** Its predecessor spec presented as 9 of 12 items
+done; none of it existed (`FAILURE_PATTERNS.md` #202). This session built the real thing, verified
+against `go test`/`-race` and a real device, not assumed. Nothing has been committed yet (no
+autonomous commits; awaiting the user's own go-ahead).
 
-Phase 96 was one flat 22-item checklist. It is now four phases with their own gate sets, and two of
-them changed design under evidence before any code was written.
+`pkg/remoteexec/shell.go` (new): `Conn.Shell`/`Shell.WriteLine`/`Shell.ReadUntil`/`Shell.Close`, the
+PTY-based primitive `pkg/netcli` builds on. `WriteLine` sends a bare `"\r"`, not `"\r\n"`, and the first
+draft used `"\r\n"` and, run for real against a device, made every prompt appear to print twice (a
+phantom empty Enter from the trailing `\n`), caught only by live testing, never by the fake-server
+suite, which passed throughout.
 
-### 96a: the resilience core
+`pkg/netcli` (new): `Dialect`/`Session`/`IOS`/`FromPrompt`. Every literal in the `IOS` dialect (prompt
+shapes, `terminal length 0`, the `(config-if)#` sub-mode a real interface creation drives it into, the
+`"% Invalid input..."` error convention) was pinned against a real device
+(`pkg/netcli/live_probe_test.go`, `PLEIADES_E2E_IOS`-gated), not assumed.
 
-Every `nats.Connect` was bare. Measured: a 2m3s outage killed the connection permanently and it never
-recovered, silently. `topology.Connect` is now the only dial in shipping code, with
-`MaxReconnects(-1)`, `RetryOnFailedConnect(true)`, `CustomReconnectDelay` consuming
-`pkg/retry.Backoff`, and five lifecycle handlers. D1 passes for real: severed 150s, reconnected on its
-own at 2m38s after 11 attempts.
+`net.cli.command`, `net.cli.config`, `net.ios.config` all flip to `StatusImplemented`. Catalog now 78
+registered, **74 implemented, 4 declared** (was 71/7); `CLAUDE.md`'s own tally corrected to match.
 
-Four defects found by adversarial review, two of them in the very behaviour the phase advertises:
-`nats.go` routes the initial-connect retry through a different callback pair, so the cold-start path
-was silent; and a graceful `Close()` fired the failure handlers, so every SIGTERM logged six false
-lines per pod. Both survived because the only assertion was that callback fields were non-nil.
-`FAILURE_PATTERNS.md` #191 to #194, `LESSONS_LEARNED.md` #161 to #162.
+Two further real bugs found only by running this against a real device, both fixed, both with a
+regression test:
 
-### 96b: stream ownership, redesigned before implementation
+1. **A hang, not a slow response.** `net.cli.command`'s generic dialect has no paging-disable
+   convention, so a long-output command (`show version`) paused on the device's real `--More--`-style
+   pager forever, because `cmd/pleiades run` calls it with `context.Background()`. Fixed:
+   `internal/catalog/net/cli/cli.go`'s `runCommand` bounds every generic-dialect command to 30s
+   regardless of the caller's own ctx (`net.ios.config`'s own reads are deliberately NOT given this
+   bound: its paging genuinely is disabled, and a large legitimate backup taking longer than any fixed
+   bound is a real, different risk).
+2. **An unmasked secret.** `net.ios.config`'s `backup: true` stat is a full running-config; on the real
+   device it held a real `enable secret`, `enable password`, a local user's password hash, and a
+   TACACS+ shared key, printed unmasked in `--verbose` output. Fixed by documenting
+   `register_mask: backup` as required in the method's own `Doc.Returns` entry (there is no way for the
+   platform to know a stat is secret without being told).
 
-The spec said "Runners attach and refuse to start if the stream is absent". Rejected on six verified
-findings, all in the phase text. Its load-bearing precedent
-(`internal/transport/ssh/known_hosts.go`) **does not exist in the tree**. Attach-only would be
-strictly worse on stream loss, because a running Controller never re-asserts. The Controller is
-already five replicas. It would falsify a shipped promise that services need no ordering. And no
-configuration surface existed yet, so the defect could not be observed.
+Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`
+(`TestCLI_RunAppliesAndRevertsIOSConfig`, `PLEIADES_E2E_IOS`-gated), drives the real binary through
+`init`/`add-host`/`add-credential`/`run` against the real DevNet Catalyst 8000 Always-On sandbox,
+verifies every claim over a second, independent connection this test opens itself. Passed clean
+(12.5s), confirmed independently afterward that nothing was left on the shared device.
 
-Built instead: change the VERB, not the actor. `ProvisionStream` (Controller only) reshapes;
-`AttachStream` creates only when absent and never reshapes. Drift detection is the real deliverable,
-because ownership cannot help during a rolling upgrade. The lock KV bucket got the same treatment,
-and its case was worse: a lowered TTL there "lets two runners execute against one device".
-`FAILURE_PATTERNS.md` #195 to #197, `LESSONS_LEARNED.md` #163 to #164.
+`examples/catalyst8000_lab/` (new): the same round trip as a runnable demo runbook, module-as-key
+sugar form with a `metadata:` block (a first draft used explicit `fqcn:`/`params:`, see "Debt" below),
+run for real against the same device, README documents both bugs above.
 
-### 96c: one outage budget
+Doc generation confirmed idempotent by diffing two consecutive `gendocs` runs byte-for-byte, not just
+re-running and eyeballing it. `TestCatalogDataDocsMatchTheRegistry` and the full `internal/archtest`
+suite pass; `TestEveryImplementedMethodAnswersReversibility` reports 74.
 
-`PLEIADES_MAX_OUTAGE` / `mesh.maxOutageSeconds`, default 30m, range 1m to 12h. Three retention
-constants derive from it. One derivation is deliberately capped, not linear: the duplicate window
-must stay below the stale-job reclaim interval or the Reaper's republish is suppressed as a duplicate
-and stranded jobs stop being recovered.
+### Documentation pass (same session)
 
-The D3 fix is consumer-side. Producer-side dedup was already correct and protected nothing, because
-the window was 2 minutes and the only thing reissuing an unconfirmed dispatch fires after 10. Nobody
-had compared the two numbers. The Runner now checks an admission store in its raw pull loop, which
-consumes the KV store `FAILURE_PATTERNS.md` #179 recorded as built with no production caller.
+Every runbook example the project ships now uses module-as-key sugar. 278 conversions:
+266 in `Doc.Examples` across `internal/catalog/**` and their byte-identical
+`internal/forge/catalogdata` twins, which regenerated 133 `fqcn:` lines out of 70 pages under
+`docs/reference/`, plus 12 in `docs/02-get-started.md` and `examples/webserver_lab/`. The
+transform is exactly lossless, which the parser guarantees rather than the author claiming it:
+`internal/engine/task_syntax.go`'s `rewriteModuleKeyNode` accepts a mapping (arguments) or a null
+scalar (no arguments), so `fqcn: X` plus `params:` becomes `X:`, `params: {}` becomes `X: {}`, and
+a bare `fqcn: X` becomes a bare `X:`. Both forms were validated side by side through the real
+binary before any file was touched, and all 14 example runbooks validate afterward.
 
-The chart now refuses to install a budget its own probes cancel, and the first thing that rule caught
-was the shipped defaults: liveness was 60s against a 1800s budget.
-`FAILURE_PATTERNS.md` #198 to #199, `LESSONS_LEARNED.md` #165 to #166.
+Two files were deliberately NOT converted, and should stay that way:
+`examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml` and the "Two ways to write a Pleiades
+task" section of `examples/upgrade_ios/README.md`. That runbook is the explicit-form twin of
+`upgrade_ios_xe_sugar.yaml` and exists purely to show the two shapes side by side; converting it
+would delete the comparison.
 
-### 96d: path traversal and wire TLS
+Three stale claims were found by the same pass and corrected. `README.md` and
+`docs/01-start-here.md` both said the catalog has "77 declared methods; 34 are implemented",
+understating implemented methods by forty; the real figure, from the generated
+`docs/reference/schemas/module-catalog.json`, is 78 registered, 74 implemented, 4 declared, and
+both passages were rewritten around the short list of four that are NOT implemented rather than a
+now-unwieldy list of what is. `docs/02-get-started.md` said `ssh_exec` "is the one action that
+genuinely reaches a device today", which stopped being true long before this session; it now says
+plainly that `ssh_exec` is a legacy action name kept working, and points at `exec.command` and the
+catalog. The same file had an orphaned `params:` fragment left by the conversion, since it is a
+partial snippet with no `fqcn:` line above it for the transform to anchor on; found by sweeping
+for `params:` afterward rather than by assuming the conversion was complete.
 
-`NATS_URL` is validated against an allowlist of the four schemes `nats.go` implements, enforced inside
-`topology.Connect` so `cmd/demo` (which reads no environment) is covered too. A bare `host:port` used
-to be accepted and silently meant unencrypted.
+### Three more Cisco IOS methods (same session)
 
-Client TLS via `NATS_CA_FILE`, consuming `tlscert.ServingCert.TLSClientConfig` rather than
-hand-rolling a `tls.Config`. A CA file named for a plaintext URL is a startup error, mirroring the
-Controller's own TLS convention. Server side: the chart's first NATS configuration file, additive to
-the pinned flag list, with `nats.tls` and `nats.websocket` blocks and three refusals.
+`net.ios.facts`, `net.ios.ping` and `net.ios.save`, all built on the Phase 86.5 interactive CLI
+transport, scaffolded through the real `pleiades forge` CLI and then implemented. Catalog goes to
+**81 registered, 77 implemented, 4 declared**.
 
-Proven against a real broker: `ws://` connects, `tls://` connects with verification against a
-generated root, and an unrelated root is refused. **The `wss://`-is-not-link-resilience correction is
-written into the docs**, because the opposite claim is the kind that reaches a datasheet.
-`FAILURE_PATTERNS.md` #200 to #201, `LESSONS_LEARNED.md` #167 to #168.
+`net.ios.facts` closes a real hole rather than adding a convenience: `facts.gather` requires
+`FactGathererCapable`, which no Cisco device type declares, so before this a Cisco device could be
+commanded and configured but never described, and the only device facts in the catalog came from
+`net.catalyst.device_facts` over Catalyst Center's REST API. It parses `show version`,
+`show inventory` and `show ip interface brief`, and emits through `EmitFact`, matching
+`facts.gather` and `net.catalyst.device_facts`.
+
+**Every parser was written against output captured from the real device first**, via a new
+read-only diagnostic (`pkg/netcli/live_probe_test.go`'s `TestLiveIOSFactsShapes`), and the captured
+output is pasted verbatim into the unit tests as fixtures. Two shapes only a real device would have
+revealed: an interface status can be TWO words (`administratively down`) followed by a one-word
+protocol column, which a positional split silently truncates; and IOS omits the
+`round-trip min/avg/max` clause ENTIRELY at 0 percent success rather than printing zeroes, which is
+the ping shape a parser written against only the success case gets wrong. Both are covered.
+
+`net.ios.save` is built but deliberately NOT exercised against the DevNet sandbox: `write memory`
+would copy whatever other users have left in running-config into startup-config on a device we do
+not own. Covered by unit tests only, and that gap is stated in the Release Gate's own doc comment
+rather than left for a reader to find.
+
+Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`'s
+`TestCLI_RunGathersIOSFactsAndPings`, read-only so it needs no cleanup, passed against the real
+device (14.0s). It discovers the device's own management address over its own independent
+connection rather than hardcoding one, because this sandbox has no outbound path and a gate
+pinging the public internet would fail for reasons unrelated to this platform.
+
+Two defects in already-staged work were found by running the FULL suite, which the documentation
+pass before it had not done (it covered catalog/engine/forge/archtest only, and that gap is what
+let them through): `cmd/pleiades/doc_test.go` failed because the sugar conversion removed the
+`fqcn:` line it asserted on, and `pleiades doc --snippet` itself generated explicit `fqcn:`/`params:`
+skeletons, meaning the CLI was handing users the very form the examples had just stopped teaching.
+The generator now emits module-as-key sugar; a method with no parameters prints a bare
+`module.name:`, which `rewriteModuleKeyNode` accepts explicitly as a module with no arguments.
+
+`internal/catalog/net/ios` coverage moved 48.8 to 80.3 percent; its floor is raised 47.0 to 79.0.
 
 ### Next step
 
-Merge review. Then Phase 101 (mesh identity), which is what makes any of the TLS work into actual
-security: the bus is encrypted now and still unauthenticated, and the docs say so plainly.
-
-### Environment note that costs a CI run if missed
-
-`make ci` needs `LOCALSTACK_AUTH_TOKEN` or two AWS packages skip their tests and the coverage ratchet
-fails with what looks exactly like a real regression. The token is in `~/.bashrc` at line 111, BELOW
-the stock `[ -z "$PS1" ] && return` at line 15, so plain `source ~/.bashrc` and `bash -lc` both leave
-it unset. Only `PS1=x; source ~/.bashrc` works.
+Nothing is committed. This work is on `feature/cisco-cli-buildout`, cut from `main` at 49386d4; an
+earlier revision of this document claimed it sat on `main` and still needed a branch, which was never
+checked and was wrong. `make ci` has now been run in full: 13 of its 14 targets pass, and the one
+failure is `docs-gen-check`, which runs `git diff --exit-code` over regenerated documentation and so
+cannot pass until this work is committed. Remaining: the user's own review and go-ahead to commit.
 
 ### Debt, carried deliberately
 
-- The 96a recovery-latency benchmark exists and has never had its result recorded, which AGENTS.md
-  asks for. 96b's and 96c's were run and are in their commit messages.
-- `main`'s GitHub Actions is red, unrelated: `pkg/remotesvc`'s `TestOperations_NonZeroExitIsAnError`
-  fails at `-count=3`, the same class as `FAILURE_PATTERNS.md` #188, and that package is not in
-  `flaky-packages.json`.
-- Four more multi-writer provisioning sites recorded in 96b's phase text, most seriously database
-  migrations running from every Controller replica with no advisory lock.
-- The compose stack's broker healthcheck connects anonymously and without TLS, so enabling broker TLS
-  there needs that probe changed. Recorded in the docs rather than fixed.
+- Runbook authoring form was violated on the first draft of every file in `examples/catalyst8000_lab/`:
+  explicit `fqcn:`/`params:` instead of module-as-key sugar, and no `metadata:` block, despite an
+  existing memory (`pleiades-runbook-authoring-form`) already stating the rule, corrected 12+ times
+  before this session. Fixed in place; the memory itself was strengthened with a note that the failure
+  mode is not missing information, it is not consulting what is already loaded before writing runbook
+  YAML.
+- `net.junos.config`/`net.eos.config` remain `StatusDeclared`: zero device types implement
+  `JunosCapable`/`AristaEOSCapable` (Phase 74's own open item), and `net.netconf.config` remains
+  Phase 74's entirely.
+- `examples/catalyst8000_lab/`'s four runbooks all name `Loopback8990` literally, on a device shared
+  with every other DevNet sandbox user, so two concurrent runs of the example would fight over one
+  interface. The Release Gate covering the same two methods derives its interface name from its
+  process ID; a runbook has no equivalent, because task-param rendering at run time is a separate
+  unbuilt piece of work. Documented prominently in the example's own README and in each runbook's
+  header rather than papered over.

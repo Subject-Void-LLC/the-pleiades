@@ -57,11 +57,11 @@ func allowDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Open a port",
-				RunbookYAML: "- name: Allow HTTPS\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n",
+				RunbookYAML: "- name: Allow HTTPS\n  fw.firewalld.allow:\n    port: 443\n",
 			},
 			{
 				Name:        "Allow a service immediately without persisting it",
-				RunbookYAML: "- name: Temporarily allow SSH from a maintenance zone\n  fqcn: fw.firewalld.allow\n  params:\n    service: ssh\n    zone: maintenance\n    permanent: false\n",
+				RunbookYAML: "- name: Temporarily allow SSH from a maintenance zone\n  fw.firewalld.allow:\n    service: ssh\n    zone: maintenance\n    permanent: false\n",
 			},
 		},
 		SeeAlso: []string{"fw.firewalld.deny", "fw.firewalld.reload"},

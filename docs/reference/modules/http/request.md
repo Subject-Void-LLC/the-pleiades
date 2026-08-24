@@ -59,8 +59,7 @@ Check that a service answers:
 
 ```yaml
 - name: Wait for the health endpoint
-  fqcn: http.request
-  params:
+  http.request:
     url: https://api.example.com/healthz
     timeout: 5
 ```
@@ -69,8 +68,7 @@ Post JSON to an API:
 
 ```yaml
 - name: Register the release
-  fqcn: http.request
-  params:
+  http.request:
     url: https://api.example.com/releases
     method: POST
     body: '{"version": "1.4.0"}'

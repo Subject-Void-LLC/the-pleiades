@@ -54,8 +54,7 @@ Check a running container's own view of a file:
 
 ```yaml
 - name: Read the app's version file
-  fqcn: container.docker.exec
-  params:
+  container.docker.exec:
     name: web
     cmd: cat /opt/app/VERSION
   register: version

@@ -89,15 +89,15 @@ func setDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Correct a setting whether or not it is commented out",
-				RunbookYAML: "- name: Turn off root login over SSH\n  fqcn: file.line.set\n  params:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n",
+				RunbookYAML: "- name: Turn off root login over SSH\n  file.line.set:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n",
 			},
 			{
 				Name:        "Append an entry that is either there or not",
-				RunbookYAML: "- name: Add the internal registry to the hosts file\n  fqcn: file.line.set\n  params:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n",
+				RunbookYAML: "- name: Add the internal registry to the hosts file\n  file.line.set:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n",
 			},
 			{
 				Name:        "Place a line against an anchor",
-				RunbookYAML: "- name: Put the include ahead of the defaults section\n  fqcn: file.line.set\n  params:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n",
+				RunbookYAML: "- name: Put the include ahead of the defaults section\n  file.line.set:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n",
 			},
 		},
 		SeeAlso: []string{"file.line.remove", "file.block.set", "file.copy"},

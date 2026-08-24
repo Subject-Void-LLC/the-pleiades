@@ -215,15 +215,15 @@ func portDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Wait for a database to come back after a restart",
-				RunbookYAML: "- name: Wait for postgres to accept connections\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 5432\n    timeout: 120\n",
+				RunbookYAML: "- name: Wait for postgres to accept connections\n  pleiades.builtin.wait.port:\n    port: 5432\n    timeout: 120\n",
 			},
 			{
 				Name:        "Wait for a port to be released before rebinding it",
-				RunbookYAML: "- name: Wait for the old listener to go away\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 8080\n    state: stopped\n    timeout: 60\n",
+				RunbookYAML: "- name: Wait for the old listener to go away\n  pleiades.builtin.wait.port:\n    port: 8080\n    state: stopped\n    timeout: 60\n",
 			},
 			{
 				Name:        "Give a service a head start, then poll slowly",
-				RunbookYAML: "- name: Wait for the API on its private address\n  fqcn: pleiades.builtin.wait.port\n  params:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n",
+				RunbookYAML: "- name: Wait for the API on its private address\n  pleiades.builtin.wait.port:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n",
 			},
 		},
 		SeeAlso: []string{"wait.path", "wait.search", "exec.command"},

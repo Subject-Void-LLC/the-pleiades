@@ -42,19 +42,16 @@ Install a unit file and make systemd see it:
 
 ```yaml
 - name: Write the unit file
-  fqcn: file.copy
-  params:
+  file.copy:
     src: ./app.service
     dest: /etc/systemd/system/app.service
     mode: "0644"
 
 - name: Make systemd re-read its unit files
-  fqcn: svc.systemd.daemon_reload
-  params: {}
+  svc.systemd.daemon_reload: {}
 
 - name: Start the new service
-  fqcn: svc.systemd.start
-  params:
+  svc.systemd.start:
     name: app
 ```
 

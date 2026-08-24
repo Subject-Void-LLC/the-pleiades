@@ -52,11 +52,11 @@ func installDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Install a package",
-				RunbookYAML: "- name: Make sure curl is installed\n  fqcn: pkg.apt.install\n  params:\n    name: curl\n",
+				RunbookYAML: "- name: Make sure curl is installed\n  pkg.apt.install:\n    name: curl\n",
 			},
 			{
 				Name:        "Pin an exact version",
-				RunbookYAML: "- name: Install a specific nginx build\n  fqcn: pkg.apt.install\n  params:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n",
+				RunbookYAML: "- name: Install a specific nginx build\n  pkg.apt.install:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n",
 			},
 		},
 		SeeAlso: []string{"pkg.apt.remove", "pkg.apt.upgrade", "pkg.dnf.install", "pkg.install"},

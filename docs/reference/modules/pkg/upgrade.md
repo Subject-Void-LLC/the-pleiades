@@ -54,8 +54,7 @@ Keep a package current without naming the package manager:
 
 ```yaml
 - name: Keep openssl at its newest available version
-  fqcn: pkg.upgrade
-  params:
+  pkg.upgrade:
     name: openssl
 ```
 

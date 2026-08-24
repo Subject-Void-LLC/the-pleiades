@@ -54,11 +54,11 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Remove an account",
-				RunbookYAML: "- name: Make sure the old deploy account is gone\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n",
+				RunbookYAML: "- name: Make sure the old deploy account is gone\n  identity.user.remove:\n    name: deploy\n",
 			},
 			{
 				Name:        "Remove an account and its home directory",
-				RunbookYAML: "- name: Remove deploy entirely\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n    remove: true\n",
+				RunbookYAML: "- name: Remove deploy entirely\n  identity.user.remove:\n    name: deploy\n    remove: true\n",
 			},
 		},
 		SeeAlso: []string{"identity.user.create", "identity.user.modify"},

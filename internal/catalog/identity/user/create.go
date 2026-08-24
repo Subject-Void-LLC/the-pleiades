@@ -62,11 +62,11 @@ func createDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Create a plain account",
-				RunbookYAML: "- name: Make sure deploy exists\n  fqcn: identity.user.create\n  params:\n    name: deploy\n",
+				RunbookYAML: "- name: Make sure deploy exists\n  identity.user.create:\n    name: deploy\n",
 			},
 			{
 				Name:        "Pin uid and shell",
-				RunbookYAML: "- name: Create a service account\n  fqcn: identity.user.create\n  params:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n",
+				RunbookYAML: "- name: Create a service account\n  identity.user.create:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n",
 			},
 		},
 		SeeAlso: []string{"identity.user.modify", "identity.user.remove", "identity.group.create"},

@@ -56,7 +56,7 @@ func modifyDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Change a login shell",
-				RunbookYAML: "- name: Switch deploy to a restricted shell\n  fqcn: identity.user.modify\n  params:\n    name: deploy\n    shell: /usr/sbin/nologin\n",
+				RunbookYAML: "- name: Switch deploy to a restricted shell\n  identity.user.modify:\n    name: deploy\n    shell: /usr/sbin/nologin\n",
 			},
 		},
 		SeeAlso: []string{"identity.user.create", "identity.user.remove"},

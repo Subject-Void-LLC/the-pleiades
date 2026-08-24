@@ -37,7 +37,7 @@ Check a device is reachable over SSH:
 
 ```yaml
 - name: Ping the device
-  fqcn: net.ssh.ping
+  net.ssh.ping:
   register: reachability
 ```
 

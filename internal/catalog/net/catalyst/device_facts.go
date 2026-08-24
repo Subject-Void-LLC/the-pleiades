@@ -66,7 +66,7 @@ func init() {
 					{Name: "device_count", Type: "int", Returned: "always", Description: "The number of devices in the devices fact."},
 				},
 				Examples: []collection.Example{
-					{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  fqcn: net.catalyst.device_facts\n  register: fleet\n"},
+					{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  net.catalyst.device_facts:\n  register: fleet\n"},
 				},
 				SeeAlso: []string{"net.catalyst.reachability", "net.catalyst.site_facts"},
 			},

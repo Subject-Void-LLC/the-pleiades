@@ -33,7 +33,7 @@ func removeDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Remove a package without naming the package manager",
-				RunbookYAML: "- name: Make sure telnet is not installed\n  fqcn: pkg.remove\n  params:\n    name: telnet\n",
+				RunbookYAML: "- name: Make sure telnet is not installed\n  pkg.remove:\n    name: telnet\n",
 			},
 		},
 		[]string{"pkg.install", "pkg.upgrade", "pkg.apt.remove", "pkg.dnf.remove"},

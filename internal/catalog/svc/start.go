@@ -32,7 +32,7 @@ func startDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Start a service without naming the init system",
-				RunbookYAML: "- name: Make sure nginx is running\n  fqcn: svc.start\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Make sure nginx is running\n  svc.start:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.stop", "svc.restart", "svc.enable", "svc.systemd.start"},

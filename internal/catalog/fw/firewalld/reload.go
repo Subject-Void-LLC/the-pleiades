@@ -48,7 +48,7 @@ func reloadDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Persist a rule and apply it now",
-				RunbookYAML: "- name: Allow HTTPS permanently\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fqcn: fw.firewalld.reload\n  params: {}\n",
+				RunbookYAML: "- name: Allow HTTPS permanently\n  fw.firewalld.allow:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fw.firewalld.reload: {}\n",
 			},
 		},
 		SeeAlso: []string{"fw.firewalld.allow", "fw.firewalld.deny"},

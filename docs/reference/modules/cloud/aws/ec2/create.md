@@ -51,8 +51,7 @@ Launch a small instance:
 
 ```yaml
 - name: Launch the build agent
-  fqcn: cloud.aws.ec2.create
-  params:
+  cloud.aws.ec2.create:
     name: build-agent-1
     image_id: ami-0abcdef1234567890
     instance_type: t3.micro

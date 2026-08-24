@@ -58,8 +58,7 @@ Create a plain account:
 
 ```yaml
 - name: Make sure deploy exists
-  fqcn: identity.user.create
-  params:
+  identity.user.create:
     name: deploy
 ```
 
@@ -67,8 +66,7 @@ Pin uid and shell:
 
 ```yaml
 - name: Create a service account
-  fqcn: identity.user.create
-  params:
+  identity.user.create:
     name: appsvc
     uid: 5000
     shell: /usr/sbin/nologin

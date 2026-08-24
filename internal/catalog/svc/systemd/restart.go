@@ -42,7 +42,7 @@ func restartDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Restart after a config change",
-				RunbookYAML: "- name: Write the nginx config\n  fqcn: file.copy\n  params:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  fqcn: svc.systemd.restart\n  params:\n    name: nginx\n  when:\n    - nginx_config.changed\n",
+				RunbookYAML: "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - nginx_config.changed\n",
 			},
 		},
 		[]string{"svc.systemd.start", "svc.systemd.stop", "svc.restart"},

@@ -54,8 +54,7 @@ Install a package:
 
 ```yaml
 - name: Make sure curl is installed
-  fqcn: pkg.dnf.install
-  params:
+  pkg.dnf.install:
     name: curl
 ```
 
@@ -63,8 +62,7 @@ Pin an exact version:
 
 ```yaml
 - name: Install a specific nginx build
-  fqcn: pkg.dnf.install
-  params:
+  pkg.dnf.install:
     name: nginx
     version: 1.24.0-1.el9
 ```

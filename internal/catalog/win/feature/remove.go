@@ -47,7 +47,7 @@ func removeDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Disable IIS",
-				RunbookYAML: "- name: Make sure the web server role is disabled\n  fqcn: win.feature.remove\n  params:\n    name: IIS-WebServerRole\n",
+				RunbookYAML: "- name: Make sure the web server role is disabled\n  win.feature.remove:\n    name: IIS-WebServerRole\n",
 			},
 		},
 		[]string{"win.feature.install"},

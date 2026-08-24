@@ -1,0 +1,28 @@
+# Safety net, not part of the normal flow: run this by hand only if
+# round_trip.yaml's creation task ever reports a failure, to confirm (or
+# finish) removing the loopback it may have partially applied.
+#
+# Verified directly against this device (do not assume otherwise): "no
+# interface <name>" against an interface that does NOT exist is REJECTED
+# ("% Invalid input detected at '^' marker."), not a silent no-op. So
+# this task genuinely fails if the interface is already gone, which is
+# the correct, honest outcome here -- check with verify_absent.yaml
+# first if you are not sure whether round_trip.yaml's cleanup already
+# ran.
+# Shared device: change Loopback8990 to a number of your own before
+# running this, and use the same number in all four runbooks here.
+# See README.md; a runbook cannot yet compute one per run.
+id: catalyst8000-cleanup
+hosts: cat8000
+metadata:
+  service_effecting: false
+  mcp: true
+  mcp_impact: "Removes one loopback interface, if it still exists (no traffic, cannot affect reachability)."
+  mcp_impact_duration: "A few seconds."
+  mcp_description: "Safety-net cleanup for round_trip.yaml's loopback interface, run by hand only after a reported failure."
+
+tasks:
+  - name: Remove the loopback interface, if it is still there
+    net.ios.config:
+      lines:
+        - no interface Loopback8990

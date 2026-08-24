@@ -51,13 +51,11 @@ Enable and start, in that order:
 
 ```yaml
 - name: Make sure the service comes back after a reboot
-  fqcn: svc.enable
-  params:
+  svc.enable:
     name: app
 
 - name: And make sure it is running now
-  fqcn: svc.start
-  params:
+  svc.start:
     name: app
 ```
 

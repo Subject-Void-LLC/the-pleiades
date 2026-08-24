@@ -84,7 +84,7 @@ func execDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Check a running container's own view of a file",
-				RunbookYAML: "- name: Read the app's version file\n  fqcn: container.docker.exec\n  params:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n",
+				RunbookYAML: "- name: Read the app's version file\n  container.docker.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n",
 			},
 		},
 		SeeAlso: []string{"container.docker.run", "container.docker.stop", "container.docker.remove", "exec.shell"},

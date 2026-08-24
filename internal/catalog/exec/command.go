@@ -83,15 +83,15 @@ func commandDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Run a command and register its output",
-				RunbookYAML: "- name: Read the kernel version\n  fqcn: exec.command\n  params:\n    cmd: uname -r\n  register: kernel\n",
+				RunbookYAML: "- name: Read the kernel version\n  exec.command:\n    cmd: uname -r\n  register: kernel\n",
 			},
 			{
 				Name:        "Make a command idempotent with creates",
-				RunbookYAML: "- name: Unpack the release once\n  fqcn: exec.command\n  params:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n",
+				RunbookYAML: "- name: Unpack the release once\n  exec.command:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n",
 			},
 			{
 				Name:        "Pass an argument that a shell would mangle",
-				RunbookYAML: "- name: Write a literal value\n  fqcn: exec.command\n  params:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n",
+				RunbookYAML: "- name: Write a literal value\n  exec.command:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n",
 			},
 		},
 		SeeAlso: []string{"exec.shell"},

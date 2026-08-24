@@ -51,8 +51,7 @@ Point a stable name at a versioned release:
 
 ```yaml
 - name: Point current at the new release
-  fqcn: file.symlink
-  params:
+  file.symlink:
     src: /opt/app/releases/1.4.2
     path: /opt/app/current
 ```
@@ -61,8 +60,7 @@ Repoint a link that already exists:
 
 ```yaml
 - name: Select the staging configuration
-  fqcn: file.symlink
-  params:
+  file.symlink:
     src: /etc/app/config.staging.yaml
     path: /etc/app/config.yaml
 ```
@@ -71,8 +69,7 @@ Use dest, the way a converted playbook writes it:
 
 ```yaml
 - name: Link the vendor binary onto the path
-  fqcn: file.symlink
-  params:
+  file.symlink:
     src: /opt/vendor/bin/tool
     dest: /usr/local/bin/tool
 ```

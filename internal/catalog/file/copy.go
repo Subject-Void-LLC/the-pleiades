@@ -155,15 +155,15 @@ func copyDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Write a configuration file",
-				RunbookYAML: "- name: Install the agent configuration\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n",
+				RunbookYAML: "- name: Install the agent configuration\n  file.copy:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n",
 			},
 			{
 				Name:        "Write a private file",
-				RunbookYAML: "- name: Drop the deploy token\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+				RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 			},
 			{
 				Name:        "Truncate a file to nothing",
-				RunbookYAML: "- name: Empty the local override file\n  fqcn: file.copy\n  params:\n    dest: /etc/app/local.conf\n    content: \"\"\n",
+				RunbookYAML: "- name: Empty the local override file\n  file.copy:\n    dest: /etc/app/local.conf\n    content: \"\"\n",
 			},
 		},
 		SeeAlso: []string{"file.template", "file.touch", "file.permissions", "file.remove"},

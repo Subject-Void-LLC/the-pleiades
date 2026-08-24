@@ -54,8 +54,7 @@ Install a package without naming the package manager:
 
 ```yaml
 - name: Make sure curl is installed
-  fqcn: pkg.install
-  params:
+  pkg.install:
     name: curl
 ```
 

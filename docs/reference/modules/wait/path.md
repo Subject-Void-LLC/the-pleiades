@@ -55,8 +55,7 @@ Wait for a service to write its socket:
 
 ```yaml
 - name: Wait for the socket to appear
-  fqcn: wait.path
-  params:
+  wait.path:
     path: /run/pleiades/api.sock
     timeout: 60
 ```
@@ -65,8 +64,7 @@ Wait for a lock file to be released:
 
 ```yaml
 - name: Wait for the package manager to finish
-  fqcn: wait.path
-  params:
+  wait.path:
     path: /var/lib/dpkg/lock-frontend
     state: absent
     timeout: 300
@@ -77,8 +75,7 @@ Give a slow starter a head start:
 
 ```yaml
 - name: Wait for the pid file, but not immediately
-  fqcn: wait.path
-  params:
+  wait.path:
     path: /run/app.pid
     delay: 10
     timeout: 120

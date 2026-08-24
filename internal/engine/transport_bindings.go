@@ -28,9 +28,10 @@ import (
 // (known_hosts path, retry/breaker tuning, serial read timeouts) is not
 // this package's decision to make.
 //
-// Adding a second real transport (WinRM, NETCONF, ...) is a new
-// MustRegister call here plus a new transport.Transport implementation
-// elsewhere, never a change to transportActionExecutor: the same "data,
+// Adding a second real COMMAND-ORIENTED transport (WinRM, for one) is a
+// new MustRegister call here plus a new transport.Transport
+// implementation elsewhere, never a change to transportActionExecutor:
+// the same "data,
 // not a type switch" property TransportBinding's own doc comment already
 // claims for the map form holds identically for the Registry form.
 // serial_exec, serialtcp_exec, and telnet_exec (Phase 73) are the
@@ -38,6 +39,11 @@ import (
 // change to transportActionExecutor.Execute beyond the
 // RequireOptInParam gate, which is itself data on the binding, not a
 // type switch on the fqcn.
+//
+// NETCONF was named here as a future entry and is not one: it is not
+// Exec-shaped (no command string, no stdout, no exit code), so it has no
+// TransportBinding and never will. See pkg/datastore, the port the
+// structured-configuration protocols use instead.
 func NewDefaultTransportBindings(sshTransport, serialTransport, serialtcpTransport, telnetTransport transport.Transport) *registry.Registry[TransportBinding] {
 	bindings := registry.New[TransportBinding]()
 	bindings.MustRegister("ssh_exec", TransportBinding{

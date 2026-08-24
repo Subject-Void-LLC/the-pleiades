@@ -49,8 +49,7 @@ Create a bucket:
 
 ```yaml
 - name: Create the release artifacts bucket
-  fqcn: cloud.aws.s3.create_bucket
-  params:
+  cloud.aws.s3.create_bucket:
     bucket: my-release-artifacts
 ```
 

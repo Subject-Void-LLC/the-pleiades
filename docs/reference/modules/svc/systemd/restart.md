@@ -51,15 +51,13 @@ Restart after a config change:
 
 ```yaml
 - name: Write the nginx config
-  fqcn: file.copy
-  params:
+  file.copy:
     src: ./nginx.conf
     dest: /etc/nginx/nginx.conf
   register: nginx_config
 
 - name: Restart nginx only if the config actually changed
-  fqcn: svc.systemd.restart
-  params:
+  svc.systemd.restart:
     name: nginx
   when:
     - nginx_config.changed

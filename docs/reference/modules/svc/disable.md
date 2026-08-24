@@ -51,8 +51,7 @@ Take a service out of the boot sequence:
 
 ```yaml
 - name: Stop the service coming back after a reboot
-  fqcn: svc.disable
-  params:
+  svc.disable:
     name: legacy-app
 ```
 

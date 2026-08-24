@@ -51,8 +51,7 @@ Change a group's gid:
 
 ```yaml
 - name: Renumber admins
-  fqcn: identity.group.modify
-  params:
+  identity.group.modify:
     name: admins
     gid: 6000
 ```

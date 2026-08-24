@@ -57,21 +57,35 @@ pre-1.0 project and the honest state is not what the docs' introductions might i
   JetStream caveat above gets **larger in volume and identical in kind**: a template
   binding a cloud credential plus two file-generating ones puts several more secrets on
   the same message, including whole PEM bodies.
-- **Module catalog: 78 registered FQCNs; 71 implemented, 7 declared-not-implemented.** These counts
+- **Module catalog: 81 registered FQCNs; 78 implemented, 3 declared-not-implemented.** These counts
   and every per-method status come from the generated
   `docs/reference/schemas/module-catalog.json`, which `tools/gendocs` builds from the real registry
   and which is authoritative over any hand-written tally in this file — read it rather than trusting
-  this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `file` 10,
-  `pkg` 9, `identity` 6, `net` 5, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
+  this paragraph, which has gone stale before. By namespace, implemented: `svc` 16, `net` 12,
+  `file` 10, `pkg` 9, `identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2,
   `wait` 2, `win` 2, `facts` 1, `http` 1, `pleiades` 1. The `svc` group is the 6 `svc.systemd.*`
   methods, the 5 `svc.windows.*` ones, and the 5 generic `svc.*` ones that resolve a device's
-  service manager and dispatch to whichever applies, all built on `pkg/remotesvc`.
-  **The short and decision-relevant list is what is NOT implemented, all seven of them:**
+  service manager and dispatch to whichever applies, all built on `pkg/remotesvc`. The `net` group
+  is `net.ssh.ping`, the 4 `net.catalyst.*` methods, and, as of Phase 86.5, `net.cli.command` and
+  `net.cli.config` (generic, built on `pkg/netcli.FromPrompt` against a device's own declared
+  `cli_prompt` property) plus 4 Cisco-specific ones on `pkg/netcli.IOS`'s real paging,
+  configuration-mode and error conventions, every one verified directly against a real Cisco IOS XE
+  device: `net.ios.config`, and the follow-on `net.ios.facts` (parses `show version`/`show
+  inventory`/`show ip interface brief`, and is the ONLY fact gatherer a Cisco device has, since
+  `facts.gather` requires `FactGathererCapable` which no Cisco device type declares),
+  `net.ios.ping` (pings FROM the device, a different question from `net.ssh.ping`'s "can this
+  platform reach the device"), and `net.ios.save` (`write memory`). The twelfth is
+  `net.netconf.config`, Phase 74a's, and it is the only one in the group that is not a terminal
+  session at all: it speaks RFC 6241 NETCONF over an SSH subsystem channel (`pkg/netconf`,
+  implementing the shared `pkg/datastore` port), so a rejected element comes back as a structured
+  error carrying the device's own error-tag and the XPath it objected to, rather than as a line of
+  vendor text. Its parameter names are `ansible.netcommon.netconf_config`'s.
+  **The short and decision-relevant list is what is NOT implemented, all three of them:**
   `file.template` — deliberate and not a gap to close casually, since the render engine lives in
-  `internal/render` and a Collection may not import `internal/`; `net.cli.command`,
-  `net.cli.config` and `net.ios.config`, blocked on Phase 86.5's interactive network CLI
-  transport; and `net.netconf.config`, `net.junos.config` and `net.eos.config`, blocked on
-  Phase 74. Each returns an explicit "declared but not implemented" error rather than a silent
+  `internal/render` and a Collection may not import `internal/`; and
+  `net.junos.config` and `net.eos.config`, which need a `JunosCapable`/`AristaEOSCapable` device
+  type that does not exist yet (Phase 74d).
+  Each returns an explicit "declared but not implemented" error rather than a silent
   no-op, though that error is a backstop rather than the mechanism: the dispatcher refuses any
   method whose `Status` is not `StatusImplemented` before its body is ever called
   (`internal/engine/collection_action.go`).

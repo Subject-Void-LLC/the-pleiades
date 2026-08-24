@@ -50,8 +50,7 @@ Stop a container:
 
 ```yaml
 - name: Stop web
-  fqcn: container.docker.stop
-  params:
+  container.docker.stop:
     name: web
 ```
 

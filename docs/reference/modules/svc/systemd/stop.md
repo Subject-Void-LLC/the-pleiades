@@ -51,8 +51,7 @@ Stop a service:
 
 ```yaml
 - name: Stop nginx before swapping its config
-  fqcn: svc.systemd.stop
-  params:
+  svc.systemd.stop:
     name: nginx
 ```
 
@@ -60,13 +59,11 @@ Stop it now and keep it from coming back at boot:
 
 ```yaml
 - name: Stop nginx
-  fqcn: svc.systemd.stop
-  params:
+  svc.systemd.stop:
     name: nginx
 
 - name: Keep nginx from starting at boot
-  fqcn: svc.systemd.disable
-  params:
+  svc.systemd.disable:
     name: nginx
 ```
 

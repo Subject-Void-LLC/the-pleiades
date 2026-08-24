@@ -53,11 +53,11 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Remove a stopped container",
-				RunbookYAML: "- name: Remove web\n  fqcn: container.docker.remove\n  params:\n    name: web\n",
+				RunbookYAML: "- name: Remove web\n  container.docker.remove:\n    name: web\n",
 			},
 			{
 				Name:        "Force-remove a running container",
-				RunbookYAML: "- name: Remove web even if it is still running\n  fqcn: container.docker.remove\n  params:\n    name: web\n    force: true\n",
+				RunbookYAML: "- name: Remove web even if it is still running\n  container.docker.remove:\n    name: web\n    force: true\n",
 			},
 		},
 		SeeAlso: []string{"container.docker.run", "container.docker.stop"},

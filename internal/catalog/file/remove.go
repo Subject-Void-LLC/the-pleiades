@@ -109,15 +109,15 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Remove a file",
-				RunbookYAML: "- name: Drop the leftover lock file\n  fqcn: file.remove\n  params:\n    path: /var/run/deploy.lock\n",
+				RunbookYAML: "- name: Drop the leftover lock file\n  file.remove:\n    path: /var/run/deploy.lock\n",
 			},
 			{
 				Name:        "Remove an empty directory",
-				RunbookYAML: "- name: Drop the empty spool directory\n  fqcn: file.remove\n  params:\n    path: /var/spool/old-queue\n",
+				RunbookYAML: "- name: Drop the empty spool directory\n  file.remove:\n    path: /var/spool/old-queue\n",
 			},
 			{
 				Name:        "Remove a directory and everything in it",
-				RunbookYAML: "- name: Drop the previous release\n  fqcn: file.remove\n  params:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n",
+				RunbookYAML: "- name: Drop the previous release\n  file.remove:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n",
 			},
 		},
 		SeeAlso: []string{"file.directory", "file.touch"},

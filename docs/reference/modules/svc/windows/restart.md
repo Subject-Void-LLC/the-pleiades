@@ -50,15 +50,13 @@ Restart after a config change:
 
 ```yaml
 - name: Write the app's config
-  fqcn: file.copy
-  params:
+  file.copy:
     src: ./app.config
     dest: C:\Program Files\App\app.config
   register: app_config
 
 - name: Restart the app service only if the config actually changed
-  fqcn: svc.windows.restart
-  params:
+  svc.windows.restart:
     name: AppService
   when:
     - app_config.changed

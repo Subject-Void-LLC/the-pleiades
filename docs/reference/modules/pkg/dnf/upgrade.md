@@ -53,8 +53,7 @@ Keep a package at its newest available version:
 
 ```yaml
 - name: Keep openssl current
-  fqcn: pkg.dnf.upgrade
-  params:
+  pkg.dnf.upgrade:
     name: openssl
 ```
 

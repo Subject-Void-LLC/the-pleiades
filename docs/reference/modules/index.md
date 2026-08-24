@@ -18,13 +18,13 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | `fw` | 3 | 3 |
 | `http` | 1 | 1 |
 | `identity` | 6 | 6 |
-| `net` | 11 | 5 |
+| `net` | 14 | 12 |
 | `pkg` | 9 | 9 |
 | `pleiades` | 1 | 1 |
 | `svc` | 16 | 16 |
 | `wait` | 2 | 2 |
 | `win` | 2 | 2 |
-| **total** | **78** | **71** |
+| **total** | **81** | **78** |
 
 ## All methods
 
@@ -71,12 +71,15 @@ Every registered Collection method, grouped by namespace. A `declared` method is
 | [net.catalyst.reachability](net/catalyst/reachability.md) | implemented | Reports which devices a Cisco Catalyst Center can currently reach and manage. |
 | [net.catalyst.site_facts](net/catalyst/site_facts.md) | implemented | Gathers a Cisco Catalyst Center's site hierarchy, as facts. |
 | [net.catalyst.tag_facts](net/catalyst/tag_facts.md) | implemented | Gathers the tags defined on a Cisco Catalyst Center, as facts. |
-| [net.cli.command](net/cli/command.md) | declared | Runs one show/exec-mode command against a network device's CLI. |
-| [net.cli.config](net/cli/config.md) | declared | Applies configuration lines to a network device over its CLI. |
+| [net.cli.command](net/cli/command.md) | implemented | Runs one show/exec-mode command against a network device's CLI. |
+| [net.cli.config](net/cli/config.md) | implemented | Applies configuration lines to a network device over its CLI. |
 | [net.eos.config](net/eos/config.md) | declared | Applies configuration to an Arista EOS device. |
-| [net.ios.config](net/ios/config.md) | declared | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
+| [net.ios.config](net/ios/config.md) | implemented | Applies configuration lines to a Cisco IOS device, with an optional pre-change backup. |
+| [net.ios.facts](net/ios/facts.md) | implemented | Gathers structured facts from a Cisco IOS device over its CLI. |
+| [net.ios.ping](net/ios/ping.md) | implemented | Runs a ping from a Cisco IOS device and reports the result. |
+| [net.ios.save](net/ios/save.md) | implemented | Saves a Cisco IOS device's running configuration to startup. |
 | [net.junos.config](net/junos/config.md) | declared | Applies configuration to a Juniper Junos device. |
-| [net.netconf.config](net/netconf/config.md) | declared | Applies configuration to a device over NETCONF. |
+| [net.netconf.config](net/netconf/config.md) | implemented | Applies a configuration document to a device over NETCONF, with an optional pre-change backup. |
 | [net.ssh.ping](net/ssh/ping.md) | implemented | Opens a real SSH connection to the target and echoes a value back, to prove reachability. |
 | [pkg.apt.install](pkg/apt/install.md) | implemented | Makes sure a package is installed via APT. |
 | [pkg.apt.remove](pkg/apt/remove.md) | implemented | Removes a package via APT. |

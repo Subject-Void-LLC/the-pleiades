@@ -34,8 +34,8 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the account before this task and after it, each holding exists, uid, gid, comment, home and shell. Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Create a plain account", RunbookYAML: "- name: Make sure deploy exists\n  fqcn: identity.user.create\n  params:\n    name: deploy\n"},
-				{Name: "Pin uid and shell", RunbookYAML: "- name: Create a service account\n  fqcn: identity.user.create\n  params:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n"},
+				{Name: "Create a plain account", RunbookYAML: "- name: Make sure deploy exists\n  identity.user.create:\n    name: deploy\n"},
+				{Name: "Pin uid and shell", RunbookYAML: "- name: Create a service account\n  identity.user.create:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n"},
 			},
 			SeeAlso: []string{"identity.user.modify", "identity.user.remove", "identity.group.create"},
 		},
@@ -63,7 +63,7 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the account before this task and after it, each holding exists, uid, gid, comment, home and shell."},
 			},
 			Examples: []collection.Example{
-				{Name: "Change a login shell", RunbookYAML: "- name: Switch deploy to a restricted shell\n  fqcn: identity.user.modify\n  params:\n    name: deploy\n    shell: /usr/sbin/nologin\n"},
+				{Name: "Change a login shell", RunbookYAML: "- name: Switch deploy to a restricted shell\n  identity.user.modify:\n    name: deploy\n    shell: /usr/sbin/nologin\n"},
 			},
 			SeeAlso: []string{"identity.user.create", "identity.user.remove"},
 		},
@@ -87,8 +87,8 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the account before this task and after it. After always reports exists: false on a successful run."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove an account", RunbookYAML: "- name: Make sure the old deploy account is gone\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n"},
-				{Name: "Remove an account and its home directory", RunbookYAML: "- name: Remove deploy entirely\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n    remove: true\n"},
+				{Name: "Remove an account", RunbookYAML: "- name: Make sure the old deploy account is gone\n  identity.user.remove:\n    name: deploy\n"},
+				{Name: "Remove an account and its home directory", RunbookYAML: "- name: Remove deploy entirely\n  identity.user.remove:\n    name: deploy\n    remove: true\n"},
 			},
 			SeeAlso: []string{"identity.user.create", "identity.user.modify"},
 		},
@@ -113,8 +113,8 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the group before this task and after it, each holding exists and gid. Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Create a plain group", RunbookYAML: "- name: Make sure admins exists\n  fqcn: identity.group.create\n  params:\n    name: admins\n"},
-				{Name: "Pin a gid", RunbookYAML: "- name: Create a service group\n  fqcn: identity.group.create\n  params:\n    name: appsvc\n    gid: 5000\n    system: true\n"},
+				{Name: "Create a plain group", RunbookYAML: "- name: Make sure admins exists\n  identity.group.create:\n    name: admins\n"},
+				{Name: "Pin a gid", RunbookYAML: "- name: Create a service group\n  identity.group.create:\n    name: appsvc\n    gid: 5000\n    system: true\n"},
 			},
 			SeeAlso: []string{"identity.group.modify", "identity.group.remove", "identity.user.create"},
 		},
@@ -138,7 +138,7 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the group before this task and after it, each holding exists and gid."},
 			},
 			Examples: []collection.Example{
-				{Name: "Change a group's gid", RunbookYAML: "- name: Renumber admins\n  fqcn: identity.group.modify\n  params:\n    name: admins\n    gid: 6000\n"},
+				{Name: "Change a group's gid", RunbookYAML: "- name: Renumber admins\n  identity.group.modify:\n    name: admins\n    gid: 6000\n"},
 			},
 			SeeAlso: []string{"identity.group.create", "identity.group.remove"},
 		},
@@ -161,7 +161,7 @@ var identityCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What getent reported about the group before this task and after it. After always reports exists: false on a successful run."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove a group", RunbookYAML: "- name: Make sure the old admins group is gone\n  fqcn: identity.group.remove\n  params:\n    name: admins\n"},
+				{Name: "Remove a group", RunbookYAML: "- name: Make sure the old admins group is gone\n  identity.group.remove:\n    name: admins\n"},
 			},
 			SeeAlso: []string{"identity.group.create", "identity.group.modify"},
 		},

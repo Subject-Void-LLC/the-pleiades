@@ -37,8 +37,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the rule was allowed in the permanent configuration and in the runtime one, before this task and after it. Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Open a port", RunbookYAML: "- name: Allow HTTPS\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n"},
-				{Name: "Allow a service immediately without persisting it", RunbookYAML: "- name: Temporarily allow SSH from a maintenance zone\n  fqcn: fw.firewalld.allow\n  params:\n    service: ssh\n    zone: maintenance\n    permanent: false\n"},
+				{Name: "Open a port", RunbookYAML: "- name: Allow HTTPS\n  fw.firewalld.allow:\n    port: 443\n"},
+				{Name: "Allow a service immediately without persisting it", RunbookYAML: "- name: Temporarily allow SSH from a maintenance zone\n  fw.firewalld.allow:\n    service: ssh\n    zone: maintenance\n    permanent: false\n"},
 			},
 			SeeAlso: []string{"fw.firewalld.deny", "fw.firewalld.reload"},
 		},
@@ -66,7 +66,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "Whether the rule was allowed in the permanent configuration and in the runtime one, before this task and after it. Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Close a port", RunbookYAML: "- name: Deny telnet\n  fqcn: fw.firewalld.deny\n  params:\n    port: 23\n"},
+				{Name: "Close a port", RunbookYAML: "- name: Deny telnet\n  fw.firewalld.deny:\n    port: 23\n"},
 			},
 			SeeAlso: []string{"fw.firewalld.allow", "fw.firewalld.reload"},
 		},
@@ -84,7 +84,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Persist a rule and apply it now", RunbookYAML: "- name: Allow HTTPS permanently\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fqcn: fw.firewalld.reload\n  params: {}\n"},
+				{Name: "Persist a rule and apply it now", RunbookYAML: "- name: Allow HTTPS permanently\n  fw.firewalld.allow:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fw.firewalld.reload: {}\n"},
 			},
 			SeeAlso: []string{"fw.firewalld.allow", "fw.firewalld.deny"},
 		},
@@ -112,8 +112,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What findmnt and the fstab file reported about path before this task and after it, each holding mounted, source, fstype, options and persisted. Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Mount and persist a data volume", RunbookYAML: "- name: Mount the data volume\n  fqcn: fs.mount\n  params:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n"},
-				{Name: "Mount without touching fstab", RunbookYAML: "- name: Mount a scratch volume for this run only\n  fqcn: fs.mount\n  params:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n"},
+				{Name: "Mount and persist a data volume", RunbookYAML: "- name: Mount the data volume\n  fs.mount:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n"},
+				{Name: "Mount without touching fstab", RunbookYAML: "- name: Mount a scratch volume for this run only\n  fs.mount:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n"},
 			},
 			SeeAlso: []string{"fs.unmount"},
 		},
@@ -138,8 +138,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What findmnt and the fstab file reported about path before this task and after it, each holding mounted, source, fstype, options and persisted. After always reports mounted: false on a successful unmount."},
 			},
 			Examples: []collection.Example{
-				{Name: "Unmount and forget a volume", RunbookYAML: "- name: Unmount the old data volume\n  fqcn: fs.unmount\n  params:\n    path: /data\n"},
-				{Name: "Unmount but leave the fstab entry", RunbookYAML: "- name: Unmount temporarily for maintenance\n  fqcn: fs.unmount\n  params:\n    path: /data\n    persist: false\n"},
+				{Name: "Unmount and forget a volume", RunbookYAML: "- name: Unmount the old data volume\n  fs.unmount:\n    path: /data\n"},
+				{Name: "Unmount but leave the fstab entry", RunbookYAML: "- name: Unmount temporarily for maintenance\n  fs.unmount:\n    path: /data\n    persist: false\n"},
 			},
 			SeeAlso: []string{"fs.mount"},
 		},
@@ -162,7 +162,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Enable IIS", RunbookYAML: "- name: Make sure the web server role is enabled\n  fqcn: win.feature.install\n  params:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  fqcn: exec.winrm.shell\n  params:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"},
+				{Name: "Enable IIS", RunbookYAML: "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  exec.winrm.shell:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"},
 			},
 			SeeAlso: []string{"win.feature.remove"},
 		},
@@ -185,7 +185,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What DISM reported about the feature before this task and after it, each holding exists and state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Disable IIS", RunbookYAML: "- name: Make sure the web server role is disabled\n  fqcn: win.feature.remove\n  params:\n    name: IIS-WebServerRole\n"},
+				{Name: "Disable IIS", RunbookYAML: "- name: Make sure the web server role is disabled\n  win.feature.remove:\n    name: IIS-WebServerRole\n"},
 			},
 			SeeAlso: []string{"win.feature.install"},
 		},
@@ -210,8 +210,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What path looked like before this task and after it (exists, kind, mode, owner, group, size, mtime). Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Archive a directory", RunbookYAML: "- name: Archive the release build\n  fqcn: archive.create\n  params:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n"},
-				{Name: "Archive and remove the originals", RunbookYAML: "- name: Archive old logs and delete them\n  fqcn: archive.create\n  params:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n"},
+				{Name: "Archive a directory", RunbookYAML: "- name: Archive the release build\n  archive.create:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n"},
+				{Name: "Archive and remove the originals", RunbookYAML: "- name: Archive old logs and delete them\n  archive.create:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n"},
 			},
 			SeeAlso: []string{"archive.extract", "file.remove"},
 		},
@@ -236,8 +236,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What dest looked like before this task and after it (exists, kind, mode, owner, group, size, mtime). Recorded even on a run that skipped extraction because creates was already there."},
 			},
 			Examples: []collection.Example{
-				{Name: "Extract a build already staged on the target", RunbookYAML: "- name: Unpack the release\n  fqcn: archive.extract\n  params:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n"},
-				{Name: "Extract only once", RunbookYAML: "- name: Unpack the SDK if it is not already there\n  fqcn: archive.extract\n  params:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n"},
+				{Name: "Extract a build already staged on the target", RunbookYAML: "- name: Unpack the release\n  archive.extract:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n"},
+				{Name: "Extract only once", RunbookYAML: "- name: Unpack the SDK if it is not already there\n  archive.extract:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n"},
 			},
 			SeeAlso: []string{"archive.create"},
 		},
@@ -266,7 +266,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it (exists, status). Recorded even on a run that changed nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  fqcn: container.docker.run\n  params:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"},
+				{Name: "Run a container", RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"},
 			},
 			SeeAlso: []string{"container.docker.stop", "container.docker.remove"},
 		},
@@ -289,7 +289,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it (exists, status)."},
 			},
 			Examples: []collection.Example{
-				{Name: "Stop a container", RunbookYAML: "- name: Stop web\n  fqcn: container.docker.stop\n  params:\n    name: web\n"},
+				{Name: "Stop a container", RunbookYAML: "- name: Stop web\n  container.docker.stop:\n    name: web\n"},
 			},
 			SeeAlso: []string{"container.docker.run", "container.docker.remove"},
 		},
@@ -313,8 +313,8 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What docker inspect reported about the container before this task and after it. After always reports exists: false on a successful run."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove a stopped container", RunbookYAML: "- name: Remove web\n  fqcn: container.docker.remove\n  params:\n    name: web\n"},
-				{Name: "Force-remove a running container", RunbookYAML: "- name: Remove web even if it is still running\n  fqcn: container.docker.remove\n  params:\n    name: web\n    force: true\n"},
+				{Name: "Remove a stopped container", RunbookYAML: "- name: Remove web\n  container.docker.remove:\n    name: web\n"},
+				{Name: "Force-remove a running container", RunbookYAML: "- name: Remove web even if it is still running\n  container.docker.remove:\n    name: web\n    force: true\n"},
 			},
 			SeeAlso: []string{"container.docker.run", "container.docker.stop"},
 		},
@@ -339,7 +339,7 @@ var extendedCollections = []collectionscaffold.Config{
 				{Name: "stderr", Type: "string", Returned: "always", Description: "Everything the command wrote to standard error."},
 			},
 			Examples: []collection.Example{
-				{Name: "Check a running container's own view of a file", RunbookYAML: "- name: Read the app's version file\n  fqcn: container.docker.exec\n  params:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"},
+				{Name: "Check a running container's own view of a file", RunbookYAML: "- name: Read the app's version file\n  container.docker.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"},
 			},
 			SeeAlso: []string{"container.docker.run", "container.docker.stop", "container.docker.remove", "exec.shell"},
 		},
@@ -370,7 +370,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Launch a small instance",
-					RunbookYAML: "- name: Launch the build agent\n  fqcn: cloud.aws.ec2.create\n  params:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n",
+					RunbookYAML: "- name: Launch the build agent\n  cloud.aws.ec2.create:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n",
 				},
 			},
 			SeeAlso: []string{"cloud.aws.ec2.terminate"},
@@ -396,7 +396,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Terminate an instance",
-					RunbookYAML: "- name: Tear down the build agent\n  fqcn: cloud.aws.ec2.terminate\n  params:\n    instance_id: i-0123456789abcdef0\n",
+					RunbookYAML: "- name: Tear down the build agent\n  cloud.aws.ec2.terminate:\n    instance_id: i-0123456789abcdef0\n",
 				},
 			},
 			SeeAlso: []string{"cloud.aws.ec2.create"},
@@ -425,7 +425,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Create a bucket",
-					RunbookYAML: "- name: Create the release artifacts bucket\n  fqcn: cloud.aws.s3.create_bucket\n  params:\n    bucket: my-release-artifacts\n",
+					RunbookYAML: "- name: Create the release artifacts bucket\n  cloud.aws.s3.create_bucket:\n    bucket: my-release-artifacts\n",
 				},
 			},
 			SeeAlso: []string{"cloud.aws.s3.delete_bucket"},
@@ -450,7 +450,7 @@ var extendedCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Delete a bucket",
-					RunbookYAML: "- name: Remove the release artifacts bucket\n  fqcn: cloud.aws.s3.delete_bucket\n  params:\n    bucket: my-release-artifacts\n",
+					RunbookYAML: "- name: Remove the release artifacts bucket\n  cloud.aws.s3.delete_bucket:\n    bucket: my-release-artifacts\n",
 				},
 			},
 			SeeAlso: []string{"cloud.aws.s3.create_bucket"},

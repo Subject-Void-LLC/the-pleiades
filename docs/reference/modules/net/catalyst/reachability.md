@@ -51,11 +51,11 @@ Gate a change on full fleet reachability:
 
 ```yaml
 - name: Confirm the fleet is reachable before changing anything
-  fqcn: net.catalyst.reachability
+  net.catalyst.reachability:
   register: health
 
 - name: Apply the change
-  fqcn: net.ios.config
+  net.ios.config:
   when_cel: "stat.health[''].unreachable.size() == 0"
 ```
 

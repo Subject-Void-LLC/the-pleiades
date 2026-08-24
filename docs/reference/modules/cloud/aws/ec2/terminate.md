@@ -48,8 +48,7 @@ Terminate an instance:
 
 ```yaml
 - name: Tear down the build agent
-  fqcn: cloud.aws.ec2.terminate
-  params:
+  cloud.aws.ec2.terminate:
     instance_id: i-0123456789abcdef0
 ```
 

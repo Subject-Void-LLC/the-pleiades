@@ -46,11 +46,11 @@ func startDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Start a service",
-				RunbookYAML: "- name: Make sure nginx is running\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Make sure nginx is running\n  svc.systemd.start:\n    name: nginx\n",
 			},
 			{
 				Name:        "Start it and make it survive a reboot",
-				RunbookYAML: "- name: Start nginx\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n\n- name: Make nginx start at boot too\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Start nginx\n  svc.systemd.start:\n    name: nginx\n\n- name: Make nginx start at boot too\n  svc.systemd.enable:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.systemd.stop", "svc.systemd.restart", "svc.systemd.enable", "svc.start"},

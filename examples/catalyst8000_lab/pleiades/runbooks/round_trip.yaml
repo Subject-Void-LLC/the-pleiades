@@ -1,0 +1,67 @@
+# Non-destructive demo against the DevNet Catalyst 8000 Always-On
+# sandbox, a SHARED resource: its own rules forbid anything that could
+# affect connectivity. A loopback interface carries no traffic and
+# cannot affect reachability to or through the device, which is what
+# makes it the safe thing to create here.
+#
+# Read the safety note at the bottom before running this against any
+# device you did not choose the blast radius of yourself.
+# Shared device: change Loopback8990 to a number of your own before
+# running this, and use the same number in all four runbooks here.
+# See README.md; a runbook cannot yet compute one per run.
+id: catalyst8000-round-trip
+hosts: cat8000
+metadata:
+  service_effecting: false
+  mcp: true
+  mcp_impact: "Creates one loopback interface (no traffic, cannot affect reachability), then removes it again in the same run."
+  mcp_impact_duration: "A few seconds; the interface does not persist past this run."
+  mcp_description: "Demonstrates net.cli.command and net.ios.config against a real Cisco IOS XE device, round-tripping a throwaway loopback interface."
+
+tasks:
+  - name: Record the software version (read-only, proves net.cli.command works)
+    net.cli.command:
+      # Filtered through IOS's own "| include", not the raw "show
+      # version": net.cli.command has no way to disable a generic
+      # device's pager (see its own Doc.Description), and this
+      # device's default terminal length paginates the raw command's
+      # full output, which net.cli.command cannot answer -- verified
+      # directly, and now bounded to a clear 30s error rather than an
+      # indefinite hang, but a filtered command avoiding the pager
+      # entirely is the better fix for a task that should just work.
+      command: show version | include Version
+    register: version
+
+  - name: Create a loopback interface, with a pre-change backup
+    net.ios.config:
+      backup: true
+      lines:
+        - interface Loopback8990
+        - description pleiades-demo-round-trip
+    # A full running-config is not sanitized fact data: it genuinely
+    # contains this device's own enable secret, enable password, local
+    # user password hash, and TACACS+ shared key, in whatever strength
+    # (or weakness -- Cisco's own "type 7" is trivially reversible)
+    # encoding the device applies to each. Confirmed directly on this
+    # exact device's own backup output. Mask it, the same way
+    # examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml already
+    # masks a plain "show running-config" for the identical reason.
+    register_mask: backup
+
+  - name: Remove the loopback interface again
+    net.ios.config:
+      lines:
+        - no interface Loopback8990
+
+# Safety note: Pleiades does not yet execute rescue:/always: blocks.
+# The runbook schema accepts block:/rescue:, but no executor routes
+# anything to them yet, so nothing in this platform can guarantee the
+# removal
+# task above runs if the creation task fails partway through -- for
+# instance a network hiccup after "description ..." was sent but before
+# "end" was, which would leave the device sitting in configuration mode.
+# The two tasks are placed directly adjacent, with nothing else between
+# them that could itself fail, specifically to keep that window as small
+# as it can be with today's engine. If this runbook ever reports the
+# creation task failed, run cleanup.yaml immediately afterward to
+# confirm (and finish, if needed) the removal by hand.

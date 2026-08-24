@@ -33,6 +33,28 @@ const ParamInsecureSkipHostKeyVerify = "insecure_skip_host_key_verify"
 // fqcn is the caller's own method name, used only to prefix errors, so
 // an operator reading a failure knows which task produced it.
 func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string) (*remoteexec.Conn, error) {
+	return connect(ctx, rc, device, params, fqcn, 0)
+}
+
+// ConnectPort is Connect against an explicit TCP port rather than the
+// device's declared SSH port.
+//
+// It exists for the protocols that ride an SSH connection but do not
+// live on the SSH port. NETCONF is the first: it is a subsystem on an
+// ordinary SSH connection, so port 22 SHOULD serve it, and a real Cisco
+// IOS XE device accepts the subsystem request on 22 and then
+// immediately ends the channel, serving NETCONF only on 830. The port a
+// protocol is reached on is therefore the protocol's own capability to
+// declare (capability.NetconfCapable's NetconfPort), not something
+// derivable from SSHPort.
+//
+// A port of 0 means "use the device's declared SSH port", which is what
+// Connect passes.
+func ConnectPort(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int) (*remoteexec.Conn, error) {
+	return connect(ctx, rc, device, params, fqcn, port)
+}
+
+func connect(ctx context.Context, rc RunbookContext, device inventory.InventoryItem, params map[string]any, fqcn string, port int) (*remoteexec.Conn, error) {
 	if device == nil {
 		return nil, fmt.Errorf("%s: no target device: set the task's target or the runbook's hosts", fqcn)
 	}
@@ -41,6 +63,9 @@ func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 	if !ok {
 		return nil, fmt.Errorf("%s: device %q is not reachable over SSH (it does not implement %s)",
 			fqcn, device.Name(), capability.NameSSHTransport)
+	}
+	if port == 0 {
+		port = sshDev.SSHPort()
 	}
 
 	// Credentials arrive through InjectSecrets rather than through params,
@@ -59,7 +84,7 @@ func Connect(ctx context.Context, rc RunbookContext, device inventory.InventoryI
 		InsecureSkipHostKeyVerify: BoolParam(params, ParamInsecureSkipHostKeyVerify),
 	})
 
-	conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: sshDev.SSHHost(), Port: sshDev.SSHPort()}, auth)
+	conn, err := runner.Connect(ctx, nil, remoteexec.Target{Host: sshDev.SSHHost(), Port: port}, auth)
 	if err != nil {
 		return nil, fmt.Errorf("%s: device %q: %w", fqcn, device.Name(), err)
 	}

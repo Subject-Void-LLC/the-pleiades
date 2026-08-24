@@ -76,12 +76,12 @@ var _ inventory.InventoryItem = (*Switch)(nil)
 // it.
 func NewSwitch(rec record.Record) (inventory.InventoryItem, error) {
 	caps := policy.UnionSlices(
-		[]capability.Name{
+		netconfBaseline(rec, []capability.Name{
 			capability.Name("SSHTransportCapable"),
 			capability.Name("CiscoIOSCapable"),
 			capability.Name("NetworkCLICapable"),
 			capability.NameNetworkAddressable,
-		},
+		}),
 		rec.Capabilities,
 	)
 	base := record.NewBase(rec, caps)
@@ -129,10 +129,23 @@ func (c *Switch) IOSVersion() string {
 	return v
 }
 
-// SupportsNETCONF reports whether NETCONF/YANG is enabled on this switch.
+// SupportsNETCONF reports whether NETCONF/YANG is enabled on this
+// switch. See Router.SupportsNETCONF for why it is kept despite being
+// redundant with NetconfPort.
 func (c *Switch) SupportsNETCONF() bool {
 	v, _ := c.Properties().Bool("netconf_enabled")
 	return v
+}
+
+// NetconfPort returns the switch's NETCONF listener port, the structural
+// half of capability.NetconfCapable, defaulting to 830. See
+// Router.NetconfPort for why the default is a measured choice rather
+// than a formality.
+func (c *Switch) NetconfPort() int {
+	if port, ok := c.Properties().Int("netconf_port"); ok && port != 0 {
+		return port
+	}
+	return 830
 }
 
 // CLIPrompt returns the switch's configured CLI prompt string, the

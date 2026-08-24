@@ -58,7 +58,7 @@ func createDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Launch a small instance",
-				RunbookYAML: "- name: Launch the build agent\n  fqcn: cloud.aws.ec2.create\n  params:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n",
+				RunbookYAML: "- name: Launch the build agent\n  cloud.aws.ec2.create:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n",
 			},
 		},
 		SeeAlso: []string{"cloud.aws.ec2.terminate"},

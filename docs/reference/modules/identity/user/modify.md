@@ -55,8 +55,7 @@ Change a login shell:
 
 ```yaml
 - name: Switch deploy to a restricted shell
-  fqcn: identity.user.modify
-  params:
+  identity.user.modify:
     name: deploy
     shell: /usr/sbin/nologin
 ```

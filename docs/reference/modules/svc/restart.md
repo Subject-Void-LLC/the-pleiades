@@ -51,15 +51,13 @@ Restart only when the config changed:
 
 ```yaml
 - name: Write the config
-  fqcn: file.copy
-  params:
+  file.copy:
     src: ./app.conf
     dest: /etc/app/app.conf
   register: app_config
 
 - name: Restart the service if the config changed
-  fqcn: svc.restart
-  params:
+  svc.restart:
     name: app
   when:
     - app_config.changed

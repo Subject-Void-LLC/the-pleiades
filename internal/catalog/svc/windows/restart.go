@@ -43,7 +43,7 @@ func restartDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Restart after a config change",
-				RunbookYAML: "- name: Write the app's config\n  fqcn: file.copy\n  params:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  fqcn: svc.windows.restart\n  params:\n    name: AppService\n  when:\n    - app_config.changed\n",
+				RunbookYAML: "- name: Write the app's config\n  file.copy:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - app_config.changed\n",
 			},
 		},
 		[]string{"svc.windows.start", "svc.windows.stop", "svc.restart"},

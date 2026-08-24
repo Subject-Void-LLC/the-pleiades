@@ -116,15 +116,15 @@ func touchDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Create a marker file",
-				RunbookYAML: "- name: Mark the host as provisioned\n  fqcn: file.touch\n  params:\n    path: /var/lib/pleiades/provisioned\n",
+				RunbookYAML: "- name: Mark the host as provisioned\n  file.touch:\n    path: /var/lib/pleiades/provisioned\n",
 			},
 			{
 				Name:        "Create a log file with an owner and a mode",
-				RunbookYAML: "- name: Make the log file the service will append to\n  fqcn: file.touch\n  params:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n",
+				RunbookYAML: "- name: Make the log file the service will append to\n  file.touch:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n",
 			},
 			{
 				Name:        "Act only when the file had to be created",
-				RunbookYAML: "- name: Create the seed file\n  fqcn: file.touch\n  params:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  fqcn: exec.command\n  params:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
+				RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
 			},
 		},
 		SeeAlso: []string{"file.remove", "file.permissions", "file.copy"},

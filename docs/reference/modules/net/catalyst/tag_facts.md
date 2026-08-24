@@ -44,7 +44,7 @@ Gather operator-created tags:
 
 ```yaml
 - name: Gather Catalyst Center tag facts
-  fqcn: net.catalyst.tag_facts
+  net.catalyst.tag_facts:
   register: tags
 ```
 

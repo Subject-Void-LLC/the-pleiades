@@ -55,8 +55,7 @@ Open a port:
 
 ```yaml
 - name: Allow HTTPS
-  fqcn: fw.firewalld.allow
-  params:
+  fw.firewalld.allow:
     port: 443
 ```
 
@@ -64,8 +63,7 @@ Allow a service immediately without persisting it:
 
 ```yaml
 - name: Temporarily allow SSH from a maintenance zone
-  fqcn: fw.firewalld.allow
-  params:
+  fw.firewalld.allow:
     service: ssh
     zone: maintenance
     permanent: false

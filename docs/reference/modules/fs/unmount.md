@@ -51,8 +51,7 @@ Unmount and forget a volume:
 
 ```yaml
 - name: Unmount the old data volume
-  fqcn: fs.unmount
-  params:
+  fs.unmount:
     path: /data
 ```
 
@@ -60,8 +59,7 @@ Unmount but leave the fstab entry:
 
 ```yaml
 - name: Unmount temporarily for maintenance
-  fqcn: fs.unmount
-  params:
+  fs.unmount:
     path: /data
     persist: false
 ```

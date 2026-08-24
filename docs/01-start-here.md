@@ -206,14 +206,19 @@ above is not built yet: no GitOps auto-discovery of playbooks in a synced reposi
 socket). And host key verification is disabled inside the container, since it has no
 source for a target's known host key yet.
 
-**The module catalog has 77 declared methods across 16 namespaces; 34 are
-implemented.** Every FQCN is registered and reachable through the real dispatcher:
-calling one produces an explicit `"declared but not implemented"` refusal rather than
-a silent no-op or a fabricated success, whether the call comes from the CLI, the
-Controller, or a runner. The four `net.catalyst.*` methods, against Cisco Catalyst
-Center's REST API, plus `net.ssh.ping`, `exec.command` and `exec.shell`, against any
-SSH-reachable device, plus most of the `file.*` namespace and the read-only `wait.*`,
-`facts.gather` and `http.request` methods, are real today. `exec.command` is the first method
+**The module catalog has 81 registered methods across 16 namespaces; 78 are
+implemented and 3 are declared but not implemented.** Every FQCN is registered and
+reachable through the real dispatcher, and the short, decision-relevant list is the one
+that is NOT implemented, all three of them: `file.template`, `net.junos.config` and
+`net.eos.config`. Calling one of those produces an explicit
+`"declared but not implemented"` refusal rather than a silent no-op or a fabricated
+success, whether the call comes from the CLI, the Controller, or a runner, and the
+dispatcher in fact refuses any method whose status is not `implemented` before its body
+is ever entered. By namespace, implemented: `svc` 16, `net` 12, `file` 10, `pkg` 9,
+`identity` 6, `cloud` 4, `container` 4, `exec` 3, `fw` 3, `archive` 2, `fs` 2, `wait` 2,
+`win` 2, `facts` 1, `http` 1, `pleiades` 1. These counts come from the generated
+[module catalog schema](reference/schemas/module-catalog.json), which is authoritative
+over any hand-written tally including this one. `exec.command` is the first method
 that changes anything: it runs a command with no shell interpreting it, and
 `creates`/`removes` are what make a task built on it idempotent. `exec.shell` is the same
 method with a shell, so a pipe or a redirect behaves as typed. The `file.*` methods read

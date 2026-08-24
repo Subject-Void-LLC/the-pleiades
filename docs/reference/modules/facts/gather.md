@@ -56,15 +56,14 @@ Gather everything before deciding what to do:
 
 ```yaml
 - name: Learn what this device is
-  fqcn: facts.gather
+  facts.gather:
 ```
 
 Gather only what a later condition reads:
 
 ```yaml
 - name: Learn which distribution this is
-  fqcn: facts.gather
-  params:
+  facts.gather:
     filter:
       - ansible_distribution*
 ```

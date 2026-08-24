@@ -1,0 +1,23 @@
+# Pleiades static inventory (Crawl tier).
+#
+# devnetsandboxiosxec8k.cisco.com is Cisco's own public, shared,
+# always-on DevNet sandbox (a real Catalyst 8000V running IOS XE), not a
+# lab this repository owns. Get your own reservation (and its unique,
+# rotating username/password) from the DevNet sandbox catalog, then run:
+#   pleiades add-credential cat8000 --username <yours> --password <yours>
+# Credentials are never stored here or anywhere in this directory.
+#
+# cli_prompt is what makes net.cli.command/net.cli.config's generic
+# session possible at all (see ../README.md): it is this device's own
+# exec-mode prompt, read once by connecting and looking, the same way a
+# real operator would derive it for a brand-new device type.
+hosts:
+  - id: cat8000
+    name: cat8000
+    type: cisco_router
+    tags:
+      - devnet_sandbox
+    properties:
+      host: devnetsandboxiosxec8k.cisco.com
+      port: 22
+      cli_prompt: "Cat8kv#"

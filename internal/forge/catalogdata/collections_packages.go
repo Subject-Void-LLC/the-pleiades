@@ -31,7 +31,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Install a package without naming the package manager", RunbookYAML: "- name: Make sure curl is installed\n  fqcn: pkg.install\n  params:\n    name: curl\n"},
+				{Name: "Install a package without naming the package manager", RunbookYAML: "- name: Make sure curl is installed\n  pkg.install:\n    name: curl\n"},
 			},
 			SeeAlso: []string{"pkg.remove", "pkg.upgrade", "pkg.apt.install", "pkg.dnf.install"},
 		},
@@ -56,7 +56,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove a package without naming the package manager", RunbookYAML: "- name: Make sure telnet is not installed\n  fqcn: pkg.remove\n  params:\n    name: telnet\n"},
+				{Name: "Remove a package without naming the package manager", RunbookYAML: "- name: Make sure telnet is not installed\n  pkg.remove:\n    name: telnet\n"},
 			},
 			SeeAlso: []string{"pkg.install", "pkg.upgrade", "pkg.apt.remove", "pkg.dnf.remove"},
 		},
@@ -81,7 +81,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the package manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a package differs between package managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Keep a package current without naming the package manager", RunbookYAML: "- name: Keep openssl at its newest available version\n  fqcn: pkg.upgrade\n  params:\n    name: openssl\n"},
+				{Name: "Keep a package current without naming the package manager", RunbookYAML: "- name: Keep openssl at its newest available version\n  pkg.upgrade:\n    name: openssl\n"},
 			},
 			SeeAlso: []string{"pkg.install", "pkg.remove", "pkg.apt.upgrade", "pkg.dnf.upgrade"},
 		},
@@ -106,8 +106,8 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What dpkg reported about the package before this task and after it, each holding installed and version. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Install a package", RunbookYAML: "- name: Make sure curl is installed\n  fqcn: pkg.apt.install\n  params:\n    name: curl\n"},
-				{Name: "Pin an exact version", RunbookYAML: "- name: Install a specific nginx build\n  fqcn: pkg.apt.install\n  params:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n"},
+				{Name: "Install a package", RunbookYAML: "- name: Make sure curl is installed\n  pkg.apt.install:\n    name: curl\n"},
+				{Name: "Pin an exact version", RunbookYAML: "- name: Install a specific nginx build\n  pkg.apt.install:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n"},
 			},
 			SeeAlso: []string{"pkg.apt.remove", "pkg.apt.upgrade", "pkg.dnf.install", "pkg.install"},
 		},
@@ -131,7 +131,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What dpkg reported about the package before this task and after it, each holding installed and version."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove a package", RunbookYAML: "- name: Make sure telnet is not installed\n  fqcn: pkg.apt.remove\n  params:\n    name: telnet\n"},
+				{Name: "Remove a package", RunbookYAML: "- name: Make sure telnet is not installed\n  pkg.apt.remove:\n    name: telnet\n"},
 			},
 			SeeAlso: []string{"pkg.apt.install", "pkg.apt.upgrade", "pkg.dnf.remove", "pkg.remove"},
 		},
@@ -155,7 +155,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What dpkg reported about the package before this task and after it, each holding installed and version."},
 			},
 			Examples: []collection.Example{
-				{Name: "Keep a package at its newest available version", RunbookYAML: "- name: Keep openssl current\n  fqcn: pkg.apt.upgrade\n  params:\n    name: openssl\n"},
+				{Name: "Keep a package at its newest available version", RunbookYAML: "- name: Keep openssl current\n  pkg.apt.upgrade:\n    name: openssl\n"},
 			},
 			SeeAlso: []string{"pkg.apt.install", "pkg.apt.remove", "pkg.dnf.upgrade", "pkg.upgrade"},
 		},
@@ -180,8 +180,8 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What rpm reported about the package before this task and after it, each holding installed and version. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Install a package", RunbookYAML: "- name: Make sure curl is installed\n  fqcn: pkg.dnf.install\n  params:\n    name: curl\n"},
-				{Name: "Pin an exact version", RunbookYAML: "- name: Install a specific nginx build\n  fqcn: pkg.dnf.install\n  params:\n    name: nginx\n    version: 1.24.0-1.el9\n"},
+				{Name: "Install a package", RunbookYAML: "- name: Make sure curl is installed\n  pkg.dnf.install:\n    name: curl\n"},
+				{Name: "Pin an exact version", RunbookYAML: "- name: Install a specific nginx build\n  pkg.dnf.install:\n    name: nginx\n    version: 1.24.0-1.el9\n"},
 			},
 			SeeAlso: []string{"pkg.dnf.remove", "pkg.dnf.upgrade", "pkg.apt.install", "pkg.install"},
 		},
@@ -205,7 +205,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What rpm reported about the package before this task and after it, each holding installed and version."},
 			},
 			Examples: []collection.Example{
-				{Name: "Remove a package", RunbookYAML: "- name: Make sure telnet is not installed\n  fqcn: pkg.dnf.remove\n  params:\n    name: telnet\n"},
+				{Name: "Remove a package", RunbookYAML: "- name: Make sure telnet is not installed\n  pkg.dnf.remove:\n    name: telnet\n"},
 			},
 			SeeAlso: []string{"pkg.dnf.install", "pkg.dnf.upgrade", "pkg.apt.remove", "pkg.remove"},
 		},
@@ -229,7 +229,7 @@ var packagesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What rpm reported about the package before this task and after it, each holding installed and version."},
 			},
 			Examples: []collection.Example{
-				{Name: "Keep a package at its newest available version", RunbookYAML: "- name: Keep openssl current\n  fqcn: pkg.dnf.upgrade\n  params:\n    name: openssl\n"},
+				{Name: "Keep a package at its newest available version", RunbookYAML: "- name: Keep openssl current\n  pkg.dnf.upgrade:\n    name: openssl\n"},
 			},
 			SeeAlso: []string{"pkg.dnf.install", "pkg.dnf.remove", "pkg.apt.upgrade", "pkg.upgrade"},
 		},

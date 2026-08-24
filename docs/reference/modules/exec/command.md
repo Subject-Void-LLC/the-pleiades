@@ -58,8 +58,7 @@ Run a command and register its output:
 
 ```yaml
 - name: Read the kernel version
-  fqcn: exec.command
-  params:
+  exec.command:
     cmd: uname -r
   register: kernel
 ```
@@ -68,8 +67,7 @@ Make a command idempotent with creates:
 
 ```yaml
 - name: Unpack the release once
-  fqcn: exec.command
-  params:
+  exec.command:
     cmd: tar -xzf /tmp/release.tgz
     chdir: /opt/app
     creates: /opt/app/VERSION
@@ -79,8 +77,7 @@ Pass an argument that a shell would mangle:
 
 ```yaml
 - name: Write a literal value
-  fqcn: exec.command
-  params:
+  exec.command:
     argv:
       - /usr/bin/logger
       - "deployed $VERSION; done"

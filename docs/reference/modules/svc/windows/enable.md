@@ -50,8 +50,7 @@ Make a service start at boot:
 
 ```yaml
 - name: Make sure the print spooler comes back after a reboot
-  fqcn: svc.windows.enable
-  params:
+  svc.windows.enable:
     name: Spooler
 ```
 

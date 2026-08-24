@@ -52,8 +52,7 @@ Start a service:
 
 ```yaml
 - name: Make sure nginx is running
-  fqcn: svc.systemd.start
-  params:
+  svc.systemd.start:
     name: nginx
 ```
 
@@ -61,13 +60,11 @@ Start it and make it survive a reboot:
 
 ```yaml
 - name: Start nginx
-  fqcn: svc.systemd.start
-  params:
+  svc.systemd.start:
     name: nginx
 
 - name: Make nginx start at boot too
-  fqcn: svc.systemd.enable
-  params:
+  svc.systemd.enable:
     name: nginx
 ```
 

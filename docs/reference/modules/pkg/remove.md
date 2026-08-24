@@ -54,8 +54,7 @@ Remove a package without naming the package manager:
 
 ```yaml
 - name: Make sure telnet is not installed
-  fqcn: pkg.remove
-  params:
+  pkg.remove:
     name: telnet
 ```
 

@@ -86,15 +86,15 @@ func setDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Manage a hosts file entry",
-				RunbookYAML: "- name: Keep the cluster's short names resolvable\n  fqcn: file.block.set\n  params:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n",
+				RunbookYAML: "- name: Keep the cluster's short names resolvable\n  file.block.set:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n",
 			},
 			{
 				Name:        "Use a marker a file's own syntax allows",
-				RunbookYAML: "- name: Manage the sshd hardening stanza\n  fqcn: file.block.set\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n",
+				RunbookYAML: "- name: Manage the sshd hardening stanza\n  file.block.set:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n",
 			},
 			{
 				Name:        "Keep two independent blocks in one file",
-				RunbookYAML: "- name: Manage the proxy stanza only\n  fqcn: file.block.set\n  params:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n",
+				RunbookYAML: "- name: Manage the proxy stanza only\n  file.block.set:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n",
 			},
 		},
 		SeeAlso: []string{blockFQCNRemove, "file.line.set", "file.copy", "file.permissions"},

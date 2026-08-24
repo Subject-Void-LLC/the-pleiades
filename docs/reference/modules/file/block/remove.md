@@ -57,8 +57,7 @@ Stop managing a hosts file entry:
 
 ```yaml
 - name: Drop the cluster short names
-  fqcn: file.block.remove
-  params:
+  file.block.remove:
     path: /etc/hosts
 ```
 
@@ -66,8 +65,7 @@ Remove a block written with its own marker:
 
 ```yaml
 - name: Retire the hardening stanza
-  fqcn: file.block.remove
-  params:
+  file.block.remove:
     path: /etc/ssh/sshd_config
     marker: "# {mark} PLEIADES HARDENING"
 ```

@@ -50,8 +50,7 @@ Remove a file:
 
 ```yaml
 - name: Drop the leftover lock file
-  fqcn: file.remove
-  params:
+  file.remove:
     path: /var/run/deploy.lock
 ```
 
@@ -59,8 +58,7 @@ Remove an empty directory:
 
 ```yaml
 - name: Drop the empty spool directory
-  fqcn: file.remove
-  params:
+  file.remove:
     path: /var/spool/old-queue
 ```
 
@@ -68,8 +66,7 @@ Remove a directory and everything in it:
 
 ```yaml
 - name: Drop the previous release
-  fqcn: file.remove
-  params:
+  file.remove:
     path: /opt/app/releases/2024-11-02
     recurse: true
 ```
