@@ -248,7 +248,7 @@ func newReleaseGateHarnessWith(t *testing.T, source knownHostsSource) *releaseGa
 		t.Fatalf("connection string: %v", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("nats bus: %v", err)
 	}

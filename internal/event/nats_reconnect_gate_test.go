@@ -13,6 +13,8 @@ import (
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
@@ -132,7 +134,7 @@ func TestNatsBus_RecoversFromAnOutageBeyondTheOldReconnectBudget(t *testing.T) {
 	ctx := context.Background()
 
 	url, proxy := natsThroughToxiproxy(t)
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}
@@ -215,7 +217,7 @@ func TestNatsBus_ConnectsWhenTheBrokerAppearsAfterStartup(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		bus, err := event.NewNatsBus(ctx, url, nil)
+		bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 		done <- result{bus: bus, err: err}
 	}()
 
@@ -268,7 +270,7 @@ func TestNatsBus_ColdStartStillFailsWhenTheBrokerNeverAppears(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	bus, err := event.NewNatsBus(ctx, "nats://192.0.2.1:4222", nil)
+	bus, err := event.NewNatsBus(ctx, "nats://192.0.2.1:4222", nil, topology.StreamProvisioner)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -317,7 +319,7 @@ func TestNatsBus_LogsTheConnectionLifecycle(t *testing.T) {
 	}
 
 	url, proxy := natsThroughToxiproxy(t)
-	bus, err := event.NewNatsBus(ctx, url, logger)
+	bus, err := event.NewNatsBus(ctx, url, logger, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}
@@ -375,4 +377,75 @@ func (s *safeWriter) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.w.Write(p)
+}
+
+// TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers is Phase 96b's
+// observability assertion, and it is the half of that phase that
+// ownership cannot deliver.
+//
+// Making the Controller the only process that may reshape the stream
+// stops an old build reverting an operator's choice. It does nothing
+// about the window during a rolling upgrade when that old build is
+// running against a shape it does not expect: it is no longer doing
+// damage, but it is also not applying the new configuration, and without
+// this warning nothing in the system would say so.
+func TestNatsBus_WarnsWhenTheLiveStreamShapeDiffers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	url, _ := natsThroughToxiproxy(t)
+
+	// A Controller provisions, then an operator widens retention.
+	provisioner, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
+	if err != nil {
+		t.Fatalf("provisioning bus: %v", err)
+	}
+	provisioner.Close()
+
+	nc, err := topology.Connect(ctx, url, nil, "test")
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer nc.Close()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("jetstream.New: %v", err)
+	}
+	widened := topology.StreamConfig()
+	widened.MaxAge = 30 * 24 * time.Hour
+	if _, err := js.UpdateStream(ctx, widened); err != nil {
+		t.Fatalf("widening retention: %v", err)
+	}
+
+	// A Runner starts against it.
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&safeWriter{mu: &mu, w: &buf}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	reader, err := event.NewNatsBus(ctx, url, logger, topology.StreamReader)
+	if err != nil {
+		t.Fatalf("reader bus: %v", err)
+	}
+	defer reader.Close()
+
+	mu.Lock()
+	logged := buf.String()
+	mu.Unlock()
+
+	if !strings.Contains(logged, "differs from what this build declares") {
+		t.Errorf("no drift warning was logged against a stream with a different MaxAge:\n%s", logged)
+	}
+	if !strings.Contains(logged, "MaxAge") {
+		t.Errorf("the drift warning did not name the field that differs:\n%s", logged)
+	}
+
+	// And the reader must not have corrected it.
+	live, err := js.Stream(ctx, topology.StreamName)
+	if err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if got := live.CachedInfo().Config.MaxAge; got != widened.MaxAge {
+		t.Fatalf("the reader reverted MaxAge to %v, want the operator's %v", got, widened.MaxAge)
+	}
 }

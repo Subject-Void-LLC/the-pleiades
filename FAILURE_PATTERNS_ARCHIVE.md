@@ -6524,3 +6524,120 @@ being guarded has a single owner. When porting a matcher, re-derive which parts 
 its leniency were deliberate: the reason an existing rule ignores something is
 frequently that it *could not see* it, not that it should not care. And a negative
 control without a decoy tests the happy path of the rule itself.
+
+## 195. A design's load-bearing precedent cited a source file that does not exist, and the real one argued the opposite way
+
+**Symptom.** Phase 96b was specified as "the Controller owns stream shape;
+Runners attach and fail loudly if the stream is absent", and both
+`FAILURE_PATTERNS.md` #178 and the phase text justified the refusal with the
+same sentence: it "is the same fail-closed instinct
+`internal/transport/ssh/known_hosts.go` already applies to a missing
+`known_hosts`". That file does not exist. `ls internal/transport/ssh/` lists
+seven files and none of them is `known_hosts.go`.
+
+**Root cause.** The claim was written once, from memory of a real behaviour in
+a package that had since moved, and then copied forward into a second document
+without being re-derived. `LESSONS_LEARNED.md` #152 already names this exact
+mechanism: a `file:line` citation is unverifiable by any tool here and rots
+silently, and copying one forward multiplies the rot into false corroboration
+rather than inheriting a verified fact. Two documents agreeing looked like
+confirmation and was actually one unverified sentence counted twice.
+
+**Why it mattered more than a broken link.** The real site is
+`pkg/remoteexec/knownhosts.go`, and it is not analogous in the way the argument
+needed. It fails ONE CONNECTION rather than a process; its alternative is
+accepting a man-in-the-middle, which is a security boundary rather than an
+availability tradeoff; and it ships both a configured path and a documented
+per-task bypass. A missing stream has none of those three properties. The
+analogy was the only argument offered for refusing to start, and refusing to
+start would have removed self-healing (today a destroyed stream is recreated by
+whichever process arrives first, and a running Controller never re-asserts) and
+introduced a start ordering that neither shipped deployment expresses.
+
+**Fix.** The design was changed before any code was written: the Controller is
+the only process that may CHANGE a shape, every process may create a missing
+one, and a mismatch is a warning rather than a refusal. The precedent actually
+followed is `internal/tlscert`'s lock-free convergence, which the chart already
+documents as "none of them waits on another".
+
+**Lesson.** A citation is a claim, and a claim that is load-bearing for a design
+decision deserves the same verification as a measurement. Before quoting a file
+as precedent, open it: confirm it exists, and confirm it does the thing the
+argument needs rather than something that merely shares a name. When a
+precedent is the ONLY argument for a decision, its absence is not a
+documentation defect, it is the decision being unsupported.
+
+## 196. The safety-critical half of a multi-writer provisioning defect went uncatalogued for a phase because only the retention half had been noticed
+
+**Symptom.** `FAILURE_PATTERNS.md` #178 recorded that three composition roots
+reshape the JetStream stream on every process start from compile-time
+constants, so an operator's retention choice is reverted by whichever binary
+restarts last. It did not record that the "Pleiades_Locks" KV bucket has the
+identical shape from two roots through
+`js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())`.
+
+**Root cause.** #178 was found while chasing a retention question, so retention
+is what it looked at. The bucket was provisioned by a different call in a
+different package and never came up. The tree already contained the sentence
+that should have made it obvious: `internal/archtest`'s own comment says a
+lowered bucket TTL "expires live lock entries and lets two runners execute
+against one device", which is a safety failure where the stream's is a policy
+one.
+
+**Why it was not caught.** Nothing measures "how many composition roots can
+write this object". The stream and the bucket are provisioned through
+completely different call paths (`event.NewNatsBus` and
+`lock.NewNatsLockManager`), so neither grep nor review of the stream's fix would
+surface the bucket.
+
+**Fix.** Phase 96b applied the same read-before-write treatment to both, adding
+`topology.BindLockBucket` beside `topology.BindStream`, with the Controller as
+the only role permitted to reshape either and every other process able to create
+a missing one but not change an existing one.
+
+**Lesson.** When a defect is found in one instance of a pattern, enumerate every
+instance of that pattern in the same pass and rank them by consequence rather
+than by which one was noticed first. "Reachable from more than one composition
+root" is a greppable property, and the entry that generalizes it should list the
+siblings even if it does not fix them. Four more were found this way and
+recorded against later phases, including database migrations running from every
+Controller replica with no advisory lock.
+
+## 197. A test's own output capture raced its cleanup, and the race report replaced the assertion message that would have explained the failure
+
+**Symptom.** `TestControllerScheduler_FiresExactlyOnce_ReleaseGate` failed under
+full parallel `-race` load with two things at once: a real assertion failure
+("three controllers ran the overdue schedule 2 times, want exactly 1") and
+`testing.go:1712: race detected during execution of test`. The race pointed at
+`strings.(*Builder).String()` inside the test's own cleanup.
+
+**Root cause.** The helper that starts each controller subprocess assigns a
+`strings.Builder` to both `cmd.Stdout` and `cmd.Stderr`, then in `t.Cleanup`
+calls `cmd.Process.Kill()` followed by **`cmd.Process.Wait()`** before reading
+`out.String()`. Because Stdout is not an `*os.File`, `os/exec` starts goroutines
+that copy the pipes into the Builder, and **only `cmd.Wait()` waits for those
+goroutines**. `cmd.Process.Wait()` reaps the operating system process and
+returns immediately, so the copiers were still writing into the Builder that the
+next line read.
+
+**Why it was invisible until now.** The cleanup only reads the Builder
+`if t.Failed()`, and the copiers have normally drained by the time a passing
+test tears down. The race therefore required the test to fail first, which meant
+it appeared exclusively in runs that already had something else wrong, and it
+then obscured that something: a reader sees "race detected" and stops reading,
+when the line above it was the real finding. The underlying failure here was in
+fact benign, a slow run letting a second backlogged hourly occurrence come due,
+each occurrence still firing exactly once.
+
+**Fix.** Use `cmd.Wait()` in the cleanup. It reaps the process and joins the
+output copiers, so the Builder has exactly one accessor by the time it is read.
+A repo-wide sweep found this was the only `Process.Wait()` in the module.
+
+**Lesson.** `cmd.Process.Wait()` and `cmd.Wait()` are not interchangeable, and
+the difference is invisible in the common case: the first is a syscall on a pid,
+the second is that plus joining every goroutine `os/exec` created to service a
+non-file Stdout, Stderr or Stdin. Any test that captures a subprocess's output
+into an in-memory buffer must use `cmd.Wait()`. More generally, when a race
+report and an assertion failure arrive together, read the assertion first: a
+race inside test scaffolding is frequently a consequence of the failure path
+running, not the cause of it.

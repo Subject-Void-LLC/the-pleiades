@@ -596,7 +596,7 @@ func main() {
 		fatal("failed to init auth evaluator", err)
 	}
 
-	bus, err := event.NewNatsBus(ctx, natsURL, logger)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner)
 	if err != nil {
 		fatal("failed to connect event bus", err)
 	}
@@ -605,7 +605,7 @@ func main() {
 	// LogStreamer connection just below, this is a distinct NATS
 	// connection from event.NewNatsBus's own internal one: lock.Manager
 	// and event.Bus are separate ports with no shared adapter today.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamProvisioner)
 	if err != nil {
 		fatal("failed to init lock manager", err)
 	}

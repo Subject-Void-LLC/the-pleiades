@@ -3504,3 +3504,65 @@ In this case the honest resolution was to name it in the chart and the operator
 documentation and hand the derivation to the phase that owns a single
 maximum-survivable-outage budget, rather than guessing a new liveness window to
 match a resilience window that had itself not been derived from anything yet.
+
+## 163. Narrowing who may write shared infrastructure is a worse fix than removing the ability to change it, because the first buys ordering and the second is free
+
+Phase 96b was specified as "the Controller owns the stream; Runners attach and
+refuse to start without one." That is the intuitive reading of single ownership,
+and it is the expensive one. It buys a start ordering that neither shipped
+deployment expresses, it turns a destroyed stream into a permanent outage
+(because a running Controller provisions once at startup and never re-asserts,
+so nothing recreates what was lost), and it does all that in exchange for a
+property the system cannot yet observe, since no configuration surface for the
+shape exists until a later phase.
+
+The fix that costs nothing is to change the VERB rather than the ACTOR. Every
+process may create the object when it is absent; only one process may reshape
+one that exists. The defect being closed is "an older build silently reverts an
+operator's choice", and that is a property of the reshape path, not of the
+create path. Removing the reshape path from the other binaries closes it
+completely, while leaving create-if-absent everywhere preserves self-healing and
+start-order independence untouched.
+
+The general form: when a shared resource has several writers and that is a
+defect, ask which OPERATION is the defective one before deciding to reduce the
+number of writers. Reducing writers introduces coordination, and coordination
+introduces ordering, availability coupling, and a new class of failure at
+startup. Removing a capability introduces none of those. This codebase had
+already discovered this once, in `internal/tlscert`, where several controllers
+sharing one certificate directory converge lock-free by reading first and
+writing only what they find unusable, and the chart documents the resulting
+property in plain words: none of them waits on another.
+
+A corollary worth keeping: "single writer" is usually a fiction anyway. The
+Controller in this system autoscales to five replicas, so narrowing three
+binaries to one binary would have narrowed the writer count from three to five.
+Leader election does not rescue it either, and this repository already says so
+about its own election: leadership bounds how many replicas act, it does not
+make an action unique, which is why schedule firing relies on a database unique
+index instead of on the lease.
+
+## 164. During a rolling upgrade, the thing worth building is the warning, not the enforcement
+
+Every ownership design for shared infrastructure has a window it cannot cover:
+the rollout itself, when old and new builds are both running and disagree about
+what the shape should be. Enforcement does not help there. An old build that has
+been stripped of its ability to reshape is no longer doing damage, but it is
+also not applying the new shape, and nothing in the system would say so. The
+operator sees a successful deploy and a configuration that is not in effect.
+
+So the deliverable that actually covers the gap is a read-back and a warning:
+after binding to the shared object, compare its live shape against what this
+binary declares and log every field that differs. It costs one round trip that
+the bind already made, it works in both directions (an old build noticing a new
+shape, and a new build noticing an old one), and it is the only signal that
+exists during the exact window the ownership rule cannot reach.
+
+Two details decide whether the warning is useful or noise. Compare only the
+fields this project DECLARES: a driver's configuration struct usually carries
+many more, the server fills the rest with its own defaults and returns them, and
+a whole-struct comparison fires against a perfectly healthy cluster that this
+same code just provisioned. And compare order-insensitively where the server is
+free to reorder, because an ordering difference is not a configuration
+difference. A warning that fires constantly is worse than none, because it
+trains the reader to ignore the one that matters.

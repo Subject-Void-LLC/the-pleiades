@@ -10,6 +10,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -39,7 +40,7 @@ func TestThunderingHerdLocking(t *testing.T) {
 	}
 
 	// 2. Initialize Lock Manager
-	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestNewNatsLockManagerConnectError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	_, err := lock.NewNatsLockManager(ctx, "not-a-valid-url::::", nil)
+	_, err := lock.NewNatsLockManager(ctx, "not-a-valid-url::::", nil, topology.StreamProvisioner)
 	if err == nil {
 		t.Fatal("expected an error when no broker can be reached, got nil")
 	}
@@ -171,7 +172,7 @@ func TestNewNatsLockManagerRejectsOldServer(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	_, err = lock.NewNatsLockManager(ctx, url, nil)
+	_, err = lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err == nil {
 		t.Fatal("expected NewNatsLockManager to fail against a pre-2.11 nats-server, got nil error")
 	}
@@ -202,7 +203,7 @@ func TestNatsLockManagerAcquireContextAlreadyCanceled(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}
@@ -242,7 +243,7 @@ func TestNatsManagerConformance(t *testing.T) {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}

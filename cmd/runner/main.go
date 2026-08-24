@@ -156,7 +156,7 @@ func main() {
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
 	// Pleiades stream (topology.EnsureStream) exists.
-	bus, err := event.NewNatsBus(ctx, natsURL, logger)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
@@ -194,7 +194,7 @@ func main() {
 	// and the raw jetstream one above, the same documented
 	// multi-connection tradeoff cmd/controller's own lockMgr construction
 	// already accepts.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamReader)
 	if err != nil {
 		log.Fatalf("failed to init lock manager: %v", err)
 	}

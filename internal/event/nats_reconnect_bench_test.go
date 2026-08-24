@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
 // BenchmarkNatsBus_RecoveryAfterSeverance is Phase 96a's Stress and
@@ -44,7 +45,7 @@ func BenchmarkNatsBus_RecoveryAfterSeverance(b *testing.B) {
 	ctx := context.Background()
 
 	url, proxy := natsThroughToxiproxy(b)
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		b.Fatalf("failed to init nats bus through proxy: %v", err)
 	}

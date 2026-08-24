@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/election"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -49,7 +50,7 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats lock manager: %v", err)
 	}

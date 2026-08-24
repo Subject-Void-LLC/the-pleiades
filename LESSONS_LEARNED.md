@@ -176,6 +176,9 @@ story, per `.AGENTS/AGENTS.md`.
 161. **Asserting that a callback is registered is a tautology about a struct, not evidence about behaviour: where the deliverable is "this is now observable", capture the writer and assert on the text, because a non-nil function field is a mock of itself and two real defects shipped inside handler bodies that four passing non-nil assertions could never enter.**
 
 162. **Client-side resilience is only as long as the shortest supervisor timeout above it, and those timeouts were usually chosen by someone else for a world where the failure was fatal: when you extend how long a component tolerates a failure, enumerate every timeout that can still end the process first and either move them in the same change or say plainly in the shipped artifact that you did not.**
+163. **Narrowing who may write shared infrastructure is a worse fix than removing the ability to change it: ask which OPERATION is defective before reducing the number of writers, because fewer writers buys coordination, ordering and a new startup failure class, while create-if-absent-but-never-reshape closes the same defect for free and keeps self-healing.**
+
+164. **During a rolling upgrade, enforcement cannot help and the warning is the deliverable: an old build stripped of its ability to reshape is no longer doing damage but is also not applying the new shape, so read the live config back and log every DECLARED field that differs, comparing only the fields the project sets and ignoring server-filled defaults and subject ordering.**
 
 ---
 

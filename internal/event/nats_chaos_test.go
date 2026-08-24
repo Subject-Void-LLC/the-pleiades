@@ -8,6 +8,7 @@ import (
 	toxiproxyclient "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 	tctoxiproxy "github.com/testcontainers/testcontainers-go/modules/toxiproxy"
@@ -88,7 +89,7 @@ func TestNatsBus_SurvivesConnectionSeverance(t *testing.T) {
 	// natsBus connects THROUGH the proxy, not directly to the NATS
 	// container: every publish and subscribe below crosses the boundary
 	// this test severs.
-	bus, err := event.NewNatsBus(ctx, "nats://"+proxiedHost+":"+proxiedPort, nil)
+	bus, err := event.NewNatsBus(ctx, "nats://"+proxiedHost+":"+proxiedPort, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus through proxy: %v", err)
 	}

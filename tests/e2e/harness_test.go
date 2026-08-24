@@ -327,7 +327,7 @@ func (h *harness) wire(tb testing.TB) {
 	}
 	h.js = js
 
-	if _, err := topology.EnsureStream(ctx, js); err != nil {
+	if _, _, err := topology.ProvisionStream(ctx, js); err != nil {
 		tb.Fatalf("ensuring the pleiades stream: %v", err)
 	}
 

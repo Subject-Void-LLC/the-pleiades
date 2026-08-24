@@ -195,6 +195,9 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 192. Every graceful shutdown logged a WARN saying "reconnecting" and an ERROR saying "closed permanently" about a shutdown that was going exactly to plan
 193. Two constructors leaked their NATS connection on every error path after the dial succeeded
 194. A guard that matched a function by unqualified name could be defeated by declaring a local function of that name
+195. A design's load-bearing precedent cited a source file that does not exist, and the real one argued the opposite way
+196. The safety-critical half of a multi-writer provisioning defect went uncatalogued for a phase because only the retention half had been noticed
+197. A test's own output capture raced its cleanup, and the race report replaced the assertion message that would have explained the failure
 
 ---
 

@@ -280,7 +280,17 @@ func startSchedulerController(t *testing.T, natsURL, dbPath, runbookDir, jwtSecr
 	}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		// cmd.Wait, not cmd.Process.Wait. Because Stdout and Stderr here
+		// are a strings.Builder rather than an *os.File, os/exec runs
+		// goroutines that copy the pipes into it, and only cmd.Wait waits
+		// for those to finish. cmd.Process.Wait reaps the process and
+		// returns immediately, leaving the copiers writing into the very
+		// Builder the next line reads, which the race detector correctly
+		// reports. It surfaced only when this test FAILED, because that
+		// is when Fatalf runs the cleanup while the process is still
+		// producing output, so the race report replaced the assertion
+		// message that would have explained the failure.
+		_ = cmd.Wait()
 		if t.Failed() {
 			t.Logf("controller-%d output:\n%s", idx, out.String())
 		}

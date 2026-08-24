@@ -58,7 +58,7 @@ type natsLockManager struct {
 // in-flight work on a link that had already come back.
 //
 // logger may be nil, in which case slog.Default() is used.
-func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger) (Manager, error) {
+func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole) (Manager, error) {
 	nc, err := topology.Connect(ctx, url, logger, "lock-manager")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
@@ -70,16 +70,17 @@ func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger) (M
 		return nil, fmt.Errorf("failed to init jetstream: %w", err)
 	}
 
-	// Create or update the distributed lock bucket. The shape comes from
-	// internal/topology, which owns every JetStream object's declared
-	// configuration, rather than from a literal here: cmd/controller and
-	// cmd/runner both run this constructor against one NATS, and a shape
-	// written down in one place cannot disagree with itself across a
-	// rolling upgrade the way two copies could.
-	kv, err := js.CreateOrUpdateKeyValue(ctx, topology.LockBucketConfig())
+	// The bucket shape comes from internal/topology, and role decides
+	// whether this process may CHANGE it. Only cmd/controller passes
+	// StreamProvisioner. A reader binds to an existing bucket and creates
+	// one only when it is absent, so an older Runner can no longer lower
+	// this bucket's TTL underneath a running fleet, which is the failure
+	// internal/archtest describes as letting two runners execute against
+	// one device.
+	kv, err := topology.BindLockBucket(ctx, js, role)
 	if err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to init lock bucket: %w", err)
+		return nil, err
 	}
 
 	return &natsLockManager{nc: nc, js: js, kv: kv}, nil

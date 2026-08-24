@@ -146,7 +146,7 @@ func main() {
 	// log package's writer and never builds an slog.Logger of its own, so
 	// there is nothing to pass and topology.DialOptions falls back to
 	// slog.Default().
-	bus, err := event.NewNatsBus(ctx, nats.DefaultURL, nil)
+	bus, err := event.NewNatsBus(ctx, nats.DefaultURL, nil, topology.StreamReader)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}

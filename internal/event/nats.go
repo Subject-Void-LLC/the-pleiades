@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/google/uuid"
@@ -17,21 +18,30 @@ type natsBus struct {
 	js jetstream.JetStream
 }
 
-// NewNatsBus connects to an external NATS broker and ensures the single
-// Pleiades stream (topology.EnsureStream) exists.
+// NewNatsBus connects to an external NATS broker and binds the single
+// Pleiades stream according to role.
 // It adheres to the Liskov Substitution Principle by perfectly substituting the event.Bus interface.
 //
 // topology.Connect is the module's one way to obtain a NATS connection:
 // it dials with the shared options and returns only once the connection
-// is actually usable, which matters here because jetstream.New and
-// EnsureStream below both talk to the server immediately. Once connected,
-// the bus survives an outage of any length rather than dying permanently
-// after about two minutes, which is what it did before Phase 96a.
+// is actually usable, which matters here because jetstream.New and the
+// stream binding below both talk to the server immediately. Once
+// connected, the bus survives an outage of any length rather than dying
+// permanently after about two minutes, which is what it did before
+// Phase 96a.
+//
+// role is required rather than defaulted because it decides whether this
+// process may CHANGE the shape of a stream other processes are already
+// using. Only cmd/controller passes topology.StreamProvisioner; every
+// other caller passes topology.StreamReader and therefore cannot revert
+// an operator's retention choice, which is FAILURE_PATTERNS.md #178. A
+// reader still creates the stream when it is absent, so no start ordering
+// between the Controller and a Runner is introduced.
 //
 // logger may be nil, in which case slog.Default() is used. Production
 // callers pass the composition root's own logger so the connection
 // lifecycle events reach the same masked handler everything else does.
-func NewNatsBus(ctx context.Context, url string, logger *slog.Logger) (Bus, error) {
+func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole) (Bus, error) {
 	nc, err := topology.Connect(ctx, url, logger, "event-bus")
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats at %s: %w", url, err)
@@ -43,9 +53,26 @@ func NewNatsBus(ctx context.Context, url string, logger *slog.Logger) (Bus, erro
 		return nil, fmt.Errorf("failed to initialize jetstream: %w", err)
 	}
 
-	if _, err := topology.EnsureStream(ctx, js); err != nil {
+	_, drift, err := topology.BindStream(ctx, js, role)
+	if err != nil {
 		nc.Close()
 		return nil, err
+	}
+	// Drift is a warning, never a refusal. During a mixed rollout an old
+	// binary is no longer reverting the shape, but it is also not
+	// applying the new one, and this log line is the only thing in the
+	// system that would say so.
+	if len(drift) > 0 {
+		fields := make([]string, 0, len(drift))
+		for _, d := range drift {
+			fields = append(fields, d.String())
+		}
+		log := logger
+		if log == nil {
+			log = slog.Default()
+		}
+		log.Warn("the live stream shape differs from what this build declares",
+			"role", role.String(), "drift", strings.Join(fields, "; "))
 	}
 
 	return &natsBus{

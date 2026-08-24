@@ -4,93 +4,88 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/Phase-96a-Resilience-Core`, cut from `d689184` (the merge of PR #26) at the start
-of this session. Nothing is committed: only the user commits, with their own live go-ahead, and this
-session never ran `git commit`. This is a phase-complete handoff.**
+**Branch `feature/Phase-96b-Stream-Ownership`, cut from `feature/Phase-96a-Resilience-Core`'s HEAD
+(`725d463`), which is itself unmerged. 96a is committed in three commits on its own branch; 96b is
+committed on this one. The user gave live go-ahead to commit between sub-phases.**
 
-This session split Phase 96 into four sub-phases and built the first one.
+Working through Phase 96 end to end. 96a is done and committed. 96b is done and committed. 96c and
+96d remain.
 
-### The split (spec work, in the gitignored `.SPECIFICATION/IMPLEMENTATION.md`)
+### 96b changed design before any code was written, and that is the headline
 
-Phase 96 was one flat checklist of 22 items carrying dial options, reconnect semantics,
-observability, the stream-ownership defect, budget derivation, `wss://` traversal and server-side
-TLS. It is now four phases with 50 items, each carrying its own full gate set including the
-Fuzz/Stress and Security items the original never had:
+The phase was specified as **"the Controller owns stream shape; Runners ATTACH and fail loudly if the
+stream is absent."** That design is rejected. Six findings, each verified against the tree, are
+written into `.SPECIFICATION/IMPLEMENTATION.md`'s 96b section:
 
-| Phase | Owns | Blocked on |
-|---|---|---|
-| **96a** (built this session) | `topology.Connect`/`DialOptions`, reconnect semantics, observability, the archtest guard | -- |
-| **96b** | Controller owns stream shape, Runners attach, plus the cold-start ordering that requires | 96a |
-| **96c** | ONE maximum-survivable-outage budget and the three retention constants derived from it | 96b |
-| **96d** | `wss://` traversal, server-side TLS, `NATS_URL` scheme allowlist | 96a |
+1. **Its load-bearing precedent does not exist.** `FAILURE_PATTERNS.md` #178 and the phase text both
+   cite `internal/transport/ssh/known_hosts.go` as the fail-closed instinct to copy. That file is not
+   in the tree. The real site is `pkg/remoteexec/knownhosts.go`, and it fails ONE CONNECTION rather
+   than a process, its alternative is a man-in-the-middle, and it ships a documented bypass.
+2. **Attach-only is strictly worse on infrastructure loss.** Today a destroyed stream is recreated by
+   whichever process starts next. A running Controller never re-asserts (it provisions once at
+   startup), so attach-only would turn a lost stream into a permanent outage.
+3. **"The Controller" is already five writers** (HPA `maxReplicas: 5`).
+4. **Leader-gating cannot fix that**, and `internal/schedule/scanner.go` already says so about this
+   codebase's own election: leadership bounds how many replicas act, it does not make an action unique.
+5. **It would falsify a shipped promise.** `docs/10-running-in-production.md` says services need no
+   ordering, and nothing orders Controller before Runner in either compose or Helm.
+6. **It cannot be observed yet.** No configuration surface for stream shape exists until 96c.
 
-**96d was split out on evidence.** Both its deliverables are `nats-server` CONFIG FILE features, and
-this repo has no NATS config file: compose and Helm each deliberately replace the image's shipped
-`nats-server.conf` with a three-flag command that is test-pinned in three directions, under
-`readOnlyRootFilesystem` with only `/data` writable. That is a config mechanism introduction, not a
-value change. All 13 cross-references from Phases 83, 101 and 102 were re-pointed at the owning
-sub-phase.
+**What was built instead: change the VERB, not the ACTOR.** `topology.ProvisionStream` reconciles the
+shape and belongs to `cmd/controller` alone. `topology.AttachStream` binds, creates only when absent,
+and never reshapes. `topology.BindStream`/`BindLockBucket` select on a required
+`topology.StreamRole` (iota+1, so the zero value is rejectable, per `LESSONS_LEARNED.md` #154 on
+required decisions belonging in the signature). The defect closes completely, and self-healing and
+start-order independence both survive untouched. The precedent actually followed is
+`internal/tlscert`'s lock-free convergence.
 
-### What 96a landed
+**Drift detection is the real deliverable.** Ownership cannot help during a rolling upgrade, when an
+old build is no longer reverting anything but is also not applying the new shape.
+`topology.StreamConfigDrift` compares only the seven fields this project declares (the struct has far
+more and the server fills the rest), order-insensitively on Subjects, and every bind logs a warning
+naming each field that differs.
 
-**The defect, measured rather than inferred.** Every `nats.Connect` in the module was bare, inheriting
-`nats.go` defaults. A real broker behind a real Toxiproxy, severed for 2m3s, closed the connection
-permanently and never came back through a fully healed network, silently.
+**The lock KV bucket got the same treatment**, and its case was more urgent: `internal/archtest`'s own
+comment records that a lowered TTL there "lets two runners execute against one device".
+`FAILURE_PATTERNS.md` #196 records why it went uncatalogued for a phase.
 
-- **`internal/topology/connect.go`: `Connect` is the single entry point.** It dials with the shared
-  options and returns only once the connection is usable. `internal/topology/dial.go`'s `DialOptions`
-  sets `MaxReconnects(-1)`, `RetryOnFailedConnect(true)`, a `Timeout` from D2b's measured 2s,
-  `PingInterval`/`MaxPingsOutstanding` for a 60s black-hole window, and `CustomReconnectDelay`
-  delegating to `pkg/retry.Backoff` (consumed, not reimplemented).
-- **All five production dials converted**, `internal/lock` included: `cmd/runner` opens three NATS
-  connections, and leaving the lease one on the defaults would have been worse than changing nothing.
-- **`internal/archtest.TestOnlyTopologyDialsNats`** forbids `nats.Connect` outside `internal/topology`
-  entirely, with a source-string negative control. Live-controlled: red on a reintroduced dial, green
-  on restore.
-- **Release gate**: D1 and D2 promoted to permanent container-backed tests, inverted, each citing the
-  measurement it replaces. D1 severs for 150s (the old code died at 123s) and passed, reconnecting on
-  its own at 2m38s after 11 attempts. Plus a fuzz target (634k execs clean) and a recovery-latency
-  benchmark.
-- **`cmd/runner`'s `err != context.Canceled`** fixed to `errors.Is`, a latent defect this phase would
-  otherwise have activated.
+### Guard, gate, and evidence
 
-### Four defects found by adversarial review, all fixed, all recorded
+- `internal/archtest.TestOnlyTheControllerProvisionsSharedInfrastructure` matches the symbol NAMES
+  (`StreamProvisioner`, `ProvisionStream`) against a one-entry allowlist, because an import-graph rule
+  provably cannot work (both roots link `internal/event`) and a rule on the `CreateOrUpdate` call
+  would be vacuous (one call, inside the owning package). Live-controlled: red when `cmd/runner` is
+  given provisioning authority, green on restore. Carries the non-vacuity assertion.
+- Six container-backed release-gate assertions in `internal/topology/stream_ownership_gate_test.go`,
+  all passing, including the two that matter most: a reader creates an absent stream (the self-healing
+  property the rejected design would have destroyed), and a reader does not revert an operator's
+  `MaxAge` while warning that it differs.
+- `FuzzStreamConfigDrift` clean at 629k execs. `BenchmarkBindStream` measures reader 786us against
+  provisioner 2.3ms, so the fleet-wide effect is that the cheaper path became the common one.
 
-`FAILURE_PATTERNS.md` #191-#194 and `LESSONS_LEARNED.md` #161-#162. The two that matter most:
+### Recorded, not fixed
 
-- **#191**: `nats.go` routes the initial-connect retry through `ConnectedCB`/`ReconnectErrCB`, not the
-  four handlers a reader naturally reaches for, so the cold-start path was completely silent while the
-  docs claimed otherwise. Five handlers now, not four.
-- **#192**: a graceful `Close()` fired the disconnect and closed handlers, so every SIGTERM logged
-  6 false failure lines per pod. Fixed with `NoCallbacksAfterClientClose()`.
+Four more instances of the same multi-writer provisioning shape, in
+`.SPECIFICATION/IMPLEMENTATION.md`'s 96b section: the shared dispatch consumer, `Bus.Subscribe`'s
+durable consumer, the SSE log viewer's per-request consumer, and most seriously **database migrations,
+which `internal/ent`'s `Apply` runs from every Controller replica with no advisory lock**, so two
+replicas racing a fresh Postgres install can both run the first migration.
 
-**Both got through because the only assertion was that the callback fields were non-nil**, which is a
-tautology about a struct. That is `LESSONS_LEARNED.md` #161, and the fix is
-`internal/event.TestNatsBus_LogsTheConnectionLifecycle`, which captures a real logger across a real
-severance and asserts a graceful close is quiet.
+### Environment note that costs a CI run if missed
 
-### The honest caveat, stated in the chart and the docs rather than buried
-
-**The Helm chart's own defaults cancel most of this.** The Runner's liveness probe restarts the pod
-60 to 105 seconds into an outage, which is SOONER than the old client gave up, and the restart
-abandons in-flight work. So under the default chart you get unlimited reconnection for outages under
-a minute and a pod restart for anything longer. Deriving a liveness window from a stated
-maximum-survivable-outage budget is **96c's** job and was not guessed here.
-`runner-deployment.yaml`'s header and `docs/10-running-in-production.md` both say this plainly.
-
-Also corrected: the docs now name the **control plane / execution plane** boundary explicitly. Nothing
-here makes a session to a device survive anything.
-
-### State
-
-`go build`, `go vet` (both tag sets), `gofmt` clean. `internal/topology` coverage 58.4 -> 97.0 against
-its 95.8 floor; `internal/event` 86.5 against 86.2. `FAILURE_PATTERNS.md` #119's remaining open half is
-now closed. Handoff rotated: two sections moved into `HANDOFF_ARCHIVE.md`.
+`make ci` needs `LOCALSTACK_AUTH_TOKEN` or `internal/catalog/cloud/aws/{ec2,s3}` skip their tests and
+the coverage ratchet fails with what looks exactly like a real regression. The token IS in
+`~/.bashrc`, but at line 111, BELOW the stock `[ -z "$PS1" ] && return` at line 15, so plain
+`source ~/.bashrc` and `bash -lc` both leave it unset. Only `PS1=x; source ~/.bashrc` works. The Go
+tool PATH block is fine: it sits at line 9, above the early return.
 
 ### Next step
 
-Run `make ci` to completion and act on it, then 96b. **Separately and already diagnosed:** `main`'s
-GitHub Actions is red at `test-repeat`, `pkg/remotesvc`'s `TestOperations_NonZeroExitIsAnError` failing
-at `-count=3` with `EOF` where it wants "masked". Same class as `FAILURE_PATTERNS.md` #188, a fixture
-that does not survive a second run in one process. That package is not in `flaky-packages.json`, so it
-fails hard. Unrelated to this branch.
+96c (one outage budget, three derived constants, and the D3 inversion), then 96d (`wss://` traversal,
+server-side TLS, `NATS_URL` scheme allowlist). Note 96c is where stream shape finally becomes
+configurable, which is what makes 96b observable at all.
+
+**Separately, and unrelated to this work:** `main`'s GitHub Actions is red at `test-repeat`.
+`pkg/remotesvc`'s `TestOperations_NonZeroExitIsAnError` fails at `-count=3` with `EOF` where it wants
+"masked", the same class as `FAILURE_PATTERNS.md` #188. That package is not in `flaky-packages.json`,
+so it fails hard.

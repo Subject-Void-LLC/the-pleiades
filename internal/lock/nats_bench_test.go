@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -34,7 +35,7 @@ func startBenchNats(b *testing.B) (context.Context, lock.Manager) {
 		b.Fatalf("failed to get connection string: %v", err)
 	}
 
-	mgr, err := lock.NewNatsLockManager(ctx, url, nil)
+	mgr, err := lock.NewNatsLockManager(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		b.Fatalf("failed to init lock manager: %v", err)
 	}

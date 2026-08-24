@@ -17,7 +17,9 @@ import (
 )
 
 // startNats starts a real nats-server and returns its client URL.
-func startNats(t *testing.T) string {
+// It takes testing.TB so a benchmark can stand up the identical
+// broker instead of hand-rolling a second copy of the setup.
+func startNats(t testing.TB) string {
 	t.Helper()
 	ctx := context.Background()
 

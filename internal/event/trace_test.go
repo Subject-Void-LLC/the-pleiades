@@ -129,7 +129,7 @@ func TestNatsBus_PublishCarriesTraceContextOnTheWire(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus: %v", err)
 	}

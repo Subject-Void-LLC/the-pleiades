@@ -7,6 +7,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -46,7 +47,7 @@ func TestNatsJetStreamBus(t *testing.T) {
 
 	// Initialize our NATS adapter (which ensures the Pleiades stream via
 	// topology.EnsureStream).
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestNatsBusConformance(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestNatsBus_Close(t *testing.T) {
 	url := startNatsContainer(t)
 	ctx := context.Background()
 
-	bus, err := event.NewNatsBus(ctx, url, nil)
+	bus, err := event.NewNatsBus(ctx, url, nil, topology.StreamProvisioner)
 	if err != nil {
 		t.Fatalf("failed to init nats bus: %v", err)
 	}

@@ -381,6 +381,37 @@ carries the credentials its job runs with. Restrict network access to the broker
 accordingly, and prefer an external, access-controlled NATS over the in-chart one
 for anything real.
 
+### Only the controller changes the message stream's shape
+
+The controller, the runners and the demo binary all connect to the same JetStream
+stream and the same key-value bucket for device locks. Only the **controller** ever
+changes their configuration. Every other service binds to whatever is already
+there.
+
+This matters the moment you tune anything. Retention, the duplicate window and the
+replica count used to be re-applied by every service on every start from values
+compiled into that particular binary, so a setting you changed by hand was silently
+reverted by the next runner restart, with nothing logged. A runner has no code path
+that rewrites a live stream any more, so it cannot do that.
+
+**You still do not need to order your services.** A service that finds the stream or
+the bucket missing creates it, so a fresh install works whichever process starts
+first, and a stream lost to a disk failure comes back on its own without waiting for
+a controller restart. What changed is only the ability to *reshape* something that
+already exists, not the ability to create what is absent.
+
+**A mismatch is a warning, not a refusal.** During a rolling upgrade you will
+briefly have services whose builds expect different settings. Any service that finds
+a live shape different from the one its build declares logs a warning naming each
+setting that differs, and carries on. That warning is worth reading: it means a
+service is running against settings it does not expect, which during an upgrade is
+normal and afterwards is not.
+
+One reshape is refused rather than performed. Narrowing the set of subjects the
+stream captures would orphan anything already published under a removed subject,
+with no error from the server, so the controller refuses that change and says so
+instead of making it.
+
 ### Blast radius is always computed, never authored
 
 Before `pleiades run` executes a runbook, it prints the blast radius: the number of
