@@ -9,6 +9,7 @@ package topology
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,8 +37,56 @@ import (
 // the connection name. logger may be nil, in which case slog.Default() is
 // used. On any failure the connection is closed before returning, so a
 // caller that gets an error owns nothing.
-func Connect(ctx context.Context, url string, logger *slog.Logger, component string) (*nats.Conn, error) {
-	nc, err := nats.Connect(url, DialOptions(logger, component)...)
+// ConnectOption adjusts a single connection beyond the shared option set.
+//
+// It exists for exactly one thing today, and the shape is deliberately
+// narrow so it does not become a second place NATS behaviour is
+// configured: DialOptions remains the single owner of how a connection
+// behaves, and this carries only material a caller must supply because
+// this package cannot read it from anywhere.
+type ConnectOption func(*connectSettings)
+
+type connectSettings struct {
+	tls *tls.Config
+}
+
+// WithTLS supplies the client TLS configuration for a tls:// or wss://
+// broker.
+//
+// Take the value from internal/tlscert's ServingCert.TLSClientConfig
+// rather than building a tls.Config here. That helper exists precisely so
+// no caller hand-writes one, which is where InsecureSkipVerify gets typed,
+// and it carries the same TLS 1.2 floor this module states once for every
+// direction.
+func WithTLS(cfg *tls.Config) ConnectOption {
+	return func(s *connectSettings) { s.tls = cfg }
+}
+
+func Connect(ctx context.Context, url string, logger *slog.Logger, component string, opts ...ConnectOption) (*nats.Conn, error) {
+	// Validated here rather than at each composition root, so cmd/demo is
+	// covered too: it reads no environment at all and dials a hardcoded
+	// default, so an env-level check would have skipped the one site
+	// nobody watches. This is also the only place every dial in the module
+	// passes through, which is what makes the check unavoidable rather
+	// than conventional.
+	if err := ValidateNatsURL(url); err != nil {
+		return nil, err
+	}
+
+	var settings connectSettings
+	for _, opt := range opts {
+		opt(&settings)
+	}
+
+	dialOpts := DialOptions(logger, component)
+	if settings.tls != nil {
+		// Secure first, then the config: nats.Secure turns TLS on, and
+		// passing a *tls.Config to it is what makes verification use the
+		// caller's root pool rather than the system one.
+		dialOpts = append(dialOpts, nats.Secure(settings.tls))
+	}
+
+	nc, err := nats.Connect(url, dialOpts...)
 	if err != nil {
 		return nil, err
 	}

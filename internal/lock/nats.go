@@ -58,8 +58,8 @@ type natsLockManager struct {
 // in-flight work on a link that had already come back.
 //
 // logger may be nil, in which case slog.Default() is used.
-func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole) (Manager, error) {
-	nc, err := topology.Connect(ctx, url, logger, "lock-manager")
+func NewNatsLockManager(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole, connOpts ...topology.ConnectOption) (Manager, error) {
+	nc, err := topology.Connect(ctx, url, logger, "lock-manager", connOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}

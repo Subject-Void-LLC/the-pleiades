@@ -610,8 +610,19 @@ func main() {
 	if err != nil {
 		fatal("failed to init auth evaluator", err)
 	}
+	// Client TLS for the mesh, if the broker speaks it. A CA file named
+	// for a plaintext URL is refused rather than ignored: the dangerous
+	// reading of that pair is that the connection is protected.
+	meshTLS, err := topology.TLSFromEnv(natsURL, os.Getenv("NATS_CA_FILE"), logger)
+	if err != nil {
+		fatal("invalid NATS TLS configuration", err)
+	}
+	var meshConnOpts []topology.ConnectOption
+	if meshTLS != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
+	}
 
-	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner, outageBudget, allowRetentionDiscard)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamProvisioner, outageBudget, allowRetentionDiscard, meshConnOpts...)
 	if err != nil {
 		fatal("failed to connect event bus", err)
 	}
@@ -620,7 +631,7 @@ func main() {
 	// LogStreamer connection just below, this is a distinct NATS
 	// connection from event.NewNatsBus's own internal one: lock.Manager
 	// and event.Bus are separate ports with no shared adapter today.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamProvisioner)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamProvisioner, meshConnOpts...)
 	if err != nil {
 		fatal("failed to init lock manager", err)
 	}
@@ -642,7 +653,7 @@ func main() {
 	// every line, which a shared durable consumer group cannot give). A
 	// second, independent NATS connection backs it -- the same documented
 	// tradeoff cmd/demo/main.go already accepts, not an oversight.
-	nc, err := topology.Connect(ctx, natsURL, logger, "controller-logstream")
+	nc, err := topology.Connect(ctx, natsURL, logger, "controller-logstream", meshConnOpts...)
 	if err != nil {
 		fatal("failed to connect to nats", err)
 	}

@@ -603,6 +603,38 @@ nats:
     repository: nats
     tag: 2.14.4-alpine
     pullPolicy: IfNotPresent
+  # -- A WebSocket listener, so a runner on somebody else's network can
+  # reach the broker on an HTTP port through a proxy or an egress filter
+  # that only permits 443.
+  #
+  # THIS IS PATH TRAVERSAL, NOT LINK RESILIENCE, and the distinction is
+  # worth stating because the opposite claim is easy to repeat. WebSocket
+  # runs over TCP: a reset kills it exactly as it kills nats://, and
+  # reconnecting costs a TLS handshake plus an HTTP upgrade, which is
+  # strictly more work. What it buys is reachability, nothing else.
+  #
+  # Off by default: an enabled listener with no TLS is an unauthenticated
+  # plaintext entry point to a broker that already has no authorization.
+  websocket:
+    enabled: false
+    port: 8080
+    # -- Serve the WebSocket listener over TLS. Requires tls.secretName.
+    # With this false the listener speaks ws:// rather than wss://, which
+    # is only appropriate when something in front of it terminates TLS.
+    tls: false
+
+  # -- TLS for the broker's own listeners, from a kubernetes.io/tls Secret,
+  # mounted the same way controller.tls.mode=secret mounts the API's.
+  #
+  # Note what this does and does not do: it encrypts the wire and lets a
+  # client verify the broker. It does NOT authenticate clients. The broker
+  # still accepts any connection that completes a handshake, so restrict
+  # network access to it regardless. Client identity is separate work.
+  tls:
+    enabled: false
+    # -- Name of an existing Secret holding tls.crt and tls.key.
+    secretName: ""
+
   service:
     clientPort: 4222
     monitorPort: 8222

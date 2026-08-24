@@ -3617,3 +3617,55 @@ the key stable". Ask what actually retries, how long after the original,
 and whether the suppression is still remembering by then. Write the gap and
 the window next to each other, because they are almost never in the same
 file and the comparison is the whole of the argument.
+
+## 167. A configuration string that selects a transport needs an allowlist, because the library's default for an unrecognised value is the insecure one and it never errors
+
+`NATS_URL` reached the driver unvalidated for the whole life of this
+project. The scheme in that URL is not decoration: it chooses between
+plaintext TCP, TCP with TLS, and two WebSocket variants. `nats.go` treats a
+value with no scheme as plaintext, so `broker.example.com:4222` connects
+and works and is unencrypted, and so does a mistyped `tsl://` or a copied
+`https://`. Everything succeeds. The operator's intention to encrypt is the
+only casualty and nothing reports its loss.
+
+Two properties make this class worth a rule. The failure is silent in the
+insecure direction, which is the opposite of how a parse error usually
+behaves. And no automated gate can see it: there is no type to constrain,
+every value is a legal string, and a security scanner has no model of what
+this particular string means.
+
+So: whenever a configuration value selects a transport, a codec, a cipher,
+an auth mode, or a protocol version, write the allowlist. A denylist admits
+everything nobody thought of, which is exactly the set a typo lands in.
+
+The second half of the rule is where to enforce it. Put the check at the
+single chokepoint every caller shares, not at each entry point that reads
+configuration. Here the entry points were two composition roots reading an
+environment variable, and a third that reads no environment at all and
+dials a hardcoded default. An env-level check would have covered two of
+three and skipped the one nobody watches. The dial function all three call
+covered all of them and cannot be bypassed by a fourth caller written later.
+
+## 168. Rendering without an error is not evidence a chart is correct, because a mount without its volume is valid YAML
+
+Adding broker TLS to a Helm chart meant a new ConfigMap, a Secret mount and
+matching `volumeMounts`. The StatefulSet's `volumes:` key turned out to
+exist in only two mutually exclusive branches, and the DEFAULT
+configuration takes neither, because a StatefulSet with managed persistence
+uses `volumeClaimTemplates` and needs no `volumes:` entry at all. The new
+volumes went into the branch that looked like the main one, and rendered
+perfectly, with mounts and no volumes, on the path an operator would
+actually use.
+
+`helm template` reported success because the output was structurally valid
+YAML. Kubernetes would have rejected it at apply, in a cluster, later.
+
+Two habits come out of this. Before adding a volume, enumerate every branch
+in which the `volumes:` key does and does not exist, and remember that a
+StatefulSet has a third state in which it exists in neither. And verify a
+MATRIX rather than a sample, asserting the mount and its volume together:
+the assertion has to be "both are present", because "no error" is satisfied
+by exactly the broken case. When a chart's structure forces the same list
+into two places, put the shared part in a named template so the two cannot
+drift, which is the same reasoning that applies to any duplicated
+declaration.

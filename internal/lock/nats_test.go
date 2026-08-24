@@ -3,6 +3,7 @@ package lock_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -117,29 +118,37 @@ func TestThunderingHerdLocking(t *testing.T) {
 // surfaces a wrapped error instead of panicking or hanging when it cannot
 // reach a broker.
 //
-// This test used to say it exercised "the connect-failure branch", on the
-// reasoning that a malformed URL fails address resolution near-instantly.
-// That stopped being true when topology.DialOptions set
-// RetryOnFailedConnect: nats.Connect now returns a NIL error in 310
-// microseconds for this exact URL and hands back a connection that is
-// retrying in the background, so the branch this reaches is the bounded
-// wait in topology.Connect, not the parse failure. The test kept passing
-// while proving something else, which is the failure mode a test with a
-// confidently wrong doc comment always has.
+// This test's premise has now moved twice, which is worth recording
+// because the moves were both improvements and both silent. It originally
+// said it exercised "the connect-failure branch", on the reasoning that a
+// malformed URL fails address resolution near-instantly. Phase 96a's
+// RetryOnFailedConnect made nats.Connect return nil for this exact URL in
+// 310 microseconds and retry in the background, so the branch it actually
+// reached became the bounded connect wait, ten seconds later. Phase 96d
+// then added scheme validation ahead of the dial, so the failure is once
+// again immediate, and now comes from the place that can give the operator
+// a useful message.
 //
-// The context deadline is deliberate and is doing real work: without it
-// this inherits topology.ConnectWaitTimeout and costs ten seconds in a
-// package whose other non-container tests are instant.
+// The assertion follows the behaviour rather than the other way round: a
+// value with no scheme is refused before any connection is attempted,
+// because nats.go would otherwise treat it as plaintext and connect
+// successfully to something unencrypted.
 func TestNewNatsLockManagerConnectError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	start := time.Now()
 	_, err := lock.NewNatsLockManager(ctx, "not-a-valid-url::::", nil, topology.StreamProvisioner)
 	if err == nil {
-		t.Fatal("expected an error when no broker can be reached, got nil")
+		t.Fatal("expected an error for a URL with no usable scheme, got nil")
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("error = %v, want it to wrap context.DeadlineExceeded: the failure now comes from the bounded connect wait, not from URL parsing", err)
+	if !strings.Contains(err.Error(), "scheme") {
+		t.Errorf("error = %v, want it to explain that the URL needs a scheme", err)
+	}
+	// Immediate, not after the bounded connect wait: a value that can
+	// never work should not cost a startup timeout to reject.
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("rejecting an unusable URL took %v; validation should precede the dial", elapsed)
 	}
 }
 

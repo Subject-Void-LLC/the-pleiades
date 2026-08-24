@@ -200,6 +200,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 197. A test's own output capture raced its cleanup, and the race report replaced the assertion message that would have explained the failure
 198. A publish reported failure and had succeeded, and the only thing that would have re-run the work was a reclaim ten minutes later, far outside the window meant to make retrying safe
 199. Deriving a resilience budget exposed that the deployment's own probe cancelled it, and the default chart would have failed its own new check
+200. A bare host and port in NATS_URL was accepted and silently meant unencrypted, and nothing in the module parsed the value at all
+201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
 
 ---
 

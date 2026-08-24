@@ -449,6 +449,71 @@ stream captures would orphan anything already published under a removed subject,
 with no error from the server, so the controller refuses that change and says so
 instead of making it.
 
+### Reaching the broker through somebody else's network, and encrypting the wire
+
+Two separate things, often confused, and the confusion matters enough to state
+plainly before either.
+
+**WebSocket is path traversal. It is not link resilience.** A `wss://` connection
+gets you to a broker on port 443, through an HTTP proxy, a corporate egress filter,
+or a CDN that terminates TLS. That is genuinely valuable for a runner on a network
+you do not control. What it does **not** do is tolerate a link that drops. WebSocket
+runs over TCP: a reset kills it exactly as it kills `nats://`, and reconnecting
+costs a TLS handshake plus an HTTP upgrade, which is strictly more work than plain
+NATS. Surviving an outage is the reconnection behaviour described above, and that
+applies to every transport equally. Choose a WebSocket transport for reachability,
+never for resilience.
+
+QUIC is the thing that actually survives a path change, because its connection
+identifiers outlive the address and port tuple. NATS does not speak it, on either
+side: there is no QUIC dialer in the client and no QUIC listener in the server.
+Riding QUIC means an external tunnel process, which is a deployment choice rather
+than something this software does.
+
+**Accepted URL schemes.** `NATS_URL` is now validated at startup, and anything
+outside this list is refused rather than guessed at:
+
+| Scheme | Transport | Encrypted |
+|---|---|---|
+| `nats://` | TCP | no |
+| `tls://` | TCP | yes |
+| `ws://` | WebSocket | no |
+| `wss://` | WebSocket | yes |
+
+Two mistakes it exists to catch. A bare `host:port` with no scheme used to be
+accepted and treated as plaintext, so an omitted scheme silently meant
+unencrypted; it is now refused with the two spellings you probably meant. And a
+comma separated list mixing encrypted and plaintext entries is refused, because
+which member a client picks is not something you control, so the plaintext one
+decides what an attacker sees.
+
+**Encrypting the wire.** Point `NATS_URL` at `tls://` (or `wss://`) and, if your
+broker uses a private authority, set `NATS_CA_FILE` to the certificate that signed
+it. Leaving it unset verifies against the system pool, which is right for a
+publicly signed broker. Setting `NATS_CA_FILE` while the URL is plaintext is a
+startup error rather than a warning: that pair reads as a protected connection and
+is not one.
+
+For the in-chart broker, `nats.tls.enabled` with `nats.tls.secretName` naming a
+`kubernetes.io/tls` Secret serves TLS, and `nats.websocket.enabled` adds a
+WebSocket listener (`nats.websocket.tls` serves it over TLS using the same
+material). Enabling either writes the broker's first configuration file; everything
+that was already a command line flag stays one.
+
+**This encrypts. It does not authenticate.** The broker still accepts any client
+that completes a handshake, and a dispatch message carries the credentials its job
+runs with. TLS stops a network observer reading your traffic and lets a client
+verify it is talking to your broker. It does nothing about which clients may
+connect, or what subjects they may read. Restrict network access to the broker
+regardless of whether TLS is on.
+
+Two things worth knowing because they fail quietly. The chart's readiness probe for
+the broker is a plain TCP connect, so it keeps passing even if the TLS
+configuration is wrong, and the first sign of a bad certificate will be clients
+failing rather than the pod. And the compose stack's broker healthcheck connects
+anonymously and without TLS, so turning on broker TLS there needs that probe
+changed too.
+
 ### Blast radius is always computed, never authored
 
 Before `pleiades run` executes a runbook, it prints the blast radius: the number of

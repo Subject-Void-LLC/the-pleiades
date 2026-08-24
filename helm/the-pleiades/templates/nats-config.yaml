@@ -1,0 +1,44 @@
+{{- include "the-pleiades.validate" . -}}
+{{- if or .Values.nats.websocket.enabled .Values.nats.tls.enabled }}
+{{/*
+The broker's configuration file, and the first one this chart has ever had.
+
+Everything the broker needs was previously expressed as command line flags,
+deliberately: the flag list is short, it is pinned by a real test against
+internal/testsupport.NATSCommand so the development broker and the deployed
+one cannot drift, and a file would have been a second place to look.
+
+A TLS block and a websocket block cannot be expressed as flags. nats-server
+takes both only from a configuration file, so this exists, and it is
+ADDITIVE rather than a replacement: the StatefulSet keeps passing the same
+flags and adds -c, so the pinned command stays the source of truth for
+everything that was already a flag.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "the-pleiades.nats.fullname" . }}-config
+  labels:
+    {{- include "the-pleiades.labels" (dict "root" . "component" "nats") | nindent 4 }}
+data:
+  nats.conf: |
+    {{- if .Values.nats.tls.enabled }}
+    tls {
+      cert_file: "/etc/nats/tls/tls.crt"
+      key_file: "/etc/nats/tls/tls.key"
+    }
+    {{- end }}
+    {{- if .Values.nats.websocket.enabled }}
+    websocket {
+      port: {{ .Values.nats.websocket.port }}
+      {{- if .Values.nats.websocket.tls }}
+      tls {
+        cert_file: "/etc/nats/tls/tls.crt"
+        key_file: "/etc/nats/tls/tls.key"
+      }
+      {{- else }}
+      no_tls: true
+      {{- end }}
+    }
+    {{- end }}
+{{- end }}

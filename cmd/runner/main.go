@@ -162,11 +162,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to init telemetry: %v", err)
 	}
+	// Client TLS for the mesh, if the broker speaks it. A CA file named
+	// for a plaintext URL is refused rather than ignored: the dangerous
+	// reading of that pair is that the connection is protected.
+	meshTLS, err := topology.TLSFromEnv(natsURL, os.Getenv("NATS_CA_FILE"), logger)
+	if err != nil {
+		log.Fatalf("invalid NATS TLS configuration: %v", err)
+	}
+	var meshConnOpts []topology.ConnectOption
+	if meshTLS != nil {
+		meshConnOpts = append(meshConnOpts, topology.WithTLS(meshTLS))
+	}
 
 	// bus backs native.Adapter's own log-event publishing
 	// (internal/adapters/native/adapter.go), and ensures the single
 	// Pleiades stream (topology.EnsureStream) exists.
-	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader, outageBudget, false)
+	bus, err := event.NewNatsBus(ctx, natsURL, logger, topology.StreamReader, outageBudget, false, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect event bus: %v", err)
 	}
@@ -180,7 +191,7 @@ func main() {
 	// other dial in the module, which for this connection specifically is
 	// what keeps a Runner pulling work after a link outage longer than two
 	// minutes instead of going quiet forever.
-	nc, err := topology.Connect(ctx, natsURL, logger, "runner-dispatch")
+	nc, err := topology.Connect(ctx, natsURL, logger, "runner-dispatch", meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to connect to nats: %v", err)
 	}
@@ -204,7 +215,7 @@ func main() {
 	// and the raw jetstream one above, the same documented
 	// multi-connection tradeoff cmd/controller's own lockMgr construction
 	// already accepts.
-	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamReader)
+	lockMgr, err := lock.NewNatsLockManager(ctx, natsURL, logger, topology.StreamReader, meshConnOpts...)
 	if err != nil {
 		log.Fatalf("failed to init lock manager: %v", err)
 	}

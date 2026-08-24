@@ -6719,3 +6719,83 @@ you add a rule connecting two previously unconnected values, run it against
 the shipped defaults first: if the defaults fail, the rule has already paid
 for itself, and the failing default is a finding rather than an obstacle to
 the rule.
+
+## 200. A bare host and port in NATS_URL was accepted and silently meant unencrypted, and nothing in the module parsed the value at all
+
+**Symptom.** Latent, found while adding TLS support. `NATS_URL` reached
+`nats.Connect` completely unvalidated: there was no `url.Parse` anywhere in
+the composition roots or in the three packages that dial, and the Helm
+chart typed `externalNats.url` as a bare string with no pattern. The first
+thing that looked at the value was the driver.
+
+**Root cause, and why it is a security defect rather than a usability one.**
+The scheme in a NATS URL selects the TRANSPORT: `nats` is plaintext TCP,
+`tls` is TCP with TLS, `ws` and `wss` tunnel over WebSocket. `nats.go`
+treats a value with no scheme as plaintext, so `broker.example.com:4222`
+connects, works, and is unencrypted. An operator who meant to encrypt and
+mistyped `tsl://`, or copied `https://` from a browser, gets the same
+outcome. The failure is silent in the worst direction: everything works.
+
+There is a second shape. A comma separated list is legal for a cluster, and
+a list mixing `tls://` and `nats://` was accepted. Which member a client
+uses is not the caller's choice, so the plaintext member decides what an
+observer sees.
+
+**Why no existing check would have caught it.** `gosec` does not model this,
+there is no type to constrain, and every value involved is a legal string.
+The chart's only NATS validation was a non-emptiness check on
+`externalNats.url`.
+
+**Fix.** An allowlist of the four schemes `nats.go` implements, enforced in
+`topology.Connect`, which is the single point every dial in the module
+passes through. Enforcing it there rather than at each composition root is
+what covers `cmd/demo`, which reads no environment and dials a hardcoded
+default, so an env-level check would have skipped the one site nobody
+watches. A bare host and port gets its own message naming the two
+spellings the operator probably meant, because `url.Parse` reports that
+input as scheme "localhost" and the generic message would have claimed
+"localhost" was an unimplemented transport. Mixed encryption is refused
+outright.
+
+**Lesson.** When a configuration string selects a transport, a codec, or a
+protocol, an allowlist is the only safe check, because the library's own
+default for an unrecognised value is usually the insecure one and it never
+errors. Validate at the single chokepoint every caller shares rather than
+at each entry point: entry points multiply, and the one that gets missed is
+the one that reads no configuration and therefore looked exempt.
+
+## 201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
+
+**Symptom.** Broker TLS was wired into the Helm chart: a ConfigMap for the
+new configuration file, a Secret mount for the certificate, and matching
+`volumeMounts`. Rendering the chart with TLS on and default persistence
+produced the mounts and NO corresponding volumes, which Kubernetes rejects
+at apply time.
+
+**Root cause.** The StatefulSet's `volumes:` key appeared twice, in two
+mutually exclusive branches: one for `persistence.enabled=false` (an
+`emptyDir`) and one for an `existingClaim`. The default is
+`persistence.enabled=true` with no `existingClaim`, which uses
+`volumeClaimTemplates` and therefore needs no `volumes:` entry at all, so
+NEITHER branch renders. Adding the new volumes to the branch that looked
+like the main one put them on a path the default configuration never takes.
+
+**Why it was nearly missed.** The first render tested had TLS off, so no
+volumes were expected. The second had TLS on with a non-default
+persistence setting, and passed. The combination that fails is TLS on with
+DEFAULT persistence, which is the one an operator would actually use, and
+it renders without error: YAML with a mount and no volume is structurally
+valid and fails later, at apply.
+
+**Fix.** One `volumes:` block whose contents are conditional, since YAML
+cannot carry the key twice, with the shared entries in a named template so
+the two data cases cannot drift. Then every combination of persistence and
+TLS was rendered and checked for the mount and the volume together, rather
+than for the absence of an error.
+
+**Lesson.** Before adding a volume to a chart, enumerate every branch in
+which the `volumes:` key does or does not exist, and note that a
+StatefulSet has a third case, `volumeClaimTemplates`, in which it exists in
+neither. And test a matrix rather than a sample: a mount without its volume
+is valid YAML, so `helm template` succeeding proves nothing about it. Assert
+the pair.

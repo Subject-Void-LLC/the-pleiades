@@ -41,8 +41,8 @@ type natsBus struct {
 // logger may be nil, in which case slog.Default() is used. Production
 // callers pass the composition root's own logger so the connection
 // lifecycle events reach the same masked handler everything else does.
-func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole, budget topology.OutageBudget, allowDiscard bool) (Bus, error) {
-	nc, err := topology.Connect(ctx, url, logger, "event-bus")
+func NewNatsBus(ctx context.Context, url string, logger *slog.Logger, role topology.StreamRole, budget topology.OutageBudget, allowDiscard bool, connOpts ...topology.ConnectOption) (Bus, error) {
+	nc, err := topology.Connect(ctx, url, logger, "event-bus", connOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to nats at %s: %w", url, err)
 	}

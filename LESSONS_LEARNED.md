@@ -182,6 +182,9 @@ story, per `.AGENTS/AGENTS.md`.
 165. **A derived constant needs its non-linear cap inside the derivation and asserted by a test, never in a comment: when a value becomes configurable, enumerate everything that depends on its MAGNITUDE rather than its identity, because such a dependency names no constant, survives review, and breaks only at a value nobody has tried.**
 
 166. **Producer-side idempotency is only as good as the gap between the original and the retry: a correct, retry-stable key reaching the driver's own duplicate suppression protected nothing here, because the window was two minutes and the only thing that reissues an unconfirmed publish fires after ten, so ask what actually retries and how long after, not just whether the key is stable.**
+167. **A configuration string that selects a transport, codec, cipher or auth mode needs an ALLOWLIST, because the library's default for an unrecognised value is usually the insecure one and it never errors; enforce it at the single chokepoint every caller shares, not at each entry point that reads configuration, because the entry point that reads none is the one that gets missed.**
+
+168. **Rendering without an error is not evidence a chart is correct: a volumeMount with no matching volume is valid YAML that fails later at apply, so enumerate every branch in which the volumes key does and does not exist (a StatefulSet has a third state where it exists in neither) and assert the mount and the volume TOGETHER across a matrix rather than a sample.**
 
 ---
 

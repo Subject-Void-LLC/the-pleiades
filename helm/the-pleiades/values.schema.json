@@ -650,6 +650,38 @@
         },
         "affinity": {
           "type": "object"
+        },
+        "websocket": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A WebSocket listener for reaching the broker through an HTTP proxy or egress filter. Path traversal, not link resilience.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "tls": {
+              "type": "boolean",
+              "description": "Serve the WebSocket listener over TLS. Requires nats.tls.secretName."
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "TLS for the broker's own listeners. Encrypts the wire; does not authenticate clients.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "secretName": {
+              "type": "string"
+            }
+          }
         }
       }
     },
