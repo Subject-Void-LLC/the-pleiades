@@ -2,16 +2,13 @@ id: nginx_check
 hosts: nginx-bootstrap
 tasks:
   - name: Confirm nginx is active
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: systemctl is-active nginx || service nginx status
 
   - name: Confirm nginx serves the default page
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: curl -s -o /dev/null -w "%{http_code}" http://localhost/
 
   - name: Report the nginx version
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: nginx -v

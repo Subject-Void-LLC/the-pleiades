@@ -46,11 +46,11 @@ func disableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Keep a service from starting at boot",
-				RunbookYAML: "- name: Make sure the print spooler cannot start at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Make sure the print spooler cannot start at boot\n  svc.windows.disable:\n    name: Spooler\n",
 			},
 			{
 				Name:        "Disable it and stop it running now too",
-				RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n",
 			},
 		},
 		[]string{"svc.windows.enable", "svc.windows.stop", "svc.disable"},

@@ -65,7 +65,7 @@ func init() {
 					{Name: "operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
 				},
 				Examples: []collection.Example{
-					{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  fqcn: net.catalyst.tag_facts\n  register: tags\n"},
+					{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  net.catalyst.tag_facts:\n  register: tags\n"},
 				},
 			},
 		},

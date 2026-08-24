@@ -59,8 +59,7 @@ Wait for a service to log that it started:
 
 ```yaml
 - name: Wait for the API to finish starting
-  fqcn: wait.search
-  params:
+  wait.search:
     path: /var/log/pleiades/api.log
     search_regex: "^Listening on "
     timeout: 120
@@ -70,8 +69,7 @@ Capture the port a service chose:
 
 ```yaml
 - name: Read the port out of the log
-  fqcn: wait.search
-  params:
+  wait.search:
     path: /var/log/app.log
     search_regex: "listening on port (?P<port>[0-9]+)"
   register: startup
@@ -81,8 +79,7 @@ Wait for an error line to be rotated away:
 
 ```yaml
 - name: Wait for the log to stop showing the failure
-  fqcn: wait.search
-  params:
+  wait.search:
     path: /var/log/app.log
     search_regex: "FATAL"
     state: absent

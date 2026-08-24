@@ -52,8 +52,7 @@ Extract a build already staged on the target:
 
 ```yaml
 - name: Unpack the release
-  fqcn: archive.extract
-  params:
+  archive.extract:
     src: /tmp/release.tar.gz
     dest: /opt/app
 ```
@@ -62,8 +61,7 @@ Extract only once:
 
 ```yaml
 - name: Unpack the SDK if it is not already there
-  fqcn: archive.extract
-  params:
+  archive.extract:
     src: /tmp/sdk.tar.gz
     dest: /opt/sdk
     creates: /opt/sdk/bin/sdk

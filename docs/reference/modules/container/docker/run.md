@@ -56,8 +56,7 @@ Run a container:
 
 ```yaml
 - name: Run nginx
-  fqcn: container.docker.run
-  params:
+  container.docker.run:
     name: web
     image: nginx:1.27
     ports:

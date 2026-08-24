@@ -50,7 +50,7 @@ Gather the managed fleet:
 
 ```yaml
 - name: Gather Catalyst Center device facts
-  fqcn: net.catalyst.device_facts
+  net.catalyst.device_facts:
   register: fleet
 ```
 

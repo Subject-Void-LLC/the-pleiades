@@ -106,8 +106,12 @@ run complete
 
 ### 7. Run something real
 
-`ssh_exec` is the one action that genuinely reaches a device today. This one checks
-that a webserver answers:
+`ssh_exec` is a legacy action name, kept working, and it is the shortest thing to
+start with because it needs no module lookup. It is not the only thing that reaches a
+device: 74 of the catalog's 78 methods are implemented and run against real devices,
+including `exec.command`, which is the modern equivalent of this task. See the
+[module catalog](reference/modules/index.md). This one checks that a webserver
+answers:
 
 ```yaml
 # runbooks/check_web1.yaml
@@ -115,8 +119,7 @@ id: check_web1
 hosts: web1
 tasks:
   - name: Confirm the webserver answers
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: curl -s -o /dev/null -w "%{http_code}" http://localhost/
 ```
 
@@ -141,7 +144,7 @@ it defaults `changed` to `true`, the opposite of a real Ansible module's
 auto-detected convergence. For a read-only check like this one, say so explicitly:
 
 ```yaml
-    params:
+    ssh_exec:
       command: curl -s -o /dev/null -w "%{http_code}" http://localhost/
       changed: false
 ```

@@ -114,15 +114,15 @@ func searchDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Wait for a service to log that it started",
-				RunbookYAML: "- name: Wait for the API to finish starting\n  fqcn: wait.search\n  params:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n",
+				RunbookYAML: "- name: Wait for the API to finish starting\n  wait.search:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n",
 			},
 			{
 				Name:        "Capture the port a service chose",
-				RunbookYAML: "- name: Read the port out of the log\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n",
+				RunbookYAML: "- name: Read the port out of the log\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n",
 			},
 			{
 				Name:        "Wait for an error line to be rotated away",
-				RunbookYAML: "- name: Wait for the log to stop showing the failure\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n",
+				RunbookYAML: "- name: Wait for the log to stop showing the failure\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n",
 			},
 		},
 		SeeAlso: []string{"wait.path", "pleiades.builtin.wait.port"},

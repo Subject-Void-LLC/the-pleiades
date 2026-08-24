@@ -53,8 +53,7 @@ Remove a package:
 
 ```yaml
 - name: Make sure telnet is not installed
-  fqcn: pkg.dnf.remove
-  params:
+  pkg.dnf.remove:
     name: telnet
 ```
 

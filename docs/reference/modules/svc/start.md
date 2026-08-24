@@ -52,8 +52,7 @@ Start a service without naming the init system:
 
 ```yaml
 - name: Make sure nginx is running
-  fqcn: svc.start
-  params:
+  svc.start:
     name: nginx
 ```
 

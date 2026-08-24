@@ -62,11 +62,11 @@ func mountDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Mount and persist a data volume",
-				RunbookYAML: "- name: Mount the data volume\n  fqcn: fs.mount\n  params:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n",
+				RunbookYAML: "- name: Mount the data volume\n  fs.mount:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n",
 			},
 			{
 				Name:        "Mount without touching fstab",
-				RunbookYAML: "- name: Mount a scratch volume for this run only\n  fqcn: fs.mount\n  params:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n",
+				RunbookYAML: "- name: Mount a scratch volume for this run only\n  fs.mount:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n",
 			},
 		},
 		SeeAlso: []string{"fs.unmount"},

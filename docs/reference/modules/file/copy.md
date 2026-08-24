@@ -63,8 +63,7 @@ Write a configuration file:
 
 ```yaml
 - name: Install the agent configuration
-  fqcn: file.copy
-  params:
+  file.copy:
     dest: /etc/pleiades/agent.yaml
     content: |
       endpoint: https://controller.internal:8443
@@ -76,8 +75,7 @@ Write a private file:
 
 ```yaml
 - name: Drop the deploy token
-  fqcn: file.copy
-  params:
+  file.copy:
     dest: /etc/pleiades/token
     content: "{{ deploy_token }}"
     mode: "0600"
@@ -89,8 +87,7 @@ Truncate a file to nothing:
 
 ```yaml
 - name: Empty the local override file
-  fqcn: file.copy
-  params:
+  file.copy:
     dest: /etc/app/local.conf
     content: ""
 ```

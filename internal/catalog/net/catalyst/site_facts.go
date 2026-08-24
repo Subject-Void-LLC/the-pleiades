@@ -65,7 +65,7 @@ func init() {
 					{Name: "site_count", Type: "int", Returned: "always", Description: "The number of sites in the sites fact."},
 				},
 				Examples: []collection.Example{
-					{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  fqcn: net.catalyst.site_facts\n  register: sites\n"},
+					{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  net.catalyst.site_facts:\n  register: sites\n"},
 				},
 				SeeAlso: []string{"net.catalyst.device_facts"},
 			},

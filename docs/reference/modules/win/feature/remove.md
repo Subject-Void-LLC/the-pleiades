@@ -49,8 +49,7 @@ Disable IIS:
 
 ```yaml
 - name: Make sure the web server role is disabled
-  fqcn: win.feature.remove
-  params:
+  win.feature.remove:
     name: IIS-WebServerRole
 ```
 

@@ -120,15 +120,15 @@ func permissionsDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Lock down a key file",
-				RunbookYAML: "- name: Keep the deploy key private\n  fqcn: file.permissions\n  params:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+				RunbookYAML: "- name: Keep the deploy key private\n  file.permissions:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 			},
 			{
 				Name:        "Make a script executable",
-				RunbookYAML: "- name: Allow the rotation script to run\n  fqcn: file.permissions\n  params:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n",
+				RunbookYAML: "- name: Allow the rotation script to run\n  file.permissions:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n",
 			},
 			{
 				Name:        "Hand a directory to a service account",
-				RunbookYAML: "- name: Give the cache directory to the service\n  fqcn: file.permissions\n  params:\n    path: /var/cache/pleiades\n    owner: pleiades\n",
+				RunbookYAML: "- name: Give the cache directory to the service\n  file.permissions:\n    path: /var/cache/pleiades\n    owner: pleiades\n",
 			},
 		},
 		SeeAlso: []string{"file.touch", "file.directory", "file.copy"},

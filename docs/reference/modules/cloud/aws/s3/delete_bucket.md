@@ -48,8 +48,7 @@ Delete a bucket:
 
 ```yaml
 - name: Remove the release artifacts bucket
-  fqcn: cloud.aws.s3.delete_bucket
-  params:
+  cloud.aws.s3.delete_bucket:
     bucket: my-release-artifacts
 ```
 

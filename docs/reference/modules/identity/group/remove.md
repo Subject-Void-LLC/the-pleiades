@@ -50,8 +50,7 @@ Remove a group:
 
 ```yaml
 - name: Make sure the old admins group is gone
-  fqcn: identity.group.remove
-  params:
+  identity.group.remove:
     name: admins
 ```
 

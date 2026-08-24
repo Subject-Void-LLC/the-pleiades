@@ -78,11 +78,11 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Stop managing a hosts file entry",
-				RunbookYAML: "- name: Drop the cluster short names\n  fqcn: file.block.remove\n  params:\n    path: /etc/hosts\n",
+				RunbookYAML: "- name: Drop the cluster short names\n  file.block.remove:\n    path: /etc/hosts\n",
 			},
 			{
 				Name:        "Remove a block written with its own marker",
-				RunbookYAML: "- name: Retire the hardening stanza\n  fqcn: file.block.remove\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n",
+				RunbookYAML: "- name: Retire the hardening stanza\n  file.block.remove:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n",
 			},
 		},
 		SeeAlso: []string{blockFQCNSet, "file.line.remove", "file.remove"},

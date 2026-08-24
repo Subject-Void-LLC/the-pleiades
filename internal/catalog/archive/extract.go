@@ -73,11 +73,11 @@ func extractDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Extract a build already staged on the target",
-				RunbookYAML: "- name: Unpack the release\n  fqcn: archive.extract\n  params:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n",
+				RunbookYAML: "- name: Unpack the release\n  archive.extract:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n",
 			},
 			{
 				Name:        "Extract only once",
-				RunbookYAML: "- name: Unpack the SDK if it is not already there\n  fqcn: archive.extract\n  params:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n",
+				RunbookYAML: "- name: Unpack the SDK if it is not already there\n  archive.extract:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n",
 			},
 		},
 		SeeAlso: []string{"archive.create"},

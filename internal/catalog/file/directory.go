@@ -118,15 +118,15 @@ func directoryDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Create a directory tree",
-				RunbookYAML: "- name: Make sure the release directory is there\n  fqcn: file.directory\n  params:\n    path: /opt/app/releases/current\n",
+				RunbookYAML: "- name: Make sure the release directory is there\n  file.directory:\n    path: /opt/app/releases/current\n",
 			},
 			{
 				Name:        "Create it with a mode",
-				RunbookYAML: "- name: Make a private directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n",
+				RunbookYAML: "- name: Make a private directory\n  file.directory:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n",
 			},
 			{
 				Name:        "Hand it to a service account",
-				RunbookYAML: "- name: Own the data directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n",
+				RunbookYAML: "- name: Own the data directory\n  file.directory:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n",
 			},
 		},
 		SeeAlso: []string{"file.remove", "file.permissions"},

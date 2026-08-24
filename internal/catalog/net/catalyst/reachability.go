@@ -68,7 +68,7 @@ func init() {
 					{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
 				},
 				Examples: []collection.Example{
-					{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  fqcn: net.catalyst.reachability\n  register: health\n\n- name: Apply the change\n  fqcn: net.ios.config\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
+					{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
 				},
 				SeeAlso: []string{"net.catalyst.device_facts"},
 			},

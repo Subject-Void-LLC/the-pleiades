@@ -95,15 +95,15 @@ func pathDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Wait for a service to write its socket",
-				RunbookYAML: "- name: Wait for the socket to appear\n  fqcn: wait.path\n  params:\n    path: /run/pleiades/api.sock\n    timeout: 60\n",
+				RunbookYAML: "- name: Wait for the socket to appear\n  wait.path:\n    path: /run/pleiades/api.sock\n    timeout: 60\n",
 			},
 			{
 				Name:        "Wait for a lock file to be released",
-				RunbookYAML: "- name: Wait for the package manager to finish\n  fqcn: wait.path\n  params:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n",
+				RunbookYAML: "- name: Wait for the package manager to finish\n  wait.path:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n",
 			},
 			{
 				Name:        "Give a slow starter a head start",
-				RunbookYAML: "- name: Wait for the pid file, but not immediately\n  fqcn: wait.path\n  params:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n",
+				RunbookYAML: "- name: Wait for the pid file, but not immediately\n  wait.path:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n",
 			},
 		},
 		SeeAlso: []string{"wait.search", "pleiades.builtin.wait.port"},

@@ -57,8 +57,7 @@ Lock down a key file:
 
 ```yaml
 - name: Keep the deploy key private
-  fqcn: file.permissions
-  params:
+  file.permissions:
     path: /etc/pleiades/deploy.key
     mode: "0600"
     owner: pleiades
@@ -69,8 +68,7 @@ Make a script executable:
 
 ```yaml
 - name: Allow the rotation script to run
-  fqcn: file.permissions
-  params:
+  file.permissions:
     path: /usr/local/bin/rotate-logs
     mode: "0755"
 ```
@@ -79,8 +77,7 @@ Hand a directory to a service account:
 
 ```yaml
 - name: Give the cache directory to the service
-  fqcn: file.permissions
-  params:
+  file.permissions:
     path: /var/cache/pleiades
     owner: pleiades
 ```

@@ -69,11 +69,11 @@
       "examples": [
         {
           "name": "Archive a directory",
-          "runbookYaml": "- name: Archive the release build\n  fqcn: archive.create\n  params:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n"
+          "runbookYaml": "- name: Archive the release build\n  archive.create:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n"
         },
         {
           "name": "Archive and remove the originals",
-          "runbookYaml": "- name: Archive old logs and delete them\n  fqcn: archive.create\n  params:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n"
+          "runbookYaml": "- name: Archive old logs and delete them\n  archive.create:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n"
         }
       ],
       "seeAlso": [
@@ -147,11 +147,11 @@
       "examples": [
         {
           "name": "Extract a build already staged on the target",
-          "runbookYaml": "- name: Unpack the release\n  fqcn: archive.extract\n  params:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n"
+          "runbookYaml": "- name: Unpack the release\n  archive.extract:\n    src: /tmp/release.tar.gz\n    dest: /opt/app\n"
         },
         {
           "name": "Extract only once",
-          "runbookYaml": "- name: Unpack the SDK if it is not already there\n  fqcn: archive.extract\n  params:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n"
+          "runbookYaml": "- name: Unpack the SDK if it is not already there\n  archive.extract:\n    src: /tmp/sdk.tar.gz\n    dest: /opt/sdk\n    creates: /opt/sdk/bin/sdk\n"
         }
       ],
       "seeAlso": [
@@ -216,7 +216,7 @@
       "examples": [
         {
           "name": "Launch a small instance",
-          "runbookYaml": "- name: Launch the build agent\n  fqcn: cloud.aws.ec2.create\n  params:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n"
+          "runbookYaml": "- name: Launch the build agent\n  cloud.aws.ec2.create:\n    name: build-agent-1\n    image_id: ami-0abcdef1234567890\n    instance_type: t3.micro\n"
         }
       ],
       "seeAlso": [
@@ -263,7 +263,7 @@
       "examples": [
         {
           "name": "Terminate an instance",
-          "runbookYaml": "- name: Tear down the build agent\n  fqcn: cloud.aws.ec2.terminate\n  params:\n    instance_id: i-0123456789abcdef0\n"
+          "runbookYaml": "- name: Tear down the build agent\n  cloud.aws.ec2.terminate:\n    instance_id: i-0123456789abcdef0\n"
         }
       ],
       "seeAlso": [
@@ -316,7 +316,7 @@
       "examples": [
         {
           "name": "Create a bucket",
-          "runbookYaml": "- name: Create the release artifacts bucket\n  fqcn: cloud.aws.s3.create_bucket\n  params:\n    bucket: my-release-artifacts\n"
+          "runbookYaml": "- name: Create the release artifacts bucket\n  cloud.aws.s3.create_bucket:\n    bucket: my-release-artifacts\n"
         }
       ],
       "seeAlso": [
@@ -363,7 +363,7 @@
       "examples": [
         {
           "name": "Delete a bucket",
-          "runbookYaml": "- name: Remove the release artifacts bucket\n  fqcn: cloud.aws.s3.delete_bucket\n  params:\n    bucket: my-release-artifacts\n"
+          "runbookYaml": "- name: Remove the release artifacts bucket\n  cloud.aws.s3.delete_bucket:\n    bucket: my-release-artifacts\n"
         }
       ],
       "seeAlso": [
@@ -431,7 +431,7 @@
       "examples": [
         {
           "name": "Check a running container's own view of a file",
-          "runbookYaml": "- name: Read the app's version file\n  fqcn: container.docker.exec\n  params:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"
+          "runbookYaml": "- name: Read the app's version file\n  container.docker.exec:\n    name: web\n    cmd: cat /opt/app/VERSION\n  register: version\n"
         }
       ],
       "seeAlso": [
@@ -498,11 +498,11 @@
       "examples": [
         {
           "name": "Remove a stopped container",
-          "runbookYaml": "- name: Remove web\n  fqcn: container.docker.remove\n  params:\n    name: web\n"
+          "runbookYaml": "- name: Remove web\n  container.docker.remove:\n    name: web\n"
         },
         {
           "name": "Force-remove a running container",
-          "runbookYaml": "- name: Remove web even if it is still running\n  fqcn: container.docker.remove\n  params:\n    name: web\n    force: true\n"
+          "runbookYaml": "- name: Remove web even if it is still running\n  container.docker.remove:\n    name: web\n    force: true\n"
         }
       ],
       "seeAlso": [
@@ -592,7 +592,7 @@
       "examples": [
         {
           "name": "Run a container",
-          "runbookYaml": "- name: Run nginx\n  fqcn: container.docker.run\n  params:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"
+          "runbookYaml": "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n"
         }
       ],
       "seeAlso": [
@@ -651,7 +651,7 @@
       "examples": [
         {
           "name": "Stop a container",
-          "runbookYaml": "- name: Stop web\n  fqcn: container.docker.stop\n  params:\n    name: web\n"
+          "runbookYaml": "- name: Stop web\n  container.docker.stop:\n    name: web\n"
         }
       ],
       "seeAlso": [
@@ -756,15 +756,15 @@
       "examples": [
         {
           "name": "Run a command and register its output",
-          "runbookYaml": "- name: Read the kernel version\n  fqcn: exec.command\n  params:\n    cmd: uname -r\n  register: kernel\n"
+          "runbookYaml": "- name: Read the kernel version\n  exec.command:\n    cmd: uname -r\n  register: kernel\n"
         },
         {
           "name": "Make a command idempotent with creates",
-          "runbookYaml": "- name: Unpack the release once\n  fqcn: exec.command\n  params:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n"
+          "runbookYaml": "- name: Unpack the release once\n  exec.command:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n"
         },
         {
           "name": "Pass an argument that a shell would mangle",
-          "runbookYaml": "- name: Write a literal value\n  fqcn: exec.command\n  params:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n"
+          "runbookYaml": "- name: Write a literal value\n  exec.command:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n"
         }
       ],
       "seeAlso": [
@@ -869,15 +869,15 @@
       "examples": [
         {
           "name": "Use a pipeline",
-          "runbookYaml": "- name: Count the failed units\n  fqcn: exec.shell\n  params:\n    cmd: systemctl list-units --state=failed --no-legend | wc -l\n  register: failed\n"
+          "runbookYaml": "- name: Count the failed units\n  exec.shell:\n    cmd: systemctl list-units --state=failed --no-legend | wc -l\n  register: failed\n"
         },
         {
           "name": "Redirect output to a file, once",
-          "runbookYaml": "- name: Snapshot the package list\n  fqcn: exec.shell\n  params:\n    cmd: dpkg -l > /var/backups/packages.txt\n    creates: /var/backups/packages.txt\n"
+          "runbookYaml": "- name: Snapshot the package list\n  exec.shell:\n    cmd: dpkg -l > /var/backups/packages.txt\n    creates: /var/backups/packages.txt\n"
         },
         {
           "name": "Choose the shell",
-          "runbookYaml": "- name: Use a bash-only construct\n  fqcn: exec.shell\n  params:\n    cmd: \"[[ -f /etc/os-release ]] && echo present\"\n    executable: /bin/bash\n"
+          "runbookYaml": "- name: Use a bash-only construct\n  exec.shell:\n    cmd: \"[[ -f /etc/os-release ]] && echo present\"\n    executable: /bin/bash\n"
         }
       ],
       "seeAlso": [
@@ -1060,11 +1060,11 @@
       "examples": [
         {
           "name": "Gather everything before deciding what to do",
-          "runbookYaml": "- name: Learn what this device is\n  fqcn: facts.gather\n"
+          "runbookYaml": "- name: Learn what this device is\n  facts.gather:\n"
         },
         {
           "name": "Gather only what a later condition reads",
-          "runbookYaml": "- name: Learn which distribution this is\n  fqcn: facts.gather\n  params:\n    filter:\n      - ansible_distribution*\n"
+          "runbookYaml": "- name: Learn which distribution this is\n  facts.gather:\n    filter:\n      - ansible_distribution*\n"
         }
       ],
       "seeAlso": [
@@ -1157,11 +1157,11 @@
       "examples": [
         {
           "name": "Stop managing a hosts file entry",
-          "runbookYaml": "- name: Drop the cluster short names\n  fqcn: file.block.remove\n  params:\n    path: /etc/hosts\n"
+          "runbookYaml": "- name: Drop the cluster short names\n  file.block.remove:\n    path: /etc/hosts\n"
         },
         {
           "name": "Remove a block written with its own marker",
-          "runbookYaml": "- name: Retire the hardening stanza\n  fqcn: file.block.remove\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n"
+          "runbookYaml": "- name: Retire the hardening stanza\n  file.block.remove:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n"
         }
       ],
       "seeAlso": [
@@ -1261,15 +1261,15 @@
       "examples": [
         {
           "name": "Manage a hosts file entry",
-          "runbookYaml": "- name: Keep the cluster's short names resolvable\n  fqcn: file.block.set\n  params:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n"
+          "runbookYaml": "- name: Keep the cluster's short names resolvable\n  file.block.set:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n"
         },
         {
           "name": "Use a marker a file's own syntax allows",
-          "runbookYaml": "- name: Manage the sshd hardening stanza\n  fqcn: file.block.set\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n"
+          "runbookYaml": "- name: Manage the sshd hardening stanza\n  file.block.set:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n"
         },
         {
           "name": "Keep two independent blocks in one file",
-          "runbookYaml": "- name: Manage the proxy stanza only\n  fqcn: file.block.set\n  params:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n"
+          "runbookYaml": "- name: Manage the proxy stanza only\n  file.block.set:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n"
         }
       ],
       "seeAlso": [
@@ -1390,15 +1390,15 @@
       "examples": [
         {
           "name": "Write a configuration file",
-          "runbookYaml": "- name: Install the agent configuration\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n"
+          "runbookYaml": "- name: Install the agent configuration\n  file.copy:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n"
         },
         {
           "name": "Write a private file",
-          "runbookYaml": "- name: Drop the deploy token\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
+          "runbookYaml": "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
         },
         {
           "name": "Truncate a file to nothing",
-          "runbookYaml": "- name: Empty the local override file\n  fqcn: file.copy\n  params:\n    dest: /etc/app/local.conf\n    content: \"\"\n"
+          "runbookYaml": "- name: Empty the local override file\n  file.copy:\n    dest: /etc/app/local.conf\n    content: \"\"\n"
         }
       ],
       "seeAlso": [
@@ -1472,15 +1472,15 @@
       "examples": [
         {
           "name": "Create a directory tree",
-          "runbookYaml": "- name: Make sure the release directory is there\n  fqcn: file.directory\n  params:\n    path: /opt/app/releases/current\n"
+          "runbookYaml": "- name: Make sure the release directory is there\n  file.directory:\n    path: /opt/app/releases/current\n"
         },
         {
           "name": "Create it with a mode",
-          "runbookYaml": "- name: Make a private directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n"
+          "runbookYaml": "- name: Make a private directory\n  file.directory:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n"
         },
         {
           "name": "Hand it to a service account",
-          "runbookYaml": "- name: Own the data directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n"
+          "runbookYaml": "- name: Own the data directory\n  file.directory:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n"
         }
       ],
       "seeAlso": [
@@ -1559,15 +1559,15 @@
       "examples": [
         {
           "name": "Drop a package source by pattern",
-          "runbookYaml": "- name: Drop the retired package mirror\n  fqcn: file.line.remove\n  params:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n"
+          "runbookYaml": "- name: Drop the retired package mirror\n  file.line.remove:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n"
         },
         {
           "name": "Drop one exact entry",
-          "runbookYaml": "- name: Remove the decommissioned host entry\n  fqcn: file.line.remove\n  params:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n"
+          "runbookYaml": "- name: Remove the decommissioned host entry\n  file.line.remove:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n"
         },
         {
           "name": "Act only when something was really removed",
-          "runbookYaml": "- name: Strip every commented out override\n  fqcn: file.line.remove\n  params:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  fqcn: exec.command\n  params:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n"
+          "runbookYaml": "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n"
         }
       ],
       "seeAlso": [
@@ -1652,15 +1652,15 @@
       "examples": [
         {
           "name": "Correct a setting whether or not it is commented out",
-          "runbookYaml": "- name: Turn off root login over SSH\n  fqcn: file.line.set\n  params:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n"
+          "runbookYaml": "- name: Turn off root login over SSH\n  file.line.set:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n"
         },
         {
           "name": "Append an entry that is either there or not",
-          "runbookYaml": "- name: Add the internal registry to the hosts file\n  fqcn: file.line.set\n  params:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n"
+          "runbookYaml": "- name: Add the internal registry to the hosts file\n  file.line.set:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n"
         },
         {
           "name": "Place a line against an anchor",
-          "runbookYaml": "- name: Put the include ahead of the defaults section\n  fqcn: file.line.set\n  params:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n"
+          "runbookYaml": "- name: Put the include ahead of the defaults section\n  file.line.set:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n"
         }
       ],
       "seeAlso": [
@@ -1751,15 +1751,15 @@
       "examples": [
         {
           "name": "Lock down a key file",
-          "runbookYaml": "- name: Keep the deploy key private\n  fqcn: file.permissions\n  params:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
+          "runbookYaml": "- name: Keep the deploy key private\n  file.permissions:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n"
         },
         {
           "name": "Make a script executable",
-          "runbookYaml": "- name: Allow the rotation script to run\n  fqcn: file.permissions\n  params:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n"
+          "runbookYaml": "- name: Allow the rotation script to run\n  file.permissions:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n"
         },
         {
           "name": "Hand a directory to a service account",
-          "runbookYaml": "- name: Give the cache directory to the service\n  fqcn: file.permissions\n  params:\n    path: /var/cache/pleiades\n    owner: pleiades\n"
+          "runbookYaml": "- name: Give the cache directory to the service\n  file.permissions:\n    path: /var/cache/pleiades\n    owner: pleiades\n"
         }
       ],
       "seeAlso": [
@@ -1817,15 +1817,15 @@
       "examples": [
         {
           "name": "Remove a file",
-          "runbookYaml": "- name: Drop the leftover lock file\n  fqcn: file.remove\n  params:\n    path: /var/run/deploy.lock\n"
+          "runbookYaml": "- name: Drop the leftover lock file\n  file.remove:\n    path: /var/run/deploy.lock\n"
         },
         {
           "name": "Remove an empty directory",
-          "runbookYaml": "- name: Drop the empty spool directory\n  fqcn: file.remove\n  params:\n    path: /var/spool/old-queue\n"
+          "runbookYaml": "- name: Drop the empty spool directory\n  file.remove:\n    path: /var/spool/old-queue\n"
         },
         {
           "name": "Remove a directory and everything in it",
-          "runbookYaml": "- name: Drop the previous release\n  fqcn: file.remove\n  params:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n"
+          "runbookYaml": "- name: Drop the previous release\n  file.remove:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n"
         }
       ],
       "seeAlso": [
@@ -1887,15 +1887,15 @@
       "examples": [
         {
           "name": "Point a stable name at a versioned release",
-          "runbookYaml": "- name: Point current at the new release\n  fqcn: file.symlink\n  params:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n"
+          "runbookYaml": "- name: Point current at the new release\n  file.symlink:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n"
         },
         {
           "name": "Repoint a link that already exists",
-          "runbookYaml": "- name: Select the staging configuration\n  fqcn: file.symlink\n  params:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n"
+          "runbookYaml": "- name: Select the staging configuration\n  file.symlink:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n"
         },
         {
           "name": "Use dest, the way a converted playbook writes it",
-          "runbookYaml": "- name: Link the vendor binary onto the path\n  fqcn: file.symlink\n  params:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n"
+          "runbookYaml": "- name: Link the vendor binary onto the path\n  file.symlink:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n"
         }
       ],
       "seeAlso": [
@@ -1990,15 +1990,15 @@
       "examples": [
         {
           "name": "Create a marker file",
-          "runbookYaml": "- name: Mark the host as provisioned\n  fqcn: file.touch\n  params:\n    path: /var/lib/pleiades/provisioned\n"
+          "runbookYaml": "- name: Mark the host as provisioned\n  file.touch:\n    path: /var/lib/pleiades/provisioned\n"
         },
         {
           "name": "Create a log file with an owner and a mode",
-          "runbookYaml": "- name: Make the log file the service will append to\n  fqcn: file.touch\n  params:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n"
+          "runbookYaml": "- name: Make the log file the service will append to\n  file.touch:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n"
         },
         {
           "name": "Act only when the file had to be created",
-          "runbookYaml": "- name: Create the seed file\n  fqcn: file.touch\n  params:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  fqcn: exec.command\n  params:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n"
+          "runbookYaml": "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n"
         }
       ],
       "seeAlso": [
@@ -2087,11 +2087,11 @@
       "examples": [
         {
           "name": "Mount and persist a data volume",
-          "runbookYaml": "- name: Mount the data volume\n  fqcn: fs.mount\n  params:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n"
+          "runbookYaml": "- name: Mount the data volume\n  fs.mount:\n    path: /data\n    src: /dev/sdb1\n    fstype: ext4\n"
         },
         {
           "name": "Mount without touching fstab",
-          "runbookYaml": "- name: Mount a scratch volume for this run only\n  fqcn: fs.mount\n  params:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n"
+          "runbookYaml": "- name: Mount a scratch volume for this run only\n  fs.mount:\n    path: /mnt/scratch\n    src: /dev/sdb2\n    fstype: ext4\n    persist: false\n"
         }
       ],
       "seeAlso": [
@@ -2161,11 +2161,11 @@
       "examples": [
         {
           "name": "Unmount and forget a volume",
-          "runbookYaml": "- name: Unmount the old data volume\n  fqcn: fs.unmount\n  params:\n    path: /data\n"
+          "runbookYaml": "- name: Unmount the old data volume\n  fs.unmount:\n    path: /data\n"
         },
         {
           "name": "Unmount but leave the fstab entry",
-          "runbookYaml": "- name: Unmount temporarily for maintenance\n  fqcn: fs.unmount\n  params:\n    path: /data\n    persist: false\n"
+          "runbookYaml": "- name: Unmount temporarily for maintenance\n  fs.unmount:\n    path: /data\n    persist: false\n"
         }
       ],
       "seeAlso": [
@@ -2251,11 +2251,11 @@
       "examples": [
         {
           "name": "Open a port",
-          "runbookYaml": "- name: Allow HTTPS\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n"
+          "runbookYaml": "- name: Allow HTTPS\n  fw.firewalld.allow:\n    port: 443\n"
         },
         {
           "name": "Allow a service immediately without persisting it",
-          "runbookYaml": "- name: Temporarily allow SSH from a maintenance zone\n  fqcn: fw.firewalld.allow\n  params:\n    service: ssh\n    zone: maintenance\n    permanent: false\n"
+          "runbookYaml": "- name: Temporarily allow SSH from a maintenance zone\n  fw.firewalld.allow:\n    service: ssh\n    zone: maintenance\n    permanent: false\n"
         }
       ],
       "seeAlso": [
@@ -2342,7 +2342,7 @@
       "examples": [
         {
           "name": "Close a port",
-          "runbookYaml": "- name: Deny telnet\n  fqcn: fw.firewalld.deny\n  params:\n    port: 23\n"
+          "runbookYaml": "- name: Deny telnet\n  fw.firewalld.deny:\n    port: 23\n"
         }
       ],
       "seeAlso": [
@@ -2381,7 +2381,7 @@
       "examples": [
         {
           "name": "Persist a rule and apply it now",
-          "runbookYaml": "- name: Allow HTTPS permanently\n  fqcn: fw.firewalld.allow\n  params:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fqcn: fw.firewalld.reload\n  params: {}\n"
+          "runbookYaml": "- name: Allow HTTPS permanently\n  fw.firewalld.allow:\n    port: 443\n    immediate: false\n\n- name: Apply it\n  fw.firewalld.reload: {}\n"
         }
       ],
       "seeAlso": [
@@ -2484,11 +2484,11 @@
       "examples": [
         {
           "name": "Check that a service answers",
-          "runbookYaml": "- name: Wait for the health endpoint\n  fqcn: http.request\n  params:\n    url: https://api.example.com/healthz\n    timeout: 5\n"
+          "runbookYaml": "- name: Wait for the health endpoint\n  http.request:\n    url: https://api.example.com/healthz\n    timeout: 5\n"
         },
         {
           "name": "Post JSON to an API",
-          "runbookYaml": "- name: Register the release\n  fqcn: http.request\n  params:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n"
+          "runbookYaml": "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n"
         }
       ],
       "seeAlso": [
@@ -2558,11 +2558,11 @@
       "examples": [
         {
           "name": "Create a plain group",
-          "runbookYaml": "- name: Make sure admins exists\n  fqcn: identity.group.create\n  params:\n    name: admins\n"
+          "runbookYaml": "- name: Make sure admins exists\n  identity.group.create:\n    name: admins\n"
         },
         {
           "name": "Pin a gid",
-          "runbookYaml": "- name: Create a service group\n  fqcn: identity.group.create\n  params:\n    name: appsvc\n    gid: 5000\n    system: true\n"
+          "runbookYaml": "- name: Create a service group\n  identity.group.create:\n    name: appsvc\n    gid: 5000\n    system: true\n"
         }
       ],
       "seeAlso": [
@@ -2628,7 +2628,7 @@
       "examples": [
         {
           "name": "Change a group's gid",
-          "runbookYaml": "- name: Renumber admins\n  fqcn: identity.group.modify\n  params:\n    name: admins\n    gid: 6000\n"
+          "runbookYaml": "- name: Renumber admins\n  identity.group.modify:\n    name: admins\n    gid: 6000\n"
         }
       ],
       "seeAlso": [
@@ -2687,7 +2687,7 @@
       "examples": [
         {
           "name": "Remove a group",
-          "runbookYaml": "- name: Make sure the old admins group is gone\n  fqcn: identity.group.remove\n  params:\n    name: admins\n"
+          "runbookYaml": "- name: Make sure the old admins group is gone\n  identity.group.remove:\n    name: admins\n"
         }
       ],
       "seeAlso": [
@@ -2783,11 +2783,11 @@
       "examples": [
         {
           "name": "Create a plain account",
-          "runbookYaml": "- name: Make sure deploy exists\n  fqcn: identity.user.create\n  params:\n    name: deploy\n"
+          "runbookYaml": "- name: Make sure deploy exists\n  identity.user.create:\n    name: deploy\n"
         },
         {
           "name": "Pin uid and shell",
-          "runbookYaml": "- name: Create a service account\n  fqcn: identity.user.create\n  params:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n"
+          "runbookYaml": "- name: Create a service account\n  identity.user.create:\n    name: appsvc\n    uid: 5000\n    shell: /usr/sbin/nologin\n    system: true\n"
         }
       ],
       "seeAlso": [
@@ -2872,7 +2872,7 @@
       "examples": [
         {
           "name": "Change a login shell",
-          "runbookYaml": "- name: Switch deploy to a restricted shell\n  fqcn: identity.user.modify\n  params:\n    name: deploy\n    shell: /usr/sbin/nologin\n"
+          "runbookYaml": "- name: Switch deploy to a restricted shell\n  identity.user.modify:\n    name: deploy\n    shell: /usr/sbin/nologin\n"
         }
       ],
       "seeAlso": [
@@ -2937,11 +2937,11 @@
       "examples": [
         {
           "name": "Remove an account",
-          "runbookYaml": "- name: Make sure the old deploy account is gone\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n"
+          "runbookYaml": "- name: Make sure the old deploy account is gone\n  identity.user.remove:\n    name: deploy\n"
         },
         {
           "name": "Remove an account and its home directory",
-          "runbookYaml": "- name: Remove deploy entirely\n  fqcn: identity.user.remove\n  params:\n    name: deploy\n    remove: true\n"
+          "runbookYaml": "- name: Remove deploy entirely\n  identity.user.remove:\n    name: deploy\n    remove: true\n"
         }
       ],
       "seeAlso": [
@@ -2988,7 +2988,7 @@
       "examples": [
         {
           "name": "Gather the managed fleet",
-          "runbookYaml": "- name: Gather Catalyst Center device facts\n  fqcn: net.catalyst.device_facts\n  register: fleet\n"
+          "runbookYaml": "- name: Gather Catalyst Center device facts\n  net.catalyst.device_facts:\n  register: fleet\n"
         }
       ],
       "seeAlso": [
@@ -3047,7 +3047,7 @@
       "examples": [
         {
           "name": "Gate a change on full fleet reachability",
-          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  fqcn: net.catalyst.reachability\n  register: health\n\n- name: Apply the change\n  fqcn: net.ios.config\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"
+          "runbookYaml": "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"
         }
       ],
       "seeAlso": [
@@ -3092,7 +3092,7 @@
       "examples": [
         {
           "name": "Gather the site hierarchy",
-          "runbookYaml": "- name: Gather Catalyst Center site facts\n  fqcn: net.catalyst.site_facts\n  register: sites\n"
+          "runbookYaml": "- name: Gather Catalyst Center site facts\n  net.catalyst.site_facts:\n  register: sites\n"
         }
       ],
       "seeAlso": [
@@ -3137,7 +3137,7 @@
       "examples": [
         {
           "name": "Gather operator-created tags",
-          "runbookYaml": "- name: Gather Catalyst Center tag facts\n  fqcn: net.catalyst.tag_facts\n  register: tags\n"
+          "runbookYaml": "- name: Gather Catalyst Center tag facts\n  net.catalyst.tag_facts:\n  register: tags\n"
         }
       ]
     }
@@ -3372,7 +3372,7 @@
       "examples": [
         {
           "name": "Check a device is reachable over SSH",
-          "runbookYaml": "- name: Ping the device\n  fqcn: net.ssh.ping\n  register: reachability\n"
+          "runbookYaml": "- name: Ping the device\n  net.ssh.ping:\n  register: reachability\n"
         }
       ]
     }
@@ -3438,11 +3438,11 @@
       "examples": [
         {
           "name": "Install a package",
-          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.apt.install\n  params:\n    name: curl\n"
+          "runbookYaml": "- name: Make sure curl is installed\n  pkg.apt.install:\n    name: curl\n"
         },
         {
           "name": "Pin an exact version",
-          "runbookYaml": "- name: Install a specific nginx build\n  fqcn: pkg.apt.install\n  params:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n"
+          "runbookYaml": "- name: Install a specific nginx build\n  pkg.apt.install:\n    name: nginx\n    version: 1.24.0-2ubuntu7\n"
         }
       ],
       "seeAlso": [
@@ -3509,7 +3509,7 @@
       "examples": [
         {
           "name": "Remove a package",
-          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.apt.remove\n  params:\n    name: telnet\n"
+          "runbookYaml": "- name: Make sure telnet is not installed\n  pkg.apt.remove:\n    name: telnet\n"
         }
       ],
       "seeAlso": [
@@ -3576,7 +3576,7 @@
       "examples": [
         {
           "name": "Keep a package at its newest available version",
-          "runbookYaml": "- name: Keep openssl current\n  fqcn: pkg.apt.upgrade\n  params:\n    name: openssl\n"
+          "runbookYaml": "- name: Keep openssl current\n  pkg.apt.upgrade:\n    name: openssl\n"
         }
       ],
       "seeAlso": [
@@ -3648,11 +3648,11 @@
       "examples": [
         {
           "name": "Install a package",
-          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.dnf.install\n  params:\n    name: curl\n"
+          "runbookYaml": "- name: Make sure curl is installed\n  pkg.dnf.install:\n    name: curl\n"
         },
         {
           "name": "Pin an exact version",
-          "runbookYaml": "- name: Install a specific nginx build\n  fqcn: pkg.dnf.install\n  params:\n    name: nginx\n    version: 1.24.0-1.el9\n"
+          "runbookYaml": "- name: Install a specific nginx build\n  pkg.dnf.install:\n    name: nginx\n    version: 1.24.0-1.el9\n"
         }
       ],
       "seeAlso": [
@@ -3719,7 +3719,7 @@
       "examples": [
         {
           "name": "Remove a package",
-          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.dnf.remove\n  params:\n    name: telnet\n"
+          "runbookYaml": "- name: Make sure telnet is not installed\n  pkg.dnf.remove:\n    name: telnet\n"
         }
       ],
       "seeAlso": [
@@ -3786,7 +3786,7 @@
       "examples": [
         {
           "name": "Keep a package at its newest available version",
-          "runbookYaml": "- name: Keep openssl current\n  fqcn: pkg.dnf.upgrade\n  params:\n    name: openssl\n"
+          "runbookYaml": "- name: Keep openssl current\n  pkg.dnf.upgrade:\n    name: openssl\n"
         }
       ],
       "seeAlso": [
@@ -3855,7 +3855,7 @@
       "examples": [
         {
           "name": "Install a package without naming the package manager",
-          "runbookYaml": "- name: Make sure curl is installed\n  fqcn: pkg.install\n  params:\n    name: curl\n"
+          "runbookYaml": "- name: Make sure curl is installed\n  pkg.install:\n    name: curl\n"
         }
       ],
       "seeAlso": [
@@ -3924,7 +3924,7 @@
       "examples": [
         {
           "name": "Remove a package without naming the package manager",
-          "runbookYaml": "- name: Make sure telnet is not installed\n  fqcn: pkg.remove\n  params:\n    name: telnet\n"
+          "runbookYaml": "- name: Make sure telnet is not installed\n  pkg.remove:\n    name: telnet\n"
         }
       ],
       "seeAlso": [
@@ -3993,7 +3993,7 @@
       "examples": [
         {
           "name": "Keep a package current without naming the package manager",
-          "runbookYaml": "- name: Keep openssl at its newest available version\n  fqcn: pkg.upgrade\n  params:\n    name: openssl\n"
+          "runbookYaml": "- name: Keep openssl at its newest available version\n  pkg.upgrade:\n    name: openssl\n"
         }
       ],
       "seeAlso": [
@@ -4098,15 +4098,15 @@
       "examples": [
         {
           "name": "Wait for a database to come back after a restart",
-          "runbookYaml": "- name: Wait for postgres to accept connections\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 5432\n    timeout: 120\n"
+          "runbookYaml": "- name: Wait for postgres to accept connections\n  pleiades.builtin.wait.port:\n    port: 5432\n    timeout: 120\n"
         },
         {
           "name": "Wait for a port to be released before rebinding it",
-          "runbookYaml": "- name: Wait for the old listener to go away\n  fqcn: pleiades.builtin.wait.port\n  params:\n    port: 8080\n    state: stopped\n    timeout: 60\n"
+          "runbookYaml": "- name: Wait for the old listener to go away\n  pleiades.builtin.wait.port:\n    port: 8080\n    state: stopped\n    timeout: 60\n"
         },
         {
           "name": "Give a service a head start, then poll slowly",
-          "runbookYaml": "- name: Wait for the API on its private address\n  fqcn: pleiades.builtin.wait.port\n  params:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n"
+          "runbookYaml": "- name: Wait for the API on its private address\n  pleiades.builtin.wait.port:\n    host: 10.0.0.7\n    port: 443\n    delay: 10\n    sleep: 5\n"
         }
       ],
       "seeAlso": [
@@ -4163,7 +4163,7 @@
       "examples": [
         {
           "name": "Take a service out of the boot sequence",
-          "runbookYaml": "- name: Stop the service coming back after a reboot\n  fqcn: svc.disable\n  params:\n    name: legacy-app\n"
+          "runbookYaml": "- name: Stop the service coming back after a reboot\n  svc.disable:\n    name: legacy-app\n"
         }
       ],
       "seeAlso": [
@@ -4220,7 +4220,7 @@
       "examples": [
         {
           "name": "Enable and start, in that order",
-          "runbookYaml": "- name: Make sure the service comes back after a reboot\n  fqcn: svc.enable\n  params:\n    name: app\n\n- name: And make sure it is running now\n  fqcn: svc.start\n  params:\n    name: app\n"
+          "runbookYaml": "- name: Make sure the service comes back after a reboot\n  svc.enable:\n    name: app\n\n- name: And make sure it is running now\n  svc.start:\n    name: app\n"
         }
       ],
       "seeAlso": [
@@ -4277,7 +4277,7 @@
       "examples": [
         {
           "name": "Restart only when the config changed",
-          "runbookYaml": "- name: Write the config\n  fqcn: file.copy\n  params:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  fqcn: svc.restart\n  params:\n    name: app\n  when:\n    - app_config.changed\n"
+          "runbookYaml": "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - app_config.changed\n"
         }
       ],
       "seeAlso": [
@@ -4334,7 +4334,7 @@
       "examples": [
         {
           "name": "Start a service without naming the init system",
-          "runbookYaml": "- name: Make sure nginx is running\n  fqcn: svc.start\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Make sure nginx is running\n  svc.start:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4392,7 +4392,7 @@
       "examples": [
         {
           "name": "Stop a service without naming the init system",
-          "runbookYaml": "- name: Stop nginx before maintenance\n  fqcn: svc.stop\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Stop nginx before maintenance\n  svc.stop:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4432,7 +4432,7 @@
       "examples": [
         {
           "name": "Install a unit file and make systemd see it",
-          "runbookYaml": "- name: Write the unit file\n  fqcn: file.copy\n  params:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  fqcn: svc.systemd.daemon_reload\n  params: {}\n\n- name: Start the new service\n  fqcn: svc.systemd.start\n  params:\n    name: app\n"
+          "runbookYaml": "- name: Write the unit file\n  file.copy:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  svc.systemd.daemon_reload: {}\n\n- name: Start the new service\n  svc.systemd.start:\n    name: app\n"
         }
       ],
       "seeAlso": [
@@ -4491,7 +4491,7 @@
       "examples": [
         {
           "name": "Keep a service from starting at boot",
-          "runbookYaml": "- name: Stop nginx coming back after a reboot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Stop nginx coming back after a reboot\n  svc.systemd.disable:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4551,7 +4551,7 @@
       "examples": [
         {
           "name": "Make a service start at boot",
-          "runbookYaml": "- name: Make sure nginx comes back after a reboot\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Make sure nginx comes back after a reboot\n  svc.systemd.enable:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4611,7 +4611,7 @@
       "examples": [
         {
           "name": "Restart after a config change",
-          "runbookYaml": "- name: Write the nginx config\n  fqcn: file.copy\n  params:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  fqcn: svc.systemd.restart\n  params:\n    name: nginx\n  when:\n    - nginx_config.changed\n"
+          "runbookYaml": "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - nginx_config.changed\n"
         }
       ],
       "seeAlso": [
@@ -4671,11 +4671,11 @@
       "examples": [
         {
           "name": "Start a service",
-          "runbookYaml": "- name: Make sure nginx is running\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Make sure nginx is running\n  svc.systemd.start:\n    name: nginx\n"
         },
         {
           "name": "Start it and make it survive a reboot",
-          "runbookYaml": "- name: Start nginx\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n\n- name: Make nginx start at boot too\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Start nginx\n  svc.systemd.start:\n    name: nginx\n\n- name: Make nginx start at boot too\n  svc.systemd.enable:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4736,11 +4736,11 @@
       "examples": [
         {
           "name": "Stop a service",
-          "runbookYaml": "- name: Stop nginx before swapping its config\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Stop nginx before swapping its config\n  svc.systemd.stop:\n    name: nginx\n"
         },
         {
           "name": "Stop it now and keep it from coming back at boot",
-          "runbookYaml": "- name: Stop nginx\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"
+          "runbookYaml": "- name: Stop nginx\n  svc.systemd.stop:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  svc.systemd.disable:\n    name: nginx\n"
         }
       ],
       "seeAlso": [
@@ -4794,11 +4794,11 @@
       "examples": [
         {
           "name": "Keep a service from starting at boot",
-          "runbookYaml": "- name: Make sure the print spooler cannot start at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Make sure the print spooler cannot start at boot\n  svc.windows.disable:\n    name: Spooler\n"
         },
         {
           "name": "Disable it and stop it running now too",
-          "runbookYaml": "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n"
         }
       ],
       "seeAlso": [
@@ -4852,7 +4852,7 @@
       "examples": [
         {
           "name": "Make a service start at boot",
-          "runbookYaml": "- name: Make sure the print spooler comes back after a reboot\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Make sure the print spooler comes back after a reboot\n  svc.windows.enable:\n    name: Spooler\n"
         }
       ],
       "seeAlso": [
@@ -4906,7 +4906,7 @@
       "examples": [
         {
           "name": "Restart after a config change",
-          "runbookYaml": "- name: Write the app's config\n  fqcn: file.copy\n  params:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  fqcn: svc.windows.restart\n  params:\n    name: AppService\n  when:\n    - app_config.changed\n"
+          "runbookYaml": "- name: Write the app's config\n  file.copy:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - app_config.changed\n"
         }
       ],
       "seeAlso": [
@@ -4960,11 +4960,11 @@
       "examples": [
         {
           "name": "Start a service",
-          "runbookYaml": "- name: Make sure the print spooler is running\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Make sure the print spooler is running\n  svc.windows.start:\n    name: Spooler\n"
         },
         {
           "name": "Start it and make it survive a reboot",
-          "runbookYaml": "- name: Start the print spooler\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Start the print spooler\n  svc.windows.start:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  svc.windows.enable:\n    name: Spooler\n"
         }
       ],
       "seeAlso": [
@@ -5019,11 +5019,11 @@
       "examples": [
         {
           "name": "Stop a service",
-          "runbookYaml": "- name: Stop the print spooler before changing its config\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Stop the print spooler before changing its config\n  svc.windows.stop:\n    name: Spooler\n"
         },
         {
           "name": "Stop it now and keep it from coming back at boot",
-          "runbookYaml": "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"
+          "runbookYaml": "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n"
         }
       ],
       "seeAlso": [
@@ -5117,15 +5117,15 @@
       "examples": [
         {
           "name": "Wait for a service to write its socket",
-          "runbookYaml": "- name: Wait for the socket to appear\n  fqcn: wait.path\n  params:\n    path: /run/pleiades/api.sock\n    timeout: 60\n"
+          "runbookYaml": "- name: Wait for the socket to appear\n  wait.path:\n    path: /run/pleiades/api.sock\n    timeout: 60\n"
         },
         {
           "name": "Wait for a lock file to be released",
-          "runbookYaml": "- name: Wait for the package manager to finish\n  fqcn: wait.path\n  params:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n"
+          "runbookYaml": "- name: Wait for the package manager to finish\n  wait.path:\n    path: /var/lib/dpkg/lock-frontend\n    state: absent\n    timeout: 300\n    sleep: 5\n"
         },
         {
           "name": "Give a slow starter a head start",
-          "runbookYaml": "- name: Wait for the pid file, but not immediately\n  fqcn: wait.path\n  params:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n"
+          "runbookYaml": "- name: Wait for the pid file, but not immediately\n  wait.path:\n    path: /run/app.pid\n    delay: 10\n    timeout: 120\n"
         }
       ],
       "seeAlso": [
@@ -5242,15 +5242,15 @@
       "examples": [
         {
           "name": "Wait for a service to log that it started",
-          "runbookYaml": "- name: Wait for the API to finish starting\n  fqcn: wait.search\n  params:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n"
+          "runbookYaml": "- name: Wait for the API to finish starting\n  wait.search:\n    path: /var/log/pleiades/api.log\n    search_regex: \"^Listening on \"\n    timeout: 120\n"
         },
         {
           "name": "Capture the port a service chose",
-          "runbookYaml": "- name: Read the port out of the log\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n"
+          "runbookYaml": "- name: Read the port out of the log\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"listening on port (?P<port>[0-9]+)\"\n  register: startup\n"
         },
         {
           "name": "Wait for an error line to be rotated away",
-          "runbookYaml": "- name: Wait for the log to stop showing the failure\n  fqcn: wait.search\n  params:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n"
+          "runbookYaml": "- name: Wait for the log to stop showing the failure\n  wait.search:\n    path: /var/log/app.log\n    search_regex: \"FATAL\"\n    state: absent\n    timeout: 60\n    sleep: 5\n"
         }
       ],
       "seeAlso": [
@@ -5309,7 +5309,7 @@
       "examples": [
         {
           "name": "Enable IIS",
-          "runbookYaml": "- name: Make sure the web server role is enabled\n  fqcn: win.feature.install\n  params:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  fqcn: exec.winrm.shell\n  params:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"
+          "runbookYaml": "- name: Make sure the web server role is enabled\n  win.feature.install:\n    name: IIS-WebServerRole\n  register: iis\n\n- name: Reboot if DISM asked for one\n  exec.winrm.shell:\n    shell: powershell\n    command: Restart-Computer -Force\n    expect_disconnect: true\n  when:\n    - iis.reboot_required\n"
         }
       ],
       "seeAlso": [
@@ -5367,7 +5367,7 @@
       "examples": [
         {
           "name": "Disable IIS",
-          "runbookYaml": "- name: Make sure the web server role is disabled\n  fqcn: win.feature.remove\n  params:\n    name: IIS-WebServerRole\n"
+          "runbookYaml": "- name: Make sure the web server role is disabled\n  win.feature.remove:\n    name: IIS-WebServerRole\n"
         }
       ],
       "seeAlso": [

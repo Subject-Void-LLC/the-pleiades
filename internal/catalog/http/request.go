@@ -167,11 +167,11 @@ func requestDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Check that a service answers",
-				RunbookYAML: "- name: Wait for the health endpoint\n  fqcn: http.request\n  params:\n    url: https://api.example.com/healthz\n    timeout: 5\n",
+				RunbookYAML: "- name: Wait for the health endpoint\n  http.request:\n    url: https://api.example.com/healthz\n    timeout: 5\n",
 			},
 			{
 				Name:        "Post JSON to an API",
-				RunbookYAML: "- name: Register the release\n  fqcn: http.request\n  params:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n",
+				RunbookYAML: "- name: Register the release\n  http.request:\n    url: https://api.example.com/releases\n    method: POST\n    body: '{\"version\": \"1.4.0\"}'\n    headers:\n      Content-Type: application/json\n    status_code:\n      - 200\n      - 201\n",
 			},
 		},
 		SeeAlso: []string{"exec.command", "pleiades.builtin.wait.port"},

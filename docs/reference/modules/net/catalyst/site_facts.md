@@ -48,7 +48,7 @@ Gather the site hierarchy:
 
 ```yaml
 - name: Gather Catalyst Center site facts
-  fqcn: net.catalyst.site_facts
+  net.catalyst.site_facts:
   register: sites
 ```
 

@@ -52,7 +52,7 @@ func stopDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Stop a container",
-				RunbookYAML: "- name: Stop web\n  fqcn: container.docker.stop\n  params:\n    name: web\n",
+				RunbookYAML: "- name: Stop web\n  container.docker.stop:\n    name: web\n",
 			},
 		},
 		SeeAlso: []string{"container.docker.run", "container.docker.remove"},

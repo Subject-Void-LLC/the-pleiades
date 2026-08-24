@@ -41,7 +41,7 @@ func enableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Make a service start at boot",
-				RunbookYAML: "- name: Make sure nginx comes back after a reboot\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Make sure nginx comes back after a reboot\n  svc.systemd.enable:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.systemd.disable", "svc.systemd.start", "svc.enable"},

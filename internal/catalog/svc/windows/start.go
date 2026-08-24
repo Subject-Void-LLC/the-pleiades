@@ -44,11 +44,11 @@ func startDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Start a service",
-				RunbookYAML: "- name: Make sure the print spooler is running\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Make sure the print spooler is running\n  svc.windows.start:\n    name: Spooler\n",
 			},
 			{
 				Name:        "Start it and make it survive a reboot",
-				RunbookYAML: "- name: Start the print spooler\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Start the print spooler\n  svc.windows.start:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  svc.windows.enable:\n    name: Spooler\n",
 			},
 		},
 		[]string{"svc.windows.stop", "svc.windows.restart", "svc.windows.enable", "svc.start"},

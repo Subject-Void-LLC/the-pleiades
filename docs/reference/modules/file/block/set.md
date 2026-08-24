@@ -59,8 +59,7 @@ Manage a hosts file entry:
 
 ```yaml
 - name: Keep the cluster's short names resolvable
-  fqcn: file.block.set
-  params:
+  file.block.set:
     path: /etc/hosts
     block: |
       10.0.0.11 db1
@@ -71,8 +70,7 @@ Use a marker a file's own syntax allows:
 
 ```yaml
 - name: Manage the sshd hardening stanza
-  fqcn: file.block.set
-  params:
+  file.block.set:
     path: /etc/ssh/sshd_config
     marker: "# {mark} PLEIADES HARDENING"
     block: |
@@ -84,8 +82,7 @@ Keep two independent blocks in one file:
 
 ```yaml
 - name: Manage the proxy stanza only
-  fqcn: file.block.set
-  params:
+  file.block.set:
     path: /etc/environment
     marker_begin: OPEN PROXY
     marker_end: CLOSE PROXY

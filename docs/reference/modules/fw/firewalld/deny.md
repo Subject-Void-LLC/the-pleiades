@@ -55,8 +55,7 @@ Close a port:
 
 ```yaml
 - name: Deny telnet
-  fqcn: fw.firewalld.deny
-  params:
+  fw.firewalld.deny:
     port: 23
 ```
 

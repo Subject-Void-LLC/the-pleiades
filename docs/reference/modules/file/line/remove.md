@@ -55,8 +55,7 @@ Drop a package source by pattern:
 
 ```yaml
 - name: Drop the retired package mirror
-  fqcn: file.line.remove
-  params:
+  file.line.remove:
     path: /etc/apt/sources.list
     regexp: '^deb .*mirror\.old\.example\.com'
 ```
@@ -65,8 +64,7 @@ Drop one exact entry:
 
 ```yaml
 - name: Remove the decommissioned host entry
-  fqcn: file.line.remove
-  params:
+  file.line.remove:
     path: /etc/hosts
     line: 10.0.4.9 registry.internal
 ```
@@ -75,15 +73,13 @@ Act only when something was really removed:
 
 ```yaml
 - name: Strip every commented out override
-  fqcn: file.line.remove
-  params:
+  file.line.remove:
     path: /etc/app/app.conf
     regexp: '^#\s*override'
   register: overrides
 
 - name: Reload the service that read them
-  fqcn: exec.command
-  params:
+  exec.command:
     cmd: systemctl reload app
   when_cel: overrides.found > 0
 ```

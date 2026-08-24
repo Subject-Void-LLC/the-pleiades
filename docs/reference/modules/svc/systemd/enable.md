@@ -51,8 +51,7 @@ Make a service start at boot:
 
 ```yaml
 - name: Make sure nginx comes back after a reboot
-  fqcn: svc.systemd.enable
-  params:
+  svc.systemd.enable:
     name: nginx
 ```
 

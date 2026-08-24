@@ -31,7 +31,7 @@ func stopDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Stop a service without naming the init system",
-				RunbookYAML: "- name: Stop nginx before maintenance\n  fqcn: svc.stop\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Stop nginx before maintenance\n  svc.stop:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.start", "svc.disable", "svc.systemd.stop"},

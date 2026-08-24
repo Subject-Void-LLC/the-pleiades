@@ -53,8 +53,7 @@ Create a directory tree:
 
 ```yaml
 - name: Make sure the release directory is there
-  fqcn: file.directory
-  params:
+  file.directory:
     path: /opt/app/releases/current
 ```
 
@@ -62,8 +61,7 @@ Create it with a mode:
 
 ```yaml
 - name: Make a private directory
-  fqcn: file.directory
-  params:
+  file.directory:
     path: /var/lib/app/secrets
     mode: "0700"
 ```
@@ -72,8 +70,7 @@ Hand it to a service account:
 
 ```yaml
 - name: Own the data directory
-  fqcn: file.directory
-  params:
+  file.directory:
     path: /var/lib/app/data
     owner: app
     group: app

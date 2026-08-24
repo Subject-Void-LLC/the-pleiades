@@ -53,8 +53,7 @@ Archive a directory:
 
 ```yaml
 - name: Archive the release build
-  fqcn: archive.create
-  params:
+  archive.create:
     path: /tmp/release.tar.gz
     src:
       - /opt/app/dist
@@ -64,8 +63,7 @@ Archive and remove the originals:
 
 ```yaml
 - name: Archive old logs and delete them
-  fqcn: archive.create
-  params:
+  archive.create:
     path: /var/backups/logs-2026-08.tar.gz
     src:
       - /var/log/app/2026-08

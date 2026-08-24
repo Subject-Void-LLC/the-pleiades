@@ -45,7 +45,7 @@ func daemonReloadDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Install a unit file and make systemd see it",
-				RunbookYAML: "- name: Write the unit file\n  fqcn: file.copy\n  params:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  fqcn: svc.systemd.daemon_reload\n  params: {}\n\n- name: Start the new service\n  fqcn: svc.systemd.start\n  params:\n    name: app\n",
+				RunbookYAML: "- name: Write the unit file\n  file.copy:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  svc.systemd.daemon_reload: {}\n\n- name: Start the new service\n  svc.systemd.start:\n    name: app\n",
 			},
 		},
 		SeeAlso: []string{"svc.systemd.start", "svc.systemd.enable"},

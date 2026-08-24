@@ -51,8 +51,7 @@ Keep a service from starting at boot:
 
 ```yaml
 - name: Stop nginx coming back after a reboot
-  fqcn: svc.systemd.disable
-  params:
+  svc.systemd.disable:
     name: nginx
 ```
 

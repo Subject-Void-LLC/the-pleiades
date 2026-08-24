@@ -31,7 +31,7 @@ func upgradeDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Keep a package current without naming the package manager",
-				RunbookYAML: "- name: Keep openssl at its newest available version\n  fqcn: pkg.upgrade\n  params:\n    name: openssl\n",
+				RunbookYAML: "- name: Keep openssl at its newest available version\n  pkg.upgrade:\n    name: openssl\n",
 			},
 		},
 		[]string{"pkg.install", "pkg.remove", "pkg.apt.upgrade", "pkg.dnf.upgrade"},

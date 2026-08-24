@@ -52,7 +52,7 @@ func modifyDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Change a group's gid",
-				RunbookYAML: "- name: Renumber admins\n  fqcn: identity.group.modify\n  params:\n    name: admins\n    gid: 6000\n",
+				RunbookYAML: "- name: Renumber admins\n  identity.group.modify:\n    name: admins\n    gid: 6000\n",
 			},
 		},
 		SeeAlso: []string{"identity.group.create", "identity.group.remove"},

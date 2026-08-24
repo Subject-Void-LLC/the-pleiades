@@ -42,15 +42,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Write a configuration file",
-					RunbookYAML: "- name: Install the agent configuration\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n",
+					RunbookYAML: "- name: Install the agent configuration\n  file.copy:\n    dest: /etc/pleiades/agent.yaml\n    content: |\n      endpoint: https://controller.internal:8443\n      verify: true\n    mode: \"0644\"\n",
 				},
 				{
 					Name:        "Write a private file",
-					RunbookYAML: "- name: Drop the deploy token\n  fqcn: file.copy\n  params:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+					RunbookYAML: "- name: Drop the deploy token\n  file.copy:\n    dest: /etc/pleiades/token\n    content: \"{{ deploy_token }}\"\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 				},
 				{
 					Name:        "Truncate a file to nothing",
-					RunbookYAML: "- name: Empty the local override file\n  fqcn: file.copy\n  params:\n    dest: /etc/app/local.conf\n    content: \"\"\n",
+					RunbookYAML: "- name: Empty the local override file\n  file.copy:\n    dest: /etc/app/local.conf\n    content: \"\"\n",
 				},
 			},
 			SeeAlso: []string{"file.template", "file.touch", "file.permissions", "file.remove"},
@@ -87,15 +87,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Create a directory tree",
-					RunbookYAML: "- name: Make sure the release directory is there\n  fqcn: file.directory\n  params:\n    path: /opt/app/releases/current\n",
+					RunbookYAML: "- name: Make sure the release directory is there\n  file.directory:\n    path: /opt/app/releases/current\n",
 				},
 				{
 					Name:        "Create it with a mode",
-					RunbookYAML: "- name: Make a private directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n",
+					RunbookYAML: "- name: Make a private directory\n  file.directory:\n    path: /var/lib/app/secrets\n    mode: \"0700\"\n",
 				},
 				{
 					Name:        "Hand it to a service account",
-					RunbookYAML: "- name: Own the data directory\n  fqcn: file.directory\n  params:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n",
+					RunbookYAML: "- name: Own the data directory\n  file.directory:\n    path: /var/lib/app/data\n    owner: app\n    group: app\n    mode: \"0750\"\n",
 				},
 			},
 			SeeAlso: []string{"file.remove", "file.permissions"},
@@ -121,15 +121,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Point a stable name at a versioned release",
-					RunbookYAML: "- name: Point current at the new release\n  fqcn: file.symlink\n  params:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n",
+					RunbookYAML: "- name: Point current at the new release\n  file.symlink:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n",
 				},
 				{
 					Name:        "Repoint a link that already exists",
-					RunbookYAML: "- name: Select the staging configuration\n  fqcn: file.symlink\n  params:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n",
+					RunbookYAML: "- name: Select the staging configuration\n  file.symlink:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n",
 				},
 				{
 					Name:        "Use dest, the way a converted playbook writes it",
-					RunbookYAML: "- name: Link the vendor binary onto the path\n  fqcn: file.symlink\n  params:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n",
+					RunbookYAML: "- name: Link the vendor binary onto the path\n  file.symlink:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n",
 				},
 			},
 			SeeAlso: []string{"file.copy", "file.remove"},
@@ -154,15 +154,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Remove a file",
-					RunbookYAML: "- name: Drop the leftover lock file\n  fqcn: file.remove\n  params:\n    path: /var/run/deploy.lock\n",
+					RunbookYAML: "- name: Drop the leftover lock file\n  file.remove:\n    path: /var/run/deploy.lock\n",
 				},
 				{
 					Name:        "Remove an empty directory",
-					RunbookYAML: "- name: Drop the empty spool directory\n  fqcn: file.remove\n  params:\n    path: /var/spool/old-queue\n",
+					RunbookYAML: "- name: Drop the empty spool directory\n  file.remove:\n    path: /var/spool/old-queue\n",
 				},
 				{
 					Name:        "Remove a directory and everything in it",
-					RunbookYAML: "- name: Drop the previous release\n  fqcn: file.remove\n  params:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n",
+					RunbookYAML: "- name: Drop the previous release\n  file.remove:\n    path: /opt/app/releases/2024-11-02\n    recurse: true\n",
 				},
 			},
 			SeeAlso: []string{"file.directory", "file.touch"},
@@ -191,15 +191,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Create a marker file",
-					RunbookYAML: "- name: Mark the host as provisioned\n  fqcn: file.touch\n  params:\n    path: /var/lib/pleiades/provisioned\n",
+					RunbookYAML: "- name: Mark the host as provisioned\n  file.touch:\n    path: /var/lib/pleiades/provisioned\n",
 				},
 				{
 					Name:        "Create a log file with an owner and a mode",
-					RunbookYAML: "- name: Make the log file the service will append to\n  fqcn: file.touch\n  params:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n",
+					RunbookYAML: "- name: Make the log file the service will append to\n  file.touch:\n    path: /var/log/app/app.log\n    owner: app\n    group: app\n    mode: \"0640\"\n",
 				},
 				{
 					Name:        "Act only when the file had to be created",
-					RunbookYAML: "- name: Create the seed file\n  fqcn: file.touch\n  params:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  fqcn: exec.command\n  params:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
+					RunbookYAML: "- name: Create the seed file\n  file.touch:\n    path: /opt/app/seed\n  register: seed\n\n- name: Seed the database the first time only\n  exec.command:\n    cmd: /opt/app/bin/seed\n  when_cel: seed.created\n",
 				},
 			},
 			SeeAlso: []string{"file.remove", "file.permissions", "file.copy"},
@@ -230,15 +230,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Lock down a key file",
-					RunbookYAML: "- name: Keep the deploy key private\n  fqcn: file.permissions\n  params:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
+					RunbookYAML: "- name: Keep the deploy key private\n  file.permissions:\n    path: /etc/pleiades/deploy.key\n    mode: \"0600\"\n    owner: pleiades\n    group: pleiades\n",
 				},
 				{
 					Name:        "Make a script executable",
-					RunbookYAML: "- name: Allow the rotation script to run\n  fqcn: file.permissions\n  params:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n",
+					RunbookYAML: "- name: Allow the rotation script to run\n  file.permissions:\n    path: /usr/local/bin/rotate-logs\n    mode: \"0755\"\n",
 				},
 				{
 					Name:        "Hand a directory to a service account",
-					RunbookYAML: "- name: Give the cache directory to the service\n  fqcn: file.permissions\n  params:\n    path: /var/cache/pleiades\n    owner: pleiades\n",
+					RunbookYAML: "- name: Give the cache directory to the service\n  file.permissions:\n    path: /var/cache/pleiades\n    owner: pleiades\n",
 				},
 			},
 			SeeAlso: []string{"file.touch", "file.directory", "file.copy"},
@@ -268,15 +268,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Correct a setting whether or not it is commented out",
-					RunbookYAML: "- name: Turn off root login over SSH\n  fqcn: file.line.set\n  params:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n",
+					RunbookYAML: "- name: Turn off root login over SSH\n  file.line.set:\n    path: /etc/ssh/sshd_config\n    regexp: '^#?PermitRootLogin'\n    line: PermitRootLogin no\n",
 				},
 				{
 					Name:        "Append an entry that is either there or not",
-					RunbookYAML: "- name: Add the internal registry to the hosts file\n  fqcn: file.line.set\n  params:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n",
+					RunbookYAML: "- name: Add the internal registry to the hosts file\n  file.line.set:\n    path: /etc/hosts\n    line: 10.0.4.12 registry.internal\n",
 				},
 				{
 					Name:        "Place a line against an anchor",
-					RunbookYAML: "- name: Put the include ahead of the defaults section\n  fqcn: file.line.set\n  params:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n",
+					RunbookYAML: "- name: Put the include ahead of the defaults section\n  file.line.set:\n    path: /etc/app/app.conf\n    line: include /etc/app/conf.d/all.conf\n    insertbefore: '^\\[defaults\\]'\n",
 				},
 			},
 			SeeAlso: []string{"file.line.remove", "file.block.set", "file.copy"},
@@ -305,15 +305,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Drop a package source by pattern",
-					RunbookYAML: "- name: Drop the retired package mirror\n  fqcn: file.line.remove\n  params:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n",
+					RunbookYAML: "- name: Drop the retired package mirror\n  file.line.remove:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n",
 				},
 				{
 					Name:        "Drop one exact entry",
-					RunbookYAML: "- name: Remove the decommissioned host entry\n  fqcn: file.line.remove\n  params:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n",
+					RunbookYAML: "- name: Remove the decommissioned host entry\n  file.line.remove:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n",
 				},
 				{
 					Name:        "Act only when something was really removed",
-					RunbookYAML: "- name: Strip every commented out override\n  fqcn: file.line.remove\n  params:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  fqcn: exec.command\n  params:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n",
+					RunbookYAML: "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n",
 				},
 			},
 			SeeAlso: []string{"file.line.set", "file.block.remove", "file.remove"},
@@ -345,15 +345,15 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Manage a hosts file entry",
-					RunbookYAML: "- name: Keep the cluster's short names resolvable\n  fqcn: file.block.set\n  params:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n",
+					RunbookYAML: "- name: Keep the cluster's short names resolvable\n  file.block.set:\n    path: /etc/hosts\n    block: |\n      10.0.0.11 db1\n      10.0.0.12 db2\n",
 				},
 				{
 					Name:        "Use a marker a file's own syntax allows",
-					RunbookYAML: "- name: Manage the sshd hardening stanza\n  fqcn: file.block.set\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n",
+					RunbookYAML: "- name: Manage the sshd hardening stanza\n  file.block.set:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n    block: |\n      PermitRootLogin no\n      PasswordAuthentication no\n",
 				},
 				{
 					Name:        "Keep two independent blocks in one file",
-					RunbookYAML: "- name: Manage the proxy stanza only\n  fqcn: file.block.set\n  params:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n",
+					RunbookYAML: "- name: Manage the proxy stanza only\n  file.block.set:\n    path: /etc/environment\n    marker_begin: OPEN PROXY\n    marker_end: CLOSE PROXY\n    block: |\n      http_proxy=http://proxy.internal:3128\n",
 				},
 			},
 			SeeAlso: []string{"file.block.remove", "file.line.set", "file.copy", "file.permissions"},
@@ -384,11 +384,11 @@ var filesCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Stop managing a hosts file entry",
-					RunbookYAML: "- name: Drop the cluster short names\n  fqcn: file.block.remove\n  params:\n    path: /etc/hosts\n",
+					RunbookYAML: "- name: Drop the cluster short names\n  file.block.remove:\n    path: /etc/hosts\n",
 				},
 				{
 					Name:        "Remove a block written with its own marker",
-					RunbookYAML: "- name: Retire the hardening stanza\n  fqcn: file.block.remove\n  params:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n",
+					RunbookYAML: "- name: Retire the hardening stanza\n  file.block.remove:\n    path: /etc/ssh/sshd_config\n    marker: \"# {mark} PLEIADES HARDENING\"\n",
 				},
 			},
 			SeeAlso: []string{"file.block.set", "file.line.remove", "file.remove"},

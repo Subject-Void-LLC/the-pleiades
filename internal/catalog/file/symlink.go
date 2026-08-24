@@ -109,15 +109,15 @@ func symlinkDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Point a stable name at a versioned release",
-				RunbookYAML: "- name: Point current at the new release\n  fqcn: file.symlink\n  params:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n",
+				RunbookYAML: "- name: Point current at the new release\n  file.symlink:\n    src: /opt/app/releases/1.4.2\n    path: /opt/app/current\n",
 			},
 			{
 				Name:        "Repoint a link that already exists",
-				RunbookYAML: "- name: Select the staging configuration\n  fqcn: file.symlink\n  params:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n",
+				RunbookYAML: "- name: Select the staging configuration\n  file.symlink:\n    src: /etc/app/config.staging.yaml\n    path: /etc/app/config.yaml\n",
 			},
 			{
 				Name:        "Use dest, the way a converted playbook writes it",
-				RunbookYAML: "- name: Link the vendor binary onto the path\n  fqcn: file.symlink\n  params:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n",
+				RunbookYAML: "- name: Link the vendor binary onto the path\n  file.symlink:\n    src: /opt/vendor/bin/tool\n    dest: /usr/local/bin/tool\n",
 			},
 		},
 		SeeAlso: []string{"file.copy", "file.remove"},

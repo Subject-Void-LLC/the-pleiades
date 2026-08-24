@@ -50,8 +50,7 @@ Stop a service:
 
 ```yaml
 - name: Stop the print spooler before changing its config
-  fqcn: svc.windows.stop
-  params:
+  svc.windows.stop:
     name: Spooler
 ```
 
@@ -59,13 +58,11 @@ Stop it now and keep it from coming back at boot:
 
 ```yaml
 - name: Stop the print spooler
-  fqcn: svc.windows.stop
-  params:
+  svc.windows.stop:
     name: Spooler
 
 - name: Keep the print spooler from starting at boot
-  fqcn: svc.windows.disable
-  params:
+  svc.windows.disable:
     name: Spooler
 ```
 

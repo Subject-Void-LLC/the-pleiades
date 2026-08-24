@@ -51,8 +51,7 @@ Stop a service without naming the init system:
 
 ```yaml
 - name: Stop nginx before maintenance
-  fqcn: svc.stop
-  params:
+  svc.stop:
     name: nginx
 ```
 

@@ -55,8 +55,7 @@ Create a marker file:
 
 ```yaml
 - name: Mark the host as provisioned
-  fqcn: file.touch
-  params:
+  file.touch:
     path: /var/lib/pleiades/provisioned
 ```
 
@@ -64,8 +63,7 @@ Create a log file with an owner and a mode:
 
 ```yaml
 - name: Make the log file the service will append to
-  fqcn: file.touch
-  params:
+  file.touch:
     path: /var/log/app/app.log
     owner: app
     group: app
@@ -76,14 +74,12 @@ Act only when the file had to be created:
 
 ```yaml
 - name: Create the seed file
-  fqcn: file.touch
-  params:
+  file.touch:
     path: /opt/app/seed
   register: seed
 
 - name: Seed the database the first time only
-  fqcn: exec.command
-  params:
+  exec.command:
     cmd: /opt/app/bin/seed
   when_cel: seed.created
 ```

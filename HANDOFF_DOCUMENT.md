@@ -53,6 +53,36 @@ Doc generation confirmed idempotent by diffing two consecutive `gendocs` runs by
 re-running and eyeballing it. `TestCatalogDataDocsMatchTheRegistry` and the full `internal/archtest`
 suite pass; `TestEveryImplementedMethodAnswersReversibility` reports 74.
 
+### Documentation pass (same session)
+
+Every runbook example the project ships now uses module-as-key sugar. 278 conversions:
+266 in `Doc.Examples` across `internal/catalog/**` and their byte-identical
+`internal/forge/catalogdata` twins, which regenerated 133 `fqcn:` lines out of 70 pages under
+`docs/reference/`, plus 12 in `docs/02-get-started.md` and `examples/webserver_lab/`. The
+transform is exactly lossless, which the parser guarantees rather than the author claiming it:
+`internal/engine/task_syntax.go`'s `rewriteModuleKeyNode` accepts a mapping (arguments) or a null
+scalar (no arguments), so `fqcn: X` plus `params:` becomes `X:`, `params: {}` becomes `X: {}`, and
+a bare `fqcn: X` becomes a bare `X:`. Both forms were validated side by side through the real
+binary before any file was touched, and all 14 example runbooks validate afterward.
+
+Two files were deliberately NOT converted, and should stay that way:
+`examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml` and the "Two ways to write a Pleiades
+task" section of `examples/upgrade_ios/README.md`. That runbook is the explicit-form twin of
+`upgrade_ios_xe_sugar.yaml` and exists purely to show the two shapes side by side; converting it
+would delete the comparison.
+
+Three stale claims were found by the same pass and corrected. `README.md` and
+`docs/01-start-here.md` both said the catalog has "77 declared methods; 34 are implemented",
+understating implemented methods by forty; the real figure, from the generated
+`docs/reference/schemas/module-catalog.json`, is 78 registered, 74 implemented, 4 declared, and
+both passages were rewritten around the short list of four that are NOT implemented rather than a
+now-unwieldy list of what is. `docs/02-get-started.md` said `ssh_exec` "is the one action that
+genuinely reaches a device today", which stopped being true long before this session; it now says
+plainly that `ssh_exec` is a legacy action name kept working, and points at `exec.command` and the
+catalog. The same file had an orphaned `params:` fragment left by the conversion, since it is a
+partial snippet with no `fqcn:` line above it for the transform to anchor on; found by sweeping
+for `params:` afterward rather than by assuming the conversion was complete.
+
 ### Next step
 
 Nothing is committed. This work is on `feature/cisco-cli-buildout`, cut from `main` at 49386d4; an

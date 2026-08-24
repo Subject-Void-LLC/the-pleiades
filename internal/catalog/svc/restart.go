@@ -32,7 +32,7 @@ func restartDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Restart only when the config changed",
-				RunbookYAML: "- name: Write the config\n  fqcn: file.copy\n  params:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  fqcn: svc.restart\n  params:\n    name: app\n  when:\n    - app_config.changed\n",
+				RunbookYAML: "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - app_config.changed\n",
 			},
 		},
 		[]string{"svc.start", "svc.stop", "svc.systemd.restart"},

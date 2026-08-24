@@ -42,11 +42,11 @@ func stopDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Stop a service",
-				RunbookYAML: "- name: Stop nginx before swapping its config\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Stop nginx before swapping its config\n  svc.systemd.stop:\n    name: nginx\n",
 			},
 			{
 				Name:        "Stop it now and keep it from coming back at boot",
-				RunbookYAML: "- name: Stop nginx\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Stop nginx\n  svc.systemd.stop:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  svc.systemd.disable:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.systemd.start", "svc.systemd.disable", "svc.stop"},

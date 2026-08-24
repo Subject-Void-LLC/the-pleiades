@@ -48,7 +48,7 @@ func terminateDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Terminate an instance",
-				RunbookYAML: "- name: Tear down the build agent\n  fqcn: cloud.aws.ec2.terminate\n  params:\n    instance_id: i-0123456789abcdef0\n",
+				RunbookYAML: "- name: Tear down the build agent\n  cloud.aws.ec2.terminate:\n    instance_id: i-0123456789abcdef0\n",
 			},
 		},
 		SeeAlso: []string{"cloud.aws.ec2.create"},

@@ -57,7 +57,7 @@ func denyDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Close a port",
-				RunbookYAML: "- name: Deny telnet\n  fqcn: fw.firewalld.deny\n  params:\n    port: 23\n",
+				RunbookYAML: "- name: Deny telnet\n  fw.firewalld.deny:\n    port: 23\n",
 			},
 		},
 		SeeAlso: []string{"fw.firewalld.allow", "fw.firewalld.reload"},

@@ -32,7 +32,7 @@ func installDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Install a package without naming the package manager",
-				RunbookYAML: "- name: Make sure curl is installed\n  fqcn: pkg.install\n  params:\n    name: curl\n",
+				RunbookYAML: "- name: Make sure curl is installed\n  pkg.install:\n    name: curl\n",
 			},
 		},
 		[]string{"pkg.remove", "pkg.upgrade", "pkg.apt.install", "pkg.dnf.install"},

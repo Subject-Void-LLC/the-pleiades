@@ -51,8 +51,7 @@ Remove an account:
 
 ```yaml
 - name: Make sure the old deploy account is gone
-  fqcn: identity.user.remove
-  params:
+  identity.user.remove:
     name: deploy
 ```
 
@@ -60,8 +59,7 @@ Remove an account and its home directory:
 
 ```yaml
 - name: Remove deploy entirely
-  fqcn: identity.user.remove
-  params:
+  identity.user.remove:
     name: deploy
     remove: true
 ```

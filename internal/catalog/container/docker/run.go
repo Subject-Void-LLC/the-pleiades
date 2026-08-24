@@ -61,7 +61,7 @@ func runDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Run a container",
-				RunbookYAML: "- name: Run nginx\n  fqcn: container.docker.run\n  params:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n",
+				RunbookYAML: "- name: Run nginx\n  container.docker.run:\n    name: web\n    image: nginx:1.27\n    ports:\n      - \"8080:80\"\n",
 			},
 		},
 		SeeAlso: []string{"container.docker.stop", "container.docker.remove"},

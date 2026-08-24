@@ -57,11 +57,11 @@ func unmountDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Unmount and forget a volume",
-				RunbookYAML: "- name: Unmount the old data volume\n  fqcn: fs.unmount\n  params:\n    path: /data\n",
+				RunbookYAML: "- name: Unmount the old data volume\n  fs.unmount:\n    path: /data\n",
 			},
 			{
 				Name:        "Unmount but leave the fstab entry",
-				RunbookYAML: "- name: Unmount temporarily for maintenance\n  fqcn: fs.unmount\n  params:\n    path: /data\n    persist: false\n",
+				RunbookYAML: "- name: Unmount temporarily for maintenance\n  fs.unmount:\n    path: /data\n    persist: false\n",
 			},
 		},
 		SeeAlso: []string{"fs.mount"},

@@ -53,8 +53,7 @@ Create a plain group:
 
 ```yaml
 - name: Make sure admins exists
-  fqcn: identity.group.create
-  params:
+  identity.group.create:
     name: admins
 ```
 
@@ -62,8 +61,7 @@ Pin a gid:
 
 ```yaml
 - name: Create a service group
-  fqcn: identity.group.create
-  params:
+  identity.group.create:
     name: appsvc
     gid: 5000
     system: true

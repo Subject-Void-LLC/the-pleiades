@@ -71,11 +71,11 @@ func createDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Archive a directory",
-				RunbookYAML: "- name: Archive the release build\n  fqcn: archive.create\n  params:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n",
+				RunbookYAML: "- name: Archive the release build\n  archive.create:\n    path: /tmp/release.tar.gz\n    src:\n      - /opt/app/dist\n",
 			},
 			{
 				Name:        "Archive and remove the originals",
-				RunbookYAML: "- name: Archive old logs and delete them\n  fqcn: archive.create\n  params:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n",
+				RunbookYAML: "- name: Archive old logs and delete them\n  archive.create:\n    path: /var/backups/logs-2026-08.tar.gz\n    src:\n      - /var/log/app/2026-08\n    remove: true\n",
 			},
 		},
 		SeeAlso: []string{"archive.extract", "file.remove"},

@@ -132,11 +132,11 @@ func gatherDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Gather everything before deciding what to do",
-				RunbookYAML: "- name: Learn what this device is\n  fqcn: facts.gather\n",
+				RunbookYAML: "- name: Learn what this device is\n  facts.gather:\n",
 			},
 			{
 				Name:        "Gather only what a later condition reads",
-				RunbookYAML: "- name: Learn which distribution this is\n  fqcn: facts.gather\n  params:\n    filter:\n      - ansible_distribution*\n",
+				RunbookYAML: "- name: Learn which distribution this is\n  facts.gather:\n    filter:\n      - ansible_distribution*\n",
 			},
 		},
 		SeeAlso: []string{"exec.command", "net.catalyst.device_facts"},

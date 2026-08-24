@@ -2,4 +2,4 @@
 id: sample
 tasks:
   - name: check
-    fqcn: noop
+    noop:

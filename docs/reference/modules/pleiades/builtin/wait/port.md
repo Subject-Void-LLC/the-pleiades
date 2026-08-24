@@ -58,8 +58,7 @@ Wait for a database to come back after a restart:
 
 ```yaml
 - name: Wait for postgres to accept connections
-  fqcn: pleiades.builtin.wait.port
-  params:
+  pleiades.builtin.wait.port:
     port: 5432
     timeout: 120
 ```
@@ -68,8 +67,7 @@ Wait for a port to be released before rebinding it:
 
 ```yaml
 - name: Wait for the old listener to go away
-  fqcn: pleiades.builtin.wait.port
-  params:
+  pleiades.builtin.wait.port:
     port: 8080
     state: stopped
     timeout: 60
@@ -79,8 +77,7 @@ Give a service a head start, then poll slowly:
 
 ```yaml
 - name: Wait for the API on its private address
-  fqcn: pleiades.builtin.wait.port
-  params:
+  pleiades.builtin.wait.port:
     host: 10.0.0.7
     port: 443
     delay: 10

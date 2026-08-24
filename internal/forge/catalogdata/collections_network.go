@@ -76,7 +76,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "reply", Type: "string", Returned: "always", Description: "The trimmed value the remote command echoed back."},
 			},
 			Examples: []collection.Example{
-				{Name: "Check a device is reachable over SSH", RunbookYAML: "- name: Ping the device\n  fqcn: net.ssh.ping\n  register: reachability\n"},
+				{Name: "Check a device is reachable over SSH", RunbookYAML: "- name: Ping the device\n  net.ssh.ping:\n  register: reachability\n"},
 			},
 		},
 	},
@@ -145,7 +145,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "device_count", Type: "int", Returned: "always", Description: "The number of devices in the devices fact."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  fqcn: net.catalyst.device_facts\n  register: fleet\n"},
+				{Name: "Gather the managed fleet", RunbookYAML: "- name: Gather Catalyst Center device facts\n  net.catalyst.device_facts:\n  register: fleet\n"},
 			},
 			SeeAlso: []string{"net.catalyst.reachability", "net.catalyst.site_facts"},
 		},
@@ -164,7 +164,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "site_count", Type: "int", Returned: "always", Description: "The number of sites in the sites fact."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  fqcn: net.catalyst.site_facts\n  register: sites\n"},
+				{Name: "Gather the site hierarchy", RunbookYAML: "- name: Gather Catalyst Center site facts\n  net.catalyst.site_facts:\n  register: sites\n"},
 			},
 			SeeAlso: []string{"net.catalyst.device_facts"},
 		},
@@ -183,7 +183,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "operator_tags", Type: "list of string", Returned: "always", Description: "Names of every tag not created by the controller itself."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  fqcn: net.catalyst.tag_facts\n  register: tags\n"},
+				{Name: "Gather operator-created tags", RunbookYAML: "- name: Gather Catalyst Center tag facts\n  net.catalyst.tag_facts:\n  register: tags\n"},
 			},
 		},
 	},
@@ -203,7 +203,7 @@ var networkCollections = []collectionscaffold.Config{
 				{Name: "managed_count", Type: "int", Returned: "always", Description: "Count of devices with collection_status Managed."},
 			},
 			Examples: []collection.Example{
-				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  fqcn: net.catalyst.reachability\n  register: health\n\n- name: Apply the change\n  fqcn: net.ios.config\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
+				{Name: "Gate a change on full fleet reachability", RunbookYAML: "- name: Confirm the fleet is reachable before changing anything\n  net.catalyst.reachability:\n  register: health\n\n- name: Apply the change\n  net.ios.config:\n  when_cel: \"stat.health[''].unreachable.size() == 0\"\n"},
 			},
 			SeeAlso: []string{"net.catalyst.device_facts"},
 		},

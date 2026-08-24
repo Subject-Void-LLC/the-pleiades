@@ -43,15 +43,15 @@ var execCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Run a command and register its output",
-					RunbookYAML: "- name: Read the kernel version\n  fqcn: exec.command\n  params:\n    cmd: uname -r\n  register: kernel\n",
+					RunbookYAML: "- name: Read the kernel version\n  exec.command:\n    cmd: uname -r\n  register: kernel\n",
 				},
 				{
 					Name:        "Make a command idempotent with creates",
-					RunbookYAML: "- name: Unpack the release once\n  fqcn: exec.command\n  params:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n",
+					RunbookYAML: "- name: Unpack the release once\n  exec.command:\n    cmd: tar -xzf /tmp/release.tgz\n    chdir: /opt/app\n    creates: /opt/app/VERSION\n",
 				},
 				{
 					Name:        "Pass an argument that a shell would mangle",
-					RunbookYAML: "- name: Write a literal value\n  fqcn: exec.command\n  params:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n",
+					RunbookYAML: "- name: Write a literal value\n  exec.command:\n    argv:\n      - /usr/bin/logger\n      - \"deployed $VERSION; done\"\n",
 				},
 			},
 			SeeAlso: []string{"exec.shell"},
@@ -85,15 +85,15 @@ var execCollections = []collectionscaffold.Config{
 			Examples: []collection.Example{
 				{
 					Name:        "Use a pipeline",
-					RunbookYAML: "- name: Count the failed units\n  fqcn: exec.shell\n  params:\n    cmd: systemctl list-units --state=failed --no-legend | wc -l\n  register: failed\n",
+					RunbookYAML: "- name: Count the failed units\n  exec.shell:\n    cmd: systemctl list-units --state=failed --no-legend | wc -l\n  register: failed\n",
 				},
 				{
 					Name:        "Redirect output to a file, once",
-					RunbookYAML: "- name: Snapshot the package list\n  fqcn: exec.shell\n  params:\n    cmd: dpkg -l > /var/backups/packages.txt\n    creates: /var/backups/packages.txt\n",
+					RunbookYAML: "- name: Snapshot the package list\n  exec.shell:\n    cmd: dpkg -l > /var/backups/packages.txt\n    creates: /var/backups/packages.txt\n",
 				},
 				{
 					Name:        "Choose the shell",
-					RunbookYAML: "- name: Use a bash-only construct\n  fqcn: exec.shell\n  params:\n    cmd: \"[[ -f /etc/os-release ]] && echo present\"\n    executable: /bin/bash\n",
+					RunbookYAML: "- name: Use a bash-only construct\n  exec.shell:\n    cmd: \"[[ -f /etc/os-release ]] && echo present\"\n    executable: /bin/bash\n",
 				},
 			},
 			SeeAlso: []string{"exec.command"},

@@ -42,7 +42,7 @@ func disableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Keep a service from starting at boot",
-				RunbookYAML: "- name: Stop nginx coming back after a reboot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n",
+				RunbookYAML: "- name: Stop nginx coming back after a reboot\n  svc.systemd.disable:\n    name: nginx\n",
 			},
 		},
 		[]string{"svc.systemd.enable", "svc.systemd.stop", "svc.disable"},

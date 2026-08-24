@@ -51,8 +51,7 @@ Start a service:
 
 ```yaml
 - name: Make sure the print spooler is running
-  fqcn: svc.windows.start
-  params:
+  svc.windows.start:
     name: Spooler
 ```
 
@@ -60,13 +59,11 @@ Start it and make it survive a reboot:
 
 ```yaml
 - name: Start the print spooler
-  fqcn: svc.windows.start
-  params:
+  svc.windows.start:
     name: Spooler
 
 - name: Make the print spooler start at boot too
-  fqcn: svc.windows.enable
-  params:
+  svc.windows.enable:
     name: Spooler
 ```
 

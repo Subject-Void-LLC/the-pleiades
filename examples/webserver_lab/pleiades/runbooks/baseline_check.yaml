@@ -2,16 +2,13 @@ id: baseline_check
 hosts: plain
 tasks:
   - name: Confirm hostname and OS release
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: hostname && cat /etc/os-release | head -n 2
 
   - name: Check disk usage
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: df -h /
 
   - name: Confirm the service account can use sudo
-    fqcn: ssh_exec
-    params:
+    ssh_exec:
       command: sudo whoami

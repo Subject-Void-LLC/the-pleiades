@@ -81,15 +81,15 @@ func removeDoc() collection.Doc {
 		Examples: []collection.Example{
 			{
 				Name:        "Drop a package source by pattern",
-				RunbookYAML: "- name: Drop the retired package mirror\n  fqcn: file.line.remove\n  params:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n",
+				RunbookYAML: "- name: Drop the retired package mirror\n  file.line.remove:\n    path: /etc/apt/sources.list\n    regexp: '^deb .*mirror\\.old\\.example\\.com'\n",
 			},
 			{
 				Name:        "Drop one exact entry",
-				RunbookYAML: "- name: Remove the decommissioned host entry\n  fqcn: file.line.remove\n  params:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n",
+				RunbookYAML: "- name: Remove the decommissioned host entry\n  file.line.remove:\n    path: /etc/hosts\n    line: 10.0.4.9 registry.internal\n",
 			},
 			{
 				Name:        "Act only when something was really removed",
-				RunbookYAML: "- name: Strip every commented out override\n  fqcn: file.line.remove\n  params:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  fqcn: exec.command\n  params:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n",
+				RunbookYAML: "- name: Strip every commented out override\n  file.line.remove:\n    path: /etc/app/app.conf\n    regexp: '^#\\s*override'\n  register: overrides\n\n- name: Reload the service that read them\n  exec.command:\n    cmd: systemctl reload app\n  when_cel: overrides.found > 0\n",
 			},
 		},
 		SeeAlso: []string{"file.line.set", "file.block.remove", "file.remove"},

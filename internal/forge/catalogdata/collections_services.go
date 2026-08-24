@@ -31,7 +31,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Start a service without naming the init system", RunbookYAML: "- name: Make sure nginx is running\n  fqcn: svc.start\n  params:\n    name: nginx\n"},
+				{Name: "Start a service without naming the init system", RunbookYAML: "- name: Make sure nginx is running\n  svc.start:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.stop", "svc.restart", "svc.enable", "svc.systemd.start"},
 		},
@@ -53,7 +53,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Stop a service without naming the init system", RunbookYAML: "- name: Stop nginx before maintenance\n  fqcn: svc.stop\n  params:\n    name: nginx\n"},
+				{Name: "Stop a service without naming the init system", RunbookYAML: "- name: Stop nginx before maintenance\n  svc.stop:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.start", "svc.disable", "svc.systemd.stop"},
 		},
@@ -75,7 +75,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart only when the config changed", RunbookYAML: "- name: Write the config\n  fqcn: file.copy\n  params:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  fqcn: svc.restart\n  params:\n    name: app\n  when:\n    - app_config.changed\n"},
+				{Name: "Restart only when the config changed", RunbookYAML: "- name: Write the config\n  file.copy:\n    src: ./app.conf\n    dest: /etc/app/app.conf\n  register: app_config\n\n- name: Restart the service if the config changed\n  svc.restart:\n    name: app\n  when:\n    - app_config.changed\n"},
 			},
 			SeeAlso: []string{"svc.start", "svc.stop", "svc.systemd.restart"},
 		},
@@ -97,7 +97,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Enable and start, in that order", RunbookYAML: "- name: Make sure the service comes back after a reboot\n  fqcn: svc.enable\n  params:\n    name: app\n\n- name: And make sure it is running now\n  fqcn: svc.start\n  params:\n    name: app\n"},
+				{Name: "Enable and start, in that order", RunbookYAML: "- name: Make sure the service comes back after a reboot\n  svc.enable:\n    name: app\n\n- name: And make sure it is running now\n  svc.start:\n    name: app\n"},
 			},
 			SeeAlso: []string{"svc.disable", "svc.start", "svc.systemd.enable"},
 		},
@@ -119,7 +119,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the service manager reported before this task and after it. The exact keys come from the concrete method that ran, since what there is to say about a service differs between service managers."},
 			},
 			Examples: []collection.Example{
-				{Name: "Take a service out of the boot sequence", RunbookYAML: "- name: Stop the service coming back after a reboot\n  fqcn: svc.disable\n  params:\n    name: legacy-app\n"},
+				{Name: "Take a service out of the boot sequence", RunbookYAML: "- name: Stop the service coming back after a reboot\n  svc.disable:\n    name: legacy-app\n"},
 			},
 			SeeAlso: []string{"svc.enable", "svc.stop", "svc.systemd.disable"},
 		},
@@ -142,8 +142,8 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Start a service", RunbookYAML: "- name: Make sure nginx is running\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n"},
-				{Name: "Start it and make it survive a reboot", RunbookYAML: "- name: Start nginx\n  fqcn: svc.systemd.start\n  params:\n    name: nginx\n\n- name: Make nginx start at boot too\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"},
+				{Name: "Start a service", RunbookYAML: "- name: Make sure nginx is running\n  svc.systemd.start:\n    name: nginx\n"},
+				{Name: "Start it and make it survive a reboot", RunbookYAML: "- name: Start nginx\n  svc.systemd.start:\n    name: nginx\n\n- name: Make nginx start at boot too\n  svc.systemd.enable:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.systemd.stop", "svc.systemd.restart", "svc.systemd.enable", "svc.start"},
 		},
@@ -166,8 +166,8 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Stop a service", RunbookYAML: "- name: Stop nginx before swapping its config\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n"},
-				{Name: "Stop it now and keep it from coming back at boot", RunbookYAML: "- name: Stop nginx\n  fqcn: svc.systemd.stop\n  params:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"},
+				{Name: "Stop a service", RunbookYAML: "- name: Stop nginx before swapping its config\n  svc.systemd.stop:\n    name: nginx\n"},
+				{Name: "Stop it now and keep it from coming back at boot", RunbookYAML: "- name: Stop nginx\n  svc.systemd.stop:\n    name: nginx\n\n- name: Keep nginx from starting at boot\n  svc.systemd.disable:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.systemd.start", "svc.systemd.disable", "svc.stop"},
 		},
@@ -190,7 +190,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart after a config change", RunbookYAML: "- name: Write the nginx config\n  fqcn: file.copy\n  params:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  fqcn: svc.systemd.restart\n  params:\n    name: nginx\n  when:\n    - nginx_config.changed\n"},
+				{Name: "Restart after a config change", RunbookYAML: "- name: Write the nginx config\n  file.copy:\n    src: ./nginx.conf\n    dest: /etc/nginx/nginx.conf\n  register: nginx_config\n\n- name: Restart nginx only if the config actually changed\n  svc.systemd.restart:\n    name: nginx\n  when:\n    - nginx_config.changed\n"},
 			},
 			SeeAlso: []string{"svc.systemd.start", "svc.systemd.stop", "svc.restart"},
 		},
@@ -213,7 +213,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Make a service start at boot", RunbookYAML: "- name: Make sure nginx comes back after a reboot\n  fqcn: svc.systemd.enable\n  params:\n    name: nginx\n"},
+				{Name: "Make a service start at boot", RunbookYAML: "- name: Make sure nginx comes back after a reboot\n  svc.systemd.enable:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.systemd.disable", "svc.systemd.start", "svc.enable"},
 		},
@@ -236,7 +236,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What systemd reported about the unit before this task and after it, each holding exists, active, enabled and systemd's own load_state, active_state and unit_file_state. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Keep a service from starting at boot", RunbookYAML: "- name: Stop nginx coming back after a reboot\n  fqcn: svc.systemd.disable\n  params:\n    name: nginx\n"},
+				{Name: "Keep a service from starting at boot", RunbookYAML: "- name: Stop nginx coming back after a reboot\n  svc.systemd.disable:\n    name: nginx\n"},
 			},
 			SeeAlso: []string{"svc.systemd.enable", "svc.systemd.stop", "svc.disable"},
 		},
@@ -254,7 +254,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
 			},
 			Examples: []collection.Example{
-				{Name: "Install a unit file and make systemd see it", RunbookYAML: "- name: Write the unit file\n  fqcn: file.copy\n  params:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  fqcn: svc.systemd.daemon_reload\n  params: {}\n\n- name: Start the new service\n  fqcn: svc.systemd.start\n  params:\n    name: app\n"},
+				{Name: "Install a unit file and make systemd see it", RunbookYAML: "- name: Write the unit file\n  file.copy:\n    src: ./app.service\n    dest: /etc/systemd/system/app.service\n    mode: \"0644\"\n\n- name: Make systemd re-read its unit files\n  svc.systemd.daemon_reload: {}\n\n- name: Start the new service\n  svc.systemd.start:\n    name: app\n"},
 			},
 			SeeAlso: []string{"svc.systemd.start", "svc.systemd.enable"},
 		},
@@ -276,8 +276,8 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Start a service", RunbookYAML: "- name: Make sure the print spooler is running\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n"},
-				{Name: "Start it and make it survive a reboot", RunbookYAML: "- name: Start the print spooler\n  fqcn: svc.windows.start\n  params:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"},
+				{Name: "Start a service", RunbookYAML: "- name: Make sure the print spooler is running\n  svc.windows.start:\n    name: Spooler\n"},
+				{Name: "Start it and make it survive a reboot", RunbookYAML: "- name: Start the print spooler\n  svc.windows.start:\n    name: Spooler\n\n- name: Make the print spooler start at boot too\n  svc.windows.enable:\n    name: Spooler\n"},
 			},
 			SeeAlso: []string{"svc.windows.stop", "svc.windows.restart", "svc.windows.enable", "svc.start"},
 		},
@@ -299,8 +299,8 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Stop a service", RunbookYAML: "- name: Stop the print spooler before changing its config\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n"},
-				{Name: "Stop it now and keep it from coming back at boot", RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
+				{Name: "Stop a service", RunbookYAML: "- name: Stop the print spooler before changing its config\n  svc.windows.stop:\n    name: Spooler\n"},
+				{Name: "Stop it now and keep it from coming back at boot", RunbookYAML: "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n"},
 			},
 			SeeAlso: []string{"svc.windows.start", "svc.windows.disable", "svc.stop"},
 		},
@@ -322,7 +322,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Restart after a config change", RunbookYAML: "- name: Write the app's config\n  fqcn: file.copy\n  params:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  fqcn: svc.windows.restart\n  params:\n    name: AppService\n  when:\n    - app_config.changed\n"},
+				{Name: "Restart after a config change", RunbookYAML: "- name: Write the app's config\n  file.copy:\n    src: ./app.config\n    dest: C:\\Program Files\\App\\app.config\n  register: app_config\n\n- name: Restart the app service only if the config actually changed\n  svc.windows.restart:\n    name: AppService\n  when:\n    - app_config.changed\n"},
 			},
 			SeeAlso: []string{"svc.windows.start", "svc.windows.stop", "svc.restart"},
 		},
@@ -344,7 +344,7 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Make a service start at boot", RunbookYAML: "- name: Make sure the print spooler comes back after a reboot\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n"},
+				{Name: "Make a service start at boot", RunbookYAML: "- name: Make sure the print spooler comes back after a reboot\n  svc.windows.enable:\n    name: Spooler\n"},
 			},
 			SeeAlso: []string{"svc.windows.disable", "svc.windows.start", "svc.enable"},
 		},
@@ -366,8 +366,8 @@ var servicesCollections = []collectionscaffold.Config{
 				{Name: "diff", Type: "dict", Returned: "always", Description: "What the Service Control Manager reported about the service before this task and after it, each holding exists, running, status and start_type. Recorded even on a run that changed nothing, because \"it was already like this\" is what tells a later rollback to do nothing."},
 			},
 			Examples: []collection.Example{
-				{Name: "Keep a service from starting at boot", RunbookYAML: "- name: Make sure the print spooler cannot start at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
-				{Name: "Disable it and stop it running now too", RunbookYAML: "- name: Stop the print spooler\n  fqcn: svc.windows.stop\n  params:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  fqcn: svc.windows.disable\n  params:\n    name: Spooler\n"},
+				{Name: "Keep a service from starting at boot", RunbookYAML: "- name: Make sure the print spooler cannot start at boot\n  svc.windows.disable:\n    name: Spooler\n"},
+				{Name: "Disable it and stop it running now too", RunbookYAML: "- name: Stop the print spooler\n  svc.windows.stop:\n    name: Spooler\n\n- name: Keep the print spooler from starting at boot\n  svc.windows.disable:\n    name: Spooler\n"},
 			},
 			SeeAlso: []string{"svc.windows.enable", "svc.windows.stop", "svc.disable"},
 		},

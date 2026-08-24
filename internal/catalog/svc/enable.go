@@ -31,7 +31,7 @@ func enableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Enable and start, in that order",
-				RunbookYAML: "- name: Make sure the service comes back after a reboot\n  fqcn: svc.enable\n  params:\n    name: app\n\n- name: And make sure it is running now\n  fqcn: svc.start\n  params:\n    name: app\n",
+				RunbookYAML: "- name: Make sure the service comes back after a reboot\n  svc.enable:\n    name: app\n\n- name: And make sure it is running now\n  svc.start:\n    name: app\n",
 			},
 		},
 		[]string{"svc.disable", "svc.start", "svc.systemd.enable"},

@@ -54,8 +54,7 @@ Install a package:
 
 ```yaml
 - name: Make sure curl is installed
-  fqcn: pkg.apt.install
-  params:
+  pkg.apt.install:
     name: curl
 ```
 
@@ -63,8 +62,7 @@ Pin an exact version:
 
 ```yaml
 - name: Install a specific nginx build
-  fqcn: pkg.apt.install
-  params:
+  pkg.apt.install:
     name: nginx
     version: 1.24.0-2ubuntu7
 ```

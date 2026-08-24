@@ -32,7 +32,7 @@ func disableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Take a service out of the boot sequence",
-				RunbookYAML: "- name: Stop the service coming back after a reboot\n  fqcn: svc.disable\n  params:\n    name: legacy-app\n",
+				RunbookYAML: "- name: Stop the service coming back after a reboot\n  svc.disable:\n    name: legacy-app\n",
 			},
 		},
 		[]string{"svc.enable", "svc.stop", "svc.systemd.disable"},

@@ -51,8 +51,7 @@ Remove a stopped container:
 
 ```yaml
 - name: Remove web
-  fqcn: container.docker.remove
-  params:
+  container.docker.remove:
     name: web
 ```
 
@@ -60,8 +59,7 @@ Force-remove a running container:
 
 ```yaml
 - name: Remove web even if it is still running
-  fqcn: container.docker.remove
-  params:
+  container.docker.remove:
     name: web
     force: true
 ```

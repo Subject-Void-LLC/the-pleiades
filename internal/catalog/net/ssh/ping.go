@@ -94,7 +94,7 @@ func init() {
 					{Name: "reply", Type: "string", Returned: "always", Description: "The trimmed value the remote command echoed back."},
 				},
 				Examples: []collection.Example{
-					{Name: "Check a device is reachable over SSH", RunbookYAML: "- name: Ping the device\n  fqcn: net.ssh.ping\n  register: reachability\n"},
+					{Name: "Check a device is reachable over SSH", RunbookYAML: "- name: Ping the device\n  net.ssh.ping:\n  register: reachability\n"},
 				},
 			},
 		},

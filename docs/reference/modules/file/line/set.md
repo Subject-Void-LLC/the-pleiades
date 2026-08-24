@@ -56,8 +56,7 @@ Correct a setting whether or not it is commented out:
 
 ```yaml
 - name: Turn off root login over SSH
-  fqcn: file.line.set
-  params:
+  file.line.set:
     path: /etc/ssh/sshd_config
     regexp: '^#?PermitRootLogin'
     line: PermitRootLogin no
@@ -67,8 +66,7 @@ Append an entry that is either there or not:
 
 ```yaml
 - name: Add the internal registry to the hosts file
-  fqcn: file.line.set
-  params:
+  file.line.set:
     path: /etc/hosts
     line: 10.0.4.12 registry.internal
 ```
@@ -77,8 +75,7 @@ Place a line against an anchor:
 
 ```yaml
 - name: Put the include ahead of the defaults section
-  fqcn: file.line.set
-  params:
+  file.line.set:
     path: /etc/app/app.conf
     line: include /etc/app/conf.d/all.conf
     insertbefore: '^\[defaults\]'

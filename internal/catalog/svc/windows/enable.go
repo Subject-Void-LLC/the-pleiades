@@ -46,7 +46,7 @@ func enableDoc() collection.Doc {
 		[]collection.Example{
 			{
 				Name:        "Make a service start at boot",
-				RunbookYAML: "- name: Make sure the print spooler comes back after a reboot\n  fqcn: svc.windows.enable\n  params:\n    name: Spooler\n",
+				RunbookYAML: "- name: Make sure the print spooler comes back after a reboot\n  svc.windows.enable:\n    name: Spooler\n",
 			},
 		},
 		[]string{"svc.windows.disable", "svc.windows.start", "svc.enable"},

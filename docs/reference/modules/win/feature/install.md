@@ -49,14 +49,12 @@ Enable IIS:
 
 ```yaml
 - name: Make sure the web server role is enabled
-  fqcn: win.feature.install
-  params:
+  win.feature.install:
     name: IIS-WebServerRole
   register: iis
 
 - name: Reboot if DISM asked for one
-  fqcn: exec.winrm.shell
-  params:
+  exec.winrm.shell:
     shell: powershell
     command: Restart-Computer -Force
     expect_disconnect: true
