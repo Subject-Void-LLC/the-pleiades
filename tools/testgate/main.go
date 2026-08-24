@@ -8,12 +8,22 @@
 // flaky-packages.json's own header comment for the full policy.
 //
 // This tool is deliberately not part of `make ci`, and GOSEC_VERSION-style
-// pinning does not apply to it: .github/workflows/ci.yml runs `make ci`
-// directly, which still uses the bare test-race/test-integration targets
-// and hard-fails on anything at all. Only the Makefile's push-gate target
-// (used by .githooks/pre-push) calls this tool, so this file changes how
-// much local noise a developer fights through before pushing, never what
-// actually gates a merge.
+// pinning does not apply to it: `make ci` still uses the bare
+// test-race/test-integration targets and hard-fails on anything at all.
+// Only the Makefile's push-gate target (used by .githooks/pre-push) calls
+// this tool, so this file changes how much local noise a developer fights
+// through before pushing, never what the strict gate accepts.
+//
+// That distinction now carries more weight than it did when this was
+// written. .github/workflows/ci.yml no longer runs `make ci`; it runs
+// `make ci-remote`, which runs no tests at all. Every test result this
+// repository has therefore comes from a developer's machine, through
+// either `make ci` or the push-gate this tool serves -- so the tolerance
+// implemented here is applied to the only test run anyone performs, not
+// to a local preview of a stricter run happening elsewhere. Keep the
+// classification narrow accordingly: a package added to
+// flaky-packages.json without a real, written reason is now a package
+// nothing checks.
 //
 // Usage: go run ./tools/testgate [-integration]
 package main

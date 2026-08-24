@@ -214,14 +214,15 @@ func gatherOSReleaseValue(t *testing.T, key string) string {
 //
 // The skips are correct and load-bearing. This suite probes THIS machine
 // through a real SSH server and a real /bin/sh, so on a host that has no
-// /etc/os-release and no /proc -- macOS, which the CI matrix runs as a
-// blocking leg -- four of the seven facts genuinely cannot be answered,
-// and a test asserting them would be asserting nothing about the method.
+// /etc/os-release and no /proc -- macOS, which a developer may well be
+// running this on -- four of the seven facts genuinely cannot be
+// answered, and a test asserting them would be asserting nothing about
+// the method.
 //
 // The danger is the identical skip firing on Linux, which is the platform
-// every one of those facts was recorded against and the only leg that
-// runs the full `make ci`. It would be completely silent: `go test`
-// prints SKIP only under -v, neither `make test-race` nor
+// every one of those facts was recorded against and the one every test
+// result this repository has comes from. It would be completely silent:
+// `go test` prints SKIP only under -v, neither `make test-race` nor
 // `make test-no-docker` passes -v, the package still reports ok, and the
 // coverage floor does not move either, because a skipped test's lines
 // were never counted in the first place. A minimal container image with
@@ -229,10 +230,10 @@ func gatherOSReleaseValue(t *testing.T, key string) string {
 // know is a bug shipping in a fact nothing had exercised for months.
 //
 // So the same missing file that is a legitimate skip elsewhere is a
-// failure here. This mirrors the reasoning .github/workflows/ci.yml
-// already applies to socat, installed on both the Linux and macOS legs
-// precisely because that test's own exec.LookPath skip would otherwise
-// drop real evidence without failing anything.
+// failure here. That reasoning got sharper, not weaker, when
+// .github/workflows/ci.yml stopped running tests altogether: this
+// package's only run is a local one, so a silent skip has no second gate
+// behind it to catch what it dropped.
 //
 // Every path and key below is one this file actually reads, taken from
 // the gatherReadFile, gatherCommandOutput and gatherOSReleaseValue call

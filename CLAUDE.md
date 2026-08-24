@@ -114,7 +114,8 @@ When touching any of the above, do not describe it as more finished than it is �
 ## Common commands
 
 ```bash
-make ci              # everything a PR must pass: build vet fmt test-race gosec govulncheck coverage docs-lint docs-gen-check
+make ci              # the whole gate, run LOCALLY: build vet fmt test-race test-repeat test-integration gosec govulncheck coverage docs-lint docs-gen-check helm-lint templ-gen-check
+make ci-remote       # what GitHub Actions runs: `ci` minus test-race, test-repeat, test-integration and coverage — no tests at all
 make build            # go build ./...
 make test             # go test ./...
 make test-race        # go test -race ./...   (required before calling anything "verified" per RULE 0)
@@ -132,12 +133,24 @@ make hooks              # once per clone: point core.hooksPath at .githooks so `
 make push-gate           # everything `ci` runs, with test-race/test-integration/coverage swapped for tolerant equivalents; warns instead of failing on flaky-packages.json packages
 ```
 
-`make ci` is the *whole* CI job: `.github/workflows/ci.yml` checks out, sets up Go from
-`go.mod`, runs `make tools`, and then runs `make ci`. There is no CI-only step and no
-CI-only tool version — `gosec` and `govulncheck` are pinned once in the `Makefile`
-(`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed by `make tools` on both sides, so
-a local `make ci` and the CI job run byte-identical scanners. Never
-`go install`  either tool by hand at `@latest`: a newer scanner than the pin reports
+**The test suite runs locally and only locally. GitHub Actions runs no tests.**
+`.github/workflows/ci.yml` checks out, sets up Go from `go.mod`, installs the pinned
+tools and Helm, and runs `make ci-remote` — `ci` minus `test-race`, `test-repeat`,
+`test-integration` and `coverage`, i.e. compilation on three operating systems, `vet`
+under both tag sets, `gofmt`, `go mod tidy -diff`, `gosec`, `govulncheck`, the
+docs/`templ` regeneration checks and the Helm chart lint. Nothing there proves a single
+test passes. The reason is that the full job never once went green on a hosted runner:
+around twenty packages provision real ephemeral containers through `testcontainers-go`,
+`make ci` runs the suite three times over plus a fourth pass inside
+`tools/coverage-check`, and several of those packages are deliberately
+timing-sensitive (`internal/event`'s Phase 96a gate severs a real broker for 150
+seconds). A permanently red gate gates nothing. So `make ci` is now a gate a human runs,
+and `.githooks/pre-push` (`make hooks`, once per clone) is what makes that automatic.
+
+There is still no CI-only step and no CI-only tool version — `gosec` and `govulncheck`
+are pinned once in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed
+by `make tools` on both sides, so a local run and the CI job run byte-identical scanners.
+Never `go install` either tool by hand at `@latest`: a newer scanner than the pin reports
 findings CI will not, and an older one misses findings CI will. The one thing a local run
 still cannot predict is `govulncheck`'s live advisory database.
 
@@ -154,11 +167,16 @@ This exists because packages that provision real ephemeral Docker containers or 
 multi-replica timing races (`tests/e2e`, `internal/lock`, `internal/event`,
 `internal/election`, `cmd/controller`, and others `flaky-packages.json` names) reliably
 flake under this kind of sandboxed environment's full parallel `-race` load —
-`FAILURE_PATTERNS.md` #61 — and pass individually every time. `make ci` itself, and
-therefore GitHub Actions, is completely unaffected by any of this and stays exactly as
-strict; `push-gate` only changes how much known-flaky local noise a developer fights
-through before a push reaches that real gate. A build failure, or a test failure in any
-package not listed, still fails `push-gate` exactly like `ci`.
+`FAILURE_PATTERNS.md` #61 — and pass individually every time. `make ci` itself is
+completely unaffected by any of this and stays exactly as strict. A build failure, or a
+test failure in any package not listed, still fails `push-gate` exactly like `ci`.
+
+Read that tolerance more carefully now than you would have before: there is no stricter
+run waiting downstream of a push any more. `push-gate` used to be a preview of a gate
+GitHub would apply again in full; it is now the last automatic check anything gets. A
+package listed in `flaky-packages.json` without a real, written, observed reason is a
+package nothing checks anywhere, so run `make ci` itself — not just `push-gate` — before
+calling work verified.
 
 Single test / single package:
 
