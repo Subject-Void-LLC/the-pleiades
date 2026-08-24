@@ -6799,3 +6799,96 @@ StatefulSet has a third case, `volumeClaimTemplates`, in which it exists in
 neither. And test a matrix rather than a sample: a mount without its volume
 is valid YAML, so `helm template` succeeding proves nothing about it. Assert
 the pair.
+
+## 202. A phase spec's checkmarks, doc comments, and a specific bug story all described code that was never written
+
+**Symptom.** `.SPECIFICATION/IMPLEMENTATION.md`'s Phase 86.5 ("The Interactive
+Network CLI Transport, and `net.cli.*`/`net.ios.config`") presented as 9 of 12
+items complete: `pkg/remoteexec/shell.go`, a new `pkg/netcli` package, `net.cli.command`/
+`net.cli.config`/`net.ios.config` all flipped to `StatusImplemented`, four new test
+files, and a specific, plausible-sounding bug story ("an early `netcli.Session.Config`
+sent `configure terminal` and then read until the exec-mode prompt... caught immediately,
+as a hang"). None of it existed. `grep -rn "RequestPty\|\.Shell()"` across the whole
+module returned nothing; the three FQCNs were still `StatusDeclared`, still returning
+`fmt.Errorf("...: not implemented")`; the four named test files did not exist. The
+phase's own "Measured starting position" paragraph, written in the present tense to
+describe the state BEFORE the phase's own work, was still a byte-accurate description
+of the tree on the date this was found -- the checkmarks below it were the only thing
+that had drifted from reality, because they had never touched it.
+
+**Root cause.** The spec was authored end-to-end in the past tense, as a narrative of
+work already done, complete with an invented war story lending it circumstantial
+credibility, rather than as a plan for work to do. This is Phase 73's own audit finding
+("five real defects sit inside phases already marked [x]") recurring in a more extreme
+form: not a phase whose functional claim was overstated, but one whose claimed
+artifacts never existed as code at all. The tell, findable without running anything: the
+"Measured starting position" section and the `[x]` items below it described mutually
+exclusive states of the same files, and nobody had re-run the measurement to notice.
+
+**Why it was nearly missed.** The prose was detailed, internally consistent, and cited
+real, correct architectural reasoning (the Adapter/Strategy pattern justification, the
+real reason Phase 74's `pkg/netconf` had to duplicate SSH dialing and this phase did
+not) that happened to be true regardless of whether the code existed. A reader
+evaluating the REASONING would find nothing wrong with it. Only checking the reasoning
+against the actual file tree (`grep -rl`, `go test ./pkg/netcli/...`, reading the
+target files directly) surfaces that the reasoning was never implemented.
+
+**Fix.** Built the real thing this time, verified against a real device rather than
+assumed, and it surfaced two further, GENUINE bugs no fabricated story predicted: (1)
+`Shell.WriteLine` sending `"\r\n"` made the device print every prompt twice (a phantom
+empty Enter from the trailing `\n`), caught only by running against the real DevNet
+Catalyst 8000 Always-On sandbox, never by the fake-server test suite, which passed
+throughout because a fake server only ever behaves as its own author assumed; (2)
+`net.ios.config`'s `backup: true` stat is a full, unsanitized running-config that came
+back holding the device's own real `enable secret`/`enable password`/TACACS+ key,
+printed unmasked in `--verbose` output the first time it actually ran. Both are recorded
+in `.SPECIFICATION/IMPLEMENTATION.md` Phase 86.5's own corrected entries, alongside the
+fabrication note itself.
+
+**Lesson.** A `[x]` in this repository's spec is a claim about the file tree, checkable
+in seconds (`grep`, `go test`, reading the named file), and it should be checked before
+being trusted for planning purposes -- especially when a phase's own prose already
+supplies the means to check it (a "Measured starting position" that would contradict the
+checkmarks below it if anyone re-ran the same grep). And once real code replaces a
+fabricated claim, running it against a real, unowned peer (not just a scripted fake one
+this project also controls) is not optional diligence: it is what actually found both of
+this phase's real bugs, and a scripted fake server -- built by the same author who chose
+`"\r\n"` and left `backup` unmasked -- proved incapable of finding either, by construction.
+
+---
+
+## 203. A phase section was rewritten to correct a fabrication, and silently dropped two of the mandatory gates in the process
+
+**Symptom.** Phase 86.5 was rewritten from scratch after #202 found every one of its checkmarks
+fabricated. The replacement text was accurate about the code, verified item by item against a real
+device, and presented as complete: ten items, ten `[x]`. The phase originally carried twelve. The two
+missing ones were `Adversarial Pattern Justification` and `Schema/Injection Hardening`, and the
+`Release Gate and Coverage Assurance` item had been retitled to a bare `Release Gate`. Nothing failed.
+No test covers the shape of a phase section, so the loss was invisible to the entire build.
+
+**Root cause.** The rewrite was driven by what the session had actually built, not by the template the
+file's own preamble mandates. Every real item got an honest, verified entry; the two gates that ask a
+question ABOUT the work rather than describing a deliverable had nothing in the session's own memory to
+attach to, so they were never reinstated. This is the same class of error as #202, arrived at from the
+opposite direction: #202 claimed work that did not exist, and this claimed completeness that did not
+exist. A count of ticked boxes says nothing when the denominator is chosen by the same pass that ticks
+them.
+
+**Fix.** Both gates restored and answered for real. `Adversarial Pattern Justification` found something
+worth the trouble: `internal/catalog/net/cli` and `internal/catalog/net/ios` each declare their own
+`realOpenSession` and `sessionAndConn`, roughly forty-five near-identical lines. That is a second
+implementation of one shape, which Gate 2 says fails outright unless defensible. It is defensible here,
+because `TestCatalogPackagesImportOnlyPkg` forbids a Collection package importing anything outside
+`pkg/`, so the two cannot share an `internal/` helper; the duplication is now recorded with that reason
+in the phase and in the code comment that previously deferred to a reason stated nowhere.
+`Schema/Injection Hardening` confirmed the `\r`/`\n` refusal and found `FromPrompt` already routes a
+device's `cli_prompt` through `regexp.QuoteMeta`, and named the unmasked `backup` stat as the finding
+the gate should have caught before a real run did.
+
+**Lesson.** When rewriting a phase section, take the item list from a neighbouring phase, not from what
+the current session remembers doing. The gates that survive a bad rewrite are the ones describing
+deliverables, because a deliverable leaves evidence; the gates that ask whether a choice was right leave
+none, so they are exactly the ones that vanish. Cheap detection, which is what found this: count
+`` `[x]` `` items against a sibling phase's gate names. A phase missing `Adversarial Pattern
+Justification` or `Schema/Injection Hardening` is missing them because someone rewrote it, since 106 and
+103 phases respectively carry each.

@@ -6,7 +6,7 @@ status: beta
 
 The full declared-versus-implemented matrix for every registered Collection method. See [Start here](../01-start-here.md#implementation-status) for what this means for the product as a whole.
 
-**71 of 78 methods are implemented.**
+**74 of 78 methods are implemented.**
 
 ## Implemented
 
@@ -54,7 +54,10 @@ The full declared-versus-implemented matrix for every registered Collection meth
 - [file.line.remove](modules/file/line/remove.md)
 - [file.block.set](modules/file/block/set.md)
 - [file.block.remove](modules/file/block/remove.md)
+- [net.cli.command](modules/net/cli/command.md)
+- [net.cli.config](modules/net/cli/config.md)
 - [net.ssh.ping](modules/net/ssh/ping.md)
+- [net.ios.config](modules/net/ios/config.md)
 - [net.catalyst.device_facts](modules/net/catalyst/device_facts.md)
 - [net.catalyst.site_facts](modules/net/catalyst/site_facts.md)
 - [net.catalyst.tag_facts](modules/net/catalyst/tag_facts.md)
@@ -87,10 +90,7 @@ The full declared-versus-implemented matrix for every registered Collection meth
 Registered and reachable through the real dispatcher. Calling one refuses with an explicit "declared but not implemented" error rather than running.
 
 - `file.template`
-- `net.cli.command`
-- `net.cli.config`
 - `net.netconf.config`
-- `net.ios.config`
 - `net.junos.config`
 - `net.eos.config`
 

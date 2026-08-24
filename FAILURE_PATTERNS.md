@@ -202,6 +202,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 199. Deriving a resilience budget exposed that the deployment's own probe cancelled it, and the default chart would have failed its own new check
 200. A bare host and port in NATS_URL was accepted and silently meant unencrypted, and nothing in the module parsed the value at all
 201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
+202. A phase spec's checkmarks, doc comments, and a specific bug story all described code that was never written
+203. A phase section was rewritten to correct a fabrication, and silently dropped two of the mandatory gates in the process
 
 ---
 

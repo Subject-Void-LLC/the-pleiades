@@ -3151,12 +3151,46 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it."
     },
     "doc": {
-      "summary": "Runs one show/exec-mode command against a network device's CLI."
+      "summary": "Runs one show/exec-mode command against a network device's CLI.",
+      "description": "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
+      "params": [
+        {
+          "name": "command",
+          "type": "string",
+          "required": true,
+          "description": "The single CLI line to run, e.g. \"show version\"."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "stdout",
+          "type": "string",
+          "returned": "always",
+          "description": "Everything the device printed in response to the command, with the echoed command line and the trailing prompt removed."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Read a device's software version",
+          "runbookYaml": "- name: Check the running version\n  net.cli.command:\n    command: show version\n  register: version\n"
+        }
+      ],
+      "seeAlso": [
+        "net.cli.config",
+        "net.ios.config"
+      ]
     }
   },
   "net.cli.config": {
@@ -3168,12 +3202,38 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "An arbitrary CLI line's effect on a device is unknown to this platform, so no undo can be derived from it."
     },
     "doc": {
-      "summary": "Applies configuration lines to a network device over its CLI."
+      "summary": "Applies configuration lines to a network device over its CLI.",
+      "description": "Splits config into non-blank lines and sends each one through the same generic session net.cli.command uses, one line at a time, matched against the device's own declared cli_prompt property. It carries no vendor-specific configuration-mode knowledge of its own: it never enters or leaves a configuration mode on the caller's behalf, so a device that needs one (Cisco IOS's \"configure terminal\"/\"end\", for instance) must have those lines included in config itself. net.ios.config is the Cisco-specific sibling that does drive configuration mode, and is what a runbook targeting Cisco IOS should use instead. Reports changed every time every line reaches the device without error, the same convention net.cli.command and exec.command both establish: a CLI line's effect cannot be inspected, so this platform does not guess at one. Each line is bounded to 30 seconds for the same reason net.cli.command's own line is: a generic device has no known paging convention, so an unexpectedly long response can pause on a pager prompt this method cannot answer, and a bounded, clear error is preferable to an indefinite hang.",
+      "params": [
+        {
+          "name": "config",
+          "type": "string",
+          "required": true,
+          "description": "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Apply configuration on a device with no vendor-specific method yet",
+          "runbookYaml": "- name: Set a banner\n  net.cli.config:\n    config: |\n      configure terminal\n      banner motd ^Cauthorized access only^C\n      end\n"
+        }
+      ],
+      "seeAlso": [
+        "net.cli.command",
+        "net.ios.config"
+      ]
     }
   },
   "net.eos.config": {
@@ -3202,12 +3262,52 @@
     ],
     "executionContext": {},
     "engineVersion": ">=1.0.0",
-    "status": "declared",
+    "status": "implemented",
     "reversibility": {
-      "reversible": false
+      "reversible": false,
+      "notes": "IOS's \"no <line>\" negation convention does not reliably invert every configuration statement (a route-map or ACL entry, for instance), so this platform does not assert an inverse it cannot guarantee. Set backup: true to capture the prior running-config for a human-directed rollback."
     },
     "doc": {
-      "summary": "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup."
+      "summary": "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup.",
+      "description": "Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, configuration-mode and error conventions (verified directly against a real Cisco IOS XE device, not assumed), and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (a real IOS \"% ...\" error), still leaving configuration mode before returning that error. When backup is true, runs \"show running-config\" before applying anything and records it under the backup stat, giving an operator something to restore from by hand; this platform does not attempt an automatic rollback (see this method's own Reversibility notes for why). Reports changed whenever every line reaches the device without error: a configuration line's effect cannot be inspected before it runs, the same reasoning exec.command and net.cli.command both apply.",
+      "params": [
+        {
+          "name": "lines",
+          "type": "list of string",
+          "required": true,
+          "description": "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself."
+        },
+        {
+          "name": "backup",
+          "type": "bool",
+          "default": "false",
+          "description": "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."
+        },
+        {
+          "name": "insecure_skip_host_key_verify",
+          "type": "bool",
+          "default": "false",
+          "description": "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."
+        }
+      ],
+      "returns": [
+        {
+          "name": "backup",
+          "type": "string",
+          "returned": "when backup is true",
+          "description": "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."
+        }
+      ],
+      "examples": [
+        {
+          "name": "Create a loopback interface with a backup",
+          "runbookYaml": "- name: Add a loopback interface\n  net.ios.config:\n    backup: true\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n"
+        }
+      ],
+      "seeAlso": [
+        "net.cli.command",
+        "net.cli.config"
+      ]
     }
   },
   "net.junos.config": {

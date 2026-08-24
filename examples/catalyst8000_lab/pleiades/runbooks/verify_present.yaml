@@ -1,0 +1,28 @@
+# Read-only. Run this BETWEEN round_trip.yaml's two tasks (interrupt the
+# run, or just run it manually right after round_trip.yaml completes but
+# before you trust it) to see the interface really landed on the real
+# device, not just that Pleiades reported "changed".
+#
+# Pleiades has no assert:/fail:/pause: module yet. These are Ansible
+# control-flow builtins with no Pleiades equivalent today: a real,
+# internally tracked gap, not something this example works around. So
+# this runbook cannot fail the run on its own if the interface is
+# missing. Read the registered "check" stat's stdout by
+# hand, or with --verbose.
+# Shared device: change Loopback8990 to a number of your own before
+# running this, and use the same number in all four runbooks here.
+# See README.md; a runbook cannot yet compute one per run.
+id: catalyst8000-verify-present
+hosts: cat8000
+metadata:
+  service_effecting: false
+  mcp: true
+  mcp_impact: "Read-only: shows one loopback interface's running configuration."
+  mcp_impact_duration: "A few seconds."
+  mcp_description: "Confirms round_trip.yaml's loopback interface really landed on the device."
+
+tasks:
+  - name: Show the loopback interface's running configuration
+    net.cli.command:
+      command: show running-config interface Loopback8990
+    register: check

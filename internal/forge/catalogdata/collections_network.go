@@ -18,14 +18,45 @@ var networkCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameNetworkCLI},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Runs one show/exec-mode command against a network device's CLI."},
+		Doc: collection.Doc{
+			Summary:     "Runs one show/exec-mode command against a network device's CLI.",
+			Description: "Opens an interactive PTY session over SSH and runs one command, matched against the device's own declared cli_prompt property (a generic Dialect, built by netcli.FromPrompt, with no vendor-specific paging, configuration-mode or error convention of its own). Reports the command's own output, with its echoed input line and the trailing prompt both stripped. A command cannot be inspected, so this reports changed every time it reaches the device without error, the same convention exec.command established: pair it with when/when_or/when_cel when idempotence matters. Refuses outright when the target device's cli_prompt property is unset, rather than guessing at a prompt shape. Because this method has no known paging convention for a generic device, a command whose output is longer than the device's own terminal length can pause on a pager prompt this method cannot answer (verified directly against a real device); each command is bounded to 30 seconds so that failure is a clear, timely error rather than an indefinite hang. Pipe a long-output command through the device's own output filter (e.g. \"show running-config | include hostname\") to avoid triggering it, or use net.ios.config, whose vendor-specific dialect disables paging for real.",
+			Params: []collection.Param{
+				{Name: "command", Type: "string", Required: true, Description: "The single CLI line to run, e.g. \"show version\"."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "stdout", Type: "string", Returned: "always", Description: "Everything the device printed in response to the command, with the echoed command line and the trailing prompt removed."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Read a device's software version",
+					RunbookYAML: "- name: Check the running version\n  net.cli.command:\n    command: show version\n  register: version\n",
+				},
+			},
+			SeeAlso: []string{"net.cli.config", "net.ios.config"},
+		},
 	},
 	{
 		Name:          "net.cli.config",
 		Capabilities:  []capability.Name{capability.NameNetworkCLI},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Applies configuration lines to a network device over its CLI."},
+		Doc: collection.Doc{
+			Summary:     "Applies configuration lines to a network device over its CLI.",
+			Description: "Splits config into non-blank lines and sends each one through the same generic session net.cli.command uses, one line at a time, matched against the device's own declared cli_prompt property. It carries no vendor-specific configuration-mode knowledge of its own: it never enters or leaves a configuration mode on the caller's behalf, so a device that needs one (Cisco IOS's \"configure terminal\"/\"end\", for instance) must have those lines included in config itself. net.ios.config is the Cisco-specific sibling that does drive configuration mode, and is what a runbook targeting Cisco IOS should use instead. Reports changed every time every line reaches the device without error, the same convention net.cli.command and exec.command both establish: a CLI line's effect cannot be inspected, so this platform does not guess at one. Each line is bounded to 30 seconds for the same reason net.cli.command's own line is: a generic device has no known paging convention, so an unexpectedly long response can pause on a pager prompt this method cannot answer, and a bounded, clear error is preferable to an indefinite hang.",
+			Params: []collection.Param{
+				{Name: "config", Type: "string", Required: true, Description: "The configuration lines to send, one per line. Blank lines are skipped. Include any vendor-specific mode commands (e.g. \"configure terminal\" and \"end\") this device needs, since this method sends none on its own."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Apply configuration on a device with no vendor-specific method yet",
+					RunbookYAML: "- name: Set a banner\n  net.cli.config:\n    config: |\n      configure terminal\n      banner motd ^Cauthorized access only^C\n      end\n",
+				},
+			},
+			SeeAlso: []string{"net.cli.command", "net.ios.config"},
+		},
 	},
 	// net.ssh.ping is Phase 16 (Native Go Execution Adapter)'s own real,
 	// StatusImplemented method: a lightweight connectivity check that
@@ -61,7 +92,25 @@ var networkCollections = []collectionscaffold.Config{
 		Capabilities:  []capability.Name{capability.NameCiscoIOS},
 		Transports:    []string{"ssh"},
 		EngineVersion: engineVersion,
-		Doc:           collection.Doc{Summary: "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup."},
+		Doc: collection.Doc{
+			Summary:     "Applies configuration lines to a Cisco IOS device, with an optional pre-change backup.",
+			Description: "Opens an interactive PTY session over SSH, using netcli.IOS's own real paging, configuration-mode and error conventions (verified directly against a real Cisco IOS XE device, not assumed), and applies lines as a batch: \"configure terminal\", each line in order, then \"end\". Aborts on the first line the device rejects (a real IOS \"% ...\" error), still leaving configuration mode before returning that error. When backup is true, runs \"show running-config\" before applying anything and records it under the backup stat, giving an operator something to restore from by hand; this platform does not attempt an automatic rollback (see this method's own Reversibility notes for why). Reports changed whenever every line reaches the device without error: a configuration line's effect cannot be inspected before it runs, the same reasoning exec.command and net.cli.command both apply.",
+			Params: []collection.Param{
+				{Name: "lines", Type: "list of string", Required: true, Description: "The configuration lines to apply, in order, WITHOUT \"configure terminal\" or \"end\": this method supplies both itself."},
+				{Name: "backup", Type: "bool", Default: "false", Description: "Capture the device's running-config with \"show running-config\" before applying any line, recorded under the backup stat."},
+				{Name: "insecure_skip_host_key_verify", Type: "bool", Default: "false", Description: "Skip SSH host key verification for this task. This removes protection against a machine in the middle answering for the device, so set it only for a target you have decided does not need it."},
+			},
+			Returns: []collection.ReturnField{
+				{Name: "backup", Type: "string", Returned: "when backup is true", Description: "The device's full running-config, captured immediately before this task's own lines were applied. Not sanitized: it genuinely contains this device's own enable secret, enable password, local user password hashes, and any TACACS+/RADIUS shared key in whatever strength (or weakness -- IOS's own \"type 7\" is trivially reversible) encoding the device applies. Mask it with \"register_mask: backup\" on this task."},
+			},
+			Examples: []collection.Example{
+				{
+					Name:        "Create a loopback interface with a backup",
+					RunbookYAML: "- name: Add a loopback interface\n  net.ios.config:\n    backup: true\n    lines:\n      - interface Loopback0\n      - description managed by pleiades\n",
+				},
+			},
+			SeeAlso: []string{"net.cli.command", "net.cli.config"},
+		},
 	},
 	{
 		Name:          "net.junos.config",
