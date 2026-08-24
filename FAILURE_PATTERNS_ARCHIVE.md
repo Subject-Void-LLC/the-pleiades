@@ -6892,3 +6892,52 @@ none, so they are exactly the ones that vanish. Cheap detection, which is what f
 `` `[x]` `` items against a sibling phase's gate names. A phase missing `Adversarial Pattern
 Justification` or `Schema/Injection Hardening` is missing them because someone rewrote it, since 106 and
 103 phases respectively carry each.
+
+---
+
+## 204. A capability was given only its structural half, so it passed the architecture sweep and no real device could ever satisfy it
+
+**Symptom.** `capability.NetconfCapable` had existed in the vocabulary since Phase 32, requiring a
+`NetconfPort() int` accessor. Zero types in the module implemented it. Phase 74's device-type item
+proposed the obvious fix, "give `cisco.Router` and `cisco.Switch` a real `NetconfPort() int` reading a
+`netconf_port` property", and that fix on its own would have been silently insufficient: the accessor
+would exist, `internal/archtest` would report the capability satisfiable, `make ci` would be green, and
+`net.netconf.config` would still have been undispatchable against every real inventory item in
+existence.
+
+**Root cause.** A capability in this codebase has two halves, and only one of them is code.
+`record.Base.HasCapability` is `Declares(name) && capability.Implements(c, name)`
+(`internal/inventory/devices/cisco/router.go`): the STRUCTURAL half is the Go method set, and the DATA
+half is the capability name appearing in the item's own declared set. `NetconfCapable` is registered
+with `Parent: NameNetworkCLI`, making it a SIBLING of `CiscoIOSCapable` rather than an ancestor, so
+`capability.Resolves` never resolved a Cisco router's declared `CiscoIOSCapable` up to it. Nothing else
+could supply the name either: `pleiades add-host` has no capability flag at all (only `--dir`,
+`--type`, `--classify`, `--tags` and `--set`), and a `--type`-created `record.Record` carries
+`Capabilities: nil`.
+
+The reason the architecture sweep could not see this is the interesting part.
+`satisfiableCapabilities` in `internal/archtest/registry_sweep_test.go` hydrates every probe Record with
+EVERY registered capability name, deliberately, so that the sweep tests the structural half in
+isolation. That is the right design for what it tests, and it means the sweep is structurally incapable
+of noticing that no real path exists to put a name into a real item's declared set. The sweep and the
+gap are blind to each other by construction.
+
+**Fix.** `netconfBaseline` in `internal/inventory/devices/cisco/router.go` appends
+`capability.NameNetconf` to the vendor baseline when the record's own `netconf_enabled` property is
+true, giving the capability its data half through a property that already existed. Keyed on the
+property rather than granted unconditionally, because NETCONF is configuration on a Cisco device and
+not a property of the model: the same sandbox device answers NETCONF on port 830 while refusing to
+serve it on 22. Tests assert BOTH directions, since a device with NETCONF switched off claiming the
+capability would make the property meaningless. This also retired a separate complaint the phase spec
+had recorded, that `SupportsNETCONF() bool` "asserts a claim the type system cannot check": the
+property it reads is now the classification data half of a capability whose structural half
+`NetconfPort` proves.
+
+**Lesson.** When adding an accessor to satisfy a capability, ask the second question explicitly: what
+puts this capability's NAME into a real item's declared set? Answer it by naming the mechanism
+(a vendor constructor's baseline, a classification rule, an operator-supplied property), not by
+observing that `make arch` is green. Cheap detection, and the one that found this: construct the device
+type the ordinary way, with no classification data, and call `HasCapability` on it. If that returns
+false while the structural assertion passes, the capability has one half. An `archtest` sweep whose
+probe hydrates every capability name cannot answer this question and must not be read as though it
+had.

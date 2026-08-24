@@ -125,13 +125,74 @@ The generator now emits module-as-key sugar; a method with no parameters prints 
 
 `internal/catalog/net/ios` coverage moved 48.8 to 80.3 percent; its floor is raised 47.0 to 79.0.
 
+### Phase 74a: NETCONF (same session)
+
+**`net.netconf.config` is implemented and proven against real hardware.** Catalog goes to **81
+registered, 78 implemented, 3 declared**; the not-implemented list is now only `file.template`,
+`net.junos.config` and `net.eos.config`. Phase 74 was split rather than done whole: 74a is NETCONF,
+and RESTCONF (74b), gNMI/gNOI plus the credential model (74c) and the Junos/EOS device types (74d)
+keep every one of Phase 74's own 26 items, unrenumbered, with the mapping written into
+`.SPECIFICATION/IMPLEMENTATION.md`.
+
+Three new pieces. `pkg/remoteexec/subsystem.go`: `Conn.Subsystem`, the third session shape on the
+existing `Conn` after exec and the PTY shell, an `io.ReadWriteCloser` and nothing more.
+`pkg/datastore`: the shared port, with no `Commit`, because RESTCONF has no candidate datastore and
+gNMI's `Set` is atomic per request, so a three-way port declaring one would be false for two of its
+three implementations. `pkg/netconf`: RFC 6241 over RFC 6242 framing, implementing that port,
+dialing nothing.
+
+**Phase 74's own design was corrected in three places, each dated.** The largest: that phase has
+`pkg/netconf` dialing `golang.org/x/crypto/ssh` directly and spends a whole item mitigating the
+duplicated host-key handling. Both reasons it gives are about `internal/transport/ssh`, and neither
+is true of `pkg/remoteexec`. Phase 74's measured starting position is 2026-08-09; `pkg/remoteexec`
+first landed 2026-08-16 in `591441e`, so **the item predates the package it should have used**. The
+mitigation item is therefore moot rather than done. Second: `encoding/xml` is not new to this module
+(`pkg/filters/structured.go` already imports it with byte and depth bounds), though that phase's
+technical finding about entity expansion still holds and is now asserted by test rather than cited.
+Third, and not named by that phase at all: its device-type item would have left `NetconfCapable`
+unreachable, because it supplies only the structural half. `FAILURE_PATTERNS.md` #204.
+
+**Everything was pinned against the real device before it was written**, and four observations
+changed the design: NETCONF answers on port **830 and not 22**, where the device accepts the
+subsystem request and then immediately ends the channel (a client checking only the reply calls that
+working); the hello is **48,790 bytes**; both `base:1.0` and `base:1.1` are advertised, so "both" is
+the ordinary case; and **`:candidate` is not offered at all**, only `:writable-running`, which is why
+`edit-config` requests `rollback-on-error` whenever a device supports it. A fifth shaped the error
+type: this device sends **no `<error-message>`** for an unknown-element error, so a client keyed on
+that field renders an empty reason for a real failure.
+
+Testing is at three levels with no mocked transport anywhere. Unit tests drive bytes captured
+verbatim from the device, with the framing reader and writer each pinned independently against one
+real frame so a matched pair of bugs cannot pass. Five fuzz targets, ~2.2M executions, no crashers. A
+container conformance suite runs against **Netopeer2**, which disagrees independently and has earned
+it (`unknown-namespace` with a message where Cisco says `unknown-element` with none) and is where
+`:candidate`, `commit`, `discard-changes` and `lock`/`unlock` are proven, since the Cisco sandbox
+cannot host them. Toxiproxy severs the connection mid-session, asserting the failure is *detected*
+rather than merely timed out. Release Gate
+(`cmd/pleiades/net_netconf_config_release_gate_test.go`) passed against the real Catalyst 8000,
+verifying every claim **over an interactive CLI session it opens itself**: reading back over the same
+NETCONF session proves the server echoes what it was sent, while a different protocol proves the
+configuration actually changed.
+
+One real defect was found by a test rather than by a user: `realOpenSession` dereferenced a nil
+device to name it in a capability refusal, panicking instead of returning an error.
+
 ### Next step
 
-Nothing is committed. This work is on `feature/cisco-cli-buildout`, cut from `main` at 49386d4; an
-earlier revision of this document claimed it sat on `main` and still needed a branch, which was never
-checked and was wrong. `make ci` has now been run in full: 13 of its 14 targets pass, and the one
-failure is `docs-gen-check`, which runs `git diff --exit-code` over regenerated documentation and so
-cannot pass until this work is committed. Remaining: the user's own review and go-ahead to commit.
+Nothing is committed. This work is on `feature/Phase-74a-NETCONF`, cut from
+`feature/cisco-cli-buildout` rather than from `main`, because it builds directly on `Conn.Shell` and
+`pkg/netcli`, which exist only on that branch and are not merged. **Opening and merging the PR for
+`feature/cisco-cli-buildout` first, then rebasing this branch onto `main`, is what keeps the
+branch-per-phase rule intact rather than stacking a branch on a branch.** `make ci` passes apart from
+`docs-gen-check`, which runs `git diff --exit-code` over regenerated documentation and so cannot pass
+until this work is committed.
+
+**A second real device arrived at the end of this session and is not yet used:** an IOS XR Always-On
+sandbox (`sandbox-iosxr-1.cisco.com`, SSH 22, NETCONF 830, **gNMI 57777**). It matters twice over.
+It is a second vendor NETCONF implementation, which is the only way to tell a NETCONF client from an
+IOS-XE-shaped one; and its gNMI listener resolves Phase 74c's own open research item, which was
+recorded as "not yet verified: a gNMI/gNOI target". The plan for extending testing onto it is in the
+session that produced this work.
 
 ### Debt, carried deliberately
 
@@ -142,8 +203,20 @@ cannot pass until this work is committed. Remaining: the user's own review and g
   mode is not missing information, it is not consulting what is already loaded before writing runbook
   YAML.
 - `net.junos.config`/`net.eos.config` remain `StatusDeclared`: zero device types implement
-  `JunosCapable`/`AristaEOSCapable` (Phase 74's own open item), and `net.netconf.config` remains
-  Phase 74's entirely.
+  `JunosCapable`/`AristaEOSCapable`, and there is no Junos or EOS image in this environment, so
+  generating those device types would produce types proved only by their own scaffolded tests, which
+  is the shape `FAILURE_PATTERNS.md` #202 punishes. Phase 74d owns them. `net.netconf.config` is no
+  longer in this list: Phase 74a implemented it.
+- `SupportsNETCONF() bool` on `capability.CiscoIOSCapable` is now redundant with `NetconfPort()` plus
+  the `netconf_enabled` property `netconfBaseline` reads. It stays because removing a method from
+  that interface is a separate breaking change with its own blast radius, which is what Phase 74
+  already said to do; it is named debt, not a second one.
+- `pkg/datastore`'s `Store` interface has exactly one implementation today. That was a deliberate,
+  approved call rather than an oversight, and the defense is written into the phase's own Adversarial
+  item: its VALUE types are provably the intersection the RFCs leave, its verb set is copied from
+  three existing operation lists rather than coined, and the operations that do not generalize are
+  excluded by name with the reason recorded. It is still an interface with one implementer until 74b
+  lands RESTCONF, and that is the honest reading of it.
 - `examples/catalyst8000_lab/`'s four runbooks all name `Loopback8990` literally, on a device shared
   with every other DevNet sandbox user, so two concurrent runs of the example would fight over one
   interface. The Release Gate covering the same two methods derives its interface name from its

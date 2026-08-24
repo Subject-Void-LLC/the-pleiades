@@ -204,6 +204,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
 202. A phase spec's checkmarks, doc comments, and a specific bug story all described code that was never written
 203. A phase section was rewritten to correct a fabrication, and silently dropped two of the mandatory gates in the process
+204. A capability was given only its structural half, so it passed the architecture sweep and no real device could ever satisfy it
 
 ---
 

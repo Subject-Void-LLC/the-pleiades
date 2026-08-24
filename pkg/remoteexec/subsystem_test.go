@@ -314,3 +314,62 @@ func TestSubsystem_LeavesNoGoroutinesBehind(t *testing.T) {
 
 	goleak.VerifyNone(t, leakOpts)
 }
+
+func TestSubsystem_OnAClosedConnectionIsARefusalNotAPanic(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, echoSubsystem)
+	conn := newTestConn(t, dial)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err == nil {
+		sub.Close()
+		t.Fatal("Subsystem() on a closed connection error = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "open session") {
+		t.Errorf("Subsystem() error = %q, want it to name the failed session open", err)
+	}
+}
+
+// TestSubsystem_CleanEndOfStreamIsPlainEOF pins a property the layer
+// above depends on by identity rather than by message: bufio,
+// io.ReadFull and encoding/xml's decoder all compare against io.EOF
+// directly, so a wrapped EOF would turn an ordinary end of stream into
+// an unrecognized error at every one of them.
+func TestSubsystem_CleanEndOfStreamIsPlainEOF(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, func(name string, channel ssh.Channel) {
+		// Writes nothing and returns, which closes the channel.
+	})
+	conn := newTestConn(t, dial)
+	defer conn.Close()
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err != nil {
+		t.Fatalf("Subsystem() error = %v, want nil", err)
+	}
+	defer sub.Close()
+
+	_, err = io.ReadFull(sub, make([]byte, 1))
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("Read() at a clean end of stream = %v, want io.EOF unwrapped", err)
+	}
+}
+
+func TestSubsystem_WriteAfterCloseIsAnError(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, echoSubsystem)
+	conn := newTestConn(t, dial)
+	defer conn.Close()
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err != nil {
+		t.Fatalf("Subsystem() error = %v, want nil", err)
+	}
+	sub.Close()
+
+	if _, err := io.WriteString(sub, "anything"); err == nil {
+		t.Fatal("Write() to a closed subsystem error = nil, want a refusal")
+	} else if !strings.Contains(err.Error(), "netconf") {
+		t.Errorf("Write() error = %q, want it to name the subsystem", err)
+	}
+}
