@@ -18,6 +18,9 @@ type Contact func(*sql.Selector)
 // Credential is the predicate function for credential builders.
 type Credential func(*sql.Selector)
 
+// CredentialInputSource is the predicate function for credentialinputsource builders.
+type CredentialInputSource func(*sql.Selector)
+
 // CredentialType is the predicate function for credentialtype builders.
 type CredentialType func(*sql.Selector)
 

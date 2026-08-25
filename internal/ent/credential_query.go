@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
@@ -29,6 +30,8 @@ type CredentialQuery struct {
 	withCredentialType *CredentialTypeQuery
 	withOrganization   *OrganizationQuery
 	withTemplates      *TemplateQuery
+	withInputSources   *CredentialInputSourceQuery
+	withSourcedBy      *CredentialInputSourceQuery
 	withFKs            bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -125,6 +128,50 @@ func (_q *CredentialQuery) QueryTemplates() *TemplateQuery {
 			sqlgraph.From(credential.Table, credential.FieldID, selector),
 			sqlgraph.To(template.Table, template.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, true, credential.TemplatesTable, credential.TemplatesPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryInputSources chains the current query on the "input_sources" edge.
+func (_q *CredentialQuery) QueryInputSources() *CredentialInputSourceQuery {
+	query := (&CredentialInputSourceClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credential.Table, credential.FieldID, selector),
+			sqlgraph.To(credentialinputsource.Table, credentialinputsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, credential.InputSourcesTable, credential.InputSourcesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySourcedBy chains the current query on the "sourced_by" edge.
+func (_q *CredentialQuery) QuerySourcedBy() *CredentialInputSourceQuery {
+	query := (&CredentialInputSourceClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credential.Table, credential.FieldID, selector),
+			sqlgraph.To(credentialinputsource.Table, credentialinputsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, credential.SourcedByTable, credential.SourcedByColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -327,6 +374,8 @@ func (_q *CredentialQuery) Clone() *CredentialQuery {
 		withCredentialType: _q.withCredentialType.Clone(),
 		withOrganization:   _q.withOrganization.Clone(),
 		withTemplates:      _q.withTemplates.Clone(),
+		withInputSources:   _q.withInputSources.Clone(),
+		withSourcedBy:      _q.withSourcedBy.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -363,6 +412,28 @@ func (_q *CredentialQuery) WithTemplates(opts ...func(*TemplateQuery)) *Credenti
 		opt(query)
 	}
 	_q.withTemplates = query
+	return _q
+}
+
+// WithInputSources tells the query-builder to eager-load the nodes that are connected to
+// the "input_sources" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *CredentialQuery) WithInputSources(opts ...func(*CredentialInputSourceQuery)) *CredentialQuery {
+	query := (&CredentialInputSourceClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withInputSources = query
+	return _q
+}
+
+// WithSourcedBy tells the query-builder to eager-load the nodes that are connected to
+// the "sourced_by" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *CredentialQuery) WithSourcedBy(opts ...func(*CredentialInputSourceQuery)) *CredentialQuery {
+	query := (&CredentialInputSourceClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSourcedBy = query
 	return _q
 }
 
@@ -445,10 +516,12 @@ func (_q *CredentialQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*C
 		nodes       = []*Credential{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [5]bool{
 			_q.withCredentialType != nil,
 			_q.withOrganization != nil,
 			_q.withTemplates != nil,
+			_q.withInputSources != nil,
+			_q.withSourcedBy != nil,
 		}
 	)
 	if _q.withCredentialType != nil || _q.withOrganization != nil {
@@ -491,6 +564,20 @@ func (_q *CredentialQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*C
 		if err := _q.loadTemplates(ctx, query, nodes,
 			func(n *Credential) { n.Edges.Templates = []*Template{} },
 			func(n *Credential, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withInputSources; query != nil {
+		if err := _q.loadInputSources(ctx, query, nodes,
+			func(n *Credential) { n.Edges.InputSources = []*CredentialInputSource{} },
+			func(n *Credential, e *CredentialInputSource) { n.Edges.InputSources = append(n.Edges.InputSources, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSourcedBy; query != nil {
+		if err := _q.loadSourcedBy(ctx, query, nodes,
+			func(n *Credential) { n.Edges.SourcedBy = []*CredentialInputSource{} },
+			func(n *Credential, e *CredentialInputSource) { n.Edges.SourcedBy = append(n.Edges.SourcedBy, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -619,6 +706,68 @@ func (_q *CredentialQuery) loadTemplates(ctx context.Context, query *TemplateQue
 		for kn := range nodes {
 			assign(kn, n)
 		}
+	}
+	return nil
+}
+func (_q *CredentialQuery) loadInputSources(ctx context.Context, query *CredentialInputSourceQuery, nodes []*Credential, init func(*Credential), assign func(*Credential, *CredentialInputSource)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Credential)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.CredentialInputSource(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(credential.InputSourcesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.credential_input_sources
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "credential_input_sources" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "credential_input_sources" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *CredentialQuery) loadSourcedBy(ctx context.Context, query *CredentialInputSourceQuery, nodes []*Credential, init func(*Credential), assign func(*Credential, *CredentialInputSource)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Credential)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.CredentialInputSource(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(credential.SourcedByColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.credential_sourced_by
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "credential_sourced_by" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "credential_sourced_by" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

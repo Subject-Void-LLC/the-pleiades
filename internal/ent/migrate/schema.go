@@ -153,6 +153,43 @@ var (
 			},
 		},
 	}
+	// CredentialInputSourcesColumns holds the columns for the "credential_input_sources" table.
+	CredentialInputSourcesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "input_id", Type: field.TypeString},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "credential_input_sources", Type: field.TypeInt},
+		{Name: "credential_sourced_by", Type: field.TypeInt},
+	}
+	// CredentialInputSourcesTable holds the schema information for the "credential_input_sources" table.
+	CredentialInputSourcesTable = &schema.Table{
+		Name:       "credential_input_sources",
+		Columns:    CredentialInputSourcesColumns,
+		PrimaryKey: []*schema.Column{CredentialInputSourcesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "credential_input_sources_credentials_input_sources",
+				Columns:    []*schema.Column{CredentialInputSourcesColumns[5]},
+				RefColumns: []*schema.Column{CredentialsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "credential_input_sources_credentials_sourced_by",
+				Columns:    []*schema.Column{CredentialInputSourcesColumns[6]},
+				RefColumns: []*schema.Column{CredentialsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "credentialinputsource_input_id_credential_input_sources",
+				Unique:  true,
+				Columns: []*schema.Column{CredentialInputSourcesColumns[3], CredentialInputSourcesColumns[5]},
+			},
+		},
+	}
 	// CredentialTypesColumns holds the columns for the "credential_types" table.
 	CredentialTypesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -950,6 +987,7 @@ var (
 		AnnouncementsTable,
 		ContactsTable,
 		CredentialsTable,
+		CredentialInputSourcesTable,
 		CredentialTypesTable,
 		DevicesTable,
 		FactsTable,
@@ -984,6 +1022,8 @@ func init() {
 	ContactsTable.ForeignKeys[1].RefTable = TeamsTable
 	CredentialsTable.ForeignKeys[0].RefTable = CredentialTypesTable
 	CredentialsTable.ForeignKeys[1].RefTable = OrganizationsTable
+	CredentialInputSourcesTable.ForeignKeys[0].RefTable = CredentialsTable
+	CredentialInputSourcesTable.ForeignKeys[1].RefTable = CredentialsTable
 	CredentialTypesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	DevicesTable.ForeignKeys[0].RefTable = DevicesTable
 	DevicesTable.ForeignKeys[1].RefTable = OrganizationsTable

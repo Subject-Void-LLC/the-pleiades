@@ -454,6 +454,52 @@ func HasTemplatesWith(preds ...predicate.Template) predicate.Credential {
 	})
 }
 
+// HasInputSources applies the HasEdge predicate on the "input_sources" edge.
+func HasInputSources() predicate.Credential {
+	return predicate.Credential(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, InputSourcesTable, InputSourcesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasInputSourcesWith applies the HasEdge predicate on the "input_sources" edge with a given conditions (other predicates).
+func HasInputSourcesWith(preds ...predicate.CredentialInputSource) predicate.Credential {
+	return predicate.Credential(func(s *sql.Selector) {
+		step := newInputSourcesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasSourcedBy applies the HasEdge predicate on the "sourced_by" edge.
+func HasSourcedBy() predicate.Credential {
+	return predicate.Credential(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SourcedByTable, SourcedByColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSourcedByWith applies the HasEdge predicate on the "sourced_by" edge with a given conditions (other predicates).
+func HasSourcedByWith(preds ...predicate.CredentialInputSource) predicate.Credential {
+	return predicate.Credential(func(s *sql.Selector) {
+		step := newSourcedByStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Credential) predicate.Credential {
 	return predicate.Credential(sql.AndPredicates(predicates...))

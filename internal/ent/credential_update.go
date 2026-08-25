@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
@@ -120,6 +121,36 @@ func (_u *CredentialUpdate) AddTemplates(v ...*Template) *CredentialUpdate {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
+func (_u *CredentialUpdate) AddInputSourceIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.AddInputSourceIDs(ids...)
+	return _u
+}
+
+// AddInputSources adds the "input_sources" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdate) AddInputSources(v ...*CredentialInputSource) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInputSourceIDs(ids...)
+}
+
+// AddSourcedByIDs adds the "sourced_by" edge to the CredentialInputSource entity by IDs.
+func (_u *CredentialUpdate) AddSourcedByIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.AddSourcedByIDs(ids...)
+	return _u
+}
+
+// AddSourcedBy adds the "sourced_by" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdate) AddSourcedBy(v ...*CredentialInputSource) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSourcedByIDs(ids...)
+}
+
 // Mutation returns the CredentialMutation object of the builder.
 func (_u *CredentialUpdate) Mutation() *CredentialMutation {
 	return _u.mutation
@@ -150,6 +181,48 @@ func (_u *CredentialUpdate) RemoveTemplates(v ...*Template) *CredentialUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearInputSources clears all "input_sources" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdate) ClearInputSources() *CredentialUpdate {
+	_u.mutation.ClearInputSources()
+	return _u
+}
+
+// RemoveInputSourceIDs removes the "input_sources" edge to CredentialInputSource entities by IDs.
+func (_u *CredentialUpdate) RemoveInputSourceIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.RemoveInputSourceIDs(ids...)
+	return _u
+}
+
+// RemoveInputSources removes "input_sources" edges to CredentialInputSource entities.
+func (_u *CredentialUpdate) RemoveInputSources(v ...*CredentialInputSource) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInputSourceIDs(ids...)
+}
+
+// ClearSourcedBy clears all "sourced_by" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdate) ClearSourcedBy() *CredentialUpdate {
+	_u.mutation.ClearSourcedBy()
+	return _u
+}
+
+// RemoveSourcedByIDs removes the "sourced_by" edge to CredentialInputSource entities by IDs.
+func (_u *CredentialUpdate) RemoveSourcedByIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.RemoveSourcedByIDs(ids...)
+	return _u
+}
+
+// RemoveSourcedBy removes "sourced_by" edges to CredentialInputSource entities.
+func (_u *CredentialUpdate) RemoveSourcedBy(v ...*CredentialInputSource) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSourcedByIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -314,6 +387,96 @@ func (_u *CredentialUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.InputSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInputSourcesIDs(); len(nodes) > 0 && !_u.mutation.InputSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InputSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SourcedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSourcedByIDs(); len(nodes) > 0 && !_u.mutation.SourcedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SourcedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{credential.Label}
@@ -424,6 +587,36 @@ func (_u *CredentialUpdateOne) AddTemplates(v ...*Template) *CredentialUpdateOne
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
+func (_u *CredentialUpdateOne) AddInputSourceIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.AddInputSourceIDs(ids...)
+	return _u
+}
+
+// AddInputSources adds the "input_sources" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdateOne) AddInputSources(v ...*CredentialInputSource) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddInputSourceIDs(ids...)
+}
+
+// AddSourcedByIDs adds the "sourced_by" edge to the CredentialInputSource entity by IDs.
+func (_u *CredentialUpdateOne) AddSourcedByIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.AddSourcedByIDs(ids...)
+	return _u
+}
+
+// AddSourcedBy adds the "sourced_by" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdateOne) AddSourcedBy(v ...*CredentialInputSource) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSourcedByIDs(ids...)
+}
+
 // Mutation returns the CredentialMutation object of the builder.
 func (_u *CredentialUpdateOne) Mutation() *CredentialMutation {
 	return _u.mutation
@@ -454,6 +647,48 @@ func (_u *CredentialUpdateOne) RemoveTemplates(v ...*Template) *CredentialUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearInputSources clears all "input_sources" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdateOne) ClearInputSources() *CredentialUpdateOne {
+	_u.mutation.ClearInputSources()
+	return _u
+}
+
+// RemoveInputSourceIDs removes the "input_sources" edge to CredentialInputSource entities by IDs.
+func (_u *CredentialUpdateOne) RemoveInputSourceIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.RemoveInputSourceIDs(ids...)
+	return _u
+}
+
+// RemoveInputSources removes "input_sources" edges to CredentialInputSource entities.
+func (_u *CredentialUpdateOne) RemoveInputSources(v ...*CredentialInputSource) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveInputSourceIDs(ids...)
+}
+
+// ClearSourcedBy clears all "sourced_by" edges to the CredentialInputSource entity.
+func (_u *CredentialUpdateOne) ClearSourcedBy() *CredentialUpdateOne {
+	_u.mutation.ClearSourcedBy()
+	return _u
+}
+
+// RemoveSourcedByIDs removes the "sourced_by" edge to CredentialInputSource entities by IDs.
+func (_u *CredentialUpdateOne) RemoveSourcedByIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.RemoveSourcedByIDs(ids...)
+	return _u
+}
+
+// RemoveSourcedBy removes "sourced_by" edges to CredentialInputSource entities.
+func (_u *CredentialUpdateOne) RemoveSourcedBy(v ...*CredentialInputSource) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSourcedByIDs(ids...)
 }
 
 // Where appends a list predicates to the CredentialUpdate builder.
@@ -641,6 +876,96 @@ func (_u *CredentialUpdateOne) sqlSave(ctx context.Context) (_node *Credential, 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.InputSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedInputSourcesIDs(); len(nodes) > 0 && !_u.mutation.InputSourcesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.InputSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SourcedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSourcedByIDs(); len(nodes) > 0 && !_u.mutation.SourcedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SourcedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

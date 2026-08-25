@@ -668,6 +668,48 @@ error. There is still no direct Vault, KMS, or cloud secrets-manager client. Rea
 that as a real constraint when deciding whether Pleiades fits an environment that
 mandates one, not as a gap to work around.
 
+### Input sources: an input supplied by another credential
+
+There are two ways a credential says an input lives somewhere else, and they exist
+side by side.
+
+The first is a reference string, described above: the input names a source and a
+path, and the source itself is configured once for the whole controller. That is
+right for a file, because a projected volume is a property of the deployment rather
+than of any one credential.
+
+The second is an **input source**: the input is bound to another credential, an
+external-kind one holding that secret manager's own address and token, plus the
+metadata saying where in it to look. Bind them through
+`PUT /api/v1/credentials/{id}/input-sources`, or in the same request that creates
+the credential. This is the model AWX uses, and it exists because a vault address
+and a vault token are themselves credentials: they need rotating, an audit trail
+and RBAC, and a string in a column is none of those.
+
+Rotating the source is the point. Every target that reads through it picks up the
+new value on its next run, with no edit to any of them, because resolution happens
+when a job dispatches rather than when the binding was written.
+
+Four things are refused when you write a binding, rather than when a job later
+trips over them: an input the credential's type does not declare, a source in
+another organization, a source that is not an external-kind credential, and a set
+that would make resolution return to the credential it started from.
+
+A source credential's own inputs may themselves be bound to a further source, and
+that chain is bounded at **four hops**. Past that the resolution is refused by name
+rather than followed, because every link is an ordinary row that anyone who can
+write credentials can add, and an unbounded walk would be a denial of service
+against the controller reachable from ordinary data. A chain that returns to where
+it started is reported as a cycle rather than as depth, since the two need
+different fixes.
+
+One honest limit for this release: the binding model, its API and its refusals all
+ship here, and the first secret manager a binding can actually resolve THROUGH does
+not. A binding whose source type nothing can build fails with an explicit error
+naming that source and listing the ones this controller has, in the same way a
+declared-but-unimplemented source does. That is deliberate: the set shrinks
+honestly as real sources land, rather than a binding quietly resolving to nothing.
+
 ### Credential storage
 
 `pleiades add-credential <device> --username <user>` prompts for a password or a

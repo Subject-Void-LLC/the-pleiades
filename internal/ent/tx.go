@@ -20,6 +20,8 @@ type Tx struct {
 	Contact *ContactClient
 	// Credential is the client for interacting with the Credential builders.
 	Credential *CredentialClient
+	// CredentialInputSource is the client for interacting with the CredentialInputSource builders.
+	CredentialInputSource *CredentialInputSourceClient
 	// CredentialType is the client for interacting with the CredentialType builders.
 	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
@@ -193,6 +195,7 @@ func (tx *Tx) init() {
 	tx.Announcement = NewAnnouncementClient(tx.config)
 	tx.Contact = NewContactClient(tx.config)
 	tx.Credential = NewCredentialClient(tx.config)
+	tx.CredentialInputSource = NewCredentialInputSourceClient(tx.config)
 	tx.CredentialType = NewCredentialTypeClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)

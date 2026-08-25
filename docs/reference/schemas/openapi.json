@@ -3732,6 +3732,310 @@
         "x-link-relation": "update"
       }
     },
+    "/credentials/{id}/input-sources": {
+      "get": {
+        "description": "Returns which of this credential's inputs are supplied by another credential rather than stored here, and where in that source each one lives. No secret value is returned, because none is stored.",
+        "operationId": "list_credential_input_sources",
+        "parameters": [
+          {
+            "description": "The credential's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "input_sources": {
+                      "items": {
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "input_id": {
+                            "description": "The id of this credential's input that the source supplies.",
+                            "type": "string"
+                          },
+                          "metadata": {
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "The source's own per-field addressing, for example a secret path and the key within it. Not redacted: a path is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "type": "object"
+                          },
+                          "source_credential": {
+                            "description": "The credential that supplies the value: an external-kind credential holding the address and token of a secret manager.",
+                            "type": "integer"
+                          },
+                          "source_credential_name": {
+                            "description": "The source's name, carried so a reader does not need a second request.",
+                            "type": "string"
+                          },
+                          "source_credential_namespace": {
+                            "description": "The source type's stable identifier, which selects how the reference is resolved.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The input sources, ordered by input id."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:read"
+            ]
+          }
+        ],
+        "summary": "List a credential's input sources",
+        "x-link-relation": "collection"
+      },
+      "put": {
+        "description": "Replaces the whole set, so an empty list makes every input read from stored values again. Refused, before anything is written, when an input is not one this credential's type declares, when the source belongs to another organization, when the source is not an external-kind credential, or when the result would make resolution return to the credential it started from.",
+        "operationId": "set_credential_input_sources",
+        "parameters": [
+          {
+            "description": "The credential's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "input_sources": {
+                    "items": {
+                      "properties": {
+                        "input_id": {
+                          "description": "The input of this credential to supply.",
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "The source's own per-field addressing, for example a secret path and the key within it.",
+                          "type": "object"
+                        },
+                        "source_credential": {
+                          "description": "The external-kind credential to read it through.",
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "input_id",
+                        "source_credential"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "input_sources"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "input_sources": {
+                      "items": {
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "input_id": {
+                            "description": "The id of this credential's input that the source supplies.",
+                            "type": "string"
+                          },
+                          "metadata": {
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "The source's own per-field addressing, for example a secret path and the key within it. Not redacted: a path is a pointer to a secret rather than a secret, and hiding it would make \"which credentials point at this mount\" unanswerable during a migration.",
+                            "type": "object"
+                          },
+                          "source_credential": {
+                            "description": "The credential that supplies the value: an external-kind credential holding the address and token of a secret manager.",
+                            "type": "integer"
+                          },
+                          "source_credential_name": {
+                            "description": "The source's name, carried so a reader does not need a second request.",
+                            "type": "string"
+                          },
+                          "source_credential_namespace": {
+                            "description": "The source type's stable identifier, which selects how the reference is resolved.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The bindings as stored."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential with that id, no such source, or an input this type does not declare."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The set would close a resolution cycle, or binds one input twice."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Replace a credential's input sources",
+        "x-link-relation": "credentials"
+      }
+    },
     "/inventories": {
       "get": {
         "description": "Returns the inventories this caller may reach, keyset-paged. An inventory is a named, shareable set of devices; sharing one with another team is a role binding at inventory scope, not a field on this resource.",

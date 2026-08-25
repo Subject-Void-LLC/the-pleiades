@@ -19,6 +19,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -53,6 +54,8 @@ type Client struct {
 	Contact *ContactClient
 	// Credential is the client for interacting with the Credential builders.
 	Credential *CredentialClient
+	// CredentialInputSource is the client for interacting with the CredentialInputSource builders.
+	CredentialInputSource *CredentialInputSourceClient
 	// CredentialType is the client for interacting with the CredentialType builders.
 	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
@@ -106,6 +109,7 @@ func (c *Client) init() {
 	c.Announcement = NewAnnouncementClient(c.config)
 	c.Contact = NewContactClient(c.config)
 	c.Credential = NewCredentialClient(c.config)
+	c.CredentialInputSource = NewCredentialInputSourceClient(c.config)
 	c.CredentialType = NewCredentialTypeClient(c.config)
 	c.Device = NewDeviceClient(c.config)
 	c.Fact = NewFactClient(c.config)
@@ -215,31 +219,32 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                ctx,
-		config:             cfg,
-		ActivityEntry:      NewActivityEntryClient(cfg),
-		Announcement:       NewAnnouncementClient(cfg),
-		Contact:            NewContactClient(cfg),
-		Credential:         NewCredentialClient(cfg),
-		CredentialType:     NewCredentialTypeClient(cfg),
-		Device:             NewDeviceClient(cfg),
-		Fact:               NewFactClient(cfg),
-		Group:              NewGroupClient(cfg),
-		Inventory:          NewInventoryClient(cfg),
-		Job:                NewJobClient(cfg),
-		JobTask:            NewJobTaskClient(cfg),
-		LocalCredential:    NewLocalCredentialClient(cfg),
-		Organization:       NewOrganizationClient(cfg),
-		Revision:           NewRevisionClient(cfg),
-		RoleBinding:        NewRoleBindingClient(cfg),
-		SavedLaunchConfig:  NewSavedLaunchConfigClient(cfg),
-		Schedule:           NewScheduleClient(cfg),
-		ScheduleOccurrence: NewScheduleOccurrenceClient(cfg),
-		Session:            NewSessionClient(cfg),
-		SurveyQuestion:     NewSurveyQuestionClient(cfg),
-		Team:               NewTeamClient(cfg),
-		Template:           NewTemplateClient(cfg),
-		User:               NewUserClient(cfg),
+		ctx:                   ctx,
+		config:                cfg,
+		ActivityEntry:         NewActivityEntryClient(cfg),
+		Announcement:          NewAnnouncementClient(cfg),
+		Contact:               NewContactClient(cfg),
+		Credential:            NewCredentialClient(cfg),
+		CredentialInputSource: NewCredentialInputSourceClient(cfg),
+		CredentialType:        NewCredentialTypeClient(cfg),
+		Device:                NewDeviceClient(cfg),
+		Fact:                  NewFactClient(cfg),
+		Group:                 NewGroupClient(cfg),
+		Inventory:             NewInventoryClient(cfg),
+		Job:                   NewJobClient(cfg),
+		JobTask:               NewJobTaskClient(cfg),
+		LocalCredential:       NewLocalCredentialClient(cfg),
+		Organization:          NewOrganizationClient(cfg),
+		Revision:              NewRevisionClient(cfg),
+		RoleBinding:           NewRoleBindingClient(cfg),
+		SavedLaunchConfig:     NewSavedLaunchConfigClient(cfg),
+		Schedule:              NewScheduleClient(cfg),
+		ScheduleOccurrence:    NewScheduleOccurrenceClient(cfg),
+		Session:               NewSessionClient(cfg),
+		SurveyQuestion:        NewSurveyQuestionClient(cfg),
+		Team:                  NewTeamClient(cfg),
+		Template:              NewTemplateClient(cfg),
+		User:                  NewUserClient(cfg),
 	}, nil
 }
 
@@ -257,31 +262,32 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                ctx,
-		config:             cfg,
-		ActivityEntry:      NewActivityEntryClient(cfg),
-		Announcement:       NewAnnouncementClient(cfg),
-		Contact:            NewContactClient(cfg),
-		Credential:         NewCredentialClient(cfg),
-		CredentialType:     NewCredentialTypeClient(cfg),
-		Device:             NewDeviceClient(cfg),
-		Fact:               NewFactClient(cfg),
-		Group:              NewGroupClient(cfg),
-		Inventory:          NewInventoryClient(cfg),
-		Job:                NewJobClient(cfg),
-		JobTask:            NewJobTaskClient(cfg),
-		LocalCredential:    NewLocalCredentialClient(cfg),
-		Organization:       NewOrganizationClient(cfg),
-		Revision:           NewRevisionClient(cfg),
-		RoleBinding:        NewRoleBindingClient(cfg),
-		SavedLaunchConfig:  NewSavedLaunchConfigClient(cfg),
-		Schedule:           NewScheduleClient(cfg),
-		ScheduleOccurrence: NewScheduleOccurrenceClient(cfg),
-		Session:            NewSessionClient(cfg),
-		SurveyQuestion:     NewSurveyQuestionClient(cfg),
-		Team:               NewTeamClient(cfg),
-		Template:           NewTemplateClient(cfg),
-		User:               NewUserClient(cfg),
+		ctx:                   ctx,
+		config:                cfg,
+		ActivityEntry:         NewActivityEntryClient(cfg),
+		Announcement:          NewAnnouncementClient(cfg),
+		Contact:               NewContactClient(cfg),
+		Credential:            NewCredentialClient(cfg),
+		CredentialInputSource: NewCredentialInputSourceClient(cfg),
+		CredentialType:        NewCredentialTypeClient(cfg),
+		Device:                NewDeviceClient(cfg),
+		Fact:                  NewFactClient(cfg),
+		Group:                 NewGroupClient(cfg),
+		Inventory:             NewInventoryClient(cfg),
+		Job:                   NewJobClient(cfg),
+		JobTask:               NewJobTaskClient(cfg),
+		LocalCredential:       NewLocalCredentialClient(cfg),
+		Organization:          NewOrganizationClient(cfg),
+		Revision:              NewRevisionClient(cfg),
+		RoleBinding:           NewRoleBindingClient(cfg),
+		SavedLaunchConfig:     NewSavedLaunchConfigClient(cfg),
+		Schedule:              NewScheduleClient(cfg),
+		ScheduleOccurrence:    NewScheduleOccurrenceClient(cfg),
+		Session:               NewSessionClient(cfg),
+		SurveyQuestion:        NewSurveyQuestionClient(cfg),
+		Team:                  NewTeamClient(cfg),
+		Template:              NewTemplateClient(cfg),
+		User:                  NewUserClient(cfg),
 	}, nil
 }
 
@@ -311,10 +317,11 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
-		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
-		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
+		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
+		c.Inventory, c.Job, c.JobTask, c.LocalCredential, c.Organization, c.Revision,
+		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
+		c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -324,10 +331,11 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.ActivityEntry, c.Announcement, c.Contact, c.Credential, c.CredentialType,
-		c.Device, c.Fact, c.Group, c.Inventory, c.Job, c.JobTask, c.LocalCredential,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
-		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
+		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
+		c.Inventory, c.Job, c.JobTask, c.LocalCredential, c.Organization, c.Revision,
+		c.RoleBinding, c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence,
+		c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -344,6 +352,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Contact.mutate(ctx, m)
 	case *CredentialMutation:
 		return c.Credential.mutate(ctx, m)
+	case *CredentialInputSourceMutation:
+		return c.CredentialInputSource.mutate(ctx, m)
 	case *CredentialTypeMutation:
 		return c.CredentialType.mutate(ctx, m)
 	case *DeviceMutation:
@@ -990,6 +1000,38 @@ func (c *CredentialClient) QueryTemplates(_m *Credential) *TemplateQuery {
 	return query
 }
 
+// QueryInputSources queries the input_sources edge of a Credential.
+func (c *CredentialClient) QueryInputSources(_m *Credential) *CredentialInputSourceQuery {
+	query := (&CredentialInputSourceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credential.Table, credential.FieldID, id),
+			sqlgraph.To(credentialinputsource.Table, credentialinputsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, credential.InputSourcesTable, credential.InputSourcesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySourcedBy queries the sourced_by edge of a Credential.
+func (c *CredentialClient) QuerySourcedBy(_m *Credential) *CredentialInputSourceQuery {
+	query := (&CredentialInputSourceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credential.Table, credential.FieldID, id),
+			sqlgraph.To(credentialinputsource.Table, credentialinputsource.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, credential.SourcedByTable, credential.SourcedByColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *CredentialClient) Hooks() []Hook {
 	return c.hooks.Credential
@@ -1012,6 +1054,171 @@ func (c *CredentialClient) mutate(ctx context.Context, m *CredentialMutation) (V
 		return (&CredentialDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Credential mutation op: %q", m.Op())
+	}
+}
+
+// CredentialInputSourceClient is a client for the CredentialInputSource schema.
+type CredentialInputSourceClient struct {
+	config
+}
+
+// NewCredentialInputSourceClient returns a client for the CredentialInputSource from the given config.
+func NewCredentialInputSourceClient(c config) *CredentialInputSourceClient {
+	return &CredentialInputSourceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `credentialinputsource.Hooks(f(g(h())))`.
+func (c *CredentialInputSourceClient) Use(hooks ...Hook) {
+	c.hooks.CredentialInputSource = append(c.hooks.CredentialInputSource, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `credentialinputsource.Intercept(f(g(h())))`.
+func (c *CredentialInputSourceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.CredentialInputSource = append(c.inters.CredentialInputSource, interceptors...)
+}
+
+// Create returns a builder for creating a CredentialInputSource entity.
+func (c *CredentialInputSourceClient) Create() *CredentialInputSourceCreate {
+	mutation := newCredentialInputSourceMutation(c.config, OpCreate)
+	return &CredentialInputSourceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of CredentialInputSource entities.
+func (c *CredentialInputSourceClient) CreateBulk(builders ...*CredentialInputSourceCreate) *CredentialInputSourceCreateBulk {
+	return &CredentialInputSourceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *CredentialInputSourceClient) MapCreateBulk(slice any, setFunc func(*CredentialInputSourceCreate, int)) *CredentialInputSourceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &CredentialInputSourceCreateBulk{err: fmt.Errorf("calling to CredentialInputSourceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*CredentialInputSourceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &CredentialInputSourceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for CredentialInputSource.
+func (c *CredentialInputSourceClient) Update() *CredentialInputSourceUpdate {
+	mutation := newCredentialInputSourceMutation(c.config, OpUpdate)
+	return &CredentialInputSourceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *CredentialInputSourceClient) UpdateOne(_m *CredentialInputSource) *CredentialInputSourceUpdateOne {
+	mutation := newCredentialInputSourceMutation(c.config, OpUpdateOne, withCredentialInputSource(_m))
+	return &CredentialInputSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *CredentialInputSourceClient) UpdateOneID(id int) *CredentialInputSourceUpdateOne {
+	mutation := newCredentialInputSourceMutation(c.config, OpUpdateOne, withCredentialInputSourceID(id))
+	return &CredentialInputSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for CredentialInputSource.
+func (c *CredentialInputSourceClient) Delete() *CredentialInputSourceDelete {
+	mutation := newCredentialInputSourceMutation(c.config, OpDelete)
+	return &CredentialInputSourceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *CredentialInputSourceClient) DeleteOne(_m *CredentialInputSource) *CredentialInputSourceDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *CredentialInputSourceClient) DeleteOneID(id int) *CredentialInputSourceDeleteOne {
+	builder := c.Delete().Where(credentialinputsource.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &CredentialInputSourceDeleteOne{builder}
+}
+
+// Query returns a query builder for CredentialInputSource.
+func (c *CredentialInputSourceClient) Query() *CredentialInputSourceQuery {
+	return &CredentialInputSourceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeCredentialInputSource},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a CredentialInputSource entity by its id.
+func (c *CredentialInputSourceClient) Get(ctx context.Context, id int) (*CredentialInputSource, error) {
+	return c.Query().Where(credentialinputsource.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *CredentialInputSourceClient) GetX(ctx context.Context, id int) *CredentialInputSource {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTargetCredential queries the target_credential edge of a CredentialInputSource.
+func (c *CredentialInputSourceClient) QueryTargetCredential(_m *CredentialInputSource) *CredentialQuery {
+	query := (&CredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credentialinputsource.Table, credentialinputsource.FieldID, id),
+			sqlgraph.To(credential.Table, credential.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, credentialinputsource.TargetCredentialTable, credentialinputsource.TargetCredentialColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QuerySourceCredential queries the source_credential edge of a CredentialInputSource.
+func (c *CredentialInputSourceClient) QuerySourceCredential(_m *CredentialInputSource) *CredentialQuery {
+	query := (&CredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credentialinputsource.Table, credentialinputsource.FieldID, id),
+			sqlgraph.To(credential.Table, credential.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, credentialinputsource.SourceCredentialTable, credentialinputsource.SourceCredentialColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *CredentialInputSourceClient) Hooks() []Hook {
+	return c.hooks.CredentialInputSource
+}
+
+// Interceptors returns the client interceptors.
+func (c *CredentialInputSourceClient) Interceptors() []Interceptor {
+	return c.inters.CredentialInputSource
+}
+
+func (c *CredentialInputSourceClient) mutate(ctx context.Context, m *CredentialInputSourceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&CredentialInputSourceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&CredentialInputSourceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&CredentialInputSourceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&CredentialInputSourceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown CredentialInputSource mutation op: %q", m.Op())
 	}
 }
 
@@ -4361,15 +4568,16 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
-		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
-		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
-		SurveyQuestion, Team, Template, User []ent.Hook
+		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
+		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, LocalCredential,
+		Organization, Revision, RoleBinding, SavedLaunchConfig, Schedule,
+		ScheduleOccurrence, Session, SurveyQuestion, Team, Template, User []ent.Hook
 	}
 	inters struct {
-		ActivityEntry, Announcement, Contact, Credential, CredentialType, Device, Fact,
-		Group, Inventory, Job, JobTask, LocalCredential, Organization, Revision,
-		RoleBinding, SavedLaunchConfig, Schedule, ScheduleOccurrence, Session,
-		SurveyQuestion, Team, Template, User []ent.Interceptor
+		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
+		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, LocalCredential,
+		Organization, Revision, RoleBinding, SavedLaunchConfig, Schedule,
+		ScheduleOccurrence, Session, SurveyQuestion, Team, Template,
+		User []ent.Interceptor
 	}
 )

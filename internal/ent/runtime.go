@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -145,6 +146,25 @@ func init() {
 	credentialDescSecretBinding := credentialFields[4].Descriptor()
 	// credential.DefaultSecretBinding holds the default value on creation for the secret_binding field.
 	credential.DefaultSecretBinding = credentialDescSecretBinding.Default.(func() string)
+	credentialinputsourceMixin := schema.CredentialInputSource{}.Mixin()
+	credentialinputsourceMixinFields0 := credentialinputsourceMixin[0].Fields()
+	_ = credentialinputsourceMixinFields0
+	credentialinputsourceFields := schema.CredentialInputSource{}.Fields()
+	_ = credentialinputsourceFields
+	// credentialinputsourceDescCreatedAt is the schema descriptor for created_at field.
+	credentialinputsourceDescCreatedAt := credentialinputsourceMixinFields0[0].Descriptor()
+	// credentialinputsource.DefaultCreatedAt holds the default value on creation for the created_at field.
+	credentialinputsource.DefaultCreatedAt = credentialinputsourceDescCreatedAt.Default.(func() time.Time)
+	// credentialinputsourceDescUpdatedAt is the schema descriptor for updated_at field.
+	credentialinputsourceDescUpdatedAt := credentialinputsourceMixinFields0[1].Descriptor()
+	// credentialinputsource.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	credentialinputsource.DefaultUpdatedAt = credentialinputsourceDescUpdatedAt.Default.(func() time.Time)
+	// credentialinputsource.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	credentialinputsource.UpdateDefaultUpdatedAt = credentialinputsourceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// credentialinputsourceDescInputID is the schema descriptor for input_id field.
+	credentialinputsourceDescInputID := credentialinputsourceFields[0].Descriptor()
+	// credentialinputsource.InputIDValidator is a validator for the "input_id" field. It is called by the builders before save.
+	credentialinputsource.InputIDValidator = credentialinputsourceDescInputID.Validators[0].(func(string) error)
 	credentialtypeMixin := schema.CredentialType{}.Mixin()
 	credentialtypeMixinFields0 := credentialtypeMixin[0].Fields()
 	_ = credentialtypeMixinFields0

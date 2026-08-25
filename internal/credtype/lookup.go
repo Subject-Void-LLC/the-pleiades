@@ -67,6 +67,28 @@ var (
 	// ErrLookupReference reports a malformed reference, or one a source
 	// refuses.
 	ErrLookupReference = errors.New("credtype: external secret reference is not valid")
+
+	// ErrLookupDepth reports a resolution chain longer than the platform
+	// will walk: a credential whose token is external, whose token is
+	// external, and so on past the bound.
+	//
+	// The bound is a denial-of-service control rather than a tidiness
+	// rule. Every link in the chain is an ordinary row an operator may
+	// write, so an unbounded walk is reachable from ordinary data and
+	// costs the Controller a network round trip per link on the dispatch
+	// path.
+	ErrLookupDepth = errors.New("credtype: external secret resolution is nested deeper than the platform will walk")
+
+	// ErrLookupCycle reports a resolution chain that returns to a
+	// credential it already visited.
+	//
+	// Deliberately distinct from ErrLookupDepth even though an
+	// undetected cycle would eventually trip that bound. "You nested
+	// these too deeply" and "these two credentials point at each other"
+	// are different operator actions, and one error for both sends
+	// people to the wrong one, which is the same argument
+	// lookup/file.ErrNotConfigured already makes for its own split.
+	ErrLookupCycle = errors.New("credtype: external secret references form a cycle")
 )
 
 // Lookup resolves one external secret reference to its value.
@@ -131,7 +153,17 @@ func (d declaredLookup) Resolve(context.Context, string) (string, error) {
 // Registry, because their set is fixed by PLAN.md Section 29.2 rather than
 // by a deployment.
 type Lookups struct {
+	// byName holds the sources a DEPLOYMENT wires, selected by the name a
+	// "<source>:<reference>" string names. This is the Phase 22 model and
+	// it stays exactly as it was.
 	byName map[string]Lookup
+
+	// byNamespace holds the factories that build a source from a ROW,
+	// selected by the source credential TYPE's namespace. This is the
+	// Phase 78a model. The two coexist rather than one replacing the
+	// other: see lookup_factory.go for why that is the point rather than
+	// a transitional state.
+	byNamespace map[string]LookupFactory
 }
 
 // NewLookups builds a lookup set from the sources a deployment has,
@@ -141,7 +173,20 @@ type Lookups struct {
 // source overrides the declared one of the same name. That ordering is what
 // lets a later phase ship a real hashivault_kv without touching a caller.
 func NewLookups(sources ...Lookup) (*Lookups, error) {
-	l := &Lookups{byName: make(map[string]Lookup)}
+	return NewLookupsWith(sources, nil)
+}
+
+// NewLookupsWith builds a lookup set from the deployment-wired sources and
+// the row-backed factories a deployment has.
+//
+// It is the general form NewLookups delegates to. NewLookups keeps its own
+// signature because a composition root already calls it and a source set
+// with no factories is still an ordinary deployment, not a degraded one.
+func NewLookupsWith(sources []Lookup, factories []LookupFactory) (*Lookups, error) {
+	l := &Lookups{
+		byName:      make(map[string]Lookup),
+		byNamespace: make(map[string]LookupFactory),
+	}
 	for _, d := range DeclaredLookups() {
 		l.byName[d.Name()] = d
 	}
@@ -161,6 +206,23 @@ func NewLookups(sources ...Lookup) (*Lookups, error) {
 		seen[name] = struct{}{}
 		l.byName[name] = s
 	}
+
+	for _, f := range factories {
+		if f == nil {
+			return nil, fmt.Errorf("%w: a nil external secret source factory was wired", ErrLookupUnknown)
+		}
+		ns := f.Namespace()
+		if ns == "" {
+			return nil, fmt.Errorf("%w: an external secret source factory has no namespace", ErrLookupUnknown)
+		}
+		if _, dup := l.byNamespace[ns]; dup {
+			return nil, fmt.Errorf(
+				"%w: two external secret source factories are both registered for namespace %q",
+				ErrLookupUnknown, ns)
+		}
+		l.byNamespace[ns] = f
+	}
+
 	return l, nil
 }
 
@@ -195,16 +257,33 @@ func (l *Lookups) Resolve(ctx context.Context, inputID, reference string) (strin
 			ErrLookupUnknown, inputID, source, l.Names())
 	}
 
-	value, err := lookup.Resolve(ctx, rest)
+	return l.ResolveThrough(ctx, inputID, lookup, rest)
+}
+
+// ResolveThrough resolves one reference through a Lookup the caller has
+// already selected or built.
+//
+// It exists so the string form above and the row form (a source built by a
+// LookupFactory from a source credential's own inputs) share one set of
+// refusals rather than each growing its own. The row form cannot use
+// Resolve, because its source is not in byName: it was constructed from a
+// database row moments earlier.
+func (l *Lookups) ResolveThrough(ctx context.Context, inputID string, lookup Lookup, reference string) (string, error) {
+	if lookup == nil {
+		return "", fmt.Errorf("%w: input %q has no external secret source to resolve through",
+			ErrLookupUnknown, inputID)
+	}
+
+	value, err := lookup.Resolve(ctx, reference)
 	if err != nil {
-		return "", fmt.Errorf("resolving input %q from %s: %w", inputID, source, err)
+		return "", fmt.Errorf("resolving input %q from %s: %w", inputID, lookup.Name(), err)
 	}
 	if value == "" {
 		// An empty external secret is refused rather than injected. The
 		// value reaching a run empty is how a rotation that emptied a file
 		// presents as an authentication failure against the target device.
 		return "", fmt.Errorf("%w: input %q resolved to an empty value from %s",
-			ErrLookupReference, inputID, source)
+			ErrLookupReference, inputID, lookup.Name())
 	}
 	return value, nil
 }

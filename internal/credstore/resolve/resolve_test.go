@@ -22,7 +22,7 @@ const theSecret = "sk-live-CANARY-resolver-9f8e7d6c"
 
 // fixture opens a real database with the encryption hooks registered and
 // seeds a credential.
-func fixture(t *testing.T) (resolve.Resolver, credstore.Store, *ent.Client, int, int) {
+func fixture(t testing.TB) (resolve.Resolver, credstore.Store, *ent.Client, int, int) {
 	t.Helper()
 
 	ctx := context.Background()

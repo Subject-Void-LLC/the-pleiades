@@ -31,6 +31,34 @@
 //
 // Nothing else. If a second consumer appears, it needs a reason written
 // down here beside this paragraph, not just an import line.
+//
+// # The consumer this port is shaped for and does not have yet
+//
+// The Runner is the intended second consumer, and the reason it is not one
+// today is worth recording here rather than rediscovering later.
+//
+// The Controller resolves a device's credential at fan-out and attaches the
+// plaintext to the dispatched payload, which is published to a stream whose
+// retention is derived from the deployment's outage budget: seven days at
+// the default, and 168 days at the maximum one. The fix named in every
+// place that admits this is REFERENCE PASSING, put a reference on the bus
+// and let the Runner resolve it through a port like this one.
+//
+// It is not built here, and building it here would make the exposure worse
+// rather than better. internal/runner has no HTTP path to the Controller at
+// all: no client, no URL, nothing. Every byte moves over NATS, and that bus
+// has no authentication of any kind. So a resolution endpoint is
+// necessarily NATS request/reply, and an unauthenticated one would let any
+// process that can reach the broker ask for any reference, where today an
+// attacker at least has to join the consumer group to see a payload
+// addressed to somebody else.
+//
+// Reference passing is therefore blocked on mesh identity rather than on
+// this port, which is why this package's shape already suits a caller it
+// does not have: Resolver takes ids and returns values, with no assumption
+// that the caller shares the Controller's process. What is missing is an
+// authenticated transport and a way to say WHICH references a given caller
+// may resolve, and neither belongs to a credential store.
 package resolve
 
 import (
@@ -40,7 +68,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 )
 
 // Resolver returns credentials with their real input values.
@@ -107,75 +134,37 @@ func NewEntResolver(client *ent.Client, opts ...Option) Resolver {
 }
 
 // Resolve returns the named credentials with real values.
+//
+// Each id is walked independently rather than loaded in one batch, because
+// the walk is recursive: a credential's source is another credential whose
+// own inputs may be external, and how many rows that reaches is not known
+// until the first one is read. The cost is one query per credential per hop,
+// bounded by maxSourceDepth, against a bound list that is one template's
+// bindings rather than a table scan.
 func (r *entResolver) Resolve(ctx context.Context, ids []int) ([]credtype.Credential, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
 
-	rows, err := r.client.Credential.Query().
-		Where(credential.IDIn(ids...)).
-		WithCredentialType().
-		All(ctx)
-	if err != nil {
-		// The error names no credential and no value: it is returned to a
-		// dispatch path that records a failure reason on a job record.
-		return nil, fmt.Errorf("resolve: reading credentials: %w", err)
-	}
-
-	byID := make(map[int]*ent.Credential, len(rows))
-	for _, row := range rows {
-		byID[row.ID] = row
-	}
-
 	out := make([]credtype.Credential, 0, len(ids))
 	for _, id := range ids {
-		row, ok := byID[id]
-		if !ok {
-			// Named by id rather than by name, because the name is not
-			// available for a row that was not found, and because an id is
-			// what the caller has.
-			return nil, fmt.Errorf("resolve: credential %d is bound but no longer exists", id)
-		}
-		ct := row.Edges.CredentialType
-		if ct == nil {
-			return nil, fmt.Errorf("resolve: credential %d was read without its type", id)
-		}
-
-		resolved := credtype.Credential{
-			ID:   row.ID,
-			Name: row.Name,
-			Type: credtype.CredentialType{
-				Name:        ct.Name,
-				Description: ct.Description,
-				Kind:        credtype.Kind(ct.Kind),
-				Namespace:   ct.Namespace,
-				Managed:     ct.Managed,
-				Inputs:      ct.Inputs,
-				Injectors:   ct.Injectors,
-			},
-			Inputs:   cloneStrings(row.Inputs),
-			External: cloneStrings(row.External),
-		}
-
-		// Defaults are filled in here rather than at the injector, so the
-		// injector receives a complete value set and never has to reach
-		// back to the type to find out what a missing input should have
-		// been.
-		resolved = resolved.WithDefaults()
-
-		// External references resolve here, at dispatch, which is the
-		// just-in-time point Section 17.4 requires: a job queued behind a
-		// capacity limit holds a pointer rather than a secret, and a
-		// relaunch a week later reads whatever the source holds now rather
-		// than what it held then.
-		if err := r.resolveExternal(ctx, &resolved); err != nil {
+		// A fresh chain per bound credential. Two credentials on one
+		// template legitimately sharing a source is not a cycle, and
+		// carrying one chain across the loop would report it as one.
+		cred, err := r.resolveCredential(ctx, id, nil)
+		if err != nil {
 			return nil, err
 		}
-
-		out = append(out, resolved)
+		out = append(out, cred)
 	}
 
 	return out, nil
+}
+
+// sortBindingsByInputID orders bindings so a credential with two broken
+// ones reports the same one every time.
+func sortBindingsByInputID(bindings []*ent.CredentialInputSource) {
+	sort.Slice(bindings, func(i, j int) bool { return bindings[i].InputID < bindings[j].InputID })
 }
 
 // resolveExternal replaces every externally-referenced input with its real

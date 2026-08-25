@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -47,29 +48,30 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeActivityEntry      = "ActivityEntry"
-	TypeAnnouncement       = "Announcement"
-	TypeContact            = "Contact"
-	TypeCredential         = "Credential"
-	TypeCredentialType     = "CredentialType"
-	TypeDevice             = "Device"
-	TypeFact               = "Fact"
-	TypeGroup              = "Group"
-	TypeInventory          = "Inventory"
-	TypeJob                = "Job"
-	TypeJobTask            = "JobTask"
-	TypeLocalCredential    = "LocalCredential"
-	TypeOrganization       = "Organization"
-	TypeRevision           = "Revision"
-	TypeRoleBinding        = "RoleBinding"
-	TypeSavedLaunchConfig  = "SavedLaunchConfig"
-	TypeSchedule           = "Schedule"
-	TypeScheduleOccurrence = "ScheduleOccurrence"
-	TypeSession            = "Session"
-	TypeSurveyQuestion     = "SurveyQuestion"
-	TypeTeam               = "Team"
-	TypeTemplate           = "Template"
-	TypeUser               = "User"
+	TypeActivityEntry         = "ActivityEntry"
+	TypeAnnouncement          = "Announcement"
+	TypeContact               = "Contact"
+	TypeCredential            = "Credential"
+	TypeCredentialInputSource = "CredentialInputSource"
+	TypeCredentialType        = "CredentialType"
+	TypeDevice                = "Device"
+	TypeFact                  = "Fact"
+	TypeGroup                 = "Group"
+	TypeInventory             = "Inventory"
+	TypeJob                   = "Job"
+	TypeJobTask               = "JobTask"
+	TypeLocalCredential       = "LocalCredential"
+	TypeOrganization          = "Organization"
+	TypeRevision              = "Revision"
+	TypeRoleBinding           = "RoleBinding"
+	TypeSavedLaunchConfig     = "SavedLaunchConfig"
+	TypeSchedule              = "Schedule"
+	TypeScheduleOccurrence    = "ScheduleOccurrence"
+	TypeSession               = "Session"
+	TypeSurveyQuestion        = "SurveyQuestion"
+	TypeTeam                  = "Team"
+	TypeTemplate              = "Template"
+	TypeUser                  = "User"
 )
 
 // ActivityEntryMutation represents an operation that mutates the ActivityEntry nodes in the graph.
@@ -2612,6 +2614,12 @@ type CredentialMutation struct {
 	templates              map[int]struct{}
 	removedtemplates       map[int]struct{}
 	clearedtemplates       bool
+	input_sources          map[int]struct{}
+	removedinput_sources   map[int]struct{}
+	clearedinput_sources   bool
+	sourced_by             map[int]struct{}
+	removedsourced_by      map[int]struct{}
+	clearedsourced_by      bool
 	done                   bool
 	oldValue               func(context.Context) (*Credential, error)
 	predicates             []predicate.Credential
@@ -3138,6 +3146,114 @@ func (m *CredentialMutation) ResetTemplates() {
 	m.removedtemplates = nil
 }
 
+// AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by ids.
+func (m *CredentialMutation) AddInputSourceIDs(ids ...int) {
+	if m.input_sources == nil {
+		m.input_sources = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.input_sources[ids[i]] = struct{}{}
+	}
+}
+
+// ClearInputSources clears the "input_sources" edge to the CredentialInputSource entity.
+func (m *CredentialMutation) ClearInputSources() {
+	m.clearedinput_sources = true
+}
+
+// InputSourcesCleared reports if the "input_sources" edge to the CredentialInputSource entity was cleared.
+func (m *CredentialMutation) InputSourcesCleared() bool {
+	return m.clearedinput_sources
+}
+
+// RemoveInputSourceIDs removes the "input_sources" edge to the CredentialInputSource entity by IDs.
+func (m *CredentialMutation) RemoveInputSourceIDs(ids ...int) {
+	if m.removedinput_sources == nil {
+		m.removedinput_sources = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.input_sources, ids[i])
+		m.removedinput_sources[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedInputSources returns the removed IDs of the "input_sources" edge to the CredentialInputSource entity.
+func (m *CredentialMutation) RemovedInputSourcesIDs() (ids []int) {
+	for id := range m.removedinput_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// InputSourcesIDs returns the "input_sources" edge IDs in the mutation.
+func (m *CredentialMutation) InputSourcesIDs() (ids []int) {
+	for id := range m.input_sources {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetInputSources resets all changes to the "input_sources" edge.
+func (m *CredentialMutation) ResetInputSources() {
+	m.input_sources = nil
+	m.clearedinput_sources = false
+	m.removedinput_sources = nil
+}
+
+// AddSourcedByIDs adds the "sourced_by" edge to the CredentialInputSource entity by ids.
+func (m *CredentialMutation) AddSourcedByIDs(ids ...int) {
+	if m.sourced_by == nil {
+		m.sourced_by = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.sourced_by[ids[i]] = struct{}{}
+	}
+}
+
+// ClearSourcedBy clears the "sourced_by" edge to the CredentialInputSource entity.
+func (m *CredentialMutation) ClearSourcedBy() {
+	m.clearedsourced_by = true
+}
+
+// SourcedByCleared reports if the "sourced_by" edge to the CredentialInputSource entity was cleared.
+func (m *CredentialMutation) SourcedByCleared() bool {
+	return m.clearedsourced_by
+}
+
+// RemoveSourcedByIDs removes the "sourced_by" edge to the CredentialInputSource entity by IDs.
+func (m *CredentialMutation) RemoveSourcedByIDs(ids ...int) {
+	if m.removedsourced_by == nil {
+		m.removedsourced_by = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.sourced_by, ids[i])
+		m.removedsourced_by[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedSourcedBy returns the removed IDs of the "sourced_by" edge to the CredentialInputSource entity.
+func (m *CredentialMutation) RemovedSourcedByIDs() (ids []int) {
+	for id := range m.removedsourced_by {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// SourcedByIDs returns the "sourced_by" edge IDs in the mutation.
+func (m *CredentialMutation) SourcedByIDs() (ids []int) {
+	for id := range m.sourced_by {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetSourcedBy resets all changes to the "sourced_by" edge.
+func (m *CredentialMutation) ResetSourcedBy() {
+	m.sourced_by = nil
+	m.clearedsourced_by = false
+	m.removedsourced_by = nil
+}
+
 // Where appends a list predicates to the CredentialMutation builder.
 func (m *CredentialMutation) Where(ps ...predicate.Credential) {
 	m.predicates = append(m.predicates, ps...)
@@ -3394,7 +3510,7 @@ func (m *CredentialMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *CredentialMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.credential_type != nil {
 		edges = append(edges, credential.EdgeCredentialType)
 	}
@@ -3403,6 +3519,12 @@ func (m *CredentialMutation) AddedEdges() []string {
 	}
 	if m.templates != nil {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.input_sources != nil {
+		edges = append(edges, credential.EdgeInputSources)
+	}
+	if m.sourced_by != nil {
+		edges = append(edges, credential.EdgeSourcedBy)
 	}
 	return edges
 }
@@ -3425,15 +3547,33 @@ func (m *CredentialMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case credential.EdgeInputSources:
+		ids := make([]ent.Value, 0, len(m.input_sources))
+		for id := range m.input_sources {
+			ids = append(ids, id)
+		}
+		return ids
+	case credential.EdgeSourcedBy:
+		ids := make([]ent.Value, 0, len(m.sourced_by))
+		for id := range m.sourced_by {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *CredentialMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.removedtemplates != nil {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.removedinput_sources != nil {
+		edges = append(edges, credential.EdgeInputSources)
+	}
+	if m.removedsourced_by != nil {
+		edges = append(edges, credential.EdgeSourcedBy)
 	}
 	return edges
 }
@@ -3448,13 +3588,25 @@ func (m *CredentialMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case credential.EdgeInputSources:
+		ids := make([]ent.Value, 0, len(m.removedinput_sources))
+		for id := range m.removedinput_sources {
+			ids = append(ids, id)
+		}
+		return ids
+	case credential.EdgeSourcedBy:
+		ids := make([]ent.Value, 0, len(m.removedsourced_by))
+		for id := range m.removedsourced_by {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *CredentialMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.clearedcredential_type {
 		edges = append(edges, credential.EdgeCredentialType)
 	}
@@ -3463,6 +3615,12 @@ func (m *CredentialMutation) ClearedEdges() []string {
 	}
 	if m.clearedtemplates {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.clearedinput_sources {
+		edges = append(edges, credential.EdgeInputSources)
+	}
+	if m.clearedsourced_by {
+		edges = append(edges, credential.EdgeSourcedBy)
 	}
 	return edges
 }
@@ -3477,6 +3635,10 @@ func (m *CredentialMutation) EdgeCleared(name string) bool {
 		return m.clearedorganization
 	case credential.EdgeTemplates:
 		return m.clearedtemplates
+	case credential.EdgeInputSources:
+		return m.clearedinput_sources
+	case credential.EdgeSourcedBy:
+		return m.clearedsourced_by
 	}
 	return false
 }
@@ -3508,8 +3670,650 @@ func (m *CredentialMutation) ResetEdge(name string) error {
 	case credential.EdgeTemplates:
 		m.ResetTemplates()
 		return nil
+	case credential.EdgeInputSources:
+		m.ResetInputSources()
+		return nil
+	case credential.EdgeSourcedBy:
+		m.ResetSourcedBy()
+		return nil
 	}
 	return fmt.Errorf("unknown Credential edge %s", name)
+}
+
+// CredentialInputSourceMutation represents an operation that mutates the CredentialInputSource nodes in the graph.
+type CredentialInputSourceMutation struct {
+	config
+	op                       Op
+	typ                      string
+	id                       *int
+	created_at               *time.Time
+	updated_at               *time.Time
+	input_id                 *string
+	metadata                 *map[string]string
+	clearedFields            map[string]struct{}
+	target_credential        *int
+	clearedtarget_credential bool
+	source_credential        *int
+	clearedsource_credential bool
+	done                     bool
+	oldValue                 func(context.Context) (*CredentialInputSource, error)
+	predicates               []predicate.CredentialInputSource
+}
+
+var _ ent.Mutation = (*CredentialInputSourceMutation)(nil)
+
+// credentialinputsourceOption allows management of the mutation configuration using functional options.
+type credentialinputsourceOption func(*CredentialInputSourceMutation)
+
+// newCredentialInputSourceMutation creates new mutation for the CredentialInputSource entity.
+func newCredentialInputSourceMutation(c config, op Op, opts ...credentialinputsourceOption) *CredentialInputSourceMutation {
+	m := &CredentialInputSourceMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeCredentialInputSource,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withCredentialInputSourceID sets the ID field of the mutation.
+func withCredentialInputSourceID(id int) credentialinputsourceOption {
+	return func(m *CredentialInputSourceMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *CredentialInputSource
+		)
+		m.oldValue = func(ctx context.Context) (*CredentialInputSource, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().CredentialInputSource.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withCredentialInputSource sets the old CredentialInputSource of the mutation.
+func withCredentialInputSource(node *CredentialInputSource) credentialinputsourceOption {
+	return func(m *CredentialInputSourceMutation) {
+		m.oldValue = func(context.Context) (*CredentialInputSource, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m CredentialInputSourceMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m CredentialInputSourceMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *CredentialInputSourceMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *CredentialInputSourceMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().CredentialInputSource.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *CredentialInputSourceMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *CredentialInputSourceMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the CredentialInputSource entity.
+// If the CredentialInputSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialInputSourceMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *CredentialInputSourceMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *CredentialInputSourceMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *CredentialInputSourceMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the CredentialInputSource entity.
+// If the CredentialInputSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialInputSourceMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *CredentialInputSourceMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetInputID sets the "input_id" field.
+func (m *CredentialInputSourceMutation) SetInputID(s string) {
+	m.input_id = &s
+}
+
+// InputID returns the value of the "input_id" field in the mutation.
+func (m *CredentialInputSourceMutation) InputID() (r string, exists bool) {
+	v := m.input_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInputID returns the old "input_id" field's value of the CredentialInputSource entity.
+// If the CredentialInputSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialInputSourceMutation) OldInputID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInputID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInputID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInputID: %w", err)
+	}
+	return oldValue.InputID, nil
+}
+
+// ResetInputID resets all changes to the "input_id" field.
+func (m *CredentialInputSourceMutation) ResetInputID() {
+	m.input_id = nil
+}
+
+// SetMetadata sets the "metadata" field.
+func (m *CredentialInputSourceMutation) SetMetadata(value map[string]string) {
+	m.metadata = &value
+}
+
+// Metadata returns the value of the "metadata" field in the mutation.
+func (m *CredentialInputSourceMutation) Metadata() (r map[string]string, exists bool) {
+	v := m.metadata
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMetadata returns the old "metadata" field's value of the CredentialInputSource entity.
+// If the CredentialInputSource object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialInputSourceMutation) OldMetadata(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMetadata is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMetadata requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMetadata: %w", err)
+	}
+	return oldValue.Metadata, nil
+}
+
+// ClearMetadata clears the value of the "metadata" field.
+func (m *CredentialInputSourceMutation) ClearMetadata() {
+	m.metadata = nil
+	m.clearedFields[credentialinputsource.FieldMetadata] = struct{}{}
+}
+
+// MetadataCleared returns if the "metadata" field was cleared in this mutation.
+func (m *CredentialInputSourceMutation) MetadataCleared() bool {
+	_, ok := m.clearedFields[credentialinputsource.FieldMetadata]
+	return ok
+}
+
+// ResetMetadata resets all changes to the "metadata" field.
+func (m *CredentialInputSourceMutation) ResetMetadata() {
+	m.metadata = nil
+	delete(m.clearedFields, credentialinputsource.FieldMetadata)
+}
+
+// SetTargetCredentialID sets the "target_credential" edge to the Credential entity by id.
+func (m *CredentialInputSourceMutation) SetTargetCredentialID(id int) {
+	m.target_credential = &id
+}
+
+// ClearTargetCredential clears the "target_credential" edge to the Credential entity.
+func (m *CredentialInputSourceMutation) ClearTargetCredential() {
+	m.clearedtarget_credential = true
+}
+
+// TargetCredentialCleared reports if the "target_credential" edge to the Credential entity was cleared.
+func (m *CredentialInputSourceMutation) TargetCredentialCleared() bool {
+	return m.clearedtarget_credential
+}
+
+// TargetCredentialID returns the "target_credential" edge ID in the mutation.
+func (m *CredentialInputSourceMutation) TargetCredentialID() (id int, exists bool) {
+	if m.target_credential != nil {
+		return *m.target_credential, true
+	}
+	return
+}
+
+// TargetCredentialIDs returns the "target_credential" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// TargetCredentialID instead. It exists only for internal usage by the builders.
+func (m *CredentialInputSourceMutation) TargetCredentialIDs() (ids []int) {
+	if id := m.target_credential; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetTargetCredential resets all changes to the "target_credential" edge.
+func (m *CredentialInputSourceMutation) ResetTargetCredential() {
+	m.target_credential = nil
+	m.clearedtarget_credential = false
+}
+
+// SetSourceCredentialID sets the "source_credential" edge to the Credential entity by id.
+func (m *CredentialInputSourceMutation) SetSourceCredentialID(id int) {
+	m.source_credential = &id
+}
+
+// ClearSourceCredential clears the "source_credential" edge to the Credential entity.
+func (m *CredentialInputSourceMutation) ClearSourceCredential() {
+	m.clearedsource_credential = true
+}
+
+// SourceCredentialCleared reports if the "source_credential" edge to the Credential entity was cleared.
+func (m *CredentialInputSourceMutation) SourceCredentialCleared() bool {
+	return m.clearedsource_credential
+}
+
+// SourceCredentialID returns the "source_credential" edge ID in the mutation.
+func (m *CredentialInputSourceMutation) SourceCredentialID() (id int, exists bool) {
+	if m.source_credential != nil {
+		return *m.source_credential, true
+	}
+	return
+}
+
+// SourceCredentialIDs returns the "source_credential" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// SourceCredentialID instead. It exists only for internal usage by the builders.
+func (m *CredentialInputSourceMutation) SourceCredentialIDs() (ids []int) {
+	if id := m.source_credential; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetSourceCredential resets all changes to the "source_credential" edge.
+func (m *CredentialInputSourceMutation) ResetSourceCredential() {
+	m.source_credential = nil
+	m.clearedsource_credential = false
+}
+
+// Where appends a list predicates to the CredentialInputSourceMutation builder.
+func (m *CredentialInputSourceMutation) Where(ps ...predicate.CredentialInputSource) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the CredentialInputSourceMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *CredentialInputSourceMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.CredentialInputSource, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *CredentialInputSourceMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *CredentialInputSourceMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (CredentialInputSource).
+func (m *CredentialInputSourceMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *CredentialInputSourceMutation) Fields() []string {
+	fields := make([]string, 0, 4)
+	if m.created_at != nil {
+		fields = append(fields, credentialinputsource.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, credentialinputsource.FieldUpdatedAt)
+	}
+	if m.input_id != nil {
+		fields = append(fields, credentialinputsource.FieldInputID)
+	}
+	if m.metadata != nil {
+		fields = append(fields, credentialinputsource.FieldMetadata)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *CredentialInputSourceMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case credentialinputsource.FieldCreatedAt:
+		return m.CreatedAt()
+	case credentialinputsource.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case credentialinputsource.FieldInputID:
+		return m.InputID()
+	case credentialinputsource.FieldMetadata:
+		return m.Metadata()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *CredentialInputSourceMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case credentialinputsource.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case credentialinputsource.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case credentialinputsource.FieldInputID:
+		return m.OldInputID(ctx)
+	case credentialinputsource.FieldMetadata:
+		return m.OldMetadata(ctx)
+	}
+	return nil, fmt.Errorf("unknown CredentialInputSource field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CredentialInputSourceMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case credentialinputsource.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case credentialinputsource.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case credentialinputsource.FieldInputID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInputID(v)
+		return nil
+	case credentialinputsource.FieldMetadata:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMetadata(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialInputSource field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *CredentialInputSourceMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *CredentialInputSourceMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CredentialInputSourceMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown CredentialInputSource numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *CredentialInputSourceMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(credentialinputsource.FieldMetadata) {
+		fields = append(fields, credentialinputsource.FieldMetadata)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *CredentialInputSourceMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *CredentialInputSourceMutation) ClearField(name string) error {
+	switch name {
+	case credentialinputsource.FieldMetadata:
+		m.ClearMetadata()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialInputSource nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *CredentialInputSourceMutation) ResetField(name string) error {
+	switch name {
+	case credentialinputsource.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case credentialinputsource.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case credentialinputsource.FieldInputID:
+		m.ResetInputID()
+		return nil
+	case credentialinputsource.FieldMetadata:
+		m.ResetMetadata()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialInputSource field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *CredentialInputSourceMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.target_credential != nil {
+		edges = append(edges, credentialinputsource.EdgeTargetCredential)
+	}
+	if m.source_credential != nil {
+		edges = append(edges, credentialinputsource.EdgeSourceCredential)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *CredentialInputSourceMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case credentialinputsource.EdgeTargetCredential:
+		if id := m.target_credential; id != nil {
+			return []ent.Value{*id}
+		}
+	case credentialinputsource.EdgeSourceCredential:
+		if id := m.source_credential; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *CredentialInputSourceMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *CredentialInputSourceMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *CredentialInputSourceMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedtarget_credential {
+		edges = append(edges, credentialinputsource.EdgeTargetCredential)
+	}
+	if m.clearedsource_credential {
+		edges = append(edges, credentialinputsource.EdgeSourceCredential)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *CredentialInputSourceMutation) EdgeCleared(name string) bool {
+	switch name {
+	case credentialinputsource.EdgeTargetCredential:
+		return m.clearedtarget_credential
+	case credentialinputsource.EdgeSourceCredential:
+		return m.clearedsource_credential
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *CredentialInputSourceMutation) ClearEdge(name string) error {
+	switch name {
+	case credentialinputsource.EdgeTargetCredential:
+		m.ClearTargetCredential()
+		return nil
+	case credentialinputsource.EdgeSourceCredential:
+		m.ClearSourceCredential()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialInputSource unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *CredentialInputSourceMutation) ResetEdge(name string) error {
+	switch name {
+	case credentialinputsource.EdgeTargetCredential:
+		m.ResetTargetCredential()
+		return nil
+	case credentialinputsource.EdgeSourceCredential:
+		m.ResetSourceCredential()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialInputSource edge %s", name)
 }
 
 // CredentialTypeMutation represents an operation that mutates the CredentialType nodes in the graph.

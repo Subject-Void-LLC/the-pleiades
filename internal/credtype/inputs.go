@@ -263,7 +263,8 @@ func validateChoices(f InputField) error {
 	return nil
 }
 
-// CheckValues reports whether values satisfy this schema.
+// CheckValues reports whether values satisfy this schema, treating the
+// inputs named in sourced as supplied elsewhere.
 //
 // It validates what a credential holds rather than what the type declares:
 // every required field present and non-empty, no value for an input the
@@ -282,7 +283,26 @@ func validateChoices(f InputField) error {
 //
 // No error message here ever includes a value. Every one of them can reach
 // an API response and a log line, and half of these values are secrets.
-func (s InputSchema) CheckValues(values, external map[string]string) error {
+func (s InputSchema) CheckValues(values, external map[string]string, sourced ...string) error {
+	// sourced names the inputs supplied by a CredentialInputSource row: the
+	// fourth way a required input is legitimately absent from values, after
+	// a default, a string-form external reference, and a launch-time
+	// prompt.
+	//
+	// Variadic so the callers that predate the row form read exactly as
+	// they did. That is not only convenience: it keeps "this credential
+	// stores no value for that input" as the default reading, so a caller
+	// has to say the input is sourced rather than forget to say it is not.
+	sourcedIDs := make(map[string]struct{}, len(sourced))
+	for _, id := range sourced {
+		if _, ok := s.Field(id); !ok {
+			return fmt.Errorf(
+				"%w: %q is supplied by a source credential and is not an input this credential type declares",
+				ErrInvalidCredential, id)
+		}
+		sourcedIDs[id] = struct{}{}
+	}
+
 	for id := range values {
 		if _, ok := s.Field(id); !ok {
 			return fmt.Errorf("%w: %q is not an input this credential type declares", ErrInvalidCredential, id)
@@ -302,6 +322,9 @@ func (s InputSchema) CheckValues(values, external map[string]string) error {
 			// Unreachable for a validated schema; a defensive branch here
 			// would be dead code, so this reports rather than assumes.
 			return fmt.Errorf("%w: required input %q is not declared", ErrInvalidType, id)
+		}
+		if _, isSourced := sourcedIDs[id]; isSourced {
+			continue
 		}
 		if values[id] == "" && external[id] == "" && f.Default == "" && !f.AskAtRuntime {
 			return fmt.Errorf("%w: input %q is required and was not supplied", ErrInvalidCredential, id)

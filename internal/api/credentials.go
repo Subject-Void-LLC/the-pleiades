@@ -135,6 +135,38 @@ type credentialListDTO struct {
 	Credentials []credentialDTO `json:"credentials"`
 }
 
+// inputSourceDTO is one binding on the wire.
+//
+// There is no field here for a secret VALUE, and there never will be one,
+// for the same reason credentialDTO has none: this describes WHERE a value
+// lives, and the value itself is never stored by this platform at all.
+type inputSourceDTO struct {
+	ID                        int               `json:"id"`
+	InputID                   string            `json:"input_id"`
+	SourceCredential          int               `json:"source_credential"`
+	SourceCredentialName      string            `json:"source_credential_name"`
+	SourceCredentialNamespace string            `json:"source_credential_namespace,omitempty"`
+	Metadata                  map[string]string `json:"metadata,omitempty"`
+}
+
+// inputSourceListDTO is a credential's whole set of bindings.
+type inputSourceListDTO struct {
+	LinkSet
+	InputSources []inputSourceDTO `json:"input_sources"`
+}
+
+// inputSourceWriteDTO is one binding as a caller sends it.
+type inputSourceWriteDTO struct {
+	InputID          string            `json:"input_id"`
+	SourceCredential int               `json:"source_credential"`
+	Metadata         map[string]string `json:"metadata"`
+}
+
+// inputSourceSetDTO is the body the replace accepts.
+type inputSourceSetDTO struct {
+	InputSources []inputSourceWriteDTO `json:"input_sources"`
+}
+
 // credentialTypeWriteDTO is the body create and update accept.
 type credentialTypeWriteDTO struct {
 	Name         string               `json:"name"`
@@ -421,6 +453,71 @@ func (h *CredentialHandler) SetTemplateCredentials(w http.ResponseWriter, r *htt
 	Respond(w, r, http.StatusOK, &out)
 }
 
+// ListCredentialInputSources serves GET /credentials/{id}/input-sources.
+func (h *CredentialHandler) ListCredentialInputSources(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathID(w, r, "credential")
+	if !ok {
+		return
+	}
+
+	sources, err := h.store.ListCredentialInputSources(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	Respond(w, r, http.StatusOK, inputSourcesToDTO(sources))
+}
+
+// SetCredentialInputSources serves PUT /credentials/{id}/input-sources.
+//
+// The whole set is replaced, so an empty list makes every input read from
+// stored values again. Every refusal happens in the store rather than here,
+// deliberately: a second writer reaching the store directly must meet the
+// same rules, and a check in a handler is a check one caller can miss.
+func (h *CredentialHandler) SetCredentialInputSources(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathID(w, r, "credential")
+	if !ok {
+		return
+	}
+
+	var body inputSourceSetDTO
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	bindings := make([]credstore.InputSourceBinding, 0, len(body.InputSources))
+	for _, in := range body.InputSources {
+		bindings = append(bindings, credstore.InputSourceBinding{
+			InputID:            in.InputID,
+			SourceCredentialID: in.SourceCredential,
+			Metadata:           in.Metadata,
+		})
+	}
+
+	sources, err := h.store.SetCredentialInputSources(r.Context(), id, bindings)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	Respond(w, r, http.StatusOK, inputSourcesToDTO(sources))
+}
+
+// inputSourcesToDTO projects a credential's bindings onto the wire.
+func inputSourcesToDTO(sources []credstore.InputSource) *inputSourceListDTO {
+	out := inputSourceListDTO{InputSources: make([]inputSourceDTO, 0, len(sources))}
+	for _, s := range sources {
+		out.InputSources = append(out.InputSources, inputSourceDTO{
+			ID:                        s.ID,
+			InputID:                   s.InputID,
+			SourceCredential:          s.SourceCredentialID,
+			SourceCredentialName:      s.SourceCredentialName,
+			SourceCredentialNamespace: s.SourceCredentialNamespace,
+			Metadata:                  s.Metadata,
+		})
+	}
+	return &out
+}
+
 // checkInjectable refuses a binding whose credential types the template's
 // execution path cannot honour.
 //
@@ -581,6 +678,18 @@ func (h *CredentialHandler) fail(w http.ResponseWriter, r *http.Request, err err
 	case errors.Is(err, credstore.ErrCrossOrganization):
 		RespondError(w, r, http.StatusForbidden, err.Error())
 	case errors.Is(err, credtype.ErrBindingConflict):
+		RespondError(w, r, http.StatusConflict, err.Error())
+	case errors.Is(err, credtype.ErrLookupCycle):
+		// 409 for the same reason ErrUnsupportedInjection is one below:
+		// the request is well formed and every record it names exists.
+		// What conflicts is the resulting GRAPH. The message names the
+		// credentials on the loop, because "conflict" alone does not tell
+		// the caller which binding to drop.
+		RespondError(w, r, http.StatusConflict, err.Error())
+	case errors.Is(err, credtype.ErrLookupDepth):
+		// 409 as well, and deliberately not 400. The binding being added
+		// is legal on its own; it is legal only because of how deep the
+		// chain it joins already is, which is state rather than syntax.
 		RespondError(w, r, http.StatusConflict, err.Error())
 	case errors.Is(err, credtype.ErrInvalidType), errors.Is(err, credtype.ErrInvalidCredential):
 		RespondError(w, r, http.StatusBadRequest, err.Error())

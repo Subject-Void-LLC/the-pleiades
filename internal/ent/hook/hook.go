@@ -57,6 +57,18 @@ func (f CredentialFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CredentialMutation", m)
 }
 
+// The CredentialInputSourceFunc type is an adapter to allow the use of ordinary
+// function as CredentialInputSource mutator.
+type CredentialInputSourceFunc func(context.Context, *ent.CredentialInputSourceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CredentialInputSourceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CredentialInputSourceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CredentialInputSourceMutation", m)
+}
+
 // The CredentialTypeFunc type is an adapter to allow the use of ordinary
 // function as CredentialType mutator.
 type CredentialTypeFunc func(context.Context, *ent.CredentialTypeMutation) (ent.Value, error)

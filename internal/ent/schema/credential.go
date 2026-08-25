@@ -2,6 +2,7 @@ package schema
 
 import (
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
@@ -130,6 +131,43 @@ func (Credential) Edges() []ent.Edge {
 		// it, is the same class as the cross-tenant note on Template.
 		edge.From("templates", Template.Type).
 			Ref("credentials"),
+
+		// The bindings where THIS credential is the target: one per input
+		// whose value comes from an external secret manager rather than
+		// from this row's own encrypted inputs.
+		//
+		// Deleting a credential deletes its own bindings, which is
+		// ordinary cascade: a binding describes how to fill an input of a
+		// credential that no longer exists. The annotation is what makes
+		// that true at the DATABASE rather than only in the store, matching
+		// Template's own cascade edges; without it the NOT NULL foreign key
+		// would make a credential undeletable the moment it gained a
+		// binding.
+		edge.To("input_sources", CredentialInputSource.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+
+		// The bindings where this credential is the SOURCE: the targets
+		// that read their values through it.
+		//
+		// This cascades too, and the symmetry is deliberate rather than
+		// lazy. The tempting alternative is to refuse the delete while any
+		// target still depends on this source, the way DeleteType refuses a
+		// type that credentials reference. That is right for a TYPE, which
+		// is a schema, and wrong for a CREDENTIAL, which holds a secret:
+		// DeleteCredential's own doc comment already made this call for
+		// template bindings, and the reason applies here unchanged. A
+		// compromised Vault token must be deletable now, not after every
+		// credential that reads through it has been edited first, which is
+		// exactly backwards during an incident.
+		//
+		// What makes that safe is that the resulting failure is loud. A
+		// target left with an input it no longer has a value for fails at
+		// injection with credtype's "input %q is required and has no value
+		// at injection: it was not stored, not defaulted, not resolved from
+		// an external source, and not supplied at launch", which names the
+		// input and rules out all four sources it could have come from.
+		edge.To("sourced_by", CredentialInputSource.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }
 
