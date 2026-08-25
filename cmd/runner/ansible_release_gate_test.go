@@ -227,7 +227,7 @@ func (h *ansibleReleaseGateHarness) dispatch(t *testing.T, payload wire.Dispatch
 	if err != nil {
 		t.Fatalf("wrap payload: %v", err)
 	}
-	if err := h.bus.Publish(ctx, topology.DispatchSubject(), *evt); err != nil {
+	if err := h.bus.Publish(ctx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 

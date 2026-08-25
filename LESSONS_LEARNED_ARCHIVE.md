@@ -3669,3 +3669,47 @@ by exactly the broken case. When a chart's structure forces the same list
 into two places, put the shared part in a named template so the two cannot
 drift, which is the same reasoning that applies to any duplicated
 declaration.
+
+## 169. A hazard closed in one function is not closed in its siblings, and a latent one reads as no hazard at all
+
+`internal/topology.DurableName` was written with an explicit doc comment
+explaining that sanitizing a caller-supplied string is not enough on its
+own, that two inputs differing only in illegal characters must not collapse
+onto one output, and that this is a Schema/Injection Hardening concern
+rather than a naming convenience. It cites `FAILURE_PATTERNS.md` #18, which
+is the same class: an unvalidated id widening a NATS subject.
+
+Three functions in the same file, a few dozen lines away, concatenated a
+caller-supplied string straight into a subject with none of that.
+`LogSubject(jobID)` and `ResultSubject(jobID)` did it, and `DispatchSubject`
+avoided it only because it took no parameter at all, which was itself the
+defect Phase 101a existed to fix.
+
+What kept it invisible for several phases is the part worth carrying
+forward. Job ids are `uuid.New().String()`, so nothing illegal ever reached
+those two in practice, and a hazard that cannot currently fire looks
+exactly like a hazard that does not exist. Nobody reading the file saw a
+bug, because there wasn't one yet. The device id was the input that would
+have fired it: `pkg/inventory` documents it as opaque and operator-supplied,
+so an entirely ordinary `router1.example.com` would have expanded a
+three-token subject into a six-token one, matched no filter this package
+declares, and silently stopped that device being dispatched to anybody.
+
+Two habits come out of it.
+
+When a function is hardened against an input class, look for every sibling
+that takes the same shape of input, and judge them by the input they COULD
+receive rather than the input they currently do. The reason `DurableName`
+was hardened applies to any caller-supplied string becoming a NATS
+identifier, and the file it lives in held three more of them.
+
+Put the mapping inside the builder rather than at its callers. The subjects
+here are written in one process and read in another: the Runner publishes a
+job's log lines and the Controller's SSE viewer subscribes to them. Sanitize
+at the call sites and the two processes agree only for as long as every
+caller remembers; sanitize inside `LogSubject` and they agree by construction,
+and the change costs zero call-site edits. The corollary is that the
+exceptions then have to be loud, because they look like oversights:
+`DeadLetterSubject` and `EventSubject` both receive an already-dotted value
+on purpose, and each now says so in its own comment, or the next tidy-up
+"fixes" them and breaks the dead letter path.

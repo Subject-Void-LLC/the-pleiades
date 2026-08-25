@@ -270,7 +270,8 @@ func (h *harness) assertPropertiesEncryptedAtRest(t *testing.T) {
 func (h *harness) observeDispatches(t *testing.T) jetstream.Consumer {
 	t.Helper()
 	consumer, err := h.js.CreateOrUpdateConsumer(context.Background(), topology.StreamName, jetstream.ConsumerConfig{
-		FilterSubject: topology.DispatchSubject(),
+		// Every device's dispatch, which is what the fleet consumer sees.
+		FilterSubject: topology.DispatchSubjectAll(),
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
 	})
@@ -518,7 +519,7 @@ func (h *harness) assertJobLogEvents(t *testing.T, jobID string) {
 func (h *harness) assertNoDeadLetters(t *testing.T) {
 	t.Helper()
 
-	subject := topology.DeadLetterSubject(topology.DispatchSubject())
+	subject := topology.DeadLetterSubject(topology.DispatchSubjectAll())
 	consumer, err := h.js.CreateOrUpdateConsumer(context.Background(), topology.StreamName, jetstream.ConsumerConfig{
 		FilterSubject: subject,
 		DeliverPolicy: jetstream.DeliverAllPolicy,

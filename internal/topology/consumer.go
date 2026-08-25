@@ -41,8 +41,27 @@ func SubscribeConsumerConfig(durable, filterSubject string) jetstream.ConsumerCo
 // consumer group, which is what makes horizontally-scaled, stateless
 // Runners (PLAN.md Section 16) safe: JetStream, not application code,
 // guarantees a given dispatch is handed to exactly one of them.
+//
+// Phase 101a gave the dispatch subject a device token and this consumer a
+// trailing wildcard over it. The exactly-once guarantee above is UNCHANGED
+// by that: the filter still matches every dispatch exactly once, so this
+// remains one consumer group over the whole fleet.
+//
+// # The rule a second consumer has to obey
+//
+// EXACTLY ONE CONSUMER MAY MATCH ANY GIVEN DISPATCH SUBJECT. Two consumers
+// matching one dispatch means two Runners execute the same unit of work.
+// The per-device execution lease would serialize them, but a lease is a
+// mitigation for a race, not a substitute for a routing decision.
+//
+// That rule has a consequence worth stating before somebody discovers it.
+// NATS has no negative filter, so a scoped consumer CANNOT be carved out
+// of this one's ">" wildcard by excluding devices from it. Introducing one
+// is therefore a change to the PUBLISHER: those devices' dispatches have
+// to go to a different subject prefix, which this package would declare,
+// rather than to a cleverer filter here.
 func DispatchConsumerConfig() jetstream.ConsumerConfig {
-	return SubscribeConsumerConfig(DispatchDurableName, DispatchSubject())
+	return SubscribeConsumerConfig(DispatchDurableName, DispatchSubjectAll())
 }
 
 // LogViewerConsumerConfig returns an ephemeral, non-acknowledging consumer

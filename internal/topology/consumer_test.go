@@ -30,8 +30,15 @@ func TestDispatchConsumerConfig(t *testing.T) {
 	if cfg.Durable != topology.DispatchDurableName {
 		t.Errorf("Durable = %q, want %q (every Runner replica must share this exact name to form one consumer group)", cfg.Durable, topology.DispatchDurableName)
 	}
-	if cfg.FilterSubject != topology.DispatchSubject() {
-		t.Errorf("FilterSubject = %q, want %q", cfg.FilterSubject, topology.DispatchSubject())
+	if cfg.FilterSubject != topology.DispatchSubjectAll() {
+		t.Errorf("FilterSubject = %q, want %q", cfg.FilterSubject, topology.DispatchSubjectAll())
+	}
+
+	// The fleet consumer group's guarantee is unchanged by the device
+	// token: its filter must still match EVERY device's dispatch, or a
+	// device silently stops being dispatched to anyone at all.
+	if got := topology.DispatchSubject("any-device-at-all"); !subjectCoveredByRoot(cfg.FilterSubject, got) {
+		t.Errorf("fleet filter %q does not match %q", cfg.FilterSubject, got)
 	}
 }
 

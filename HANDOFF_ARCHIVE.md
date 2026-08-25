@@ -1,5 +1,116 @@
 # Handoff Document Archive
 
+## Previous session: Phase 78c (bound envelopes, key rotation) and the Phase 78d plan for PFX/PKI
+
+**Phase 78 is complete except PFX/PKI, which is blocked on a consumer that does not exist and is now
+planned as 78d.** All three built stages are committed on branch
+`feature/Phase-78a-External-Secret-Store`: 78a `7fbcb62`, 78b `c6946fa`, 78c `438484f`. Docker was
+down for part of the session and came back, so everything gated on it has now actually run.
+
+### 78c, built this session
+
+Two new rotation passes, `RotateCredentialInputs` and `RotateSavedLaunchConfigAnswers`, joining the
+Device one. `Device` and `SavedLaunchConfig` gained a `secret_binding` column (migrations `0019`
+sqlite / `0016` postgres) and the bound envelope that `Credential` has had since Phase 22, closing
+the residual `internal/crypto/envelope_bound.go` recorded and deferred there. `IsBoundEnvelope`
+reads the algorithm tag so the read path opens either form, which is what makes the upgrade
+lossless.
+
+### The forcing constraint, which was not predicted
+
+Sealing a value against its row's binding means the write hook needs that binding, and **ent exposes
+`OldSecretBinding` on `UpdateOne` alone**. `Device.properties` was written by the BULK `Update`
+builder, and the old design tolerated that precisely because an unbound ciphertext was equally valid
+on every row, which is the property that made it relocatable.
+
+So the bulk path is refused now, and **both real callers were converted to `UpdateOneID` with the
+version predicate**: `internal/inventory`'s own `Save` and `RotateDeviceProperties` itself. One
+behavioural difference is recorded where it lands: `UpdateOne` reports an unmatched predicate as a
+not-found rather than as zero rows affected, so `Save`'s optimistic-concurrency check reads
+`ent.IsNotFound` where it read `affected == 0`. `internal/inventory`'s own concurrency tests pass
+unchanged, which is the evidence that conversion preserved the semantics.
+
+### Two asymmetries worth carrying forward
+
+**A Device migrates itself**; ordinary operation rewrites its properties and the hook assigns a
+binding to any row lacking one, so the pass is a sweep for rows nobody touches. **A
+SavedLaunchConfig never does**: nothing in this platform updates its answers, so the pass is the
+only path from unbound to bound for that entity. Since a survey is the one way a password reaches a
+stored row, that pass is worth running even when no key is changing. Both are documented in Book 10.
+
+And `Device.secret_binding` is Optional and NOT Immutable where `Credential`'s is neither. Forced,
+not sloppy: the column arrives on a table that already has rows, no migration generates a UUID per
+row portably, and the application only ever sets it when empty.
+
+### The residual, stated rather than implied
+
+Accepting both forms on read is what makes the upgrade lossless, and **until a deployment's passes
+have run, any row still unbound remains relocatable**. The passes return counts so an operator can
+tell when the window shut. That is the honest limit of what this stage closes.
+
+### Verified
+
+`go test ./...` passes in full with Docker available. `coverage-check` clean across 201 packages;
+`internal/crypto` floor raised 88.9 to 89.0 (measured 89.2). `go build`, `go vet`, `gofmt`,
+`docs-lint`, `gosec` all clean. Migration parity passes for both dialects.
+
+**78b's Release Gate ran and passed** (13.7s against a real `hashicorp/vault` container) once Docker
+returned. It had been left recorded as open rather than ticked while it could only skip, which is
+what checkbox rule 1 is for; it passed first try.
+
+**78c's own gate is `TestReleaseGate_TheAADMigrationClosesTheRelocationHole`**, written in three acts
+so it is falsifiable in both directions: both forms read correctly, the relocation attack SUCCEEDS
+before the migration, and the identical attack fails after it. Without the middle act the last one
+cannot tell a working binding from a badly set up attack.
+
+### The one thing left in Phase 78, now planned as 78d
+
+**PFX/PKI is still blocked on a consumer; 78d is the plan for building that consumer.** Full detail
+lives in Phase 78's own body. What must not be re-derived:
+
+**78d inverts the dependency deliberately.** Build the certificate-presenting path FIRST taking PEM
+inputs, and add the PKCS#12 decoder afterwards as an input adapter into a path that already works.
+That carries the security property Section 17.4 is actually about, costs no new dependency until the
+last item, and means the decoder lands with a caller already waiting for it rather than as the
+decoration Gate 2 refuses.
+
+Three findings from re-reading the real source on 2026-08-25, two of which shrink the work:
+
+- **The consumer is much nearer than recorded.** `masterzen/winrm` already ships `ClientAuthRequest`,
+  taking PEM cert and key and building a `tls.Config` carrying `Certificates`, and `pkg/winrmexec`'s
+  `newClient` already dispatches through `params.TransportDecorator`. Certificate auth is a third
+  branch there, not a new mechanism. Its `auth.Username == "" || auth.Password == ""` guard and the
+  `Auth` doc comment both become wrong the moment it lands.
+- **The AWX parity blocker is narrower than recorded.** `TestTheCatalogCoversEveryAWXManagedType`
+  walks `managed.Types()` and `managed.DeclaredNotImplemented()` only, so it constrains a SHIPPED
+  type. A type created through the credential API is checked against `namespacePattern` alone, so the
+  first mTLS type can be user-defined and needs no exemption. The `pleiades_` prefix is deferred.
+- **The licence question is closed.** `software.sslmate.com/src/go-pkcs12` is three-clause BSD, forked
+  from `golang.org/x/crypto/pkcs12`, so it is GPLv3-compatible. It decodes DER only and not BER, and
+  PFX bundles from older Windows tooling are not reliably DER.
+
+**One correction, and it is the item that grew.** Phase 78's body claimed the PFX password being a
+linked credential "is the same input-source recursion 78a builds". It is not.
+`resolveInputSources` requires a registered `credtype.LookupFactory` for the source credential's
+namespace and refuses with `ErrLookupUnknown` otherwise, so a plain Password credential named as a
+source fails today. 78a resolves an input THROUGH a vault client; Section 17.4 wants one filled FROM
+another credential's own field, no network in the path. The proposed fix adds no mechanism: one
+branch in `resolveInputSources` keyed on the source credential's KIND.
+
+78d's Release Gate wants a real WinRM listener with a cert-mapped account, and every container gate in
+this repository is Linux. `internal/catalog/http` is the named fallback consumer if that is
+unavailable.
+
+### Loose ends
+
+- **The whole branch is still not on `main`**, `b1a63ba` included. Without that one, `make ci` fails
+  on `main` for a reason unrelated to any current work.
+- **`make ci` has not been run end to end this session**, only its constituent parts. Worth one run
+  before merging.
+- **Two AWX namespaces are unverified**: `aws_secretsmanager` and `centrify_vault` came from
+  `credtype.DeclaredLookups` rather than a fresh read of AWX's registry, which may spell them
+  `aws_secretsmanager_credential` and `centrify_vault_kv`.
+
 ## Previous session: Phase 78b (the HashiCorp Vault secret source and the AWX catalog correction)
 
 **Phase 78b is one item short of complete: `hashivault_kv` is built, PFX/PKI is blocked, and the

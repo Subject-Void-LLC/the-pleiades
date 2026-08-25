@@ -273,8 +273,16 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	// Confirm exactly 10,000 wire.DispatchPayload messages were actually
 	// published, never merely trusting the job's own stored tally: this
 	// is the whole point of the gate.
-	if got := bus.countTopic(topology.DispatchSubject()); got != releaseGateDeviceCount {
-		t.Errorf("wire.DispatchPayload publishes = %d, want %d", got, releaseGateDeviceCount)
+	total, distinct := bus.dispatchPublishes()
+	if total != releaseGateDeviceCount {
+		t.Errorf("wire.DispatchPayload publishes = %d, want %d", total, releaseGateDeviceCount)
+	}
+
+	// And each one went to its OWN subject. This is Phase 101a's property
+	// asserted at the scale the gate already runs at: before the device
+	// token, all 10,000 landed on one subject and this number was 1.
+	if distinct != releaseGateDeviceCount {
+		t.Errorf("distinct dispatch subjects = %d, want %d (one per device)", distinct, releaseGateDeviceCount)
 	}
 
 	// Cross-check against the store's own JobTask rows, an independent
@@ -296,7 +304,7 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 	// Spot-check one real published payload to confirm the real "host"
 	// property, not a hardcoded convenient value, actually made it onto
 	// the wire.
-	dispatchEvt, ok := bus.firstOnTopic(topology.DispatchSubject())
+	dispatchEvt, ok := bus.firstDispatch()
 	if !ok {
 		t.Fatal("no event was published on the dispatch subject")
 	}

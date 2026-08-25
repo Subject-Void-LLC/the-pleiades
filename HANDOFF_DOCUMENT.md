@@ -4,85 +4,93 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 78 is complete except PFX/PKI, which is blocked on a consumer that does not exist.** 78a is
-committed as `7fbcb62`. 78b and 78c are uncommitted on branch
-`feature/Phase-78a-External-Secret-Store` and await the user's own go-ahead. Docker was down for
-part of the session and came back, so everything gated on it has now actually run.
+**Phase 101a is built and its Release Gate passed.** It is uncommitted on branch
+`feature/Phase-101a-Dispatch-Subject-Namespace`, cut from `438484f` (78c's tip) rather than from
+`main`, deliberately: `main` still lacks `b1a63ba`, without which `make ci` fails there for reasons
+unrelated to any current work.
 
-### 78c, built this session
+### What 101a is, and what it is not
 
-Two new rotation passes, `RotateCredentialInputs` and `RotateSavedLaunchConfigAnswers`, joining the
-Device one. `Device` and `SavedLaunchConfig` gained a `secret_binding` column (migrations `0019`
-sqlite / `0016` postgres) and the bound envelope that `Credential` has had since Phase 22, closing
-the residual `internal/crypto/envelope_bound.go` recorded and deferred there. `IsBoundEnvelope`
-reads the algorithm tag so the read path opens either form, which is what makes the upgrade
-lossless.
+Phase 101 (Mesh Identity) was split into three stages this session, following 78a/78b/78c. 101a is
+the dispatch subject namespace and the consumer rule that follows from it. 101b is operator-mode
+NKey/JWT with the account signing key in Phase 78a's store. 101c is time-boxed authority and
+revocation. **101a is the only stage carrying no authentication at all**, which is exactly why it
+could be tested against a real broker on its own.
 
-### The forcing constraint, which was not predicted
+`topology.DispatchSubject()` took no parameters and returned the flat literal
+`pleiades.jobs.dispatch`. It now takes the device and returns
+`pleiades.jobs.dispatch.<token>`. `DispatchSubjectAll()` declares the wildcard the fleet consumer
+filters on.
 
-Sealing a value against its row's binding means the write hook needs that binding, and **ent exposes
-`OldSecretBinding` on `UpdateOne` alone**. `Device.properties` was written by the BULK `Update`
-builder, and the old design tolerated that precisely because an unbound ciphertext was equally valid
-on every row, which is the property that made it relocatable.
+### The finding that shapes 101b, verified against the real driver
 
-So the bulk path is refused now, and **both real callers were converted to `UpdateOneID` with the
-version predicate**: `internal/inventory`'s own `Save` and `RotateDeviceProperties` itself. One
-behavioural difference is recorded where it lands: `UpdateOne` reports an unmatched predicate as a
-not-found rather than as zero rows affected, so `Save`'s optimistic-concurrency check reads
-`ent.IsNotFound` where it read `affected == 0`. `internal/inventory`'s own concurrency tests pass
-unchanged, which is the evidence that conversion preserved the semantics.
+**A subject permission does not restrict what a PULL consumer receives.** A pull consumer fetches
+through `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (`nats.go@v1.52.0/jetstream/pull.go:225`)
+and messages arrive on a reply inbox, so a Runner whose JWT names one device's subject can still
+drain every device's dispatch from the shared `runner-agent` consumer.
 
-### Two asymmetries worth carrying forward
+The device token therefore buys two things, both real: it scopes what a Runner may PUBLISH, and it
+makes a filtered consumer expressible at all, since `FilterSubject` is the only thing that scopes
+delivery. Delivery-side scoping is a permission on WHICH CONSUMER a Runner may bind, and that is
+101b's. This is written into `DispatchSubject`'s own doc comment, because 101b would otherwise be
+designed against an assumption that is false.
 
-**A Device migrates itself**; ordinary operation rewrites its properties and the hook assigns a
-binding to any row lacking one, so the pass is a sweep for rows nobody touches. **A
-SavedLaunchConfig never does**: nothing in this platform updates its answers, so the pass is the
-only path from unbound to bound for that entity. Since a survey is the one way a password reaches a
-stored row, that pass is worth running even when no key is changing. Both are documented in Book 10.
+### The consumer-group rule, resolved rather than discovered
 
-And `Device.secret_binding` is Optional and NOT Immutable where `Credential`'s is neither. Forced,
-not sloppy: the column arrives on a table that already has rows, no migration generates a UUID per
-row portably, and the application only ever sets it when empty.
+Recorded in `DispatchConsumerConfig`'s doc comment. The fleet group's exactly-once guarantee is
+unchanged: one durable, one filter, still matching every dispatch exactly once. The rule is that
+**exactly one consumer may match any given dispatch subject**. NATS has no negative filter, so a
+scoped consumer cannot be carved out of the fleet's `>`; introducing one is a change to the
+PUBLISHER, routing those devices to a different prefix. Discovering that inside Phase 93 would have
+been expensive.
 
-### The residual, stated rather than implied
+### The hazard that turned out to be live
 
-Accepting both forms on read is what makes the upgrade lossless, and **until a deployment's passes
-have run, any row still unbound remains relocatable**. The passes return counts so an operator can
-tell when the window shut. That is the honest limit of what this stage closes.
+A device id is operator-supplied and `pkg/inventory` documents it as opaque, so an ordinary
+`router1.example.com` would have expanded a three-token subject into a six-token one, matched no
+filter this package declares, and silently stopped that device being dispatched to anybody.
+
+`topology.SubjectToken` closes it, sharing one unexported `legalIdentifier` with `DurableName` so
+the package holds one sanitize-and-hash implementation rather than two. `LogSubject` and
+`ResultSubject` were concatenating job ids the same unhardened way and now go through it too, INSIDE
+the builder, so no call site changed and the Runner that publishes a log subject and the Controller
+that subscribes to it agree by construction. `DeadLetterSubject` and `EventSubject` are deliberately
+excluded (both take an already-dotted value on purpose) and say so in their own comments.
+`LESSONS_LEARNED.md` #169 is the general rule this produced.
 
 ### Verified
 
-`go test ./...` passes in full with Docker available. `coverage-check` clean across 201 packages;
-`internal/crypto` floor raised 88.9 to 89.0 (measured 89.2). `go build`, `go vet`, `gofmt`,
-`docs-lint`, `gosec` all clean. Migration parity passes for both dialects.
+`TestReleaseGate_TheDeviceTokenScopesDeliveryWithoutCostingTheFleetGroup` runs against a real
+`nats:2.14.4-alpine` broker in three acts and **passed in 15.2s**. Act three is the deliverable: the
+scoped consumer receives nothing but its own device, and the gate gives that negative its own
+positive control by proving the other dispatches reached the fleet consumer, so "received nothing
+else" cannot be satisfied by "nothing else was published".
 
-**78b's Release Gate ran and passed** (13.7s against a real `hashicorp/vault` container) once Docker
-returned. It had been left recorded as open rather than ticked while it could only skip, which is
-what checkbox rule 1 is for; it passed first try.
+**The gate was falsified deliberately before being believed.** Widening the scoped filter to
+`DispatchSubjectAll()` makes it fail with "per-device consumer received 8 dispatches, want exactly
+1". Its device ids are dotted hostnames on purpose, so it runs on the id shape that used to break.
 
-**78c's own gate is `TestReleaseGate_TheAADMigrationClosesTheRelocationHole`**, written in three acts
-so it is falsifiable in both directions: both forms read correctly, the relocation attack SUCCEEDS
-before the migration, and the identical attack fails after it. Without the middle act the last one
-cannot tell a working binding from a badly set up attack.
+`FuzzDispatchSubject` takes two device ids, because the property that matters most needs a pair:
+**523,318 executions, 95 corpus entries, no failures**. Benchmarks: 1.68 us / 450 B / 10 allocs per
+subject, and 13.4 ms / 3.55 MB / 90,011 allocs for a 10,000-device fan-out, which is around one
+percent of the 10,000 JetStream publishes it sits beside.
 
-### The one thing left in Phase 78
+Passing: `internal/topology`, `internal/dispatch`, `internal/api`, `internal/event`,
+`internal/runner`, `internal/archtest`, `internal/adapters/...`, `cmd/runner`. `go build`, `go vet`
+and `gofmt` clean.
 
-**PFX/PKI (78b) is blocked on a consumer.** Section 17.4 wants the Runner to unlock a private key in
-memory, so the deliverable is an unlocked certificate presented to something, and there is no
-`tls.Certificate`, no `Certificates:` field and no client-certificate handling anywhere in
-`internal/transport`, `pkg/` or `internal/adapters`. Building it now yields a parser with no caller,
-which this phase's own Gate 2 rejects in its own words. What must exist first: a transport that
-presents a client certificate (WinRM over HTTPS is the realistic first, `pkg/winrmexec` exists), a
-licence check on `software.sslmate.com/src/go-pkcs12`, and a deliberate exemption in
-`TestTheCatalogCoversEveryAWXManagedType`, since a PFX type would be the first managed type this
-platform ships that AWX does not have. A reserved `pleiades_` prefix is the cheapest sound one.
+### Next step
+
+`make test-integration` (the Grand Integration Test, real binaries against real containers) was
+running when this was written and its result is not recorded here. Then coverage, `docs-gen-check`,
+`gosec`, and `make ci` in full.
 
 ### Loose ends
 
-- **`b1a63ba` and `7fbcb62` are still not on `main`.** Without the first, `make ci` fails on `main`
-  for a reason unrelated to any current work.
-- **`make ci` has not been run end to end this session**, only its constituent parts. Worth one run
-  before merging.
-- **Two AWX namespaces are unverified**: `aws_secretsmanager` and `centrify_vault` came from
-  `credtype.DeclaredLookups` rather than a fresh read of AWX's registry, which may spell them
-  `aws_secretsmanager_credential` and `centrify_vault_kv`.
+- **The whole branch is still not on `main`**, `b1a63ba` and the three Phase 78 commits included.
+- **`make ci` has not been run end to end** in this session or the previous one, only its
+  constituent parts. Worth one run before merging.
+- **Phase 78d (PFX/PKI) is planned and not built.** See `HANDOFF_ARCHIVE.md`'s top entry for the
+  three findings that shrank it and the one correction that grew it.
+- **101a authenticates nothing**, so Phase 96a's and 96d's "the bus is unauthenticated" statement is
+  still true as written and was deliberately left alone. Correcting it is 101b's.

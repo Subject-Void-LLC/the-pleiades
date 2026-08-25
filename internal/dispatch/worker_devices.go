@@ -210,7 +210,10 @@ func (w *Worker) admitAndDispatchDevice(ctx context.Context, job *Job, fence int
 	// seam is not achievable without that violation, and this comment
 	// documents that as a known, accepted limitation rather than an
 	// oversight.
-	if err := w.bus.Publish(pubCtx, topology.DispatchSubject(), *dispatchEvt); err != nil {
+	// The device's own id is what scopes this subject, and it is the same
+	// value the idempotency key above is built from rather than a second
+	// spelling of it.
+	if err := w.bus.Publish(pubCtx, topology.DispatchSubject(string(device.ID())), *dispatchEvt); err != nil {
 		if recErr := w.store.RecordTask(ctx, job.JobID, fence, JobTask{
 			DeviceID:   string(device.ID()),
 			DeviceName: device.Name(),

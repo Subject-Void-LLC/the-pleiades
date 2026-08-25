@@ -46,11 +46,15 @@ const (
 	// configured with. Every subject this package builds falls under it.
 	StreamSubjectRoot = "pleiades.>"
 
-	eventSubjectPrefix  = "pleiades.events."
-	dispatchSubject     = "pleiades.jobs.dispatch"
-	logSubjectPrefix    = "pleiades.jobs.logs."
-	resultSubjectPrefix = "pleiades.jobs.results."
-	dlqSubjectPrefix    = "pleiades.dlq."
+	eventSubjectPrefix = "pleiades.events."
+	// dispatchSubjectPrefix ends in the separator because a dispatch
+	// subject carries a device token after it. Until Phase 101a this was
+	// the whole subject, with no trailing dot and nothing after it; see
+	// DispatchSubject for what the token buys and what it does not.
+	dispatchSubjectPrefix = "pleiades.jobs.dispatch."
+	logSubjectPrefix      = "pleiades.jobs.logs."
+	resultSubjectPrefix   = "pleiades.jobs.results."
+	dlqSubjectPrefix      = "pleiades.dlq."
 	// jobRequestedSubject is the one subject a Job launch (a later stage
 	// in this session, replacing internal/api/dispatcher.go's synchronous
 	// handler) publishes to, and internal/dispatch.Worker.HandleJobRequested
@@ -76,13 +80,84 @@ const (
 	// maxDurablePrefixLen bounds the human-readable portion of a generated
 	// durable name; see DurableName.
 	maxDurablePrefixLen = 48
+
+	// maxSubjectTokenPrefixLen bounds the human-readable portion of a
+	// generated subject token; see SubjectToken.
+	//
+	// It is 48 for a stated reason rather than by copying the line above:
+	// a device id is very often a 36-character UUID, and a bound that cut
+	// one in half would make a subject unreadable at exactly the moment
+	// somebody is reading it to work out which device a dispatch was for.
+	// The two bounds are separate constants so either can move without
+	// dragging the other with it.
+	maxSubjectTokenPrefixLen = 48
 )
 
-// illegalDurableChars matches every byte NATS forbids in a durable
-// consumer name: whitespace, ".", "*", ">", path separators, and (by virtue
-// of this pattern being an allow-list of what's kept) any non-printable
-// character.
-var illegalDurableChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+// illegalIdentifierChars matches every byte this package refuses inside a
+// generated NATS identifier, whether that identifier is a durable consumer
+// name or a single subject token. Being an allow-list of what is KEPT, it
+// covers whitespace, ".", "*", ">", path separators and every
+// non-printable character in one pattern.
+//
+// It is deliberately NARROWER than either NATS rule strictly requires. A
+// subject token may legally carry "/" and several other characters this
+// drops. Permitting them would buy nothing, and it would cost the property
+// that every identifier this package emits survives a shell, a `nats sub`
+// argument and a log line without quoting.
+var illegalIdentifierChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// legalIdentifier is the one sanitize-and-hash implementation in this
+// package. DurableName and SubjectToken are both this function, differing
+// only in their length bound and in what an empty input falls back to.
+//
+// The input is not merely sanitized in place, because sanitization alone
+// is lossy: two different inputs differing only in characters this drops
+// (e.g. "a.b" and "a/b") would otherwise collapse onto one output and
+// silently share a consumer group, or a dispatch subject. Appending a
+// short hash of the ORIGINAL, unsanitized input keeps the output legal
+// while keeping distinct inputs distinct.
+//
+// This is a Schema/Injection Hardening concern, not a naming convenience.
+// A caller-supplied string (a device id an operator wrote in a YAML
+// inventory, a topic ultimately reachable from a workflow ID per
+// FAILURE_PATTERNS.md #18) must never be able to construct an identifier
+// that collides with, or misroutes onto, another one.
+//
+// Slicing sanitized by bytes is safe rather than lucky: everything the
+// allow-list keeps is single-byte ASCII, so no multibyte rune can be cut
+// in half here.
+func legalIdentifier(input, fallback string, maxPrefixLen int) string {
+	sanitized := illegalIdentifierChars.ReplaceAllString(input, "_")
+	sanitized = strings.Trim(sanitized, "_")
+	if sanitized == "" {
+		sanitized = fallback
+	}
+	if len(sanitized) > maxPrefixLen {
+		sanitized = sanitized[:maxPrefixLen]
+	}
+
+	sum := sha256.Sum256([]byte(input))
+	return fmt.Sprintf("%s-%s", sanitized, hex.EncodeToString(sum[:])[:8])
+}
+
+// SubjectToken maps an arbitrary caller-supplied string onto one legal
+// NATS subject token: a value with no ".", no "*" and no ">" in it, so it
+// occupies exactly one position in a subject and cannot smuggle extra
+// tokens or a wildcard into the middle of one.
+//
+// The hazard this closes is specific and was live rather than theoretical.
+// A device id is operator-supplied and opaque (pkg/inventory.DeviceID), so
+// a perfectly ordinary one like "router1.example.com" would otherwise
+// expand a three-token subject into a six-token one, which no filter
+// subject in this package would match and no permission would describe.
+//
+// It is deterministic, so the publisher and the consumer of a subject
+// derive the identical token without coordinating, which matters because
+// they run in different processes: the Runner publishes a job's log
+// subject and the Controller subscribes to it.
+func SubjectToken(s string) string {
+	return legalIdentifier(s, "unnamed", maxSubjectTokenPrefixLen)
+}
 
 // EventSubject returns the subject a lifecycle event of the given type
 // publishes to, e.g. EventSubject("device.created") is
@@ -94,18 +169,58 @@ func EventSubject(eventType string) string {
 	return eventSubjectPrefix + eventType
 }
 
-// DispatchSubject returns the one subject a runbook dispatch is published
-// to. It replaces the previous bare literal "runbooks.dispatch", which the
-// stream this package now owns would not have matched.
-func DispatchSubject() string {
-	return dispatchSubject
+// DispatchSubject returns the subject a runbook dispatch for ONE device is
+// published to.
+//
+// The device token is what makes the dispatch path scopeable at all.
+// Before Phase 101a this function took no parameters and returned the flat
+// literal "pleiades.jobs.dispatch", so every dispatch for every device
+// shared one subject and nothing (no filter, no permission, no consumer)
+// could tell two of them apart. Its siblings LogSubject and ResultSubject
+// were already parameterized; the dispatch path specifically was not.
+//
+// Read what the token does and does not buy carefully, because the next
+// stage of this work depends on the distinction:
+//
+//   - It scopes what a Runner may PUBLISH, so a Runner holding a
+//     credential for one device cannot forge a dispatch for another.
+//   - It makes a filtered consumer expressible, because FilterSubject is
+//     the only mechanism that actually scopes delivery.
+//
+// It does NOT on its own restrict what a Runner RECEIVES. A pull consumer
+// fetches through $JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer> and its
+// messages arrive on a reply inbox, so a subject permission never sees
+// them and cannot gate them. What gates delivery is which consumer a
+// Runner may bind. See DispatchConsumerConfig for the rule that follows.
+func DispatchSubject(deviceID string) string {
+	return dispatchSubjectPrefix + SubjectToken(deviceID)
+}
+
+// DispatchSubjectAll returns the wildcard matching every device's dispatch
+// subject, which is what the shared fleet consumer filters on.
+//
+// It is declared here rather than spelled inline at the one consumer that
+// needs it, for the same reason every other subject shape in this package
+// is: a wildcard written at a call site is a subject declaration that has
+// escaped the package whose whole job is owning them.
+func DispatchSubjectAll() string {
+	return dispatchSubjectPrefix + ">"
 }
 
 // LogSubject returns the subject a given job's execution log lines publish
 // to and stream from. It replaces the previous bare literal
 // "jobs.logs.<id>".
+//
+// The job id goes through SubjectToken rather than being concatenated
+// straight in. Job ids are uuid.New().String() today, so nothing illegal
+// reaches here in practice, which is exactly why the sanitizing belongs
+// INSIDE this function rather than at its callers: the hazard is latent,
+// and a latent hazard is the kind a future caller reintroduces without
+// noticing. Doing it here also means the Runner that publishes a job's log
+// line and the Controller that subscribes to it derive the same subject
+// with no agreement between them beyond calling this function.
 func LogSubject(jobID string) string {
-	return logSubjectPrefix + jobID
+	return logSubjectPrefix + SubjectToken(jobID)
 }
 
 // ResultSubject returns the subject a given job's Runner-buffered
@@ -114,8 +229,11 @@ func LogSubject(jobID string) string {
 // under StreamSubjectRoot exactly like every other subject this package
 // declares, so no separate stream or EnsureStream change is needed for
 // it.
+//
+// The job id goes through SubjectToken for the reason LogSubject's own
+// comment gives.
 func ResultSubject(jobID string) string {
-	return resultSubjectPrefix + jobID
+	return resultSubjectPrefix + SubjectToken(jobID)
 }
 
 // JobRequestedSubject returns the one subject a persisted Job's launch
@@ -155,15 +273,5 @@ func DeadLetterSubject(originalSubject string) string {
 // consumer name that collides with, or otherwise misroutes onto, another
 // subscriber's consumer.
 func DurableName(logical string) string {
-	sanitized := illegalDurableChars.ReplaceAllString(logical, "_")
-	sanitized = strings.Trim(sanitized, "_")
-	if sanitized == "" {
-		sanitized = "consumer"
-	}
-	if len(sanitized) > maxDurablePrefixLen {
-		sanitized = sanitized[:maxDurablePrefixLen]
-	}
-
-	sum := sha256.Sum256([]byte(logical))
-	return fmt.Sprintf("%s-%s", sanitized, hex.EncodeToString(sum[:])[:8])
+	return legalIdentifier(logical, "consumer", maxDurablePrefixLen)
 }

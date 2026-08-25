@@ -187,6 +187,7 @@ story, per `.AGENTS/AGENTS.md`.
 168. **Rendering without an error is not evidence a chart is correct: a volumeMount with no matching volume is valid YAML that fails later at apply, so enumerate every branch in which the volumes key does and does not exist (a StatefulSet has a third state where it exists in neither) and assert the mount and the volume TOGETHER across a matrix rather than a sample.**
 
 ---
+169. **A hazard closed in one function is not closed in its siblings, and a latent one reads as no hazard at all: `DurableName` was hardened against a caller-supplied string becoming an illegal NATS identifier while three functions in the same file concatenated one straight into a subject, invisible because their inputs happened to be UUIDs, so judge a sibling by the input it COULD receive and put the mapping inside the builder rather than at its callers, since the publisher and the subscriber are different processes.**
 
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
