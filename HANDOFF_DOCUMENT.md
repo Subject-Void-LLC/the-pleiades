@@ -79,17 +79,40 @@ Passing: `internal/topology`, `internal/dispatch`, `internal/api`, `internal/eve
 `internal/runner`, `internal/archtest`, `internal/adapters/...`, `cmd/runner`. `go build`, `go vet`
 and `gofmt` clean.
 
+### Gates run after the commit
+
+All green, and the numbers rather than the fact:
+
+- **`make test-integration`: PASSED.** 151 packages, 0 failures, and `tests/e2e` green in 506s. That
+  is the Grand Integration Test driving the real controller and runner binaries against real
+  containers, so it is the RULE 0 proof the subject change works through the binaries rather than
+  only through package tests. `internal/ent/migrate`'s parity check passed alongside it.
+  Recorded because the first attempt at this claim was WRONG and the correction is the useful part:
+  the run was piped through `tail`, so the exit code belonged to `tail` rather than to `make`, and
+  the filter would have swallowed a `--- FAIL:` line. It was re-run capturing the real exit code.
+  A piped exit code is not evidence.
+- **`make docs-gen-check`: clean.** No diff and nothing untracked under `docs/reference` or
+  `internal/api/wellknown`.
+- **`make gosec`: clean.** 9 findings, all individually waived in `gosec-waivers.json`, none new.
+- **`make coverage`: clean.** 201 packages, none below their recorded floor. `internal/topology`
+  measures 96.0% against its floor of 95.8.
+  The floor was deliberately NOT raised, unlike Phase 78's habit of raising every floor it improved.
+  The gain is 0.2 points and 95.9 would leave 0.1 of headroom on a package whose tests provision
+  real Docker containers, where one container-timing miss moves the number by more than that. A
+  floor that flakes teaches people the gate can be ignored.
+
 ### Next step
 
-`make test-integration` (the Grand Integration Test, real binaries against real containers) was
-running when this was written and its result is not recorded here. Then coverage, `docs-gen-check`,
-`gosec`, and `make ci` in full.
+**`make ci` end to end.** What it still adds beyond the above: `test-race` (the untagged suite under
+`-race`, which has NOT been run; only the tagged integration suite ran with it), `test-repeat`,
+`govulncheck`, `helm-lint` and `templ-gen-check`.
 
 ### Loose ends
 
 - **The whole branch is still not on `main`**, `b1a63ba` and the three Phase 78 commits included.
+  101a is committed as `a06dff2` and pushed to its own remote branch.
 - **`make ci` has not been run end to end** in this session or the previous one, only its
-  constituent parts. Worth one run before merging.
+  constituent parts. Worth one run before merging. See Next step for exactly what is unproven.
 - **Phase 78d (PFX/PKI) is planned and not built.** See `HANDOFF_ARCHIVE.md`'s top entry for the
   three findings that shrank it and the one correction that grew it.
 - **101a authenticates nothing**, so Phase 96a's and 96d's "the bus is unauthenticated" statement is
