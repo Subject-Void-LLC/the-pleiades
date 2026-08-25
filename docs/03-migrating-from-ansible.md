@@ -473,12 +473,12 @@ Three differences to plan around, none of which change the shape of the data:
   may not itself read from a further source. Pleiades allows a source whose own token
   is external, up to four links, and refuses past that by name. Any AWX export is well
   inside this.
-- **The first real source is not shipped yet.** The binding model, its API and its
-  refusals are all here; a binding whose source type nothing can build fails with an
-  explicit error naming that source rather than resolving to nothing. Until the vault
-  sources land, an imported `hashivault_kv` row is stored faithfully and does not
-  resolve, which is the same honest-failure convention the "not implemented" types
-  above follow.
+- **`hashivault_kv` is the only source implemented.** An imported row pointing at
+  HashiCorp Vault resolves for real, and its `metadata` fields carry over unchanged:
+  `secret_backend`, `secret_path`, `secret_key` and `secret_version` mean here what
+  they mean in your export. A row pointing at any of the other seven is stored
+  faithfully and fails with an explicit error naming that source, which is the same
+  honest-failure convention the "not implemented" types above follow.
 
 ## Running an unconverted playbook
 

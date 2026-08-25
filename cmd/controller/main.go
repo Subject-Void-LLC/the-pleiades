@@ -120,6 +120,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	credfile "github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/hashivault"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
@@ -749,7 +750,17 @@ func main() {
 	// resolver that works normally and fails only the specific credential
 	// that names an external reference, which is why this is wired
 	// unconditionally rather than behind a configuration check.
-	externalLookups, err := credtype.NewLookups(credfile.FromEnvironment())
+	// Two kinds of source, and the split is not arbitrary. The file source
+	// is DEPLOYMENT-wide configuration, because a Kubernetes projected
+	// volume is a property of this process rather than of any one
+	// credential. The Vault source is per credential, because a Vault
+	// address and a token belong to a credential row that can be rotated
+	// and audited, which is the whole reason Phase 78a built the input
+	// source model.
+	externalLookups, err := credtype.NewLookupsWith(
+		[]credtype.Lookup{credfile.FromEnvironment()},
+		[]credtype.LookupFactory{hashivault.Factory{}},
+	)
 	if err != nil {
 		fatal("failed to build the external secret source table", err)
 	}

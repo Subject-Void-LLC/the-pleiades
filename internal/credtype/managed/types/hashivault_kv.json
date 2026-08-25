@@ -1,0 +1,49 @@
+{
+  "name": "HashiCorp Vault Secret Lookup",
+  "namespace": "hashivault_kv",
+  "kind": "external",
+  "managed": true,
+  "description": "A HashiCorp Vault key/value store another credential reads an input from. This type is never injected into a job: it is read FROM, at dispatch, to fill an input of the credential bound to it.",
+  "inputs": {
+    "fields": [
+      {
+        "id": "url",
+        "label": "Server URL",
+        "type": "string",
+        "format": "url",
+        "help_text": "The base URL of the Vault server, for example https://vault.example.com:8200. The certificate chain is always verified; there is no option to skip it."
+      },
+      {
+        "id": "token",
+        "label": "Token",
+        "type": "string",
+        "secret": true,
+        "help_text": "A Vault token with read access to the paths this credential will be pointed at."
+      },
+      {
+        "id": "cacert",
+        "label": "CA Certificate",
+        "type": "string",
+        "secret": true,
+        "multiline": true,
+        "help_text": "A PEM certificate authority bundle to verify the server against, for a Vault with a private chain. Left empty, the host's own trust store is used."
+      },
+      {
+        "id": "namespace",
+        "label": "Namespace",
+        "type": "string",
+        "help_text": "The Vault Enterprise namespace to read within. Leave empty on open source Vault, which has none."
+      },
+      {
+        "id": "api_version",
+        "label": "API Version",
+        "type": "string",
+        "choices": ["v1", "v2"],
+        "default": "v2",
+        "help_text": "The key/value secrets engine version this mount runs. v2 is the default for a modern Vault and reads through a different path than v1."
+      }
+    ],
+    "required": ["url", "token"]
+  },
+  "injectors": {}
+}

@@ -79,6 +79,17 @@ var (
 	// path.
 	ErrLookupDepth = errors.New("credtype: external secret resolution is nested deeper than the platform will walk")
 
+	// ErrLookupRowOnly reports a source named in a "<source>:<reference>"
+	// string that this platform implements only as a row-backed input
+	// source.
+	//
+	// Distinct from ErrLookupNotImplemented, and the distinction is the
+	// whole point: "nobody has built this yet" and "this exists, and you
+	// have asked for it the one way it cannot work" are different operator
+	// actions. A Vault needs an address and a token, and a reference string
+	// has nowhere to put either, which is why the row model exists.
+	ErrLookupRowOnly = errors.New("credtype: this external secret source is configured per credential, not by reference string")
+
 	// ErrLookupCycle reports a resolution chain that returns to a
 	// credential it already visited.
 	//
@@ -249,6 +260,18 @@ func (l *Lookups) Resolve(ctx context.Context, inputID, reference string) (strin
 		return "", fmt.Errorf(
 			"%w: input %q names an external secret without a source, which must be written as <source>:<reference>",
 			ErrLookupReference, inputID)
+	}
+
+	// A source with a registered FACTORY is answered here rather than by
+	// byName below, and it takes precedence over the declared-not-
+	// implemented stub of the same name. Without this, a deployment that
+	// has built a source would still be told nobody had built it, which is
+	// the most misleading answer available: it sends an operator to wait
+	// for a feature they already have.
+	if _, rowBacked := l.byNamespace[source]; rowBacked {
+		return "", fmt.Errorf(
+			"%w: input %q names %q by reference string, and that source is configured by binding the input to a credential of that type instead",
+			ErrLookupRowOnly, inputID, source)
 	}
 
 	lookup, ok := l.byName[source]

@@ -658,15 +658,26 @@ The second is control-plane credentials: a credential of a declared type, holdin
 whatever inputs that type declares, encrypted at rest in the database. These are the
 ones bound to templates, and they are what an AWX migration brings with it.
 
-One external secrets manager integration is implemented, and it is deliberately the
-simplest one: a credential input can name a file, resolved at the moment a job
+Two external secrets manager integrations are implemented.
+
+The first is a file: a credential input names one, resolved at the moment a job
 dispatches rather than when it was created. That covers a Kubernetes projected
 volume, a Vault Agent sidecar and the External Secrets Operator, which is how
-secrets arrive in a large fraction of deployments. Eight further sources are named
-after their AWX equivalents and return an explicit "declared but not implemented"
-error. There is still no direct Vault, KMS, or cloud secrets-manager client. Read
-that as a real constraint when deciding whether Pleiades fits an environment that
-mandates one, not as a gap to work around.
+secrets arrive in a large fraction of deployments. It needs no client and no
+network call on the dispatch path.
+
+The second is **HashiCorp Vault**, reading a key/value secret directly over its
+HTTP API, on either a v1 or a v2 mount. The certificate chain is always verified
+and there is no option anywhere to skip it; a Vault with a private authority is
+reached by pasting that authority into the source credential. Configure it as an
+input source, described below, rather than as a reference string: a Vault needs an
+address and a token, and a reference string has nowhere to put either.
+
+Seven further sources are named after their AWX equivalents and return an explicit
+"declared but not implemented" error: HashiCorp Vault signed SSH, AWS Secrets
+Manager, Azure Key Vault, CyberArk Conjur, Centrify, and the two Thycotic products.
+Read that as a real constraint when deciding whether Pleiades fits an environment
+that mandates one of them, not as a gap to work around.
 
 ### Input sources: an input supplied by another credential
 
@@ -703,12 +714,18 @@ against the controller reachable from ordinary data. A chain that returns to whe
 it started is reported as a cycle rather than as depth, since the two need
 different fixes.
 
-One honest limit for this release: the binding model, its API and its refusals all
-ship here, and the first secret manager a binding can actually resolve THROUGH does
-not. A binding whose source type nothing can build fails with an explicit error
-naming that source and listing the ones this controller has, in the same way a
-declared-but-unimplemented source does. That is deliberate: the set shrinks
-honestly as real sources land, rather than a binding quietly resolving to nothing.
+The source credential's type is what decides how a binding is resolved, so the set
+of sources you can bind to is the set of external-kind types this release ships.
+Today that is HashiCorp Vault. A binding whose source type nothing can build fails
+with an explicit error naming that source and listing the ones this controller has,
+in the same way a declared-but-unimplemented source does, so the set shrinks
+honestly as real sources land rather than a binding quietly resolving to nothing.
+
+For a Vault source, the binding's metadata carries AWX's own field names, so an AWX
+`CredentialInputSource` row maps across without translation: `secret_backend` (the
+mount, defaulting to `secret`), `secret_path`, `secret_key`, and optionally
+`secret_version`. A path element that would address something other than the secret
+it names, such as a `..`, is refused rather than cleaned.
 
 ### Credential storage
 

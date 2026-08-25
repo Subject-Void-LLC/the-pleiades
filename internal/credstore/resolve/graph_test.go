@@ -683,3 +683,11 @@ func TestASecretMissingFromItsSourceFailsTheRun(t *testing.T) {
 		t.Errorf("Resolve() error = %v, want it to name the credential the job bound", err)
 	}
 }
+
+// newResolver builds a resolver over a client and a lookup set.
+//
+// One line, and it exists so the container-backed release gate reads about
+// Vault rather than about wiring.
+func newResolver(client *ent.Client, lookups *credtype.Lookups) resolve.Resolver {
+	return resolve.NewEntResolver(client, resolve.WithLookups(lookups))
+}

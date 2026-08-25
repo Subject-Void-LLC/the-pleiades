@@ -29,6 +29,26 @@ var awxManagedNamespaces = []string{
 	"aws", "openstack", "vmware", "satellite6", "bitbucket_dc_token",
 	"gce", "azure_rm", "github_token", "gitlab_token", "insights",
 	"rhv", "gpg_public_key", "terraform", "hcp_terraform",
+
+	// The external secret sources, added by Phase 78b. These come from a
+	// THIRD entry-point group rather than the two named above, which is
+	// exactly why they were missing: AWX turns each credential plugin into
+	// a managed CredentialType with kind external, so an export contains
+	// them as types even though they are registered elsewhere. Their
+	// absence here meant an AWX export carrying a hashivault_kv credential
+	// reported an unknown namespace, which is the failure this test exists
+	// to prevent, and it went unseen because the list was complete against
+	// the groups it was drawn from.
+	//
+	// One caveat, recorded rather than left to be assumed. The twenty-two
+	// names above were read off AWX's own registry. These eight are taken
+	// from internal/credtype.DeclaredLookups, which has claimed since Phase
+	// 22 that they are AWX's own namespaces, and were NOT re-read against
+	// AWX this session. Two of them are the ones to check first if an
+	// import ever reports an unknown namespace: AWX may spell them
+	// aws_secretsmanager_credential and centrify_vault_kv.
+	"hashivault_kv", "hashivault_ssh", "aws_secretsmanager", "azure_kv",
+	"centrify_vault", "conjur", "thycotic_dsv", "thycotic_tss",
 }
 
 // TestTheCatalogCoversEveryAWXManagedType is the completeness statement.
