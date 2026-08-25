@@ -262,3 +262,47 @@ func TestCheckValuesTreatsASourcedInputAsSupplied(t *testing.T) {
 		})
 	}
 }
+
+// TestAReferenceStringNamingARowBackedSourceSaysWhy covers the answer a
+// deployment gives when an AWX import carries the string form for a source
+// this platform implements only as a row.
+//
+// The distinction it protects is small to write and large to get wrong.
+// "Nobody has built this yet" tells an operator to wait for a release.
+// "This exists, and you have asked for it the one way it cannot work" tells
+// them to move the address and token into a source credential, which is
+// something they can do this afternoon. The same eight names answer both
+// ways depending on what the deployment has wired, so the branch is chosen
+// at run time rather than baked into a table.
+func TestAReferenceStringNamingARowBackedSourceSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	// With a factory registered, the row-only answer wins over the
+	// declared-not-implemented stub of the same name.
+	withFactory, err := credtype.NewLookupsWith(nil, []credtype.LookupFactory{fakeFactory{namespace: "hashivault_kv"}})
+	if err != nil {
+		t.Fatalf("NewLookupsWith() error = %v", err)
+	}
+	_, err = withFactory.Resolve(context.Background(), "api_token", "hashivault_kv:secret/data/prod")
+	if !errors.Is(err, credtype.ErrLookupRowOnly) {
+		t.Fatalf("Resolve() error = %v, want a row-only refusal", err)
+	}
+	if errors.Is(err, credtype.ErrLookupNotImplemented) {
+		t.Error("a source with a registered factory was reported as not implemented")
+	}
+
+	// Without one, the same reference gets the declared-not-implemented
+	// answer, which is what makes the branch above meaningful rather than
+	// a rename of it.
+	plain, err := credtype.NewLookups()
+	if err != nil {
+		t.Fatalf("NewLookups() error = %v", err)
+	}
+	_, err = plain.Resolve(context.Background(), "api_token", "hashivault_kv:secret/data/prod")
+	if !errors.Is(err, credtype.ErrLookupNotImplemented) {
+		t.Fatalf("Resolve() error = %v, want a not-implemented refusal", err)
+	}
+	if errors.Is(err, credtype.ErrLookupRowOnly) {
+		t.Error("a source with no factory was reported as row-backed")
+	}
+}

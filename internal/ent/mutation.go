@@ -5298,6 +5298,7 @@ type DeviceMutation struct {
 	name                *string
 	_type               *string
 	properties          *map[string]interface{}
+	secret_binding      *string
 	version             *uint64
 	addversion          *int64
 	state               *string
@@ -5655,6 +5656,55 @@ func (m *DeviceMutation) PropertiesCleared() bool {
 func (m *DeviceMutation) ResetProperties() {
 	m.properties = nil
 	delete(m.clearedFields, device.FieldProperties)
+}
+
+// SetSecretBinding sets the "secret_binding" field.
+func (m *DeviceMutation) SetSecretBinding(s string) {
+	m.secret_binding = &s
+}
+
+// SecretBinding returns the value of the "secret_binding" field in the mutation.
+func (m *DeviceMutation) SecretBinding() (r string, exists bool) {
+	v := m.secret_binding
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretBinding returns the old "secret_binding" field's value of the Device entity.
+// If the Device object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DeviceMutation) OldSecretBinding(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretBinding is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretBinding requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretBinding: %w", err)
+	}
+	return oldValue.SecretBinding, nil
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (m *DeviceMutation) ClearSecretBinding() {
+	m.secret_binding = nil
+	m.clearedFields[device.FieldSecretBinding] = struct{}{}
+}
+
+// SecretBindingCleared returns if the "secret_binding" field was cleared in this mutation.
+func (m *DeviceMutation) SecretBindingCleared() bool {
+	_, ok := m.clearedFields[device.FieldSecretBinding]
+	return ok
+}
+
+// ResetSecretBinding resets all changes to the "secret_binding" field.
+func (m *DeviceMutation) ResetSecretBinding() {
+	m.secret_binding = nil
+	delete(m.clearedFields, device.FieldSecretBinding)
 }
 
 // SetVersion sets the "version" field.
@@ -6294,7 +6344,7 @@ func (m *DeviceMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *DeviceMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.created_at != nil {
 		fields = append(fields, device.FieldCreatedAt)
 	}
@@ -6312,6 +6362,9 @@ func (m *DeviceMutation) Fields() []string {
 	}
 	if m.properties != nil {
 		fields = append(fields, device.FieldProperties)
+	}
+	if m.secret_binding != nil {
+		fields = append(fields, device.FieldSecretBinding)
 	}
 	if m.version != nil {
 		fields = append(fields, device.FieldVersion)
@@ -6348,6 +6401,8 @@ func (m *DeviceMutation) Field(name string) (ent.Value, bool) {
 		return m.GetType()
 	case device.FieldProperties:
 		return m.Properties()
+	case device.FieldSecretBinding:
+		return m.SecretBinding()
 	case device.FieldVersion:
 		return m.Version()
 	case device.FieldState:
@@ -6379,6 +6434,8 @@ func (m *DeviceMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldType(ctx)
 	case device.FieldProperties:
 		return m.OldProperties(ctx)
+	case device.FieldSecretBinding:
+		return m.OldSecretBinding(ctx)
 	case device.FieldVersion:
 		return m.OldVersion(ctx)
 	case device.FieldState:
@@ -6439,6 +6496,13 @@ func (m *DeviceMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProperties(v)
+		return nil
+	case device.FieldSecretBinding:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretBinding(v)
 		return nil
 	case device.FieldVersion:
 		v, ok := value.(uint64)
@@ -6523,6 +6587,9 @@ func (m *DeviceMutation) ClearedFields() []string {
 	if m.FieldCleared(device.FieldProperties) {
 		fields = append(fields, device.FieldProperties)
 	}
+	if m.FieldCleared(device.FieldSecretBinding) {
+		fields = append(fields, device.FieldSecretBinding)
+	}
 	if m.FieldCleared(device.FieldSource) {
 		fields = append(fields, device.FieldSource)
 	}
@@ -6548,6 +6615,9 @@ func (m *DeviceMutation) ClearField(name string) error {
 	switch name {
 	case device.FieldProperties:
 		m.ClearProperties()
+		return nil
+	case device.FieldSecretBinding:
+		m.ClearSecretBinding()
 		return nil
 	case device.FieldSource:
 		m.ClearSource()
@@ -6583,6 +6653,9 @@ func (m *DeviceMutation) ResetField(name string) error {
 		return nil
 	case device.FieldProperties:
 		m.ResetProperties()
+		return nil
+	case device.FieldSecretBinding:
+		m.ResetSecretBinding()
 		return nil
 	case device.FieldVersion:
 		m.ResetVersion()
@@ -16080,6 +16153,7 @@ type SavedLaunchConfigMutation struct {
 	name            *string
 	fields          *map[string]interface{}
 	answers         *map[string]interface{}
+	secret_binding  *string
 	clearedFields   map[string]struct{}
 	template        *int
 	clearedtemplate bool
@@ -16405,6 +16479,55 @@ func (m *SavedLaunchConfigMutation) ResetAnswers() {
 	delete(m.clearedFields, savedlaunchconfig.FieldAnswers)
 }
 
+// SetSecretBinding sets the "secret_binding" field.
+func (m *SavedLaunchConfigMutation) SetSecretBinding(s string) {
+	m.secret_binding = &s
+}
+
+// SecretBinding returns the value of the "secret_binding" field in the mutation.
+func (m *SavedLaunchConfigMutation) SecretBinding() (r string, exists bool) {
+	v := m.secret_binding
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretBinding returns the old "secret_binding" field's value of the SavedLaunchConfig entity.
+// If the SavedLaunchConfig object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SavedLaunchConfigMutation) OldSecretBinding(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretBinding is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretBinding requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretBinding: %w", err)
+	}
+	return oldValue.SecretBinding, nil
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (m *SavedLaunchConfigMutation) ClearSecretBinding() {
+	m.secret_binding = nil
+	m.clearedFields[savedlaunchconfig.FieldSecretBinding] = struct{}{}
+}
+
+// SecretBindingCleared returns if the "secret_binding" field was cleared in this mutation.
+func (m *SavedLaunchConfigMutation) SecretBindingCleared() bool {
+	_, ok := m.clearedFields[savedlaunchconfig.FieldSecretBinding]
+	return ok
+}
+
+// ResetSecretBinding resets all changes to the "secret_binding" field.
+func (m *SavedLaunchConfigMutation) ResetSecretBinding() {
+	m.secret_binding = nil
+	delete(m.clearedFields, savedlaunchconfig.FieldSecretBinding)
+}
+
 // SetTemplateID sets the "template" edge to the Template entity by id.
 func (m *SavedLaunchConfigMutation) SetTemplateID(id int) {
 	m.template = &id
@@ -16478,7 +16601,7 @@ func (m *SavedLaunchConfigMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SavedLaunchConfigMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, savedlaunchconfig.FieldCreatedAt)
 	}
@@ -16493,6 +16616,9 @@ func (m *SavedLaunchConfigMutation) Fields() []string {
 	}
 	if m.answers != nil {
 		fields = append(fields, savedlaunchconfig.FieldAnswers)
+	}
+	if m.secret_binding != nil {
+		fields = append(fields, savedlaunchconfig.FieldSecretBinding)
 	}
 	return fields
 }
@@ -16512,6 +16638,8 @@ func (m *SavedLaunchConfigMutation) Field(name string) (ent.Value, bool) {
 		return m.GetFields()
 	case savedlaunchconfig.FieldAnswers:
 		return m.Answers()
+	case savedlaunchconfig.FieldSecretBinding:
+		return m.SecretBinding()
 	}
 	return nil, false
 }
@@ -16531,6 +16659,8 @@ func (m *SavedLaunchConfigMutation) OldField(ctx context.Context, name string) (
 		return m.OldFields(ctx)
 	case savedlaunchconfig.FieldAnswers:
 		return m.OldAnswers(ctx)
+	case savedlaunchconfig.FieldSecretBinding:
+		return m.OldSecretBinding(ctx)
 	}
 	return nil, fmt.Errorf("unknown SavedLaunchConfig field %s", name)
 }
@@ -16575,6 +16705,13 @@ func (m *SavedLaunchConfigMutation) SetField(name string, value ent.Value) error
 		}
 		m.SetAnswers(v)
 		return nil
+	case savedlaunchconfig.FieldSecretBinding:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretBinding(v)
+		return nil
 	}
 	return fmt.Errorf("unknown SavedLaunchConfig field %s", name)
 }
@@ -16614,6 +16751,9 @@ func (m *SavedLaunchConfigMutation) ClearedFields() []string {
 	if m.FieldCleared(savedlaunchconfig.FieldAnswers) {
 		fields = append(fields, savedlaunchconfig.FieldAnswers)
 	}
+	if m.FieldCleared(savedlaunchconfig.FieldSecretBinding) {
+		fields = append(fields, savedlaunchconfig.FieldSecretBinding)
+	}
 	return fields
 }
 
@@ -16637,6 +16777,9 @@ func (m *SavedLaunchConfigMutation) ClearField(name string) error {
 	case savedlaunchconfig.FieldAnswers:
 		m.ClearAnswers()
 		return nil
+	case savedlaunchconfig.FieldSecretBinding:
+		m.ClearSecretBinding()
+		return nil
 	}
 	return fmt.Errorf("unknown SavedLaunchConfig nullable field %s", name)
 }
@@ -16659,6 +16802,9 @@ func (m *SavedLaunchConfigMutation) ResetField(name string) error {
 		return nil
 	case savedlaunchconfig.FieldAnswers:
 		m.ResetAnswers()
+		return nil
+	case savedlaunchconfig.FieldSecretBinding:
+		m.ResetSecretBinding()
 		return nil
 	}
 	return fmt.Errorf("unknown SavedLaunchConfig field %s", name)

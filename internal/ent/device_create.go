@@ -85,6 +85,20 @@ func (_c *DeviceCreate) SetProperties(v map[string]interface{}) *DeviceCreate {
 	return _c
 }
 
+// SetSecretBinding sets the "secret_binding" field.
+func (_c *DeviceCreate) SetSecretBinding(v string) *DeviceCreate {
+	_c.mutation.SetSecretBinding(v)
+	return _c
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_c *DeviceCreate) SetNillableSecretBinding(v *string) *DeviceCreate {
+	if v != nil {
+		_c.SetSecretBinding(*v)
+	}
+	return _c
+}
+
 // SetVersion sets the "version" field.
 func (_c *DeviceCreate) SetVersion(v uint64) *DeviceCreate {
 	_c.mutation.SetVersion(v)
@@ -307,6 +321,10 @@ func (_c *DeviceCreate) defaults() {
 		v := device.DefaultDeviceID()
 		_c.mutation.SetDeviceID(v)
 	}
+	if _, ok := _c.mutation.SecretBinding(); !ok {
+		v := device.DefaultSecretBinding()
+		_c.mutation.SetSecretBinding(v)
+	}
 	if _, ok := _c.mutation.Version(); !ok {
 		v := device.DefaultVersion
 		_c.mutation.SetVersion(v)
@@ -409,6 +427,10 @@ func (_c *DeviceCreate) createSpec() (*Device, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Properties(); ok {
 		_spec.SetField(device.FieldProperties, field.TypeJSON, value)
 		_node.Properties = value
+	}
+	if value, ok := _c.mutation.SecretBinding(); ok {
+		_spec.SetField(device.FieldSecretBinding, field.TypeString, value)
+		_node.SecretBinding = value
 	}
 	if value, ok := _c.mutation.Version(); ok {
 		_spec.SetField(device.FieldVersion, field.TypeUint64, value)

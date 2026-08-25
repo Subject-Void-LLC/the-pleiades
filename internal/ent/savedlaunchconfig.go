@@ -29,6 +29,8 @@ type SavedLaunchConfig struct {
 	Fields map[string]interface{} `json:"fields,omitempty"`
 	// Answers holds the value of the "answers" field.
 	Answers map[string]interface{} `json:"answers,omitempty"`
+	// SecretBinding holds the value of the "secret_binding" field.
+	SecretBinding string `json:"secret_binding,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the SavedLaunchConfigQuery when eager-loading is set.
 	Edges                  SavedLaunchConfigEdges `json:"edges"`
@@ -65,7 +67,7 @@ func (*SavedLaunchConfig) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case savedlaunchconfig.FieldID:
 			values[i] = new(sql.NullInt64)
-		case savedlaunchconfig.FieldName:
+		case savedlaunchconfig.FieldName, savedlaunchconfig.FieldSecretBinding:
 			values[i] = new(sql.NullString)
 		case savedlaunchconfig.FieldCreatedAt, savedlaunchconfig.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -125,6 +127,12 @@ func (_m *SavedLaunchConfig) assignValues(columns []string, values []any) error 
 				if err := json.Unmarshal(*value, &_m.Answers); err != nil {
 					return fmt.Errorf("unmarshal field answers: %w", err)
 				}
+			}
+		case savedlaunchconfig.FieldSecretBinding:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field secret_binding", values[i])
+			} else if value.Valid {
+				_m.SecretBinding = value.String
 			}
 		case savedlaunchconfig.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -188,6 +196,9 @@ func (_m *SavedLaunchConfig) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("answers=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Answers))
+	builder.WriteString(", ")
+	builder.WriteString("secret_binding=")
+	builder.WriteString(_m.SecretBinding)
 	builder.WriteByte(')')
 	return builder.String()
 }

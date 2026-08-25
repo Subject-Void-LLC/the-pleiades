@@ -50,13 +50,37 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 	return r.uow.WithTx(ctx, func(txCtx context.Context) error {
 		client := r.entClient(txCtx)
 
-		// The conditional update. Matching on both device_id (the stable
-		// opaque identifier, not the internal auto-increment primary key)
-		// and the loaded version is what makes this compare-and-swap
-		// rather than last-write-wins: if another writer already moved
-		// the row, this matches zero rows.
-		update := client.Device.Update().
-			Where(device.DeviceIDEQ(string(item.ID())), device.VersionEQ(baseVersion)).
+		// The row's internal primary key, resolved once and used twice:
+		// by the conditional update below and by the revision edge further
+		// down. That second lookup already existed; hoisting it is what
+		// lets this write name exactly one row.
+		//
+		// Phase 78c is why this is UpdateOneID rather than the bulk
+		// Update builder it used to be. Device.properties is now sealed
+		// against the row's own secret_binding, and a bulk update cannot
+		// read that column: ent exposes OldSecretBinding on UpdateOne
+		// alone. That is not a limitation being worked around, it is the
+		// same rule the credential store already lives under, and it says
+		// something true about this call, which always meant one row and
+		// merely expressed itself as a predicate over many.
+		devRow, err := client.Device.Query().
+			Where(device.DeviceIDEQ(string(item.ID()))).
+			Only(txCtx)
+		if err != nil {
+			if ent.IsNotFound(err) {
+				// The row is gone. Same conclusion as a version that
+				// moved: the change was computed against state that no
+				// longer exists, so the caller must reload.
+				return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
+			}
+			return fmt.Errorf("failed to resolve internal id for %s: %w", item.Name(), err)
+		}
+
+		// The conditional update. Matching on the loaded version is what
+		// makes this compare-and-swap rather than last-write-wins: if
+		// another writer already moved the row, this matches nothing.
+		update := client.Device.UpdateOneID(devRow.ID).
+			Where(device.VersionEQ(baseVersion)).
 			SetProperties(item.Properties().Raw()).
 			SetVersion(current).
 			SetState(item.State().String()).
@@ -79,27 +103,22 @@ func (r *entRepository) Save(ctx context.Context, item inventory.InventoryItem) 
 			}
 		}
 
-		affected, err := update.Save(txCtx)
-		if err != nil {
+		if _, err := update.Save(txCtx); err != nil {
+			if ent.IsNotFound(err) {
+				// The version moved between the lookup above and this
+				// write, so the change was computed against state that no
+				// longer exists and the caller must reload rather than
+				// retry. UpdateOne reports an unmatched predicate as a
+				// not-found rather than as zero rows affected, which is
+				// the one behavioural difference from the bulk builder
+				// this call used before Phase 78c.
+				return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
+			}
 			return fmt.Errorf("failed to update device %s: %w", item.Name(), err)
-		}
-		if affected == 0 {
-			// Either the row is gone or its version moved. Both mean the
-			// change was computed against state that no longer exists, so
-			// the caller must reload rather than retry.
-			return fmt.Errorf("saving %s at version %d: %w", item.Name(), baseVersion, ErrVersionConflict)
 		}
 
 		if len(pending) == 0 {
 			return nil
-		}
-
-		// The Revision edge FK is ent's own internal integer primary key,
-		// not the opaque device_id item.ID() carries. One lookup, reused
-		// across every pending revision below, resolves it.
-		devRow, err := client.Device.Query().Where(device.DeviceIDEQ(string(item.ID()))).Only(txCtx)
-		if err != nil {
-			return fmt.Errorf("failed to resolve internal id for %s after update: %w", item.Name(), err)
 		}
 
 		for _, rev := range pending {

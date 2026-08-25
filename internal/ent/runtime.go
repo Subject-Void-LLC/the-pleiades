@@ -225,12 +225,16 @@ func init() {
 	deviceDescType := deviceFields[2].Descriptor()
 	// device.TypeValidator is a validator for the "type" field. It is called by the builders before save.
 	device.TypeValidator = deviceDescType.Validators[0].(func(string) error)
+	// deviceDescSecretBinding is the schema descriptor for secret_binding field.
+	deviceDescSecretBinding := deviceFields[4].Descriptor()
+	// device.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	device.DefaultSecretBinding = deviceDescSecretBinding.Default.(func() string)
 	// deviceDescVersion is the schema descriptor for version field.
-	deviceDescVersion := deviceFields[4].Descriptor()
+	deviceDescVersion := deviceFields[5].Descriptor()
 	// device.DefaultVersion holds the default value on creation for the version field.
 	device.DefaultVersion = deviceDescVersion.Default.(uint64)
 	// deviceDescState is the schema descriptor for state field.
-	deviceDescState := deviceFields[5].Descriptor()
+	deviceDescState := deviceFields[6].Descriptor()
 	// device.DefaultState holds the default value on creation for the state field.
 	device.DefaultState = deviceDescState.Default.(string)
 	// device.StateValidator is a validator for the "state" field. It is called by the builders before save.
@@ -479,6 +483,10 @@ func init() {
 	savedlaunchconfig.DefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.Default.(func() time.Time)
 	// savedlaunchconfig.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	savedlaunchconfig.UpdateDefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// savedlaunchconfigDescSecretBinding is the schema descriptor for secret_binding field.
+	savedlaunchconfigDescSecretBinding := savedlaunchconfigFields[3].Descriptor()
+	// savedlaunchconfig.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	savedlaunchconfig.DefaultSecretBinding = savedlaunchconfigDescSecretBinding.Default.(func() string)
 	scheduleMixin := schema.Schedule{}.Mixin()
 	scheduleMixinFields0 := scheduleMixin[0].Fields()
 	_ = scheduleMixinFields0

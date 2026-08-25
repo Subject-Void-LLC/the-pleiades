@@ -80,6 +80,11 @@ func Type(v string) predicate.Device {
 	return predicate.Device(sql.FieldEQ(FieldType, v))
 }
 
+// SecretBinding applies equality check predicate on the "secret_binding" field. It's identical to SecretBindingEQ.
+func SecretBinding(v string) predicate.Device {
+	return predicate.Device(sql.FieldEQ(FieldSecretBinding, v))
+}
+
 // Version applies equality check predicate on the "version" field. It's identical to VersionEQ.
 func Version(v uint64) predicate.Device {
 	return predicate.Device(sql.FieldEQ(FieldVersion, v))
@@ -383,6 +388,81 @@ func PropertiesIsNil() predicate.Device {
 // PropertiesNotNil applies the NotNil predicate on the "properties" field.
 func PropertiesNotNil() predicate.Device {
 	return predicate.Device(sql.FieldNotNull(FieldProperties))
+}
+
+// SecretBindingEQ applies the EQ predicate on the "secret_binding" field.
+func SecretBindingEQ(v string) predicate.Device {
+	return predicate.Device(sql.FieldEQ(FieldSecretBinding, v))
+}
+
+// SecretBindingNEQ applies the NEQ predicate on the "secret_binding" field.
+func SecretBindingNEQ(v string) predicate.Device {
+	return predicate.Device(sql.FieldNEQ(FieldSecretBinding, v))
+}
+
+// SecretBindingIn applies the In predicate on the "secret_binding" field.
+func SecretBindingIn(vs ...string) predicate.Device {
+	return predicate.Device(sql.FieldIn(FieldSecretBinding, vs...))
+}
+
+// SecretBindingNotIn applies the NotIn predicate on the "secret_binding" field.
+func SecretBindingNotIn(vs ...string) predicate.Device {
+	return predicate.Device(sql.FieldNotIn(FieldSecretBinding, vs...))
+}
+
+// SecretBindingGT applies the GT predicate on the "secret_binding" field.
+func SecretBindingGT(v string) predicate.Device {
+	return predicate.Device(sql.FieldGT(FieldSecretBinding, v))
+}
+
+// SecretBindingGTE applies the GTE predicate on the "secret_binding" field.
+func SecretBindingGTE(v string) predicate.Device {
+	return predicate.Device(sql.FieldGTE(FieldSecretBinding, v))
+}
+
+// SecretBindingLT applies the LT predicate on the "secret_binding" field.
+func SecretBindingLT(v string) predicate.Device {
+	return predicate.Device(sql.FieldLT(FieldSecretBinding, v))
+}
+
+// SecretBindingLTE applies the LTE predicate on the "secret_binding" field.
+func SecretBindingLTE(v string) predicate.Device {
+	return predicate.Device(sql.FieldLTE(FieldSecretBinding, v))
+}
+
+// SecretBindingContains applies the Contains predicate on the "secret_binding" field.
+func SecretBindingContains(v string) predicate.Device {
+	return predicate.Device(sql.FieldContains(FieldSecretBinding, v))
+}
+
+// SecretBindingHasPrefix applies the HasPrefix predicate on the "secret_binding" field.
+func SecretBindingHasPrefix(v string) predicate.Device {
+	return predicate.Device(sql.FieldHasPrefix(FieldSecretBinding, v))
+}
+
+// SecretBindingHasSuffix applies the HasSuffix predicate on the "secret_binding" field.
+func SecretBindingHasSuffix(v string) predicate.Device {
+	return predicate.Device(sql.FieldHasSuffix(FieldSecretBinding, v))
+}
+
+// SecretBindingIsNil applies the IsNil predicate on the "secret_binding" field.
+func SecretBindingIsNil() predicate.Device {
+	return predicate.Device(sql.FieldIsNull(FieldSecretBinding))
+}
+
+// SecretBindingNotNil applies the NotNil predicate on the "secret_binding" field.
+func SecretBindingNotNil() predicate.Device {
+	return predicate.Device(sql.FieldNotNull(FieldSecretBinding))
+}
+
+// SecretBindingEqualFold applies the EqualFold predicate on the "secret_binding" field.
+func SecretBindingEqualFold(v string) predicate.Device {
+	return predicate.Device(sql.FieldEqualFold(FieldSecretBinding, v))
+}
+
+// SecretBindingContainsFold applies the ContainsFold predicate on the "secret_binding" field.
+func SecretBindingContainsFold(v string) predicate.Device {
+	return predicate.Device(sql.FieldContainsFold(FieldSecretBinding, v))
 }
 
 // VersionEQ applies the EQ predicate on the "version" field.

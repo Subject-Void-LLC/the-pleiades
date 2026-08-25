@@ -57,9 +57,12 @@ The chart will not generate them for you, and that is deliberate. Helm can
 produce a random value, but it would produce a *different* one on the next
 `helm upgrade`, because `helm template` has no cluster to read the previous value
 back from. A rotated `JWT_SECRET` signs everybody out, which is annoying and
-recoverable. A rotated `MASTER_ENCRYPTION_KEY` makes every stored credential and
-every encrypted device property permanently undecryptable, with no error at
-upgrade time. Keep all three somewhere you can find again, or hand the chart a
+recoverable. A `MASTER_ENCRYPTION_KEY` replaced without
+keeping the old one makes every stored credential and every encrypted device
+property permanently undecryptable, with no error at upgrade time. Rotating it
+properly, by keeping the old key in the previous slot and running a rotation
+pass, is described under [Rotating the master key](#rotating-the-master-key)
+below. Keep all three somewhere you can find again, or hand the chart a
 Secret you manage yourself with `secrets.existingSecret`.
 
 Then create the first administrator, which is the real next step and the one the
@@ -726,6 +729,34 @@ For a Vault source, the binding's metadata carries AWX's own field names, so an 
 mount, defaulting to `secret`), `secret_path`, `secret_key`, and optionally
 `secret_version`. A path element that would address something other than the secret
 it names, such as a `..`, is refused rather than cleaned.
+
+### Rotating the master key
+
+`MASTER_ENCRYPTION_KEY` can be replaced without downtime, and without losing
+anything, as long as the old key stays available while the change is in flight.
+
+Set the new key as the current one and the old key as the previous one. Every
+read tries the current key and falls back to the previous, so nothing breaks the
+moment the process restarts. Then run a rotation pass, which re-encrypts every
+row under the new key. There is one pass per entity that stores a secret:
+credentials, devices and saved launch configurations.
+
+**Do not remove the old key until every pass reports that it has converted every
+row.** A row that has not been re-encrypted yet can only be opened with the old
+key, so taking it away early strands that row permanently. Each pass returns the
+number of rows it converted, which is how you tell it has finished.
+
+The passes also do a second job. Devices and saved launch configurations used to
+be encrypted without binding the ciphertext to the row it belongs to, which meant
+a value copied from one row to another would still decrypt. That is closed now,
+and a rotation pass is what converts an older row to the new form.
+
+A device converts itself as a side effect of ordinary use, because anything that
+writes its properties rewrites them bound. **A saved launch configuration does
+not**: nothing in this platform ever rewrites its answers, so a rotation pass is
+the only thing that will ever migrate one. Survey answers are the one path by
+which a password reaches a stored row, so that pass is worth running even if you
+are not changing keys.
 
 ### Credential storage
 

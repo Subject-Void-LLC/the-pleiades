@@ -244,6 +244,7 @@ var (
 		{Name: "name", Type: field.TypeString, Unique: true},
 		{Name: "type", Type: field.TypeString},
 		{Name: "properties", Type: field.TypeJSON, Nullable: true},
+		{Name: "secret_binding", Type: field.TypeString, Nullable: true},
 		{Name: "version", Type: field.TypeUint64, Default: 0},
 		{Name: "state", Type: field.TypeString, Default: "active"},
 		{Name: "source", Type: field.TypeString, Nullable: true},
@@ -260,13 +261,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "devices_devices_children",
-				Columns:    []*schema.Column{DevicesColumns[12]},
+				Columns:    []*schema.Column{DevicesColumns[13]},
 				RefColumns: []*schema.Column{DevicesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "devices_organizations_devices",
-				Columns:    []*schema.Column{DevicesColumns[13]},
+				Columns:    []*schema.Column{DevicesColumns[14]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -545,6 +546,7 @@ var (
 		{Name: "name", Type: field.TypeString, Nullable: true},
 		{Name: "fields", Type: field.TypeJSON, Nullable: true},
 		{Name: "answers", Type: field.TypeJSON, Nullable: true},
+		{Name: "secret_binding", Type: field.TypeString, Nullable: true},
 		{Name: "template_saved_configs", Type: field.TypeInt},
 	}
 	// SavedLaunchConfigsTable holds the schema information for the "saved_launch_configs" table.
@@ -555,7 +557,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "saved_launch_configs_templates_saved_configs",
-				Columns:    []*schema.Column{SavedLaunchConfigsColumns[6]},
+				Columns:    []*schema.Column{SavedLaunchConfigsColumns[7]},
 				RefColumns: []*schema.Column{TemplatesColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -564,7 +566,7 @@ var (
 			{
 				Name:    "savedlaunchconfig_name_template_saved_configs",
 				Unique:  false,
-				Columns: []*schema.Column{SavedLaunchConfigsColumns[3], SavedLaunchConfigsColumns[6]},
+				Columns: []*schema.Column{SavedLaunchConfigsColumns[3], SavedLaunchConfigsColumns[7]},
 			},
 		},
 	}

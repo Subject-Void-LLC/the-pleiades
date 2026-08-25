@@ -66,6 +66,26 @@ func (_u *DeviceUpdate) ClearProperties() *DeviceUpdate {
 	return _u
 }
 
+// SetSecretBinding sets the "secret_binding" field.
+func (_u *DeviceUpdate) SetSecretBinding(v string) *DeviceUpdate {
+	_u.mutation.SetSecretBinding(v)
+	return _u
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_u *DeviceUpdate) SetNillableSecretBinding(v *string) *DeviceUpdate {
+	if v != nil {
+		_u.SetSecretBinding(*v)
+	}
+	return _u
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (_u *DeviceUpdate) ClearSecretBinding() *DeviceUpdate {
+	_u.mutation.ClearSecretBinding()
+	return _u
+}
+
 // SetVersion sets the "version" field.
 func (_u *DeviceUpdate) SetVersion(v uint64) *DeviceUpdate {
 	_u.mutation.ResetVersion()
@@ -469,6 +489,12 @@ func (_u *DeviceUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(device.FieldProperties, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.SecretBinding(); ok {
+		_spec.SetField(device.FieldSecretBinding, field.TypeString, value)
+	}
+	if _u.mutation.SecretBindingCleared() {
+		_spec.ClearField(device.FieldSecretBinding, field.TypeString)
+	}
 	if value, ok := _u.mutation.Version(); ok {
 		_spec.SetField(device.FieldVersion, field.TypeUint64, value)
 	}
@@ -833,6 +859,26 @@ func (_u *DeviceUpdateOne) SetProperties(v map[string]interface{}) *DeviceUpdate
 // ClearProperties clears the value of the "properties" field.
 func (_u *DeviceUpdateOne) ClearProperties() *DeviceUpdateOne {
 	_u.mutation.ClearProperties()
+	return _u
+}
+
+// SetSecretBinding sets the "secret_binding" field.
+func (_u *DeviceUpdateOne) SetSecretBinding(v string) *DeviceUpdateOne {
+	_u.mutation.SetSecretBinding(v)
+	return _u
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_u *DeviceUpdateOne) SetNillableSecretBinding(v *string) *DeviceUpdateOne {
+	if v != nil {
+		_u.SetSecretBinding(*v)
+	}
+	return _u
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (_u *DeviceUpdateOne) ClearSecretBinding() *DeviceUpdateOne {
+	_u.mutation.ClearSecretBinding()
 	return _u
 }
 
@@ -1268,6 +1314,12 @@ func (_u *DeviceUpdateOne) sqlSave(ctx context.Context) (_node *Device, err erro
 	}
 	if _u.mutation.PropertiesCleared() {
 		_spec.ClearField(device.FieldProperties, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.SecretBinding(); ok {
+		_spec.SetField(device.FieldSecretBinding, field.TypeString, value)
+	}
+	if _u.mutation.SecretBindingCleared() {
+		_spec.ClearField(device.FieldSecretBinding, field.TypeString)
 	}
 	if value, ok := _u.mutation.Version(); ok {
 		_spec.SetField(device.FieldVersion, field.TypeUint64, value)

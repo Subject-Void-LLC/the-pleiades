@@ -4,7 +4,9 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
+
 	"entgo.io/ent/schema/index"
+	"github.com/google/uuid"
 )
 
 // SavedLaunchConfig holds the schema definition for a stored bundle of
@@ -68,6 +70,36 @@ func (SavedLaunchConfig) Fields() []ent.Field {
 		// variables. At rest and on the wire are two different exposures
 		// and one control does not cover both.
 		field.JSON("answers", map[string]any{}).Optional(),
+
+		// secret_binding is the associated data that binds this row's
+		// encrypted answers to this row.
+		//
+		// internal/crypto/envelope_bound.go closed this gap for Credential
+		// in Phase 22 and recorded SavedLaunchConfig.answers as a known residual, with the
+		// reason it was deferred: migrating it needs a rotation pass over
+		// live encrypted data, which is its own piece of work with its own
+		// failure modes. Phase 78c is that work.
+		//
+		// Two differences from Credential.secret_binding, both forced.
+		//
+		// Optional, because this column arrives on a table that already has
+		// rows. A migration cannot generate a UUID per row portably (SQLite
+		// has no function for it), so an existing row carries an empty
+		// binding until something writes it. RotateDeviceProperties assigns
+		// one as it converts, and the write hook assigns one to any row it
+		// touches first.
+		//
+		// NOT Immutable, for the same reason. Credential's is immutable so
+		// it cannot be edited to match a ciphertext somebody wants to
+		// relocate, and that protection is worth having; here the column
+		// has to be settable exactly once, on a row that has none, or no
+		// existing row could ever be migrated. The application only ever
+		// sets it when it is empty. The residual is the same class
+		// Credential's own comment already records: a direct SQL writer
+		// bypasses every rule this schema expresses.
+		field.String("secret_binding").
+			Optional().
+			DefaultFunc(uuid.NewString),
 	}
 }
 
