@@ -194,6 +194,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
+	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
@@ -201,6 +202,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \
 	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
+	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
 	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
