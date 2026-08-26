@@ -2,7 +2,6 @@ package lock_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -12,7 +11,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/testsupport"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/nats"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -25,11 +23,19 @@ import (
 // injection shaped) and AcquireOptions. Every fuzzed itemID is namespaced
 // with a monotonic counter so iterations can never collide with each
 // other's leftover state, while the fuzzed content itself still reaches
-// kvSubject's own hand-built "$KV.<bucket>.<key>" subject construction, the
-// real boundary this test exists to harden (see nats.go's own doc comment
-// on kvSubject). An earlier version of this test fuzzed a string and did
-// nothing with it, never calling Acquire at all: zero coverage wearing a
-// fuzz test's shape (FAILURE_PATTERNS.md).
+// kvKey's encoding and, through it, kvSubject's own hand-built
+// "$KV.<bucket>.<key>" subject construction, the real boundary this test
+// exists to harden (see nats.go's own doc comments on kvKey and
+// kvSubject). Since FAILURE_PATTERNS.md #206's fix, the property asserted
+// is total: EVERY itemID must acquire and release cleanly, because kvKey
+// encodes it to a single legal subject token before the client ever sees
+// it. There is deliberately no allowance for a validation error any more;
+// the old allowances (nats.go's ErrInvalidKey, itemIDValid's ".."
+// rejection) described pre-encoder behavior, and keeping them would let a
+// regression in the encoder hide inside a tolerated branch. An earlier
+// version of this test fuzzed a string and did nothing with it, never
+// calling Acquire at all: zero coverage wearing a fuzz test's shape
+// (FAILURE_PATTERNS.md).
 func FuzzLockAcquisition(f *testing.F) {
 	if testing.Short() {
 		f.Skip("skipping integration fuzz target in short mode")
@@ -44,8 +50,14 @@ func FuzzLockAcquisition(f *testing.F) {
 	// Regression pin: consecutive dots pass nats.go's own key validation
 	// but produce an empty NATS subject token, which the server never
 	// acknowledges at all (a real, fuzz-caught multi-second timeout, not a
-	// clean error, before itemIDValid started rejecting this up front).
+	// clean error, in the pre-encoder code that interpolated the raw
+	// itemID into the subject). kvKey's encoding must turn this into an
+	// ordinary clean acquire, not a timeout and not a rejection.
 	f.Add("..0", int64(5*time.Second), 0)
+	// The itemID shape FAILURE_PATTERNS.md #206 is about: dots are legal
+	// in a KV key, so this used to store a five-token subject where three
+	// were intended, which a per-device grant could never name.
+	f.Add("router1.example.com", int64(5*time.Second), 0)
 
 	ctx := context.Background()
 	natsContainer, err := nats.RunContainer(ctx,
@@ -108,19 +120,10 @@ func FuzzLockAcquisition(f *testing.F) {
 			return
 		}
 		if err != nil {
-			if errors.Is(err, lock.ErrLockHeld) || errors.Is(err, jetstream.ErrInvalidKey) || strings.Contains(id, "..") {
-				// All legitimate outcomes: real contention, a fuzzed
-				// itemID containing characters NATS's own KV key
-				// validation rejects (e.g. whitespace, '*', '>') before
-				// this package's own code ever runs, or consecutive dots
-				// (nats.go's own key validation would accept these but
-				// itemIDValid rejects them first; see its own doc
-				// comment). A real caller only ever passes an inventory
-				// device ID here, never arbitrary user input, so
-				// rejecting an invalid one cleanly is correct, not a
-				// defect to chase.
-				return
-			}
+			// No allowances: the counter makes every id unique (so
+			// ErrLockHeld is impossible), and kvKey makes every id legal
+			// (so the client's own key validation can never fire). Any
+			// error here is a real defect.
 			t.Fatalf("unexpected error acquiring lock for %q: %v", id, err)
 		}
 		if err := lease.Release(acquireCtx); err != nil {

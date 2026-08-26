@@ -3692,8 +3692,21 @@ exactly like a hazard that does not exist. Nobody reading the file saw a
 bug, because there wasn't one yet. The device id was the input that would
 have fired it: `pkg/inventory` documents it as opaque and operator-supplied,
 so an entirely ordinary `router1.example.com` would have expanded a
-three-token subject into a six-token one, matched no filter this package
-declares, and silently stopped that device being dispatched to anybody.
+three-token subject into a six-token one.
+
+One correction belongs here rather than in a quiet edit, because the
+overstatement is itself an instance of the lesson. This entry first claimed
+such a subject would match no filter this package declares and would
+silently stop that device being dispatched to anybody. That is false. The
+fleet filter ends in `>`, which matches one or more trailing tokens, so the
+dispatch would have been delivered normally; a single-token `*` filter is
+what receives nothing. Both halves were verified against a real broker
+rather than reasoned about, and the reasoning that produced the wrong
+version was the same shortcut the rest of this entry is about: an
+unexamined assumption about how something behaves, believed because it made
+the story tidier. What an over-wide id actually breaks is every
+single-token per-device filter, which is the scoping mechanism the next
+stage depends on.
 
 Two habits come out of it.
 
@@ -3713,3 +3726,62 @@ exceptions then have to be loud, because they look like oversights:
 `DeadLetterSubject` and `EventSubject` both receive an already-dotted value
 on purpose, and each now says so in its own comment, or the next tidy-up
 "fixes" them and breaks the dead letter path.
+
+## 170. An identity-function diagnostic exonerates only the call sites a value flows through, because identity makes a wrongly passed argument accidentally correct
+
+FAILURE_PATTERNS.md #206's first fix split `internal/lock`'s NATS adapter
+into an itemID (what the caller passed, what `ID()` returns) and a stored
+key (the encoded value every broker operation uses). It failed against the
+conformance suite in a way that read as a broker mystery: shared-mode
+churn collapsing with "key not found" and "lease is no longer current"
+while, apparently, every call site used the encoded value.
+
+Two diagnostics were run, and both produced answers that were precisely
+wrong.
+
+Setting the encoder to the identity function made the suite pass, which
+was read as "the refactor is correct, the encoding breaks it". But the
+refactor had missed three call sites: `publishWithTTL`, which hand-builds
+the "$KV.<bucket>.<key>" subject, had four callers, and three still passed
+the lease's raw `itemID`. Under identity, itemID and key are equal, so a
+wrongly passed itemID lands on the right subject anyway. Identity does not
+exercise a split; it erases it. A diagnostic input with a fixed point at
+the bug's location cannot see the bug.
+
+Substituting `itemID + "-x"` for the real encoder failed identically to
+it, which was read as "any deviation of key from itemID breaks it, so the
+cause is in shared-mode CAS, not the encoding". The correlation was
+perfect and the conclusion inverted: ANY non-identity encoder exposes the
+three missed sites equally, because what breaks is the disagreement
+between the switched sites and the missed ones, not the encoding itself.
+
+The observed failure mechanics, for the record: the three missed publishes
+carried CAS expectations taken from the encoded key's revision history to
+the raw-itemID subject, which could never satisfy them, so every
+TTL-refresh spun in its retry loop until the never-refreshed 5s per-key
+TTL expired the lock underneath it. A fourth distortion stacked on top:
+"exclusive mode untouched" came from reading a `tail -4` of the output
+while the exclusive KeepAlive conformance failure scrolled past above it,
+believable because every lifecycle test of exclusive KeepAlive asserts a
+failure path and none asserted that a healthy refresh actually lands.
+
+The resolution came from refusing to trust the recorded reading: the
+attempt was reconstructed exactly from the session transcript, reproduced
+against a real broker, and fixed by switching only the three missed sites.
+The shipped form then retired the whole error class instead of the one
+instance: the encoded key is a distinct Go type (`storedKey`), the
+subject-building functions accept only it, and passing a raw itemID where
+a key belongs became a compile error, which was verified by writing that
+exact mistake and watching the build refuse it.
+
+The rule: when a diagnostic simplification makes a failure disappear, ask
+what else it made equal before believing what it seems to isolate. An
+identity function, a shared fixture, a zero value, a same-string rename:
+each collapses a distinction, and any bug living exactly in that
+distinction is invisible under it. Prefer a probe that keeps every
+distinction and varies one (here: the real encoder with one call site
+switched at a time), and when two variants "fail identically", diff the
+failure MECHANISM, not just the failure count, before concluding they
+share a cause. And when a mistake is one a comment must warn against,
+give the two things different types so the compiler runs the sweep every
+build, on every site, including the ones nobody re-read.

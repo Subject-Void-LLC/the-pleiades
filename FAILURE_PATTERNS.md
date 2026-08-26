@@ -205,6 +205,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 202. A phase spec's checkmarks, doc comments, and a specific bug story all described code that was never written
 203. A phase section was rewritten to correct a fabrication, and silently dropped two of the mandatory gates in the process
 204. A capability was given only its structural half, so it passed the architecture sweep and no real device could ever satisfy it
+205. A colon in a KV key made the Runner's duplicate suppression client-side invalid, and the error was swallowed as a warning, so the feature has never once run
+206. A hazard closed for the dispatch subject was left open in the lock subject, whose own comment argued it could not happen
 
 ---
 

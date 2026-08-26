@@ -189,6 +189,8 @@ story, per `.AGENTS/AGENTS.md`.
 ---
 169. **A hazard closed in one function is not closed in its siblings, and a latent one reads as no hazard at all: `DurableName` was hardened against a caller-supplied string becoming an illegal NATS identifier while three functions in the same file concatenated one straight into a subject, invisible because their inputs happened to be UUIDs, so judge a sibling by the input it COULD receive and put the mapping inside the builder rather than at its callers, since the publisher and the subscriber are different processes.**
 
+170. **An identity-function diagnostic exonerates only the call sites a value flows through, because identity makes a wrongly passed argument accidentally correct: #206's "the refactor is correct, the encoding breaks it" was three missed call sites wearing a broker mystery, and the "-x" probe that seemed to isolate the encoding tracked those same missed sites perfectly, so when a simplification makes a failure disappear ask what else it made equal, and when a mistake is one a comment must warn against give the two things different types so the compiler sweeps every site on every build.**
+
 Each entry above is the rule only. Full reasoning and the incident that produced it lives in [`LESSONS_LEARNED_ARCHIVE.md`](LESSONS_LEARNED_ARCHIVE.md), same entry numbers. Read an archive entry when its rule is directly relevant to what you're doing and you need the *why*; the rule sentence above is usually enough on its own.
 
 Append a new entry to the archive first, in full, then add its one-line, same-numbered rule here. Never renumber an existing entry.

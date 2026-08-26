@@ -253,11 +253,10 @@ func (d *dirSource) resolve(ctx context.Context, id string) (cacheEntry, error) 
 	// Step 2: build the candidate path, then defensively re-verify it is
 	// still lexically inside dir. Given validRunbookID above already
 	// excludes "/", "\", and ".", this branch should be structurally
-	// unreachable; it is kept anyway as belt-and-suspenders, in the same
-	// spirit as internal/lock/nats.go's own itemIDValid: a cheap, total
-	// check on this package's own real injection boundary costs nothing,
-	// and it does not depend on validRunbookID never changing in some way
-	// that reopens this gap in the future.
+	// unreachable; it is kept anyway as belt-and-suspenders: a cheap,
+	// total check on this package's own real injection boundary costs
+	// nothing, and it does not depend on validRunbookID never changing in
+	// some way that reopens this gap in the future.
 	joined := filepath.Join(d.dir, id+".yaml")
 	cleaned := filepath.Clean(joined)
 	absPath, err := filepath.Abs(cleaned)

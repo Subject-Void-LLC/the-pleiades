@@ -6941,3 +6941,129 @@ type the ordinary way, with no classification data, and call `HasCapability` on 
 false while the structural assertion passes, the capability has one half. An `archtest` sweep whose
 probe hydrates every capability name cannot answer this question and must not be read as though it
 had.
+
+## 205. A colon in a KV key made the Runner's duplicate suppression client-side invalid, and the error was swallowed as a warning, so the feature has never once run
+
+**Symptom.** None visible. The Runner logs two Warn lines per dispatch and
+carries on. No startup failure, no test failure, no wire traffic.
+
+**Root cause.** `internal/runner/agent_dedup.go:52`'s `dispatchDedupKey`
+returns `payload.JobID + ":" + payload.DeviceID`. NATS KV keys are
+validated client-side against
+`validKeyRe = ^[-/_=\.a-zA-Z0-9]+$` (`nats.go@v1.52.0/jetstream/kv.go:502`),
+which does not include the colon, and `keyValid` guards `get` and `put`
+alike (`kv.go:908`, `:923`, `:1031`, `:1094`, `:1126`). Every `SeenRecently`
+and every `MarkSeen` therefore fails with `ErrInvalidKey` before a single
+byte reaches the broker.
+
+The second half is what hid it. `agent_dedup.go:71-76` treats a store error
+as "not seen" and logs a warning, and `:94-100` logs and moves on. Both
+choices are individually correct and documented: refusing to run real work
+because a KV read failed would convert an optimisation into an outage. The
+two together mean a permanently broken store is indistinguishable from a
+healthy one that has seen nothing.
+
+**Fix.** Not applied here, deliberately, and recorded rather than done
+quietly: this was found during Phase 101b recon and fixing it is a
+behavioural change to duplicate suppression that needs its own test proving
+a redelivered dispatch is actually suppressed. The key needs an encoding
+that is legal in a KV key. The colon was chosen to match the idempotency
+key `internal/dispatch` stamps and the one the write-ahead log derives, and
+that agreement is the point of it, so the encoding has to preserve the
+agreement rather than just pick a different separator here.
+
+**Lesson.** A fallback that treats "the store is broken" as "the store says
+no" removes the only signal that would have reported the breakage. When a
+degraded path is deliberately silent, something else has to assert the
+happy path actually works, or the feature can ship dead. Note what did NOT
+catch this: the key was agreed across three mechanisms, which felt like
+evidence, and none of the three ever checked that the agreed string was
+legal in the one place it had to be a KV key.
+
+## 206. A hazard closed for the dispatch subject was left open in the lock subject, whose own comment argued it could not happen
+
+**Symptom.** Latent, and narrower than it first looks. A device id
+containing a dot produces `$KV.Pleiades_Locks.router1.example.com`, a
+five-token subject where three were intended. Dots are LEGAL in a NATS KV
+key (`validKeyRe` includes `\.`), and nats.go builds the subject from the
+key itself, so the lock works correctly today and will keep working under a
+`$KV.Pleiades_Locks.>` grant. What it breaks is a single-token grant, which
+is the per-device scoping this phase exists to make possible.
+
+**Root cause.** `internal/lock/nats.go`'s `kvSubject` interpolates the raw
+item id into `$KV.<bucket>.<key>`, and `itemIDValid` rejects only `".."`.
+Phase 101a closed exactly this class for the dispatch subject with
+`topology.SubjectToken` and recorded it as `LESSONS_LEARNED.md` #169.
+
+The interesting part is the doc comment already sitting above
+`itemIDValid`, which argues the hazard cannot occur because "a real caller
+only ever passes an inventory device ID (a UUID) or the scheduler's own
+fixed key here". That is the same reasoning that hid the same class in
+`LogSubject` and `ResultSubject`, and it is wrong for the same reason: a
+device id is operator-supplied text from a YAML inventory, and
+`pkg/inventory` documents it as opaque, so "it is a UUID" is a description
+of today's fixtures rather than a property of the type.
+
+**Fix.** RESOLVED 2026-08-25, later the same day the first attempt was
+reverted. The first attempt's failure was never a broker mystery, and the
+paragraph recording it is preserved below because how it misdiagnosed
+itself is the durable part.
+
+The first attempt encoded once at `tryAcquireOnce`, carried the encoded
+value on `natsLease` as a `key` field, left `ID()` returning the caller's
+itemID (the conformance suite makes that part of the port contract), and
+switched all six `kv.Create`/`kv.Get`/`kv.Delete` call sites. Its account
+of itself said "all six call sites use the encoded value", and that
+sentence was the bug: the key-bearing surface was TEN sites, not six.
+`publishWithTTL` builds the raw "$KV.<bucket>.<key>" subject itself, it
+has FOUR callers, and the attempt switched only the shared-join one. The
+three lease-side callers (exclusive KeepAlive, shared KeepAlive, shared
+non-last Release) still passed `l.itemID`, so every TTL-refreshing publish
+went to a subject nothing was reading, carrying a CAS expectation taken
+from the encoded key's revision history that the raw subject could never
+satisfy. Every symptom follows: the refresh loops spun on an impossible
+publish, the key's 5s TTL was never refreshed, keys expired mid-churn
+("key not found"), other workers re-Created them with fresh holders
+("lease is no longer current"), and the last-holder Delete saw the key
+vanish between its Get and its Delete.
+
+The recorded isolation evidence was itself the trap, twice over:
+
+  - The identity-function diagnostic "proved the refactor correct" by
+    making the wrongly passed `l.itemID` accidentally equal to the right
+    argument. Identity does not exercise a split, it erases it. And the
+    "-x" probe then indicted the encoding for the same reason reversed:
+    ANY non-identity encoder exposes the three missed sites, so the
+    failure tracked "key differs from itemID at all" perfectly while
+    having nothing to do with the encoder. See LESSONS_LEARNED.md #170.
+  - "Exclusive mode untouched" was an artifact of reading a `tail -4` of
+    the test output. The conformance suite's KeepAliveOnValidLease runs
+    in the zero-value mode, which is ModeExclusive, and under the attempt
+    its KeepAlive fails loudly; the failure was simply off-screen. It
+    survived into this archive because every lifecycle test of exclusive
+    KeepAlive asserts a FAILURE path, so an error where success belonged
+    had no test asking the opposite question.
+
+Proven by reconstructing the attempt exactly from the session transcript
+and reproducing the collapse against a real broker (the churn overflowed
+its own 144-slot error channel and deadlocked to the 5m timeout), then
+switching ONLY the three missed sites: the same churn passes in 27s.
+
+The shipped fix makes the mistake unwritable rather than merely fixed:
+`kvKey` returns a distinct `storedKey` type, `publishWithTTL` and
+`kvSubject` accept only that type, and passing `l.itemID` where a key
+belongs is now a compile error (verified by writing exactly that and
+watching the build fail). `itemIDValid`'s ".." rejection is retired: the
+encoder makes every itemID a single legal token, so the fuzz target now
+asserts the total property (every itemID acquires and releases cleanly,
+no allowance branches) and `TestNatsLockKeyIsASingleSubjectToken` pins
+broker state for a dotted itemID, including that KeepAlive's refresh
+publish advances the ENCODED key's revision, the exact observable the
+three missed sites broke silently.
+
+**Lesson.** #169 said a hazard closed in one function is not closed in its
+siblings. This is that rule finding a sibling in a different package the
+same week, which is the argument for treating the rule as a sweep to run
+rather than a note to remember. And a comment asserting a hazard cannot
+occur is a claim about callers, not about the function; when the input type
+is documented as opaque, the comment is the thing to distrust.
