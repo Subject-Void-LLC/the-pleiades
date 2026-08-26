@@ -85,6 +85,63 @@ Revocation is specced but not built: a revocation entry keys on the user public 
 seconds watermark, coverage only widens, and signing one needs a key the Controller does not hold,
 since `meshid` signs the account with the OPERATOR key which must stay offline.
 
+### make ci, run end to end at last, and what it actually said
+
+**Every target passes, but not in one invocation, and the distinction matters.**
+
+`make ci` was run end to end for the first time on this work. It **failed once at
+`test-integration`**, and the identity of the failing package was **lost**, because the invocation was
+piped through `tail -40`. That is the exact mistake this document warned about two sessions ago in
+its own words ("a piped exit code is not evidence"), repeated by the session that wrote the warning.
+The pipe both truncated the failing package off the top of the output and reported `tail`'s exit
+status, so the run looked green and was not.
+
+Re-running the same target alone, capturing the real exit code: **`REAL_EXIT=0`, 152 packages ok,
+zero FAIL.** The failure did not reproduce, which is the known container-contention flake
+(`FAILURE_PATTERNS.md` #61) that `flaky-packages.json` exists for. It is recorded here rather than
+waved away because the specific package was never identified, so it cannot be checked against that
+file's list.
+
+`make ci` stops at its first failure, so the targets AFTER `test-integration` never ran in that
+invocation. They were each run separately afterwards with real exit codes captured:
+`govulncheck` 0, `helm-lint` 0, `templ-gen-check` 0, plus `gosec` (9 findings, all waived),
+`docs-gen-check` clean, `docs-lint` clean (207 files), `arch` ok, and `coverage-check` clean across
+203 packages. `build`, `vet`, `fmt`, `test-race` and `test-repeat` all ran and passed inside the
+`make ci` invocation itself, since they precede `test-integration`.
+
+**A separate finding worth acting on: the pre-push hook was never installed in this clone.**
+`core.hooksPath` was unset and `.git/hooks/pre-push` did not exist, so the `make push-gate` that is
+supposed to gate every push has never run here, on any push, by anybody. `make hooks` has now been
+run, so the next push is gated. Every push before this one went out ungated.
+
 ### Next step
 
-`make ci` end to end, which has still never run on this work.
+Phase 40 is planned; see below.
+
+### Phase 40, planned and started
+
+`.SPECIFICATION/IMPLEMENTATION.md` now carries Phase 40's measured starting position (seven parallel
+read-only sweeps) and its Pattern Entry Gate. Two results change what the phase is:
+
+**`design/rollback_journal_design.md` is history.** It proposes a state-restoration journal whose
+rollback engine interprets old and new values. What shipped instead is task-shaped:
+`sdk.RecordInverse` records `{FQCN, Params, Description}`, a directly runnable task, across 35 call
+sites covering all 43 reversible methods. A rollback engine is a loop feeding those back through the
+dispatcher. The note's Layer 3 is already decided, and better. Nothing reads any of it yet, so Phase
+40 writes the first reader, and on the Walk tier the inverse is currently computed and discarded in
+the same function (`internal/adapters/native/adapter.go:217`).
+
+**The blocking prerequisite is resolved: the journal reads no revisions at all.** Not on cost
+grounds but structural ones: `wireDevice.History()` is hardcoded `nil` and `wire.DispatchPayload` has
+no history field, so a `Revision`-based journal cannot reach a Walk-tier task at any price. It is a
+new entity written from `engine.NodeResult` at the executor seam.
+
+`JournaledCapable`/`RollbackCapable` are declared NOT to be built, a deliberate departure from the
+phase's own checklist: a Collection cannot declare a capability at all, and both questions already
+have answers in `collection.Reversibility` and `sdk.RecordDiff`.
+
+Six design decisions remain open before code (entry shape and store, the Crawl-tier sink, the
+Walk-tier carrier given that the Runner has no database, masking, and the run id). The masking one
+is first, because a journal would receive plaintext property values and plaintext resolved params,
+and `Revision.old_value`/`new_value` is already an undisclosed plaintext store of encrypted-at-rest
+data on both tiers.
