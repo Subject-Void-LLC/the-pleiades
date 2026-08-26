@@ -219,7 +219,7 @@ a module's name, and scaffolding them as collections would be a mistake.
 | Ansible module | What it becomes | Why |
 |----------------|-----------------|-----|
 | `ansible.builtin.set_fact` | An engine keyword, **not yet built** | It writes to the run context. `WorkflowContext` and `sdk.RunbookContext` already own that, but Phase 41 has not yet decided or built the durable fact substrate `WorkflowContext` explicitly cannot substitute for. |
-| `ansible.builtin.debug` | An engine keyword, **not yet built** | It writes to the execution journal. See `docs/rollback_journal_design.md`; the journal itself is Phase 40's undelivered work, not a line of code anywhere yet. |
+| `ansible.builtin.debug` | An engine keyword, **not yet built** | It writes to the execution journal. See `design/rollback_journal_design.md`; the journal itself is Phase 40's undelivered work, not a line of code anywhere yet. |
 | `ansible.builtin.import_tasks` | An engine keyword, resolved at parse time. **Built (Phase 34)** | Static inclusion is compatible with building the DAG up front: `internal/engine/import_tasks.go` splices a referenced file's own task list into an ordinary block task before the DAG builder ever sees it, with no dependency on either unbuilt subsystem above. |
 | `ansible.builtin.include_tasks` | Unresolved. See the honest limits below | Runtime inclusion fights plan-time validation. |
 

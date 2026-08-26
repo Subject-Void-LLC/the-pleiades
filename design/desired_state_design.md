@@ -71,7 +71,7 @@ each correct on its own terms:
 
 1. **No saga.** `PLAN.md` Sections 27 and 30 say a partially applied run is corrected by running again,
    not by compensating backward.
-2. **No mechanical inverse.** `docs/rollback_journal_design.md` rejected reverse DAG generation because
+2. **No mechanical inverse.** `design/rollback_journal_design.md` rejected reverse DAG generation because
    most real operations, such as a firmware upgrade or a service restart, have no safe inverse.
    Terraform destroy is exactly a reverse graph walk.
 3. **The verb is in the module name.** `docs/hephaestus.md` settled on `pkg.apt.install` rather than
