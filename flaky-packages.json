@@ -56,6 +56,10 @@
     {
       "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve",
       "reason": "Observed 2026-08-26 in the same push-gate run as internal/meshid above: TestReleaseGate_AnInputResolvesOutOfARealVault failed with 'container port: port \"8200/tcp\" not found'. Same race, different image: the port mapping is not published yet when the test reads it, under full parallel repeat load. Reran alone immediately afterwards and it passed in 12.9s. The package provisions a real ephemeral HashiCorp Vault container. That two different packages lost the same race in one run, on two different ports, is itself FAILURE_PATTERNS.md #61's stated signature: 'the specific package that loses the race changes between runs'."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/pkg/netconf",
+      "reason": "Observed 2026-08-26 under `make push-gate`'s test-repeat: TestConformance_LeavesNoGoroutinesBehind failed with 'found unexpected goroutines', and the goroutine it named was testcontainers' OWN reaper connection (testcontainers-go@v0.43.0/reaper.go:544-549), not anything pkg/netconf starts. The reaper connects lazily and its goroutine can still be live when a later package's goleak check runs, so whether this fires depends on which package happens to be last to touch the shared reaper. Reran the test alone immediately afterwards and it passed in 12.6s. The package provisions a real ephemeral netopeer2 NETCONF container, which is the same criterion every other entry here meets. This is a leak-detector reporting a dependency's own goroutine, not a leak in this repository's code, so it is listed rather than chased."
     }
   ]
 }

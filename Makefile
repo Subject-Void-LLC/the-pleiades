@@ -207,6 +207,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
 # test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so
