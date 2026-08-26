@@ -7067,3 +7067,83 @@ same week, which is the argument for treating the rule as a sweep to run
 rather than a note to remember. And a comment asserting a hazard cannot
 occur is a claim about callers, not about the function; when the input type
 is documented as opaque, the comment is the thing to distrust.
+
+## 207. Five defects shipped behind a green Release Gate, because the gate's broker was configured without the subsystem the code under test exists to serve
+
+**Symptom.** Latent, and complete: under a real operator-mode broker with
+JetStream on, NOTHING worked. The Controller died at startup provisioning
+the stream, the Runner authenticated and then received no job ever, its
+ten-second heartbeat probe was withheld so the whole fleet reported
+unhealthy, and a five-times-failed `job.requested` vanished silently. None
+of it was visible in any test, and Phase 101b's Release Gate passed in 12
+seconds.
+
+Five separate defects, in code committed the same session:
+
+1. `internal/meshid/grant.go` granted
+   `$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-agent.>`, but nats.go's
+   template is `apiRequestNextT = "CONSUMER.MSG.NEXT.%s.%s"`
+   (`jetstream/api.go:61`), which ends AT the consumer name. `>` matches
+   one or more trailing tokens and never zero, so the grant covered every
+   subject except the one the driver sends.
+2. The same, for `CONSUMER.INFO` (`api.go:58`), which the heartbeat probes.
+3. `ControllerGrant` used `streamAPI(">")`, putting `>` in a NON-FINAL
+   token (`$JS.API.STREAM.>.PLEIADES`), which is not a wildcard position at
+   all.
+4. `pleiades.dlq.pleiades.jobs.requested` was granted to nobody, and
+   `internal/event/dlq.go` returns before `msg.Term()` when the publish
+   fails, so the job is neither dead-lettered nor terminated.
+5. `meshid.NewAccount` never set `claims.Limits`, and `jwt.NewAccountClaims`
+   initialises `JetStreamLimits` to all zeros, whose own comment reads
+   "JetStream is disabled by default by setting MemoryStorage and
+   DiskStorage to zero". Every account the platform minted had JetStream
+   off.
+
+A sixth thing was not a defect but a missing fact with the same shape: in
+operator mode, JetStream REFUSES TO START without a system account
+("Can't start JetStream: setting up internal jetstream subscriptions
+failed: system account not setup", then exit 1), and that system account
+must NOT have JetStream enabled ("Not allowed to enable JetStream on the
+system account"). An operator-mode deployment needs two accounts minted.
+Phase 101b minted one.
+
+**Root cause.** Two blind spots that lined up perfectly.
+
+The GATE's broker ran with JetStream off. Its command was `-c
+/etc/nats/nats.conf` and nothing else, the only NATS start in the
+repository without `-js`, and it asserted core publishes only. Every one of
+the five defects lives on the JetStream control plane. The gate was
+otherwise exemplary, with acts, a control and a negative control, and it
+could not have caught any of this, because the fixture was missing the
+subsystem the code under test exists to serve.
+
+The UNIT test asserted the grant against a hand-written list of expected
+entries, by exact string membership. The list was written from the same
+misunderstanding as the grant, so it carried the identical wrong suffixes.
+It asserted that the grant equalled itself, and passed on all four subject
+defects. There was no `ControllerGrant` test at all.
+
+**Fix.** A gate that calls the REAL functions against a JetStream-enabled
+operator-mode broker: `topology.ProvisionStream`, `topology.BindLockBucket`,
+`topology.DispatchConsumerConfig`, a real `CreateOrUpdateConsumer`, a real
+`FetchNoWait`, a real dispatch published by the Controller and pulled and
+acked by the Runner. Falsified against two of the five defects
+individually, each failing at the right act with the right message.
+
+The unit test now asserts MATCHING rather than equality, using a NATS token
+matcher whose own semantics are pinned by a table (`a.b.>` does not match
+`a.b`; `a.>.c` does not match `a.b.c`), and its required list is the
+subject the DRIVER sends, taken from nats.go's templates. Falsified by
+restoring the old suffix: it fails naming both operations. `ControllerGrant`
+gained the test it never had.
+
+`meshid.NewSystemAccount` exists so the two account kinds are distinguished
+at the call site rather than by a boolean, and
+`TestAccountKindsDifferOnlyInJetStream` pins both directions without Docker.
+
+**Lesson.** See `LESSONS_LEARNED.md` #171. Two rules, and the second is the
+one that generalises furthest: configure a gate's fixture like production
+or it proves only that the fixture works; and never assert a permission
+list against a restatement of itself, because the restatement is written by
+the same person, at the same moment, from the same misunderstanding.
+

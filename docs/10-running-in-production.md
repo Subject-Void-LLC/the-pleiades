@@ -840,9 +840,18 @@ identical in kind: where a dispatch previously carried one flattened SSH credent
 a template binding a cloud credential and two file-generating ones puts several more
 on the same message, whole PEM bodies included. The real fix is reference passing,
 where the payload carries a handle and the runner fetches it over a
-mutually-authenticated short-lived connection, and that needs a runner identity story
-that does not exist yet. Until it does, treat the stream as holding secrets and size
-its retention accordingly.
+mutually-authenticated short-lived connection.
+
+The runner identity half of that now exists, and the rest does not, so be precise
+about what has changed. Pleiades can mint a short-lived, subject-scoped credential
+for a runner and a broker can be configured to require one, which is the
+authentication this was waiting on. What has NOT changed is the payload: a dispatch
+still carries the resolved credential itself, and authentication changes who may read
+the stream rather than what is written to it. Reference passing is the separate piece
+of work that removes the secret from the message.
+
+Until it lands, treat the stream as holding secrets and size its retention
+accordingly.
 
 ### Host key verification, and where a container gets its known_hosts
 

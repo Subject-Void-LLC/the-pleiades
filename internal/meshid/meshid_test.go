@@ -160,41 +160,148 @@ func TestFleetRunnerGrantCoversTheInboxSpace(t *testing.T) {
 	}
 }
 
+// subjectMatches reports whether a NATS permission pattern covers a
+// concrete subject, by NATS's own token rules: `*` matches exactly one
+// token, and `>` matches ONE OR MORE remaining tokens and is legal only as
+// the final token.
+//
+// This exists because the assertion it serves cannot be written with
+// string equality, which is what the previous version of this test used.
+// A hand-written list of expected grant entries compared by equality
+// against the grant asserts only that the grant equals itself: this
+// package shipped four grants whose subjects were each one wildcard away
+// from the subject the driver actually sends, and that test passed on
+// every one of them. Matching is the property that matters, so matching is
+// what is asserted.
+//
+// The one rule the whole bug turned on is `>` matching one or more rather
+// than zero, and TestSubjectMatchesFollowsNatsTokenRules pins it directly
+// so this helper cannot drift into agreeing with a broken grant.
+func subjectMatches(pattern, subject string) bool {
+	p := strings.Split(pattern, ".")
+	s := strings.Split(subject, ".")
+	for i, tok := range p {
+		if tok == ">" {
+			// Final token only, and it needs at least one token left.
+			return i == len(p)-1 && len(s) > i
+		}
+		if i >= len(s) {
+			return false
+		}
+		if tok != "*" && tok != s[i] {
+			return false
+		}
+	}
+	return len(p) == len(s)
+}
+
+// TestSubjectMatchesFollowsNatsTokenRules pins the helper above, and its
+// third case is the one this package got wrong in production: a pattern
+// ending in `.>` does NOT cover the subject that stops at the token before
+// it.
+func TestSubjectMatchesFollowsNatsTokenRules(t *testing.T) {
+	for _, tc := range []struct {
+		pattern, subject string
+		want             bool
+		why              string
+	}{
+		{"a.b.c", "a.b.c", true, "an exact subject matches itself"},
+		{"a.b.>", "a.b.c", true, "> matches one trailing token"},
+		{"a.b.>", "a.b.c.d", true, "> matches several trailing tokens"},
+		{"a.b.>", "a.b", false, "> matches one or more tokens, never zero: the defect this package shipped"},
+		{"a.*.c", "a.b.c", true, "* matches exactly one token"},
+		{"a.*.c", "a.b.x.c", false, "* never spans two tokens"},
+		{"a.>.c", "a.b.c", false, "> in a non-final token is not a wildcard: the ControllerGrant defect"},
+		{"a.b.c", "a.b", false, "a shorter subject does not match"},
+		{"a.b", "a.b.c", false, "a longer subject does not match without a wildcard"},
+	} {
+		if got := subjectMatches(tc.pattern, tc.subject); got != tc.want {
+			t.Errorf("subjectMatches(%q, %q) = %v, want %v: %s", tc.pattern, tc.subject, got, tc.want, tc.why)
+		}
+	}
+}
+
+// permits reports whether any entry in a grant's publish list covers
+// subject.
+func permits(entries []string, subject string) bool {
+	for _, e := range entries {
+		if subjectMatches(e, subject) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestFleetRunnerGrantCoversEveryEnumeratedOperation pins the surface Phase
-// 101b's recon actually measured on the wire, rather than the one an
-// architecture diagram would predict. A permission set is deny-by-default,
-// so anything missing here is a Runner that authenticates and then fails
-// at the first operation nobody wrote down.
+// 101b's recon measured on the wire, rather than the one an architecture
+// diagram would predict. A permission set is deny-by-default, so anything
+// missing here is a Runner that authenticates and then fails at the first
+// operation nobody wrote down.
+//
+// Every entry below is the subject the DRIVER sends, taken from nats.go's
+// own templates rather than from this package's idea of them, and it is
+// checked by NATS matching rather than by equality. The three JetStream
+// consumer entries are the ones that were wrong: nats.go's templates are
+// "CONSUMER.INFO.%s.%s" and "CONSUMER.MSG.NEXT.%s.%s"
+// (jetstream/api.go:58,61), which end at the consumer name, and the grant
+// demanded a token after it.
 func TestFleetRunnerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 	g := meshid.FleetRunnerGrant("runner-1")
 
-	// Each entry is one thing the Runner really does, with the reason it
-	// is not obvious noted where it is not obvious.
 	required := map[string]string{
-		topology.LogSubjectAll():                                  "publishes a job log line for every execution",
-		topology.ResultSubjectAll():                               "publishes a WAL result when RUNNER_WAL_DIR is set",
-		topology.DeadLetterSubject(topology.DispatchSubjectAll()): "republishes a dead letter after MaxDeliver",
-		"$KV.Pleiades_Locks.>":                                    "takes the per-device execution lease, including a raw TTL-refresh publish",
-		"$KV.Pleiades_Dedup.>":                                    "reads and writes consumer-side duplicate suppression",
-		"$JS.API.INFO":                                            "nats.go calls AccountInfo unconditionally when preparing a KV bucket",
-		"$JS.API.STREAM.INFO.PLEIADES":                            "binds the stream at startup",
-		"$JS.API.STREAM.CREATE.PLEIADES":                          "creates the stream if absent, which topology documents as deliberate",
-		"$JS.API.STREAM.INFO.KV_Pleiades_Locks":                   "binds the lock bucket",
-		"$JS.API.STREAM.INFO.KV_Pleiades_Dedup":                   "binds the dedup bucket",
-		"$JS.API.DIRECT.GET.KV_Pleiades_Locks.>":                  "a contended Acquire reads through DIRECT.GET because the bucket sets AllowDirect",
-		"$JS.API.CONSUMER.CREATE.PLEIADES.runner-agent.>":         "creates its own dispatch consumer, filter subject included in the API subject",
-		"$JS.API.CONSUMER.INFO.PLEIADES.runner-agent.>":           "the liveness heartbeat probes it every ten seconds",
-		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-agent.>":       "pulls work",
-		"$JS.ACK.PLEIADES.runner-agent.>":                         "Ack, Nak and Term are core publishes to the reply subject",
+		topology.LogSubject("job-1"):                                             "publishes a job log line for every execution",
+		topology.ResultSubject("job-1"):                                          "publishes a WAL result when RUNNER_WAL_DIR is set",
+		topology.DeadLetterSubject(topology.DispatchSubject("d")):                "republishes a dead letter after MaxDeliver",
+		"$KV.Pleiades_Locks.device-1":                                            "takes the per-device execution lease, including a raw TTL-refresh publish",
+		"$KV.Pleiades_Dedup.job-1_device-1":                                      "reads and writes consumer-side duplicate suppression",
+		"$JS.API.INFO":                                                           "nats.go calls AccountInfo unconditionally when preparing a KV bucket",
+		"$JS.API.STREAM.INFO.PLEIADES":                                           "binds the stream at startup",
+		"$JS.API.STREAM.CREATE.PLEIADES":                                         "creates the stream if absent, which topology documents as deliberate",
+		"$JS.API.STREAM.INFO.KV_Pleiades_Locks":                                  "binds the lock bucket",
+		"$JS.API.STREAM.INFO.KV_Pleiades_Dedup":                                  "binds the dedup bucket",
+		"$JS.API.DIRECT.GET.KV_Pleiades_Locks.device-1":                          "a contended Acquire reads through DIRECT.GET because the bucket sets AllowDirect",
+		"$JS.API.CONSUMER.CREATE.PLEIADES.runner-agent.pleiades.jobs.dispatch.>": "creates its own dispatch consumer, filter subject included in the API subject",
+		"$JS.API.CONSUMER.INFO.PLEIADES.runner-agent":                            "the liveness heartbeat probes it every ten seconds",
+		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-agent":                        "pulls work",
+		"$JS.ACK.PLEIADES.runner-agent.1.2.3.4.5.6":                              "Ack, Nak and Term are core publishes to the reply subject",
 	}
 
-	have := make(map[string]bool, len(g.Pub))
-	for _, s := range g.Pub {
-		have[s] = true
-	}
 	for subject, why := range required {
-		if !have[subject] {
-			t.Errorf("FleetRunnerGrant does not permit %q, which the Runner needs because it %s", subject, why)
+		if !permits(g.Pub, subject) {
+			t.Errorf("FleetRunnerGrant does not permit %q, which the Runner needs because it %s\ngrant was %v", subject, why, g.Pub)
+		}
+	}
+}
+
+// TestControllerGrantCoversEveryEnumeratedOperation is the assertion that
+// did not exist at all until Phase 101c, which is why ControllerGrant
+// shipped with a stream permission that could never match: it used `>` in
+// a non-final token ("$JS.API.STREAM.>.PLEIADES"), so the Controller had
+// no usable stream right and would have died at startup on a real
+// operator-mode broker.
+func TestControllerGrantCoversEveryEnumeratedOperation(t *testing.T) {
+	g := meshid.ControllerGrant("controller-1")
+
+	required := map[string]string{
+		topology.DispatchSubject("device-1"):                             "fans a job out to one device",
+		topology.JobRequestedSubject():                                   "publishes the launch itself",
+		topology.DeadLetterSubject(topology.JobRequestedSubject()):       "dead-letters a job.requested that failed MaxDeliver times",
+		"$KV.Pleiades_Locks.device-1":                                    "holds the scheduler and leader election leases",
+		"$JS.API.INFO":                                                   "AccountInfo when preparing a bucket",
+		"$JS.API.STREAM.INFO.PLEIADES":                                   "reads the stream before provisioning",
+		"$JS.API.STREAM.CREATE.PLEIADES":                                 "creates the stream, as the only StreamProvisioner",
+		"$JS.API.STREAM.UPDATE.PLEIADES":                                 "reshapes the stream when the outage budget changes",
+		"$JS.API.STREAM.INFO.KV_Pleiades_Locks":                          "binds the lock bucket",
+		"$JS.API.STREAM.CREATE.KV_Pleiades_Locks":                        "creates the lock bucket",
+		"$JS.API.CONSUMER.CREATE.PLEIADES.abc123.pleiades.jobs.logs.tok": "the SSE log viewer creates a server-named ephemeral consumer",
+		"$JS.API.CONSUMER.INFO.PLEIADES.abc123":                          "and probes it",
+		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.abc123":                      "and pulls from it",
+		"$JS.API.CONSUMER.DELETE.PLEIADES.abc123":                        "and deletes it when the viewer disconnects",
+	}
+
+	for subject, why := range required {
+		if !permits(g.Pub, subject) {
+			t.Errorf("ControllerGrant does not permit %q, which the Controller needs because it %s\ngrant was %v", subject, why, g.Pub)
 		}
 	}
 }
@@ -213,5 +320,84 @@ func TestGrantsNameNoWildcardedSubjectByAccident(t *testing.T) {
 				t.Errorf("grant %q contains %q, which is a sanitized token where a wildcard was meant", g.Name, s)
 			}
 		}
+	}
+}
+
+// TestAccountKindsDifferOnlyInJetStream pins the distinction Phase 101c
+// had to introduce, and pins it without Docker so the reason is legible
+// from the unit suite rather than only from a container gate.
+//
+// Both facts were measured against a real nats-server 2.14.4 and each is
+// fatal in its own direction. An application account WITHOUT JetStream in
+// its claims authenticates perfectly and then fails every operation this
+// platform performs with "jetstream not enabled for account". A system
+// account WITH JetStream stops the server booting outright: "Not allowed
+// to enable JetStream on the system account". The two constructors exist
+// so that difference is stated at the call site.
+func TestAccountKindsDifferOnlyInJetStream(t *testing.T) {
+	op, err := meshid.NewOperator("kinds-op")
+	if err != nil {
+		t.Fatalf("minting the operator: %v", err)
+	}
+
+	app, err := meshid.NewAccount(op, "app")
+	if err != nil {
+		t.Fatalf("minting the application account: %v", err)
+	}
+	appClaims, err := jwt.DecodeAccountClaims(app.JWT)
+	if err != nil {
+		t.Fatalf("decoding the application account jwt: %v", err)
+	}
+	if !appClaims.Limits.IsJSEnabled() {
+		t.Error("NewAccount produced an account with JetStream disabled; every stream, bucket and consumer this platform uses would be refused with \"jetstream not enabled for account\"")
+	}
+
+	sys, err := meshid.NewSystemAccount(op, "SYS")
+	if err != nil {
+		t.Fatalf("minting the system account: %v", err)
+	}
+	sysClaims, err := jwt.DecodeAccountClaims(sys.JWT)
+	if err != nil {
+		t.Fatalf("decoding the system account jwt: %v", err)
+	}
+	if sysClaims.Limits.IsJSEnabled() {
+		t.Error("NewSystemAccount produced an account with JetStream enabled; nats-server refuses to start at all with \"Not allowed to enable JetStream on the system account\"")
+	}
+
+	// Both are still real accounts under the same operator, which is the
+	// half a JetStream-only assertion would miss.
+	if sys.Subject == app.Subject {
+		t.Error("the system and application accounts share a subject")
+	}
+	for _, a := range []*meshid.Account{app, sys} {
+		if len(a.SigningKeySeed) == 0 {
+			t.Errorf("account %q has no signing key seed, so it could never rotate", a.Subject)
+		}
+	}
+}
+
+// TestOperatorSeedIsUsableOffline covers the one accessor that exists
+// purely for a bootstrap command: the operator seed has to round-trip into
+// a key pair that can sign, or the offline half of the trust root cannot
+// be stored anywhere.
+func TestOperatorSeedIsUsableOffline(t *testing.T) {
+	op, err := meshid.NewOperator("seed-op")
+	if err != nil {
+		t.Fatalf("minting the operator: %v", err)
+	}
+	seed, err := op.Seed()
+	if err != nil {
+		t.Fatalf("reading the operator seed: %v", err)
+	}
+	kp, err := nkeys.FromSeed(seed)
+	if err != nil {
+		t.Fatalf("the operator seed does not parse back into a key pair: %v", err)
+	}
+	pub, err := kp.PublicKey()
+	if err != nil {
+		t.Fatalf("reading the public key back: %v", err)
+	}
+	if pub != op.Subject {
+		t.Fatalf("the seed round-tripped to %q, want the operator's own subject %q", pub, op.Subject)
 	}
 }

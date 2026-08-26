@@ -138,6 +138,34 @@ func (o *Operator) Seed() ([]byte, error) {
 // means the Controller never has a reason to hold the identity key at all,
 // which is the property this whole package is arranged around.
 func NewAccount(op *Operator, name string) (*Account, error) {
+	return newAccount(op, name, true)
+}
+
+// NewSystemAccount creates the account the SERVER itself uses, which is a
+// different kind of thing from an account this platform's processes
+// authenticate as, and the difference is not stylistic.
+//
+// Two measured facts force it to exist, both against a real
+// nats-server 2.14.4 in operator mode:
+//
+//   - Without a system account, JetStream refuses to start at all: "Can't
+//     start JetStream: setting up internal jetstream subscriptions failed:
+//     system account not setup", and the server exits at boot. So an
+//     operator-mode deployment of this platform needs TWO accounts
+//     minted, not one, and Phase 101b minted one.
+//   - The system account must NOT have JetStream enabled. Enabling it is
+//     refused just as fatally: "Not allowed to enable JetStream on the
+//     system account".
+//
+// Nothing this platform runs ever authenticates as this account. It is
+// minted so it can be named in the server's own configuration, and the
+// Controller holds no credential for it.
+func NewSystemAccount(op *Operator, name string) (*Account, error) {
+	return newAccount(op, name, false)
+}
+
+// newAccount builds an account with or without JetStream in its claims.
+func newAccount(op *Operator, name string, jetStream bool) (*Account, error) {
 	if op == nil {
 		return nil, errors.New("meshid: an account needs an operator to sign it")
 	}
@@ -166,6 +194,41 @@ func NewAccount(op *Operator, name string) (*Account, error) {
 	claims := jwt.NewAccountClaims(pub)
 	claims.Name = name
 	claims.SigningKeys.Add(signingPub)
+
+	// JetStream has to be turned on in the account's own claims, and this
+	// is not a tuning knob: jwt.NewAccountClaims initialises
+	// JetStreamLimits to all zeros, and its own comment says "JetStream is
+	// disabled by default by setting MemoryStorage and DiskStorage to
+	// zero" (jwt/v2@v2.8.2/account_claims.go:350-357). An account left at
+	// the default authenticates perfectly and then fails every JetStream
+	// operation with "jetstream not enabled for account", which is this
+	// platform's entire data path: the dispatch stream, both KV buckets
+	// and every consumer.
+	//
+	// Measured, not assumed. Phase 101b's own Release Gate ran a broker
+	// with JetStream OFF and asserted core publishes only, so it proved
+	// nothing about this; driving topology.BindLockBucket against a real
+	// JetStream-enabled operator-mode broker returned exactly that error,
+	// code=503 err_code=10039.
+	//
+	// NoLimit rather than a number, because the quota that matters is the
+	// SERVER's own -js sizing, which an operator already controls at the
+	// deployment. A second ceiling here would be a limit nobody set
+	// deliberately, expressed in a JWT that has to be re-minted and
+	// re-preloaded to change, which is the worst place to discover a cap.
+	//
+	// The system account is the one account this must NOT be done to, which
+	// is why it is conditional and why NewSystemAccount exists to say so at
+	// the call site rather than through a bare boolean.
+	if jetStream {
+		claims.Limits.JetStreamLimits = jwt.JetStreamLimits{
+			MemoryStorage: jwt.NoLimit,
+			DiskStorage:   jwt.NoLimit,
+			Streams:       jwt.NoLimit,
+			Consumer:      jwt.NoLimit,
+		}
+	}
+
 	token, err := claims.Encode(op.kp)
 	if err != nil {
 		return nil, fmt.Errorf("meshid: encoding account jwt: %w", err)

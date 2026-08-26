@@ -98,7 +98,7 @@ func FleetRunnerGrant(name string) Grant {
 
 			// The dispatch consumer: created by the Runner itself, probed
 			// every ten seconds by the heartbeat, and pulled from.
-			consumerAPI("CREATE", topology.StreamName, topology.DispatchDurableName),
+			consumerCreateWithFilter(topology.StreamName, topology.DispatchDurableName, topology.DispatchSubjectAll()),
 			consumerAPI("INFO", topology.StreamName, topology.DispatchDurableName),
 			consumerAPI("MSG.NEXT", topology.StreamName, topology.DispatchDurableName),
 
@@ -127,9 +127,30 @@ func ControllerGrant(name string) Grant {
 			topology.EventSubject(">"),
 			kvSubjectSpace(topology.LockBucketName),
 
+			// The Controller's own dead letter path. Its absence was
+			// silent by construction: internal/event/dlq.go returns
+			// before msg.Term() when the publish fails, so a five times
+			// failed job.requested was neither dead-lettered nor
+			// terminated, and the job simply vanished. A DLQ that cannot
+			// publish is the one component whose failure nothing else
+			// reports.
+			topology.DeadLetterSubject(topology.JobRequestedSubject()),
+
 			jetStreamAPIInfo,
-			streamAPI(">", topology.StreamName),
-			streamAPI(">", kvStreamName(topology.LockBucketName)),
+			// Named operations rather than a wildcard. `streamAPI(">")`
+			// put `>` in a NON-FINAL token
+			// ("$JS.API.STREAM.>.PLEIADES"), which is not a wildcard
+			// position at all, so the Controller had no usable stream
+			// permission and died at startup in ProvisionStream. Measured
+			// against a real broker: the request is denied, no reply
+			// comes back, and the failure surfaces as a context deadline
+			// rather than as a permissions error.
+			streamAPI("INFO", topology.StreamName),
+			streamAPI("CREATE", topology.StreamName),
+			streamAPI("UPDATE", topology.StreamName),
+			streamAPI("INFO", kvStreamName(topology.LockBucketName)),
+			streamAPI("CREATE", kvStreamName(topology.LockBucketName)),
+			streamAPI("UPDATE", kvStreamName(topology.LockBucketName)),
 			directGetAPI(kvStreamName(topology.LockBucketName)),
 
 			// Server-named ephemeral consumers for the SSE log viewer, so
@@ -161,14 +182,39 @@ func directGetAPI(stream string) string {
 	return fmt.Sprintf("$JS.API.DIRECT.GET.%s.>", stream)
 }
 
+// consumerAPI is the EXACT API subject for an operation on one named
+// consumer, with no trailing wildcard.
+//
+// The wildcard this used to end in was a defect, and an instructive one:
+// `>` matches ONE OR MORE trailing tokens and never zero, which Phase 101a
+// verified against a real broker and wrote down, and nats.go's templates
+// for these two operations end at the consumer name
+// (`apiConsumerInfoT = "CONSUMER.INFO.%s.%s"`,
+// `apiRequestNextT = "CONSUMER.MSG.NEXT.%s.%s"`, jetstream/api.go:58,61).
+// A grant ending in `.>` therefore covered every subject EXCEPT the one
+// the driver actually sends. The consequence was not a visible error: a
+// denied JetStream request gets no reply, so the Runner's fetch and its
+// ten-second heartbeat probe both simply timed out, and the Runner
+// authenticated, created its consumer and never received a job.
 func consumerAPI(op, stream, consumer string) string {
-	// CONSUMER.CREATE carries the filter subject as further tokens when
-	// the consumer is created with one, so this ends in a wildcard rather
-	// than at the consumer name. That is also the seam a scoped grant
-	// eventually narrows: which FILTER a principal may create a consumer
-	// with is expressible here, and it is the only thing that can scope
-	// what a pull consumer receives.
-	return fmt.Sprintf("$JS.API.CONSUMER.%s.%s.%s.>", op, stream, consumer)
+	return fmt.Sprintf("$JS.API.CONSUMER.%s.%s.%s", op, stream, consumer)
+}
+
+// consumerCreateWithFilter is CONSUMER.CREATE for a consumer carrying a
+// filter subject, which nats.go appends to the API subject as further
+// tokens (`apiConsumerCreateWithFilterSubjectT`).
+//
+// Naming the filter here rather than ending at the consumer name is the
+// one place a Runner's reach is actually narrowed by this grant. The
+// Runner creates its own consumer rather than binding one, and
+// CreateOrUpdateConsumer is an UPSERT, so a Runner permitted to create
+// with any filter could reshape the single shared durable to
+// `pleiades.>` and read every other device's dispatch payload, which
+// carries resolved plaintext credentials. Pinning the filter prefix means
+// the only consumer it can assert is the fleet one it is supposed to
+// join.
+func consumerCreateWithFilter(stream, consumer, filter string) string {
+	return fmt.Sprintf("$JS.API.CONSUMER.CREATE.%s.%s.%s", stream, consumer, filter)
 }
 
 func ackSpace(stream, consumer string) string {

@@ -149,3 +149,59 @@ func TestBulkUpdateIsRefused(t *testing.T) {
 		t.Errorf("error %q does not say why the operation is meaningless", err)
 	}
 }
+
+// TestARowWithNoSeedPassesThrough covers the branch every mutation that is
+// not about the seed takes. Flipping a key's active flag is the operation
+// this platform performs most often during a rotation, and it must not be
+// treated as a seed write.
+func TestARowWithNoSeedPassesThrough(t *testing.T) {
+	client, _ := meshKeyClient(t)
+	ctx := context.Background()
+
+	row := client.MeshSigningKey.Create().
+		SetKeyID("k-passthrough").SetAccountSubject("A").SetPublicKey("P").SetSeed(theSeed).SaveX(ctx)
+
+	// An update that never mentions the seed.
+	updated, err := client.MeshSigningKey.UpdateOneID(row.ID).SetActive(true).Save(ctx)
+	if err != nil {
+		t.Fatalf("activating a key without touching its seed: %v", err)
+	}
+	if !updated.Active {
+		t.Fatal("the key did not become active")
+	}
+
+	// And the seed still opens, which is what proves the passthrough did
+	// not corrupt it.
+	got := client.MeshSigningKey.GetX(ctx, row.ID)
+	if got.Seed != theSeed {
+		t.Fatalf("seed after an unrelated update = %q, want the original plaintext back", got.Seed)
+	}
+}
+
+// TestACreateWithoutABindingIsRefused covers the one case where the
+// binding cannot be resolved on create. The schema defaults the binding,
+// so reaching this needs it explicitly blanked, which is exactly what a
+// future caller building the row field by field could do by accident.
+func TestACreateWithoutABindingIsRefused(t *testing.T) {
+	client, _ := meshKeyClient(t)
+	ctx := context.Background()
+
+	_, err := client.MeshSigningKey.Create().
+		SetKeyID("k-nobinding").SetAccountSubject("A").SetPublicKey("P").
+		SetSecretBinding("").SetSeed(theSeed).Save(ctx)
+	if err == nil {
+		t.Fatal("a mesh signing key with no secret binding was created; its seed would be sealed against nothing")
+	}
+	if !strings.Contains(err.Error(), "secret binding") {
+		t.Errorf("error = %v, want it to name the missing secret binding", err)
+	}
+}
+
+// The interceptor's give-up path, where a sealed row's binding is gone,
+// is deliberately NOT tested here: secret_binding is Immutable in the
+// schema, so ent generates no setter for it and the state is unreachable
+// through the ORM entirely. Reaching it would need raw SQL against the
+// generated table, which would assert on ent's storage layout rather than
+// on this package's behaviour. The branch stays as a backstop for
+// corruption arriving from outside the ORM, and its consequence is stated
+// in MeshSigningKeySeedInterceptor's own doc comment.

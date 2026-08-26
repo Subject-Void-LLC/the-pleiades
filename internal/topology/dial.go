@@ -223,12 +223,28 @@ func DialOptions(logger *slog.Logger, component string) []nats.Option {
 				"url", nc.ConnectedUrlRedacted(), "reconnects", nc.Stats().Reconnects)
 		}),
 		nats.ClosedHandler(func(nc *nats.Conn) {
-			// With MaxReconnects(-1) this is reached only by an explicit
-			// Close, and NoCallbacksAfterClientClose below suppresses
-			// that one, so in practice this should never fire at all.
-			// It is kept, and kept at Error, precisely because of that:
-			// if it is ever seen, an assumption this file rests on has
-			// stopped holding.
+			// This used to say it should never fire at all, on the
+			// grounds that MaxReconnects(-1) reconnects forever and
+			// NoCallbacksAfterClientClose suppresses the explicit-Close
+			// case. That reasoning was correct about the network and
+			// wrong about credentials, and Phase 101c measured the
+			// difference against a real broker.
+			//
+			// nats.go abandons reconnection after the SAME
+			// AUTHENTICATION ERROR TWICE regardless of MaxReconnects(-1)
+			// (nats.go@v1.52.0/nats.go:3961), unless
+			// IgnoreAuthErrorAbort is set, which this function does not
+			// set. So on an authenticated mesh there is a second, real
+			// route here: a credential that expires or is revoked under
+			// a live connection closes it permanently.
+			// TestReleaseGate_AnExpiringCredentialEvictsALiveConnection
+			// exercises exactly that and observes this handler firing.
+			//
+			// It stays at Error, and the reason is now stronger rather
+			// than weaker. This is the one log line that distinguishes
+			// "the Runner stopped because its identity lapsed" from "the
+			// Runner is quietly doing nothing", and nothing else in the
+			// process reports it.
 			log.Error("nats connection closed permanently", "last_error", nc.LastError())
 		}),
 		nats.ErrorHandler(func(_ *nats.Conn, sub *nats.Subscription, err error) {

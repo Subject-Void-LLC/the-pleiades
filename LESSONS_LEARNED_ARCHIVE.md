@@ -3785,3 +3785,51 @@ failure MECHANISM, not just the failure count, before concluding they
 share a cause. And when a mistake is one a comment must warn against,
 give the two things different types so the compiler runs the sweep every
 build, on every site, including the ones nobody re-read.
+
+## 171. A gate proves the intersection of what the code does and what the fixture is configured to allow, and a permission list asserted against a restatement of itself asserts nothing
+
+Phase 101b shipped five defects behind a Release Gate that passed in twelve
+seconds and a unit test that passed on every one of them
+(`FAILURE_PATTERNS.md` #207). Both were written carefully. Both were
+structurally incapable of failing.
+
+The gate ran a real broker, in operator mode, with real minted credentials,
+in acts, with a control proving anonymous access was refused and a negative
+control proving a forged publish was denied. By every convention in this
+repository it was a good gate. Its broker ran without `-js`, and all five
+defects lived on the JetStream control plane.
+
+That is the first rule, and it is not about NATS. A gate measures the
+INTERSECTION of what the code does and what the fixture is configured to
+exercise. A fixture missing the subsystem the code exists to serve turns
+every assertion into a statement about the other subsystem. The question to
+ask of a fixture is not "is it real" but "is it configured like the thing
+it stands in for", and the specific form here is worth keeping: the only
+NATS start in the entire repository that omitted `-js` was the one gating
+the code whose whole purpose was JetStream permissions.
+
+The unit test failed differently and worse. It compared the grant against a
+hand-written list of the subjects the Runner needs, by exact string
+membership. The list was written in the same sitting as the grant, from the
+same misunderstanding of a wildcard, so it carried the identical wrong
+suffixes. It asserted that the grant equalled itself. A test written from
+the same source as the code under test inherits the code's errors, and
+inherits them invisibly, because both sides move together whenever anyone
+changes them.
+
+The repair generalises. Assert against the OTHER SIDE OF THE CONTRACT: the
+subject the driver actually sends, taken from the driver's own templates,
+matched by the matching rules the server actually applies. That turns a
+comparison between two copies of one belief into a comparison between a
+belief and an independent fact. And when the matching rules are themselves
+the thing misunderstood, pin them in their own table first, with the case
+that caused the bug written as a row (`a.b.>` does not match `a.b`), so the
+helper cannot quietly drift into agreeing with a broken grant.
+
+Both failures share one ancestor: a check that cannot distinguish success
+from its absence. #206 met the same shape a week earlier, where an
+identity-function diagnostic made a wrongly passed argument accidentally
+correct (#170). The habit that catches all three is to ask, of any passing
+check, what would have to be true for this to fail, and to go and make that
+true once.
+
