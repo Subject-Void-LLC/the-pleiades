@@ -48,6 +48,14 @@
     {
       "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/ent",
       "reason": "internal/ent/conformance_backends_test.go provisions a real ephemeral Postgres container directly (testcontainers-go) to run the same conformance suite against both SQLite and Postgres backends."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/meshid",
+      "reason": "Observed 2026-08-26 under `make push-gate`'s test-repeat: TestReleaseGate_AnExpiringCredentialEvictsALiveConnection failed with 'container port: port \"4222/tcp\" not found', the identical NATS container port-mapping race this file's own tests/e2e entry already records by name. Not a defect in the test: the failure is inside the shared broker-start helper before any assertion runs. Reran the package alone immediately afterwards and it passed in 26.9s, which is the isolation signature FAILURE_PATTERNS.md #61 describes. The package provisions two real ephemeral nats:2.14.4-alpine containers, one per Release Gate, and both run a JetStream-enabled broker in operator mode, so it belongs on this list for the same mechanism as internal/event and internal/lock."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve",
+      "reason": "Observed 2026-08-26 in the same push-gate run as internal/meshid above: TestReleaseGate_AnInputResolvesOutOfARealVault failed with 'container port: port \"8200/tcp\" not found'. Same race, different image: the port mapping is not published yet when the test reads it, under full parallel repeat load. Reran alone immediately afterwards and it passed in 12.9s. The package provisions a real ephemeral HashiCorp Vault container. That two different packages lost the same race in one run, on two different ports, is itself FAILURE_PATTERNS.md #61's stated signature: 'the specific package that loses the race changes between runs'."
     }
   ]
 }
