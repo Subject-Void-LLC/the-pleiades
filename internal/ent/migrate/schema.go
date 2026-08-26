@@ -445,6 +445,31 @@ var (
 			},
 		},
 	}
+	// MeshSigningKeysColumns holds the columns for the "mesh_signing_keys" table.
+	MeshSigningKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "key_id", Type: field.TypeString, Unique: true},
+		{Name: "account_subject", Type: field.TypeString},
+		{Name: "public_key", Type: field.TypeString},
+		{Name: "seed", Type: field.TypeString},
+		{Name: "active", Type: field.TypeBool, Default: false},
+		{Name: "secret_binding", Type: field.TypeString},
+	}
+	// MeshSigningKeysTable holds the schema information for the "mesh_signing_keys" table.
+	MeshSigningKeysTable = &schema.Table{
+		Name:       "mesh_signing_keys",
+		Columns:    MeshSigningKeysColumns,
+		PrimaryKey: []*schema.Column{MeshSigningKeysColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "meshsigningkey_account_subject",
+				Unique:  false,
+				Columns: []*schema.Column{MeshSigningKeysColumns[4]},
+			},
+		},
+	}
 	// OrganizationsColumns holds the columns for the "organizations" table.
 	OrganizationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -998,6 +1023,7 @@ var (
 		JobsTable,
 		JobTasksTable,
 		LocalCredentialsTable,
+		MeshSigningKeysTable,
 		OrganizationsTable,
 		RevisionsTable,
 		RoleBindingsTable,

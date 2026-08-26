@@ -61,10 +61,17 @@ func FuzzDurableName(f *testing.F) {
 // tabling. It is operator-supplied and pkg/inventory documents it as
 // opaque, so it arrives from a YAML inventory or the API as arbitrary
 // text, and it reaches subject construction on the dispatch path at the
-// moment a job fans out. An id that expanded into several tokens would
-// escape every filter subject this package declares, and the device would
-// silently stop being dispatched to anyone; an id carrying "*" or ">"
-// would be a wildcard published into the middle of a subject.
+// moment a job fans out.
+//
+// Be precise about what an over-wide id actually breaks, because the
+// tempting claim is wrong and was made once already. The fleet filter ends
+// in ">", which matches one or more trailing tokens, so a dotted id would
+// still be DELIVERED today (verified against a real broker). What it
+// breaks is any single-token filter, "pleiades.jobs.dispatch.*", which is
+// exactly the per-device scoping the next stage of this work is built on.
+// Separately, an id carrying "*" or ">" would put a wildcard in a
+// published subject, and two ids differing only in dropped characters
+// would collide on one subject.
 //
 // Two inputs rather than one, because the property that matters most needs
 // a pair: two DIFFERENT device ids must never land on the same subject.

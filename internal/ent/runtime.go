@@ -18,6 +18,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -397,6 +398,41 @@ func init() {
 	localcredentialDescMustChange := localcredentialFields[4].Descriptor()
 	// localcredential.DefaultMustChange holds the default value on creation for the must_change field.
 	localcredential.DefaultMustChange = localcredentialDescMustChange.Default.(bool)
+	meshsigningkeyMixin := schema.MeshSigningKey{}.Mixin()
+	meshsigningkeyMixinFields0 := meshsigningkeyMixin[0].Fields()
+	_ = meshsigningkeyMixinFields0
+	meshsigningkeyFields := schema.MeshSigningKey{}.Fields()
+	_ = meshsigningkeyFields
+	// meshsigningkeyDescCreatedAt is the schema descriptor for created_at field.
+	meshsigningkeyDescCreatedAt := meshsigningkeyMixinFields0[0].Descriptor()
+	// meshsigningkey.DefaultCreatedAt holds the default value on creation for the created_at field.
+	meshsigningkey.DefaultCreatedAt = meshsigningkeyDescCreatedAt.Default.(func() time.Time)
+	// meshsigningkeyDescUpdatedAt is the schema descriptor for updated_at field.
+	meshsigningkeyDescUpdatedAt := meshsigningkeyMixinFields0[1].Descriptor()
+	// meshsigningkey.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	meshsigningkey.DefaultUpdatedAt = meshsigningkeyDescUpdatedAt.Default.(func() time.Time)
+	// meshsigningkey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	meshsigningkey.UpdateDefaultUpdatedAt = meshsigningkeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// meshsigningkeyDescKeyID is the schema descriptor for key_id field.
+	meshsigningkeyDescKeyID := meshsigningkeyFields[0].Descriptor()
+	// meshsigningkey.KeyIDValidator is a validator for the "key_id" field. It is called by the builders before save.
+	meshsigningkey.KeyIDValidator = meshsigningkeyDescKeyID.Validators[0].(func(string) error)
+	// meshsigningkeyDescAccountSubject is the schema descriptor for account_subject field.
+	meshsigningkeyDescAccountSubject := meshsigningkeyFields[1].Descriptor()
+	// meshsigningkey.AccountSubjectValidator is a validator for the "account_subject" field. It is called by the builders before save.
+	meshsigningkey.AccountSubjectValidator = meshsigningkeyDescAccountSubject.Validators[0].(func(string) error)
+	// meshsigningkeyDescPublicKey is the schema descriptor for public_key field.
+	meshsigningkeyDescPublicKey := meshsigningkeyFields[2].Descriptor()
+	// meshsigningkey.PublicKeyValidator is a validator for the "public_key" field. It is called by the builders before save.
+	meshsigningkey.PublicKeyValidator = meshsigningkeyDescPublicKey.Validators[0].(func(string) error)
+	// meshsigningkeyDescActive is the schema descriptor for active field.
+	meshsigningkeyDescActive := meshsigningkeyFields[4].Descriptor()
+	// meshsigningkey.DefaultActive holds the default value on creation for the active field.
+	meshsigningkey.DefaultActive = meshsigningkeyDescActive.Default.(bool)
+	// meshsigningkeyDescSecretBinding is the schema descriptor for secret_binding field.
+	meshsigningkeyDescSecretBinding := meshsigningkeyFields[5].Descriptor()
+	// meshsigningkey.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	meshsigningkey.DefaultSecretBinding = meshsigningkeyDescSecretBinding.Default.(func() string)
 	organizationMixin := schema.Organization{}.Mixin()
 	organizationMixinFields0 := organizationMixin[0].Fields()
 	_ = organizationMixinFields0

@@ -1481,4 +1481,21 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// envelope_bound.go records why that is acceptable there and not here.
 	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
+
+	// The NATS account signing key, also on the bound envelope, and the
+	// case where relocation stops being a leak and becomes something
+	// worse. Moving one credential's ciphertext onto another row makes the
+	// platform inject the wrong secret. Moving a SIGNING KEY's ciphertext
+	// onto another row makes the platform mint credentials a different
+	// account trusts, which manufactures identities rather than exposing a
+	// value, and the attacker reads nothing at any point.
+	//
+	// This is the one key in the NATS hierarchy a running process is
+	// allowed to hold at all: the operator key and the account identity
+	// key stay offline, so a compromise here is an account compromise
+	// rather than a mesh compromise. internal/meshid's package comment
+	// carries the full hierarchy and why the split is the security
+	// boundary.
+	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(envelopeSvc))
+	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
 }

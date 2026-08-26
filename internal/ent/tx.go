@@ -38,6 +38,8 @@ type Tx struct {
 	JobTask *JobTaskClient
 	// LocalCredential is the client for interacting with the LocalCredential builders.
 	LocalCredential *LocalCredentialClient
+	// MeshSigningKey is the client for interacting with the MeshSigningKey builders.
+	MeshSigningKey *MeshSigningKeyClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
@@ -204,6 +206,7 @@ func (tx *Tx) init() {
 	tx.Job = NewJobClient(tx.config)
 	tx.JobTask = NewJobTaskClient(tx.config)
 	tx.LocalCredential = NewLocalCredentialClient(tx.config)
+	tx.MeshSigningKey = NewMeshSigningKeyClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)

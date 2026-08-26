@@ -35,8 +35,13 @@ func TestDispatchConsumerConfig(t *testing.T) {
 	}
 
 	// The fleet consumer group's guarantee is unchanged by the device
-	// token: its filter must still match EVERY device's dispatch, or a
-	// device silently stops being dispatched to anyone at all.
+	// token: its filter must still match EVERY device's dispatch.
+	//
+	// Note what this does NOT prove, since the obvious reading of it is
+	// wrong. The filter ends in ">", which matches one or more trailing
+	// tokens, so it would match even a device subject that had wrongly
+	// widened into several. Exactly-one-token is asserted at the producer
+	// by TestDispatchSubjectIsOneTokenPerDevice, not here.
 	if got := topology.DispatchSubject("any-device-at-all"); !subjectCoveredByRoot(cfg.FilterSubject, got) {
 		t.Errorf("fleet filter %q does not match %q", cfg.FilterSubject, got)
 	}

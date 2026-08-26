@@ -54,7 +54,7 @@ func TestDispatchSubjectIsOneTokenPerDevice(t *testing.T) {
 			continue
 		}
 		if rest := strings.TrimPrefix(subject, prefix); strings.Contains(rest, ".") {
-			t.Errorf("subject %q adds %d tokens, want exactly 1: a device id that expands into several tokens escapes every filter this package declares",
+			t.Errorf("subject %q adds %d tokens, want exactly 1: a device id that expands into several tokens still matches the fleet filter's trailing wildcard, but breaks every single-token per-device filter, which is what scoping needs",
 				subject, strings.Count(rest, ".")+1)
 		}
 	}

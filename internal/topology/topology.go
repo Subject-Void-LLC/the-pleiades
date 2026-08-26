@@ -236,6 +236,33 @@ func ResultSubject(jobID string) string {
 	return resultSubjectPrefix + SubjectToken(jobID)
 }
 
+// LogSubjectAll and ResultSubjectAll return the wildcards matching every
+// job's log and result subjects.
+//
+// They exist because of a consequence of sanitizing INSIDE the builders
+// that is easy to walk into and hard to see afterwards: LogSubject(">")
+// does not return a wildcard, it returns "pleiades.jobs.logs.unnamed-62b67e1f",
+// because ">" is not a legal token and SubjectToken duly encodes it. A
+// caller wanting the whole space (a permission grant, an operator
+// subscription, a filtered consumer over all jobs) therefore cannot build
+// it by passing a wildcard through the per-job builder and must be given
+// it, the same way DispatchSubjectAll is given rather than derived.
+//
+// The alternative, letting the builders pass a wildcard through
+// unsanitized, was rejected: it would mean the one function that decides
+// whether a string is a token or a pattern has to guess from the string,
+// and a device id of ">" would silently become a subscription to
+// everything.
+func LogSubjectAll() string {
+	return logSubjectPrefix + ">"
+}
+
+// ResultSubjectAll is LogSubjectAll's sibling for the result subject; see
+// its doc comment for why these are declared rather than derived.
+func ResultSubjectAll() string {
+	return resultSubjectPrefix + ">"
+}
+
 // JobRequestedSubject returns the one subject a persisted Job's launch
 // publishes to in order to hand its durable fan-out off to a Worker (Phase
 // 14, The Dispatcher; internal/dispatch). It replaces the old synchronous

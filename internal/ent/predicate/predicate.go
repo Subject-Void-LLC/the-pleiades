@@ -45,6 +45,9 @@ type JobTask func(*sql.Selector)
 // LocalCredential is the predicate function for localcredential builders.
 type LocalCredential func(*sql.Selector)
 
+// MeshSigningKey is the predicate function for meshsigningkey builders.
+type MeshSigningKey func(*sql.Selector)
+
 // Organization is the predicate function for organization builders.
 type Organization func(*sql.Selector)
 

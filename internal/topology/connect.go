@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 )
 
 // Connect dials url with the shared options and returns only once the
@@ -47,7 +48,8 @@ import (
 type ConnectOption func(*connectSettings)
 
 type connectSettings struct {
-	tls *tls.Config
+	tls   *tls.Config
+	creds []byte
 }
 
 // WithTLS supplies the client TLS configuration for a tls:// or wss://
@@ -60,6 +62,48 @@ type connectSettings struct {
 // direction.
 func WithTLS(cfg *tls.Config) ConnectOption {
 	return func(s *connectSettings) { s.tls = cfg }
+}
+
+// WithCredentials supplies the mesh identity this connection
+// authenticates as, as the body of a NATS .creds file.
+//
+// BYTES RATHER THAN A PATH, deliberately, even though nats.UserCredentials
+// takes a filename and would have been less code. The credential contains
+// the user's private seed, and the whole point of minting short-lived
+// identities is that the seed exists in exactly one place for a bounded
+// time. Accepting a path would mean every caller first writes key material
+// to a filesystem, where it outlives the process, survives a crash, and
+// lands in whatever backs that directory. internal/meshid returns these
+// bytes and nothing writes them down.
+//
+// The parsed key pair is retained for the life of the connection, because
+// the signing callback runs again on EVERY reconnect, not once at dial.
+// That is a real cost and it is the right one: a mesh built to survive a
+// long outage reconnects often, and a credential that could not be
+// re-presented would turn one network blip into a permanent disconnection.
+func WithCredentials(creds []byte) ConnectOption {
+	return func(s *connectSettings) { s.creds = creds }
+}
+
+// credentialOption turns a .creds body into the dial option that presents
+// it, keeping the JWT and the seed in memory only.
+func credentialOption(creds []byte) (nats.Option, error) {
+	userJWT, err := nkeys.ParseDecoratedJWT(creds)
+	if err != nil {
+		return nil, fmt.Errorf("topology: reading the user jwt from the credential: %w", err)
+	}
+	kp, err := nkeys.ParseDecoratedUserNKey(creds)
+	if err != nil {
+		return nil, fmt.Errorf("topology: reading the user key from the credential: %w", err)
+	}
+
+	// Neither callback's error is wrapped with the credential in it. A
+	// signing failure reaches the client's error handler and the logs, and
+	// the one thing that must never arrive there is the key material.
+	return nats.UserJWT(
+		func() (string, error) { return userJWT, nil },
+		func(nonce []byte) ([]byte, error) { return kp.Sign(nonce) },
+	), nil
 }
 
 func Connect(ctx context.Context, url string, logger *slog.Logger, component string, opts ...ConnectOption) (*nats.Conn, error) {
@@ -79,6 +123,13 @@ func Connect(ctx context.Context, url string, logger *slog.Logger, component str
 	}
 
 	dialOpts := DialOptions(logger, component)
+	if len(settings.creds) > 0 {
+		credOpt, err := credentialOption(settings.creds)
+		if err != nil {
+			return nil, err
+		}
+		dialOpts = append(dialOpts, credOpt)
+	}
 	if settings.tls != nil {
 		// Secure first, then the config: nats.Secure turns TLS on, and
 		// passing a *tls.Config to it is what makes verification use the

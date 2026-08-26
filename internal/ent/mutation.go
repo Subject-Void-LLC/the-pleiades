@@ -25,6 +25,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
@@ -61,6 +62,7 @@ const (
 	TypeJob                   = "Job"
 	TypeJobTask               = "JobTask"
 	TypeLocalCredential       = "LocalCredential"
+	TypeMeshSigningKey        = "MeshSigningKey"
 	TypeOrganization          = "Organization"
 	TypeRevision              = "Revision"
 	TypeRoleBinding           = "RoleBinding"
@@ -12719,6 +12721,710 @@ func (m *LocalCredentialMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown LocalCredential edge %s", name)
+}
+
+// MeshSigningKeyMutation represents an operation that mutates the MeshSigningKey nodes in the graph.
+type MeshSigningKeyMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int
+	created_at      *time.Time
+	updated_at      *time.Time
+	key_id          *string
+	account_subject *string
+	public_key      *string
+	seed            *string
+	active          *bool
+	secret_binding  *string
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*MeshSigningKey, error)
+	predicates      []predicate.MeshSigningKey
+}
+
+var _ ent.Mutation = (*MeshSigningKeyMutation)(nil)
+
+// meshsigningkeyOption allows management of the mutation configuration using functional options.
+type meshsigningkeyOption func(*MeshSigningKeyMutation)
+
+// newMeshSigningKeyMutation creates new mutation for the MeshSigningKey entity.
+func newMeshSigningKeyMutation(c config, op Op, opts ...meshsigningkeyOption) *MeshSigningKeyMutation {
+	m := &MeshSigningKeyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeMeshSigningKey,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withMeshSigningKeyID sets the ID field of the mutation.
+func withMeshSigningKeyID(id int) meshsigningkeyOption {
+	return func(m *MeshSigningKeyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *MeshSigningKey
+		)
+		m.oldValue = func(ctx context.Context) (*MeshSigningKey, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().MeshSigningKey.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withMeshSigningKey sets the old MeshSigningKey of the mutation.
+func withMeshSigningKey(node *MeshSigningKey) meshsigningkeyOption {
+	return func(m *MeshSigningKeyMutation) {
+		m.oldValue = func(context.Context) (*MeshSigningKey, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m MeshSigningKeyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m MeshSigningKeyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *MeshSigningKeyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *MeshSigningKeyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().MeshSigningKey.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *MeshSigningKeyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *MeshSigningKeyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *MeshSigningKeyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *MeshSigningKeyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *MeshSigningKeyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *MeshSigningKeyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetKeyID sets the "key_id" field.
+func (m *MeshSigningKeyMutation) SetKeyID(s string) {
+	m.key_id = &s
+}
+
+// KeyID returns the value of the "key_id" field in the mutation.
+func (m *MeshSigningKeyMutation) KeyID() (r string, exists bool) {
+	v := m.key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKeyID returns the old "key_id" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldKeyID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKeyID: %w", err)
+	}
+	return oldValue.KeyID, nil
+}
+
+// ResetKeyID resets all changes to the "key_id" field.
+func (m *MeshSigningKeyMutation) ResetKeyID() {
+	m.key_id = nil
+}
+
+// SetAccountSubject sets the "account_subject" field.
+func (m *MeshSigningKeyMutation) SetAccountSubject(s string) {
+	m.account_subject = &s
+}
+
+// AccountSubject returns the value of the "account_subject" field in the mutation.
+func (m *MeshSigningKeyMutation) AccountSubject() (r string, exists bool) {
+	v := m.account_subject
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountSubject returns the old "account_subject" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldAccountSubject(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountSubject is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountSubject requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountSubject: %w", err)
+	}
+	return oldValue.AccountSubject, nil
+}
+
+// ResetAccountSubject resets all changes to the "account_subject" field.
+func (m *MeshSigningKeyMutation) ResetAccountSubject() {
+	m.account_subject = nil
+}
+
+// SetPublicKey sets the "public_key" field.
+func (m *MeshSigningKeyMutation) SetPublicKey(s string) {
+	m.public_key = &s
+}
+
+// PublicKey returns the value of the "public_key" field in the mutation.
+func (m *MeshSigningKeyMutation) PublicKey() (r string, exists bool) {
+	v := m.public_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPublicKey returns the old "public_key" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldPublicKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPublicKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPublicKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPublicKey: %w", err)
+	}
+	return oldValue.PublicKey, nil
+}
+
+// ResetPublicKey resets all changes to the "public_key" field.
+func (m *MeshSigningKeyMutation) ResetPublicKey() {
+	m.public_key = nil
+}
+
+// SetSeed sets the "seed" field.
+func (m *MeshSigningKeyMutation) SetSeed(s string) {
+	m.seed = &s
+}
+
+// Seed returns the value of the "seed" field in the mutation.
+func (m *MeshSigningKeyMutation) Seed() (r string, exists bool) {
+	v := m.seed
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeed returns the old "seed" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldSeed(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeed is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeed requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeed: %w", err)
+	}
+	return oldValue.Seed, nil
+}
+
+// ResetSeed resets all changes to the "seed" field.
+func (m *MeshSigningKeyMutation) ResetSeed() {
+	m.seed = nil
+}
+
+// SetActive sets the "active" field.
+func (m *MeshSigningKeyMutation) SetActive(b bool) {
+	m.active = &b
+}
+
+// Active returns the value of the "active" field in the mutation.
+func (m *MeshSigningKeyMutation) Active() (r bool, exists bool) {
+	v := m.active
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldActive returns the old "active" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldActive(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldActive is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldActive requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldActive: %w", err)
+	}
+	return oldValue.Active, nil
+}
+
+// ResetActive resets all changes to the "active" field.
+func (m *MeshSigningKeyMutation) ResetActive() {
+	m.active = nil
+}
+
+// SetSecretBinding sets the "secret_binding" field.
+func (m *MeshSigningKeyMutation) SetSecretBinding(s string) {
+	m.secret_binding = &s
+}
+
+// SecretBinding returns the value of the "secret_binding" field in the mutation.
+func (m *MeshSigningKeyMutation) SecretBinding() (r string, exists bool) {
+	v := m.secret_binding
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretBinding returns the old "secret_binding" field's value of the MeshSigningKey entity.
+// If the MeshSigningKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MeshSigningKeyMutation) OldSecretBinding(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretBinding is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretBinding requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretBinding: %w", err)
+	}
+	return oldValue.SecretBinding, nil
+}
+
+// ResetSecretBinding resets all changes to the "secret_binding" field.
+func (m *MeshSigningKeyMutation) ResetSecretBinding() {
+	m.secret_binding = nil
+}
+
+// Where appends a list predicates to the MeshSigningKeyMutation builder.
+func (m *MeshSigningKeyMutation) Where(ps ...predicate.MeshSigningKey) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the MeshSigningKeyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *MeshSigningKeyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.MeshSigningKey, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *MeshSigningKeyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *MeshSigningKeyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (MeshSigningKey).
+func (m *MeshSigningKeyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *MeshSigningKeyMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, meshsigningkey.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, meshsigningkey.FieldUpdatedAt)
+	}
+	if m.key_id != nil {
+		fields = append(fields, meshsigningkey.FieldKeyID)
+	}
+	if m.account_subject != nil {
+		fields = append(fields, meshsigningkey.FieldAccountSubject)
+	}
+	if m.public_key != nil {
+		fields = append(fields, meshsigningkey.FieldPublicKey)
+	}
+	if m.seed != nil {
+		fields = append(fields, meshsigningkey.FieldSeed)
+	}
+	if m.active != nil {
+		fields = append(fields, meshsigningkey.FieldActive)
+	}
+	if m.secret_binding != nil {
+		fields = append(fields, meshsigningkey.FieldSecretBinding)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *MeshSigningKeyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case meshsigningkey.FieldCreatedAt:
+		return m.CreatedAt()
+	case meshsigningkey.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case meshsigningkey.FieldKeyID:
+		return m.KeyID()
+	case meshsigningkey.FieldAccountSubject:
+		return m.AccountSubject()
+	case meshsigningkey.FieldPublicKey:
+		return m.PublicKey()
+	case meshsigningkey.FieldSeed:
+		return m.Seed()
+	case meshsigningkey.FieldActive:
+		return m.Active()
+	case meshsigningkey.FieldSecretBinding:
+		return m.SecretBinding()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *MeshSigningKeyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case meshsigningkey.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case meshsigningkey.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case meshsigningkey.FieldKeyID:
+		return m.OldKeyID(ctx)
+	case meshsigningkey.FieldAccountSubject:
+		return m.OldAccountSubject(ctx)
+	case meshsigningkey.FieldPublicKey:
+		return m.OldPublicKey(ctx)
+	case meshsigningkey.FieldSeed:
+		return m.OldSeed(ctx)
+	case meshsigningkey.FieldActive:
+		return m.OldActive(ctx)
+	case meshsigningkey.FieldSecretBinding:
+		return m.OldSecretBinding(ctx)
+	}
+	return nil, fmt.Errorf("unknown MeshSigningKey field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MeshSigningKeyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case meshsigningkey.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case meshsigningkey.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case meshsigningkey.FieldKeyID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKeyID(v)
+		return nil
+	case meshsigningkey.FieldAccountSubject:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountSubject(v)
+		return nil
+	case meshsigningkey.FieldPublicKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPublicKey(v)
+		return nil
+	case meshsigningkey.FieldSeed:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeed(v)
+		return nil
+	case meshsigningkey.FieldActive:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetActive(v)
+		return nil
+	case meshsigningkey.FieldSecretBinding:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretBinding(v)
+		return nil
+	}
+	return fmt.Errorf("unknown MeshSigningKey field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *MeshSigningKeyMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *MeshSigningKeyMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *MeshSigningKeyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown MeshSigningKey numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *MeshSigningKeyMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *MeshSigningKeyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *MeshSigningKeyMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown MeshSigningKey nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *MeshSigningKeyMutation) ResetField(name string) error {
+	switch name {
+	case meshsigningkey.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case meshsigningkey.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case meshsigningkey.FieldKeyID:
+		m.ResetKeyID()
+		return nil
+	case meshsigningkey.FieldAccountSubject:
+		m.ResetAccountSubject()
+		return nil
+	case meshsigningkey.FieldPublicKey:
+		m.ResetPublicKey()
+		return nil
+	case meshsigningkey.FieldSeed:
+		m.ResetSeed()
+		return nil
+	case meshsigningkey.FieldActive:
+		m.ResetActive()
+		return nil
+	case meshsigningkey.FieldSecretBinding:
+		m.ResetSecretBinding()
+		return nil
+	}
+	return fmt.Errorf("unknown MeshSigningKey field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *MeshSigningKeyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *MeshSigningKeyMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *MeshSigningKeyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *MeshSigningKeyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *MeshSigningKeyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *MeshSigningKeyMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *MeshSigningKeyMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown MeshSigningKey unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *MeshSigningKeyMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown MeshSigningKey edge %s", name)
 }
 
 // OrganizationMutation represents an operation that mutates the Organization nodes in the graph.
