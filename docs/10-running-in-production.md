@@ -317,6 +317,43 @@ device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
 
+### Every task execution is recorded in a run journal
+
+Every node a run executes leaves a durable record: what ran, against which device,
+in what order, how long it took, whether it changed anything, and if it failed, at
+which stage. On the Crawl tier that is one append-only JSON Lines file per run at
+`<project>/.pleiades/journal/<run-id>.jsonl`, written `0600` inside a `0700`
+directory. On the Walk tier the Runner publishes each level onto the job's own
+subject and the Controller stores it in the `journal_entries` table, keyed by the
+job, the device, the delivery attempt and the graph node, so a redelivered dispatch
+reads as a retry rather than as two unrelated runs.
+
+**The journal stores no value that came back from a device.** It is not masked,
+because there is nothing in it to mask: it holds identifiers the platform generated,
+method names resolved through the collection registry at write time, the parameter
+and return key NAMES a method's own documentation declares, closed status values,
+a content hash of the compiled runbook, the labels the runbook author wrote, and
+counts. It records that a task produced a `stdout`; it does not record what the
+device wrote there. Two consequences follow and both matter in practice:
+
+- It is an audit and control-flow artifact, not a diagnostic one. It cannot answer
+  what the device actually said. `--verbose` still can.
+- It needs no key and nothing decrypts it, on either tier.
+
+The one channel that does carry human-written text is the labels: a task's `name:`,
+its `register:` and the runbook's `id:` are stored as written. So the honest
+guarantee is "no value the platform obtained", not "no secret a person could type
+into a task name".
+
+### Rollback is authored, not inferred
+
+The journal records the concrete instruction that would reverse a task that changed
+something: the method to call and the names of the parameters such a call takes. It
+does not record their values, so nothing can replay it automatically, and nothing
+in Pleiades performs a rollback today. Undoing a partial run is an authored
+runbook you write and run deliberately, with the journal as the record of what
+actually happened and therefore of what needs undoing.
+
 ### The message bus survives a link outage of any length
 
 **This section is about the control plane only, and the distinction is the whole
@@ -1204,6 +1241,18 @@ ever emits a genuinely sensitive value as a fact, `register_mask`/`secret_mask`
 (below) is the mechanism to keep it out of printed and streamed output, but it does
 not encrypt the stored fact itself.
 
+`journal_entries` is the second deliberate exception, and it is a different kind of
+exception from the first. `Fact.payload` is unencrypted because gathered facts are
+classified as operational telemetry, which is a judgement about the value. A journal
+entry is unencrypted because it holds no value at all: what it stores is identifiers,
+registry-resolved method names, declared key names, status values and counts, and
+two architecture tests refuse any field able to carry anything else. There is
+nothing there to encrypt rather than a decision not to.
+
+One related disclosure while you are reading this section: `Revision` rows record
+inventory changes over time, and what they hold about a device follows the same
+rule `Device.properties` does.
+
 ### `register_mask` and `secret_mask` are a security contract, not a convenience
 
 `register_mask:` on a task masks one or more fields of that task's own registered
@@ -1231,12 +1280,17 @@ at all.
 - `when_cel` conditions always see the real, unmasked value. Masking a value from
   the conditional engine would silently break branching logic that depends on it.
 
-**Where masking does not apply today:** the Walk-tier distributed execution path
-(a job dispatched to a `runner` over NATS) does not yet run real tasks at all (see
-[Start here](01-start-here.md)), so there is no real stored job record or SSE
-stream carrying task output to audit for masking yet. This section will need a real
-audit once that path executes for real; treat the guarantees above as proven only
-for the Crawl-tier CLI's own output today.
+**Where masking applies on the Walk tier:** the distributed execution path (a job
+dispatched to a `runner` over NATS) does run real tasks against real devices, and
+has since Phase 16, so the paragraph that used to stand here saying otherwise was
+out of date. What that path masks today is its own streamed output: the Runner
+builds the complete secret set from the run's own `register_mask`/`secret_mask`
+discoveries plus every value the Controller attached to the dispatch plus every
+value a bound credential injected, and masks through it. Two limits are worth
+stating plainly. That set is complete only once the run has finished, so an event
+published early in a run is masked against whatever was known at the time. And the
+run journal is outside this question entirely rather than covered by it: it stores
+no device output to mask.
 
 ### Telemetry
 
