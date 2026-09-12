@@ -113,6 +113,124 @@ type NodeResult struct {
 	// caller printing or logging them must mask through
 	// RunResult.Secrets first.
 	Stats map[string]interface{}
+
+	// journalStats is what the run journal's projection reads instead of
+	// Stats, because the two answer different questions and one of the two
+	// post-action failure paths makes the difference load bearing.
+	//
+	// Stats is what a CALLER PRINTS: cmd/pleiades/run.go renders it under
+	// --verbose. So it stays nil when markRegisterMask fails, and that is
+	// deliberate rather than an oversight. A failed register_mask means the
+	// author's own mask never applied, so publishing the value it was
+	// written to protect is exactly the leak the annotation exists to
+	// prevent.
+	//
+	// The journal has the opposite constraint and therefore needs its own
+	// field. It never stores a value, only key NAMES (see projectResult and
+	// admitStatKeys), so it can safely be shown stats a caller must not
+	// print. And it MUST be shown them: a task that changed the device and
+	// recorded an inverse, and only then failed at register_mask or at
+	// record, is precisely the run this phase exists to journal. Reading
+	// Stats there would make such a node journal as "nothing to undo",
+	// which is worse than an absent entry because it is a confident wrong
+	// answer to the one question a rollback asks.
+	//
+	// Unexported on purpose: nothing outside this package should reach a
+	// value that deliberately bypasses the print path's own guard.
+	journalStats map[string]interface{}
+
+	// StartedAt and FinishedAt bound this one execution, both in UTC to
+	// match publish's own clock. StartedAt is stamped once per node in
+	// runNode for a result runNode produces itself, and once per device
+	// in runOne after the semaphore has admitted that device, so the
+	// interval measures execution rather than time spent queued behind
+	// Executor.maxConcurrency.
+	//
+	// They exist because the run journal has to order a level's
+	// concurrent fan-out, and the event stream cannot do it. publish
+	// stamps its own payload with time.RFC3339 (see publish, below),
+	// a layout carrying no fractional-second component at all, so two
+	// nodes of the same level that finish three milliseconds apart carry
+	// the identical instant and nothing downstream can tell which ran
+	// first. A journal entry has to answer that, so it carries its own
+	// bounds rather than inheriting the event's.
+	//
+	// Both are the zero Time on exactly one shape of result: the
+	// synthetic parallel fan-out/join marker (TaskKindSynthetic), which
+	// short-circuits ahead of the whole pipeline in runNode and executes
+	// nothing at all. A zero pair there is the honest record of a node
+	// that never ran, and it is deliberately not filled in with
+	// time.Now(), which would fabricate an instant for work that did not
+	// happen. Every other result sets both.
+	StartedAt  time.Time
+	FinishedAt time.Time
+
+	// failureStage, skipKind, skipOrdinal and skipTotal are the run
+	// journal's tags: the four things projectLevel (journal_entry.go)
+	// cannot re-derive once a level has joined, recorded at the one call
+	// site that knows each answer.
+	//
+	// They are unexported deliberately. They are the projection's private
+	// channel, not a second public account of an outcome this type already
+	// reports through Skipped, SkipReason and Err, and a caller outside
+	// this package that wants them reads the journal rather than a field
+	// whose meaning would then be frozen by everyone who found it.
+	//
+	// The tags exist at all because the alternative, recovering the stage
+	// from Err's text, is both refused by the design (see
+	// JournalEntry.FailureStage: a stage read off control flow cannot
+	// drift when somebody rewords an error) and impossible here: runOne
+	// wraps an action failure and a register_mask failure with the
+	// identical "task %s failed:" prefix, so no rule over Err could tell
+	// FailureStageAction from FailureStageRegisterMask.
+	//
+	// Leaving one unset is caught rather than absorbed. projectLevel
+	// refuses to write an entry for a failed result carrying no stage, or
+	// a skipped result carrying no kind, because a zero value there is a
+	// record that quietly says the wrong thing. See projectLevel's own
+	// comment on what a tenth failure site costs whoever adds it.
+	failureStage FailureStage
+	skipKind     SkipKind
+	skipOrdinal  int
+	skipTotal    int
+}
+
+// fail records err as n's failure and tags it with the stage that
+// produced it, so the journal can say which step failed without reading
+// the error's own text. It is a method rather than a field assignment at
+// each site so the two always move together: a site that set Err alone
+// would project as a failure with no stage and be refused.
+func (n *NodeResult) fail(stage FailureStage, err error) {
+	n.failureStage = stage
+	n.Err = err
+}
+
+// failedNode returns a finished NodeResult for a node that failed at
+// stage before it ever fanned out across devices, which is every failure
+// runNode itself produces. runOne uses the fail method above instead,
+// because it has a partly built result in hand by the time it fails.
+func failedNode(nodeID string, started time.Time, stage FailureStage, err error) NodeResult {
+	n := NodeResult{NodeID: nodeID, StartedAt: started}
+	n.fail(stage, err)
+	return finish(n)
+}
+
+// finish returns n with FinishedAt stamped as of now, in UTC.
+//
+// It exists so every place runNode and runOne return a result that
+// actually executed shares one definition of "now", rather than a dozen
+// separate time.Now() calls a later edit could leave out of one branch
+// and produce a result with a start and no end.
+//
+// It deliberately does not stamp StartedAt as well. That instant means
+// something different at the two producers (runNode takes one for the
+// whole node, before it knows how many devices it will fan out across;
+// runOne takes one per device, after the semaphore admits it), so it is
+// passed in at the construction site where the difference is visible
+// instead of being collapsed into this helper.
+func finish(n NodeResult) NodeResult {
+	n.FinishedAt = time.Now().UTC()
+	return n
 }
 
 // RunResult aggregates every NodeResult produced walking a DAG with
@@ -189,6 +307,7 @@ type Executor struct {
 	maxConcurrency int
 	extraVars      map[string]interface{}
 	taskTimeout    time.Duration
+	journal        Journal
 }
 
 // ExecutorOption configures optional, non-default Executor behavior,
@@ -244,8 +363,22 @@ func WithTaskTimeout(d time.Duration) ExecutorOption {
 // concurrency comes from one node fanning out across many devices or
 // several nodes in the same graph level running at once; a value of zero
 // or less falls back to defaultMaxConcurrency. opts configures optional
-// behavior (WithVariables, WithTaskTimeout); every existing call site
-// that passes none keeps its exact prior behavior.
+// behavior (WithVariables, WithTaskTimeout, WithJournal); every existing
+// call site that passes none keeps its prior OUTCOME and its prior event
+// stream unchanged.
+//
+// Not literally its prior WORK, and the difference is worth stating
+// rather than glossing. recordLevel runs at every level barrier whichever
+// sink is installed, so a caller wiring none still pays one projectLevel
+// pass (an entry per NodeResult, with two sorted key vectors each) and
+// can still emit an error log line if the projection refuses a result.
+// That is deliberate: the fail-closed refusal is only worth having if it
+// fires in the default configuration too, and the benchmark in
+// journal_bench_test.go measures exactly this cost.
+//
+// journal defaults to noopJournal rather than to nil, so the field is
+// never nil and no caller has to opt out of a journal it never asked for
+// (see WithJournal).
 func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Manager, bus event.Bus, workflow WorkflowContext, maxConcurrency int, opts ...ExecutorOption) *Executor {
 	if maxConcurrency <= 0 {
 		maxConcurrency = defaultMaxConcurrency
@@ -257,6 +390,7 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 		bus:            bus,
 		workflow:       workflow,
 		maxConcurrency: maxConcurrency,
+		journal:        noopJournal{},
 	}
 	for _, opt := range opts {
 		opt(x)
@@ -273,11 +407,65 @@ func NewExecutor(resolver TargetResolver, actions ActionExecutor, locks lock.Man
 // secrets/metadataRegisters set is built for every call, so values from
 // one run can never leak into a later Run call on a reused Executor.
 type run struct {
-	x                 *Executor
-	dag               *DAG
+	x   *Executor
+	dag *DAG
+
+	// runID identifies this one Run call in the run journal
+	// (JournalEntry.RunID). It lives here rather than on Executor for the
+	// same reason everything else in this type does: an identifier hung
+	// off the Executor would be shared by every concurrent Run call on a
+	// reused Executor instead of naming one of them.
+	//
+	// It is a version-4 UUID from github.com/google/uuid, and the source
+	// is argued here rather than assumed, because the journal's whole
+	// value rests on its identifiers meaning what they say:
+	//
+	//   - google/uuid is already a direct module dependency (go.mod's own
+	//     require block, not an indirect one), and this exact file
+	//     already calls uuid.New() once per published event (publish,
+	//     below). So the run identifier adds no dependency, no import,
+	//     and strictly less entropy draw than the code beside it. It is
+	//     not a concrete driver, so TestEngineImportsNoConcreteDriver is
+	//     unaffected: concreteDriverPrefixes names NATS, go-sqlite3,
+	//     lib/pq and testcontainers-go, and no other archtest constrains
+	//     what internal/engine may import.
+	//   - crypto/rand on its own would mean inventing a length, an
+	//     encoding and a format that every reader of a journal row then
+	//     has to learn, in order to reach the same 122 random bits
+	//     uuid.New() already reads from crypto/rand and prints in a shape
+	//     an operator recognizes on sight.
+	//   - A monotonic counter is the one candidate that is wrong rather
+	//     than merely redundant. It needs state outliving a Run call,
+	//     which is precisely the property this type exists to deny, and
+	//     it collides across processes: on the Walk tier many Runner
+	//     processes write into one journal, so "run 7" from two Runners
+	//     would join into a single run that never happened. Grouping
+	//     entries within an execution is this field's only job, and a
+	//     grouping key that silently merges two executions is worse than
+	//     having none.
+	//
+	// uuid.New panics if crypto/rand fails, which is the one real cost of
+	// the choice. It is accepted rather than traded for uuid.NewRandom's
+	// error return because publish already takes that identical risk on
+	// every event this run will emit: a value minted once per run cannot
+	// fail in a way the run would otherwise have survived.
+	runID string
+
 	sem               chan struct{}
 	secrets           *stringSet
 	metadataRegisters *stringSet
+
+	// sequence numbers the journal entries this run has produced so far
+	// (JournalEntry.Sequence), and journalFailures counts the Record calls
+	// that failed.
+	//
+	// Neither needs a mutex, and the reason is structural rather than
+	// hopeful: both are touched only by recordLevel, which Run calls from
+	// its own goroutine at the level barrier, after runConcurrently's
+	// wg.Wait has already joined every node goroutine of that level. No
+	// device execution ever reaches them.
+	sequence        int
+	journalFailures int
 }
 
 // Run walks dag one topological level at a time (LevelIterator) and runs
@@ -290,7 +478,14 @@ type run struct {
 // completion: a secret discovered before an abort must still be in
 // result.Secrets so a caller can mask whatever partial output it produces.
 func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err error) {
-	r := &run{x: x, dag: dag, sem: make(chan struct{}, x.maxConcurrency), secrets: newStringSet(), metadataRegisters: newStringSet()}
+	r := &run{
+		x:                 x,
+		dag:               dag,
+		runID:             uuid.New().String(),
+		sem:               make(chan struct{}, x.maxConcurrency),
+		secrets:           newStringSet(),
+		metadataRegisters: newStringSet(),
+	}
 
 	defer func() {
 		result.Secrets = r.secrets.Snapshot()
@@ -307,6 +502,10 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 	}()
 
 	it := NewLevelIterator(dag)
+	// levelIndex is 1-based and exists only to name a level in a log line;
+	// it is not stored in the journal, whose entries are ordered by
+	// Sequence and grouped by RunID.
+	levelIndex := 0
 	for {
 		level, ok := it.Next()
 		if !ok {
@@ -316,10 +515,19 @@ func (x *Executor) Run(ctx context.Context, dag *DAG) (result RunResult, err err
 			err = ctxErr
 			return
 		}
+		levelIndex++
 
 		outs := runConcurrently(level, func(nodeID string) []NodeResult {
 			return r.runNode(ctx, nodeID)
 		})
+
+		// The journal is written here, before the failure scan below can
+		// break out of the loop, because the level that failed is the one
+		// its record is read for afterward. recordLevel never returns an
+		// error and never changes this run's outcome; see its own doc
+		// comment for why an audit write must not become an execution
+		// failure on the Walk tier.
+		r.recordLevel(ctx, levelIndex, outs)
 
 		failed := false
 		for _, out := range outs {
@@ -380,13 +588,35 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		// intent at all, so it short-circuits here instead. This is the
 		// only Executor change Phase 10 makes; see EdgeType's own doc
 		// comment (dag.go) for what deliberately stays out of scope.
+		//
+		// This is the one result in this file that leaves StartedAt and
+		// FinishedAt zero, and it does so on purpose. The short-circuit
+		// is above the clock read below, so there is no interval to
+		// report: this node executed nothing. Stamping it with time.Now()
+		// would give the journal a plausible instant for work that never
+		// happened, which is the failure the pair is least able to
+		// survive, since an operator reading a duration cannot tell a
+		// fabricated one from a real one. The journal has its own name
+		// for this shape (OutcomeNotReached, journal.go) rather than a
+		// default, for the same reason.
 		return []NodeResult{{NodeID: nodeID}}
 	}
+
+	// Everything below this line executes something, however briefly:
+	// reading the workflow context, evaluating a condition, applying
+	// secret_mask, resolving a target, acquiring locks. One clock read
+	// bounds the whole node's own pipeline, so every result runNode
+	// produces itself shares a start and reports its own end through
+	// finish. runOne stamps its own start per device instead, because a
+	// device that waited on the semaphore did not begin executing when
+	// the node did.
+	started := time.Now().UTC()
 
 	if cp := r.dag.Conditions[nodeID]; cp != nil {
 		tree, err := r.x.workflow.Read()
 		if err != nil {
-			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err)}}
+			return []NodeResult{failedNode(nodeID, started, FailureStageWorkflowRead,
+				fmt.Errorf("failed to read workflow context for %s: %w", taskLabel(nodeID, task), err))}
 		}
 		// "stat" and "nodes" are bound to the identical WorkflowContext
 		// snapshot today: "stat" for simple, non-cross-node conditions and
@@ -405,11 +635,20 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		condVars := map[string]interface{}{"stat": tree, "nodes": tree, "vars": extraVars}
 		res, err := cp.Eval(condVars)
 		if err != nil {
-			return []NodeResult{{NodeID: nodeID, Err: fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err)}}
+			return []NodeResult{failedNode(nodeID, started, FailureStageConditionEval,
+				fmt.Errorf("failed to evaluate condition for %s: %w", taskLabel(nodeID, task), err))}
 		}
 		if !res.OK {
 			r.publish(nodeID, task, "", "skipped", res.Reason)
-			return []NodeResult{{NodeID: nodeID, Skipped: true, SkipReason: res.Reason}}
+			// The journal's tags travel with the result: which keyword the
+			// author actually wrote, and the two numbers evalAnd and evalOr
+			// already computed to build res.Reason. Taking them here rather
+			// than re-deriving them at the level barrier is what keeps the
+			// journal's numbers and the reason sentence from drifting apart.
+			return []NodeResult{finish(NodeResult{
+				NodeID: nodeID, StartedAt: started, Skipped: true, SkipReason: res.Reason,
+				skipKind: skipKindFor(cp), skipOrdinal: res.Ordinal, skipTotal: res.Total,
+			})}
 		}
 	}
 
@@ -422,14 +661,14 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 	if err := r.applySecretMask(task); err != nil {
 		wrapped := fmt.Errorf("failed to apply secret_mask for %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{{NodeID: nodeID, Err: wrapped}}
+		return []NodeResult{failedNode(nodeID, started, FailureStageSecretMask, wrapped)}
 	}
 
 	devices, err := r.resolveDevices(task)
 	if err != nil {
 		wrapped := fmt.Errorf("failed to resolve target for %s: %w", taskLabel(nodeID, task), err)
 		r.publish(nodeID, task, "", "failed", wrapped.Error())
-		return []NodeResult{{NodeID: nodeID, Err: wrapped}}
+		return []NodeResult{failedNode(nodeID, started, FailureStageResolveTarget, wrapped)}
 	}
 
 	// The runtime half of the chain audit's lifecycle finding
@@ -455,7 +694,14 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 			// of re-deriving the identical reason wording.
 			if ok, reason := LifecycleAdmits(d); !ok {
 				r.publish(nodeID, task, d.Name(), "skipped", reason)
-				results = append(results, NodeResult{NodeID: nodeID, Device: string(d.ID()), Skipped: true, SkipReason: reason})
+				// The node's own start, not a per-device one: this device
+				// never became a nodeExecution and never reached runOne,
+				// so the only interval that exists is the node's walk down
+				// to this decision.
+				results = append(results, finish(NodeResult{
+					NodeID: nodeID, Device: string(d.ID()), StartedAt: started,
+					Skipped: true, SkipReason: reason, skipKind: SkipKindLifecycle,
+				}))
 				continue
 			}
 			cmds = append(cmds, nodeExecution{NodeID: nodeID, Task: task, Device: d})
@@ -478,7 +724,7 @@ func (r *run) runNode(ctx context.Context, nodeID string) []NodeResult {
 		if err != nil {
 			wrapped := fmt.Errorf("failed to acquire all locks up front for %s: %w", taskLabel(nodeID, task), err)
 			r.publish(nodeID, task, "", "failed", wrapped.Error())
-			return append(results, NodeResult{NodeID: nodeID, Err: wrapped})
+			return append(results, failedNode(nodeID, started, FailureStageLockAll, wrapped))
 		}
 		for i := range cmds {
 			cmds[i].Lease = leases[i]
@@ -539,7 +785,17 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 	r.sem <- struct{}{}
 	defer func() { <-r.sem }()
 
-	result := NodeResult{NodeID: cmd.NodeID}
+	// StartedAt is read here, below the semaphore that has just admitted
+	// this device, rather than at the top of the function. Time spent
+	// blocked on r.sem is queueing behind Executor.maxConcurrency, not
+	// execution, and folding it into the interval would make a device
+	// that waited look slow when it was only late to start.
+	//
+	// FinishedAt is stamped through finish at each of the five returns
+	// below, and deliberately not in a deferred closure over a named
+	// return. A deferred stamp would run after the lock Release deferred
+	// a few lines down, charging that cleanup to the task's own duration.
+	result := NodeResult{NodeID: cmd.NodeID, StartedAt: time.Now().UTC()}
 	host := ""
 	if cmd.Device != nil {
 		host = cmd.Device.Name()
@@ -554,9 +810,9 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 			var err error
 			lease, err = r.x.locks.Acquire(ctx, result.Device, defaultLockTTL, lock.AcquireOptions{})
 			if err != nil {
-				result.Err = fmt.Errorf("failed to acquire lock on device %q: %w", host, err)
+				result.fail(FailureStageLockDevice, fmt.Errorf("failed to acquire lock on device %q: %w", host, err))
 				r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
-				return result
+				return finish(result)
 			}
 		}
 		defer func() {
@@ -582,26 +838,36 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 
 	actionResult, err := r.x.actions.Execute(execCtx, cmd.Task, cmd.Device)
 	if err != nil {
-		result.Err = fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err)
+		result.fail(FailureStageAction, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", err.Error())
-		return result
+		return finish(result)
 	}
+
+	// The action succeeded, so its stats exist and the journal is entitled
+	// to their key names from here on, whatever happens next. This is set
+	// once, above both post-action failure returns, rather than beside the
+	// exported Stats assignment at the bottom: the two returns below carry
+	// a fully populated actionResult, and a node that changed the device
+	// and then failed at register_mask or record is the exact run the
+	// journal exists to record. See NodeResult.journalStats for why this
+	// is a separate field from Stats rather than a widening of it.
+	result.journalStats = actionResult.Stats
 
 	// register_mask marks fields of this task's own just-computed result as
 	// secret, before Register/Merge below records it anywhere: this way a
 	// masked value is unmasked in WorkflowContext (when_cel must always see
 	// real values) but is already tracked for every later output boundary.
 	if err := r.markRegisterMask(cmd, actionResult); err != nil {
-		result.Err = fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err)
+		result.fail(FailureStageRegisterMask, fmt.Errorf("task %s failed: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 		r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
-		return result
+		return finish(result)
 	}
 
 	if cmd.Task.Register != "" {
 		if err := r.x.workflow.Merge(cmd.Task.Register, result.Device, actionResult.Stats); err != nil {
-			result.Err = fmt.Errorf("failed to record result of task %s: %w", taskLabel(cmd.NodeID, cmd.Task), err)
+			result.fail(FailureStageRecord, fmt.Errorf("failed to record result of task %s: %w", taskLabel(cmd.NodeID, cmd.Task), err))
 			r.publish(cmd.NodeID, cmd.Task, host, "failed", result.Err.Error())
-			return result
+			return finish(result)
 		}
 		if actionResult.IsMetadata {
 			r.metadataRegisters.Add(cmd.Task.Register)
@@ -615,7 +881,7 @@ func (r *run) runOne(ctx context.Context, cmd nodeExecution) NodeResult {
 		status = "changed"
 	}
 	r.publish(cmd.NodeID, cmd.Task, host, status, "")
-	return result
+	return finish(result)
 }
 
 // nodeEvent mirrors adapters/native.LogEvent's exact field shape
