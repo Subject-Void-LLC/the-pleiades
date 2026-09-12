@@ -7147,3 +7147,57 @@ or it proves only that the fixture works; and never assert a permission
 list against a restatement of itself, because the restatement is written by
 the same person, at the same moment, from the same misunderstanding.
 
+
+---
+
+## 208. A decodable-but-invalid message became a poison pill, because the consumer split "retry" from "give up" on the wrong axis
+
+**Symptom.** Phase 40's Controller-side run journal consumer answered its two
+failure kinds deliberately: a batch it could not decode was acknowledged and
+logged, because it would never become decodable and retrying it forever would
+block the consumer group; a store failure was returned, because a database
+being briefly unavailable is exactly the condition redelivery exists for. Both
+halves had tests and both passed.
+
+The phase's own Schema and Injection Hardening audit then fed the consumer a
+deliberately hostile payload, a deeply nested object about two thousand levels
+deep. It decoded cleanly. `encoding/json` was perfectly happy to produce a
+`Batch` holding one entry whose every field was its zero value, including an
+empty `Outcome`. That entry then reached the store, which refused it, because
+the outcome column is an enum with no empty member and the mapping is an
+exhaustive switch that fails closed. The consumer saw a store failure, returned
+it, and asked for the message to be sent again. Forever.
+
+**Root cause.** The split was drawn between "could not decode" and "could not
+store", and that is not the axis that matters. The axis that matters is whether
+offering the same bytes again could ever produce a different answer. A
+malformed payload and a batch carrying a value no column can hold are the same
+kind of failure on that axis and opposite kinds on the axis that was used. An
+unreachable database is the only one of the three that is genuinely transient.
+
+The deeper trap is that the two halves were each tested against exactly the
+input the author had in mind. The malformed-payload test used bytes that were
+not JSON at all; the store-failure test used an entry with a deliberately
+invalid outcome and asserted an error came back, which at the time read as
+correct. Neither test asked what happens to a payload that is malformed AND
+decodes, which is the region between them and the only place the bug lives.
+
+**Fix.** The store now marks what it will never accept, with a sentinel error
+(`journal.ErrUnstorable`) wrapped around the validation failure, and the
+consumer classifies on that rather than on where the error came from. A batch
+marked unstorable is acknowledged and logged at error, exactly like an
+undecodable one. Everything else is returned and retried.
+
+Both directions have a test, and the pair is the point: one proves a permanent
+failure is acknowledged, the other proves a transient one (produced by closing
+the client, an unreachable database rather than a malformed row) still comes
+back as an error. A single test could have been satisfied by classifying
+everything one way.
+
+**Lesson.** When a consumer decides between retrying and giving up, the
+question to write the split on is "could the same bytes ever succeed", not
+"which layer said no". Layers are where errors come from; they are not what
+errors mean. And when two failure paths are handled oppositely, test the
+region BETWEEN the two inputs you had in mind, because a message that is
+malformed enough to be wrong and well formed enough to decode is the one that
+belongs to neither test.

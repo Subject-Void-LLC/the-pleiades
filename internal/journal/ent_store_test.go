@@ -364,3 +364,22 @@ func TestEntStoreRecordsEveryOutcomeTheEngineCanProduce(t *testing.T) {
 		t.Errorf("the table covers %d outcomes; internal/engine declares five", len(outcomes))
 	}
 }
+
+// newClosableEntStore is newEntStore plus the ability to close the
+// underlying client, which is the honest way to produce a transient
+// store failure: an unreachable database, not a malformed row.
+func newClosableEntStore(t *testing.T) (*journal.EntStore, func()) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "journal.db")
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=10000&_fk=1", path)
+	client := enttest.Open(t, "sqlite3", dsn)
+	closed := false
+	closeIt := func() {
+		if !closed {
+			closed = true
+			_ = client.Close()
+		}
+	}
+	t.Cleanup(closeIt)
+	return journal.NewEntStore(client), closeIt
+}

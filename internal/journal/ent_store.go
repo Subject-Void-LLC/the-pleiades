@@ -15,12 +15,29 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entjournal "github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
 )
+
+// ErrUnstorable marks a batch this store will never accept, however many
+// times it is offered.
+//
+// The distinction it draws is the one a consumer has to make and cannot
+// make from an error string. A database that is briefly unavailable is
+// exactly what redelivery exists for, so that failure must be retried. A
+// batch carrying a value no column can hold will be refused identically
+// forever, so retrying it parks a poison message at the head of a
+// consumer group and blocks every batch behind it.
+//
+// Found by this phase's own Schema and Injection Hardening audit, not by
+// review: a deliberately malformed payload decoded cleanly into a Batch
+// holding one entry with an empty outcome, which the store refused and
+// the consumer then asked to have sent again, forever.
+var ErrUnstorable = errors.New("the journal batch can never be stored")
 
 // EntStore persists journal entries into the control plane's database.
 type EntStore struct {
@@ -138,6 +155,6 @@ func entOutcome(outcome engine.Outcome) (entjournal.Outcome, error) {
 	case engine.OutcomeNotReached:
 		return entjournal.OutcomeNotReached, nil
 	default:
-		return "", fmt.Errorf("journal: unknown outcome %q, which this store has no column value for", outcome)
+		return "", fmt.Errorf("journal: unknown outcome %q, which this store has no column value for: %w", outcome, ErrUnstorable)
 	}
 }

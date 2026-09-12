@@ -13,6 +13,7 @@ package journal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -62,7 +63,14 @@ func (s *Subscriber) Subscribe(ctx context.Context, bus event.Bus) error {
 // this codebase treats a malformed payload.
 //
 // A store failure IS retried, because the database being briefly
-// unavailable is exactly the condition redelivery exists for.
+// unavailable is exactly the condition redelivery exists for. With one
+// exception, which the hardening audit found rather than review: a batch
+// the store marks ErrUnstorable carries a value no column can hold, so
+// it will be refused identically forever. Retrying that parks a poison
+// message at the head of the consumer group and blocks every batch
+// behind it, which is a worse outcome than losing the one batch that was
+// already unusable. It is acknowledged and logged at error, exactly like
+// an undecodable one.
 func (s *Subscriber) Handle(evt event.Event) error {
 	var batch Batch
 	if err := json.Unmarshal(evt.Data, &batch); err != nil {
@@ -85,6 +93,16 @@ func (s *Subscriber) Handle(evt event.Event) error {
 	// event.Bus.Subscribe hands a decoded Event and no context, and the
 	// write must not inherit a deadline nobody set for it.
 	written, err := s.store.Save(context.Background(), batch.Entries)
+	if err != nil && errors.Is(err, ErrUnstorable) {
+		s.logger.Error("dropping a run journal batch the store can never accept",
+			slog.String("job", batch.JobID),
+			slog.String("device", batch.DeviceID),
+			slog.Int("attempt", batch.Attempt),
+			slog.Int("entries", len(batch.Entries)),
+			slog.Int("written", written),
+			slog.String("error", err.Error()))
+		return nil
+	}
 	if err != nil {
 		s.logger.Error("failed to store a run journal batch",
 			slog.String("job", batch.JobID),

@@ -73,10 +73,12 @@ func TestSubscriberAcknowledgesAnEmptyBatch(t *testing.T) {
 	}
 }
 
-func TestSubscriberAsksForRedeliveryWhenTheStoreFails(t *testing.T) {
-	// The database being briefly unavailable is exactly the condition
-	// redelivery exists for, so this failure kind is answered the
-	// opposite way to a malformed payload.
+func TestSubscriberDropsABatchTheStoreCanNeverAccept(t *testing.T) {
+	// A batch carrying a value no column can hold is refused identically
+	// however many times it arrives. Retrying it parks a poison message
+	// at the head of the consumer group and blocks every batch behind
+	// it, which is worse than losing the one batch that was already
+	// unusable. Found by the hardening audit, not by review.
 	store, _ := newEntStore(t)
 	sub := journal.NewSubscriber(store, discardLogger())
 
@@ -84,8 +86,53 @@ func TestSubscriberAsksForRedeliveryWhenTheStoreFails(t *testing.T) {
 	bad.Outcome = engine.Outcome("teleported")
 	batch := journal.Batch{JobID: "job-1", Entries: []engine.JournalEntry{bad}}
 
-	if err := sub.Handle(batchEvent(t, batch)); err == nil {
-		t.Error("Handle acknowledged a batch it failed to store")
+	if err := sub.Handle(batchEvent(t, batch)); err != nil {
+		t.Errorf("Handle asked for redelivery of a batch that can never be stored: %v", err)
+	}
+}
+
+func TestSubscriberAsksForRedeliveryWhenTheStoreFailsTransiently(t *testing.T) {
+	// The other half of the split, and the reason it is a split at all.
+	// A database that is briefly unavailable is exactly what redelivery
+	// exists for, so that failure must come back as an error. A closed
+	// client is the honest way to produce one.
+	store, closeIt := newClosableEntStore(t)
+	sub := journal.NewSubscriber(store, discardLogger())
+	closeIt()
+
+	batch := journal.Batch{
+		JobID:   "job-1",
+		Entries: []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")},
+	}
+	err := sub.Handle(batchEvent(t, batch))
+	if err == nil {
+		t.Fatal("Handle acknowledged a batch it could not store against an unreachable database")
+	}
+	if errors.Is(err, journal.ErrUnstorable) {
+		t.Errorf("a transient failure was classified as permanent: %v", err)
+	}
+}
+
+func TestErrUnstorableIsOnlyForWhatCanNeverBeStored(t *testing.T) {
+	// The classification is the whole mechanism, so it gets its own
+	// control: the permanent error is marked and the transient one is
+	// not, checked at the store rather than through the consumer.
+	store, closeIt := newClosableEntStore(t)
+
+	bad := walkEntry("job-1", "device-1", 0, 1, "tasks[0]")
+	bad.Outcome = engine.Outcome("teleported")
+	_, permanent := store.Save(context.Background(), []engine.JournalEntry{bad})
+	if !errors.Is(permanent, journal.ErrUnstorable) {
+		t.Errorf("an outcome no column can hold was not marked unstorable: %v", permanent)
+	}
+
+	closeIt()
+	_, transient := store.Save(context.Background(), []engine.JournalEntry{walkEntry("job-1", "device-1", 0, 1, "tasks[0]")})
+	if transient == nil {
+		t.Fatal("a closed database reported success")
+	}
+	if errors.Is(transient, journal.ErrUnstorable) {
+		t.Errorf("an unreachable database was marked unstorable: %v", transient)
 	}
 }
 
