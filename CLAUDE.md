@@ -143,7 +143,8 @@ make arch               # go test ./internal/archtest/...  — Section 25 layeri
 make docs-lint          # go run ./tools/docs-lint — fails if a gitignored internal doc is cited anywhere a user could see it
 make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
 make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
-make hooks              # once per clone: point core.hooksPath at .githooks so `git push` runs `make push-gate` first
+make hooks              # once per clone: point core.hooksPath at .githooks, enabling all three hooks below
+make commitgate         # go run ./tools/commitgate: the commit-time gate, against whatever is staged right now
 make push-gate           # everything `ci` runs, with test-race/test-integration/coverage swapped for tolerant equivalents; warns instead of failing on flaky-packages.json packages
 ```
 
@@ -160,6 +161,18 @@ around twenty packages provision real ephemeral containers through `testcontaine
 timing-sensitive (`internal/event`'s Phase 96a gate severs a real broker for 150
 seconds). A permanently red gate gates nothing. So `make ci` is now a gate a human runs,
 and `.githooks/pre-push` (`make hooks`, once per clone) is what makes that automatic.
+
+`make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
+run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
+and reads the index rather than the working tree. It refuses what `.AGENTS/AGENTS.md` states
+absolutely and a machine can settle: an em dash in any added line, a staged Go file gofmt would
+rewrite, a Go file the commit adds with no docstring, an ent schema edit with no regenerated code
+beside it or a new entity missing either dialect's migration, a subject that is not a conventional
+commit, and a trailer crediting a model as an author. Rules that file states softly (the 300-line
+cap) and judgements a static check cannot settle (an error message opening with a capital) print
+as warnings and do not block. It deliberately does not build, vet, test or scan, and it cannot tell
+whether a doc comment is true or a test is representative under RULE 0, so a green run is not
+evidence of having followed that file. `git commit --no-verify` skips it.
 
 There is still no CI-only step and no CI-only tool version — `gosec` and `govulncheck`
 are pinned once in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed
@@ -206,7 +219,7 @@ Required one-time tool setup (`.AGENTS/AGENTS.md`'s IDE & LSP Tooling section):
 go install golang.org/x/tools/gopls@latest
 # ensure $(go env GOPATH)/bin is on PATH persistently (not just this shell) — see AGENTS.md
 
-make hooks   # once per clone: run `make push-gate` before every push, so CI failures land here first
+make hooks   # once per clone: enable the pre-commit, commit-msg and pre-push hooks
 ```
 
 Prefer `gopls references` / `gopls definition` over `grep` for any claim about Go call

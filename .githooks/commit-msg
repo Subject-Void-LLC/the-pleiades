@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# commit-msg: run `tools/commitgate` over the commit message.
+#
+# Refused: a subject that is not a conventional commit, an em dash
+# anywhere in the message, and a trailer crediting a model as an author
+# (.AGENTS/AGENTS.md's Licensing section, which records why: listing AI as
+# a co-author creates ambiguity about intellectual property, commercial
+# licensing and patent filings). A subject over 72 characters, or one
+# ending in a period, warns.
+#
+# git passes the path of the file holding the message. Comment lines and
+# anything below a scissors line are stripped before checking, because
+# git is about to throw both away and failing a commit over text that
+# will not be recorded is worse than not checking at all.
+#
+# Enable once per clone with `make hooks`. Skip with `--no-verify`.
+
+set -eu
+
+exec go run ./tools/commitgate -msg "$1"

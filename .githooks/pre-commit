@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# pre-commit: run `tools/commitgate` over the content this commit is about
+# to record.
+#
+# It checks the rules .AGENTS/AGENTS.md states that a machine can settle
+# cheaply: no em dash in any added line, gofmt on the staged bytes, a
+# docstring on every Go file the commit adds, and an ent schema edit that
+# ships with its regenerated code and both dialect migrations. Rules
+# AGENTS.md states softly, and judgement calls a static check cannot
+# settle, print as warnings and do not block. See the command's own doc
+# comment (tools/commitgate/main.go) for the full list and for what it
+# deliberately does not check.
+#
+# It reads the INDEX, never the working tree, so its answer is about the
+# commit rather than about whatever happens to be open in an editor. This
+# is also why it does not call tools/docs-lint, which scans the working
+# tree: a commit would then fail for a violation in a file it does not
+# touch. `make push-gate` runs docs-lint before every push, and `make ci`
+# runs it in full.
+#
+# Enable once per clone with `make hooks`. Skip a single commit with
+# `git commit --no-verify`, which is the right move when the rule is
+# genuinely wrong about your case and the wrong move the rest of the time.
+#
+# Nothing here is a substitute for `make ci`. It does not build, vet, test
+# or scan, and it cannot tell whether a doc comment is true or a test is
+# representative, which are the rules this repository cares most about.
+
+set -eu
+
+# exec, so commitgate's exit status is the hook's exit status and a
+# refused check aborts the commit.
+exec go run ./tools/commitgate

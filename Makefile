@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks commitgate dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -71,17 +71,31 @@ image-tools:
 	@$(call ensure-tool,trivy,github.com/aquasecurity/trivy/cmd/trivy,$(TRIVY_VERSION))
 
 # hooks points this clone's Git hooks at the tracked .githooks directory,
-# so `git push` runs push-gate (everything `make ci` runs, with
-# test-race/test-integration swapped for tools/testgate's more tolerant
-# equivalents; see push-gate's own comment above) and a failure lands here
-# instead of on a pushed branch. This is deliberately opt-in per clone
-# rather than automatic: Git never executes a hook that arrived with a
-# fetch until the person who cloned the repository asks it to, and
-# core.hooksPath is local config, not a tracked file. Run it once per
-# clone; see .githooks/pre-push for what it does and how to skip it.
+# enabling all three of them at once:
+#
+#   pre-commit   tools/commitgate over the staged content (well under a
+#                second: no build, no tests, index only)
+#   commit-msg   tools/commitgate over the commit message
+#   pre-push     push-gate, everything `make ci` runs with
+#                test-race/test-integration swapped for tools/testgate's
+#                more tolerant equivalents (see push-gate's own comment)
+#
+# so a rule AGENTS.md states lands at the moment it is broken rather than
+# three commits later, and a failing gate lands here instead of on a
+# pushed branch. This is deliberately opt-in per clone rather than
+# automatic: Git never executes a hook that arrived with a fetch until the
+# person who cloned the repository asks it to, and core.hooksPath is local
+# config, not a tracked file. Run it once per clone; see each hook for
+# what it does and how to skip it.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks: 'git push' will now run .githooks/pre-push (make push-gate) first; skip a single push with --no-verify"
+	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' runs .githooks/pre-push (make push-gate); skip a single one with --no-verify"
+
+# commitgate runs the commit-time gate by hand, against whatever is
+# staged right now. The pre-commit hook runs exactly this, so it is the
+# way to see what a commit would be told before making one.
+commitgate:
+	go run ./tools/commitgate
 
 build:
 	go build ./...
