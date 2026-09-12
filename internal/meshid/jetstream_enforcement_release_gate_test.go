@@ -200,6 +200,28 @@ func TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity(t *testing.T) {
 		t.Fatalf("the Runner could not ack under FleetRunnerGrant: %v", err)
 	}
 
+	// ---- Act 4b: the run journal crosses the mesh in both directions. ----
+	//
+	// Phase 40 added a subject, and a grant entry for it, and a test
+	// asserting that grant permits it. FAILURE_PATTERNS.md #207 is
+	// precisely about why that last assertion proves nothing on its own:
+	// the grant and the assertion were written by the same person at the
+	// same moment from the same understanding. Only a real broker can
+	// contradict them, and a denied publish here would show up not as a
+	// permissions error but as a JetStream request that never gets a
+	// reply.
+	if _, err := runJS.Publish(runCtx, topology.JournalSubject("gate-1"), []byte(`{"job_id":"gate-1"}`)); err != nil {
+		t.Fatalf("the Runner could not publish a run journal batch under FleetRunnerGrant: %v", err)
+	}
+	// And the Controller's own dead letter path for that consumer. A
+	// handler error routes into event.HandleDeliveryFailure, which
+	// returns BEFORE msg.Term() if this publish is denied, so a batch the
+	// store keeps refusing would be neither dead-lettered nor terminated.
+	dlq := topology.DeadLetterSubject(topology.JournalSubject("gate-1"))
+	if _, err := ctrlJS.Publish(runCtx, dlq, []byte(`{"dead":true}`)); err != nil {
+		t.Fatalf("the Controller could not dead-letter a run journal batch under ControllerGrant: %v", err)
+	}
+
 	// ---- Act 5: the negative controls, which are the deliverable. ----
 	//
 	// A Runner must not be able to forge a job launch, and must not be

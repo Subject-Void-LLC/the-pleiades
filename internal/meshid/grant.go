@@ -144,6 +144,17 @@ func ControllerGrant(name string) Grant {
 			// reports.
 			topology.DeadLetterSubject(topology.JobRequestedSubject()),
 
+			// And the run journal consumer's, for the identical reason
+			// and by the identical mechanism (Phase 40). A handler error
+			// routes into event.HandleDeliveryFailure, which publishes to
+			// the dead letter subject and returns BEFORE msg.Term() if
+			// that publish fails, so a journal batch the store keeps
+			// refusing would be neither dead-lettered nor terminated and
+			// would simply cycle. The subject is derived from the message
+			// the consumer received, so it is the wildcard over every
+			// job's journal, not one job's.
+			topology.DeadLetterSubject(topology.JournalSubjectAll()),
+
 			jetStreamAPIInfo,
 			// Named operations rather than a wildcard. `streamAPI(">")`
 			// put `>` in a NON-FINAL token
