@@ -2,9 +2,10 @@
 // (.SPECIFICATION/PLAN.md Section 25's Enforcement note, and the Phase 0
 // precondition that names it explicitly): pkg/ never imports internal/,
 // only designated adapter packages import a concrete driver, and
-// internal/engine imports none. It runs as an ordinary go test so CI
-// enforces it on every build, per Section 25's own text ("It lands with
-// the first port extraction and runs in CI from that day").
+// internal/engine imports none, nor this module's own generated
+// persistence layer. It runs as an ordinary go test so CI enforces it on
+// every build, per Section 25's own text ("It lands with the first port
+// extraction and runs in CI from that day").
 //
 // This lives in its own package rather than inside internal/engine or
 // pkg/inventory because it is cross-cutting infrastructure owned by no
@@ -95,6 +96,11 @@ var adapterAllowlist = map[string]bool{
 	modulePath + "/internal/runner":          true,
 	modulePath + "/internal/topology":        true,
 }
+
+// entPackage is this module's generated persistence layer: internal/ent
+// itself plus every package generated beneath it from internal/ent/schema
+// by `go generate ./internal/ent`.
+const entPackage = modulePath + "/internal/ent"
 
 // listedPackage is the subset of `go list -json` output this test reads.
 type listedPackage struct {
@@ -190,6 +196,18 @@ func hasPrefix(importPath string, prefixes []string) bool {
 	return false
 }
 
+// isEntPackage reports whether importPath is internal/ent itself or one of
+// the packages generated beneath it.
+//
+// This is an exact match plus a slash-terminated prefix rather than a
+// hasPrefix call against "/internal/ent", because that bare prefix would
+// also match a future "/internal/entity" and refuse a package the rule was
+// never about. A prohibition that fires on the wrong package is one people
+// route around rather than honor.
+func isEntPackage(importPath string) bool {
+	return importPath == entPackage || strings.HasPrefix(importPath, entPackage+"/")
+}
+
 // TestPkgNeverImportsInternal asserts pkg/'s packages carry no dependency,
 // direct or transitive, on anything under internal/. pkg/ is this
 // repository's own extensibility surface (PLAN.md's "anyone can add a new
@@ -228,11 +246,95 @@ func TestOnlyDesignatedAdaptersImportConcreteDrivers(t *testing.T) {
 // must arrive through a port (ActionExecutor, lock.Manager, event.Bus),
 // never a direct import.
 func TestEngineImportsNoConcreteDriver(t *testing.T) {
-	for _, pkg := range goList(t, false, modulePath+"/internal/engine/...") {
+	// The same empty-listing guard TestEngineNeverImportsPersistence
+	// carries, and for the same reason. The two rules read the identical
+	// pattern, so they must not disagree about what zero packages means:
+	// one treating it as proof of a clean tree while the other treats it
+	// as a misaimed query is a contradiction a reader would resolve by
+	// trusting whichever ran last.
+	pkgs := goList(t, false, modulePath+"/internal/engine/...")
+	if len(pkgs) == 0 {
+		t.Fatalf("go list matched no packages under %s/internal/engine/..., so this rule examined nothing", modulePath)
+	}
+	for _, pkg := range pkgs {
 		for _, imp := range pkg.Imports {
 			if hasPrefix(imp, concreteDriverPrefixes) {
 				t.Errorf("%s imports concrete driver %q: internal/engine must depend on a port, never a driver", pkg.ImportPath, imp)
 			}
+		}
+	}
+}
+
+// TestEngineNeverImportsPersistence asserts that no package under
+// internal/engine imports internal/ent directly.
+//
+// Phase 40's run journal declares the sink as a Port in internal/engine
+// with its Adapter in internal/journal, and the stated reason for that
+// split is that internal/engine may not import internal/ent. Nothing
+// enforced it. TestEngineImportsNoConcreteDriver above checks
+// internal/engine's direct imports against concreteDriverPrefixes, which
+// names NATS and the two SQL drivers and does not name this module's own
+// generated ORM layer, so an executor that opened an *ent.Client and wrote
+// journal rows itself would have passed every architecture test here. The
+// port would survive that: it would still exist, still default to a no-op
+// sink, and still be bypassed by the one caller that matters.
+//
+// The check is DIRECT imports, deliberately. The transitive reach is the
+// accepted state, not an oversight: internal/engine imports
+// internal/inventory, which imports internal/ent for its ent-backed
+// repository, so internal/engine has reached the generated packages
+// through the module graph since long before this rule existed. A
+// transitive check would therefore fail on the commit that introduced it,
+// and the only fix would be splitting internal/inventory's domain types
+// from its storage adapter, which is a real design decision this rule has
+// no mandate to force. A rule that fails the day it lands is not enforced,
+// it is waived.
+//
+// What the direct check still buys is the regression shape that matters. A
+// direct import is the only way an ent symbol becomes nameable inside
+// internal/engine, so it is the only way an *ent.Client reaches a struct
+// field, a parameter or a return type there. Transitive reach through
+// internal/inventory hands the executor no name it can write a row with.
+//
+// There is no allowlist here and no companion staleness test, and that is
+// a decision rather than an omission. adapterAllowlist exists because real
+// adapter packages legitimately do open a driver, so the list earns its
+// keep as a true record of which ones. Nothing under internal/engine
+// legitimately needs internal/ent today: the package is ports all the way
+// down, and the journal's Adapter lives in internal/journal for exactly
+// that reason. An empty allowlist plus a test proving it stays empty is
+// ceremony around a bare prohibition, and worse, it offers the first
+// person who trips this rule a list to add themselves to instead of an
+// adapter to write. If a legitimate case ever turns up, copy
+// adapterAllowlist and its TestAdapterAllowlistHasNoStaleEntries pairing
+// then, with the real case in hand to write the reason from.
+func TestEngineNeverImportsPersistence(t *testing.T) {
+	pkgs := goList(t, false, modulePath+"/internal/engine/...")
+	// An empty listing and a clean one are the same green tick here, and
+	// they mean opposite things. goList already fails when `go list`
+	// itself errors, but a pattern that stops matching (a rename, a build
+	// tag, every package dropping out as unloadable) returns zero
+	// packages and this rule then reports PASS having examined nothing.
+	// AGENTS.md's IDE & LSP section names exactly this: an empty result
+	// from a correctly aimed query and one from a misaimed query look
+	// identical, so reporting the second as evidence of absence is the
+	// same failure as claiming an untested path works.
+	if len(pkgs) == 0 {
+		t.Fatalf("go list matched no packages under %s/internal/engine/..., so this rule examined nothing", modulePath)
+	}
+	for _, pkg := range pkgs {
+		for _, imp := range pkg.Imports {
+			if !isEntPackage(imp) {
+				continue
+			}
+			t.Errorf(
+				"%s imports %s directly: internal/engine must reach persistence through a port.\n"+
+					"Phase 40's journal sink is engine.Journal, whose concrete store lives in internal/journal "+
+					"and is wired in a cmd/ composition root, which is the same shape TargetResolver, "+
+					"lock.Manager and event.Bus already use.\n"+
+					"Importing the generated layer here collapses that seam and puts an *ent.Client inside the "+
+					"one package Section 25 names as depending on no concrete medium at all.",
+				pkg.ImportPath, imp)
 		}
 	}
 }
