@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
@@ -161,5 +162,42 @@ func TestNewFileStoreIsSafeToCallTwice(t *testing.T) {
 	}
 	if _, err := journal.NewFileStore(root); err != nil {
 		t.Fatalf("second NewFileStore: %v", err)
+	}
+}
+
+func TestNewFileStoreIsSafeUnderConcurrentConstruction(t *testing.T) {
+	// Two `pleiades run` invocations in one project directory are an
+	// ordinary thing to do, and the journal is deliberately fail-closed,
+	// so a constructor that raced would not degrade the journal: it would
+	// end the run. A fixed-name write probe did exactly that, failing 29
+	// of 40 concurrent constructions, because both callers wrote the same
+	// path and the second's remove found nothing there.
+	root := t.TempDir()
+
+	const callers = 40
+	var wg sync.WaitGroup
+	errs := make([]error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = journal.NewFileStore(root)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent construction %d failed: %v", i, err)
+		}
+	}
+
+	// And no probe was left behind by any of them.
+	entries, err := os.ReadDir(journalDir(root))
+	if err != nil {
+		t.Fatalf("reading the journal directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("%d concurrent constructions left %d files behind: %v", callers, len(entries), entries)
 	}
 }
