@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -365,6 +366,83 @@ func init() {
 	jobtaskDescDeviceName := jobtaskFields[1].Descriptor()
 	// jobtask.DeviceNameValidator is a validator for the "device_name" field. It is called by the builders before save.
 	jobtask.DeviceNameValidator = jobtaskDescDeviceName.Validators[0].(func(string) error)
+	journalentryMixin := schema.JournalEntry{}.Mixin()
+	journalentryMixinFields0 := journalentryMixin[0].Fields()
+	_ = journalentryMixinFields0
+	journalentryFields := schema.JournalEntry{}.Fields()
+	_ = journalentryFields
+	// journalentryDescCreatedAt is the schema descriptor for created_at field.
+	journalentryDescCreatedAt := journalentryMixinFields0[0].Descriptor()
+	// journalentry.DefaultCreatedAt holds the default value on creation for the created_at field.
+	journalentry.DefaultCreatedAt = journalentryDescCreatedAt.Default.(func() time.Time)
+	// journalentryDescUpdatedAt is the schema descriptor for updated_at field.
+	journalentryDescUpdatedAt := journalentryMixinFields0[1].Descriptor()
+	// journalentry.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	journalentry.DefaultUpdatedAt = journalentryDescUpdatedAt.Default.(func() time.Time)
+	// journalentry.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	journalentry.UpdateDefaultUpdatedAt = journalentryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// journalentryDescJobID is the schema descriptor for job_id field.
+	journalentryDescJobID := journalentryFields[0].Descriptor()
+	// journalentry.JobIDValidator is a validator for the "job_id" field. It is called by the builders before save.
+	journalentry.JobIDValidator = journalentryDescJobID.Validators[0].(func(string) error)
+	// journalentryDescAttempt is the schema descriptor for attempt field.
+	journalentryDescAttempt := journalentryFields[2].Descriptor()
+	// journalentry.AttemptValidator is a validator for the "attempt" field. It is called by the builders before save.
+	journalentry.AttemptValidator = journalentryDescAttempt.Validators[0].(func(int) error)
+	// journalentryDescNodeID is the schema descriptor for node_id field.
+	journalentryDescNodeID := journalentryFields[3].Descriptor()
+	// journalentry.NodeIDValidator is a validator for the "node_id" field. It is called by the builders before save.
+	journalentry.NodeIDValidator = journalentryDescNodeID.Validators[0].(func(string) error)
+	// journalentryDescRunID is the schema descriptor for run_id field.
+	journalentryDescRunID := journalentryFields[4].Descriptor()
+	// journalentry.RunIDValidator is a validator for the "run_id" field. It is called by the builders before save.
+	journalentry.RunIDValidator = journalentryDescRunID.Validators[0].(func(string) error)
+	// journalentryDescSequence is the schema descriptor for sequence field.
+	journalentryDescSequence := journalentryFields[5].Descriptor()
+	// journalentry.SequenceValidator is a validator for the "sequence" field. It is called by the builders before save.
+	journalentry.SequenceValidator = journalentryDescSequence.Validators[0].(func(int) error)
+	// journalentryDescFqcnUnresolved is the schema descriptor for fqcn_unresolved field.
+	journalentryDescFqcnUnresolved := journalentryFields[9].Descriptor()
+	// journalentry.DefaultFqcnUnresolved holds the default value on creation for the fqcn_unresolved field.
+	journalentry.DefaultFqcnUnresolved = journalentryDescFqcnUnresolved.Default.(bool)
+	// journalentryDescSkipOrdinal is the schema descriptor for skip_ordinal field.
+	journalentryDescSkipOrdinal := journalentryFields[17].Descriptor()
+	// journalentry.DefaultSkipOrdinal holds the default value on creation for the skip_ordinal field.
+	journalentry.DefaultSkipOrdinal = journalentryDescSkipOrdinal.Default.(int)
+	// journalentry.SkipOrdinalValidator is a validator for the "skip_ordinal" field. It is called by the builders before save.
+	journalentry.SkipOrdinalValidator = journalentryDescSkipOrdinal.Validators[0].(func(int) error)
+	// journalentryDescSkipTotal is the schema descriptor for skip_total field.
+	journalentryDescSkipTotal := journalentryFields[18].Descriptor()
+	// journalentry.DefaultSkipTotal holds the default value on creation for the skip_total field.
+	journalentry.DefaultSkipTotal = journalentryDescSkipTotal.Default.(int)
+	// journalentry.SkipTotalValidator is a validator for the "skip_total" field. It is called by the builders before save.
+	journalentry.SkipTotalValidator = journalentryDescSkipTotal.Validators[0].(func(int) error)
+	// journalentryDescUndeclaredStatCount is the schema descriptor for undeclared_stat_count field.
+	journalentryDescUndeclaredStatCount := journalentryFields[20].Descriptor()
+	// journalentry.DefaultUndeclaredStatCount holds the default value on creation for the undeclared_stat_count field.
+	journalentry.DefaultUndeclaredStatCount = journalentryDescUndeclaredStatCount.Default.(int)
+	// journalentry.UndeclaredStatCountValidator is a validator for the "undeclared_stat_count" field. It is called by the builders before save.
+	journalentry.UndeclaredStatCountValidator = journalentryDescUndeclaredStatCount.Validators[0].(func(int) error)
+	// journalentryDescUndeclaredParamCount is the schema descriptor for undeclared_param_count field.
+	journalentryDescUndeclaredParamCount := journalentryFields[22].Descriptor()
+	// journalentry.DefaultUndeclaredParamCount holds the default value on creation for the undeclared_param_count field.
+	journalentry.DefaultUndeclaredParamCount = journalentryDescUndeclaredParamCount.Default.(int)
+	// journalentry.UndeclaredParamCountValidator is a validator for the "undeclared_param_count" field. It is called by the builders before save.
+	journalentry.UndeclaredParamCountValidator = journalentryDescUndeclaredParamCount.Validators[0].(func(int) error)
+	// journalentryDescInverseFqcnUnresolved is the schema descriptor for inverse_fqcn_unresolved field.
+	journalentryDescInverseFqcnUnresolved := journalentryFields[24].Descriptor()
+	// journalentry.DefaultInverseFqcnUnresolved holds the default value on creation for the inverse_fqcn_unresolved field.
+	journalentry.DefaultInverseFqcnUnresolved = journalentryDescInverseFqcnUnresolved.Default.(bool)
+	// journalentryDescUndeclaredInverseParamCount is the schema descriptor for undeclared_inverse_param_count field.
+	journalentryDescUndeclaredInverseParamCount := journalentryFields[26].Descriptor()
+	// journalentry.DefaultUndeclaredInverseParamCount holds the default value on creation for the undeclared_inverse_param_count field.
+	journalentry.DefaultUndeclaredInverseParamCount = journalentryDescUndeclaredInverseParamCount.Default.(int)
+	// journalentry.UndeclaredInverseParamCountValidator is a validator for the "undeclared_inverse_param_count" field. It is called by the builders before save.
+	journalentry.UndeclaredInverseParamCountValidator = journalentryDescUndeclaredInverseParamCount.Validators[0].(func(int) error)
+	// journalentryDescDiffRecorded is the schema descriptor for diff_recorded field.
+	journalentryDescDiffRecorded := journalentryFields[27].Descriptor()
+	// journalentry.DefaultDiffRecorded holds the default value on creation for the diff_recorded field.
+	journalentry.DefaultDiffRecorded = journalentryDescDiffRecorded.Default.(bool)
 	localcredentialMixin := schema.LocalCredential{}.Mixin()
 	localcredentialMixinFields0 := localcredentialMixin[0].Fields()
 	_ = localcredentialMixinFields0

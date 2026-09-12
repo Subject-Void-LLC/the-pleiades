@@ -27,6 +27,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -71,6 +72,8 @@ type Client struct {
 	Job *JobClient
 	// JobTask is the client for interacting with the JobTask builders.
 	JobTask *JobTaskClient
+	// JournalEntry is the client for interacting with the JournalEntry builders.
+	JournalEntry *JournalEntryClient
 	// LocalCredential is the client for interacting with the LocalCredential builders.
 	LocalCredential *LocalCredentialClient
 	// MeshSigningKey is the client for interacting with the MeshSigningKey builders.
@@ -120,6 +123,7 @@ func (c *Client) init() {
 	c.Inventory = NewInventoryClient(c.config)
 	c.Job = NewJobClient(c.config)
 	c.JobTask = NewJobTaskClient(c.config)
+	c.JournalEntry = NewJournalEntryClient(c.config)
 	c.LocalCredential = NewLocalCredentialClient(c.config)
 	c.MeshSigningKey = NewMeshSigningKeyClient(c.config)
 	c.Organization = NewOrganizationClient(c.config)
@@ -237,6 +241,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Inventory:             NewInventoryClient(cfg),
 		Job:                   NewJobClient(cfg),
 		JobTask:               NewJobTaskClient(cfg),
+		JournalEntry:          NewJournalEntryClient(cfg),
 		LocalCredential:       NewLocalCredentialClient(cfg),
 		MeshSigningKey:        NewMeshSigningKeyClient(cfg),
 		Organization:          NewOrganizationClient(cfg),
@@ -281,6 +286,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Inventory:             NewInventoryClient(cfg),
 		Job:                   NewJobClient(cfg),
 		JobTask:               NewJobTaskClient(cfg),
+		JournalEntry:          NewJournalEntryClient(cfg),
 		LocalCredential:       NewLocalCredentialClient(cfg),
 		MeshSigningKey:        NewMeshSigningKeyClient(cfg),
 		Organization:          NewOrganizationClient(cfg),
@@ -325,9 +331,10 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
-		c.Inventory, c.Job, c.JobTask, c.LocalCredential, c.MeshSigningKey,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
-		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
+		c.MeshSigningKey, c.Organization, c.Revision, c.RoleBinding,
+		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
+		c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -339,9 +346,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.ActivityEntry, c.Announcement, c.Contact, c.Credential,
 		c.CredentialInputSource, c.CredentialType, c.Device, c.Fact, c.Group,
-		c.Inventory, c.Job, c.JobTask, c.LocalCredential, c.MeshSigningKey,
-		c.Organization, c.Revision, c.RoleBinding, c.SavedLaunchConfig, c.Schedule,
-		c.ScheduleOccurrence, c.Session, c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
+		c.MeshSigningKey, c.Organization, c.Revision, c.RoleBinding,
+		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
+		c.SurveyQuestion, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -374,6 +382,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Job.mutate(ctx, m)
 	case *JobTaskMutation:
 		return c.JobTask.mutate(ctx, m)
+	case *JournalEntryMutation:
+		return c.JournalEntry.mutate(ctx, m)
 	case *LocalCredentialMutation:
 		return c.LocalCredential.mutate(ctx, m)
 	case *MeshSigningKeyMutation:
@@ -2478,6 +2488,139 @@ func (c *JobTaskClient) mutate(ctx context.Context, m *JobTaskMutation) (Value, 
 		return (&JobTaskDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown JobTask mutation op: %q", m.Op())
+	}
+}
+
+// JournalEntryClient is a client for the JournalEntry schema.
+type JournalEntryClient struct {
+	config
+}
+
+// NewJournalEntryClient returns a client for the JournalEntry from the given config.
+func NewJournalEntryClient(c config) *JournalEntryClient {
+	return &JournalEntryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `journalentry.Hooks(f(g(h())))`.
+func (c *JournalEntryClient) Use(hooks ...Hook) {
+	c.hooks.JournalEntry = append(c.hooks.JournalEntry, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `journalentry.Intercept(f(g(h())))`.
+func (c *JournalEntryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.JournalEntry = append(c.inters.JournalEntry, interceptors...)
+}
+
+// Create returns a builder for creating a JournalEntry entity.
+func (c *JournalEntryClient) Create() *JournalEntryCreate {
+	mutation := newJournalEntryMutation(c.config, OpCreate)
+	return &JournalEntryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of JournalEntry entities.
+func (c *JournalEntryClient) CreateBulk(builders ...*JournalEntryCreate) *JournalEntryCreateBulk {
+	return &JournalEntryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *JournalEntryClient) MapCreateBulk(slice any, setFunc func(*JournalEntryCreate, int)) *JournalEntryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &JournalEntryCreateBulk{err: fmt.Errorf("calling to JournalEntryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*JournalEntryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &JournalEntryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for JournalEntry.
+func (c *JournalEntryClient) Update() *JournalEntryUpdate {
+	mutation := newJournalEntryMutation(c.config, OpUpdate)
+	return &JournalEntryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *JournalEntryClient) UpdateOne(_m *JournalEntry) *JournalEntryUpdateOne {
+	mutation := newJournalEntryMutation(c.config, OpUpdateOne, withJournalEntry(_m))
+	return &JournalEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *JournalEntryClient) UpdateOneID(id int) *JournalEntryUpdateOne {
+	mutation := newJournalEntryMutation(c.config, OpUpdateOne, withJournalEntryID(id))
+	return &JournalEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for JournalEntry.
+func (c *JournalEntryClient) Delete() *JournalEntryDelete {
+	mutation := newJournalEntryMutation(c.config, OpDelete)
+	return &JournalEntryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *JournalEntryClient) DeleteOne(_m *JournalEntry) *JournalEntryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *JournalEntryClient) DeleteOneID(id int) *JournalEntryDeleteOne {
+	builder := c.Delete().Where(journalentry.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &JournalEntryDeleteOne{builder}
+}
+
+// Query returns a query builder for JournalEntry.
+func (c *JournalEntryClient) Query() *JournalEntryQuery {
+	return &JournalEntryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeJournalEntry},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a JournalEntry entity by its id.
+func (c *JournalEntryClient) Get(ctx context.Context, id int) (*JournalEntry, error) {
+	return c.Query().Where(journalentry.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *JournalEntryClient) GetX(ctx context.Context, id int) *JournalEntry {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *JournalEntryClient) Hooks() []Hook {
+	return c.hooks.JournalEntry
+}
+
+// Interceptors returns the client interceptors.
+func (c *JournalEntryClient) Interceptors() []Interceptor {
+	return c.inters.JournalEntry
+}
+
+func (c *JournalEntryClient) mutate(ctx context.Context, m *JournalEntryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&JournalEntryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&JournalEntryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&JournalEntryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&JournalEntryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown JournalEntry mutation op: %q", m.Op())
 	}
 }
 
@@ -4710,16 +4853,16 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, LocalCredential,
-		MeshSigningKey, Organization, Revision, RoleBinding, SavedLaunchConfig,
-		Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team, Template,
-		User []ent.Hook
+		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
+		LocalCredential, MeshSigningKey, Organization, Revision, RoleBinding,
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team,
+		Template, User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
-		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, LocalCredential,
-		MeshSigningKey, Organization, Revision, RoleBinding, SavedLaunchConfig,
-		Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team, Template,
-		User []ent.Interceptor
+		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
+		LocalCredential, MeshSigningKey, Organization, Revision, RoleBinding,
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team,
+		Template, User []ent.Interceptor
 	}
 )

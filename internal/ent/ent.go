@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
@@ -109,6 +110,7 @@ func checkColumn(t, c string) error {
 			inventory.Table:             inventory.ValidColumn,
 			job.Table:                   job.ValidColumn,
 			jobtask.Table:               jobtask.ValidColumn,
+			journalentry.Table:          journalentry.ValidColumn,
 			localcredential.Table:       localcredential.ValidColumn,
 			meshsigningkey.Table:        meshsigningkey.ValidColumn,
 			organization.Table:          organization.ValidColumn,

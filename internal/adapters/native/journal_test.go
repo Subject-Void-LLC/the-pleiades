@@ -44,12 +44,12 @@ func journalEntries(runID string, sequences ...int) []engine.JournalEntry {
 }
 
 // decodeBatch pulls the journal batch out of the most recent publish.
-func decodeBatch(t *testing.T, bus *mockBus) journalBatch {
+func decodeBatch(t *testing.T, bus *mockBus) journal.Batch {
 	t.Helper()
 	if len(bus.published) == 0 {
 		t.Fatal("nothing was published")
 	}
-	var batch journalBatch
+	var batch journal.Batch
 	if err := json.Unmarshal(bus.published[len(bus.published)-1].evt.Data, &batch); err != nil {
 		t.Fatalf("the published payload is not a journal batch: %v", err)
 	}
@@ -257,12 +257,12 @@ func TestAdapterExecutePublishesTheRunJournal(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var batches []journalBatch
+	var batches []journal.Batch
 	for _, p := range bus.published {
 		if p.topic != topology.JournalSubject("job-1") {
 			continue
 		}
-		var batch journalBatch
+		var batch journal.Batch
 		if err := json.Unmarshal(p.evt.Data, &batch); err != nil {
 			t.Fatalf("a message on the journal subject is not a batch: %v", err)
 		}

@@ -25,34 +25,6 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 )
 
-// journalEventType is the envelope type a journal batch is published
-// under, matching the "<noun>.<verb>" shape every other event in this
-// codebase uses.
-const journalEventType = "job.journal"
-
-// journalBatch is one level's worth of entries as published.
-//
-// It is a batch rather than one message per entry because the engine
-// hands the sink a whole level at a time, and because the Controller's
-// store writes them together: splitting here would multiply the message
-// count by the task count and buy nothing.
-type journalBatch struct {
-	// JobID is the dispatch these entries belong to, repeated outside
-	// the entries so a consumer can route on it without decoding them.
-	JobID string `json:"job_id"`
-
-	// DeviceID is the one device this dispatch names. The engine already
-	// stamps it per entry; it is repeated here for the same reason
-	// JobID is.
-	DeviceID string `json:"device_id"`
-
-	// Attempt is the dispatch's redelivery count.
-	Attempt int `json:"attempt"`
-
-	// Entries is the level's entries, already stamped.
-	Entries []engine.JournalEntry `json:"entries"`
-}
-
 // journalPublisher is an engine.Journal that publishes entries onto the
 // job's journal subject through the event bus.
 //
@@ -116,7 +88,7 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 		stamped[i] = entry
 	}
 
-	batch := journalBatch{
+	batch := journal.Batch{
 		JobID:    p.jobID,
 		DeviceID: p.deviceID,
 		Attempt:  p.attempt,
@@ -124,7 +96,7 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 	}
 
 	key := p.idempotencyKey(stamped)
-	wrapped, err := event.WrapPayload(key, journalEventType, batch)
+	wrapped, err := event.WrapPayload(key, journal.EventType, batch)
 	if err != nil {
 		return fmt.Errorf("failed to wrap a journal batch for job %s: %w", p.jobID, err)
 	}

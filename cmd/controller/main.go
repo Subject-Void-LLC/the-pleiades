@@ -128,6 +128,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
@@ -831,6 +832,23 @@ func main() {
 	// actually carry out.
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		fatal("failed to subscribe job fan-out worker", err)
+	}
+
+	// The run journal consumer (Phase 40). A Runner publishes a batch per
+	// topological level onto the job's journal subject; this is what puts
+	// them in the database. Without it the Runner publishes into a stream
+	// nobody reads, and the journal exists for the stream's retention
+	// window and then does not.
+	//
+	// The subject is the wildcard over every job, and Bus.Subscribe
+	// derives one durable consumer name from it, so every replica joins
+	// one consumer group and a batch is written once rather than once per
+	// replica. Fatal on failure for the same reason the fan-out worker
+	// above is: a controller that silently stopped recording an audit
+	// trail is worse than one that refuses to start.
+	journalSubscriber := journal.NewSubscriber(journal.NewEntStore(client), logger)
+	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
+		fatal("failed to subscribe the run journal consumer", err)
 	}
 
 	// reaperElector is a second, independent LeaderElector (a distinct key

@@ -419,6 +419,58 @@ var (
 			},
 		},
 	}
+	// JournalEntriesColumns holds the columns for the "journal_entries" table.
+	JournalEntriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "job_id", Type: field.TypeString},
+		{Name: "device_id", Type: field.TypeString, Nullable: true},
+		{Name: "attempt", Type: field.TypeInt},
+		{Name: "node_id", Type: field.TypeString},
+		{Name: "run_id", Type: field.TypeString},
+		{Name: "sequence", Type: field.TypeInt},
+		{Name: "dag_id", Type: field.TypeString, Nullable: true},
+		{Name: "dag_version", Type: field.TypeString, Nullable: true},
+		{Name: "fqcn", Type: field.TypeString, Nullable: true},
+		{Name: "fqcn_unresolved", Type: field.TypeBool, Default: false},
+		{Name: "task_name", Type: field.TypeString, Nullable: true},
+		{Name: "register", Type: field.TypeString, Nullable: true},
+		{Name: "started_at", Type: field.TypeTime, Nullable: true},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
+		{Name: "outcome", Type: field.TypeEnum, Enums: []string{"ran", "changed", "skipped", "failed", "not_reached"}},
+		{Name: "failure_stage", Type: field.TypeString, Nullable: true},
+		{Name: "skip_kind", Type: field.TypeString, Nullable: true},
+		{Name: "skip_ordinal", Type: field.TypeInt, Default: 0},
+		{Name: "skip_total", Type: field.TypeInt, Default: 0},
+		{Name: "stat_keys", Type: field.TypeJSON, Nullable: true},
+		{Name: "undeclared_stat_count", Type: field.TypeInt, Default: 0},
+		{Name: "param_keys", Type: field.TypeJSON, Nullable: true},
+		{Name: "undeclared_param_count", Type: field.TypeInt, Default: 0},
+		{Name: "inverse_fqcn", Type: field.TypeString, Nullable: true},
+		{Name: "inverse_fqcn_unresolved", Type: field.TypeBool, Default: false},
+		{Name: "inverse_param_keys", Type: field.TypeJSON, Nullable: true},
+		{Name: "undeclared_inverse_param_count", Type: field.TypeInt, Default: 0},
+		{Name: "diff_recorded", Type: field.TypeBool, Default: false},
+	}
+	// JournalEntriesTable holds the schema information for the "journal_entries" table.
+	JournalEntriesTable = &schema.Table{
+		Name:       "journal_entries",
+		Columns:    JournalEntriesColumns,
+		PrimaryKey: []*schema.Column{JournalEntriesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "journalentry_job_id_device_id_attempt_node_id",
+				Unique:  true,
+				Columns: []*schema.Column{JournalEntriesColumns[3], JournalEntriesColumns[4], JournalEntriesColumns[5], JournalEntriesColumns[6]},
+			},
+			{
+				Name:    "journalentry_job_id_device_id_attempt_sequence",
+				Unique:  false,
+				Columns: []*schema.Column{JournalEntriesColumns[3], JournalEntriesColumns[4], JournalEntriesColumns[5], JournalEntriesColumns[8]},
+			},
+		},
+	}
 	// LocalCredentialsColumns holds the columns for the "local_credentials" table.
 	LocalCredentialsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1022,6 +1074,7 @@ var (
 		InventoriesTable,
 		JobsTable,
 		JobTasksTable,
+		JournalEntriesTable,
 		LocalCredentialsTable,
 		MeshSigningKeysTable,
 		OrganizationsTable,
