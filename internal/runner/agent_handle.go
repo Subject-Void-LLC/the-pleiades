@@ -13,6 +13,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/adapters/routing"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
@@ -127,6 +128,19 @@ func (a *Agent) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		span.SetAttributes(attribute.Bool("pleiades.dispatch.duplicate", true))
 		return
 	}
+
+	// The dispatch's redelivery count, for the run journal (Phase 40).
+	// It exists only on the message, and the sink that records it is
+	// built three layers down in the adapter, so it travels as a context
+	// value rather than by widening two interfaces that have nothing to
+	// do with journaling. executeWithLease's own detached context
+	// delegates Value to its parent, so it survives the trip.
+	//
+	// Set once, here, immediately before the work it describes. Setting
+	// it any earlier would put it on a context that also covers the
+	// duplicate-suppression check above, which is not an attempt at
+	// anything.
+	ctx = journal.WithAttempt(ctx, numDeliveredFor(msg))
 
 	execErr := a.executeWithLease(ctx, payload)
 	if execErr != nil && errorsIsContention(execErr) {

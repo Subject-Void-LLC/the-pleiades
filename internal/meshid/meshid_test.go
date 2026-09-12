@@ -251,6 +251,7 @@ func TestFleetRunnerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 	required := map[string]string{
 		topology.LogSubject("job-1"):                                             "publishes a job log line for every execution",
 		topology.ResultSubject("job-1"):                                          "publishes a WAL result when RUNNER_WAL_DIR is set",
+		topology.JournalSubject("job-1"):                                         "publishes the run journal for every task it executes",
 		topology.DeadLetterSubject(topology.DispatchSubject("d")):                "republishes a dead letter after MaxDeliver",
 		"$KV.Pleiades_Locks.device-1":                                            "takes the per-device execution lease, including a raw TTL-refresh publish",
 		"$KV.Pleiades_Dedup.job-1_device-1":                                      "reads and writes consumer-side duplicate suppression",

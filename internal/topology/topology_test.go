@@ -240,3 +240,56 @@ func TestDurableName_DistinctInputsAfterSanitizationCollisionStayDistinct(t *tes
 		t.Errorf("DurableName(%q) and DurableName(%q) collided: both produced %q", "a.b", "a/b", a)
 	}
 }
+
+// TestJournalSubject is LogSubject's mirror for the run journal a Runner
+// publishes while executing a dispatch (Phase 40).
+func TestJournalSubject(t *testing.T) {
+	tests := []struct {
+		name  string
+		jobID string
+		want  string
+	}{
+		{"uuid job id", "abc-123", "pleiades.jobs.journal.abc-123-5942d94f"},
+		{"empty job id", "", "pleiades.jobs.journal.unnamed-e3b0c442"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := topology.JournalSubject(tt.jobID); got != tt.want {
+				t.Errorf("JournalSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
+			}
+		})
+	}
+
+	// It must fall under StreamSubjectRoot ("pleiades.>"), which is what
+	// makes a new subject need no stream change at all.
+	if got := topology.JournalSubject("job-1"); !strings.HasPrefix(got, "pleiades.") {
+		t.Errorf("JournalSubject(%q) = %q, does not fall under StreamSubjectRoot %q", "job-1", got, topology.StreamSubjectRoot)
+	}
+
+	// And it must not collide with the log or result space, or one
+	// consumer would silently receive the other's messages.
+	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1")} {
+		if topology.JournalSubject("job-1") == other {
+			t.Errorf("JournalSubject collides with %q", other)
+		}
+	}
+}
+
+// TestJournalSubjectAll pins the wildcard a permission grant and a
+// Controller-side consumer both need.
+func TestJournalSubjectAll(t *testing.T) {
+	got := topology.JournalSubjectAll()
+	if want := "pleiades.jobs.journal.>"; got != want {
+		t.Errorf("JournalSubjectAll() = %q, want %q", got, want)
+	}
+
+	// The trap this function exists to avoid: the per-job builder
+	// sanitizes its argument, so passing a wildcard through it produces a
+	// literal token rather than a pattern.
+	if built := topology.JournalSubject(">"); built == got {
+		t.Error("JournalSubject(\">\") happens to equal the wildcard, so this function would look unnecessary")
+	}
+	if !strings.Contains(topology.JournalSubject(">"), "unnamed-") {
+		t.Errorf("JournalSubject(\">\") = %q, expected it to be sanitized into a literal token", topology.JournalSubject(">"))
+	}
+}

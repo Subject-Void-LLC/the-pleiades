@@ -69,6 +69,14 @@ func FleetRunnerGrant(name string) Grant {
 			// Application subjects the Runner produces.
 			topology.LogSubjectAll(),
 			topology.ResultSubjectAll(),
+			// The run journal (Phase 40). Withholding this does not
+			// produce a permissions error a reader could act on: a denied
+			// publish gets no reply at all, so it surfaces as a context
+			// deadline inside the sink, which the engine then logs and
+			// counts as a failed journal write while the run itself
+			// succeeds. That is exactly the shape that looks like "the
+			// journal is broken" rather than "the Runner is not allowed".
+			topology.JournalSubjectAll(),
 			topology.DeadLetterSubject(topology.DispatchSubjectAll()),
 
 			// The per-device execution lease, written both through the KV

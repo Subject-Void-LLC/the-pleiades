@@ -367,3 +367,32 @@ func TestRecordReportsAFileItCannotOpen(t *testing.T) {
 		t.Error("Record reported success writing into a directory it cannot write")
 	}
 }
+
+func TestRecordReportsAFullDisk(t *testing.T) {
+	// A disk that fills up is the realistic failure for an append-only
+	// file that grows once per run with nothing pruning it, and it is the
+	// one write failure that can be injected honestly rather than
+	// simulated: /dev/full accepts an open and fails every write with
+	// ENOSPC.
+	if runtime.GOOS != "linux" {
+		t.Skip("/dev/full is a Linux device")
+	}
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skipf("/dev/full is not present: %v", err)
+	}
+
+	store, root := newStore(t)
+	const runID = "full-disk"
+	path := filepath.Join(root, ".pleiades", "journal", runID+".jsonl")
+	if err := os.Symlink("/dev/full", path); err != nil {
+		t.Fatalf("pointing the run's file at /dev/full: %v", err)
+	}
+
+	err := store.Record(context.Background(), []engine.JournalEntry{entry(runID, 1, "tasks[0]")})
+	if err == nil {
+		t.Fatal("Record reported success writing to a device that accepts nothing")
+	}
+	if !strings.Contains(err.Error(), runID) {
+		t.Errorf("the error does not name the run: %v", err)
+	}
+}

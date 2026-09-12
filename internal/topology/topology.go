@@ -54,7 +54,14 @@ const (
 	dispatchSubjectPrefix = "pleiades.jobs.dispatch."
 	logSubjectPrefix      = "pleiades.jobs.logs."
 	resultSubjectPrefix   = "pleiades.jobs.results."
-	dlqSubjectPrefix      = "pleiades.dlq."
+	// journalSubjectPrefix carries the run journal a Runner produces
+	// while executing a dispatch (Phase 40). It sits beside the log and
+	// result prefixes rather than under either, because it is neither:
+	// a log line is operator-facing text, a result is one dispatch's
+	// outcome, and a journal entry is a per-task audit record with its
+	// own durable consumer and its own table.
+	journalSubjectPrefix = "pleiades.jobs.journal."
+	dlqSubjectPrefix     = "pleiades.dlq."
 	// jobRequestedSubject is the one subject a Job launch (a later stage
 	// in this session, replacing internal/api/dispatcher.go's synchronous
 	// handler) publishes to, and internal/dispatch.Worker.HandleJobRequested
@@ -261,6 +268,23 @@ func LogSubjectAll() string {
 // its doc comment for why these are declared rather than derived.
 func ResultSubjectAll() string {
 	return resultSubjectPrefix + ">"
+}
+
+// JournalSubject returns the subject a given job's run journal entries
+// publish to (Phase 40). It falls under StreamSubjectRoot exactly like
+// every other subject this package declares, so no stream change is
+// needed for it.
+//
+// The job id goes through SubjectToken for the reason LogSubject's own
+// comment gives.
+func JournalSubject(jobID string) string {
+	return journalSubjectPrefix + SubjectToken(jobID)
+}
+
+// JournalSubjectAll is LogSubjectAll's sibling for the journal subject;
+// see its doc comment for why these are declared rather than derived.
+func JournalSubjectAll() string {
+	return journalSubjectPrefix + ">"
 }
 
 // JobRequestedSubject returns the one subject a persisted Job's launch

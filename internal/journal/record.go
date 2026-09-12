@@ -83,7 +83,7 @@ func groupByRun(entries []engine.JournalEntry) ([]string, map[string][]engine.Jo
 // a handful of level barriers, the cost is a handful of opens, and a
 // long-lived handle would have to be closed by something, tracked per
 // run, and reasoned about when a run ends badly.
-func (s *FileStore) appendRun(runID string, entries []engine.JournalEntry) error {
+func (s *FileStore) appendRun(runID string, entries []engine.JournalEntry) (err error) {
 	name, err := fileNameFor(runID)
 	if err != nil {
 		return err
@@ -103,7 +103,18 @@ func (s *FileStore) appendRun(runID string, entries []engine.JournalEntry) error
 	if err != nil {
 		return fmt.Errorf("failed to open the journal file for run %s: %w", runID, err)
 	}
-	defer f.Close() // #nosec G307 -- the write is checked and synced below; this close covers the error paths
+
+	// Closed exactly once, here, with its error reported when nothing
+	// worse already went wrong. A deferred Close beside an explicit one
+	// closes the handle twice and discards whatever the second call says,
+	// and Close is not a formality on every filesystem: it is where a
+	// deferred write error can finally surface.
+	defer func() {
+		closeErr := f.Close()
+		if closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close the journal file for run %s: %w", runID, closeErr)
+		}
+	}()
 
 	if _, err := f.Write(lines); err != nil {
 		return fmt.Errorf("failed to append to the journal file for run %s: %w", runID, err)
@@ -115,7 +126,7 @@ func (s *FileStore) appendRun(runID string, entries []engine.JournalEntry) error
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("failed to sync the journal file for run %s: %w", runID, err)
 	}
-	return f.Close()
+	return nil
 }
 
 // encode renders entries as JSON Lines: one object per line, newline

@@ -192,6 +192,8 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 	// limit has the identical non-answer: device selection already
 	// happened upstream, in internal/dispatch's own fan-out, before this
 	// payload ever existed. See LESSONS_LEARNED.md for the recorded rule.
+	var journalSink engine.Journal = newJournalPublisher(ctx, a.bus, a.logger, payload.JobID, payload.DeviceID)
+
 	executor := engine.NewExecutor(
 		singleDeviceResolver{device: device},
 		actions,
@@ -206,6 +208,18 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 		// engine.WithVariables is what the Crawl-tier CLI already uses.
 		engine.WithVariables(variables),
 		engine.WithTaskTimeout(taskTimeout(launch.Fields(payload.Fields))),
+		// The run journal (Phase 40), published onto this job's own
+		// journal subject for the Controller to store. Built here rather
+		// than on the Adapter so it is per dispatch, which is what makes
+		// it safe for the Agent's concurrent workers without a lock of
+		// its own, and which is also where JobID and the delivery's
+		// attempt are both in hand.
+		//
+		// Declared as the interface, never as the concrete type:
+		// engine.WithJournal guards a nil interface and deliberately not
+		// a typed nil, so a *journalPublisher variable holding nil would
+		// pass the guard and panic at the first level barrier.
+		engine.WithJournal(journalSink),
 	)
 
 	result, runErr := executor.Run(ctx, dag)
