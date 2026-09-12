@@ -253,7 +253,7 @@ func (a *Adapter) Execute(ctx context.Context, payload wire.DispatchPayload) err
 }
 
 // secretValues flattens payload.Secrets' own values into the []string
-// credential.Mask expects, mirroring
+// redact.Text expects, mirroring
 // internal/adapters/native.Adapter.Execute's own identical collection
 // (adapter.go): every secret worth masking out of captured Ansible
 // output is exactly what the Controller attached to this dispatch, since

@@ -16,9 +16,12 @@ package sdk
 // superset rule, which makes the recording dual-use: the values a
 // rollback would need are the same values a diff view would show.
 //
-// pkg/collection.Inverse.Captures names which "before" keys a given
-// method's inverse consumes. Nothing performs a rollback yet; see that
-// type's own doc comment for the honest state of it.
+// Which "before" keys a given method's inverse consumes is decided by
+// that method, in the params it passes to RecordInverse, not by any
+// declaration beside it. (This said pkg/collection.Inverse.Captures
+// until Phase 40 corrected it; no such type or field exists.) Nothing
+// performs a rollback yet: the forward run records what would undo it,
+// because only the forward run can capture the values an undo needs.
 
 // StatDiff is the stat key the before-and-after record is written under.
 const StatDiff = "diff"
@@ -37,9 +40,9 @@ const (
 // Both halves are maps rather than typed structs because what is worth
 // recording differs per method: a file's mode and owner, a service's
 // active and enabled flags, a package's version. A rollback engine reads
-// them by the names the method's own Inverse.Captures declares, so the
-// contract is per method and stated on the manifest rather than being one
-// shape every module has to fit.
+// them by the names the method itself recorded, so the contract is per
+// method rather than one shape every module has to fit. (This said
+// Inverse.Captures until Phase 40 corrected it.)
 type Diff struct {
 	// Before is the state found on the device before acting. It is
 	// recorded even when nothing changed, because "it was already like

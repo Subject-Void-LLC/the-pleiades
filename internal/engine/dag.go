@@ -234,9 +234,10 @@ type Task struct {
 	// Ansible itself does not have (there is no per-value secrecy in a
 	// registered result, only a whole-task no_log), for the case where a
 	// value's secrecy is only known at runtime (a generated password, a
-	// dynamically issued token): see internal/credential.Mask, which this
-	// reuses, for the "known, pre-registered secret" case this is
-	// deliberately not. See executor_secrets.go for how these are collected
+	// dynamically issued token): see internal/redact, whose substring
+	// masking this reuses, for the "known, pre-registered secret" case
+	// this is deliberately not. (It cited internal/credential.Mask until
+	// this phase corrected it; that function was deleted in Phase 22.) See executor_secrets.go for how these are collected
 	// and applied, and secret_mask.go's SecretMaskSpec for the different,
 	// deliberately separate retroactive case (marking an earlier task's
 	// already-registered result secret, flat top-level fields only, no

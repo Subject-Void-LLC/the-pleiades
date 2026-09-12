@@ -272,7 +272,7 @@ func runRunbook(args []string) error {
 // printMetadata prints result.Metadata (populated only from "set_metadata"
 // tasks, see internal/engine's ActionResult.IsMetadata), sorted by
 // register name, then device ID, then key, for deterministic output.
-// Every value is masked through credential.Mask using result.Secrets
+// Every value is masked through redact.Text using result.Secrets
 // before printing: a set_metadata task can echo back a value an earlier
 // register_mask/secret_mask task marked secret just as easily as any other
 // task's output can.

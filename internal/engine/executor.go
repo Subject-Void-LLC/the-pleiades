@@ -234,10 +234,18 @@ func finish(n NodeResult) NodeResult {
 }
 
 // RunResult aggregates every NodeResult produced walking a DAG with
-// Executor.Run, in the order each one finished, which is not necessarily
-// TopologicalOrder's flat order: nodes within the same level, and devices
-// within the same node's fan-out, run concurrently and can finish in any
-// order.
+// Executor.Run, in deterministic graph position: level by level, and
+// within a level in the order runConcurrently was given its items, which
+// is index-preserving (it writes results[i], it does not append as each
+// goroutine finishes).
+//
+// This doc said "in the order each one finished" until this phase
+// corrected it. Nodes within a level and devices within a node's fan-out
+// genuinely do run concurrently and genuinely can finish in any order,
+// which is presumably where the sentence came from, but none of that
+// reaches the slice: the completion order is discarded by the join. A
+// caller needing wall-clock order has NodeResult.StartedAt and
+// FinishedAt, and a caller needing run order has JournalEntry.Sequence.
 type RunResult struct {
 	Nodes []NodeResult
 
@@ -245,8 +253,10 @@ type RunResult struct {
 	// annotation discovered during this run (see Task.RegisterMask,
 	// Task.SecretMask), in no particular order. A caller that prints or
 	// logs this run's own output (cmd/pleiades/run.go) should mask through
-	// credential.Mask using this exact, complete slice after Run has
-	// returned. This is strictly more complete than publish's own
+	// redact.Text using this exact, complete slice after Run has returned.
+	// (It said credential.Mask until this phase corrected it; that
+	// function was deleted in Phase 22, when the masking algorithm moved
+	// to internal/redact.) This is strictly more complete than publish's own
 	// best-effort, in-flight masking of each event's message as it is
 	// published: Secrets reflects everything discovered by the time Run
 	// returned, including a secret discovered only after an earlier event

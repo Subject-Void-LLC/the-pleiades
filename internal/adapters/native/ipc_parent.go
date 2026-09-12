@@ -168,7 +168,7 @@ func (e *ipcCollectionExecutor) invoke(ctx context.Context, desc collection.Desc
 }
 
 // secretValues extracts every value from secrets, the shape
-// credential.Mask needs and the shape Flatten's own keys are irrelevant
+// redact.Text needs and the shape Flatten's own keys are irrelevant
 // to: masking cares only about which strings must never appear in output,
 // never which secret each one was.
 func secretValues(secrets map[string]string) []string {
