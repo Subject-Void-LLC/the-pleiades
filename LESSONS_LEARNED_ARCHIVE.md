@@ -3833,3 +3833,56 @@ correct (#170). The habit that catches all three is to ask, of any passing
 check, what would have to be true for this to fail, and to go and make that
 true once.
 
+
+---
+
+## 172. A "no input substring survives" assertion needs an empty-input baseline as its control, or it is unusable and gets deleted
+
+Phase 40's run journal is built on the claim that no value a device produced
+can reach a journal entry. The design note asks for a fuzz target that
+states that as a property: marshal the produced entries and assert that no
+substring of any input value survives.
+
+Written literally, that assertion cannot be shipped. A journal entry
+serializes to field names, JSON punctuation, closed-enum values, fixed
+platform identifiers and a zero timestamp, and a short fuzzed input
+collides with those constantly and meaninglessly. An input of `a` is a
+substring of `TaskName`. An input of `0001-01` is a substring of the zero
+time. Neither is a leak, and neither is worth an exception, because the
+exceptions accumulate until the rule is mostly exceptions and someone
+deletes it.
+
+The previous increment reached the same wall and answered it by dropping
+the substring property entirely in favor of a whitelist: every field of the
+produced entry must be drawn from an enumerable set. That is the stronger
+property and it stays the primary one. But it can only check the fields
+whoever wrote it thought to check, and the failure this whole phase guards
+against is a field a LATER phase adds.
+
+The repair is a control rather than an exception list. Run the projection
+once with entirely empty input and marshal that. Anything already present
+in the result cannot have come from the input, so it is explained once, by
+construction, instead of case by case forever. What the baseline does not
+explain is explained by a second, small, enumerable alphabet: the names the
+projection is independently allowed to store, for the case where a fuzzed
+value happens to spell a registered method name or a declared key. Anything
+explained by neither is a leak.
+
+Two details make it work rather than merely look like it works. Both the
+entry and each needle go through `encoding/json`, so a value carrying a
+quote or a control byte is compared in the same escaped form the entry
+holds it in; searching for a raw input inside escaped output silently
+misses most of what a fuzzer produces and all of what a running-config
+contains. And the whole helper carries its own negative control, asserting
+that an arbitrary value is NOT explained while a resolved method name and a
+field name ARE, because a property test that cannot fail is
+indistinguishable from one that passes.
+
+It earned its place immediately. A deliberately planted leak, a skip's
+reason sentence copied into the entry's `DeviceID`, was invisible to the
+whitelist (which did not inspect a skipped entry's device) and was reported
+by the substring property on the first seed.
+
+The general form: when a property is stated as "X must not appear in the
+output" and the output has structure of its own, the control is not a list
+of allowed exceptions, it is a run of the same code with X removed.
