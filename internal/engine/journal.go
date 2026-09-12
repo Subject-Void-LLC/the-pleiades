@@ -17,6 +17,28 @@ import (
 
 // JournalEntry is one node execution's durable record.
 //
+// # The field names are the format
+//
+// Every field carries a snake_case json tag, and those tags are the
+// on-disk names in the Crawl tier's JSON Lines file and the on-wire names
+// in the Walk tier's published record. Changing one is a format change,
+// not a rename, so it belongs in a commit that says so.
+//
+// They live on this type rather than on a separate wire struct in
+// internal/journal on purpose. A wire struct would need a 28-field
+// mapping function, and the failure mode of such a function is that a
+// field added here is silently absent there: the entry still marshals,
+// the tests still pass, and the one run that needed the new field is the
+// one that did not record it. Two sinks reading one tagged type cannot
+// disagree about the format. The cost is that this package now names a
+// serialization, which is stated here rather than left for a reader to
+// discover.
+//
+// No field carries omitempty, so every record is the full 28 fields. A
+// synthetic fan-out marker therefore writes an empty FQCN and a zero
+// StartedAt and FinishedAt, which is the honest record of a node that
+// executed nothing, not corruption.
+//
 // # The provenance rule
 //
 // A field belongs in this type only if it is one of six kinds. This is
@@ -110,40 +132,40 @@ type JournalEntry struct {
 	// Empty on the Crawl tier, which has no dispatch at all. The Walk sink
 	// stamps it at construction from the wire.DispatchPayload it was built
 	// for, never from anything the run itself reports.
-	JobID string
+	JobID string `json:"job_id"`
 
 	// Attempt is JetStream's own redelivery counter for that dispatch
 	// (kind 1), so a second run against one device reads as a retry rather
 	// than as two unrelated runs. Zero on the Crawl tier.
-	Attempt int
+	Attempt int `json:"attempt"`
 
 	// RunID identifies one Executor.Run call (kind 1). It is minted on
 	// Run's own per-call state, not on Executor, which deliberately holds
 	// no per-run state so a single Executor value stays safe to reuse or
 	// to call Run on concurrently (see the run type, executor.go).
-	RunID string
+	RunID string `json:"run_id"`
 
 	// Sequence orders the entries inside one run (kind 1). StartedAt
 	// cannot do that job alone: a level fans out concurrently, so two
 	// nodes can carry the same instant.
-	Sequence int
+	Sequence int `json:"sequence"`
 
 	// NodeID is the synthesized graph id this entry belongs to, for
 	// example "tasks[0]" (kind 1), never the task's Register name. See
 	// NodeResult.NodeID.
-	NodeID string
+	NodeID string `json:"node_id"`
 
 	// DAGID is the runbook's author-written id: field (kind 5), carried
 	// through unchanged by buildFromDef. It is not a digest; only
 	// DAGVersion is. See this type's own note on kind 5 for the one
 	// constraint it does carry.
-	DAGID string
+	DAGID string `json:"dag_id"`
 
 	// DAGVersion is the compiled definition's content hash, formatted
 	// "sha256:<hex>" (kind 4). It detects drift between the runbook that
 	// ran and the runbook on disk now. It cannot recover that runbook's
 	// content: nothing in this platform stores one.
-	DAGVersion string
+	DAGVersion string `json:"dag_version"`
 
 	// FQCN is the method this node ran, resolved through collection.Lookup
 	// or the engine's own builtin table at write time (kind 2), never the
@@ -154,38 +176,38 @@ type JournalEntry struct {
 	// arbitrary author text into the field the provenance rule calls a
 	// catalog constant, on exactly the failure path the journal exists
 	// for.
-	FQCN string
+	FQCN string `json:"fqcn"`
 
 	// FQCNUnresolved reports that resolution found nothing and FQCN holds
 	// FQCNUnregistered (kind 3). The unresolved string is never stored,
 	// and dropping it costs little: NodeID still names the graph position
 	// and the operator still has the runbook.
-	FQCNUnresolved bool
+	FQCNUnresolved bool `json:"fqcn_unresolved"`
 
 	// TaskName is the task's author-written name: (kind 5), unconstrained
 	// free text.
-	TaskName string
+	TaskName string `json:"task_name"`
 
 	// Register is the task's author-written register: name (kind 5),
 	// unconstrained free text. It is the key a later task's when_cel reads
 	// this node's result under, never the result itself.
-	Register string
+	Register string `json:"register"`
 
 	// DeviceID is the device this execution ran against (kind 1), the
 	// inventory item's own stored id. Empty for a controller-side task,
 	// which resolves no device at all.
-	DeviceID string
+	DeviceID string `json:"device_id"`
 
 	// StartedAt and FinishedAt bound this execution (kind 1). They are
 	// instants the executor stamps around its own call, never anything a
 	// device reported. The event stream's own timestamp cannot serve here:
 	// publish formats whole seconds (executor.go), too coarse to order a
 	// concurrent fan-out.
-	StartedAt  time.Time
-	FinishedAt time.Time
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
 
 	// Outcome is what this node did (kind 3).
-	Outcome Outcome
+	Outcome Outcome `json:"outcome"`
 
 	// FailureStage names which stage failed (kind 3), read off the
 	// executor's control flow rather than parsed back out of an error. It
@@ -193,13 +215,13 @@ type JournalEntry struct {
 	// text is deliberately absent: NodeResult.Err embeds device output
 	// verbatim, and the engine contractually never masks it
 	// (executor_secrets_test.go asserts a raw secret survives in it).
-	FailureStage FailureStage
+	FailureStage FailureStage `json:"failure_stage"`
 
 	// SkipKind names why this node was skipped (kind 3). It is
 	// SkipKindNone unless Outcome is OutcomeSkipped. The skip reason
 	// sentence is absent for the same reason the error text is: it quotes
 	// the author's own expression back verbatim.
-	SkipKind SkipKind
+	SkipKind SkipKind `json:"skip_kind"`
 
 	// SkipOrdinal and SkipTotal are which condition, of how many, decided
 	// a condition skip (kind 6). SkipOrdinal is 1-based, and both are zero
@@ -214,14 +236,14 @@ type JournalEntry struct {
 	// evaluated false, so no single one is responsible and naming one
 	// would be a fabricated attribution. That is the same reason evalOr's
 	// own reason sentence names all of them. See SkipKindWhenOr.
-	SkipOrdinal int
-	SkipTotal   int
+	SkipOrdinal int `json:"skip_ordinal"`
+	SkipTotal   int `json:"skip_total"`
 
 	// StatKeys are the top-level keys of this node's stats that the
 	// executing method's own Doc.Returns declares, plus sdk.StatInverse
 	// and sdk.StatDiff (kind 2). Key names only: never a value, and never
 	// a nested key, since a nested key can be a value one level up.
-	StatKeys []string
+	StatKeys []string `json:"stat_keys"`
 
 	// UndeclaredStatCount is how many top-level stat keys were not
 	// admitted (kind 6). A rejected key is counted and never named,
@@ -229,45 +251,45 @@ type JournalEntry struct {
 	// construction (pkg/collection/doc.go), so an undocumented key is as
 	// likely to be a documentation gap as a surprise. Counting keeps that
 	// gap visible instead of dropping it silently.
-	UndeclaredStatCount int
+	UndeclaredStatCount int `json:"undeclared_stat_count"`
 
 	// ParamKeys are this task's param keys that the executing method's own
 	// Doc.Params declares (kind 2). Param values are excluded outright and
 	// no declaration can admit one: file.copy's content is a required
 	// param and is the file body.
-	ParamKeys []string
+	ParamKeys []string `json:"param_keys"`
 
 	// UndeclaredParamCount is how many param keys were not admitted
 	// (kind 6), counted rather than named for the same reason as
 	// UndeclaredStatCount.
-	UndeclaredParamCount int
+	UndeclaredParamCount int `json:"undeclared_param_count"`
 
 	// InverseFQCN is the method that undoes this one, resolved exactly as
 	// FQCN is (kind 2). It gets that treatment for a stronger reason than
 	// FQCN does: it is not even author text, but whatever a Collection
 	// method put in a map[string]any at run time, and sdk.RecordInverse
 	// validates only that it is non-empty (pkg/sdk/inverse.go:76).
-	InverseFQCN string
+	InverseFQCN string `json:"inverse_fqcn"`
 
 	// InverseFQCNUnresolved reports that resolution found nothing and
 	// InverseFQCN holds FQCNUnregistered (kind 3).
-	InverseFQCNUnresolved bool
+	InverseFQCNUnresolved bool `json:"inverse_fqcn_unresolved"`
 
 	// InverseParamKeys are the resolved inverse target's param keys that
 	// its own Doc.Params declares (kind 2). Key names only. See this
 	// type's own note on the pending Section 12 amendment for what would
 	// widen this to values, and why that has not been built.
-	InverseParamKeys []string
+	InverseParamKeys []string `json:"inverse_param_keys"`
 
 	// UndeclaredInverseParamCount is how many inverse param keys were not
 	// admitted (kind 6).
-	UndeclaredInverseParamCount int
+	UndeclaredInverseParamCount int `json:"undeclared_inverse_param_count"`
 
 	// DiffRecorded reports whether the method wrote a diff under
 	// sdk.StatDiff (kind 3). Presence only, never the diff: a diff is a
 	// before-and-after pair of exactly the device content this type
 	// refuses to hold.
-	DiffRecorded bool
+	DiffRecorded bool `json:"diff_recorded"`
 }
 
 // FQCNUnregistered is what JournalEntry.FQCN and JournalEntry.InverseFQCN

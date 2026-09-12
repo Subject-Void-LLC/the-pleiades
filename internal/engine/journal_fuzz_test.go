@@ -469,7 +469,8 @@ func TestJournalFuzzHelpersDetectALeak(t *testing.T) {
 		{"the whole prior file", false, "an arbitrary value has no explanation and must be reported"},
 		{"ssh_exec", true, "a resolved engine action name is a name the projection may store"},
 		{"stdout", true, "a stat key the engine's transport table declares may be named"},
-		{"TaskName", true, "a field name is in every entry, input or not, so the baseline explains it"},
+		{"task_name", true, "a json tag is in every entry, input or not, so the baseline explains it"},
+		{"undeclared_stat_count", true, "the same holds for every other tag, which is what makes the tags the format"},
 		{"0001-01-01", true, "the zero timestamp is structural, and a short input colliding with it is not a leak"},
 		{"", true, "the empty string is a substring of everything and can prove nothing"},
 	}

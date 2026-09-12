@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
@@ -189,6 +190,28 @@ func runRunbook(args []string) error {
 		engine.NewCredentialRunbookContext(credentials),
 	)
 
+	// The run journal, one JSON Lines file per run under
+	// <dir>/.pleiades/journal. It records what ran, against what, in what
+	// order and with what outcome, and it holds no value that came back
+	// from a device, so it needs no key and nothing masks it.
+	//
+	// Declared as the interface rather than as *journal.FileStore because
+	// engine.WithJournal guards a nil interface and deliberately not a
+	// typed nil: a *journal.FileStore variable holding nil would pass
+	// that guard and panic at the first level barrier.
+	//
+	// Constructed here, before anything executes, and its failure ends
+	// the command. A journal the operator cannot write is one that
+	// silently records nothing, and the moment to find that out is now
+	// rather than at the first level barrier of a run that is already
+	// changing devices.
+	var sink engine.Journal
+	store, err := journal.NewFileStore(*dir)
+	if err != nil {
+		return fmt.Errorf("failed to open the run journal: %w", err)
+	}
+	sink = store
+
 	executor := engine.NewExecutor(
 		world,
 		actionExecutor,
@@ -196,6 +219,7 @@ func runRunbook(args []string) error {
 		event.NewInProcessBus(),
 		engine.NewInProcessWorkflowContext(),
 		0,
+		engine.WithJournal(sink),
 	)
 
 	result, err := executor.Run(ctx, dag)
