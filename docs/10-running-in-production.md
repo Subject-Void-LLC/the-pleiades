@@ -345,6 +345,71 @@ its `register:` and the runbook's `id:` are stored as written. So the honest
 guarantee is "no value the platform obtained", not "no secret a person could type
 into a task name".
 
+### What one journal record contains
+
+A Crawl-tier journal file is JSON Lines: one record per line, one line per node
+the run executed. The order is the graph's, not the clock's: level by level, and
+within a level in graph position. Nodes in a level really do run at the same time
+and can finish in any order, so if you need wall-clock order, sort on
+`finished_at`; `sequence` gives you run order. Any tool that reads JSON will read
+the file, so `jq` is usually enough:
+
+```bash
+# every task that changed something, across every run on disk
+jq -r 'select(.outcome == "changed") | "\(.task_name)\t\(.fqcn)\t\(.device_id)"' \
+  .pleiades/journal/*.jsonl
+```
+
+The Walk tier stores the same fields as columns in `journal_entries`.
+
+**Identifiers**
+
+| Field | Meaning |
+|---|---|
+| `run_id` | One `Executor.Run` call. Names the Crawl-tier file. |
+| `sequence` | Order within that run. A level runs concurrently, so two records can share an instant; this cannot tie. |
+| `node_id` | Position in the compiled graph, such as `tasks[0]`. Not the task's `register:` name. |
+| `device_id` | The inventory item's stored id. Never a device property. |
+| `job_id`, `attempt` | The Walk-tier dispatch and its redelivery count. Both empty or zero on the Crawl tier, which has no dispatch. |
+| `started_at`, `finished_at` | UTC, bounding this one execution. |
+
+**What ran**
+
+| Field | Meaning |
+|---|---|
+| `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
+| `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
+| `dag_id` | The runbook's own `id:`, as written. |
+| `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
+| `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
+
+**How it ended**
+
+| Field | Meaning |
+|---|---|
+| `outcome` | One of `ran`, `changed`, `skipped`, `failed`, `not_reached`. |
+| `failure_stage` | Where a failure happened, read off control flow rather than parsed from an error: `workflow_read`, `condition_eval`, `secret_mask`, `resolve_target`, `lock_all`, `lock_device`, `action`, `register_mask`, `record`. Empty unless `outcome` is `failed`. |
+| `skip_kind` | Which gate skipped the task: `when`, `when_or`, `when_cel` or `lifecycle`. Empty unless `outcome` is `skipped`. |
+| `skip_ordinal`, `skip_total` | Which condition of how many decided a `when` skip. The ordinal is zero for `when_or`, where every condition had to be false and none is the actionable one. |
+
+Note what is absent: there is no error message field. A failure records the stage it
+happened at and nothing the device or the platform said about it, because that text
+is the one place a device's own output reliably ends up.
+
+**Key names and counts**
+
+These record which keys a task produced or consumed, never their values.
+
+| Field | Meaning |
+|---|---|
+| `stat_keys` | Return key names the method's own documentation declares, plus the two platform keys `inverse` and `diff`. |
+| `param_keys` | Parameter names the method declares. |
+| `undeclared_stat_count`, `undeclared_param_count` | How many keys were rejected because the registry does not declare them. Counted rather than named, so an undeclared key cannot smuggle text in through its own name. |
+| `inverse_fqcn`, `inverse_param_keys` | The method that would reverse this task, and the names of the parameters such a call takes. Not their values, which is why nothing replays automatically. |
+| `inverse_fqcn_unresolved` | True when that reversing method is not in the registry. |
+| `undeclared_inverse_param_count` | The same counter, for the reversing call. |
+| `diff_recorded` | Whether the task recorded a before and after. Not the before or the after. |
+
 ### Rollback is authored, not inferred
 
 The journal records the concrete instruction that would reverse a task that changed
