@@ -11,7 +11,7 @@ import "strings"
 // Brutalist has a light one. Folding them into one enum would mean four
 // values today and eight the next time either axis grows.
 //
-// The rule that keeps this cheap: **both skins expose exactly the same
+// The rule that keeps this cheap: **every skin exposes exactly the same
 // token names.** Every component rule reads var(--fg), var(--border),
 // var(--shadow-offset) and so on, so a skin is a block of values rather
 // than a second stylesheet. A skin that needed its own component rules
@@ -23,20 +23,29 @@ const (
 	// non-blurry offset shadows, saturated primaries.
 	SkinBrutalist Skin = "brutalist"
 
-	// SkinLasVentanas is the Subject Void design language: tinted black
-	// and cream rather than pure black and white, Facebook Blue as the
-	// single accent, 2px borders, and no drop shadows at all.
+	// SkinLasVentanas is a Windows 95 skin: a grey dialog face, a navy
+	// titlebar on the sidebar, white sunken text fields, and every button
+	// and panel drawn with the classic four-layer inset bevel instead of a
+	// flat border or a drop shadow. It is the one skin whose borders are
+	// not a single colour: app.css's --bevel-color-light/mid-light/
+	// mid-dark/dark and --component-border-width tokens exist because of
+	// it, and Brutalist and Honeycrisp both alias --component-border-width
+	// to --border-width and never reference the bevel colours at all,
+	// which is what keeps their own flat borders exactly as they were.
 	SkinLasVentanas Skin = "las-ventanas"
 
 	// SkinHoneycrisp is the macOS-like skin: soft blue-gray surfaces
-	// instead of stark white or black, rounded corners, a soft blurred
+	// instead of stark white or black, rounded corners, a downward soft
 	// shadow, 1px borders, and Apple's own system colors for its accent
 	// and every status fill. It is the one skin whose shape, not just its
-	// colors, differs from the other two: app.css's shared --radius and
-	// --shadow-blur tokens exist because of it, and Brutalist and Las
-	// Ventanas both set them to zero, which is what keeps their own
-	// square-cornered, hard-edged look exactly as it was. The name is a
-	// pun on the palette's source rather than a description of its
+	// colors, differs from the other two: app.css's shared --radius,
+	// --radius-control and --shadow-blur tokens exist because of it, and
+	// Brutalist and Las Ventanas both set them to zero, which is what
+	// keeps their own square-cornered, hard-edged look exactly as it was.
+	// It is also the only skin whose sidebar is translucent: a real macOS
+	// sidebar is vibrant chrome, not content, so app.css blurs only
+	// .sidebar and leaves every text-bearing panel fully opaque. The name
+	// is a pun on the palette's source rather than a description of its
 	// colors: a Honeycrisp is an apple.
 	SkinHoneycrisp Skin = "honeycrisp"
 )

@@ -29,13 +29,35 @@
  * stylesheet -- a skin needing its own component rules would be a fork,
  * not a skin.
  *
- * --radius, --shadow-blur and --shadow-spread are shape tokens on the same
- * footing as the colour ones: Brutalist and Las Ventanas both declare them
- * as zero, which is why the universal reset below still reads as "square
- * corners, hard edges" for either. Honeycrisp is the one skin that sets
- * them to something else, and that is the whole mechanism by which it gets
- * rounded corners and a soft shadow without a single component rule of its
- * own -- exactly the same way it gets its own colours.
+ * --radius, --radius-control, --shadow-blur and --shadow-spread are shape
+ * tokens on the same footing as the colour ones. --radius governs panels;
+ * --radius-control governs buttons, inputs and badges separately, because a
+ * real macOS control is rounded tighter than the card it sits in. Brutalist
+ * and Las Ventanas alias both to the same value (zero for the former, zero
+ * for the latter -- Windows 95 has no rounding anywhere), so the universal
+ * reset below still reads as "square corners, hard edges" for either.
+ * Honeycrisp is the one skin that sets them to something else.
+ *
+ * --panel-shadow, --control-shadow, --control-shadow-active and
+ * --field-shadow are shape tokens too, but composite ones: each is a
+ * complete box-shadow value rather than a single scalar, because the three
+ * skins do not merely resize the same shadow, they use a different
+ * mechanism entirely. Brutalist and Honeycrisp compose theirs from
+ * --shadow-offset/--shadow-offset-y/--shadow-blur/--shadow-spread/--shadow,
+ * the same scalars as always (Honeycrisp adds --shadow-offset-y so its drop
+ * shadow falls downward instead of radiating on all sides, which is what a
+ * real soft UI shadow does and a symmetric one does not). Las Ventanas
+ * composes its four from --bevel-color-light/mid-light/mid-dark/dark, the
+ * four-layer inset stack that draws a Windows 95 raised or sunken bevel --
+ * a real 3-D border is not expressible as a single-colour box-shadow, so it
+ * gets its own composite rather than a fifth scalar nobody else would use.
+ * --component-border-width exists for the same reason: a beveled control's
+ * flat border would sit outside the bevel and muddy it, so Las Ventanas
+ * sets it to zero while every other skin aliases it to --border-width and
+ * renders exactly as before. --field-bg is the one colour token that only
+ * Las Ventanas needs a second value for -- a sunken Windows textbox is
+ * white on a grey dialog, not grey-on-grey -- and every other skin aliases
+ * it to --bg.
  *
  * Three orthogonal axes, all resolved server-side onto <html>:
  *   data-skin  = brutalist | las-ventanas | honeycrisp
@@ -78,7 +100,9 @@
   --border-width: 4px;
   --rule-width: 1px;
   --shadow-offset: 5px;
+  --shadow-offset-y: var(--shadow-offset);
   --radius: 0;
+  --radius-control: var(--radius);
   --shadow-blur: 0;
   --shadow-spread: 0;
   --heading-weight: 900;
@@ -86,6 +110,16 @@
   --heading-case: uppercase;
   --sidebar-width: 280px;
   --breakpoint: 48rem;
+
+  /* The generic shape composites, see the vocabulary comment above. Every
+   * skin defines these five; only Las Ventanas' differ in kind rather than
+   * in value. */
+  --field-bg: var(--bg);
+  --component-border-width: var(--border-width);
+  --panel-shadow: var(--shadow-offset) var(--shadow-offset-y) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+  --control-shadow: var(--panel-shadow);
+  --control-shadow-active: none;
+  --field-shadow: none;
 }
 
 /* This is Brutalist's own dark-mode block, and the double :not() is a
@@ -129,54 +163,79 @@
 
 /* ================= SKIN: LAS VENTANAS =================
  *
- * Subject Void's design language: tinted black and cream rather than pure
- * black and white, Facebook Blue as the single accent, 2px borders, and no
- * drop shadows at all.
+ * A Windows 95 skin, not merely a grey-and-navy one: the four-layer inset
+ * bevel that --bevel-raised/--bevel-sunken draw is what actually reads as
+ * "Windows" (a flat grey rectangle does not, whatever its border colour),
+ * so this is the one skin that sets --component-border-width to zero and
+ * hands --panel-shadow/--control-shadow/--control-shadow-active/
+ * --field-shadow the bevel stack instead of a drop shadow. That is the
+ * whole mechanism: no component rule below is Las-Ventanas-specific, only
+ * these tokens plus the usual colour ones. --field-bg gives text inputs
+ * their own white sunken well, distinct from the grey dialog face around
+ * them, the way a real Windows textbox always was.
  *
- * Five values differ from the source design system, and each is a measured
- * contrast failure rather than a preference:
+ * The dialog face is #C0C0C0 and the bevel's light and dark edges are pure
+ * white and pure black, which is the real Windows 95 "3D Face"/"3D
+ * Highlight"/"3D Shadow" triad. One value differs from it, and it is a
+ * measured contrast failure rather than a preference: the mid-tone bevel
+ * edge and the plain hairline border are genuinely #DFDFDF and #808080
+ * (the real "ButtonHighlight"/"ButtonShadow" pair), but --border itself
+ * -- the hairline used for dividers, table rules and the sidebar's own
+ * edge, never the bevel -- is darkened to #5C5C5C, because #808080 on
+ * #C0C0C0 measures 2.17:1 and SC 1.4.11 asks 3:1 of anything marking a
+ * boundary. The bevel's own mid-tones stay authentic because the bevel is
+ * decorative depth, not the boundary a reader relies on -- the boundary is
+ * the solid black line the same stack always draws on its dark edge, at
+ * 11.5:1.
  *
- *   --link (light)       #1877F2 -> #1464CC    3.99 -> 5.32
- *   --on-fill-info (lt)  cream   -> #0A0F1A    3.99 -> 4.52
- *   --link (dark)        #1464CC -> #4D94FF    3.40 -> 6.66
- *   --fg-muted (light)   #8895A7 -> #5F6B7D    2.87 -> 4.83
- *   --border-interactive split from the 1.44:1 hairline
- *
- * Facebook Blue is kept everywhere it works -- as a fill, as large text, as
- * a non-text boundary, and as a dark-mode link at 4.52:1. It is withdrawn
- * only from small light-mode text, the one place 3.99:1 is a real barrier.
+ * Dark mode is Windows' own "High Contrast Black", not an invented dark
+ * variant of the light palette: pure black ground, pure white text and
+ * borders, and the bevel itself flattens (--bevel-color-light/mid-light/
+ * mid-dark/dark all become white), because that is what that mode actually
+ * does to a beveled control -- depth cues are the first thing a high
+ * contrast mode trades away for legibility. The one departure from
+ * Windows' own scheme is --link: real Windows never themed hyperlinks
+ * specially, but this UI needs one colour that reads as "the accent" in
+ * both themes, so light mode keeps a plain classic web blue (#0000EE,
+ * 5.16:1) and dark mode borrows the high-contrast green Windows itself
+ * uses for emphasis (#00FF00, 15.3:1) rather than inventing a blue that
+ * would have to be measured from nothing.
  *
  * Fonts are named but never fetched: a CDN link is unusable in an
- * air-gapped install, so a locally installed Space Grotesk is used when
- * present and a system stack otherwise.
+ * air-gapped install, so Tahoma is used when locally installed (closer to
+ * genuine Windows chrome than any Google-hosted face) and a system stack
+ * otherwise. No web font renders the real bitmap "MS Sans Serif", and
+ * asking for it by name would only ever resolve to a fallback anyway.
  */
 
 :root[data-skin="las-ventanas"] {
-  --bg: #faf8f5;
-  --bg-raised: #f0ede8;
-  --fg: #0a0f1a;
-  --fg-muted: #5f6b7d;
-  --border: #d6d0c8;
-  --border-interactive: #6b6459;
-  --link: #1464cc;
+  --bg: #c0c0c0;
+  --bg-raised: #ffffff;
+  --fg: #000000;
+  --fg-muted: #4a4a4a;
+  --border: #5c5c5c;
+  --border-interactive: #000000;
+  --link: #0000ee;
   --shadow: transparent;
 
   --fill-ok: #00ff00;
   --fill-failed: #ff0000;
   --fill-changed: #ffff00;
   --fill-skipped: #ffd700;
-  --fill-neutral: #e7e4df;
-  --fill-info: #1877f2;
+  --fill-neutral: #d4d0c8;
+  --fill-info: #000080;
   --on-fill: #000000;
-  --on-fill-info: #0a0f1a;
+  --on-fill-info: #ffffff;
 
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-sans: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: Tahoma, "Segoe UI", Geneva, Verdana, sans-serif;
 
   --border-width: 2px;
   --rule-width: 1px;
   --shadow-offset: 0px;
+  --shadow-offset-y: 0px;
   --radius: 0;
+  --radius-control: var(--radius);
   --shadow-blur: 0;
   --shadow-spread: 0;
   --heading-weight: 700;
@@ -184,34 +243,75 @@
   --heading-case: none;
   --sidebar-width: 280px;
   --breakpoint: 48rem;
+
+  /* The bevel: a real 3-D border drawn as four stacked inset shadows, the
+   * same technique every Windows-95-revival stylesheet uses because a
+   * single-colour box-shadow cannot express two-tone depth. Raised is a
+   * resting button or panel; sunken is a text field or a pressed button.
+   * The titlebar pair is the other unmistakably-Windows cue -- see
+   * .sidebar-brand below, the one place a skin gets a rule of its own
+   * rather than a token, because a coloured bar is a behaviour no other
+   * skin has any use for, not a value an existing one would ever want. */
+  --bevel-color-light: #ffffff;
+  --bevel-color-mid-light: #dfdfdf;
+  --bevel-color-mid-dark: #808080;
+  --bevel-color-dark: #000000;
+  --bevel-raised:
+    inset 1px 1px var(--bevel-color-light),
+    inset -1px -1px var(--bevel-color-dark),
+    inset 2px 2px var(--bevel-color-mid-light),
+    inset -2px -2px var(--bevel-color-mid-dark);
+  --bevel-sunken:
+    inset 1px 1px var(--bevel-color-mid-dark),
+    inset -1px -1px var(--bevel-color-light),
+    inset 2px 2px var(--bevel-color-dark),
+    inset -2px -2px var(--bg);
+
+  --field-bg: #ffffff;
+  --component-border-width: 0;
+  --panel-shadow: var(--bevel-raised);
+  --control-shadow: var(--bevel-raised);
+  --control-shadow-active: var(--bevel-sunken);
+  --field-shadow: var(--bevel-sunken);
+
+  --titlebar-bg: #000080;
+  --titlebar-fg: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root[data-skin="las-ventanas"]:not([data-theme="light"]) {
-    --bg: #0a0f1a;
-    --bg-raised: #141b2d;
-    --fg: #faf8f5;
-    --fg-muted: #8895a7;
-    --border: #2a3347;
-    --border-interactive: #6d7893;
-    --link: #4d94ff;
+    --bg: #000000;
+    --bg-raised: #1a1a1a;
+    --fg: #ffffff;
+    --fg-muted: #b0b0b0;
+    --border: #ffffff;
+    --border-interactive: #ffffff;
+    --link: #00ff00;
     --shadow: transparent;
-    --fill-neutral: #1a2235;
-    --on-fill-info: #0a0f1a;
+    --fill-neutral: #2a2a2a;
+    --bevel-color-light: #ffffff;
+    --bevel-color-mid-light: #ffffff;
+    --bevel-color-mid-dark: #ffffff;
+    --bevel-color-dark: #ffffff;
+    --field-bg: var(--bg);
   }
 }
 
 :root[data-skin="las-ventanas"][data-theme="dark"] {
-  --bg: #0a0f1a;
-  --bg-raised: #141b2d;
-  --fg: #faf8f5;
-  --fg-muted: #8895a7;
-  --border: #2a3347;
-  --border-interactive: #6d7893;
-  --link: #4d94ff;
+  --bg: #000000;
+  --bg-raised: #1a1a1a;
+  --fg: #ffffff;
+  --fg-muted: #b0b0b0;
+  --border: #ffffff;
+  --border-interactive: #ffffff;
+  --link: #00ff00;
   --shadow: transparent;
-  --fill-neutral: #1a2235;
-  --on-fill-info: #0a0f1a;
+  --fill-neutral: #2a2a2a;
+  --bevel-color-light: #ffffff;
+  --bevel-color-mid-light: #ffffff;
+  --bevel-color-mid-dark: #ffffff;
+  --bevel-color-dark: #ffffff;
+  --field-bg: var(--bg);
 }
 
 /* ================= SKIN: HONEYCRISP =================
@@ -223,6 +323,30 @@
  * and --shadow-spread to something other than zero. That is the entire
  * mechanism: no component rule here is Honeycrisp-specific, only these
  * three tokens plus the usual color ones.
+ *
+ * Two refinements sharpen that further. --radius-control is rounded
+ * tighter than --radius (6px against the panel's 10px), because a real
+ * macOS button or field is never as round as the card around it -- one
+ * radius for everything reads as a single shape scaled up, not as a
+ * system of related but distinct controls. And --shadow-offset-y is set
+ * independently of --shadow-offset (8px against 0px), so the shadow falls
+ * downward the way light actually does, instead of the symmetric halo a
+ * single offset scalar can only ever produce.
+ *
+ * .sidebar reads --sidebar-bg and --sidebar-backdrop-filter, which every
+ * other skin leaves at var(--bg) and none -- an opaque sidebar identical
+ * to its own body colour, i.e. today's rendering, unchanged. Honeycrisp
+ * alone gives the sidebar a translucent surface and a blur-and-saturate
+ * filter, because vibrancy in real macOS is reserved for exactly this
+ * kind of structural chrome (a Finder or Messages sidebar) and deliberately
+ * withheld from content itself (Apple's own guidance keeps it off
+ * text-heavy panels), which is why .block and every other content
+ * surface below stays fully opaque -- this is not a general translucency
+ * token, it has exactly one consumer. The alpha is kept high (0.82/0.8)
+ * precisely because --fg/--fg-muted/--link are measured against the
+ * nominal opaque --bg, and body's own tone is close enough to the
+ * sidebar's that a shallow blend leaves the real rendered contrast
+ * negligibly different from that nominal figure.
  *
  * Surfaces are a soft blue-gray rather than stark white or black, the way
  * a real Finder or Messages window is: --bg #f2f4f8, --bg-raised a
@@ -270,12 +394,14 @@
   --on-fill-info: #ffffff;
 
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-sans: "-apple-system", BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", "Helvetica Neue", sans-serif;
 
   --border-width: 1px;
   --rule-width: 1px;
   --shadow-offset: 0px;
+  --shadow-offset-y: 8px;
   --radius: 10px;
+  --radius-control: 6px;
   --shadow-blur: 24px;
   --shadow-spread: -6px;
   --heading-weight: 600;
@@ -283,6 +409,17 @@
   --heading-case: none;
   --sidebar-width: 280px;
   --breakpoint: 48rem;
+
+  --field-bg: var(--bg);
+  --component-border-width: var(--border-width);
+  --panel-shadow: var(--shadow-offset) var(--shadow-offset-y) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+  --control-shadow: var(--panel-shadow);
+  --control-shadow-active: none;
+  --field-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+
+  /* Vibrancy: .sidebar only, see the comment above. */
+  --sidebar-bg: rgba(255, 255, 255, 0.82);
+  --sidebar-backdrop-filter: blur(24px) saturate(180%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -303,6 +440,7 @@
     --fill-info: #0a84ff;
     --on-fill: #000000;
     --on-fill-info: #000000;
+    --sidebar-bg: rgba(28, 28, 30, 0.8);
   }
 }
 
@@ -323,6 +461,7 @@
   --fill-info: #0a84ff;
   --on-fill: #000000;
   --on-fill-info: #000000;
+  --sidebar-bg: rgba(28, 28, 30, 0.8);
 }
 
 /* ================= ACCESSIBILITY MODE =================
@@ -418,10 +557,14 @@
  * what makes that a guarantee instead of a convention. Brutalist and Las
  * Ventanas both declare --radius: 0, so this rule still reads as "square
  * corners, hard edges" for either -- nothing about their rendering
- * changes. box-shadow is deliberately NOT reset away: even Brutalist's
- * hard, non-blurry offset shadow is the signature of that style, and the
- * previous stylesheet's blanket `box-shadow: none !important` would have
- * made it impossible to draw. */
+ * changes. Buttons, inputs and badges each carry their own
+ * `border-radius: var(--radius-control) !important;`, which wins the tie
+ * on selector specificity rather than source order, since a real control
+ * needs a tighter radius than the panel it sits in on Honeycrisp and the
+ * same zero on the other two skins either way. box-shadow is deliberately
+ * NOT reset away: even Brutalist's hard, non-blurry offset shadow is the
+ * signature of that style, and the previous stylesheet's blanket
+ * `box-shadow: none !important` would have made it impossible to draw. */
 *,
 *::before,
 *::after {
@@ -539,6 +682,9 @@ a {
   flex: 0 0 var(--sidebar-width);
   border-right: var(--border-width) solid var(--border);
   padding: 1.5rem;
+  background: var(--sidebar-bg, var(--bg));
+  backdrop-filter: var(--sidebar-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--sidebar-backdrop-filter, none);
 }
 
 .sidebar-brand {
@@ -546,6 +692,20 @@ a {
   font-weight: 900;
   letter-spacing: -0.03em;
   text-transform: uppercase;
+}
+
+/* Las Ventanas' titlebar: the one rule in this file that belongs to a
+ * single skin rather than to the shared vocabulary, because a coloured bar
+ * bled to the sidebar's own edges is a behaviour, not a value the other
+ * skins have any use for. It is additive rather than a fork: unscoped,
+ * .sidebar-brand keeps rendering exactly as it always did (no background,
+ * inherited colour), and this rule only ever fires under
+ * [data-skin="las-ventanas"], so Brutalist and Honeycrisp are untouched. */
+[data-skin="las-ventanas"] .sidebar-brand {
+  margin: -1.5rem -1.5rem 1.5rem;
+  padding: 0.6rem 1.5rem;
+  background: var(--titlebar-bg);
+  color: var(--titlebar-fg);
 }
 .sidebar-version {
   font-family: var(--font-mono);
@@ -635,11 +795,11 @@ a {
   font-family: var(--font-mono);
 }
 
-/* ---- The brutalist block: the shape everything reuses ---- */
+/* ---- The block: the shape everything reuses ---- */
 .block {
   background: var(--bg);
-  border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+  border: var(--component-border-width) solid var(--border);
+  box-shadow: var(--panel-shadow);
   padding: 1rem;
 }
 
@@ -654,8 +814,9 @@ a {
   padding: 0.6rem 1rem;
   background: var(--bg);
   color: var(--fg);
-  border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+  border: var(--component-border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--control-shadow);
   cursor: pointer;
   text-decoration: none;
   /* 24x24 is the AA floor; this clears it in every direction. */
@@ -667,7 +828,7 @@ a {
 }
 .btn:active {
   transform: translate(var(--shadow-offset), var(--shadow-offset));
-  box-shadow: none;
+  box-shadow: var(--control-shadow-active);
 }
 .btn-danger:hover {
   background: var(--fill-failed);
@@ -706,11 +867,13 @@ select {
   font-family: var(--font-mono);
   font-size: 0.9rem;
   padding: 0.6rem;
-  background: var(--bg);
+  background: var(--field-bg);
   color: var(--fg);
   /* The border is this control's only boundary, so it carries the full
    * structural weight rather than a hairline. */
-  border: var(--border-width) solid var(--border-interactive);
+  border: var(--component-border-width) solid var(--border-interactive);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--field-shadow);
   min-height: 2.75rem;
 }
 [aria-invalid="true"] {
@@ -762,6 +925,7 @@ select {
   text-transform: uppercase;
   padding: 0.15rem 0.5rem;
   border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
   color: var(--on-fill);
 }
 .badge-ok { background: var(--fill-ok); }
@@ -838,8 +1002,11 @@ select {
   /* A fixed height because ECharts measures its container: a canvas in an
    * auto-height box resolves to zero and renders nothing at all. */
   min-height: 18rem;
-  border: var(--border-width) solid var(--border);
+  border: var(--component-border-width) solid var(--border);
   background: var(--bg-raised);
+  /* A content well (data drawn inside it), not a dialog -- see the sunken
+   * vs. raised distinction in --field-shadow's own consumers. */
+  box-shadow: var(--field-shadow);
 }
 .chart-table {
   font-size: 0.9rem;
@@ -889,8 +1056,9 @@ select {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.5;
-  border: var(--border-width) solid var(--border);
+  border: var(--component-border-width) solid var(--border);
   background: var(--bg-raised);
+  box-shadow: var(--field-shadow);
   /* dvh, not vh: a mobile browser's collapsing toolbar makes vh taller than
    * the visible viewport, which clips the last lines of a log behind it --
    * on precisely the device where this page matters most. */
@@ -938,12 +1106,15 @@ select {
   min-height: 2.75rem;
   background: var(--bg);
   color: var(--fg);
-  border: var(--border-width) solid var(--border);
+  border: var(--component-border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--control-shadow);
   cursor: pointer;
 }
 .theme-options button[aria-pressed="true"] {
   background: var(--fg);
   color: var(--bg);
+  box-shadow: var(--control-shadow-active);
 }
 
 /* ---- Session block ----
@@ -990,8 +1161,8 @@ select {
 
 /* ---- Chart ---- */
 .chart-figure {
-  border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+  border: var(--component-border-width) solid var(--border);
+  box-shadow: var(--panel-shadow);
   padding: 1rem;
 }
 .chart-canvas {
@@ -1178,8 +1349,8 @@ select {
     width: 100%;
   }
   .table tr {
-    border: var(--border-width) solid var(--border);
-    box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
+    border: var(--component-border-width) solid var(--border);
+    box-shadow: var(--panel-shadow);
     margin-bottom: 1.25rem;
     padding: 0.5rem;
   }
