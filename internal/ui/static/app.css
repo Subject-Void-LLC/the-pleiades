@@ -1,5 +1,5 @@
 /*
- * Pleiades control plane -- neo-brutalist stylesheet.
+ * Pleiades control plane -- multi-skin stylesheet.
  *
  * Two complete themes, one token set. Every colour is declared once per
  * theme as a custom property on :root, and nothing below the token blocks
@@ -23,7 +23,7 @@
 
 /* ---- Token vocabulary ----
  *
- * Three skins, three appearance modes, one set of token NAMES. Every
+ * Four skins, three appearance modes, one set of token NAMES. Every
  * component rule below reads var(--fg), var(--border), var(--shadow-offset)
  * and so on, so a skin is a block of values rather than a second
  * stylesheet -- a skin needing its own component rules would be a fork,
@@ -32,39 +32,58 @@
  * --radius, --radius-control, --shadow-blur and --shadow-spread are shape
  * tokens on the same footing as the colour ones. --radius governs panels;
  * --radius-control governs buttons, inputs and badges separately, because a
- * real macOS control is rounded tighter than the card it sits in. Brutalist
- * and Las Ventanas alias both to the same value (zero for the former, zero
- * for the latter -- Windows 95 has no rounding anywhere), so the universal
- * reset below still reads as "square corners, hard edges" for either.
- * Honeycrisp is the one skin that sets them to something else.
+ * real macOS or Windows 11 control is rounded tighter than the card it sits
+ * in. Brutalist and Las Ventanas alias both to zero (Windows 95 has no
+ * rounding anywhere), so the universal reset below still reads as "square
+ * corners, hard edges" for either. Honeycrisp and Las Ventanas Once are the
+ * two skins that set them to something else, each to its own pair of
+ * values.
  *
  * --panel-shadow, --control-shadow, --control-shadow-active and
  * --field-shadow are shape tokens too, but composite ones: each is a
- * complete box-shadow value rather than a single scalar, because the three
- * skins do not merely resize the same shadow, they use a different
- * mechanism entirely. Brutalist and Honeycrisp compose theirs from
- * --shadow-offset/--shadow-offset-y/--shadow-blur/--shadow-spread/--shadow,
- * the same scalars as always (Honeycrisp adds --shadow-offset-y so its drop
- * shadow falls downward instead of radiating on all sides, which is what a
- * real soft UI shadow does and a symmetric one does not). Las Ventanas
- * composes its four from --bevel-color-light/mid-light/mid-dark/dark, the
- * four-layer inset stack that draws a Windows 95 raised or sunken bevel --
- * a real 3-D border is not expressible as a single-colour box-shadow, so it
- * gets its own composite rather than a fifth scalar nobody else would use.
+ * complete box-shadow value rather than a single scalar, because the skins
+ * do not merely resize the same shadow, they use different mechanisms
+ * entirely. Brutalist, Honeycrisp and Las Ventanas Once each compose
+ * theirs from --shadow-offset/--shadow-offset-y/--shadow-blur/
+ * --shadow-spread/--shadow (Honeycrisp and Las Ventanas Once both set
+ * --shadow-offset-y independently of --shadow-offset, so their shadows
+ * fall downward instead of radiating on all sides, which is what a real
+ * soft UI shadow does and a symmetric one does not) or set the composite
+ * directly to a literal multi-layer value when one scalar formula cannot
+ * express it (Las Ventanas Once's ambient shadow is two layers, which the
+ * five scalars alone cannot produce). Las Ventanas composes its four from
+ * --bevel-color-light/mid-light/mid-dark/dark, the four-layer inset stack
+ * that draws a Windows 95 raised or sunken bevel -- a real 3-D border is
+ * not expressible as a single-colour box-shadow, so it gets its own
+ * composite rather than a fifth scalar nobody else would use.
  * --component-border-width exists for the same reason: a beveled control's
  * flat border would sit outside the bevel and muddy it, so Las Ventanas
  * sets it to zero while every other skin aliases it to --border-width and
- * renders exactly as before. --field-bg is the one colour token that only
- * Las Ventanas needs a second value for -- a sunken Windows textbox is
- * white on a grey dialog, not grey-on-grey -- and every other skin aliases
- * it to --bg.
+ * renders exactly as before. --field-bg is the colour token a sunken or
+ * solid-surface text field needs a second value for -- a Windows textbox
+ * is white on a grey dialog, not grey-on-grey, and a Fluent one is a
+ * solid card colour on a slightly duller page -- and Brutalist and
+ * Honeycrisp alias it to --bg since neither skin draws that distinction.
+ *
+ * --sidebar-bg and --sidebar-backdrop-filter are the one pair with exactly
+ * one consumer, .sidebar, rather than a family of component rules: every
+ * skin but Honeycrisp and Las Ventanas Once leaves them undeclared and
+ * .sidebar's own var(--sidebar-bg, var(--bg)) fallback renders an opaque
+ * sidebar identical to today's, unchanged. Honeycrisp and Las Ventanas
+ * Once each declare a translucent value and a blur filter instead, because
+ * vibrancy on exactly this kind of structural nav chrome (a Finder
+ * sidebar, a WinUI NavigationView pane) and nowhere else is what both
+ * real macOS and real Windows 11 actually do -- Apple's own guidance keeps
+ * it off text-heavy panels, and Mica in WinUI is backdrop material, not a
+ * content treatment. .block and every other content surface stay fully
+ * opaque in both.
  *
  * Three orthogonal axes, all resolved server-side onto <html>:
- *   data-skin  = brutalist | las-ventanas | honeycrisp
+ *   data-skin  = brutalist | las-ventanas | honeycrisp | las-ventanas-once
  *   data-theme = (absent, follow the OS) | light | dark
  *   data-a11y  = (absent) | true
  *
- * Because all three are attributes present in the first byte, there is no
+ * Because all three attributes are present in the first byte, there is no
  * flash of the wrong anything and no inline bootstrap script -- which is
  * what lets the content security policy carry no 'unsafe-inline'.
  */
@@ -122,18 +141,19 @@
   --field-shadow: none;
 }
 
-/* This is Brutalist's own dark-mode block, and the double :not() is a
+/* This is Brutalist's own dark-mode block, and the triple :not() is a
  * skin allowlist written as an exclusion list: "not any OTHER skin,"
  * which only stays correct if every new skin is added to it. Honeycrisp
- * was not, when it landed, and the omission cost nothing observable only
- * because Honeycrisp's own dark block (further down) redeclares every
- * property this one sets, at equal selector specificity, later in the
- * file -- so Honeycrisp's values always won the tiebreak by source
- * order. That is an accident of what the two blocks happen to overlap
- * on, not a guarantee, and it would have broken the moment a fourth skin
- * added a property this block touches without also overriding it. */
+ * was not, when it first landed, and the omission cost nothing observable
+ * only because Honeycrisp's own dark block (further down) redeclares
+ * every property this one sets, at equal selector specificity, later in
+ * the file -- so Honeycrisp's values always won the tiebreak by source
+ * order. That was an accident of what the two blocks happened to overlap
+ * on, not a guarantee, which is why Las Ventanas Once is added here
+ * explicitly rather than left to the same luck: check this list first,
+ * not last, the next time a skin is added. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]) {
+  :root:not([data-theme="light"]):not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]):not([data-skin="las-ventanas-once"]) {
     --bg: #0a0a0c;
     --bg-raised: #1a1a1e;
     --fg: #f5f2eb;
@@ -149,7 +169,7 @@
   }
 }
 
-:root[data-theme="dark"]:not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]) {
+:root[data-theme="dark"]:not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]):not([data-skin="las-ventanas-once"]) {
   --bg: #0a0a0c;
   --bg-raised: #1a1a1e;
   --fg: #f5f2eb;
@@ -462,6 +482,123 @@
   --on-fill: #000000;
   --on-fill-info: #000000;
   --sidebar-bg: rgba(28, 28, 30, 0.8);
+}
+
+/* ================= SKIN: LAS VENTANAS ONCE =================
+ *
+ * A Windows 11 skin: Segoe UI Variable, an 8px panel radius with a
+ * tighter 4px on controls, a soft two-layer ambient shadow instead of a
+ * hard offset or a bevel, and a Mica-like translucent, blurred sidebar --
+ * the modern successor sitting beside Las Ventanas' Windows 95 rather
+ * than replacing it, which is also why it keeps that skin's name: "once"
+ * is Spanish for eleven, so the pun still reads as "the Windows skin,"
+ * eleven versions later.
+ *
+ * Fluent Design's own restraint shows up as an absence more than as a
+ * rule: --control-shadow and --control-shadow-active are both none,
+ * because a real WinUI button carries no elevation of its own, only a
+ * 1px border and a flat fill -- unlike Las Ventanas' bevel or Honeycrisp's
+ * shadow, this skin's controls are meant to look almost weightless next
+ * to its cards. --field-shadow instead draws Fluent's other unmistakable
+ * cue, the coloured underline: an inset shadow one pixel tall along the
+ * bottom edge, which is how a real WinUI text box marks itself without
+ * borrowing box-shadow's usual job of suggesting depth.
+ *
+ * Two values are corrected rather than lifted from the source palette,
+ * and it is worth naming which weren't: the accent (#005FB8 light,
+ * #60CDFF dark) is genuine Windows 11 system blue and clears 4.5:1
+ * against this skin's own backgrounds unmodified -- 5.69:1 and 9.06:1 --
+ * so unlike Las Ventanas and Honeycrisp before it, the headline colour
+ * needed no fix here. What did: the source design's --lvo-border and
+ * --lvo-text-secondary were tuned for a generic light/dark pair, not this
+ * skin's specific #F3F3F3/#202020 grounds, and --border-interactive in
+ * particular is tested against SC 1.4.11's 3:1 floor, not merely eyeballed
+ * -- #767676 (4.10:1 light) and #8A8A8A (4.72:1 dark) both clear it with
+ * real margin, values chosen for this exact background rather than
+ * reused from a different one. The decorative --border stays a barely-
+ * there rgba() the way real Fluent chrome is, since it is never checked
+ * against a contrast floor -- only --border-interactive, a control's sole
+ * boundary, is.
+ */
+
+:root[data-skin="las-ventanas-once"] {
+  --bg: #f3f3f3;
+  --bg-raised: #ffffff;
+  --fg: #191919;
+  --fg-muted: #606060;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-interactive: #767676;
+  --link: #005fb8;
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  --fill-ok: #00ff00;
+  --fill-failed: #ff0000;
+  --fill-changed: #ffff00;
+  --fill-skipped: #ffd700;
+  --fill-neutral: #e6e6e6;
+  --fill-info: #005fb8;
+  --on-fill: #000000;
+  --on-fill-info: #ffffff;
+
+  --font-mono: "Cascadia Code", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  --border-width: 1px;
+  --rule-width: 1px;
+  --shadow-offset: 0px;
+  --shadow-offset-y: 4px;
+  --radius: 8px;
+  --radius-control: 4px;
+  --shadow-blur: 12px;
+  --shadow-spread: 0px;
+  --heading-weight: 600;
+  --heading-tracking: 0em;
+  --heading-case: none;
+  --sidebar-width: 280px;
+  --breakpoint: 48rem;
+
+  --field-bg: #ffffff;
+  --component-border-width: var(--border-width);
+  --panel-shadow: 0 4px 12px rgba(0, 0, 0, 0.04), 0 0 2px rgba(0, 0, 0, 0.08);
+  --control-shadow: none;
+  --control-shadow-active: none;
+  --field-shadow: inset 0 -2px 0 0 var(--border-interactive);
+
+  /* Vibrancy: .sidebar only, see the vocabulary comment above. */
+  --sidebar-bg: rgba(255, 255, 255, 0.7);
+  --sidebar-backdrop-filter: blur(20px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-skin="las-ventanas-once"]:not([data-theme="light"]) {
+    --bg: #202020;
+    --bg-raised: #2b2b2b;
+    --fg: #ffffff;
+    --fg-muted: #cccccc;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-interactive: #8a8a8a;
+    --link: #60cdff;
+    --shadow: rgba(0, 0, 0, 0.3);
+    --fill-neutral: #3a3a3a;
+    --field-bg: #2b2b2b;
+    --panel-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.4);
+    --sidebar-bg: rgba(43, 43, 43, 0.7);
+  }
+}
+
+:root[data-skin="las-ventanas-once"][data-theme="dark"] {
+  --bg: #202020;
+  --bg-raised: #2b2b2b;
+  --fg: #ffffff;
+  --fg-muted: #cccccc;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-interactive: #8a8a8a;
+  --link: #60cdff;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --fill-neutral: #3a3a3a;
+  --field-bg: #2b2b2b;
+  --panel-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.4);
+  --sidebar-bg: rgba(43, 43, 43, 0.7);
 }
 
 /* ================= ACCESSIBILITY MODE =================

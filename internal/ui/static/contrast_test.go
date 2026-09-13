@@ -27,9 +27,9 @@ import (
 // 3.99:1, which is exactly the kind of brand colour that looks obviously
 // fine and is not.
 //
-// The matrix matters as much as the maths. Two skins times two themes times
-// accessibility mode on or off is eight complete palettes, and a value that
-// is safe in seven of them is still a barrier in the eighth.
+// The matrix matters as much as the maths. Four skins times two themes times
+// accessibility mode on or off is sixteen complete palettes, and a value
+// that is safe in fifteen of them is still a barrier in the sixteenth.
 
 // relativeLuminance implements WCAG 2.x's own definition, written out
 // rather than taken as a dependency because it is eight lines and the
@@ -226,7 +226,7 @@ func resolve(t *testing.T, css string, c combination) map[string]string {
 // explicit ones.
 func everyCombination() []combination {
 	var out []combination
-	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp} {
+	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp, view.SkinLasVentanasOnce} {
 		for _, theme := range []view.Theme{view.ThemeLight, view.ThemeDark} {
 			for _, a11y := range []bool{false, true} {
 				out = append(out, combination{Skin: skin, Theme: theme, A11y: a11y})
@@ -343,7 +343,7 @@ func TestLinkColourDiffersBetweenThemes(t *testing.T) {
 	}
 	css := string(body)
 
-	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp} {
+	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp, view.SkinLasVentanasOnce} {
 		t.Run(string(skin), func(t *testing.T) {
 			light := resolve(t, css, combination{Skin: skin, Theme: view.ThemeLight})
 			dark := resolve(t, css, combination{Skin: skin, Theme: view.ThemeDark})

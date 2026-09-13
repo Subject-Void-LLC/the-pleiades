@@ -42,12 +42,27 @@ const (
 	// --radius-control and --shadow-blur tokens exist because of it, and
 	// Brutalist and Las Ventanas both set them to zero, which is what
 	// keeps their own square-cornered, hard-edged look exactly as it was.
-	// It is also the only skin whose sidebar is translucent: a real macOS
-	// sidebar is vibrant chrome, not content, so app.css blurs only
+	// It is also one of two skins whose sidebar is translucent: a real
+	// macOS sidebar is vibrant chrome, not content, so app.css blurs only
 	// .sidebar and leaves every text-bearing panel fully opaque. The name
 	// is a pun on the palette's source rather than a description of its
 	// colors: a Honeycrisp is an apple.
 	SkinHoneycrisp Skin = "honeycrisp"
+
+	// SkinLasVentanasOnce is a Windows 11 skin: Segoe UI Variable, an 8px
+	// panel radius with a tighter 4px on controls, a soft two-layer
+	// ambient shadow, and the other translucent, blurred sidebar (Mica's
+	// own territory, the same way Honeycrisp's vibrancy is Finder's).
+	// Unlike Las Ventanas' bevel, its buttons carry no shadow of their
+	// own at all -- app.css's --control-shadow is none here, because a
+	// real WinUI control has no elevation, only a 1px border and a flat
+	// fill -- and its text fields mark themselves with a coloured
+	// bottom-edge line instead, the one Fluent cue no other skin has any
+	// use for. It sits beside Las Ventanas rather than replacing it,
+	// which is also why it keeps that skin's name: "once" is Spanish for
+	// eleven, so the pun still reads as "the Windows skin," eleven
+	// versions later.
+	SkinLasVentanasOnce Skin = "las-ventanas-once"
 )
 
 // skinLabels is every selectable skin, in the order the control lists
@@ -59,6 +74,7 @@ var skinLabels = []struct {
 	{SkinBrutalist, "Brutalist"},
 	{SkinLasVentanas, "Las Ventanas"},
 	{SkinHoneycrisp, "Honeycrisp"},
+	{SkinLasVentanasOnce, "Ventanas Once"},
 }
 
 // ParseSkin reads a submitted skin, falling back to the default for
@@ -71,7 +87,7 @@ var skinLabels = []struct {
 func ParseSkin(raw string) Skin {
 	s := Skin(strings.TrimSpace(strings.ToLower(raw)))
 	switch s {
-	case SkinLasVentanas, SkinHoneycrisp:
+	case SkinLasVentanas, SkinHoneycrisp, SkinLasVentanasOnce:
 		return s
 	default:
 		return SkinBrutalist
