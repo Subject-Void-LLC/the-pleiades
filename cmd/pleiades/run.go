@@ -74,6 +74,32 @@ func runRunbook(args []string) error {
 		return fmt.Errorf("validation failed, not executing")
 	}
 
+	// The run journal, one JSON Lines file per run under
+	// <dir>/.pleiades/journal. It records what ran, against what, in what
+	// order and with what outcome, and it holds no value that came back
+	// from a device, so it needs no key and nothing masks it.
+	//
+	// Declared as the interface rather than as *journal.FileStore because
+	// engine.WithJournal guards a nil interface and deliberately not a
+	// typed nil: a *journal.FileStore variable holding nil would pass
+	// that guard and panic at the first level barrier.
+	//
+	// Opened HERE, before a single line of output, and its failure ends
+	// the command. A journal the operator cannot write is one that
+	// silently records nothing, so it is deliberately fail-closed. That
+	// makes where it sits part of the design rather than an accident: it
+	// used to be constructed beside the executor, twenty lines after the
+	// plan and the word "executing:" had already been printed, so a
+	// read-only project directory produced a run that announced itself
+	// and then abandoned the attempt. Nothing had actually been executed
+	// either way, but the output said otherwise.
+	var sink engine.Journal
+	store, err := journal.NewFileStore(*dir)
+	if err != nil {
+		return fmt.Errorf("failed to open the run journal: %w", err)
+	}
+	sink = store
+
 	fmt.Printf("plan for %s (%d nodes, %d inventory hosts loaded):\n", runbook, len(dag.Nodes), len(items))
 
 	// ServiceEffecting and blast radius are runbook-level, native-only
@@ -189,28 +215,6 @@ func runRunbook(args []string) error {
 		),
 		engine.NewCredentialRunbookContext(credentials),
 	)
-
-	// The run journal, one JSON Lines file per run under
-	// <dir>/.pleiades/journal. It records what ran, against what, in what
-	// order and with what outcome, and it holds no value that came back
-	// from a device, so it needs no key and nothing masks it.
-	//
-	// Declared as the interface rather than as *journal.FileStore because
-	// engine.WithJournal guards a nil interface and deliberately not a
-	// typed nil: a *journal.FileStore variable holding nil would pass
-	// that guard and panic at the first level barrier.
-	//
-	// Constructed here, before anything executes, and its failure ends
-	// the command. A journal the operator cannot write is one that
-	// silently records nothing, and the moment to find that out is now
-	// rather than at the first level barrier of a run that is already
-	// changing devices.
-	var sink engine.Journal
-	store, err := journal.NewFileStore(*dir)
-	if err != nil {
-		return fmt.Errorf("failed to open the run journal: %w", err)
-	}
-	sink = store
 
 	executor := engine.NewExecutor(
 		world,

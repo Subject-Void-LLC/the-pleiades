@@ -347,3 +347,46 @@ func containsAll(haystack []string, needles ...string) bool {
 	}
 	return true
 }
+
+// TestCLI_RunFailsBeforeAnyOutputWhenTheJournalCannotBeOpened proves the
+// journal's fail-closed decision lands where it should.
+//
+// The journal is deliberately fail-closed: one that cannot be written
+// records nothing, silently, which is worse than a run that refuses.
+// Where the refusal happens is then part of the design rather than an
+// accident. This asserts it happens before the command prints anything,
+// so a read-only project directory never produces a run that announces a
+// plan and then abandons it.
+func TestCLI_RunFailsBeforeAnyOutputWhenTheJournalCannotBeOpened(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the permission bits this test depends on")
+	}
+
+	dir := t.TempDir()
+	if out, err := runPleiades(t, dir, "init"); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
+	}
+	// Made read-only AFTER init, so everything the runbook needs already
+	// exists and the journal is the only thing that cannot be created.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("making the project directory read-only: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatalf("restoring the project directory: %v", err)
+		}
+	})
+
+	out, err := runPleiades(t, dir, "run", "runbooks/sample.yaml")
+	if err == nil {
+		t.Fatalf("run succeeded against a project directory it cannot journal into:\n%s", out)
+	}
+	if !strings.Contains(out, "run journal") {
+		t.Errorf("the failure does not say the journal is what failed:\n%s", out)
+	}
+	for _, printed := range []string{"plan for", "executing:"} {
+		if strings.Contains(out, printed) {
+			t.Errorf("the command printed %q before refusing, so it announced work it never attempted:\n%s", printed, out)
+		}
+	}
+}
