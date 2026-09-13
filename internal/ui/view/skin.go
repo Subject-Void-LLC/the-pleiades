@@ -11,7 +11,7 @@ import "strings"
 // Brutalist has a light one. Folding them into one enum would mean four
 // values today and eight the next time either axis grows.
 //
-// The rule that keeps this cheap: **both skins expose exactly the same
+// The rule that keeps this cheap: **every skin exposes exactly the same
 // token names.** Every component rule reads var(--fg), var(--border),
 // var(--shadow-offset) and so on, so a skin is a block of values rather
 // than a second stylesheet. A skin that needed its own component rules
@@ -23,10 +23,46 @@ const (
 	// non-blurry offset shadows, saturated primaries.
 	SkinBrutalist Skin = "brutalist"
 
-	// SkinLasVentanas is the Subject Void design language: tinted black
-	// and cream rather than pure black and white, Facebook Blue as the
-	// single accent, 2px borders, and no drop shadows at all.
+	// SkinLasVentanas is a Windows 95 skin: a grey dialog face, a navy
+	// titlebar on the sidebar, white sunken text fields, and every button
+	// and panel drawn with the classic four-layer inset bevel instead of a
+	// flat border or a drop shadow. It is the one skin whose borders are
+	// not a single colour: app.css's --bevel-color-light/mid-light/
+	// mid-dark/dark and --component-border-width tokens exist because of
+	// it, and Brutalist and Honeycrisp both alias --component-border-width
+	// to --border-width and never reference the bevel colours at all,
+	// which is what keeps their own flat borders exactly as they were.
 	SkinLasVentanas Skin = "las-ventanas"
+
+	// SkinHoneycrisp is the macOS-like skin: soft blue-gray surfaces
+	// instead of stark white or black, rounded corners, a downward soft
+	// shadow, 1px borders, and Apple's own system colors for its accent
+	// and every status fill. It is the one skin whose shape, not just its
+	// colors, differs from the other two: app.css's shared --radius,
+	// --radius-control and --shadow-blur tokens exist because of it, and
+	// Brutalist and Las Ventanas both set them to zero, which is what
+	// keeps their own square-cornered, hard-edged look exactly as it was.
+	// It is also one of two skins whose sidebar is translucent: a real
+	// macOS sidebar is vibrant chrome, not content, so app.css blurs only
+	// .sidebar and leaves every text-bearing panel fully opaque. The name
+	// is a pun on the palette's source rather than a description of its
+	// colors: a Honeycrisp is an apple.
+	SkinHoneycrisp Skin = "honeycrisp"
+
+	// SkinLasVentanasOnce is a Windows 11 skin: Segoe UI Variable, an 8px
+	// panel radius with a tighter 4px on controls, a soft two-layer
+	// ambient shadow, and the other translucent, blurred sidebar (Mica's
+	// own territory, the same way Honeycrisp's vibrancy is Finder's).
+	// Unlike Las Ventanas' bevel, its buttons carry no shadow of their
+	// own at all -- app.css's --control-shadow is none here, because a
+	// real WinUI control has no elevation, only a 1px border and a flat
+	// fill -- and its text fields mark themselves with a coloured
+	// bottom-edge line instead, the one Fluent cue no other skin has any
+	// use for. It sits beside Las Ventanas rather than replacing it,
+	// which is also why it keeps that skin's name: "once" is Spanish for
+	// eleven, so the pun still reads as "the Windows skin," eleven
+	// versions later.
+	SkinLasVentanasOnce Skin = "las-ventanas-once"
 )
 
 // skinLabels is every selectable skin, in the order the control lists
@@ -37,6 +73,8 @@ var skinLabels = []struct {
 }{
 	{SkinBrutalist, "Brutalist"},
 	{SkinLasVentanas, "Las Ventanas"},
+	{SkinHoneycrisp, "Honeycrisp"},
+	{SkinLasVentanasOnce, "V. Once"},
 }
 
 // ParseSkin reads a submitted skin, falling back to the default for
@@ -47,10 +85,13 @@ var skinLabels = []struct {
 // a page that still works. A banner marking that silently changed would be
 // a safety problem; a stylesheet that does is a cosmetic one.
 func ParseSkin(raw string) Skin {
-	if Skin(strings.TrimSpace(strings.ToLower(raw))) == SkinLasVentanas {
-		return SkinLasVentanas
+	s := Skin(strings.TrimSpace(strings.ToLower(raw)))
+	switch s {
+	case SkinLasVentanas, SkinHoneycrisp, SkinLasVentanasOnce:
+		return s
+	default:
+		return SkinBrutalist
 	}
-	return SkinBrutalist
 }
 
 // SkinOption is one button in the appearance control.

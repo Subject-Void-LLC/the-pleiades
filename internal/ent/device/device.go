@@ -26,6 +26,8 @@ const (
 	FieldType = "type"
 	// FieldProperties holds the string denoting the properties field in the database.
 	FieldProperties = "properties"
+	// FieldSecretBinding holds the string denoting the secret_binding field in the database.
+	FieldSecretBinding = "secret_binding"
 	// FieldVersion holds the string denoting the version field in the database.
 	FieldVersion = "version"
 	// FieldState holds the string denoting the state field in the database.
@@ -102,6 +104,7 @@ var Columns = []string{
 	FieldName,
 	FieldType,
 	FieldProperties,
+	FieldSecretBinding,
 	FieldVersion,
 	FieldState,
 	FieldSource,
@@ -155,6 +158,8 @@ var (
 	NameValidator func(string) error
 	// TypeValidator is a validator for the "type" field. It is called by the builders before save.
 	TypeValidator func(string) error
+	// DefaultSecretBinding holds the default value on creation for the "secret_binding" field.
+	DefaultSecretBinding func() string
 	// DefaultVersion holds the default value on creation for the "version" field.
 	DefaultVersion uint64
 	// DefaultState holds the default value on creation for the "state" field.
@@ -194,6 +199,11 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByType orders the results by the type field.
 func ByType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldType, opts...).ToFunc()
+}
+
+// BySecretBinding orders the results by the secret_binding field.
+func BySecretBinding(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSecretBinding, opts...).ToFunc()
 }
 
 // ByVersion orders the results by the version field.

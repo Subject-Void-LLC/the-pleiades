@@ -3,8 +3,11 @@ package crypto
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/google/uuid"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/hook"
@@ -40,7 +43,11 @@ func DeviceEnvelopePropertiesHook(svc *EnvelopeService) ent.Hook {
 			return hook.DeviceFunc(func(ctx context.Context, m *ent.DeviceMutation) (ent.Value, error) {
 				properties, exists := m.Properties()
 				if exists && properties != nil {
-					encrypted, err := encryptPropertiesMap(svc, properties)
+					binding, err := deviceBinding(ctx, m)
+					if err != nil {
+						return nil, err
+					}
+					encrypted, err := encryptPropertiesMap(svc, properties, binding)
 					if err != nil {
 						return nil, fmt.Errorf("failed to encrypt device properties: %w", err)
 					}
@@ -109,7 +116,7 @@ func decryptDeviceProperties(svc *EnvelopeService, dev *ent.Device) error {
 	if dev.Properties == nil {
 		return nil
 	}
-	decrypted, err := decryptPropertiesMap(svc, dev.Properties)
+	decrypted, err := decryptPropertiesMap(svc, dev.Properties, dev.SecretBinding)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt properties for device %s: %w", dev.Name, err)
 	}
@@ -157,7 +164,17 @@ func isAlreadyEncryptedShape(m map[string]interface{}) bool {
 // and (were it ever needed again) Fact.payload share, so a future entity
 // needing the same treatment is a thin Mutate/Query adapter around these,
 // not a second implementation.
-func encryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[string]interface{}, error) {
+func encryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}, binding string) (map[string]interface{}, error) {
+	// An empty binding is refused rather than quietly falling back to the
+	// unbound form. Falling back would make every write a silent
+	// opportunity to undo a migration already done, and the failure would
+	// be invisible: the row would still decrypt, just relocatably. Every
+	// caller has a binding available, because the schema generates one by
+	// default and the hooks assign one to any row that predates the
+	// column.
+	if binding == "" {
+		return nil, errors.New("crypto: refusing to encrypt without a secret binding, which would store a relocatable ciphertext")
+	}
 	if isAlreadyEncryptedShape(m) {
 		// Should not happen on a fresh mutate, but is a cheap failsafe
 		// against double-encrypting a value that somehow already carries
@@ -173,7 +190,7 @@ func encryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[s
 		return nil, fmt.Errorf("failed to marshal properties for encryption: %w", err)
 	}
 
-	ciphertext, err := svc.Encrypt(raw)
+	ciphertext, err := svc.EncryptBound(raw, []byte(binding))
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +198,7 @@ func encryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[s
 	return map[string]interface{}{EncryptedKeyMarker: ciphertext}, nil
 }
 
-func decryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[string]interface{}, error) {
+func decryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}, binding string) (map[string]interface{}, error) {
 	marker, isEncrypted := m[EncryptedKeyMarker]
 	if !isEncrypted {
 		return m, nil
@@ -192,7 +209,19 @@ func decryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[s
 		return nil, fmt.Errorf("encrypted properties marker is not a string")
 	}
 
-	plaintext, err := svc.Decrypt(ciphertext)
+	// Both forms are readable here, and only here. This is the migration
+	// window Phase 78c opens: a row written before that phase is unbound,
+	// a row written or rotated since is bound, and the algorithm tag on
+	// the value itself says which. The WRITE side has no such tolerance,
+	// so the mix can only ever shrink.
+	//
+	// The tolerance is not permanent and should not be read as a settled
+	// design. Until a deployment's rotation pass has converted every row,
+	// any row still in the unbound form remains relocatable, which is the
+	// exact weakness this phase exists to close. What makes that honest
+	// rather than hidden is that the passes report how many rows they
+	// converted, so an operator can tell when the window has closed.
+	plaintext, err := decryptEither(svc, ciphertext, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -202,4 +231,67 @@ func decryptPropertiesMap(svc *EnvelopeService, m map[string]interface{}) (map[s
 		return nil, fmt.Errorf("failed to unmarshal decrypted properties: %w", err)
 	}
 	return decrypted, nil
+}
+
+// decryptEither opens a ciphertext in whichever envelope form it carries.
+func decryptEither(svc *EnvelopeService, ciphertext, binding string) ([]byte, error) {
+	if !IsBoundEnvelope(ciphertext) {
+		return svc.Decrypt(ciphertext)
+	}
+	if binding == "" {
+		// A bound ciphertext on a row with no binding cannot be opened by
+		// anything, and it is worth its own error rather than the generic
+		// decrypt failure: it means the value and the column that binds it
+		// were written apart, which no path in this package can do.
+		return nil, errors.New("crypto: this row holds a bound ciphertext and no secret binding to open it with")
+	}
+	return svc.DecryptBound(ciphertext, []byte(binding))
+}
+
+// ErrBulkDeviceProperties is returned when a bulk update tries to set
+// properties across many rows at once.
+var ErrBulkDeviceProperties = errors.New("crypto: device properties cannot be set by a bulk update, because each row's ciphertext is bound to that row")
+
+// deviceBinding resolves the associated data for this mutation.
+//
+// It mirrors credentialBinding, with one case credentialBinding does not
+// have: a row written before Phase 78c added the column carries no binding,
+// so this assigns one the first time such a row is written. That is the
+// self-migrating half of the conversion, and the rotation pass is the
+// sweep for rows nobody touches.
+func deviceBinding(ctx context.Context, m *ent.DeviceMutation) (string, error) {
+	switch {
+	case m.Op().Is(ent.OpCreate):
+		// defaults() ran before this hook, so the generated UUID is here.
+		binding, exists := m.SecretBinding()
+		if !exists || binding == "" {
+			return "", errors.New("crypto: device has no secret binding on create, so its properties cannot be bound to it")
+		}
+		return binding, nil
+
+	case m.Op().Is(ent.OpUpdateOne):
+		binding, err := m.OldSecretBinding(ctx)
+		if err != nil {
+			return "", fmt.Errorf("crypto: cannot read the device's secret binding: %w", err)
+		}
+		if binding == "" {
+			// A row that predates the column. Assigning one here is what
+			// lets an ordinary write migrate it, rather than leaving every
+			// untouched row waiting on a rotation pass somebody has to
+			// remember to run.
+			binding = uuid.NewString()
+			m.SetSecretBinding(binding)
+		}
+		return binding, nil
+
+	default:
+		// A bulk update. One ciphertext across many rows could be correct
+		// for at most one of them, so this fails loudly, exactly as the
+		// credential hook does. Before Phase 78c this hook accepted bulk
+		// updates because an unbound ciphertext was equally valid on every
+		// row, which is precisely the property that made it relocatable.
+		// internal/inventory's own save path was converted to UpdateOne in
+		// that phase for this reason.
+		return "", ErrBulkDeviceProperties
+	}
 }

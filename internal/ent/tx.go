@@ -20,6 +20,8 @@ type Tx struct {
 	Contact *ContactClient
 	// Credential is the client for interacting with the Credential builders.
 	Credential *CredentialClient
+	// CredentialInputSource is the client for interacting with the CredentialInputSource builders.
+	CredentialInputSource *CredentialInputSourceClient
 	// CredentialType is the client for interacting with the CredentialType builders.
 	CredentialType *CredentialTypeClient
 	// Device is the client for interacting with the Device builders.
@@ -34,8 +36,12 @@ type Tx struct {
 	Job *JobClient
 	// JobTask is the client for interacting with the JobTask builders.
 	JobTask *JobTaskClient
+	// JournalEntry is the client for interacting with the JournalEntry builders.
+	JournalEntry *JournalEntryClient
 	// LocalCredential is the client for interacting with the LocalCredential builders.
 	LocalCredential *LocalCredentialClient
+	// MeshSigningKey is the client for interacting with the MeshSigningKey builders.
+	MeshSigningKey *MeshSigningKeyClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
 	// Revision is the client for interacting with the Revision builders.
@@ -193,6 +199,7 @@ func (tx *Tx) init() {
 	tx.Announcement = NewAnnouncementClient(tx.config)
 	tx.Contact = NewContactClient(tx.config)
 	tx.Credential = NewCredentialClient(tx.config)
+	tx.CredentialInputSource = NewCredentialInputSourceClient(tx.config)
 	tx.CredentialType = NewCredentialTypeClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
 	tx.Fact = NewFactClient(tx.config)
@@ -200,7 +207,9 @@ func (tx *Tx) init() {
 	tx.Inventory = NewInventoryClient(tx.config)
 	tx.Job = NewJobClient(tx.config)
 	tx.JobTask = NewJobTaskClient(tx.config)
+	tx.JournalEntry = NewJournalEntryClient(tx.config)
 	tx.LocalCredential = NewLocalCredentialClient(tx.config)
+	tx.MeshSigningKey = NewMeshSigningKeyClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)

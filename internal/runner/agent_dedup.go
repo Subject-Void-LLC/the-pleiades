@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -40,16 +41,37 @@ type DedupStore interface {
 	MarkSeen(ctx context.Context, key string, ttl time.Duration) error
 }
 
-// dispatchDedupKey is the identity of one unit of dispatched work.
+// dispatchDedupKey is the identity of one unit of dispatched work,
+// encoded so it is legal as a NATS KV key.
 //
-// It is jobID plus deviceID, which is not a new invention: it is the
-// exact key internal/dispatch stamps on the publish through
+// The identity is jobID plus deviceID, which is not a new invention: it is
+// the exact key internal/dispatch stamps on the publish through
 // event.WithIdempotencyKey, and the exact key internal/runner's own
 // write-ahead log already derives for its result events. Three mechanisms
 // agreeing on one identity is what makes suppression here meaningful
 // rather than merely local.
+//
+// THE ENCODING IS NOT COSMETIC, and FAILURE_PATTERNS.md #205 is why. This
+// returned the raw "jobID:deviceID" string until Phase 101b's recon found
+// it, and a colon is not in nats.go's own key allow-list
+// (validKeyRe = ^[-/_=\.a-zA-Z0-9]+$, jetstream/kv.go:502), which guards
+// both Get and Put. Every SeenRecently and every MarkSeen therefore failed
+// with ErrInvalidKey before a byte reached the broker, and because this
+// package deliberately treats a store error as "not seen" and logs a
+// warning, a permanently dead cache was indistinguishable from a healthy
+// empty one. The feature had never once run.
+//
+// topology.SubjectToken rather than a hand-rolled substitution, for two
+// reasons. Its output is [A-Za-z0-9_-]+, a strict subset of what a KV key
+// permits, so legality is guaranteed rather than argued. And because a KV
+// key becomes a subject underneath ("$KV.<bucket>.<key>"), a key that is
+// exactly ONE subject token also keeps this bucket's subject space flat,
+// which is the same property Phase 101a established for the dispatch
+// subject and the thing a per-key permission grant will eventually need.
+// The identity string above is what goes IN, so the agreement with the
+// other two mechanisms is preserved: only its encoding changed.
 func dispatchDedupKey(payload wire.DispatchPayload) string {
-	return payload.JobID + ":" + payload.DeviceID
+	return topology.SubjectToken(payload.JobID + ":" + payload.DeviceID)
 }
 
 // alreadyExecuted reports whether this exact unit of work has already

@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -201,6 +203,49 @@ func (b *capturingBus) countTopic(topic string) int {
 		}
 	}
 	return n
+}
+
+// dispatchPublishes returns how many Publish calls landed on a subject the
+// fleet dispatch consumer would receive, and how many DISTINCT such
+// subjects there were.
+//
+// Two numbers rather than one, because since Phase 101a they answer
+// different questions: the total is "was every device dispatched", and the
+// distinct count is "did each device get its OWN subject". Before that
+// change the second number was always 1 and there was nothing to ask.
+//
+// The prefix is derived from topology.DispatchSubjectAll rather than
+// spelled here, so this helper cannot drift from the filter the real
+// consumer uses. Dropping the trailing ">" is sound because this is a Go
+// prefix test rather than a NATS filter match, and every subject under it
+// carries exactly one further token.
+func (b *capturingBus) dispatchPublishes() (total, distinct int) {
+	prefix := strings.TrimSuffix(topology.DispatchSubjectAll(), ">")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	seen := make(map[string]struct{})
+	for _, tp := range b.topics {
+		if !strings.HasPrefix(tp, prefix) {
+			continue
+		}
+		total++
+		seen[tp] = struct{}{}
+	}
+	return total, len(seen)
+}
+
+// firstDispatch returns the first event published against any device's
+// dispatch subject, for a caller spot-checking one real payload.
+func (b *capturingBus) firstDispatch() (event.Event, bool) {
+	prefix := strings.TrimSuffix(topology.DispatchSubjectAll(), ">")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, tp := range b.topics {
+		if strings.HasPrefix(tp, prefix) {
+			return b.published[i], true
+		}
+	}
+	return event.Event{}, false
 }
 
 // firstOnTopic returns the first event published against exactly topic, or

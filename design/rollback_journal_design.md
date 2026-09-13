@@ -1,9 +1,40 @@
 # Runbook Rollback via a Per-Run Journal (Design Note)
 
-**Status: not yet implemented.** This is a design arrived at through discussion, deferred the same way
-the DAG executor (Part 0 Phase W5) and a real SSH transport (Phase W6) are deferred. It depends on the
-task/block/rescue/always runbook shape and does not change anything about that shape itself. Recorded here
-so a future implementation session does not have to re-derive it.
+**Status: SUPERSEDED IN PART, 2026-08-25. Read this header before the design below, because the
+central mechanism changed and the rest of the note was never updated.**
+
+This note was a design arrived at through discussion and deferred. Work done since has answered two
+of its three layers differently, and better, so the note is kept as history rather than as a plan.
+
+**Layer 3 (how rollback executes) is already decided, and not the way this note proposes.** The note
+describes a STATE-RESTORATION model: store old and new values, and have a rollback engine interpret
+them back into actions. What actually shipped is TASK-SHAPED. `sdk.RecordInverse`
+(`pkg/sdk/inverse.go`) records an `Inverse{FQCN, Params, Description}`, an already-parameterized and
+directly runnable task, captured by the forward run, which is the only thing that can know the values
+an undo needs. A rollback engine is therefore a loop feeding recorded inverses back through the
+existing dispatcher, with no per-method reconstruction logic at all. Thirty-five call sites across
+twenty-nine files already cover every method declaring `Reversible: true`.
+
+**Layer 2 (the two capabilities) is withdrawn.** `JournaledCapable` and `RollbackCapable` cannot be
+built as described, because a Collection method has no way to declare or provide a capability, and
+they are not needed: `collection.Reversibility` already answers whether a method is safe to reverse,
+per method and enforced at registration, and `sdk.RecordDiff` already produces structured old and new
+value diffs universally, without a capability. `pkg/collection/manifest.go` records the note's own
+approach as the mistake worth remembering: "The true inverse is almost never a property of the
+METHOD. It is a property of the RUN."
+
+**Layer 1 (the journal) is still real, still unbuilt, and is what Phase 40 is now about.** Two of its
+details here are wrong: there is no OpenTelemetry trace correlation to reuse, and it cannot be built
+on `inventory.Revision`, whose `History()` returns hardcoded `nil` on the Walk tier and which carries
+no task, FQCN, target or outcome. The journal is a new entity written from `engine.NodeResult`.
+
+The note is also silent on the largest safety question in the phase: it proposes storing old and new
+device property values and never mentions masking, redaction or encryption, while those values reach
+a reader as plaintext.
+
+What remains accurate and worth keeping is the reasoning below for REJECTING an auto-generated
+reverse DAG, and the fallback rule that a module which cannot be mechanically reversed still gets a
+journal entry and requires an author-written rollback artifact.
 
 **Internal design material, not user documentation.** Cited from the roadmap as rationale for an
 unbuilt feature, never published as a description of current behavior.

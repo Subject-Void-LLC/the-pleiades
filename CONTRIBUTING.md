@@ -12,8 +12,18 @@ Once per clone:
 
 ```bash
 go install golang.org/x/tools/gopls@latest   # editor/LSP tooling; not run by CI
+make lsp                                     # check that language server works on this tree
 make hooks                                   # run make ci automatically before each push
 ```
+
+`make lsp` is worth running even if you never open an editor here. The repository's
+`.mcp.json` exposes `gopls mcp`, the language server's headless mode, to AI coding
+assistants, which is how one answers a question about Go code with a typed query instead
+of a text search. `make lsp` does a real handshake against that server and fails if gopls
+is missing from `PATH`, is not speaking the protocol, or is too old to type-check the Go
+version `go.mod` asks for. It takes about a second once the build cache is warm. Note that
+`$(go env GOPATH)/bin` is not on the default `PATH`, and that adding it with a bare
+`export` lasts only for the current shell, so put it in your shell profile.
 
 Then, to check a change:
 

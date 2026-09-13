@@ -257,7 +257,7 @@ also why the content security policy needs no `unsafe-inline`.
 
 | Axis | Values | Control |
 |---|---|---|
-| Skin | Brutalist, Las Ventanas | Sidebar |
+| Skin | Brutalist, Las Ventanas, Honeycrisp, Ventanas Once | Sidebar |
 | Theme | System, Light, Dark | Sidebar |
 | Accessibility | Off, High contrast | Sidebar |
 
@@ -390,7 +390,7 @@ registers nothing. It compiles, its tests pass, and it is invisible to the runni
 binary — no navigation entry, no route and no error.
 
 Everything else is inherited: routing, paging, forms, validation, per-field errors,
-CSRF, authorization, the mobile card layout, both skins, both themes, the
+CSRF, authorization, the mobile card layout, every skin, both themes, the
 accessibility mode, and the conformance suite that will hold the new view to the same
 standard as every existing one from the moment it is registered.
 

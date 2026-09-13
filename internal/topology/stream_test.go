@@ -29,9 +29,10 @@ func TestStreamConfig(t *testing.T) {
 	// prevent.
 	for _, subject := range []string{
 		topology.EventSubject("device.created"),
-		topology.DispatchSubject(),
+		topology.DispatchSubject("sw1"),
 		topology.LogSubject("job-1"),
-		topology.DeadLetterSubject(topology.DispatchSubject()),
+		topology.ResultSubject("job-1"),
+		topology.DeadLetterSubject(topology.DispatchSubject("sw1")),
 	} {
 		if !subjectCoveredByRoot(cfg.Subjects[0], subject) {
 			t.Errorf("subject %q is not covered by stream filter %q", subject, cfg.Subjects[0])

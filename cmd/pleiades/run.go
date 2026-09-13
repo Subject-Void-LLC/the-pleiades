@@ -12,6 +12,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	serialtransport "github.com/Subject-Void-LLC/the-pleiades/internal/transport/serial"
@@ -72,6 +73,32 @@ func runRunbook(args []string) error {
 		fmt.Print(report.String())
 		return fmt.Errorf("validation failed, not executing")
 	}
+
+	// The run journal, one JSON Lines file per run under
+	// <dir>/.pleiades/journal. It records what ran, against what, in what
+	// order and with what outcome, and it holds no value that came back
+	// from a device, so it needs no key and nothing masks it.
+	//
+	// Declared as the interface rather than as *journal.FileStore because
+	// engine.WithJournal guards a nil interface and deliberately not a
+	// typed nil: a *journal.FileStore variable holding nil would pass
+	// that guard and panic at the first level barrier.
+	//
+	// Opened HERE, before a single line of output, and its failure ends
+	// the command. A journal the operator cannot write is one that
+	// silently records nothing, so it is deliberately fail-closed. That
+	// makes where it sits part of the design rather than an accident: it
+	// used to be constructed beside the executor, twenty lines after the
+	// plan and the word "executing:" had already been printed, so a
+	// read-only project directory produced a run that announced itself
+	// and then abandoned the attempt. Nothing had actually been executed
+	// either way, but the output said otherwise.
+	var sink engine.Journal
+	store, err := journal.NewFileStore(*dir)
+	if err != nil {
+		return fmt.Errorf("failed to open the run journal: %w", err)
+	}
+	sink = store
 
 	fmt.Printf("plan for %s (%d nodes, %d inventory hosts loaded):\n", runbook, len(dag.Nodes), len(items))
 
@@ -196,6 +223,7 @@ func runRunbook(args []string) error {
 		event.NewInProcessBus(),
 		engine.NewInProcessWorkflowContext(),
 		0,
+		engine.WithJournal(sink),
 	)
 
 	result, err := executor.Run(ctx, dag)
@@ -248,7 +276,7 @@ func runRunbook(args []string) error {
 // printMetadata prints result.Metadata (populated only from "set_metadata"
 // tasks, see internal/engine's ActionResult.IsMetadata), sorted by
 // register name, then device ID, then key, for deterministic output.
-// Every value is masked through credential.Mask using result.Secrets
+// Every value is masked through redact.Text using result.Secrets
 // before printing: a set_metadata task can echo back a value an earlier
 // register_mask/secret_mask task marked secret just as easily as any other
 // task's output can.

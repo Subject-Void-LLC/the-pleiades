@@ -223,6 +223,25 @@ func TestSubsystem_StderrIsBoundedAndMarkedTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subsystem() error = %v, want nil", err)
 	}
+
+	// Wait for the flood to reach this side before closing, rather than
+	// trusting the server handler's own sleep to be long enough. Close
+	// tears the channel down, so a drain that has not yet seen a byte
+	// reports nothing and the assertion below fails describing an empty
+	// buffer instead of an unbounded one. The handler's sleep made that
+	// unlikely, never impossible: it is a fixed delay racing a scheduler,
+	// and under a full parallel suite the scheduler wins. Reproduced at
+	// -count=200 on this package alone, at both x/crypto v0.54.0 and
+	// v0.56.0, so it is this test's own timing and not the transport's.
+	//
+	// Polling the client's own buffer is the signal that actually
+	// answers the question. The server's Write returning says only that
+	// the bytes left the server.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(sub.Stderr()) < maxSubsystemStderrBytes && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+
 	if err := sub.Close(); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -313,4 +332,63 @@ func TestSubsystem_LeavesNoGoroutinesBehind(t *testing.T) {
 	conn.Close()
 
 	goleak.VerifyNone(t, leakOpts)
+}
+
+func TestSubsystem_OnAClosedConnectionIsARefusalNotAPanic(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, echoSubsystem)
+	conn := newTestConn(t, dial)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err == nil {
+		sub.Close()
+		t.Fatal("Subsystem() on a closed connection error = nil, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "open session") {
+		t.Errorf("Subsystem() error = %q, want it to name the failed session open", err)
+	}
+}
+
+// TestSubsystem_CleanEndOfStreamIsPlainEOF pins a property the layer
+// above depends on by identity rather than by message: bufio,
+// io.ReadFull and encoding/xml's decoder all compare against io.EOF
+// directly, so a wrapped EOF would turn an ordinary end of stream into
+// an unrecognized error at every one of them.
+func TestSubsystem_CleanEndOfStreamIsPlainEOF(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, func(name string, channel ssh.Channel) {
+		// Writes nothing and returns, which closes the channel.
+	})
+	conn := newTestConn(t, dial)
+	defer conn.Close()
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err != nil {
+		t.Fatalf("Subsystem() error = %v, want nil", err)
+	}
+	defer sub.Close()
+
+	_, err = io.ReadFull(sub, make([]byte, 1))
+	if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("Read() at a clean end of stream = %v, want io.EOF unwrapped", err)
+	}
+}
+
+func TestSubsystem_WriteAfterCloseIsAnError(t *testing.T) {
+	dial := newFakeSubsystemSSHServer(t, true, echoSubsystem)
+	conn := newTestConn(t, dial)
+	defer conn.Close()
+
+	sub, err := conn.Subsystem(context.Background(), "netconf")
+	if err != nil {
+		t.Fatalf("Subsystem() error = %v, want nil", err)
+	}
+	sub.Close()
+
+	if _, err := io.WriteString(sub, "anything"); err == nil {
+		t.Fatal("Write() to a closed subsystem error = nil, want a refusal")
+	} else if !strings.Contains(err.Error(), "netconf") {
+		t.Errorf("Write() error = %q, want it to name the subsystem", err)
+	}
 }

@@ -79,6 +79,26 @@ func (_u *SavedLaunchConfigUpdate) ClearAnswers() *SavedLaunchConfigUpdate {
 	return _u
 }
 
+// SetSecretBinding sets the "secret_binding" field.
+func (_u *SavedLaunchConfigUpdate) SetSecretBinding(v string) *SavedLaunchConfigUpdate {
+	_u.mutation.SetSecretBinding(v)
+	return _u
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_u *SavedLaunchConfigUpdate) SetNillableSecretBinding(v *string) *SavedLaunchConfigUpdate {
+	if v != nil {
+		_u.SetSecretBinding(*v)
+	}
+	return _u
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (_u *SavedLaunchConfigUpdate) ClearSecretBinding() *SavedLaunchConfigUpdate {
+	_u.mutation.ClearSecretBinding()
+	return _u
+}
+
 // SetTemplateID sets the "template" edge to the Template entity by ID.
 func (_u *SavedLaunchConfigUpdate) SetTemplateID(id int) *SavedLaunchConfigUpdate {
 	_u.mutation.SetTemplateID(id)
@@ -178,6 +198,12 @@ func (_u *SavedLaunchConfigUpdate) sqlSave(ctx context.Context) (_node int, err 
 	if _u.mutation.AnswersCleared() {
 		_spec.ClearField(savedlaunchconfig.FieldAnswers, field.TypeJSON)
 	}
+	if value, ok := _u.mutation.SecretBinding(); ok {
+		_spec.SetField(savedlaunchconfig.FieldSecretBinding, field.TypeString, value)
+	}
+	if _u.mutation.SecretBindingCleared() {
+		_spec.ClearField(savedlaunchconfig.FieldSecretBinding, field.TypeString)
+	}
 	if _u.mutation.TemplateCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -274,6 +300,26 @@ func (_u *SavedLaunchConfigUpdateOne) SetAnswers(v map[string]interface{}) *Save
 // ClearAnswers clears the value of the "answers" field.
 func (_u *SavedLaunchConfigUpdateOne) ClearAnswers() *SavedLaunchConfigUpdateOne {
 	_u.mutation.ClearAnswers()
+	return _u
+}
+
+// SetSecretBinding sets the "secret_binding" field.
+func (_u *SavedLaunchConfigUpdateOne) SetSecretBinding(v string) *SavedLaunchConfigUpdateOne {
+	_u.mutation.SetSecretBinding(v)
+	return _u
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_u *SavedLaunchConfigUpdateOne) SetNillableSecretBinding(v *string) *SavedLaunchConfigUpdateOne {
+	if v != nil {
+		_u.SetSecretBinding(*v)
+	}
+	return _u
+}
+
+// ClearSecretBinding clears the value of the "secret_binding" field.
+func (_u *SavedLaunchConfigUpdateOne) ClearSecretBinding() *SavedLaunchConfigUpdateOne {
+	_u.mutation.ClearSecretBinding()
 	return _u
 }
 
@@ -405,6 +451,12 @@ func (_u *SavedLaunchConfigUpdateOne) sqlSave(ctx context.Context) (_node *Saved
 	}
 	if _u.mutation.AnswersCleared() {
 		_spec.ClearField(savedlaunchconfig.FieldAnswers, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.SecretBinding(); ok {
+		_spec.SetField(savedlaunchconfig.FieldSecretBinding, field.TypeString, value)
+	}
+	if _u.mutation.SecretBindingCleared() {
+		_spec.ClearField(savedlaunchconfig.FieldSecretBinding, field.TypeString)
 	}
 	if _u.mutation.TemplateCleared() {
 		edge := &sqlgraph.EdgeSpec{

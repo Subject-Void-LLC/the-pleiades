@@ -114,9 +114,11 @@ func (i Info) Exists() bool { return i.Kind != KindAbsent }
 // not apply so a reader is not shown an owner for a path that is not
 // there.
 //
-// The keys here are the contract. pkg/collection.Inverse.Captures names
-// them, so renaming one silently breaks a rollback that nothing tests
-// yet; they are written once, here, rather than by each method.
+// The keys here are the contract: a method's own RecordInverse call
+// passes them on, so renaming one silently breaks a rollback that
+// nothing tests yet. They are written once, here, rather than by each
+// method. (This cited pkg/collection.Inverse.Captures until Phase 40
+// corrected it; no such type or field exists.)
 func (i Info) Map() map[string]any {
 	m := map[string]any{
 		"exists": i.Exists(),

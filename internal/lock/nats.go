@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -128,46 +127,78 @@ func maxHolderTTL(holders []holderInfo) time.Duration {
 	return max
 }
 
-// itemIDValid rejects an itemID the underlying nats.go client's own key
-// validation (unexported keyValid, gated on validKeyRe) would accept but
-// which produces an empty token in the "$KV.<bucket>.<itemID>" subject
-// this package builds (kvSubject): two consecutive dots. validKeyRe
-// (`^[-/_=\.a-zA-Z0-9]+$`) allows any run of dots, with no check that they
-// never sit adjacent, so a key like "a..b" passes kv.Create's own
-// validation silently. The resulting subject is not one JetStream will
-// ever acknowledge, so the failure mode is not a clean error but a real,
-// fuzz-caught multi-second "nats: no response from stream" timeout
-// (LESSONS_LEARNED.md), confirmed empirically, not guessed. A real caller
-// only ever passes an inventory device ID (a UUID) or the scheduler's own
-// fixed key here, neither of which can produce this, but a defensive,
-// fast, clear rejection costs nothing and closes a real Schema/Injection
-// Hardening finding for this phase's own new boundary rather than leaving
-// it to whatever the server happens to do with a malformed subject.
-func itemIDValid(itemID string) bool {
-	return !strings.Contains(itemID, "..")
+// storedKey is an itemID as this bucket actually stores it: the output of
+// kvKey, and nothing else. It is a distinct type rather than a string
+// because FAILURE_PATTERNS.md #206's second half was exactly the mistake a
+// comment cannot prevent and a type can: a first attempt at the encoding
+// switched every kv.Create/Get/Delete call to the encoded key and left
+// three of publishWithTTL's four callers passing the lease's raw itemID,
+// so every TTL-refreshing publish went to a subject nothing else was
+// reading, with a CAS expectation taken from a subject nothing was
+// writing. The suite failed in a way that looked like a broker mystery
+// (keys expiring mid-churn, holders vanishing) and an identity-encoder
+// diagnostic exonerated the refactor, because identity makes a wrongly
+// passed itemID accidentally correct. With this type, passing an itemID
+// where a key belongs is a compile error, which is the only review that
+// cannot miss a site.
+type storedKey string
+
+// kvKey encodes an itemID into the key this bucket stores it under, which
+// is a different string from the itemID the caller passed.
+//
+// FAILURE_PATTERNS.md #206 is why it exists. A KV key becomes a subject
+// underneath ("$KV.<bucket>.<key>"), and dots are legal in a KV key, so an
+// itemID like "router1.example.com" produced a five-token subject where
+// three were intended. That works today, because the only grant anyone
+// holds is the implicit unrestricted one and a "$KV.Pleiades_Locks.>"
+// filter matches either shape. It stops working the moment a per-device
+// permission exists, which is where the mesh identity work (Phase 101) is
+// heading, and a lock nobody can take is a device nobody can automate.
+//
+// topology.SubjectToken is the same encoder the dispatch subject and the
+// Runner's dedup key use, so this package gains no second convention. Its
+// output is [A-Za-z0-9_-]+ plus a hash suffix: a strict subset of what a
+// KV key permits, exactly one subject token, so legality is guaranteed
+// rather than argued. The hash suffix also means kvKey(itemID) != itemID
+// for EVERY input, which retires this package's old itemIDValid guard
+// (consecutive dots can no longer reach a subject) and makes the
+// identity-masking failure described on storedKey structurally
+// unreproducible: no test input can make a missed call site accidentally
+// correct.
+//
+// The ORIGINAL itemID is still what natsLease.ID() returns. That split is
+// load bearing rather than tidy: the shared conformance suite asserts
+// lease.ID() == itemID for every implementation, so encoding the key must
+// not change the identity a caller gets back.
+func kvKey(itemID string) storedKey {
+	return storedKey(topology.SubjectToken(itemID))
 }
 
-// kvSubject returns the raw NATS subject a KV bucket stores itemID's
+// kvSubject returns the raw NATS subject a KV bucket stores key's
 // revisions under. This is NATS's own documented KV subject convention
 // ("$KV.<bucket>.<key>"), used only by publishWithTTL below to reach a
 // capability (refreshing a per-key TTL on an existing revision) the public
 // jetstream.KeyValue.Update method does not expose in this client version:
 // its signature accepts no options and always publishes with ttl=0,
 // confirmed by reading nats.go v1.52.0's own source before relying on it
-// (LESSONS_LEARNED.md).
-func kvSubject(itemID string) string {
-	return fmt.Sprintf("$KV.%s.%s", topology.LockBucketName, itemID)
+// (LESSONS_LEARNED.md). It takes storedKey, never a raw itemID: this exact
+// function receiving a raw itemID from three of publishWithTTL's callers
+// is what FAILURE_PATTERNS.md #206's failed first fix consisted of.
+func kvSubject(key storedKey) string {
+	return fmt.Sprintf("$KV.%s.%s", topology.LockBucketName, key)
 }
 
-// publishWithTTL CAS-publishes value as itemID's next revision, expecting
+// publishWithTTL CAS-publishes value as key's next revision, expecting
 // expectedRevision to still be current, and sets ttl as that revision's own
 // per-key expiry (skipped when ttl <= 0, matching jetstream.KeyTTL's own
 // convention of "no per-key TTL", relying on the bucket-wide failsafe
-// ceiling alone). itemID must already have passed a successful kv.Create's
-// own key validation before this is ever called, so there is no new
-// injection surface in building the subject by hand here.
-func (m *natsLockManager) publishWithTTL(ctx context.Context, itemID string, value []byte, expectedRevision uint64, ttl time.Duration) (uint64, error) {
-	msg := nats.Msg{Subject: kvSubject(itemID), Header: nats.Header{}, Data: value}
+// ceiling alone). key is kvKey's output, enforced by its type: the
+// revision this publish CAS-expects was read from the encoded key's
+// subject, so publishing anywhere else cannot ever succeed, and before
+// storedKey existed that mismatch was a runtime mystery rather than a
+// compile error (FAILURE_PATTERNS.md #206).
+func (m *natsLockManager) publishWithTTL(ctx context.Context, key storedKey, value []byte, expectedRevision uint64, ttl time.Duration) (uint64, error) {
+	msg := nats.Msg{Subject: kvSubject(key), Header: nats.Header{}, Data: value}
 	opts := []jetstream.PublishOpt{jetstream.WithExpectLastSequencePerSubject(expectedRevision)}
 	if ttl > 0 {
 		opts = append(opts, jetstream.WithMsgTTL(ttl))
@@ -224,9 +255,11 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 	if ttl > 0 && ttl < minPositiveTTL {
 		return nil, fmt.Errorf("ttl must be 0 or at least %v, got %v", minPositiveTTL, ttl)
 	}
-	if !itemIDValid(itemID) {
-		return nil, fmt.Errorf("invalid itemID %q: must not contain consecutive dots", itemID)
-	}
+	// Encoded ONCE, here, because this is the only place an itemID enters
+	// this manager. Every KV operation below and every one the returned
+	// lease performs uses this value, so the key and the subject derived
+	// from it cannot disagree.
+	key := kvKey(itemID)
 	holderID := uuid.New().String()
 
 	var createOpts []jetstream.KVCreateOpt
@@ -247,9 +280,9 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 		// NATS JetStream KV's Create method only succeeds if the key DOES
 		// NOT exist. This provides our atomic Compare-and-Swap lock
 		// mechanism for the common, uncontended case.
-		rev, err := m.kv.Create(ctx, itemID, data, createOpts...)
+		rev, err := m.kv.Create(ctx, string(key), data, createOpts...)
 		if err == nil {
-			return &natsLease{mgr: m, itemID: itemID, holderID: holderID, mode: opts.Mode, revision: rev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, mode: opts.Mode, revision: rev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(err, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to acquire lock for %s: %w", itemID, err)
@@ -265,7 +298,7 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 			return nil, ErrLockHeld
 		}
 
-		entry, getErr := m.kv.Get(ctx, itemID)
+		entry, getErr := m.kv.Get(ctx, string(key))
 		if getErr != nil {
 			if errors.Is(getErr, jetstream.ErrKeyNotFound) {
 				// Raced with a concurrent release between Create's
@@ -296,9 +329,9 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 			return nil, fmt.Errorf("failed to encode lock value for %s: %w", itemID, err)
 		}
 
-		newRev, updateErr := m.publishWithTTL(ctx, itemID, joinedData, entry.Revision(), maxHolderTTL(joined))
+		newRev, updateErr := m.publishWithTTL(ctx, key, joinedData, entry.Revision(), maxHolderTTL(joined))
 		if updateErr == nil {
-			return &natsLease{mgr: m, itemID: itemID, holderID: holderID, mode: ModeShared, revision: newRev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
+			return &natsLease{mgr: m, itemID: itemID, key: key, holderID: holderID, mode: ModeShared, revision: newRev, ttl: ttl, deadline: time.Now().Add(ttl)}, nil
 		}
 		if !errors.Is(updateErr, jetstream.ErrKeyExists) {
 			return nil, fmt.Errorf("failed to join shared lock for %s: %w", itemID, updateErr)
@@ -319,8 +352,16 @@ func (m *natsLockManager) tryAcquireOnce(ctx context.Context, itemID string, ttl
 // itemID's lockValue; more than one lease can share an itemID under
 // ModeShared, so itemID alone does not uniquely identify a lease.
 type natsLease struct {
-	mgr      *natsLockManager
-	itemID   string
+	mgr    *natsLockManager
+	itemID string
+	// key is itemID as this bucket actually stores it, from kvKey. It is
+	// a separate field rather than a replacement because ID() must keep
+	// returning the itemID the caller passed: the shared conformance
+	// suite asserts exactly that, for every implementation. Every KV
+	// operation this lease performs uses key; nothing uses itemID except
+	// ID() and error messages, where the caller's own spelling is the
+	// useful one.
+	key      storedKey
 	holderID string
 	mode     Mode
 	revision uint64
@@ -361,7 +402,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to keep alive lease %s: %w", l.itemID, err)
 		}
-		rev, err := l.mgr.publishWithTTL(ctx, l.itemID, data, l.revision, l.ttl)
+		rev, err := l.mgr.publishWithTTL(ctx, l.key, data, l.revision, l.ttl)
 		if err != nil {
 			return fmt.Errorf("failed to keep alive lease %s: %w", l.itemID, err)
 		}
@@ -377,7 +418,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 	// identical reason: that is optimistic-concurrency noise, not evidence
 	// this lease is actually stale.
 	for attempt := 0; ; attempt++ {
-		entry, err := l.mgr.kv.Get(ctx, l.itemID)
+		entry, err := l.mgr.kv.Get(ctx, string(l.key))
 		if err != nil {
 			return fmt.Errorf("failed to keep alive lease %s: %w", l.itemID, err)
 		}
@@ -389,7 +430,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 			return fmt.Errorf("lease %s is no longer current", l.itemID)
 		}
 
-		rev, err := l.mgr.publishWithTTL(ctx, l.itemID, entry.Value(), entry.Revision(), maxHolderTTL(current.Holders))
+		rev, err := l.mgr.publishWithTTL(ctx, l.key, entry.Value(), entry.Revision(), maxHolderTTL(current.Holders))
 		if err == nil {
 			l.revision = rev
 			l.deadline = time.Now().Add(l.ttl)
@@ -413,7 +454,7 @@ func (l *natsLease) KeepAlive(ctx context.Context) error {
 // the key outright.
 func (l *natsLease) Release(ctx context.Context) error {
 	if l.mode == ModeExclusive {
-		if err := l.mgr.kv.Delete(ctx, l.itemID, jetstream.LastRevision(l.revision)); err != nil {
+		if err := l.mgr.kv.Delete(ctx, string(l.key), jetstream.LastRevision(l.revision)); err != nil {
 			return fmt.Errorf("failed to release lease %s: %w", l.itemID, err)
 		}
 		return nil
@@ -423,7 +464,7 @@ func (l *natsLease) Release(ctx context.Context) error {
 	// against a different, concurrent, equally-valid modification, the
 	// same reasoning as KeepAlive's own retry loop above.
 	for attempt := 0; ; attempt++ {
-		entry, err := l.mgr.kv.Get(ctx, l.itemID)
+		entry, err := l.mgr.kv.Get(ctx, string(l.key))
 		if err != nil {
 			return fmt.Errorf("failed to release lease %s: %w", l.itemID, err)
 		}
@@ -438,7 +479,7 @@ func (l *natsLease) Release(ctx context.Context) error {
 		}
 
 		if len(remaining) == 0 {
-			err := l.mgr.kv.Delete(ctx, l.itemID, jetstream.LastRevision(entry.Revision()))
+			err := l.mgr.kv.Delete(ctx, string(l.key), jetstream.LastRevision(entry.Revision()))
 			if err == nil {
 				return nil
 			}
@@ -455,7 +496,7 @@ func (l *natsLease) Release(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to encode lock value for %s: %w", l.itemID, err)
 		}
-		if _, err := l.mgr.publishWithTTL(ctx, l.itemID, data, entry.Revision(), maxHolderTTL(remaining)); err != nil {
+		if _, err := l.mgr.publishWithTTL(ctx, l.key, data, entry.Revision(), maxHolderTTL(remaining)); err != nil {
 			if !errors.Is(err, jetstream.ErrKeyExists) {
 				return fmt.Errorf("failed to release lease %s: %w", l.itemID, err)
 			}

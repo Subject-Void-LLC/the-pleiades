@@ -1,5 +1,801 @@
 # Handoff Document Archive
 
+## Previous session: Phase 40 steps 1 through 10, written and uncommitted
+
+**Branch `feature/Phase-40-Run-Journal`. Phase 40's masking decision is made and build-order steps 1
+through 10 are written and uncommitted. Steps 11 through 20 are open.** The previous session's 101c
+entry is in `HANDOFF_ARCHIVE.md`. The steps 1-5 status this replaces was an intra-session increment
+rather than a handoff anyone read, so it is superseded here rather than archived as a separate
+session.
+
+### The decision, in one line
+
+The run journal stores no value that came back from a device, a credential store, a decrypted
+envelope, or an injector. It is not masked, because there is nothing in it to mask. Full text:
+`.SPECIFICATION/PHASE40_MASKING_DECISION.md`; folded into `.SPECIFICATION/IMPLEMENTATION.md`'s Phase
+40 section.
+
+**Two measurements force it, both re-verified rather than carried on trust.** `internal/redact/
+rules.json` declares 23 key-rule attribute names; the generated catalog declares 69 return-field and
+83 param names across 81 entries; the intersection is EMPTY in both directions and the lookup is
+exact-lowercase. Separately, 38 of the 43 reversible implemented methods declare no `inverse` in
+`Doc.Returns` and 3 implemented methods declare no returns at all (`fw.firewalld.reload`,
+`net.cli.config`, `svc.systemd.daemon_reload`), so a `Doc`-derived whitelist must COUNT what it
+rejects rather than drop it.
+
+### What is written, uncommitted
+
+Steps 1-5: `internal/engine/journal.go` (`JournalEntry`, three closed enums, the `Journal` port,
+`WithJournal`, a no-op default); `internal/archtest/journal_test.go` (the two structural rules, each
+with a negative control); `TestEngineNeverImportsPersistence` in `layering_test.go`, the rule the
+Pattern Entry Gate assumed and nothing enforced.
+
+Steps 6-10: `RunID` minted on `run`'s per-call state (uuid, argued in a comment against crypto/rand
+and a counter); `NodeResult` widened with `StartedAt`/`FinishedAt` at all nine construction sites,
+with the synthetic parallel marker deliberately keeping both zero; `ConditionResult` widened with the
+ordinal and total `evalAnd`/`evalOr` already computed and threw away into a sentence;
+`internal/engine/journal_entry.go` with `projectLevel`, `recordLevel`, FQCN resolution and the Doc key
+rules; `journal_registry_test.go`, `journal_fuzz_test.go`, `journal_bench_test.go`,
+`executor_span_test.go`. `LESSONS_LEARNED.md` #172 came out of the fuzz work.
+
+`Run`'s level loop now calls `recordLevel` unconditionally. A caller wiring no sink keeps its prior
+OUTCOME and event stream, but does pay one `projectLevel` pass, which is deliberate so the fail-closed
+refusal fires in the default configuration too.
+
+### The defect two independent review lenses found, and how it was closed
+
+**A task that really changed the device and recorded an inverse journaled as "nothing to undo"
+whenever it then failed at `register_mask` or at `record`.** `runOne` assigned the exported
+`NodeResult.Stats` only on its success path, while both post-action failure returns happen with a
+fully populated `ActionResult` in hand. The projection read `Stats`, saw nil, and produced an entry
+naming no stats, no inverse and no diff, for exactly the run this phase exists to record.
+
+The two lenses proposed conflicting fixes and the conflict is the interesting part. Widening `Stats`
+to cover those paths would have been a real leak: `cmd/pleiades/run.go` prints it under `--verbose`,
+and a failed `register_mask` means the author's own mask never applied, so printing the value it was
+written to protect is the exact disclosure the annotation exists to prevent.
+
+Resolved with `NodeResult.journalStats`, a separate unexported field set once immediately after a
+successful `Execute`. The journal can be shown what a printer must not be shown, because it stores key
+NAMES and never a value. `TestProjectResultKeepsTheInverseWhenAPostActionStageFails` covers it and was
+proven to fail against the old projection before being accepted.
+
+### A second, smaller correctness fix in the same pass
+
+**A runbook could forge an inverse into the journal through `noop`.** `builtinActionExecutor` sets a
+noop's stats to `task.Params` verbatim, and the projection admitted `sdk.StatInverse` unconditionally,
+so an author writing an `inverse` param got it projected as a genuinely recorded undo with a resolved
+`InverseFQCN` beside it. Only a Collection method can call `sdk.RecordInverse`, so this never came
+from the SDK. `resolvedFQCN.engineAction` now gates both the unconditional sdk keys and
+`projectInverse` for the seven engine-dispatched FQCNs; the key is counted, not dropped.
+`TestProjectResultRefusesAForgedInverseFromAnEngineAction` is the control. This matters because a
+rollback engine is the eventual reader of `InverseFQCN`.
+
+### Gates, with real exit codes
+
+`go build` 0, `go vet` 0, `make fmt` 0, `go test ./internal/engine/...` 0,
+`go test ./internal/archtest/...` 0, `-race` over both 0, `make arch` 0, `make docs-gen-check` 0,
+`make docs-lint` 0, `make gosec` 0 (9 findings, all waived).
+`internal/engine` coverage 95.9% against its 95.2 floor, not breached.
+
+**`make coverage` exits 2, and NOT because of coverage.** Its own internal full `go test ./...` pass
+fails in six container-dependent packages: `cmd/runner`, `internal/election`, `internal/event`,
+`internal/ent` (postgres subtests only), `internal/catalog/pleiades/builtin/wait` and
+`pkg/remotefile`. Every failure is a testcontainers reaper or port-mapping error, not an assertion,
+and all of them pass in isolation.
+
+**Two of those six are NOT in `flaky-packages.json`: `internal/catalog/pleiades/builtin/wait` and
+`pkg/remotefile`.** So `push-gate`'s tolerance would not absorb them either, and neither `make ci` nor
+`make push-gate` can currently go green in this environment. That is a pre-existing environmental
+condition unrelated to the journal, but it means the plan's "run `make ci` in full" instruction cannot
+be satisfied as written until those two are either fixed or listed with a real observed reason.
+Listing a package without one is what that file's own header warns produces a package nothing checks
+anywhere, so this needs a decision rather than a quiet addition.
+
+### Two decisions taken deliberately, not by default
+
+**The strict version still ships.** `PHASE40_MASKING_DECISION.md` Section 12 would restore mechanical
+rollback for 39 of the 43 reversible methods by journaling declared-safe inverse parameter VALUES
+(only `file.line.set`, `file.line.remove`, `file.block.set` and `file.block.remove` carry device-read
+content in an inverse; every other inverse param in the catalog is a name, a gid, a version, an
+instance id, a path or a bool). NOT built. Section 12 says the resulting weakening of
+`TestJournalEntryHoldsNoValue`, from a blanket refusal into a rule with one tested exception, "should
+be argued again before it is built." `InverseParamKeys` stays key names only.
+
+**No ent allowlist.** `TestEngineNeverImportsPersistence` is a bare prohibition, argued in its own doc
+comment: nothing legitimately needs the permission today, and an empty allowlist hands the first
+person who trips the rule a list to add themselves to instead of an adapter to write.
+
+### Next step
+
+Build-order steps 11 through 20 in `PHASE40_MASKING_DECISION.md` Section 8. Step 11 is the Crawl sink
+(`cmd/pleiades/run.go`, append-only JSONL at 0o600); step 12 plumbs `Attempt` through a context value
+in `handleMessage`; step 13 declares the Walk subject in `internal/topology` AND adds it to
+`FleetRunnerGrant`'s Pub list in the same commit, or it is denied under mesh identity; steps 14-16 are
+the publisher, `internal/journal` with both dialect migrations, and the Controller subscriber.
+
+**Until step 11 lands, the mechanism is wired to nothing.** `WithJournal` has zero production callers
+and `internal/journal` does not exist, so Section 9's RULE 0 gate cannot be written yet.
+
+**Two known gaps carried forward.** `gopls` is not on `PATH` for a non-login shell (it is at
+`$(go env GOPATH)/bin/gopls`), so AGENTS.md's LSP-over-grep mandate silently degrades for any agent or
+script; fix it persistently. And Section 3's nine `NodeResult` line-number anchors, plus its other
+`executor.go` citations, are all stale after this increment's +265-line edit to that file. The count of
+nine is still right.
+
+## Previous session: Phase 101c (mesh enforcement) and the Phase 40 plan
+
+**Branch `feature/Phase-101c-Mesh-Enforcement`, cut from 101b's tip `0e91ca0`.** 101b's three
+commits are on the branch below it and were pushed. 101c's work is described below.
+
+### What 101c found, which is the important part
+
+An eight-sweep read-only recon over the real source, then measurement against a real broker, found
+that **Phase 101b shipped five defects and one missing fact, none of them visible in any test.**
+Under a real operator-mode broker with JetStream on, nothing worked: the Controller died
+provisioning the stream, the Runner authenticated and received no job ever, its heartbeat was
+withheld so the fleet reported unhealthy, and a failed `job.requested` vanished silently.
+
+The full incident is `FAILURE_PATTERNS.md` #207 and the rule is `LESSONS_LEARNED.md` #171. In short:
+three grants ended in `.>` where nats.go's own templates end at the consumer name, and `>` matches
+one or more tokens and never zero; `ControllerGrant` put `>` in a non-final token, which is not a
+wildcard position at all; the Controller's dead letter subject was granted to nobody; and every
+account the platform minted had JetStream DISABLED in its claims, because
+`jwt.NewAccountClaims` defaults it off.
+
+The sixth item was not a defect but a fact nobody had: **operator mode refuses to start JetStream
+without a system account, and that system account must not itself have JetStream enabled.** Both
+server refusals are quoted verbatim in `meshid.NewSystemAccount`.
+
+**Why nothing caught it.** 101b's Release Gate ran the only NATS container in this repository that
+omits `-js`, and every defect lived on the JetStream control plane. Its unit test compared the
+grant against a hand-written restatement of the grant, so it asserted the grant equalled itself.
+
+### What is on the branch
+
+- **`internal/meshid`**: `consumerAPI` emits the exact driver subject; `consumerCreateWithFilter`
+  pins the Runner's create to the fleet filter, which also closes a real escalation
+  (CreateOrUpdateConsumer is an upsert, so a Runner able to create with any filter could widen the
+  shared durable to `pleiades.>` and read every device's plaintext credentials); `ControllerGrant`
+  names its stream operations; the Controller's dead letter subject is granted; `NewAccount`
+  enables JetStream; `NewSystemAccount` is new.
+- **Two Release Gates.** `TestReleaseGate_TheRealControlPlaneRunsUnderAMintedIdentity` drives the
+  REAL functions (ProvisionStream, BindLockBucket, DispatchConsumerConfig, a real consumer create,
+  a real FetchNoWait, a real dispatch published, pulled and acked) under minted credentials against
+  a JetStream-enabled operator-mode broker: **passed 12.8s**, falsified against two defects
+  individually, each failing at the right act with the right message.
+  `TestReleaseGate_AnExpiringCredentialEvictsALiveConnection` answers the question the phase said
+  to measure rather than assume: **expiry is enforced on a LIVE connection**, and the connection
+  ends CLOSED rather than reconnecting forever, because nats.go abandons reconnection after the
+  same auth error twice regardless of `MaxReconnects(-1)`. Passed 8.4s.
+- **The unit test was rewritten from equality to MATCHING** against the subject the driver sends,
+  with the matcher's own semantics pinned in a table including the two cases that caused the bug.
+  `ControllerGrant` gained the test it never had. Falsified: restoring the old suffix fails naming
+  both operations.
+- **Fuzz and benchmark added** (AGENTS.md requires both before a Release Gate and `internal/meshid`
+  had neither): `FuzzIssue` hardens JWT claim construction from a caller-supplied name, 31,289
+  execs clean; `BenchmarkIssue` 271us/op, `BenchmarkNewAccount` 173us/op.
+- **Coverage regressions from 101b, found and fixed.** 101b did not run the ratchet before
+  committing. `internal/topology` had fallen 95.8 to 90.0 because the credential dial path was
+  tested only from `internal/meshid` and coverage is per package; real in-package tests took it to
+  94.8. `internal/crypto` and `internal/ent` likewise. Remaining gaps are recorded as deliberate
+  downward floor adjustments with written reasons in `coverage-floor.json`. Ratchet now clean
+  across 203 packages.
+- **Two prose corrections**, both things that were already false: `dial.go`'s ClosedHandler said it
+  "should never fire at all" (the expiry gate observes it firing), and
+  `docs/10-running-in-production.md` said a runner identity story "does not exist yet".
+- Changelog fragment `mesh-identity-enforcement.added.md`.
+
+### What 101c has NOT done, deliberately and explicitly
+
+**Enforcement is not on anywhere.** No chart value, no compose change, no `NATS_CREDS` env var, and
+the 31 container starts across 9 test packages are untouched. So Phase 96a's and 96d's "the bus is
+unauthenticated" statements are STILL TRUE as written and were deliberately left alone; the recon
+settled that they belong to whichever stage flips the default, not to the stage that builds the
+capability.
+
+The remaining 101c items, in dependency order, are in the spec: the shared test broker helper in
+`internal/testsupport` (taking `testing.TB`, since four of the 31 sites are benchmarks or fuzz
+targets), the migration of those 31 sites, and switchable enforcement in the chart and compose
+file. Two measured constraints govern that work: `testcontainers.WithCmd` REPLACES the command
+while the nats module's `WithConfigFile` APPENDS `-config`, so the wrong order at any site boots an
+unauthenticated broker that passes every test; and the compose healthcheck is documented to fail
+under authentication in its own comment.
+
+Revocation is specced but not built: a revocation entry keys on the user public key with a UNIX
+seconds watermark, coverage only widens, and signing one needs a key the Controller does not hold,
+since `meshid` signs the account with the OPERATOR key which must stay offline.
+
+### make ci, run end to end at last, and what it actually said
+
+**Every target passes, but not in one invocation, and the distinction matters.**
+
+`make ci` was run end to end for the first time on this work. It **failed once at
+`test-integration`**, and the identity of the failing package was **lost**, because the invocation was
+piped through `tail -40`. That is the exact mistake this document warned about two sessions ago in
+its own words ("a piped exit code is not evidence"), repeated by the session that wrote the warning.
+The pipe both truncated the failing package off the top of the output and reported `tail`'s exit
+status, so the run looked green and was not.
+
+Re-running the same target alone, capturing the real exit code: **`REAL_EXIT=0`, 152 packages ok,
+zero FAIL.** The failure did not reproduce, which is the known container-contention flake
+(`FAILURE_PATTERNS.md` #61) that `flaky-packages.json` exists for. It is recorded here rather than
+waved away because the specific package was never identified, so it cannot be checked against that
+file's list.
+
+`make ci` stops at its first failure, so the targets AFTER `test-integration` never ran in that
+invocation. They were each run separately afterwards with real exit codes captured:
+`govulncheck` 0, `helm-lint` 0, `templ-gen-check` 0, plus `gosec` (9 findings, all waived),
+`docs-gen-check` clean, `docs-lint` clean (207 files), `arch` ok, and `coverage-check` clean across
+203 packages. `build`, `vet`, `fmt`, `test-race` and `test-repeat` all ran and passed inside the
+`make ci` invocation itself, since they precede `test-integration`.
+
+**A separate finding worth acting on: the pre-push hook was never installed in this clone.**
+`core.hooksPath` was unset and `.git/hooks/pre-push` did not exist, so the `make push-gate` that is
+supposed to gate every push has never run here, on any push, by anybody. `make hooks` has now been
+run, so the next push is gated. Every push before this one went out ungated.
+
+### Next step
+
+Phase 40 is planned; see below.
+
+### Phase 40, planned and started
+
+`.SPECIFICATION/IMPLEMENTATION.md` now carries Phase 40's measured starting position (seven parallel
+read-only sweeps) and its Pattern Entry Gate. Two results change what the phase is:
+
+**`design/rollback_journal_design.md` is history.** It proposes a state-restoration journal whose
+rollback engine interprets old and new values. What shipped instead is task-shaped:
+`sdk.RecordInverse` records `{FQCN, Params, Description}`, a directly runnable task, across 35 call
+sites covering all 43 reversible methods. A rollback engine is a loop feeding those back through the
+dispatcher. The note's Layer 3 is already decided, and better. Nothing reads any of it yet, so Phase
+40 writes the first reader, and on the Walk tier the inverse is currently computed and discarded in
+the same function (`internal/adapters/native/adapter.go:217`).
+
+**The blocking prerequisite is resolved: the journal reads no revisions at all.** Not on cost
+grounds but structural ones: `wireDevice.History()` is hardcoded `nil` and `wire.DispatchPayload` has
+no history field, so a `Revision`-based journal cannot reach a Walk-tier task at any price. It is a
+new entity written from `engine.NodeResult` at the executor seam.
+
+`JournaledCapable`/`RollbackCapable` are declared NOT to be built, a deliberate departure from the
+phase's own checklist: a Collection cannot declare a capability at all, and both questions already
+have answers in `collection.Reversibility` and `sdk.RecordDiff`.
+
+Six design decisions remain open before code (entry shape and store, the Crawl-tier sink, the
+Walk-tier carrier given that the Runner has no database, masking, and the run id). The masking one
+is first, because a journal would receive plaintext property values and plaintext resolved params,
+and `Revision.old_value`/`new_value` is already an undisclosed plaintext store of encrypted-at-rest
+data on both tiers.
+
+## Previous session: Phase 78c (bound envelopes, key rotation) and the Phase 78d plan for PFX/PKI
+
+**Phase 78 is complete except PFX/PKI, which is blocked on a consumer that does not exist and is now
+planned as 78d.** All three built stages are committed on branch
+`feature/Phase-78a-External-Secret-Store`: 78a `7fbcb62`, 78b `c6946fa`, 78c `438484f`. Docker was
+down for part of the session and came back, so everything gated on it has now actually run.
+
+### 78c, built this session
+
+Two new rotation passes, `RotateCredentialInputs` and `RotateSavedLaunchConfigAnswers`, joining the
+Device one. `Device` and `SavedLaunchConfig` gained a `secret_binding` column (migrations `0019`
+sqlite / `0016` postgres) and the bound envelope that `Credential` has had since Phase 22, closing
+the residual `internal/crypto/envelope_bound.go` recorded and deferred there. `IsBoundEnvelope`
+reads the algorithm tag so the read path opens either form, which is what makes the upgrade
+lossless.
+
+### The forcing constraint, which was not predicted
+
+Sealing a value against its row's binding means the write hook needs that binding, and **ent exposes
+`OldSecretBinding` on `UpdateOne` alone**. `Device.properties` was written by the BULK `Update`
+builder, and the old design tolerated that precisely because an unbound ciphertext was equally valid
+on every row, which is the property that made it relocatable.
+
+So the bulk path is refused now, and **both real callers were converted to `UpdateOneID` with the
+version predicate**: `internal/inventory`'s own `Save` and `RotateDeviceProperties` itself. One
+behavioural difference is recorded where it lands: `UpdateOne` reports an unmatched predicate as a
+not-found rather than as zero rows affected, so `Save`'s optimistic-concurrency check reads
+`ent.IsNotFound` where it read `affected == 0`. `internal/inventory`'s own concurrency tests pass
+unchanged, which is the evidence that conversion preserved the semantics.
+
+### Two asymmetries worth carrying forward
+
+**A Device migrates itself**; ordinary operation rewrites its properties and the hook assigns a
+binding to any row lacking one, so the pass is a sweep for rows nobody touches. **A
+SavedLaunchConfig never does**: nothing in this platform updates its answers, so the pass is the
+only path from unbound to bound for that entity. Since a survey is the one way a password reaches a
+stored row, that pass is worth running even when no key is changing. Both are documented in Book 10.
+
+And `Device.secret_binding` is Optional and NOT Immutable where `Credential`'s is neither. Forced,
+not sloppy: the column arrives on a table that already has rows, no migration generates a UUID per
+row portably, and the application only ever sets it when empty.
+
+### The residual, stated rather than implied
+
+Accepting both forms on read is what makes the upgrade lossless, and **until a deployment's passes
+have run, any row still unbound remains relocatable**. The passes return counts so an operator can
+tell when the window shut. That is the honest limit of what this stage closes.
+
+### Verified
+
+`go test ./...` passes in full with Docker available. `coverage-check` clean across 201 packages;
+`internal/crypto` floor raised 88.9 to 89.0 (measured 89.2). `go build`, `go vet`, `gofmt`,
+`docs-lint`, `gosec` all clean. Migration parity passes for both dialects.
+
+**78b's Release Gate ran and passed** (13.7s against a real `hashicorp/vault` container) once Docker
+returned. It had been left recorded as open rather than ticked while it could only skip, which is
+what checkbox rule 1 is for; it passed first try.
+
+**78c's own gate is `TestReleaseGate_TheAADMigrationClosesTheRelocationHole`**, written in three acts
+so it is falsifiable in both directions: both forms read correctly, the relocation attack SUCCEEDS
+before the migration, and the identical attack fails after it. Without the middle act the last one
+cannot tell a working binding from a badly set up attack.
+
+### The one thing left in Phase 78, now planned as 78d
+
+**PFX/PKI is still blocked on a consumer; 78d is the plan for building that consumer.** Full detail
+lives in Phase 78's own body. What must not be re-derived:
+
+**78d inverts the dependency deliberately.** Build the certificate-presenting path FIRST taking PEM
+inputs, and add the PKCS#12 decoder afterwards as an input adapter into a path that already works.
+That carries the security property Section 17.4 is actually about, costs no new dependency until the
+last item, and means the decoder lands with a caller already waiting for it rather than as the
+decoration Gate 2 refuses.
+
+Three findings from re-reading the real source on 2026-08-25, two of which shrink the work:
+
+- **The consumer is much nearer than recorded.** `masterzen/winrm` already ships `ClientAuthRequest`,
+  taking PEM cert and key and building a `tls.Config` carrying `Certificates`, and `pkg/winrmexec`'s
+  `newClient` already dispatches through `params.TransportDecorator`. Certificate auth is a third
+  branch there, not a new mechanism. Its `auth.Username == "" || auth.Password == ""` guard and the
+  `Auth` doc comment both become wrong the moment it lands.
+- **The AWX parity blocker is narrower than recorded.** `TestTheCatalogCoversEveryAWXManagedType`
+  walks `managed.Types()` and `managed.DeclaredNotImplemented()` only, so it constrains a SHIPPED
+  type. A type created through the credential API is checked against `namespacePattern` alone, so the
+  first mTLS type can be user-defined and needs no exemption. The `pleiades_` prefix is deferred.
+- **The licence question is closed.** `software.sslmate.com/src/go-pkcs12` is three-clause BSD, forked
+  from `golang.org/x/crypto/pkcs12`, so it is GPLv3-compatible. It decodes DER only and not BER, and
+  PFX bundles from older Windows tooling are not reliably DER.
+
+**One correction, and it is the item that grew.** Phase 78's body claimed the PFX password being a
+linked credential "is the same input-source recursion 78a builds". It is not.
+`resolveInputSources` requires a registered `credtype.LookupFactory` for the source credential's
+namespace and refuses with `ErrLookupUnknown` otherwise, so a plain Password credential named as a
+source fails today. 78a resolves an input THROUGH a vault client; Section 17.4 wants one filled FROM
+another credential's own field, no network in the path. The proposed fix adds no mechanism: one
+branch in `resolveInputSources` keyed on the source credential's KIND.
+
+78d's Release Gate wants a real WinRM listener with a cert-mapped account, and every container gate in
+this repository is Linux. `internal/catalog/http` is the named fallback consumer if that is
+unavailable.
+
+### Loose ends
+
+- **The whole branch is still not on `main`**, `b1a63ba` included. Without that one, `make ci` fails
+  on `main` for a reason unrelated to any current work.
+- **`make ci` has not been run end to end this session**, only its constituent parts. Worth one run
+  before merging.
+- **Two AWX namespaces are unverified**: `aws_secretsmanager` and `centrify_vault` came from
+  `credtype.DeclaredLookups` rather than a fresh read of AWX's registry, which may spell them
+  `aws_secretsmanager_credential` and `centrify_vault_kv`.
+
+## Previous session: Phase 78b (the HashiCorp Vault secret source and the AWX catalog correction)
+
+**Phase 78b is one item short of complete: `hashivault_kv` is built, PFX/PKI is blocked, and the
+Release Gate has never run.** Phase 78a was committed as `7fbcb62`. 78b is uncommitted and awaiting
+the user's own go-ahead. Branch `feature/Phase-78a-External-Secret-Store`, which now carries both
+stages; it was cut from `feature/Phase-74a-NETCONF`'s tip rather than `main`, for the reason under
+"Loose ends".
+
+### What was built
+
+`internal/credtype/lookup/hashivault` (new): a HashiCorp Vault key/value source, implementing
+`credtype.Lookup` and `credtype.LookupFactory` with no change to either port, which is Phase 22's
+additive-upgrade claim holding for a second time. A bounded `net/http` client rather than
+`github.com/hashicorp/vault/api`: a KV read is one GET, and owning the `tls.Config` outright is what
+makes Section 17.4's strict chain verification a property of the TYPE rather than of a default,
+since there is no field anywhere that could carry an insecure-skip. Both engine versions, the
+version query, the three status classes, scalar coercion, and a 1 MiB response bound.
+
+Registered as a factory by NAMESPACE only, never as a deployment-wide `Lookup` by name, because a
+reference string has nowhere to put an address or a token. Naming it in the string form now answers
+the new `ErrLookupRowOnly` rather than "not implemented", because telling somebody a built feature
+is unbuilt sends them to wait for something they already have.
+
+`internal/credtype/managed/types/hashivault_kv.json` (new), plus seven declared-not-implemented
+external types.
+
+### The catalog correction, which is the more interesting half
+
+`awxManagedNamespaces` was complete against the two entry-point groups it was drawn from, and AWX
+registers its credential PLUGINS in a third. So **none of the eight external secret sources existed
+as credential types at all**: an AWX export carrying a `hashivault_kv` credential reported an unknown
+namespace, which is exactly what `TestTheCatalogCoversEveryAWXManagedType` exists to prevent. It went
+unseen because the list was complete against the wrong question. All eight are now in it, and
+`ReasonExternalSource` (declared in Phase 22, never used) is finally what the seven are declared
+under. Its own stated reasoning stopped being true when 78a made a source a row.
+
+**One caveat to check if an import ever reports an unknown namespace:** the original twenty-two
+namespaces were read off AWX's registry; these eight came from `credtype.DeclaredLookups` and were
+NOT re-read against AWX. AWX may spell two of them `aws_secretsmanager_credential` and
+`centrify_vault_kv`.
+
+### One defect, found by a test rather than by reading
+
+`encoding/json` unmarshals a JSON `null` into a string target successfully, leaving it empty and
+returning no error. A Vault key holding null was therefore reaching the generic empty-value refusal
+instead of its own. Both refuse, so nothing unsafe happened, but only one of them names what is
+actually wrong. Null is checked first now, with the ordering's reason written beside it.
+
+### Two things NOT done, and why
+
+**PFX/PKI is blocked on a consumer that does not exist.** Section 17.4 wants the Runner to unlock a
+private key in memory, so the deliverable is an unlocked certificate presented to something. Verified
+against the real source: there is no `tls.Certificate`, no `Certificates:` field and no
+client-certificate handling anywhere in `internal/transport`, `pkg/` or `internal/adapters`. Building
+it now yields a parser with no caller, which this phase's own Gate 2 rejects in its own words. What
+must exist first: a transport that presents a client certificate (WinRM over HTTPS is the realistic
+first, `pkg/winrmexec` already exists), a licence check on `software.sslmate.com/src/go-pkcs12`, and
+a deliberate exemption in the AWX parity test, since a PFX type would be the first managed type this
+platform ships that AWX does not have. A reserved `pleiades_` prefix is the cheapest sound one.
+
+**The 78b Release Gate has never run.** `TestReleaseGate_AnInputResolvesOutOfARealVault` drives a real
+`hashicorp/vault` container through the shipped type, the real factory, the real resolver and a real
+database, asserting the read, the value's absence from the credential row, and rotation taking effect
+with no edit to the target. Docker was unavailable, so it has only ever SKIPPED. It skips locally and
+FAILS under CI, per `pkg/netconf`'s precedent. Checkbox rule 1 is explicit that a skip is not a run,
+so that item stays open and 78b is not complete.
+
+### Verified this session, and what was not
+
+Ran clean: `go build ./...`, `go vet ./...`, `gofmt`, `internal/credtype/...`,
+`internal/credstore/...`, `internal/api/...`, `internal/apispec/...`, `internal/archtest/...`,
+`tools/docs-lint`. The hashivault package is 96.0% covered across 54 assertions, including a private
+certificate authority verified with the negative control (the same server refused without its
+authority and accepted with it).
+
+NOT run, because Docker is unavailable: `make ci`, `tools/coverage-check` (it runs the full suite
+internally), the twelve `/postgres` conformance subtests in `internal/ent`, and every container gate
+including 78b's own. The floor for the new package was set from a direct package measurement rather
+than from a full ratchet run, so `coverage-check` should be run once Docker is back.
+
+### Loose ends for the next session
+
+- **`b1a63ba` is still not on `main`**, and neither is `7fbcb62`. Without the first, `make ci` fails
+  on `main` for a reason unrelated to any current work.
+- **Run `make ci` and the two container gates once Docker returns**, before calling either stage
+  verified.
+- **78c is untouched**: credential-row key rotation plus the associated-data migration of
+  `Device.properties` and `SavedLaunchConfig.answers`.
+
+## Previous session: Phase 78a (the credential input-source model and the bounded resolution walk)
+
+**Phase 78a is complete: the input-source model, the bounded resolution walk, and the credential
+input-source API.** Phase 78 was split into 78a/78b/78c this session, following the precedent that
+split Phase 22 into 22a/22b/22c and Phase 79 into 79a/79b/79c. Nothing has been committed (no
+autonomous commits; awaiting the user's own go-ahead). Branch
+`feature/Phase-78a-External-Secret-Store`, cut from `feature/Phase-74a-NETCONF`'s tip rather than
+from `main`, for the reason in "Loose ends" below.
+
+### Why the split, and what 78a is for
+
+Phase 78's fourteen items span five separable subsystems under one Release Gate, which cannot close
+until a real Vault container, a rotation pass over live encrypted data, a PFX unwrap and a cycle
+refusal all close together. **78a alone is what unblocks Phase 101 (Mesh Identity)**, which needs
+key custody from this phase and nothing else. 78b is the real sources (`hashivault_kv`, PFX/PKI);
+78c is credential-row key rotation plus the associated-data migration of the two columns
+`internal/crypto/envelope_bound.go` deliberately left unbound.
+
+### The correction that should be read before prioritizing 78b or 101
+
+**Phase 78 does not close the plaintext-credential-on-the-bus window, and 78a does not begin to.**
+The phase text already said reference passing needs two things and that 78 owns only one of them.
+Verifying that against the code made it stronger than the text: `internal/runner` has **no HTTP path
+to the Controller at all**, no client, no URL, nothing. Every byte moves over NATS and that bus has
+zero authentication, so a secret-resolution endpoint is necessarily NATS request/reply, and building
+one before Phase 101 would let any process that can reach the broker ask for any reference. That is
+a NET LOSS against today, where an attacker at least has to join the consumer group. So 78a records
+the shape in `internal/credstore/resolve`'s package comment and deliberately does not build it: no
+field was added to `wire.DispatchPayload` and no endpoint exists.
+
+Two stale numbers were corrected in passing. `internal/topology/stream.go`'s `streamMaxAge = 7 * 24h`
+has not existed since Phase 96c; retention is `DerivedMaxAge(budget)`, which is `budget * 336`
+(`internal/topology/budget.go:119`). The default budget still yields exactly seven days, which is
+why the refactor was invisible, but at `MaxOutageBudget` (12 hours) it yields **168 days** of
+retention on messages carrying plaintext credentials. Phases 93, 100 and 102 all cited the dead line;
+all three are corrected.
+
+### What was built
+
+`internal/credtype/lookup_factory.go` (new): `LookupFactory`, with `Namespace()`, `New(inputs)` and
+`Reference(metadata)`. `credtype.Lookup` itself is byte-identical, which is the load-bearing claim:
+Phase 22 promised the upgrade would be additive and this is where that was kept or broken.
+`Lookups` gained a factory registry beside its existing name map, `NewLookups` kept its signature so
+`cmd/controller` compiles unchanged, and both binding forms terminate in the new
+`Lookups.ResolveThrough` so the refusals exist once.
+
+`internal/ent/schema/credential_input_source.go` (new) plus back-references on `Credential`, both
+dialect migrations (`sqlite/0018`, `postgres/0015`), unique index on (target, input id). Both edges
+cascade on delete, which is deliberate and is the OPPOSITE of what `DeleteType` does: `Credential`
+holds a secret, and `DeleteCredential`'s own doc comment already made this call for template
+bindings. What makes it safe is that the target then fails loudly at injection with credtype's
+existing "required and has no value at injection" error.
+
+`internal/credstore/resolve/graph.go` (new): the recursive walk, `maxSourceDepth = 4`, cycle checked
+BEFORE depth so a two-node loop is never reported as a chain that is too long.
+
+`internal/credstore/ent_store_input_sources.go` (new): list, replace, and every refusal it can make
+at write time, including a full graph walk for cycles. Plus `GET`/`PUT
+/api/v1/credentials/{id}/input-sources`, mounted in `cmd/controller`.
+
+### Two real defects, neither predicted by the phase text
+
+1. **A credential whose required input comes from a source row could not be created at all.** The
+   write-time required-input check knew three exemptions (a default, a string-form external
+   reference, a launch prompt); a binding is a fourth, and it cannot exist before the credential it
+   binds. Creating first and binding second is not a workaround, it is a window in which the
+   credential exists and cannot authenticate. Fixed with `credstore.WithInputSources`, making the
+   credential and its bindings one write, plus a variadic `sourced` parameter on
+   `InputSchema.CheckValues`. Both variadic so all 107 existing call sites compile unchanged.
+2. **The cycle refusal reached the API as an unclassified 500.** A 500 tells a caller to retry
+   something that can never succeed. `ErrLookupCycle` and `ErrLookupDepth` now map to 409.
+
+### Measured, not asserted
+
+Fuzz, both run as real fuzzing rather than over their seeds: `FuzzExternalReference` **780,517
+executions, 100 new interesting, clean**; `FuzzResolutionGraph` **2,627 executions, 28 new
+interesting, clean** (it writes rows behind the store, since the store refuses cycles at write time).
+
+Benchmarks (i7-8700K): no source **118,676 ns/op, 25,760 B, 479 allocs**; one hop **293,784 ns/op,
+58,912 B, 1,147 allocs**; at the four-hop limit **744,076 ns/op, 149,392 B, 3,078 allocs**. The slope
+is the finding: about **156 microseconds, 31 KB and 650 allocations per hop**, so one hop costs more
+than an entire source-free resolution. That is the argument for the bound, and it runs once per bound
+credential per dispatch with a device fan-out waiting behind it.
+
+Coverage floors RAISED: `internal/credstore` 88.1 to 89.0 (measured 89.3),
+`internal/credstore/resolve` 95.9 to 96.0 (measured 96.6). `internal/ent/credentialinputsource` joins
+`excluded`, and so do `internal/ent/credential` and `internal/ent/credentialtype`, which Phase 22
+created and never listed.
+
+### Loose ends for the next session
+
+- **`b1a63ba` is still not on `main`.** It is Phase 74a's coverage floors and handoff, and without it
+  `make ci` fails on `main` for a reason unrelated to any current work. This branch was cut from it
+  rather than from `main` so the gate is green here. That commit still needs a pull request.
+- **`make ci` has NOT been run end to end this session.** Docker is unavailable on this machine, and
+  roughly twenty packages provision real containers. What WAS run: `go build ./...`, `go vet`,
+  `gofmt`, the full `go test ./internal/... ./pkg/...` before Docker went away, `internal/archtest`,
+  `internal/ent/migrate` parity, `tools/coverage-check` (200 packages, none below floor),
+  `tools/docs-lint`, and `tools/gendocs` proven idempotent by diffing two consecutive runs. The full
+  gate needs re-running once Docker is back, before this is called verified.
+- **78a ships a surface no source can resolve through yet**, deliberately. A binding whose source
+  type nothing can build fails with an explicit error naming it and listing what this controller has,
+  matching the declared-but-not-implemented convention. 78b's `hashivault_kv` is the first factory.
+  It could not be done in 78a: a factory needs a credential TYPE to select it, and
+  `TestTheCatalogCoversEveryAWXManagedType` refuses any managed namespace AWX does not also have, so
+  inventing a `file` source type to make the row form demonstrable was not available.
+
+## Previous session: Phase 86.5 (the interactive network CLI transport) and the runbook example conversion
+
+**Phase 86.5 is complete, built for real this time.** Its predecessor spec presented as 9 of 12 items
+done; none of it existed (`FAILURE_PATTERNS.md` #202). This session built the real thing, verified
+against `go test`/`-race` and a real device, not assumed. Nothing has been committed yet (no
+autonomous commits; awaiting the user's own go-ahead).
+
+`pkg/remoteexec/shell.go` (new): `Conn.Shell`/`Shell.WriteLine`/`Shell.ReadUntil`/`Shell.Close`, the
+PTY-based primitive `pkg/netcli` builds on. `WriteLine` sends a bare `"\r"`, not `"\r\n"`, and the first
+draft used `"\r\n"` and, run for real against a device, made every prompt appear to print twice (a
+phantom empty Enter from the trailing `\n`), caught only by live testing, never by the fake-server
+suite, which passed throughout.
+
+`pkg/netcli` (new): `Dialect`/`Session`/`IOS`/`FromPrompt`. Every literal in the `IOS` dialect (prompt
+shapes, `terminal length 0`, the `(config-if)#` sub-mode a real interface creation drives it into, the
+`"% Invalid input..."` error convention) was pinned against a real device
+(`pkg/netcli/live_probe_test.go`, `PLEIADES_E2E_IOS`-gated), not assumed.
+
+`net.cli.command`, `net.cli.config`, `net.ios.config` all flip to `StatusImplemented`. Catalog now 78
+registered, **74 implemented, 4 declared** (was 71/7); `CLAUDE.md`'s own tally corrected to match.
+
+Two further real bugs found only by running this against a real device, both fixed, both with a
+regression test:
+
+1. **A hang, not a slow response.** `net.cli.command`'s generic dialect has no paging-disable
+   convention, so a long-output command (`show version`) paused on the device's real `--More--`-style
+   pager forever, because `cmd/pleiades run` calls it with `context.Background()`. Fixed:
+   `internal/catalog/net/cli/cli.go`'s `runCommand` bounds every generic-dialect command to 30s
+   regardless of the caller's own ctx (`net.ios.config`'s own reads are deliberately NOT given this
+   bound: its paging genuinely is disabled, and a large legitimate backup taking longer than any fixed
+   bound is a real, different risk).
+2. **An unmasked secret.** `net.ios.config`'s `backup: true` stat is a full running-config; on the real
+   device it held a real `enable secret`, `enable password`, a local user's password hash, and a
+   TACACS+ shared key, printed unmasked in `--verbose` output. Fixed by documenting
+   `register_mask: backup` as required in the method's own `Doc.Returns` entry (there is no way for the
+   platform to know a stat is secret without being told).
+
+Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`
+(`TestCLI_RunAppliesAndRevertsIOSConfig`, `PLEIADES_E2E_IOS`-gated), drives the real binary through
+`init`/`add-host`/`add-credential`/`run` against the real DevNet Catalyst 8000 Always-On sandbox,
+verifies every claim over a second, independent connection this test opens itself. Passed clean
+(12.5s), confirmed independently afterward that nothing was left on the shared device.
+
+`examples/catalyst8000_lab/` (new): the same round trip as a runnable demo runbook, module-as-key
+sugar form with a `metadata:` block (a first draft used explicit `fqcn:`/`params:`, see "Debt" below),
+run for real against the same device, README documents both bugs above.
+
+Doc generation confirmed idempotent by diffing two consecutive `gendocs` runs byte-for-byte, not just
+re-running and eyeballing it. `TestCatalogDataDocsMatchTheRegistry` and the full `internal/archtest`
+suite pass; `TestEveryImplementedMethodAnswersReversibility` reports 74.
+
+### Documentation pass (same session)
+
+Every runbook example the project ships now uses module-as-key sugar. 278 conversions:
+266 in `Doc.Examples` across `internal/catalog/**` and their byte-identical
+`internal/forge/catalogdata` twins, which regenerated 133 `fqcn:` lines out of 70 pages under
+`docs/reference/`, plus 12 in `docs/02-get-started.md` and `examples/webserver_lab/`. The
+transform is exactly lossless, which the parser guarantees rather than the author claiming it:
+`internal/engine/task_syntax.go`'s `rewriteModuleKeyNode` accepts a mapping (arguments) or a null
+scalar (no arguments), so `fqcn: X` plus `params:` becomes `X:`, `params: {}` becomes `X: {}`, and
+a bare `fqcn: X` becomes a bare `X:`. Both forms were validated side by side through the real
+binary before any file was touched, and all 14 example runbooks validate afterward.
+
+Two files were deliberately NOT converted, and should stay that way:
+`examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml` and the "Two ways to write a Pleiades
+task" section of `examples/upgrade_ios/README.md`. That runbook is the explicit-form twin of
+`upgrade_ios_xe_sugar.yaml` and exists purely to show the two shapes side by side; converting it
+would delete the comparison.
+
+Three stale claims were found by the same pass and corrected. `README.md` and
+`docs/01-start-here.md` both said the catalog has "77 declared methods; 34 are implemented",
+understating implemented methods by forty; the real figure, from the generated
+`docs/reference/schemas/module-catalog.json`, is 78 registered, 74 implemented, 4 declared, and
+both passages were rewritten around the short list of four that are NOT implemented rather than a
+now-unwieldy list of what is. `docs/02-get-started.md` said `ssh_exec` "is the one action that
+genuinely reaches a device today", which stopped being true long before this session; it now says
+plainly that `ssh_exec` is a legacy action name kept working, and points at `exec.command` and the
+catalog. The same file had an orphaned `params:` fragment left by the conversion, since it is a
+partial snippet with no `fqcn:` line above it for the transform to anchor on; found by sweeping
+for `params:` afterward rather than by assuming the conversion was complete.
+
+### Three more Cisco IOS methods (same session)
+
+`net.ios.facts`, `net.ios.ping` and `net.ios.save`, all built on the Phase 86.5 interactive CLI
+transport, scaffolded through the real `pleiades forge` CLI and then implemented. Catalog goes to
+**81 registered, 77 implemented, 4 declared**.
+
+`net.ios.facts` closes a real hole rather than adding a convenience: `facts.gather` requires
+`FactGathererCapable`, which no Cisco device type declares, so before this a Cisco device could be
+commanded and configured but never described, and the only device facts in the catalog came from
+`net.catalyst.device_facts` over Catalyst Center's REST API. It parses `show version`,
+`show inventory` and `show ip interface brief`, and emits through `EmitFact`, matching
+`facts.gather` and `net.catalyst.device_facts`.
+
+**Every parser was written against output captured from the real device first**, via a new
+read-only diagnostic (`pkg/netcli/live_probe_test.go`'s `TestLiveIOSFactsShapes`), and the captured
+output is pasted verbatim into the unit tests as fixtures. Two shapes only a real device would have
+revealed: an interface status can be TWO words (`administratively down`) followed by a one-word
+protocol column, which a positional split silently truncates; and IOS omits the
+`round-trip min/avg/max` clause ENTIRELY at 0 percent success rather than printing zeroes, which is
+the ping shape a parser written against only the success case gets wrong. Both are covered.
+
+`net.ios.save` is built but deliberately NOT exercised against the DevNet sandbox: `write memory`
+would copy whatever other users have left in running-config into startup-config on a device we do
+not own. Covered by unit tests only, and that gap is stated in the Release Gate's own doc comment
+rather than left for a reader to find.
+
+Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`'s
+`TestCLI_RunGathersIOSFactsAndPings`, read-only so it needs no cleanup, passed against the real
+device (14.0s). It discovers the device's own management address over its own independent
+connection rather than hardcoding one, because this sandbox has no outbound path and a gate
+pinging the public internet would fail for reasons unrelated to this platform.
+
+Two defects in already-staged work were found by running the FULL suite, which the documentation
+pass before it had not done (it covered catalog/engine/forge/archtest only, and that gap is what
+let them through): `cmd/pleiades/doc_test.go` failed because the sugar conversion removed the
+`fqcn:` line it asserted on, and `pleiades doc --snippet` itself generated explicit `fqcn:`/`params:`
+skeletons, meaning the CLI was handing users the very form the examples had just stopped teaching.
+The generator now emits module-as-key sugar; a method with no parameters prints a bare
+`module.name:`, which `rewriteModuleKeyNode` accepts explicitly as a module with no arguments.
+
+`internal/catalog/net/ios` coverage moved 48.8 to 80.3 percent; its floor is raised 47.0 to 79.0.
+
+### Phase 74a: NETCONF (same session)
+
+**`net.netconf.config` is implemented and proven against real hardware.** Catalog goes to **81
+registered, 78 implemented, 3 declared**; the not-implemented list is now only `file.template`,
+`net.junos.config` and `net.eos.config`. Phase 74 was split rather than done whole: 74a is NETCONF,
+and RESTCONF (74b), gNMI/gNOI plus the credential model (74c) and the Junos/EOS device types (74d)
+keep every one of Phase 74's own 26 items, unrenumbered, with the mapping written into
+`.SPECIFICATION/IMPLEMENTATION.md`.
+
+Three new pieces. `pkg/remoteexec/subsystem.go`: `Conn.Subsystem`, the third session shape on the
+existing `Conn` after exec and the PTY shell, an `io.ReadWriteCloser` and nothing more.
+`pkg/datastore`: the shared port, with no `Commit`, because RESTCONF has no candidate datastore and
+gNMI's `Set` is atomic per request, so a three-way port declaring one would be false for two of its
+three implementations. `pkg/netconf`: RFC 6241 over RFC 6242 framing, implementing that port,
+dialing nothing.
+
+**Phase 74's own design was corrected in three places, each dated.** The largest: that phase has
+`pkg/netconf` dialing `golang.org/x/crypto/ssh` directly and spends a whole item mitigating the
+duplicated host-key handling. Both reasons it gives are about `internal/transport/ssh`, and neither
+is true of `pkg/remoteexec`. Phase 74's measured starting position is 2026-08-09; `pkg/remoteexec`
+first landed 2026-08-16 in `591441e`, so **the item predates the package it should have used**. The
+mitigation item is therefore moot rather than done. Second: `encoding/xml` is not new to this module
+(`pkg/filters/structured.go` already imports it with byte and depth bounds), though that phase's
+technical finding about entity expansion still holds and is now asserted by test rather than cited.
+Third, and not named by that phase at all: its device-type item would have left `NetconfCapable`
+unreachable, because it supplies only the structural half. `FAILURE_PATTERNS.md` #204.
+
+**Everything was pinned against the real device before it was written**, and four observations
+changed the design: NETCONF answers on port **830 and not 22**, where the device accepts the
+subsystem request and then immediately ends the channel (a client checking only the reply calls that
+working); the hello is **48,790 bytes**; both `base:1.0` and `base:1.1` are advertised, so "both" is
+the ordinary case; and **`:candidate` is not offered at all**, only `:writable-running`, which is why
+`edit-config` requests `rollback-on-error` whenever a device supports it. A fifth shaped the error
+type: this device sends **no `<error-message>`** for an unknown-element error, so a client keyed on
+that field renders an empty reason for a real failure.
+
+Testing is at three levels with no mocked transport anywhere. Unit tests drive bytes captured
+verbatim from the device, with the framing reader and writer each pinned independently against one
+real frame so a matched pair of bugs cannot pass. Five fuzz targets, ~2.2M executions, no crashers. A
+container conformance suite runs against **Netopeer2**, which disagrees independently and has earned
+it (`unknown-namespace` with a message where Cisco says `unknown-element` with none) and is where
+`:candidate`, `commit`, `discard-changes` and `lock`/`unlock` are proven, since the Cisco sandbox
+cannot host them. Toxiproxy severs the connection mid-session, asserting the failure is *detected*
+rather than merely timed out. Release Gate
+(`cmd/pleiades/net_netconf_config_release_gate_test.go`) passed against the real Catalyst 8000,
+verifying every claim **over an interactive CLI session it opens itself**: reading back over the same
+NETCONF session proves the server echoes what it was sent, while a different protocol proves the
+configuration actually changed.
+
+One real defect was found by a test rather than by a user: `realOpenSession` dereferenced a nil
+device to name it in a capability refusal, panicking instead of returning an error.
+
+### Next step
+
+Nothing is committed. This work is on `feature/Phase-74a-NETCONF`, cut from
+`feature/cisco-cli-buildout` rather than from `main`, because it builds directly on `Conn.Shell` and
+`pkg/netcli`, which exist only on that branch and are not merged. **Opening and merging the PR for
+`feature/cisco-cli-buildout` first, then rebasing this branch onto `main`, is what keeps the
+branch-per-phase rule intact rather than stacking a branch on a branch.** `make ci` passes apart from
+`docs-gen-check`, which runs `git diff --exit-code` over regenerated documentation and so cannot pass
+until this work is committed.
+
+**A second real device arrived at the end of this session and is not yet used:** an IOS XR Always-On
+sandbox (`sandbox-iosxr-1.cisco.com`, SSH 22, NETCONF 830, **gNMI 57777**). It matters twice over.
+It is a second vendor NETCONF implementation, which is the only way to tell a NETCONF client from an
+IOS-XE-shaped one; and its gNMI listener resolves Phase 74c's own open research item, which was
+recorded as "not yet verified: a gNMI/gNOI target". The plan for extending testing onto it is in the
+session that produced this work.
+
+### Debt, carried deliberately
+
+- Runbook authoring form was violated on the first draft of every file in `examples/catalyst8000_lab/`:
+  explicit `fqcn:`/`params:` instead of module-as-key sugar, and no `metadata:` block, despite an
+  existing memory (`pleiades-runbook-authoring-form`) already stating the rule, corrected 12+ times
+  before this session. Fixed in place; the memory itself was strengthened with a note that the failure
+  mode is not missing information, it is not consulting what is already loaded before writing runbook
+  YAML.
+- `net.junos.config`/`net.eos.config` remain `StatusDeclared`: zero device types implement
+  `JunosCapable`/`AristaEOSCapable`, and there is no Junos or EOS image in this environment, so
+  generating those device types would produce types proved only by their own scaffolded tests, which
+  is the shape `FAILURE_PATTERNS.md` #202 punishes. Phase 74d owns them. `net.netconf.config` is no
+  longer in this list: Phase 74a implemented it.
+- `SupportsNETCONF() bool` on `capability.CiscoIOSCapable` is now redundant with `NetconfPort()` plus
+  the `netconf_enabled` property `netconfBaseline` reads. It stays because removing a method from
+  that interface is a separate breaking change with its own blast radius, which is what Phase 74
+  already said to do; it is named debt, not a second one.
+- `pkg/datastore`'s `Store` interface has exactly one implementation today. That was a deliberate,
+  approved call rather than an oversight, and the defense is written into the phase's own Adversarial
+  item: its VALUE types are provably the intersection the RFCs leave, its verb set is copied from
+  three existing operation lists rather than coined, and the operations that do not generalize are
+  excluded by name with the reason recorded. It is still an interface with one implementer until 74b
+  lands RESTCONF, and that is the honest reading of it.
+- `examples/catalyst8000_lab/`'s four runbooks all name `Loopback8990` literally, on a device shared
+  with every other DevNet sandbox user, so two concurrent runs of the example would fight over one
+  interface. The Release Gate covering the same two methods derives its interface name from its
+  process ID; a runbook has no equivalent, because task-param rendering at run time is a separate
+  unbuilt piece of work. Documented prominently in the example's own README and in each runbook's
+  header rather than papered over.
+
 ## Previous session: Phase 96 (all four sub-phases, complete)
 
 **Phase 96 is complete, all four sub-phases, across two branches.**
@@ -11601,3 +12397,366 @@ session. Each reuses Phase 72's breaker, retry loop, and hop chain rather than b
 read this section before assuming any of their own scope from `.SPECIFICATION/IMPLEMENTATION.md`
 alone, per the "stale spec" lesson above; each deserves its own planning pass against the real
 current code first.
+
+## Archived handoff: Phase 101a, the dispatch subject namespace
+
+## Current Status (this session)
+
+**Phase 101a is built and its Release Gate passed.** It is uncommitted on branch
+`feature/Phase-101a-Dispatch-Subject-Namespace`, cut from `438484f` (78c's tip) rather than from
+`main`, deliberately: `main` still lacks `b1a63ba`, without which `make ci` fails there for reasons
+unrelated to any current work.
+
+### What 101a is, and what it is not
+
+Phase 101 (Mesh Identity) was split into three stages this session, following 78a/78b/78c. 101a is
+the dispatch subject namespace and the consumer rule that follows from it. 101b is operator-mode
+NKey/JWT with the account signing key in Phase 78a's store. 101c is time-boxed authority and
+revocation. **101a is the only stage carrying no authentication at all**, which is exactly why it
+could be tested against a real broker on its own.
+
+`topology.DispatchSubject()` took no parameters and returned the flat literal
+`pleiades.jobs.dispatch`. It now takes the device and returns
+`pleiades.jobs.dispatch.<token>`. `DispatchSubjectAll()` declares the wildcard the fleet consumer
+filters on.
+
+### The finding that shapes 101b, verified against the real driver
+
+**A subject permission does not restrict what a PULL consumer receives.** A pull consumer fetches
+through `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (`nats.go@v1.52.0/jetstream/pull.go:225`)
+and messages arrive on a reply inbox, so a Runner whose JWT names one device's subject can still
+drain every device's dispatch from the shared `runner-agent` consumer.
+
+The device token therefore buys two things, both real: it scopes what a Runner may PUBLISH, and it
+makes a filtered consumer expressible at all, since `FilterSubject` is the only thing that scopes
+delivery. Delivery-side scoping is a permission on WHICH CONSUMER a Runner may bind, and that is
+101b's. This is written into `DispatchSubject`'s own doc comment, because 101b would otherwise be
+designed against an assumption that is false.
+
+### The consumer-group rule, resolved rather than discovered
+
+Recorded in `DispatchConsumerConfig`'s doc comment. The fleet group's exactly-once guarantee is
+unchanged: one durable, one filter, still matching every dispatch exactly once. The rule is that
+**exactly one consumer may match any given dispatch subject**. NATS has no negative filter, so a
+scoped consumer cannot be carved out of the fleet's `>`; introducing one is a change to the
+PUBLISHER, routing those devices to a different prefix. Discovering that inside Phase 93 would have
+been expensive.
+
+### The hazard that turned out to be live
+
+A device id is operator-supplied and `pkg/inventory` documents it as opaque, so an ordinary
+`router1.example.com` would have expanded a three-token subject into a six-token one.
+
+**Corrected 2026-08-25, after the claim was already in a commit message.** That expansion would NOT
+have stopped the device being dispatched. The fleet filter is `pleiades.jobs.dispatch.>`, and `>`
+matches one or more trailing tokens, so delivery would have continued normally; only a single-token
+`pleiades.jobs.dispatch.*` filter receives nothing. Both were verified against a real broker. The
+real hazard is that an unsanitized id breaks every per-device filter, which is exactly the scoping
+101b and 101c are built on, plus wildcards in published subjects and collisions between ids that
+differ only in dropped characters. `SubjectToken` remains necessary; it is a prerequisite for
+scoping rather than a fix for a live outage.
+
+`topology.SubjectToken` closes it, sharing one unexported `legalIdentifier` with `DurableName` so
+the package holds one sanitize-and-hash implementation rather than two. `LogSubject` and
+`ResultSubject` were concatenating job ids the same unhardened way and now go through it too, INSIDE
+the builder, so no call site changed and the Runner that publishes a log subject and the Controller
+that subscribes to it agree by construction. `DeadLetterSubject` and `EventSubject` are deliberately
+excluded (both take an already-dotted value on purpose) and say so in their own comments.
+`LESSONS_LEARNED.md` #169 is the general rule this produced.
+
+### Verified
+
+`TestReleaseGate_TheDeviceTokenScopesDeliveryWithoutCostingTheFleetGroup` runs against a real
+`nats:2.14.4-alpine` broker in three acts and **passed in 15.2s**. Act three is the deliverable: the
+scoped consumer receives nothing but its own device, and the gate gives that negative its own
+positive control by proving the other dispatches reached the fleet consumer, so "received nothing
+else" cannot be satisfied by "nothing else was published".
+
+**The gate was falsified deliberately before being believed.** Widening the scoped filter to
+`DispatchSubjectAll()` makes it fail with "per-device consumer received 8 dispatches, want exactly
+1". Its device ids are dotted hostnames on purpose, so it runs on the id shape that used to break.
+
+`FuzzDispatchSubject` takes two device ids, because the property that matters most needs a pair:
+**523,318 executions, 95 corpus entries, no failures**. Benchmarks: 1.68 us / 450 B / 10 allocs per
+subject, and 13.4 ms / 3.55 MB / 90,011 allocs for a 10,000-device fan-out, which is around one
+percent of the 10,000 JetStream publishes it sits beside.
+
+Passing: `internal/topology`, `internal/dispatch`, `internal/api`, `internal/event`,
+`internal/runner`, `internal/archtest`, `internal/adapters/...`, `cmd/runner`. `go build`, `go vet`
+and `gofmt` clean.
+
+### Gates run after the commit
+
+All green, and the numbers rather than the fact:
+
+- **`make test-integration`: PASSED.** 151 packages, 0 failures, and `tests/e2e` green in 506s. That
+  is the Grand Integration Test driving the real controller and runner binaries against real
+  containers, so it is the RULE 0 proof the subject change works through the binaries rather than
+  only through package tests. `internal/ent/migrate`'s parity check passed alongside it.
+  Recorded because the first attempt at this claim was WRONG and the correction is the useful part:
+  the run was piped through `tail`, so the exit code belonged to `tail` rather than to `make`, and
+  the filter would have swallowed a `--- FAIL:` line. It was re-run capturing the real exit code.
+  A piped exit code is not evidence.
+- **`make docs-gen-check`: clean.** No diff and nothing untracked under `docs/reference` or
+  `internal/api/wellknown`.
+- **`make gosec`: clean.** 9 findings, all individually waived in `gosec-waivers.json`, none new.
+- **`make coverage`: clean.** 201 packages, none below their recorded floor. `internal/topology`
+  measures 96.0% against its floor of 95.8.
+  The floor was deliberately NOT raised, unlike Phase 78's habit of raising every floor it improved.
+  The gain is 0.2 points and 95.9 would leave 0.1 of headroom on a package whose tests provision
+  real Docker containers, where one container-timing miss moves the number by more than that. A
+  floor that flakes teaches people the gate can be ignored.
+
+### Next step
+
+**`make ci` end to end.** What it still adds beyond the above: `test-race` (the untagged suite under
+`-race`, which has NOT been run; only the tagged integration suite ran with it), `test-repeat`,
+`govulncheck`, `helm-lint` and `templ-gen-check`.
+
+### Loose ends
+
+- **The whole branch is still not on `main`**, `b1a63ba` and the three Phase 78 commits included.
+  101a is committed as `a06dff2` and pushed to its own remote branch.
+- **`make ci` has not been run end to end** in this session or the previous one, only its
+  constituent parts. Worth one run before merging. See Next step for exactly what is unproven.
+- **Phase 78d (PFX/PKI) is planned and not built.** See `HANDOFF_ARCHIVE.md`'s top entry for the
+  three findings that shrank it and the one correction that grew it.
+- **101a authenticates nothing**, so Phase 96a's and 96d's "the bus is unauthenticated" statement is
+  still true as written and was deliberately left alone. Correcting it is 101b's.
+
+## Archived handoff: Phase 101b mesh identity, plus FP #205 and #206
+
+## Current Status (this session)
+
+**Branch `feature/Phase-101b-Mesh-Identity`. 101b is built and release-gate proven; #205 and #206
+are both fixed and proven; all of it is uncommitted.** The branch sits on `a06dff2` (101a) which is
+pushed; nothing since is committed. No commit happens without the user's own live go-ahead.
+
+### What is on the branch, in three independent pieces
+
+**1. Phase 101b, the mesh identity mechanism.** `internal/meshid` (operator/account hierarchy on
+`nats-io/jwt/v2`, Apache 2.0; account identity key offline, account SIGNING key online and
+rotatable), `Issuer.Issue` minting short-lived user credentials (12h default) against `Grant`s
+(`FleetRunnerGrant`, `ControllerGrant`), custody as the `MeshSigningKey` ent entity under the SAME
+`EnvelopeService`/`MASTER_ENCRYPTION_KEY` (bound envelope, hook + interceptor, migrations
+sqlite/0020 + postgres/0017), and `topology.WithCredentials` dialing with creds as BYTES, never a
+file. `TestReleaseGate_OperatorModeMeshIdentity` passed in 12s against a real operator-mode broker
+and was falsified: widening the Runner grant to `>` fails with "publishing to
+\"pleiades.jobs.requested\" was permitted; a Runner can forge a job launch". The resolver property
+is proven: a credential minted AFTER the broker started connects with zero broker config change.
+101b's remaining closers (Adversarial Pattern Justification, Schema/Injection Hardening writeups,
+Documentation Gate, coverage floors, commit message) have not been written into the spec yet.
+
+**2. FAILURE_PATTERNS #205.** `dispatchDedupKey` now encodes through `topology.SubjectToken`, so
+the Runner's duplicate suppression is client-legal for the first time. Proven against a real bucket
+in `agent_dedup_container_test.go`, negative control included (the raw `jobID:deviceID` string is
+rejected by the real client).
+
+**3. FAILURE_PATTERNS #206, RESOLVED after having been reverted.** The recorded "shared-mode CAS
+mystery" was three of `publishWithTTL`'s four callers still passing the raw `l.itemID`, so every
+TTL-refresh publish went to a subject nothing read; the identity-encoder diagnostic that "proved
+the refactor correct" made those wrong arguments accidentally right, and the `-x` probe tracked the
+same missed sites, not the encoding. Full post-mortem in FP #206's Fix section and
+`LESSONS_LEARNED.md` #170. The shipped fix: encode once at `tryAcquireOnce` via
+`topology.SubjectToken`; the encoded key is a distinct `storedKey` TYPE, so passing an itemID where
+a key belongs is now a compile error (verified by writing that exact mistake; the build refuses
+it); `itemIDValid` retired; fuzz target strengthened to the total property (every itemID acquires
+and releases cleanly, no allowance branches); `TestNatsLockKeyIsASingleSubjectToken` pins broker
+state including that KeepAlive advances the ENCODED key's revision, the observable the missed sites
+broke silently.
+
+### Verified this session (each against real containers)
+
+- Reconstructed the reverted #206 attempt from the transcript: churn deadlocks to its 5m timeout
+  (reproduces the recorded collapse, worse). Switching ONLY the three missed sites: churn passes in
+  27s. That pair is the diagnosis proven in both directions.
+- Full `internal/lock` suite under `-race`: **passed, 32.6s, exit 0.**
+- `FuzzLockAcquisition` 60s against a real broker: **31,289 execs, 0 failures** on the new total
+  property. New regression test passes in 3.2s.
+- `gofmt`/`go vet` clean on everything touched.
+
+### Next step
+
+Write 101b's closing gates into the spec, then `make ci` end to end (still never run this branch:
+`test-race` full-suite, `test-repeat`, `govulncheck`, `helm-lint`, `templ-gen-check` remain
+unproven), then the user decides commits.
+
+### Loose ends
+
+- **101c is now unblocked**: the per-device KV grant blocker was #206 and it is resolved. 101c
+  still owns global enforcement, the 27 container-start migrations onto the shared helper, and
+  revocation.
+- **The shared test-broker helper is deferred to 101c** with the reason recorded in the spec.
+- **Phase 78d (PFX/PKI) is planned and not built.**
+- **Phase 96a/96d's "the bus is unauthenticated" statements are still true as written** until 101c
+  flips enforcement; deliberately left alone.
+
+## Archived handoff: Phase 40 steps 17-19 finished, plus an unplanned four-skin UI pass
+
+## Current Status (this session)
+
+**Branch `feature/Phase-40-Run-Journal`. Build steps 1 through 19 of
+`.SPECIFICATION/PHASE40_MASKING_DECISION.md` Section 8 are DONE, committed, and green,
+including the two items the previous handoff still listed as open (17, and the rest of 19)
+and the "Corrections" paragraph. Only step 20, the human dogfood pass, and a full `make ci`
+run remain.** The previous session's entry is above this one.
+
+The previous handoff's own status line was stale on arrival: it said step 19 was "half done"
+and did not credit step 17 at all, but both were already finished by the commits below (the
+`ent` schema docstring claim was also wrong -- every schema file already had one; that was a
+bad read, not missing work, and needed no fix).
+
+### The fourteen commits since the last handoff
+
+```
+9aad536 docs(engine): correct nine doc comments citing things that no longer exist
+63ca33a fix(journal): give the write probe a unique name, so two runs cannot abort each other
+3d8c746 fix(meshid): grant the run journal's dead letter subject to the Controller
+611f8ee fix(pleiades): open the run journal before the command prints anything
+86bf22e docs(journal): document the sink struct fields, and use American spelling
+c5ddb20 feat(ui): add a third skin, macOS-like and built from Apple system colors
+abffdfd docs(journal): add the field reference for one journal record
+409a799 fix(ui): give Honeycrisp real shape, not just Apple colors
+1234f40 test(runner): add the Walk-tier journal's redelivery gate (Phase 40 step 17)
+c71dc33 fix(ui): make Las Ventanas Windows 95 and Honeycrisp macOS on sight
+50b4f15 feat(ui): add Ventanas Once, a fourth skin for Windows 11 parity
+89fe5f3 fix(ui): stop the fourth theme button overflowing its own row
+62dc6c8 feat(ui): make WCAG AA a guarantee of accessibility mode, not of a skin
+554da39 fix(ui): let a theme button's own label break, not just the row
+```
+
+The first five plus `1234f40` and `abffdfd` are Phase 40 build-order work. Everything else
+(`c5ddb20` through `554da39`, seven commits) is an unplanned side quest the user asked for
+mid-session: the web UI's appearance system. It is a real, tested, contrast-gated change and
+it is on this branch, but it has nothing to do with the run journal and should not be read as
+part of Section 8's scope -- flag it as a separate concern if this branch is ever split before
+merge.
+
+### Phase 40 build order: what actually closed since the last handoff
+
+- **Step 17 (`1234f40`)**: the Walk-tier redelivery gate,
+  `cmd/runner/journal_redelivery_release_gate_test.go`. Two tests against real NATS/sshd
+  containers: forced redelivery to exhaustion asserts `MaxDeliverDefault` distinct ordered
+  `Attempt` values with no duplicate `(job,device,attempt,node)` tuple and distinct `RunID`s;
+  a positive-credential control asserts the journal names the node that ran, not one that
+  failed to start. Both passed clean, twice, and once more under `-race`. The Crawl half was
+  already done and mutation-tested the session before.
+- **Step 19's remainder**: `docs/10-running-in-production.md` gained "Every task execution is
+  recorded in a run journal" under Failure semantics, and "`journal_entries` is the second
+  deliberate exception" beside `Fact.payload` plus the `Revision` disclosure under Data
+  handling, replacing the stale "does not yet run real tasks at all" claim (false since Phase
+  16). `.SPECIFICATION/IMPLEMENTATION.md`'s Book 12 gate item is resolved by git-archaeology
+  rather than guessed at: no Book 12 ever existed when the docs program landed, so the journal's
+  field reference went into Book 10 instead, documented in that same commit (`abffdfd`).
+  `changelog/run-journal.added.md` exists.
+- **Section 8's "Corrections" paragraph**: all three items are discharged, each with an inline
+  comment naming what it replaced --
+  `internal/engine/executor.go:257` and `internal/engine/dag.go:239` no longer cite the deleted
+  `credential.Mask`; `RunResult`'s doc no longer claims results arrive "in the order each one
+  finished" (it is deterministic graph position, per `runConcurrently`); `pkg/sdk/diff.go` and
+  `pkg/remotefile/remotefile.go` no longer cite the removed `pkg/collection.Inverse.Captures`.
+- **Step 18** was already done and recorded in the previous handoff (the poison-message defect,
+  `FAILURE_PATTERNS.md` #208).
+
+**Explicitly still out of scope, correctly**: the spec's own closing paragraph names one more
+thing worth doing (`internal/adapters/native/adapter.go`'s secret-union computation could move
+earlier than `executor.Run` returns) but calls it "its own small item" outside this decision.
+It was checked this session and confirmed still not done -- that is correct, not a gap.
+
+### What remains
+
+1. **Step 20, the human dogfood pass.** Not started. Must not be skipped or reduced to running
+   the existing automated suite again -- the spec's own reason: `register_mask` once shipped
+   with every one of its own tests green while masking nothing, because every test shared the
+   wrong path assumption the bug had. This needs a person (or an agent acting as one) actually
+   running `pleiades init`, writing a real runbook, running it, and reading the resulting
+   journal file/rows with fresh eyes, specifically trying to catch the mechanism proving
+   something the field itself does not actually guarantee.
+2. **A full, clean `make ci` run.** Never completed on this branch. THE BLOCKER described in
+   the previous handoff is unchanged and still unresolved: `internal/catalog/pleiades/builtin/wait`
+   and `pkg/remotefile` fail under full parallel `-race` load from what looks like real
+   TCP-port contention, not Docker (neither package imports testcontainers; `wait` opens real
+   ephemeral-port `net.Listener`s and takes 13.8s alone, `pkg/remotefile` runs
+   `remoteexectest.Start`, an in-process real-TCP SSH server, and takes 0.13s alone; both pass
+   in isolation). This needs reproducing once under a real full `make ci`, the actual failure
+   text captured per package, and then a decision -- fix the contention, or a `flaky-packages.json`
+   entry with a real, specific, written reason, never a blind copy of the container-boilerplate
+   entries that file's own header warns against. `pkg/remotefile` at 0.13s is the suspicious
+   one: that fast failing under load reads more like a bind race in the harness than genuine
+   contention.
+
+Do step 20 before `make ci`, not after: a dogfood pass is likelier to surface something worth
+fixing, and re-running the full gate after a fix is cheaper than running it twice regardless.
+
+## Archived handoff: Phase 40 steps 1 through 19, before the dogfood pass
+
+## Current Status (this session)
+
+**Branch `feature/Phase-40-Run-Journal`. Build steps 1 through 19 of
+`.SPECIFICATION/PHASE40_MASKING_DECISION.md` Section 8 are DONE, committed, and green. Only step
+20 (the human dogfood pass) and a full clean `make ci` run remain before this phase is finished.**
+Full detail on everything that closed this session -- steps 17 and 19, the "Corrections"
+paragraph, and an unplanned but real UI side quest -- is in `HANDOFF_ARCHIVE.md`'s most recent
+entry; read that before starting, not just this summary.
+
+### The two things actually left
+
+1. **Step 20, the human dogfood pass.** Not started. The spec's own words: "Do the human
+   dogfood pass before checking anything off." `register_mask` once shipped with every one of
+   its own tests green while masking nothing, because every test shared the wrong path
+   assumption the bug had. This means actually running `pleiades init`, writing a real runbook,
+   running it, and reading the resulting journal (the Crawl-tier `.jsonl` file, and the Walk-tier
+   `journal_entries` rows via a real Controller/Runner pair) with fresh eyes -- not re-running
+   the existing automated suite and calling that the dogfood pass.
+2. **A full, clean `make ci` run.** Never completed on this branch. There is a real, previously
+   diagnosed blocker, not an environmental one: `internal/catalog/pleiades/builtin/wait` and
+   `pkg/remotefile` fail under full parallel `-race` load from what looks like real TCP-port
+   contention (neither imports testcontainers; both pass in isolation). Reproduce once under a
+   real full `make ci`, capture the actual failure text per package, then decide -- fix the
+   contention, or a `flaky-packages.json` entry with a real written reason. Do step 20 first:
+   it is more likely to surface something worth fixing than a second `make ci` run is.
+
+Nothing on this branch is pushed. Working tree is clean as of the last commit below.
+
+### Commits since the branch started (newest first)
+
+```
+554da39 fix(ui): let a theme button's own label break, not just the row
+62dc6c8 feat(ui): make WCAG AA a guarantee of accessibility mode, not of a skin
+89fe5f3 fix(ui): stop the fourth theme button overflowing its own row
+50b4f15 feat(ui): add Ventanas Once, a fourth skin for Windows 11 parity
+c71dc33 fix(ui): make Las Ventanas Windows 95 and Honeycrisp macOS on sight
+1234f40 test(runner): add the Walk-tier journal's redelivery gate (Phase 40 step 17)
+409a799 fix(ui): give Honeycrisp real shape, not just Apple colors
+abffdfd docs(journal): add the field reference for one journal record
+c5ddb20 feat(ui): add a third skin, macOS-like and built from Apple system colors
+86bf22e docs(journal): document the sink struct fields, and use American spelling
+611f8ee fix(pleiades): open the run journal before the command prints anything
+3d8c746 fix(meshid): grant the run journal's dead letter subject to the Controller
+63ca33a fix(journal): give the write probe a unique name, so two runs cannot abort each other
+9aad536 docs(engine): correct nine doc comments citing things that no longer exist
+6b078fa docs(handoff): record Phase 40 steps 1 through 16, and correct the blocker
+ab08e70 fix(journal): acknowledge a batch the store can never accept (FP #208)
+631f23e docs(journal): document the run journal, and correct a claim false since Phase 16
+f19602f feat(journal): store the Walk tier's run journal and consume it
+b0826f5 feat(journal): publish the Walk tier's run journal onto the job's subject
+8fe51b3 feat(journal): write the Crawl tier's run journal to disk
+1060ad0 docs(lessons): record what a "no input survives" fuzz assertion needs
+533d0b9 feat(engine): record every node execution in a run journal
+525fa22 feat(commitgate): refuse a commit that breaks a rule a machine can check
+ef7c96a test(archtest): forbid internal/engine from importing internal/ent
+```
+
+**`c5ddb20` through `554da39` (seven commits) are an unplanned side quest**, not Section 8 work:
+the web UI's appearance system, requested mid-session. It is real, tested (the full WCAG contrast
+matrix, now a11y-mode-gated by explicit product decision -- see the archive entry for why), and
+committed on this branch, but it is unrelated to the run journal. Flag it separately if this
+branch is ever split before merging to `main`.
+
+### Everything else
+
+Steps 1-16 were done, committed and green as of the previous handoff. Steps 17-19 and the
+"Corrections" paragraph closed this session; the archive entry above has the specifics (which
+files, which tests, which real defect step 18 found and how it was fixed). Don't re-verify these
+from scratch -- they were checked against the actual code this session, not just read from a
+stale doc.

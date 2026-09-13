@@ -445,7 +445,7 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	if !payload.Interruptible {
 		t.Error("payload.Interruptible = false, want true (pb-1 declares no metadata section, so the safe default applies)")
 	}
-	if got, want := bus.lastTopic(), topology.DispatchSubject(); got != want {
+	if got, want := bus.lastTopic(), topology.DispatchSubject("dev-id-123"); got != want {
 		t.Errorf("published topic = %q, want %q", got, want)
 	}
 }

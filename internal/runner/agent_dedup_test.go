@@ -5,9 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
 
@@ -53,9 +56,47 @@ func testPayload() wire.DispatchPayload {
 // separate mechanisms already agree on. If this key ever diverges, the
 // suppression silently stops matching the dispatches it is meant to
 // suppress, and nothing else would notice.
+//
+// This test is worth reading as a cautionary example of its own subject,
+// which is why the original assertion is quoted rather than deleted. It
+// used to read `dispatchDedupKey(testPayload()) == "job-1:dev-1"`, and it
+// passed for as long as the feature was completely dead. It pinned that
+// the key AGREED with the other two mechanisms and never once asked
+// whether the agreed string was legal where it had to be a KV key, which
+// it was not: see FAILURE_PATTERNS.md #205. Agreement is not validity.
 func TestDispatchDedupKeyMatchesTheProducerAndTheWAL(t *testing.T) {
-	if got, want := dispatchDedupKey(testPayload()), "job-1:dev-1"; got != want {
-		t.Fatalf("dispatchDedupKey = %q, want %q, which is the key internal/dispatch stamps on the publish and internal/runner's write-ahead log derives", got, want)
+	// The identity, which is what must agree.
+	identity := testPayload().JobID + ":" + testPayload().DeviceID
+	if got, want := dispatchDedupKey(testPayload()), topology.SubjectToken(identity); got != want {
+		t.Fatalf("dispatchDedupKey = %q, want %q, the encoding of %q, which is the identity internal/dispatch stamps on the publish and internal/runner's write-ahead log derives",
+			got, want, identity)
+	}
+}
+
+// TestDispatchDedupKeyIsLegalAsAKVKey is the assertion whose absence let
+// FAILURE_PATTERNS.md #205 ship dead. It checks the property the key has to
+// have to do anything at all, rather than the property it was chosen for.
+//
+// The character class is nats.go's own (jetstream/kv.go:502) restated here
+// rather than imported, because keyValid is unexported. The container test
+// beside this one is what proves the restatement is faithful; this one is
+// what makes a violation legible without Docker.
+func TestDispatchDedupKeyIsLegalAsAKVKey(t *testing.T) {
+	legalKVKey := regexp.MustCompile(`^[-/_=.a-zA-Z0-9]+$`)
+	for _, p := range []wire.DispatchPayload{
+		testPayload(),
+		{JobID: "4d6e9c14-0785-49d2-b821-51a81b54b1cc", DeviceID: "router1.example.com"},
+		{JobID: "", DeviceID: ""},
+		{JobID: "job 1", DeviceID: "dev:2"},
+		{JobID: "*", DeviceID: ">"},
+	} {
+		key := dispatchDedupKey(p)
+		if !legalKVKey.MatchString(key) {
+			t.Errorf("dispatchDedupKey(%+v) = %q, which nats.go rejects with ErrInvalidKey before any wire traffic", p, key)
+		}
+		if strings.Contains(key, ".") {
+			t.Errorf("dispatchDedupKey(%+v) = %q, which spans several subject tokens under $KV.<bucket>.", p, key)
+		}
 	}
 }
 
@@ -66,7 +107,10 @@ func TestAlreadyExecuted(t *testing.T) {
 		want  bool
 	}{
 		{"unseen work runs", &fakeDedupStore{}, false},
-		{"seen work is suppressed", &fakeDedupStore{seen: map[string]bool{"job-1:dev-1": true}}, true},
+		// Keyed by the real encoder rather than a literal: a fixture that
+		// restates the key cannot notice the encoder changing under it,
+		// which is how FAILURE_PATTERNS.md #205 stayed invisible.
+		{"seen work is suppressed", &fakeDedupStore{seen: map[string]bool{dispatchDedupKey(testPayload()): true}}, true},
 		{"a store read failure runs the work rather than skipping it",
 			&fakeDedupStore{readErr: errors.New("kv unavailable")}, false},
 	}
@@ -108,8 +152,8 @@ func TestMarkExecutedRecordsTheKey(t *testing.T) {
 	a.dedupTTL = time.Hour
 
 	a.markExecuted(context.Background(), testPayload())
-	if len(store.marked) != 1 || store.marked[0] != "job-1:dev-1" {
-		t.Fatalf("marked = %v, want exactly [job-1:dev-1]", store.marked)
+	if len(store.marked) != 1 || store.marked[0] != dispatchDedupKey(testPayload()) {
+		t.Fatalf("marked = %v, want exactly [%s]", store.marked, dispatchDedupKey(testPayload()))
 	}
 
 	failing := &fakeDedupStore{markErr: errors.New("kv unavailable")}

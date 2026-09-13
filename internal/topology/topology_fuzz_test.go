@@ -1,6 +1,7 @@
 package topology_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/topology"
@@ -48,6 +49,85 @@ func FuzzDurableName(f *testing.F) {
 		again := topology.DurableName(logical)
 		if got != again {
 			t.Fatalf("DurableName(%q) not deterministic: got %q then %q", logical, got, again)
+		}
+	})
+}
+
+// FuzzDispatchSubject is Phase 101a's Schema/Injection Hardening proof for
+// the dispatch subject: no device id, however adversarial, can widen a
+// dispatch subject beyond the one token it is allowed to occupy.
+//
+// A device id is the input that makes this worth fuzzing rather than
+// tabling. It is operator-supplied and pkg/inventory documents it as
+// opaque, so it arrives from a YAML inventory or the API as arbitrary
+// text, and it reaches subject construction on the dispatch path at the
+// moment a job fans out.
+//
+// Be precise about what an over-wide id actually breaks, because the
+// tempting claim is wrong and was made once already. The fleet filter ends
+// in ">", which matches one or more trailing tokens, so a dotted id would
+// still be DELIVERED today (verified against a real broker). What it
+// breaks is any single-token filter, "pleiades.jobs.dispatch.*", which is
+// exactly the per-device scoping the next stage of this work is built on.
+// Separately, an id carrying "*" or ">" would put a wildcard in a
+// published subject, and two ids differing only in dropped characters
+// would collide on one subject.
+//
+// Two inputs rather than one, because the property that matters most needs
+// a pair: two DIFFERENT device ids must never land on the same subject.
+// That is the whole reason a hash is appended rather than the input merely
+// being sanitized, and a single-input fuzz cannot observe it.
+func FuzzDispatchSubject(f *testing.F) {
+	seeds := [][2]string{
+		{"sw1", "sw2"},
+		{"a.b", "a/b"},
+		{"", "unnamed"},
+		{"router1.example.com", "router1_example_com"},
+		{"*", ">"},
+		{"dev id", "dev\tid"},
+		{"\x00\x01\x02", "\x00\x01\x03"},
+		{"unicode-é中文", "unicode-e"},
+		{"4d6e9c14-0785-49d2-b821-51a81b54b1cc", "4d6e9c14-0785-49d2-b821-51a81b54b1cd"},
+	}
+	for _, s := range seeds {
+		f.Add(s[0], s[1])
+	}
+
+	prefix := strings.TrimSuffix(topology.DispatchSubjectAll(), ">")
+
+	f.Fuzz(func(t *testing.T, idA, idB string) {
+		subject := topology.DispatchSubject(idA)
+
+		if !strings.HasPrefix(subject, prefix) {
+			t.Fatalf("DispatchSubject(%q) = %q, which is not under the fleet filter %q",
+				idA, subject, topology.DispatchSubjectAll())
+		}
+
+		// Exactly one token after the prefix. This is the property the
+		// whole function exists for: the fleet filter and a per-device
+		// filter both assume it, and neither would report its absence.
+		token := strings.TrimPrefix(subject, prefix)
+		if token == "" {
+			t.Fatalf("DispatchSubject(%q) = %q, whose device token is empty", idA, subject)
+		}
+		if !legalDurableName.MatchString(token) {
+			t.Fatalf("DispatchSubject(%q) = %q, whose device token %q is not a single legal token",
+				idA, subject, token)
+		}
+
+		// Determinism has to hold for every fuzzed input, not only the
+		// seeds: the Runner publishing a subject and the Controller
+		// filtering on it are different processes agreeing by nothing more
+		// than calling this function.
+		if again := topology.DispatchSubject(idA); subject != again {
+			t.Fatalf("DispatchSubject(%q) not deterministic: got %q then %q", idA, subject, again)
+		}
+
+		// The pair property. Two different devices sharing one subject
+		// would mean one device's dispatch delivered under another's name,
+		// which a per-device permission would then authorize.
+		if idA != idB && subject == topology.DispatchSubject(idB) {
+			t.Fatalf("device ids %q and %q both produced subject %q", idA, idB, subject)
 		}
 	})
 }

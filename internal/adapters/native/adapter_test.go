@@ -41,14 +41,34 @@ func (m *mockBus) Close() error {
 	return nil
 }
 
-// lastJobEvent decodes the most recently published wire.JobEvent.
+// logEvents returns only what was published to a job's log subject.
+//
+// Adapter publishes onto more than one subject now (Phase 40 added the
+// run journal), so an assertion about the job log stream has to say so.
+// Counting every publish would make a test about log events fail the
+// next time an unrelated subject is added, which is the shape of an
+// assertion that gets loosened rather than fixed.
+func (m *mockBus) logEvents(jobID string) []event.Event {
+	want := topology.LogSubject(jobID)
+	var out []event.Event
+	for _, p := range m.published {
+		if p.topic == want {
+			out = append(out, p.evt)
+		}
+	}
+	return out
+}
+
+// lastJobEvent decodes the most recently published wire.JobEvent from a
+// job's log subject.
 func (m *mockBus) lastJobEvent(t *testing.T) wire.JobEvent {
 	t.Helper()
-	if len(m.published) == 0 {
-		t.Fatal("no events published")
+	events := m.logEvents("job-1")
+	if len(events) == 0 {
+		t.Fatal("no job log events published")
 	}
 	var evt wire.JobEvent
-	if err := json.Unmarshal(m.published[len(m.published)-1].evt.Data, &evt); err != nil {
+	if err := json.Unmarshal(events[len(events)-1].Data, &evt); err != nil {
 		t.Fatalf("failed to unmarshal job event: %v", err)
 	}
 	return evt
@@ -101,14 +121,8 @@ func TestAdapter_Execute_NoopReportsChanged(t *testing.T) {
 		t.Fatalf("Execute() returned unexpected error: %v", err)
 	}
 
-	if len(bus.published) != 2 {
-		t.Fatalf("published %d events, want 2 (started, task.completed)", len(bus.published))
-	}
-	wantSubject := topology.LogSubject("job-1")
-	for _, p := range bus.published {
-		if p.topic != wantSubject {
-			t.Errorf("published topic = %q, want %q", p.topic, wantSubject)
-		}
+	if got := bus.logEvents("job-1"); len(got) != 2 {
+		t.Fatalf("published %d job log events, want 2 (started, task.completed)", len(got))
 	}
 
 	final := bus.lastJobEvent(t)
@@ -225,8 +239,8 @@ func TestAdapter_Execute_UnknownRunbookReturnsError(t *testing.T) {
 	// The "started" event still went out before runbook resolution failed:
 	// Execute publishes it first, deliberately, so a caller sees a job
 	// genuinely began even when it fails immediately afterward.
-	if len(bus.published) != 1 {
-		t.Fatalf("published %d events, want 1 (started only)", len(bus.published))
+	if got := bus.logEvents("job-1"); len(got) != 1 {
+		t.Fatalf("published %d job log events, want 1 (started only)", len(got))
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
@@ -132,6 +133,36 @@ func (_c *CredentialCreate) AddTemplates(v ...*Template) *CredentialCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTemplateIDs(ids...)
+}
+
+// AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
+func (_c *CredentialCreate) AddInputSourceIDs(ids ...int) *CredentialCreate {
+	_c.mutation.AddInputSourceIDs(ids...)
+	return _c
+}
+
+// AddInputSources adds the "input_sources" edges to the CredentialInputSource entity.
+func (_c *CredentialCreate) AddInputSources(v ...*CredentialInputSource) *CredentialCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddInputSourceIDs(ids...)
+}
+
+// AddSourcedByIDs adds the "sourced_by" edge to the CredentialInputSource entity by IDs.
+func (_c *CredentialCreate) AddSourcedByIDs(ids ...int) *CredentialCreate {
+	_c.mutation.AddSourcedByIDs(ids...)
+	return _c
+}
+
+// AddSourcedBy adds the "sourced_by" edges to the CredentialInputSource entity.
+func (_c *CredentialCreate) AddSourcedBy(v ...*CredentialInputSource) *CredentialCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddSourcedByIDs(ids...)
 }
 
 // Mutation returns the CredentialMutation object of the builder.
@@ -305,6 +336,38 @@ func (_c *CredentialCreate) createSpec() (*Credential, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.InputSourcesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.InputSourcesTable,
+			Columns: []string{credential.InputSourcesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SourcedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.SourcedByTable,
+			Columns: []string{credential.SourcedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(credentialinputsource.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

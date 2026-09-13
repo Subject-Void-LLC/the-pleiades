@@ -96,9 +96,36 @@ type Conditional struct {
 // explains why not when it does not, naming the specific when, when_or, or
 // when_cel expression that evaluated false. Reason is empty when OK is
 // true.
+//
+// Ordinal and Total carry as numbers what Reason already states in a
+// sentence, so a caller that needs to know which condition of how many
+// decided a skip never has to parse English back out of Reason. The run
+// journal (JournalEntry.SkipOrdinal and SkipTotal, journal.go) is that
+// caller, and it needs the split for a specific reason: it stores no free
+// text a runbook author wrote, and Reason quotes the author's own
+// expression verbatim. evalAnd and evalOr already compute both numbers to
+// build the sentence, so these fields are taken from that same
+// computation rather than re-derived, and the sentence itself is
+// unchanged.
 type ConditionResult struct {
 	OK     bool
 	Reason string
+
+	// Ordinal is which item of the condition list decided this result,
+	// counting from 1, and zero when no single item did. evalAnd sets it,
+	// because AND semantics short-circuit on the first false item and
+	// exactly one item is therefore responsible. evalOr leaves it zero
+	// even on a skip: under OR semantics every item had to evaluate false
+	// and none of them is the actionable one, which is exactly why
+	// evalOr's own Reason names all of them instead of one.
+	Ordinal int
+
+	// Total is how many items the condition list held.
+	//
+	// Both fields are zero when OK is true. A condition that holds has no
+	// ordinal to be out of, and leaving the pair zero keeps "not
+	// applicable" one readable shape rather than two.
+	Total int
 }
 
 // conditionItem pairs one raw when/when_or/when_cel expression with its own
@@ -165,7 +192,14 @@ func (cp *ConditionProgram) evalAnd(vars map[string]interface{}) (ConditionResul
 			if len(cp.items) > 1 {
 				reason = fmt.Sprintf("%s condition %d of %d evaluated false: `%s`", cp.keyword, i+1, len(cp.items), item.expr)
 			}
-			return ConditionResult{OK: false, Reason: reason}, nil
+			// i+1 and len(cp.items) are the very two numbers the
+			// multi-item sentence above formats, carried across rather
+			// than recomputed, so the numbers and the sentence cannot
+			// drift apart. They are set on the single-item branch too,
+			// where the sentence omits them: a lone when_cel is condition
+			// 1 of 1, and a caller reading the numbers should not have to
+			// special-case the degenerate list.
+			return ConditionResult{OK: false, Reason: reason, Ordinal: i + 1, Total: len(cp.items)}, nil
 		}
 	}
 	return ConditionResult{OK: true}, nil
@@ -191,7 +225,10 @@ func (cp *ConditionProgram) evalOr(vars map[string]interface{}) (ConditionResult
 	if len(cp.items) > 1 {
 		reason = fmt.Sprintf("%s: all %d conditions evaluated false: %s", cp.keyword, len(cp.items), strings.Join(falseExprs, ", "))
 	}
-	return ConditionResult{OK: false, Reason: reason}, nil
+	// len(cp.items) is the same count the multi-item sentence above
+	// formats. Ordinal stays zero here: every item contributed to this
+	// skip, so no single one owns it. See ConditionResult.Ordinal.
+	return ConditionResult{OK: false, Reason: reason, Total: len(cp.items)}, nil
 }
 
 // Compile turns this Conditional into a compiled *ConditionProgram using

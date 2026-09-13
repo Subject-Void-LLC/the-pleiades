@@ -744,6 +744,8 @@ var Endpoints = []Endpoint{
 	CreateTemplateConfig,
 	ListTemplateCredentials,
 	SetTemplateCredentials,
+	ListCredentialInputSources,
+	SetCredentialInputSources,
 	ListSchedules,
 	GetSchedule,
 	CreateSchedule,

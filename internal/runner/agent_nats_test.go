@@ -100,7 +100,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wrap payload: %v", err)
 	}
-	if err := bus.Publish(ctx, topology.DispatchSubject(), *evt); err != nil {
+	if err := bus.Publish(ctx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	}
 
 	dlqConsumer, err := js.CreateOrUpdateConsumer(ctx, topology.StreamName, jetstream.ConsumerConfig{
-		FilterSubject: topology.DeadLetterSubject(topology.DispatchSubject()),
+		FilterSubject: topology.DeadLetterSubject(topology.DispatchSubject(payload.DeviceID)),
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckPolicy:     jetstream.AckNonePolicy,
 	})
@@ -143,8 +143,8 @@ func TestAgent_FailedExecutionEventuallyDeadLetters(t *testing.T) {
 	if err := json.Unmarshal(dlqMsg.Data(), &envelope); err != nil {
 		t.Fatalf("unmarshal dead letter envelope: %v", err)
 	}
-	if envelope.OriginalSubject != topology.DispatchSubject() {
-		t.Errorf("OriginalSubject = %q, want %q", envelope.OriginalSubject, topology.DispatchSubject())
+	if envelope.OriginalSubject != topology.DispatchSubject(payload.DeviceID) {
+		t.Errorf("OriginalSubject = %q, want %q", envelope.OriginalSubject, topology.DispatchSubject(payload.DeviceID))
 	}
 
 	var dlqEvt event.Event
@@ -295,7 +295,7 @@ func TestAgent_ReleaseGate_PullsFiveDispatchesWithoutDuplicating(t *testing.T) {
 		if err != nil {
 			t.Fatalf("wrap payload %d: %v", i, err)
 		}
-		if err := bus.Publish(ctx, topology.DispatchSubject(), *evt); err != nil {
+		if err := bus.Publish(ctx, topology.DispatchSubject(payload.DeviceID), *evt); err != nil {
 			t.Fatalf("publish %d: %v", i, err)
 		}
 	}

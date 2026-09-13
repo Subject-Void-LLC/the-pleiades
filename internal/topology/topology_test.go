@@ -28,8 +28,85 @@ func TestEventSubject(t *testing.T) {
 }
 
 func TestDispatchSubject(t *testing.T) {
-	if got, want := topology.DispatchSubject(), "pleiades.jobs.dispatch"; got != want {
-		t.Errorf("DispatchSubject() = %q, want %q", got, want)
+	// The device token is what the whole change is for, so the literal is
+	// asserted rather than rebuilt from the same helper the code uses,
+	// which would assert nothing.
+	if got, want := topology.DispatchSubject("sw1"), "pleiades.jobs.dispatch.sw1-cf4ac28e"; got != want {
+		t.Errorf("DispatchSubject(%q) = %q, want %q", "sw1", got, want)
+	}
+}
+
+// TestDispatchSubjectIsOneTokenPerDevice is the property the flat subject
+// could not offer: two devices never share a dispatch subject, and each
+// subject adds exactly one token, so a filter over the prefix matches
+// every device and a filter over one device matches only it.
+func TestDispatchSubjectIsOneTokenPerDevice(t *testing.T) {
+	a := topology.DispatchSubject("device-a")
+	b := topology.DispatchSubject("device-b")
+	if a == b {
+		t.Fatalf("two devices share one dispatch subject: %q", a)
+	}
+
+	prefix := strings.TrimSuffix(topology.DispatchSubjectAll(), ">")
+	for _, subject := range []string{a, b} {
+		if !strings.HasPrefix(subject, prefix) {
+			t.Errorf("subject %q is not under the fleet filter %q", subject, topology.DispatchSubjectAll())
+			continue
+		}
+		if rest := strings.TrimPrefix(subject, prefix); strings.Contains(rest, ".") {
+			t.Errorf("subject %q adds %d tokens, want exactly 1: a device id that expands into several tokens still matches the fleet filter's trailing wildcard, but breaks every single-token per-device filter, which is what scoping needs",
+				subject, strings.Count(rest, ".")+1)
+		}
+	}
+}
+
+// TestDispatchSubjectRefusesToLeakTokens is the injection half. A device id
+// is operator-supplied and opaque, so an ordinary hostname must not be able
+// to widen a three-token subject into a six-token one, and a wildcard must
+// not survive into the middle of a subject.
+func TestDispatchSubjectRefusesToLeakTokens(t *testing.T) {
+	prefix := strings.TrimSuffix(topology.DispatchSubjectAll(), ">")
+	for _, id := range []string{
+		"router1.example.com",
+		"*",
+		">",
+		"a b",
+		"..",
+		"dev\tid",
+	} {
+		rest := strings.TrimPrefix(topology.DispatchSubject(id), prefix)
+		if strings.ContainsAny(rest, ".*>") || strings.ContainsAny(rest, " \t\r\n") {
+			t.Errorf("DispatchSubject(%q) produced the token %q, which is not a single legal token", id, rest)
+		}
+	}
+}
+
+// TestSubjectTokenKeepsDistinctInputsDistinct is why sanitizing alone is
+// not enough: two ids differing only in characters the allow-list drops
+// would otherwise collapse onto one subject and silently share it.
+func TestSubjectTokenKeepsDistinctInputsDistinct(t *testing.T) {
+	if a, b := topology.SubjectToken("a.b"), topology.SubjectToken("a/b"); a == b {
+		t.Errorf("SubjectToken(%q) and SubjectToken(%q) both produced %q", "a.b", "a/b", a)
+	}
+}
+
+// TestSubjectTokenIsDeterministic matters because the publisher and the
+// subscriber of a subject run in different processes: the Runner publishes
+// a job's log lines and the Controller subscribes to them, and they agree
+// only by calling this function.
+func TestSubjectTokenIsDeterministic(t *testing.T) {
+	if a, b := topology.SubjectToken("job-1"), topology.SubjectToken("job-1"); a != b {
+		t.Errorf("SubjectToken is not stable across calls: %q vs %q", a, b)
+	}
+}
+
+// TestSubjectTokenNamesAnEmptyInput proves an empty id produces a real
+// token rather than an empty one, which would collapse the subject by a
+// token and match a filter nobody wrote.
+func TestSubjectTokenNamesAnEmptyInput(t *testing.T) {
+	got := topology.SubjectToken("")
+	if got == "" || strings.HasPrefix(got, "-") {
+		t.Errorf("SubjectToken(\"\") = %q, want a non-empty token", got)
 	}
 }
 
@@ -39,8 +116,13 @@ func TestLogSubject(t *testing.T) {
 		jobID string
 		want  string
 	}{
-		{"uuid job id", "abc-123", "pleiades.jobs.logs.abc-123"},
-		{"empty job id", "", "pleiades.jobs.logs."},
+		// The hash suffix is what stops two job ids differing only in
+		// characters the allow-list drops from sharing one log stream.
+		{"uuid job id", "abc-123", "pleiades.jobs.logs.abc-123-5942d94f"},
+		// An empty job id used to produce a subject ending in the
+		// separator, which is one token short and matches a filter nobody
+		// wrote. It now names itself instead.
+		{"empty job id", "", "pleiades.jobs.logs.unnamed-e3b0c442"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,8 +142,8 @@ func TestResultSubject(t *testing.T) {
 		jobID string
 		want  string
 	}{
-		{"uuid job id", "abc-123", "pleiades.jobs.results.abc-123"},
-		{"empty job id", "", "pleiades.jobs.results."},
+		{"uuid job id", "abc-123", "pleiades.jobs.results.abc-123-5942d94f"},
+		{"empty job id", "", "pleiades.jobs.results.unnamed-e3b0c442"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -156,5 +238,58 @@ func TestDurableName_DistinctInputsAfterSanitizationCollisionStayDistinct(t *tes
 	b := topology.DurableName("a/b")
 	if a == b {
 		t.Errorf("DurableName(%q) and DurableName(%q) collided: both produced %q", "a.b", "a/b", a)
+	}
+}
+
+// TestJournalSubject is LogSubject's mirror for the run journal a Runner
+// publishes while executing a dispatch (Phase 40).
+func TestJournalSubject(t *testing.T) {
+	tests := []struct {
+		name  string
+		jobID string
+		want  string
+	}{
+		{"uuid job id", "abc-123", "pleiades.jobs.journal.abc-123-5942d94f"},
+		{"empty job id", "", "pleiades.jobs.journal.unnamed-e3b0c442"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := topology.JournalSubject(tt.jobID); got != tt.want {
+				t.Errorf("JournalSubject(%q) = %q, want %q", tt.jobID, got, tt.want)
+			}
+		})
+	}
+
+	// It must fall under StreamSubjectRoot ("pleiades.>"), which is what
+	// makes a new subject need no stream change at all.
+	if got := topology.JournalSubject("job-1"); !strings.HasPrefix(got, "pleiades.") {
+		t.Errorf("JournalSubject(%q) = %q, does not fall under StreamSubjectRoot %q", "job-1", got, topology.StreamSubjectRoot)
+	}
+
+	// And it must not collide with the log or result space, or one
+	// consumer would silently receive the other's messages.
+	for _, other := range []string{topology.LogSubject("job-1"), topology.ResultSubject("job-1")} {
+		if topology.JournalSubject("job-1") == other {
+			t.Errorf("JournalSubject collides with %q", other)
+		}
+	}
+}
+
+// TestJournalSubjectAll pins the wildcard a permission grant and a
+// Controller-side consumer both need.
+func TestJournalSubjectAll(t *testing.T) {
+	got := topology.JournalSubjectAll()
+	if want := "pleiades.jobs.journal.>"; got != want {
+		t.Errorf("JournalSubjectAll() = %q, want %q", got, want)
+	}
+
+	// The trap this function exists to avoid: the per-job builder
+	// sanitizes its argument, so passing a wildcard through it produces a
+	// literal token rather than a pattern.
+	if built := topology.JournalSubject(">"); built == got {
+		t.Error("JournalSubject(\">\") happens to equal the wildcard, so this function would look unnecessary")
+	}
+	if !strings.Contains(topology.JournalSubject(">"), "unnamed-") {
+		t.Errorf("JournalSubject(\">\") = %q, expected it to be sanitized into a literal token", topology.JournalSubject(">"))
 	}
 }

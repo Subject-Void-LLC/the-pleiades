@@ -88,7 +88,7 @@ tasks:
         pleiades.builtin.set_metadata:
           data:
             rollback_instructions: >-
-              Automatic rollback is not implemented yet (docs/rollback_journal_design.md).
+              Automatic rollback is not implemented yet.
               To recover sw1 by hand: reconnect to 10.10.20.11 over console or SSH, run
               "show boot" to confirm the boot variable. If it already points at
               cat9k_iosxe.17.03.04.SPA.bin, run "no boot system

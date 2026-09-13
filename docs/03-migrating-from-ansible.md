@@ -442,6 +442,44 @@ Credential values themselves do not migrate. AWX will not export them, and neith
 platform has a way to read one back out, which is the property you want. Recreate the
 values against the imported types.
 
+### Credential input sources
+
+AWX lets a credential field be filled from another credential rather than stored,
+through a `CredentialInputSource` row: the field is linked to a source credential of a
+type like `hashivault_kv`, plus metadata saying which secret path and key to read.
+Pleiades models this the same way, so the shape of your export carries over rather than
+needing to be redesigned.
+
+Export them alongside the types:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" \
+  https://awx.example.com/api/v2/credential_input_sources/ > input_sources.json
+```
+
+There is no importer for this file yet. Recreate each row against the credentials you
+have already created, with `PUT /api/v1/credentials/{id}/input-sources`, whose body
+takes the same three fields AWX's own row has: the target's `input_id`, the
+`source_credential`, and the `metadata` that addresses the secret inside it.
+
+Three differences to plan around, none of which change the shape of the data:
+
+- **The source must exist first.** A binding names a credential, so create the source
+  credentials before the ones that read through them. Where a target's required input
+  has no stored value at all, send its bindings in the same request that creates it:
+  the credential and its bindings are one write, because a required input with neither
+  a value nor a source would otherwise have to be refused.
+- **Chains are bounded at four hops.** AWX allows exactly one: a credential's source
+  may not itself read from a further source. Pleiades allows a source whose own token
+  is external, up to four links, and refuses past that by name. Any AWX export is well
+  inside this.
+- **`hashivault_kv` is the only source implemented.** An imported row pointing at
+  HashiCorp Vault resolves for real, and its `metadata` fields carry over unchanged:
+  `secret_backend`, `secret_path`, `secret_key` and `secret_version` mean here what
+  they mean in your export. A row pointing at any of the other seven is stored
+  faithfully and fails with an explicit error naming that source, which is the same
+  honest-failure convention the "not implemented" types above follow.
+
 ## Running an unconverted playbook
 
 Ansible interop's execution half is real: given a target device and an unconverted

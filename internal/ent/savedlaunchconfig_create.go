@@ -75,6 +75,20 @@ func (_c *SavedLaunchConfigCreate) SetAnswers(v map[string]interface{}) *SavedLa
 	return _c
 }
 
+// SetSecretBinding sets the "secret_binding" field.
+func (_c *SavedLaunchConfigCreate) SetSecretBinding(v string) *SavedLaunchConfigCreate {
+	_c.mutation.SetSecretBinding(v)
+	return _c
+}
+
+// SetNillableSecretBinding sets the "secret_binding" field if the given value is not nil.
+func (_c *SavedLaunchConfigCreate) SetNillableSecretBinding(v *string) *SavedLaunchConfigCreate {
+	if v != nil {
+		_c.SetSecretBinding(*v)
+	}
+	return _c
+}
+
 // SetTemplateID sets the "template" edge to the Template entity by ID.
 func (_c *SavedLaunchConfigCreate) SetTemplateID(id int) *SavedLaunchConfigCreate {
 	_c.mutation.SetTemplateID(id)
@@ -128,6 +142,10 @@ func (_c *SavedLaunchConfigCreate) defaults() {
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		v := savedlaunchconfig.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
+	}
+	if _, ok := _c.mutation.SecretBinding(); !ok {
+		v := savedlaunchconfig.DefaultSecretBinding()
+		_c.mutation.SetSecretBinding(v)
 	}
 }
 
@@ -187,6 +205,10 @@ func (_c *SavedLaunchConfigCreate) createSpec() (*SavedLaunchConfig, *sqlgraph.C
 	if value, ok := _c.mutation.Answers(); ok {
 		_spec.SetField(savedlaunchconfig.FieldAnswers, field.TypeJSON, value)
 		_node.Answers = value
+	}
+	if value, ok := _c.mutation.SecretBinding(); ok {
+		_spec.SetField(savedlaunchconfig.FieldSecretBinding, field.TypeString, value)
+		_node.SecretBinding = value
 	}
 	if nodes := _c.mutation.TemplateIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

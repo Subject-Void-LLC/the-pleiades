@@ -184,3 +184,60 @@ func TestConnect_Refusals(t *testing.T) {
 		})
 	}
 }
+
+// TestConnectPort_OverridesTheDevicesSSHPort covers the accessor
+// NETCONF needed. The property under test is not merely that a port
+// argument is honored, but that a NON-ZERO one WINS over the device's
+// own declared SSH port while zero still falls back to it: getting that
+// precedence backwards would send every NETCONF session to port 22,
+// where a real Cisco IOS XE device accepts the subsystem request and
+// then immediately ends the channel, which looks like a working
+// connection.
+func TestConnectPort_OverridesTheDevicesSSHPort(t *testing.T) {
+	srv := startServer(t)
+	rc := newSecretContext(srv.Secrets())
+
+	t.Run("an explicit port wins over the device's own", func(t *testing.T) {
+		// The device declares a port nothing is listening on, so a
+		// connection that succeeds can only have used the explicit one.
+		device := &sshDevice{Stub: newStub(), host: srv.Host, port: 1}
+
+		conn, err := sdk.ConnectPort(context.Background(), rc, device, map[string]any{
+			sdk.ParamInsecureSkipHostKeyVerify: true,
+		}, "test.connectport", srv.Port)
+		if err != nil {
+			t.Fatalf("ConnectPort: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+
+		result, err := conn.Run(context.Background(), "echo reachable")
+		if err != nil {
+			t.Fatalf("running through the returned connection: %v", err)
+		}
+		if strings.TrimSpace(result.Stdout) != "reachable" {
+			t.Errorf("stdout = %q, want %q", result.Stdout, "reachable")
+		}
+	})
+
+	t.Run("port zero falls back to the device's own", func(t *testing.T) {
+		device := &sshDevice{Stub: newStub(), host: srv.Host, port: srv.Port}
+
+		conn, err := sdk.ConnectPort(context.Background(), rc, device, map[string]any{
+			sdk.ParamInsecureSkipHostKeyVerify: true,
+		}, "test.connectport", 0)
+		if err != nil {
+			t.Fatalf("ConnectPort(0): %v", err)
+		}
+		_ = conn.Close()
+	})
+
+	t.Run("the refusals are the same as Connect's", func(t *testing.T) {
+		if _, err := sdk.ConnectPort(context.Background(), rc, nil, nil, "test.connectport", 830); err == nil {
+			t.Error("ConnectPort(nil device) error = nil, want a refusal")
+		}
+		notSSH := newStub()
+		if _, err := sdk.ConnectPort(context.Background(), rc, notSSH, nil, "test.connectport", 830); err == nil {
+			t.Error("ConnectPort(a device with no SSH accessors) error = nil, want a refusal")
+		}
+	})
+}

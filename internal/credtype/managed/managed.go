@@ -243,6 +243,16 @@ type NotImplemented struct {
 // an unknown namespace.
 var notImplemented = []NotImplemented{
 	{
+		Namespace: "aws_secretsmanager", Name: "AWS Secrets Manager lookup", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built, and its own credentials (an access key, or an instance role) are a second authentication story this platform has not designed",
+	},
+	{
+		Namespace: "azure_kv", Name: "Microsoft Azure Key Vault", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built, and authenticating to it means a service principal or a managed identity, neither of which this platform can obtain yet",
+	},
+	{
 		Namespace: "azure_rm", Name: "Microsoft Azure Resource Manager", Kind: credtype.KindCloud,
 		Reason: ReasonPythonInjectors,
 		Detail: "it chooses between service-principal and username authentication at run time, setting a different set of variables for each, and that branch is not a value a template can render",
@@ -251,6 +261,16 @@ var notImplemented = []NotImplemented{
 		Namespace: "bitbucket_dc_token", Name: "Bitbucket Data Center HTTP Access Token", Kind: credtype.KindToken,
 		Reason: ReasonNoSubsystem,
 		Detail: "it authenticates project source-control sync and webhooks, neither of which exists here",
+	},
+	{
+		Namespace: "centrify_vault", Name: "Centrify Vault Credential Provider", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built, and it is the least commonly deployed of the eight, so it is last rather than next",
+	},
+	{
+		Namespace: "conjur", Name: "CyberArk Conjur Secrets Manager Lookup", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built; PLAN.md Section 17.4 names CyberArk explicitly, so this one is a real commitment rather than a courtesy declaration",
 	},
 	{
 		Namespace: "gce", Name: "Google Compute Engine", Kind: credtype.KindCloud,
@@ -276,6 +296,11 @@ var notImplemented = []NotImplemented{
 		Namespace: "gpg_public_key", Name: "GPG Public Key", Kind: credtype.KindCryptography,
 		Reason: ReasonNoSubsystem,
 		Detail: "it validates content signatures during project sync, and there is no project sync to validate",
+	},
+	{
+		Namespace: "hashivault_ssh", Name: "HashiCorp Vault Signed SSH", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "it signs an SSH certificate rather than reading a stored value, so it needs a credential type that can hold a signed certificate and a transport that will present one, and neither exists",
 	},
 	{
 		Namespace: "insights", Name: "Insights", Kind: credtype.KindInsights,
@@ -316,6 +341,16 @@ var notImplemented = []NotImplemented{
 		Namespace: "terraform", Name: "Terraform backend configuration", Kind: credtype.KindCloud,
 		Reason: ReasonPythonInjectors,
 		Detail: "it writes one or two files depending on whether Google Cloud credentials were supplied, and it needs the file injector the native path refuses",
+	},
+	{
+		Namespace: "thycotic_dsv", Name: "Thycotic DevOps Secrets Vault", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built, and it authenticates with a client id and secret exchanged for a short-lived token, so a source would have to hold and refresh that token rather than present a static one",
+	},
+	{
+		Namespace: "thycotic_tss", Name: "Thycotic Secret Server", Kind: credtype.KindExternal,
+		Reason: ReasonExternalSource,
+		Detail: "no client for it is built, and it is a different product and API from the DevOps Secrets Vault above despite the shared vendor name, so implementing one does not give the other",
 	},
 	{
 		Namespace: "vmware", Name: "VMware vCenter", Kind: credtype.KindCloud,

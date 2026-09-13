@@ -9,6 +9,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/announcement"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/contact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/device"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/fact"
@@ -16,7 +17,9 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/jobtask"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/journalentry"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
@@ -145,6 +148,25 @@ func init() {
 	credentialDescSecretBinding := credentialFields[4].Descriptor()
 	// credential.DefaultSecretBinding holds the default value on creation for the secret_binding field.
 	credential.DefaultSecretBinding = credentialDescSecretBinding.Default.(func() string)
+	credentialinputsourceMixin := schema.CredentialInputSource{}.Mixin()
+	credentialinputsourceMixinFields0 := credentialinputsourceMixin[0].Fields()
+	_ = credentialinputsourceMixinFields0
+	credentialinputsourceFields := schema.CredentialInputSource{}.Fields()
+	_ = credentialinputsourceFields
+	// credentialinputsourceDescCreatedAt is the schema descriptor for created_at field.
+	credentialinputsourceDescCreatedAt := credentialinputsourceMixinFields0[0].Descriptor()
+	// credentialinputsource.DefaultCreatedAt holds the default value on creation for the created_at field.
+	credentialinputsource.DefaultCreatedAt = credentialinputsourceDescCreatedAt.Default.(func() time.Time)
+	// credentialinputsourceDescUpdatedAt is the schema descriptor for updated_at field.
+	credentialinputsourceDescUpdatedAt := credentialinputsourceMixinFields0[1].Descriptor()
+	// credentialinputsource.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	credentialinputsource.DefaultUpdatedAt = credentialinputsourceDescUpdatedAt.Default.(func() time.Time)
+	// credentialinputsource.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	credentialinputsource.UpdateDefaultUpdatedAt = credentialinputsourceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// credentialinputsourceDescInputID is the schema descriptor for input_id field.
+	credentialinputsourceDescInputID := credentialinputsourceFields[0].Descriptor()
+	// credentialinputsource.InputIDValidator is a validator for the "input_id" field. It is called by the builders before save.
+	credentialinputsource.InputIDValidator = credentialinputsourceDescInputID.Validators[0].(func(string) error)
 	credentialtypeMixin := schema.CredentialType{}.Mixin()
 	credentialtypeMixinFields0 := credentialtypeMixin[0].Fields()
 	_ = credentialtypeMixinFields0
@@ -205,12 +227,16 @@ func init() {
 	deviceDescType := deviceFields[2].Descriptor()
 	// device.TypeValidator is a validator for the "type" field. It is called by the builders before save.
 	device.TypeValidator = deviceDescType.Validators[0].(func(string) error)
+	// deviceDescSecretBinding is the schema descriptor for secret_binding field.
+	deviceDescSecretBinding := deviceFields[4].Descriptor()
+	// device.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	device.DefaultSecretBinding = deviceDescSecretBinding.Default.(func() string)
 	// deviceDescVersion is the schema descriptor for version field.
-	deviceDescVersion := deviceFields[4].Descriptor()
+	deviceDescVersion := deviceFields[5].Descriptor()
 	// device.DefaultVersion holds the default value on creation for the version field.
 	device.DefaultVersion = deviceDescVersion.Default.(uint64)
 	// deviceDescState is the schema descriptor for state field.
-	deviceDescState := deviceFields[5].Descriptor()
+	deviceDescState := deviceFields[6].Descriptor()
 	// device.DefaultState holds the default value on creation for the state field.
 	device.DefaultState = deviceDescState.Default.(string)
 	// device.StateValidator is a validator for the "state" field. It is called by the builders before save.
@@ -340,6 +366,83 @@ func init() {
 	jobtaskDescDeviceName := jobtaskFields[1].Descriptor()
 	// jobtask.DeviceNameValidator is a validator for the "device_name" field. It is called by the builders before save.
 	jobtask.DeviceNameValidator = jobtaskDescDeviceName.Validators[0].(func(string) error)
+	journalentryMixin := schema.JournalEntry{}.Mixin()
+	journalentryMixinFields0 := journalentryMixin[0].Fields()
+	_ = journalentryMixinFields0
+	journalentryFields := schema.JournalEntry{}.Fields()
+	_ = journalentryFields
+	// journalentryDescCreatedAt is the schema descriptor for created_at field.
+	journalentryDescCreatedAt := journalentryMixinFields0[0].Descriptor()
+	// journalentry.DefaultCreatedAt holds the default value on creation for the created_at field.
+	journalentry.DefaultCreatedAt = journalentryDescCreatedAt.Default.(func() time.Time)
+	// journalentryDescUpdatedAt is the schema descriptor for updated_at field.
+	journalentryDescUpdatedAt := journalentryMixinFields0[1].Descriptor()
+	// journalentry.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	journalentry.DefaultUpdatedAt = journalentryDescUpdatedAt.Default.(func() time.Time)
+	// journalentry.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	journalentry.UpdateDefaultUpdatedAt = journalentryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// journalentryDescJobID is the schema descriptor for job_id field.
+	journalentryDescJobID := journalentryFields[0].Descriptor()
+	// journalentry.JobIDValidator is a validator for the "job_id" field. It is called by the builders before save.
+	journalentry.JobIDValidator = journalentryDescJobID.Validators[0].(func(string) error)
+	// journalentryDescAttempt is the schema descriptor for attempt field.
+	journalentryDescAttempt := journalentryFields[2].Descriptor()
+	// journalentry.AttemptValidator is a validator for the "attempt" field. It is called by the builders before save.
+	journalentry.AttemptValidator = journalentryDescAttempt.Validators[0].(func(int) error)
+	// journalentryDescNodeID is the schema descriptor for node_id field.
+	journalentryDescNodeID := journalentryFields[3].Descriptor()
+	// journalentry.NodeIDValidator is a validator for the "node_id" field. It is called by the builders before save.
+	journalentry.NodeIDValidator = journalentryDescNodeID.Validators[0].(func(string) error)
+	// journalentryDescRunID is the schema descriptor for run_id field.
+	journalentryDescRunID := journalentryFields[4].Descriptor()
+	// journalentry.RunIDValidator is a validator for the "run_id" field. It is called by the builders before save.
+	journalentry.RunIDValidator = journalentryDescRunID.Validators[0].(func(string) error)
+	// journalentryDescSequence is the schema descriptor for sequence field.
+	journalentryDescSequence := journalentryFields[5].Descriptor()
+	// journalentry.SequenceValidator is a validator for the "sequence" field. It is called by the builders before save.
+	journalentry.SequenceValidator = journalentryDescSequence.Validators[0].(func(int) error)
+	// journalentryDescFqcnUnresolved is the schema descriptor for fqcn_unresolved field.
+	journalentryDescFqcnUnresolved := journalentryFields[9].Descriptor()
+	// journalentry.DefaultFqcnUnresolved holds the default value on creation for the fqcn_unresolved field.
+	journalentry.DefaultFqcnUnresolved = journalentryDescFqcnUnresolved.Default.(bool)
+	// journalentryDescSkipOrdinal is the schema descriptor for skip_ordinal field.
+	journalentryDescSkipOrdinal := journalentryFields[17].Descriptor()
+	// journalentry.DefaultSkipOrdinal holds the default value on creation for the skip_ordinal field.
+	journalentry.DefaultSkipOrdinal = journalentryDescSkipOrdinal.Default.(int)
+	// journalentry.SkipOrdinalValidator is a validator for the "skip_ordinal" field. It is called by the builders before save.
+	journalentry.SkipOrdinalValidator = journalentryDescSkipOrdinal.Validators[0].(func(int) error)
+	// journalentryDescSkipTotal is the schema descriptor for skip_total field.
+	journalentryDescSkipTotal := journalentryFields[18].Descriptor()
+	// journalentry.DefaultSkipTotal holds the default value on creation for the skip_total field.
+	journalentry.DefaultSkipTotal = journalentryDescSkipTotal.Default.(int)
+	// journalentry.SkipTotalValidator is a validator for the "skip_total" field. It is called by the builders before save.
+	journalentry.SkipTotalValidator = journalentryDescSkipTotal.Validators[0].(func(int) error)
+	// journalentryDescUndeclaredStatCount is the schema descriptor for undeclared_stat_count field.
+	journalentryDescUndeclaredStatCount := journalentryFields[20].Descriptor()
+	// journalentry.DefaultUndeclaredStatCount holds the default value on creation for the undeclared_stat_count field.
+	journalentry.DefaultUndeclaredStatCount = journalentryDescUndeclaredStatCount.Default.(int)
+	// journalentry.UndeclaredStatCountValidator is a validator for the "undeclared_stat_count" field. It is called by the builders before save.
+	journalentry.UndeclaredStatCountValidator = journalentryDescUndeclaredStatCount.Validators[0].(func(int) error)
+	// journalentryDescUndeclaredParamCount is the schema descriptor for undeclared_param_count field.
+	journalentryDescUndeclaredParamCount := journalentryFields[22].Descriptor()
+	// journalentry.DefaultUndeclaredParamCount holds the default value on creation for the undeclared_param_count field.
+	journalentry.DefaultUndeclaredParamCount = journalentryDescUndeclaredParamCount.Default.(int)
+	// journalentry.UndeclaredParamCountValidator is a validator for the "undeclared_param_count" field. It is called by the builders before save.
+	journalentry.UndeclaredParamCountValidator = journalentryDescUndeclaredParamCount.Validators[0].(func(int) error)
+	// journalentryDescInverseFqcnUnresolved is the schema descriptor for inverse_fqcn_unresolved field.
+	journalentryDescInverseFqcnUnresolved := journalentryFields[24].Descriptor()
+	// journalentry.DefaultInverseFqcnUnresolved holds the default value on creation for the inverse_fqcn_unresolved field.
+	journalentry.DefaultInverseFqcnUnresolved = journalentryDescInverseFqcnUnresolved.Default.(bool)
+	// journalentryDescUndeclaredInverseParamCount is the schema descriptor for undeclared_inverse_param_count field.
+	journalentryDescUndeclaredInverseParamCount := journalentryFields[26].Descriptor()
+	// journalentry.DefaultUndeclaredInverseParamCount holds the default value on creation for the undeclared_inverse_param_count field.
+	journalentry.DefaultUndeclaredInverseParamCount = journalentryDescUndeclaredInverseParamCount.Default.(int)
+	// journalentry.UndeclaredInverseParamCountValidator is a validator for the "undeclared_inverse_param_count" field. It is called by the builders before save.
+	journalentry.UndeclaredInverseParamCountValidator = journalentryDescUndeclaredInverseParamCount.Validators[0].(func(int) error)
+	// journalentryDescDiffRecorded is the schema descriptor for diff_recorded field.
+	journalentryDescDiffRecorded := journalentryFields[27].Descriptor()
+	// journalentry.DefaultDiffRecorded holds the default value on creation for the diff_recorded field.
+	journalentry.DefaultDiffRecorded = journalentryDescDiffRecorded.Default.(bool)
 	localcredentialMixin := schema.LocalCredential{}.Mixin()
 	localcredentialMixinFields0 := localcredentialMixin[0].Fields()
 	_ = localcredentialMixinFields0
@@ -373,6 +476,41 @@ func init() {
 	localcredentialDescMustChange := localcredentialFields[4].Descriptor()
 	// localcredential.DefaultMustChange holds the default value on creation for the must_change field.
 	localcredential.DefaultMustChange = localcredentialDescMustChange.Default.(bool)
+	meshsigningkeyMixin := schema.MeshSigningKey{}.Mixin()
+	meshsigningkeyMixinFields0 := meshsigningkeyMixin[0].Fields()
+	_ = meshsigningkeyMixinFields0
+	meshsigningkeyFields := schema.MeshSigningKey{}.Fields()
+	_ = meshsigningkeyFields
+	// meshsigningkeyDescCreatedAt is the schema descriptor for created_at field.
+	meshsigningkeyDescCreatedAt := meshsigningkeyMixinFields0[0].Descriptor()
+	// meshsigningkey.DefaultCreatedAt holds the default value on creation for the created_at field.
+	meshsigningkey.DefaultCreatedAt = meshsigningkeyDescCreatedAt.Default.(func() time.Time)
+	// meshsigningkeyDescUpdatedAt is the schema descriptor for updated_at field.
+	meshsigningkeyDescUpdatedAt := meshsigningkeyMixinFields0[1].Descriptor()
+	// meshsigningkey.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	meshsigningkey.DefaultUpdatedAt = meshsigningkeyDescUpdatedAt.Default.(func() time.Time)
+	// meshsigningkey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	meshsigningkey.UpdateDefaultUpdatedAt = meshsigningkeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// meshsigningkeyDescKeyID is the schema descriptor for key_id field.
+	meshsigningkeyDescKeyID := meshsigningkeyFields[0].Descriptor()
+	// meshsigningkey.KeyIDValidator is a validator for the "key_id" field. It is called by the builders before save.
+	meshsigningkey.KeyIDValidator = meshsigningkeyDescKeyID.Validators[0].(func(string) error)
+	// meshsigningkeyDescAccountSubject is the schema descriptor for account_subject field.
+	meshsigningkeyDescAccountSubject := meshsigningkeyFields[1].Descriptor()
+	// meshsigningkey.AccountSubjectValidator is a validator for the "account_subject" field. It is called by the builders before save.
+	meshsigningkey.AccountSubjectValidator = meshsigningkeyDescAccountSubject.Validators[0].(func(string) error)
+	// meshsigningkeyDescPublicKey is the schema descriptor for public_key field.
+	meshsigningkeyDescPublicKey := meshsigningkeyFields[2].Descriptor()
+	// meshsigningkey.PublicKeyValidator is a validator for the "public_key" field. It is called by the builders before save.
+	meshsigningkey.PublicKeyValidator = meshsigningkeyDescPublicKey.Validators[0].(func(string) error)
+	// meshsigningkeyDescActive is the schema descriptor for active field.
+	meshsigningkeyDescActive := meshsigningkeyFields[4].Descriptor()
+	// meshsigningkey.DefaultActive holds the default value on creation for the active field.
+	meshsigningkey.DefaultActive = meshsigningkeyDescActive.Default.(bool)
+	// meshsigningkeyDescSecretBinding is the schema descriptor for secret_binding field.
+	meshsigningkeyDescSecretBinding := meshsigningkeyFields[5].Descriptor()
+	// meshsigningkey.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	meshsigningkey.DefaultSecretBinding = meshsigningkeyDescSecretBinding.Default.(func() string)
 	organizationMixin := schema.Organization{}.Mixin()
 	organizationMixinFields0 := organizationMixin[0].Fields()
 	_ = organizationMixinFields0
@@ -459,6 +597,10 @@ func init() {
 	savedlaunchconfig.DefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.Default.(func() time.Time)
 	// savedlaunchconfig.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	savedlaunchconfig.UpdateDefaultUpdatedAt = savedlaunchconfigDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// savedlaunchconfigDescSecretBinding is the schema descriptor for secret_binding field.
+	savedlaunchconfigDescSecretBinding := savedlaunchconfigFields[3].Descriptor()
+	// savedlaunchconfig.DefaultSecretBinding holds the default value on creation for the secret_binding field.
+	savedlaunchconfig.DefaultSecretBinding = savedlaunchconfigDescSecretBinding.Default.(func() string)
 	scheduleMixin := schema.Schedule{}.Mixin()
 	scheduleMixinFields0 := scheduleMixin[0].Fields()
 	_ = scheduleMixinFields0

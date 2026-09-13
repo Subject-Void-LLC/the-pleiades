@@ -146,7 +146,9 @@ func TestNatsBus_PublishCarriesTraceContextOnTheWire(t *testing.T) {
 		}
 	})
 
-	subject := topology.DispatchSubject()
+	// One device, so one subject: the reader below filters on exactly
+	// what the publish below sends to.
+	subject := topology.DispatchSubject("sw1")
 	nc, err := nats.Connect(url)
 	if err != nil {
 		t.Fatalf("connecting a reader: %v", err)

@@ -89,9 +89,11 @@ credential and attaches it to the dispatch message, so a secret is present in th
 message broker's storage until that message ages out; plan your broker retention
 accordingly. Credential types make this **larger in volume and identical in kind**: a
 template bound to a cloud credential and two file-generating credentials puts several
-more values on the same message, including whole PEM bodies. And the full secret
-manager described in [Running in production](10-running-in-production.md) is still not
-built: no key rotation for credential rows, no PFX handling.
+more values on the same message, including whole PEM bodies. The full secret manager
+described in [Running in production](10-running-in-production.md) is closer than it was:
+credentials, devices and saved survey answers all rotate under a new master key, and a
+credential input can be read from HashiCorp Vault. PFX and PKI bundle handling is still
+not built.
 
 **Credential types and injectors are real.** An administrator can define a credential
 type as data, over the API, with an input schema and an injector document, exactly as

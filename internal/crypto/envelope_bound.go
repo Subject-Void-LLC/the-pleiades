@@ -60,6 +60,26 @@ import (
 // successful unbound decrypt.
 const boundAlgorithmTag = "AES256GCM-AAD"
 
+// IsBoundEnvelope reports whether a stored ciphertext is in the bound form.
+//
+// It exists for the migration window Phase 78c opens. Device.properties and
+// SavedLaunchConfig.answers hold a MIX while a rotation pass converts them,
+// and a reader has to know which of the two it is holding before it can
+// choose Decrypt or DecryptBound. The algorithm tag already carries that
+// fact, which is exactly why boundAlgorithmTag is a distinct tag rather
+// than a flag: this function reads what is on the wire rather than guessing
+// from what the row looks like.
+//
+// It answers false for anything malformed, which is correct and not lax: an
+// unparseable ciphertext must reach Decrypt and fail there with the
+// malformed-envelope error that names the real problem, rather than fail
+// here as a binding mismatch and send somebody hunting a relocation attack
+// that did not happen.
+func IsBoundEnvelope(ciphertext string) bool {
+	parts := strings.SplitN(ciphertext, "$", 4)
+	return len(parts) == 4 && parts[1] == boundAlgorithmTag
+}
+
 // EncryptBound seals plaintext with aad cryptographically bound to it.
 //
 // The returned string has the same shape as Encrypt's, with a different

@@ -57,9 +57,12 @@ The chart will not generate them for you, and that is deliberate. Helm can
 produce a random value, but it would produce a *different* one on the next
 `helm upgrade`, because `helm template` has no cluster to read the previous value
 back from. A rotated `JWT_SECRET` signs everybody out, which is annoying and
-recoverable. A rotated `MASTER_ENCRYPTION_KEY` makes every stored credential and
-every encrypted device property permanently undecryptable, with no error at
-upgrade time. Keep all three somewhere you can find again, or hand the chart a
+recoverable. A `MASTER_ENCRYPTION_KEY` replaced without
+keeping the old one makes every stored credential and every encrypted device
+property permanently undecryptable, with no error at upgrade time. Rotating it
+properly, by keeping the old key in the previous slot and running a rotation
+pass, is described under [Rotating the master key](#rotating-the-master-key)
+below. Keep all three somewhere you can find again, or hand the chart a
 Secret you manage yourself with `secrets.existingSecret`.
 
 Then create the first administrator, which is the real next step and the one the
@@ -313,6 +316,109 @@ error. A failure *after* the command was sent (the connection drops mid-run, the
 device reboots unexpectedly) is reported as an error immediately, and it is the
 caller's job to determine what state the device was left in and re-run explicitly
 once that is known, not Pleiades' job to guess.
+
+### Every task execution is recorded in a run journal
+
+Every node a run executes leaves a durable record: what ran, against which device,
+in what order, how long it took, whether it changed anything, and if it failed, at
+which stage. On the Crawl tier that is one append-only JSON Lines file per run at
+`<project>/.pleiades/journal/<run-id>.jsonl`, written `0600` inside a `0700`
+directory. On the Walk tier the Runner publishes each level onto the job's own
+subject and the Controller stores it in the `journal_entries` table, keyed by the
+job, the device, the delivery attempt and the graph node, so a redelivered dispatch
+reads as a retry rather than as two unrelated runs.
+
+**The journal stores no value that came back from a device.** It is not masked,
+because there is nothing in it to mask: it holds identifiers the platform generated,
+method names resolved through the collection registry at write time, the parameter
+and return key NAMES a method's own documentation declares, closed status values,
+a content hash of the compiled runbook, the labels the runbook author wrote, and
+counts. It records that a task produced a `stdout`; it does not record what the
+device wrote there. Two consequences follow and both matter in practice:
+
+- It is an audit and control-flow artifact, not a diagnostic one. It cannot answer
+  what the device actually said. `--verbose` still can.
+- It needs no key and nothing decrypts it, on either tier.
+
+The one channel that does carry human-written text is the labels: a task's `name:`,
+its `register:` and the runbook's `id:` are stored as written. So the honest
+guarantee is "no value the platform obtained", not "no secret a person could type
+into a task name".
+
+### What one journal record contains
+
+A Crawl-tier journal file is JSON Lines: one record per line, one line per node
+the run reached, per device it ran against. A node the run never reached, because
+an earlier task failed, has no record at all. The order is the graph's, not the clock's: level by level, and
+within a level in graph position. Nodes in a level really do run at the same time
+and can finish in any order, so if you need wall-clock order, sort on
+`finished_at`; `sequence` gives you run order. Any tool that reads JSON will read
+the file, so `jq` is usually enough:
+
+```bash
+# every task that changed something, across every run on disk
+jq -r 'select(.outcome == "changed") | "\(.task_name)\t\(.fqcn)\t\(.device_id)"' \
+  .pleiades/journal/*.jsonl
+```
+
+The Walk tier stores the same fields as columns in `journal_entries`.
+
+**Identifiers**
+
+| Field | Meaning |
+|---|---|
+| `run_id` | One `Executor.Run` call. Names the Crawl-tier file. |
+| `sequence` | Order within that run. A level runs concurrently, so two records can share an instant; this cannot tie. |
+| `node_id` | Position in the compiled graph, such as `tasks[0]`. Not the task's `register:` name. |
+| `device_id` | The inventory item's stored id. Never a device property. A node that resolved no device, a skipped task or a controller-side one, names the Walk-tier dispatch's own device, because a dispatch runs against exactly one. On the Crawl tier the same node leaves it empty: one run there spans every device the task targets, and the skip was decided once for all of them. |
+| `job_id`, `attempt` | The Walk-tier dispatch and its redelivery count. Both empty or zero on the Crawl tier, which has no dispatch. |
+| `started_at`, `finished_at` | UTC, bounding this one execution. |
+
+**What ran**
+
+| Field | Meaning |
+|---|---|
+| `fqcn` | The method, resolved through the collection registry when the record was written. Never the raw text from the runbook. |
+| `fqcn_unresolved` | True when the registry knew no such method, in which case `fqcn` reads `unregistered`. |
+| `dag_id` | The runbook's own `id:`, as written. |
+| `dag_version` | A `sha256:` hash of the compiled runbook, for detecting drift between what ran and what is on disk now. It cannot recover the runbook. |
+| `task_name`, `register` | The author's own `name:` and `register:`, as written. These are the only fields carrying free text a person typed. |
+
+**How it ended**
+
+| Field | Meaning |
+|---|---|
+| `outcome` | One of `ran`, `changed`, `skipped`, `failed`, `not_reached`. The first four read as they sound. `not_reached` is the record of a parallel group's own fan-out marker, which carries no method, no device and no timings because it executes nothing itself; despite the name it is never a task an earlier failure stopped the run short of, since those leave no record at all. |
+| `failure_stage` | Where a failure happened, read off control flow rather than parsed from an error: `workflow_read`, `condition_eval`, `secret_mask`, `resolve_target`, `lock_all`, `lock_device`, `action`, `register_mask`, `record`. Empty unless `outcome` is `failed`. |
+| `skip_kind` | Which gate skipped the task: `when`, `when_or`, `when_cel` or `lifecycle`. Empty unless `outcome` is `skipped`. |
+| `skip_ordinal`, `skip_total` | Which condition of how many decided a `when` skip. The ordinal is zero for `when_or`, where every condition had to be false and none is the actionable one. |
+
+Note what is absent: there is no error message field. A failure records the stage it
+happened at and nothing the device or the platform said about it, because that text
+is the one place a device's own output reliably ends up.
+
+**Key names and counts**
+
+These record which keys a task produced or consumed, never their values.
+
+| Field | Meaning |
+|---|---|
+| `stat_keys` | Return key names the method's own documentation declares, plus the two platform keys `inverse` and `diff`. |
+| `param_keys` | Parameter names the method declares. |
+| `undeclared_stat_count`, `undeclared_param_count` | How many keys were rejected because the registry does not declare them. Counted rather than named, so an undeclared key cannot smuggle text in through its own name. |
+| `inverse_fqcn`, `inverse_param_keys` | The method that would reverse this task, and the names of the parameters such a call takes. Not their values, which is why nothing replays automatically. |
+| `inverse_fqcn_unresolved` | True when that reversing method is not in the registry. |
+| `undeclared_inverse_param_count` | The same counter, for the reversing call. |
+| `diff_recorded` | Whether the task recorded a before and after. Not the before or the after. |
+
+### Rollback is authored, not inferred
+
+The journal records the concrete instruction that would reverse a task that changed
+something: the method to call and the names of the parameters such a call takes. It
+does not record their values, so nothing can replay it automatically, and nothing
+in Pleiades performs a rollback today. Undoing a partial run is an authored
+runbook you write and run deliberately, with the journal as the record of what
+actually happened and therefore of what needs undoing.
 
 ### The message bus survives a link outage of any length
 
@@ -658,15 +764,102 @@ The second is control-plane credentials: a credential of a declared type, holdin
 whatever inputs that type declares, encrypted at rest in the database. These are the
 ones bound to templates, and they are what an AWX migration brings with it.
 
-One external secrets manager integration is implemented, and it is deliberately the
-simplest one: a credential input can name a file, resolved at the moment a job
+Two external secrets manager integrations are implemented.
+
+The first is a file: a credential input names one, resolved at the moment a job
 dispatches rather than when it was created. That covers a Kubernetes projected
 volume, a Vault Agent sidecar and the External Secrets Operator, which is how
-secrets arrive in a large fraction of deployments. Eight further sources are named
-after their AWX equivalents and return an explicit "declared but not implemented"
-error. There is still no direct Vault, KMS, or cloud secrets-manager client. Read
-that as a real constraint when deciding whether Pleiades fits an environment that
-mandates one, not as a gap to work around.
+secrets arrive in a large fraction of deployments. It needs no client and no
+network call on the dispatch path.
+
+The second is **HashiCorp Vault**, reading a key/value secret directly over its
+HTTP API, on either a v1 or a v2 mount. The certificate chain is always verified
+and there is no option anywhere to skip it; a Vault with a private authority is
+reached by pasting that authority into the source credential. Configure it as an
+input source, described below, rather than as a reference string: a Vault needs an
+address and a token, and a reference string has nowhere to put either.
+
+Seven further sources are named after their AWX equivalents and return an explicit
+"declared but not implemented" error: HashiCorp Vault signed SSH, AWS Secrets
+Manager, Azure Key Vault, CyberArk Conjur, Centrify, and the two Thycotic products.
+Read that as a real constraint when deciding whether Pleiades fits an environment
+that mandates one of them, not as a gap to work around.
+
+### Input sources: an input supplied by another credential
+
+There are two ways a credential says an input lives somewhere else, and they exist
+side by side.
+
+The first is a reference string, described above: the input names a source and a
+path, and the source itself is configured once for the whole controller. That is
+right for a file, because a projected volume is a property of the deployment rather
+than of any one credential.
+
+The second is an **input source**: the input is bound to another credential, an
+external-kind one holding that secret manager's own address and token, plus the
+metadata saying where in it to look. Bind them through
+`PUT /api/v1/credentials/{id}/input-sources`, or in the same request that creates
+the credential. This is the model AWX uses, and it exists because a vault address
+and a vault token are themselves credentials: they need rotating, an audit trail
+and RBAC, and a string in a column is none of those.
+
+Rotating the source is the point. Every target that reads through it picks up the
+new value on its next run, with no edit to any of them, because resolution happens
+when a job dispatches rather than when the binding was written.
+
+Four things are refused when you write a binding, rather than when a job later
+trips over them: an input the credential's type does not declare, a source in
+another organization, a source that is not an external-kind credential, and a set
+that would make resolution return to the credential it started from.
+
+A source credential's own inputs may themselves be bound to a further source, and
+that chain is bounded at **four hops**. Past that the resolution is refused by name
+rather than followed, because every link is an ordinary row that anyone who can
+write credentials can add, and an unbounded walk would be a denial of service
+against the controller reachable from ordinary data. A chain that returns to where
+it started is reported as a cycle rather than as depth, since the two need
+different fixes.
+
+The source credential's type is what decides how a binding is resolved, so the set
+of sources you can bind to is the set of external-kind types this release ships.
+Today that is HashiCorp Vault. A binding whose source type nothing can build fails
+with an explicit error naming that source and listing the ones this controller has,
+in the same way a declared-but-unimplemented source does, so the set shrinks
+honestly as real sources land rather than a binding quietly resolving to nothing.
+
+For a Vault source, the binding's metadata carries AWX's own field names, so an AWX
+`CredentialInputSource` row maps across without translation: `secret_backend` (the
+mount, defaulting to `secret`), `secret_path`, `secret_key`, and optionally
+`secret_version`. A path element that would address something other than the secret
+it names, such as a `..`, is refused rather than cleaned.
+
+### Rotating the master key
+
+`MASTER_ENCRYPTION_KEY` can be replaced without downtime, and without losing
+anything, as long as the old key stays available while the change is in flight.
+
+Set the new key as the current one and the old key as the previous one. Every
+read tries the current key and falls back to the previous, so nothing breaks the
+moment the process restarts. Then run a rotation pass, which re-encrypts every
+row under the new key. There is one pass per entity that stores a secret:
+credentials, devices and saved launch configurations.
+
+**Do not remove the old key until every pass reports that it has converted every
+row.** A row that has not been re-encrypted yet can only be opened with the old
+key, so taking it away early strands that row permanently. Each pass returns the
+number of rows it converted, which is how you tell it has finished.
+
+The passes also do a second job. Devices and saved launch configurations used to
+be encrypted without binding the ciphertext to the row it belongs to, which meant
+a value copied from one row to another would still decrypt. That is closed now,
+and a rotation pass is what converts an older row to the new form.
+
+A device converts itself as a side effect of ordinary use, because anything that
+writes its properties rewrites them bound. **A saved launch configuration does
+not**: nothing in this platform ever rewrites its answers, so a rotation pass is
+the only thing that will ever migrate one. Survey answers are the one path by
+which a password reaches a stored row, so that pass is worth running even if you
+are not changing keys.
 
 ### Credential storage
 
@@ -750,9 +943,18 @@ identical in kind: where a dispatch previously carried one flattened SSH credent
 a template binding a cloud credential and two file-generating ones puts several more
 on the same message, whole PEM bodies included. The real fix is reference passing,
 where the payload carries a handle and the runner fetches it over a
-mutually-authenticated short-lived connection, and that needs a runner identity story
-that does not exist yet. Until it does, treat the stream as holding secrets and size
-its retention accordingly.
+mutually-authenticated short-lived connection.
+
+The runner identity half of that now exists, and the rest does not, so be precise
+about what has changed. Pleiades can mint a short-lived, subject-scoped credential
+for a runner and a broker can be configured to require one, which is the
+authentication this was waiting on. What has NOT changed is the payload: a dispatch
+still carries the resolved credential itself, and authentication changes who may read
+the stream rather than what is written to it. Reference passing is the separate piece
+of work that removes the secret from the message.
+
+Until it lands, treat the stream as holding secrets and size its retention
+accordingly.
 
 ### Host key verification, and where a container gets its known_hosts
 
@@ -1105,6 +1307,18 @@ ever emits a genuinely sensitive value as a fact, `register_mask`/`secret_mask`
 (below) is the mechanism to keep it out of printed and streamed output, but it does
 not encrypt the stored fact itself.
 
+`journal_entries` is the second deliberate exception, and it is a different kind of
+exception from the first. `Fact.payload` is unencrypted because gathered facts are
+classified as operational telemetry, which is a judgement about the value. A journal
+entry is unencrypted because it holds no value at all: what it stores is identifiers,
+registry-resolved method names, declared key names, status values and counts, and
+two architecture tests refuse any field able to carry anything else. There is
+nothing there to encrypt rather than a decision not to.
+
+One related disclosure while you are reading this section: `Revision` rows record
+inventory changes over time, and what they hold about a device follows the same
+rule `Device.properties` does.
+
 ### `register_mask` and `secret_mask` are a security contract, not a convenience
 
 `register_mask:` on a task masks one or more fields of that task's own registered
@@ -1132,12 +1346,17 @@ at all.
 - `when_cel` conditions always see the real, unmasked value. Masking a value from
   the conditional engine would silently break branching logic that depends on it.
 
-**Where masking does not apply today:** the Walk-tier distributed execution path
-(a job dispatched to a `runner` over NATS) does not yet run real tasks at all (see
-[Start here](01-start-here.md)), so there is no real stored job record or SSE
-stream carrying task output to audit for masking yet. This section will need a real
-audit once that path executes for real; treat the guarantees above as proven only
-for the Crawl-tier CLI's own output today.
+**Where masking applies on the Walk tier:** the distributed execution path (a job
+dispatched to a `runner` over NATS) does run real tasks against real devices, and
+has since Phase 16, so the paragraph that used to stand here saying otherwise was
+out of date. What that path masks today is its own streamed output: the Runner
+builds the complete secret set from the run's own `register_mask`/`secret_mask`
+discoveries plus every value the Controller attached to the dispatch plus every
+value a bound credential injected, and masks through it. Two limits are worth
+stating plainly. That set is complete only once the run has finished, so an event
+published early in a run is masked against whatever was known at the time. And the
+run journal is outside this question entirely rather than covered by it: it stores
+no device output to mask.
 
 ### Telemetry
 

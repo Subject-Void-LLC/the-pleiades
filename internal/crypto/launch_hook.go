@@ -2,8 +2,11 @@ package crypto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/google/uuid"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/hook"
@@ -47,7 +50,11 @@ func SavedLaunchConfigAnswersHook(svc *EnvelopeService) ent.Hook {
 			return hook.SavedLaunchConfigFunc(func(ctx context.Context, m *ent.SavedLaunchConfigMutation) (ent.Value, error) {
 				answers, exists := m.Answers()
 				if exists && answers != nil {
-					encrypted, err := encryptPropertiesMap(svc, answers)
+					binding, err := launchConfigBinding(ctx, m)
+					if err != nil {
+						return nil, err
+					}
+					encrypted, err := encryptPropertiesMap(svc, answers, binding)
 					if err != nil {
 						return nil, fmt.Errorf("failed to encrypt survey answers: %w", err)
 					}
@@ -85,7 +92,7 @@ func SavedLaunchConfigAnswersInterceptor(svc *EnvelopeService) ent.Interceptor {
 				if cfg.Answers == nil {
 					continue
 				}
-				decrypted, err := decryptPropertiesMap(svc, cfg.Answers)
+				decrypted, err := decryptPropertiesMap(svc, cfg.Answers, cfg.SecretBinding)
 				if err != nil {
 					slog.Warn("failed to decrypt survey answers, leaving encrypted",
 						slog.Int("saved_launch_config", cfg.ID), slog.String("error", err.Error()))
@@ -97,4 +104,41 @@ func SavedLaunchConfigAnswersInterceptor(svc *EnvelopeService) ent.Interceptor {
 			return v, nil
 		})
 	})
+}
+
+// ErrBulkLaunchConfigAnswers is returned when a bulk update tries to set
+// answers across many rows at once.
+var ErrBulkLaunchConfigAnswers = errors.New("crypto: survey answers cannot be set by a bulk update, because each row's ciphertext is bound to that row")
+
+// launchConfigBinding resolves the associated data for this mutation.
+//
+// The same three cases deviceBinding handles, and worth stating that the
+// duplication is deliberate rather than a missed abstraction: the two take
+// different mutation types, and the only way to share them would be an
+// interface over generated code that ent does not provide. Four lines of
+// shape in common is not worth a reflection layer on a path that handles
+// secrets.
+func launchConfigBinding(ctx context.Context, m *ent.SavedLaunchConfigMutation) (string, error) {
+	switch {
+	case m.Op().Is(ent.OpCreate):
+		binding, exists := m.SecretBinding()
+		if !exists || binding == "" {
+			return "", errors.New("crypto: saved configuration has no secret binding on create, so its answers cannot be bound to it")
+		}
+		return binding, nil
+
+	case m.Op().Is(ent.OpUpdateOne):
+		binding, err := m.OldSecretBinding(ctx)
+		if err != nil {
+			return "", fmt.Errorf("crypto: cannot read the saved configuration's secret binding: %w", err)
+		}
+		if binding == "" {
+			binding = uuid.NewString()
+			m.SetSecretBinding(binding)
+		}
+		return binding, nil
+
+	default:
+		return "", ErrBulkLaunchConfigAnswers
+	}
 }

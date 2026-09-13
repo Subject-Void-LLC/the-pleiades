@@ -34,6 +34,10 @@ const (
 	EdgeOrganization = "organization"
 	// EdgeTemplates holds the string denoting the templates edge name in mutations.
 	EdgeTemplates = "templates"
+	// EdgeInputSources holds the string denoting the input_sources edge name in mutations.
+	EdgeInputSources = "input_sources"
+	// EdgeSourcedBy holds the string denoting the sourced_by edge name in mutations.
+	EdgeSourcedBy = "sourced_by"
 	// Table holds the table name of the credential in the database.
 	Table = "credentials"
 	// CredentialTypeTable is the table that holds the credential_type relation/edge.
@@ -55,6 +59,20 @@ const (
 	// TemplatesInverseTable is the table name for the Template entity.
 	// It exists in this package in order to avoid circular dependency with the "template" package.
 	TemplatesInverseTable = "templates"
+	// InputSourcesTable is the table that holds the input_sources relation/edge.
+	InputSourcesTable = "credential_input_sources"
+	// InputSourcesInverseTable is the table name for the CredentialInputSource entity.
+	// It exists in this package in order to avoid circular dependency with the "credentialinputsource" package.
+	InputSourcesInverseTable = "credential_input_sources"
+	// InputSourcesColumn is the table column denoting the input_sources relation/edge.
+	InputSourcesColumn = "credential_input_sources"
+	// SourcedByTable is the table that holds the sourced_by relation/edge.
+	SourcedByTable = "credential_input_sources"
+	// SourcedByInverseTable is the table name for the CredentialInputSource entity.
+	// It exists in this package in order to avoid circular dependency with the "credentialinputsource" package.
+	SourcedByInverseTable = "credential_input_sources"
+	// SourcedByColumn is the table column denoting the sourced_by relation/edge.
+	SourcedByColumn = "credential_sourced_by"
 )
 
 // Columns holds all SQL columns for credential fields.
@@ -170,6 +188,34 @@ func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTemplatesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByInputSourcesCount orders the results by input_sources count.
+func ByInputSourcesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newInputSourcesStep(), opts...)
+	}
+}
+
+// ByInputSources orders the results by input_sources terms.
+func ByInputSources(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newInputSourcesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// BySourcedByCount orders the results by sourced_by count.
+func BySourcedByCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSourcedByStep(), opts...)
+	}
+}
+
+// BySourcedBy orders the results by sourced_by terms.
+func BySourcedBy(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSourcedByStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newCredentialTypeStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -189,5 +235,19 @@ func newTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, TemplatesTable, TemplatesPrimaryKey...),
+	)
+}
+func newInputSourcesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(InputSourcesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, InputSourcesTable, InputSourcesColumn),
+	)
+}
+func newSourcedByStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SourcedByInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SourcedByTable, SourcedByColumn),
 	)
 }

@@ -472,6 +472,111 @@ var SetTemplateCredentials = Endpoint{
 	},
 }
 
+// inputSourceSchema is one binding between a credential's input and the
+// credential that supplies its value.
+var inputSourceSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"id":       map[string]any{"type": "integer"},
+		"input_id": stringSchema("The id of this credential's input that the source supplies."),
+		"source_credential": map[string]any{
+			"type":        "integer",
+			"description": "The credential that supplies the value: an external-kind credential holding the address and token of a secret manager.",
+		},
+		"source_credential_name":      stringSchema("The source's name, carried so a reader does not need a second request."),
+		"source_credential_namespace": stringSchema("The source type's stable identifier, which selects how the reference is resolved."),
+		"metadata": map[string]any{
+			"type": "object",
+			"description": "The source's own per-field addressing, for example a secret path and the key within it. " +
+				"Not redacted: a path is a pointer to a secret rather than a secret, and hiding it would make " +
+				"\"which credentials point at this mount\" unanswerable during a migration.",
+			"additionalProperties": map[string]any{"type": "string"},
+		},
+	},
+}
+
+// ListCredentialInputSources is GET /credentials/{id}/input-sources.
+var ListCredentialInputSources = Endpoint{
+	Name:    "list_credential_input_sources",
+	Method:  http.MethodGet,
+	Pattern: "/credentials/{id}/input-sources",
+	Scope:   auth.ScopeCredentialRead,
+	Rel:     auth.RelCollection,
+	Summary: "List a credential's input sources",
+	Description: "Returns which of this credential's inputs are supplied by another credential rather than stored here, " +
+		"and where in that source each one lives. No secret value is returned, because none is stored.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The input sources, ordered by input id.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"input_sources": map[string]any{"type": "array", "items": inputSourceSchema},
+				"_links":        linksSchema(),
+			},
+		}},
+		{Status: http.StatusBadRequest, Description: "id is not a positive integer.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No credential with that id.", Schema: errorSchema("")},
+	},
+}
+
+// SetCredentialInputSources is PUT /credentials/{id}/input-sources.
+//
+// credential:write rather than credential:read for the reason
+// SetTemplateCredentials gives about its own scope: binding decides what a
+// run authenticates AS, which is the higher privilege.
+var SetCredentialInputSources = Endpoint{
+	Name:    "set_credential_input_sources",
+	Method:  http.MethodPut,
+	Pattern: "/credentials/{id}/input-sources",
+	Scope:   auth.ScopeCredentialWrite,
+	Rel:     auth.RelCredentials,
+	Summary: "Replace a credential's input sources",
+	Description: "Replaces the whole set, so an empty list makes every input read from stored values again. " +
+		"Refused, before anything is written, when an input is not one this credential's type declares, when the " +
+		"source belongs to another organization, when the source is not an external-kind credential, or when the " +
+		"result would make resolution return to the credential it started from.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The credential's numeric id."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":     "object",
+		"required": []any{"input_sources"},
+		"properties": map[string]any{
+			"input_sources": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []any{"input_id", "source_credential"},
+					"properties": map[string]any{
+						"input_id":          stringSchema("The input of this credential to supply."),
+						"source_credential": map[string]any{"type": "integer", "description": "The external-kind credential to read it through."},
+						"metadata": map[string]any{
+							"type":                 "object",
+							"description":          "The source's own per-field addressing, for example a secret path and the key within it.",
+							"additionalProperties": map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+		},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The bindings as stored.", Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"input_sources": map[string]any{"type": "array", "items": inputSourceSchema},
+				"_links":        linksSchema(),
+			},
+		}},
+		{Status: http.StatusBadRequest, Description: "The body is malformed.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "The set would close a resolution cycle, or binds one input twice.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No credential with that id, no such source, or an input this type does not declare.", Schema: errorSchema("")},
+	},
+}
+
 // TestCredentialType is POST /credential-types/{id}/test.
 //
 // It renders a type's injectors against caller-supplied dummy values and

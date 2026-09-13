@@ -444,8 +444,8 @@ func TestTransportActionExecutor_CredentialLookupFailure(t *testing.T) {
 // remote command that happens to echo the password or key it authenticated
 // with never leaks it into a later task's when_cel-visible stat or a
 // printed plan. This is the phase's masking-ruleset requirement, proven
-// end to end through the executor's own seam, not just credential.Mask in
-// isolation (internal/credential's own tests already cover that).
+// end to end through the executor's own seam, not just the masking
+// function in isolation (internal/redact's own tests already cover that).
 func TestTransportActionExecutor_MasksSecretsInStats(t *testing.T) {
 	const secretPassword = "hunter2-super-secret"
 	actions := engine.NewTransportActionExecutor(

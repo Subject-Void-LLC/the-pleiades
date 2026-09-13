@@ -106,7 +106,11 @@ func TestRotateDeviceProperties(t *testing.T) {
 		if err := row.Scan(&rawJSON); err != nil {
 			t.Fatalf("failed to scan raw properties for %s: %v", name, err)
 		}
-		if !strings.Contains(rawJSON, "v2$AES256GCM$") {
+		// The new key version AND the bound tag: Phase 78c made a rotation
+		// pass the thing that converts a pre-78c unbound row to the bound
+		// form, so a row still carrying the old tag afterwards means the
+		// migration silently did not happen.
+		if !strings.Contains(rawJSON, "v2$AES256GCM-AAD$") {
 			t.Errorf("device %s raw properties still on old version after rotation: %s", name, rawJSON)
 		}
 		if strings.Contains(rawJSON, testAAALogin) {

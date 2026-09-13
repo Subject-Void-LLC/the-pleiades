@@ -120,6 +120,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	credfile "github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/file"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/lookup/hashivault"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/crypto"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
@@ -127,6 +128,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/journal"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
@@ -749,7 +751,17 @@ func main() {
 	// resolver that works normally and fails only the specific credential
 	// that names an external reference, which is why this is wired
 	// unconditionally rather than behind a configuration check.
-	externalLookups, err := credtype.NewLookups(credfile.FromEnvironment())
+	// Two kinds of source, and the split is not arbitrary. The file source
+	// is DEPLOYMENT-wide configuration, because a Kubernetes projected
+	// volume is a property of this process rather than of any one
+	// credential. The Vault source is per credential, because a Vault
+	// address and a token belong to a credential row that can be rotated
+	// and audited, which is the whole reason Phase 78a built the input
+	// source model.
+	externalLookups, err := credtype.NewLookupsWith(
+		[]credtype.Lookup{credfile.FromEnvironment()},
+		[]credtype.LookupFactory{hashivault.Factory{}},
+	)
 	if err != nil {
 		fatal("failed to build the external secret source table", err)
 	}
@@ -820,6 +832,23 @@ func main() {
 	// actually carry out.
 	if err := bus.Subscribe(ctx, topology.JobRequestedSubject(), worker.HandleJobRequested); err != nil {
 		fatal("failed to subscribe job fan-out worker", err)
+	}
+
+	// The run journal consumer (Phase 40). A Runner publishes a batch per
+	// topological level onto the job's journal subject; this is what puts
+	// them in the database. Without it the Runner publishes into a stream
+	// nobody reads, and the journal exists for the stream's retention
+	// window and then does not.
+	//
+	// The subject is the wildcard over every job, and Bus.Subscribe
+	// derives one durable consumer name from it, so every replica joins
+	// one consumer group and a batch is written once rather than once per
+	// replica. Fatal on failure for the same reason the fan-out worker
+	// above is: a controller that silently stopped recording an audit
+	// trail is worse than one that refuses to start.
+	journalSubscriber := journal.NewSubscriber(journal.NewEntStore(client), logger)
+	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
+		fatal("failed to subscribe the run journal consumer", err)
 	}
 
 	// reaperElector is a second, independent LeaderElector (a distinct key
@@ -1091,13 +1120,17 @@ func main() {
 		apispec.DeleteCredentialEndpoint.Name: credentials.DeleteCredential,
 		apispec.ListTemplateCredentials.Name:  credentials.ListTemplateCredentials,
 		apispec.SetTemplateCredentials.Name:   credentials.SetTemplateCredentials,
-		apispec.ListDevices.Name:              devices.List,
-		apispec.CreateDevice.Name:             devices.Create,
-		apispec.GetDevice.Name:                devices.Get,
-		apispec.UpdateDevice.Name:             devices.Update,
-		apispec.DeleteDevice.Name:             devices.Delete,
-		apispec.ListRunbooks.Name:             catalog.List,
-		apispec.GetRunbook.Name:               catalog.Get,
+
+		apispec.ListCredentialInputSources.Name: credentials.ListCredentialInputSources,
+		apispec.SetCredentialInputSources.Name:  credentials.SetCredentialInputSources,
+
+		apispec.ListDevices.Name:  devices.List,
+		apispec.CreateDevice.Name: devices.Create,
+		apispec.GetDevice.Name:    devices.Get,
+		apispec.UpdateDevice.Name: devices.Update,
+		apispec.DeleteDevice.Name: devices.Delete,
+		apispec.ListRunbooks.Name: catalog.List,
+		apispec.GetRunbook.Name:   catalog.Get,
 
 		apispec.ListInventories.Name: inventories.List,
 		apispec.GetInventory.Name:    inventories.Get,
@@ -1466,4 +1499,21 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// envelope_bound.go records why that is acceptable there and not here.
 	client.Credential.Use(crypto.CredentialInputsHook(envelopeSvc))
 	client.Credential.Intercept(crypto.CredentialInputsInterceptor(envelopeSvc))
+
+	// The NATS account signing key, also on the bound envelope, and the
+	// case where relocation stops being a leak and becomes something
+	// worse. Moving one credential's ciphertext onto another row makes the
+	// platform inject the wrong secret. Moving a SIGNING KEY's ciphertext
+	// onto another row makes the platform mint credentials a different
+	// account trusts, which manufactures identities rather than exposing a
+	// value, and the attacker reads nothing at any point.
+	//
+	// This is the one key in the NATS hierarchy a running process is
+	// allowed to hold at all: the operator key and the account identity
+	// key stay offline, so a compromise here is an account compromise
+	// rather than a mesh compromise. internal/meshid's package comment
+	// carries the full hierarchy and why the split is the security
+	// boundary.
+	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(envelopeSvc))
+	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
 }

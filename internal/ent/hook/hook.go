@@ -57,6 +57,18 @@ func (f CredentialFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CredentialMutation", m)
 }
 
+// The CredentialInputSourceFunc type is an adapter to allow the use of ordinary
+// function as CredentialInputSource mutator.
+type CredentialInputSourceFunc func(context.Context, *ent.CredentialInputSourceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CredentialInputSourceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CredentialInputSourceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CredentialInputSourceMutation", m)
+}
+
 // The CredentialTypeFunc type is an adapter to allow the use of ordinary
 // function as CredentialType mutator.
 type CredentialTypeFunc func(context.Context, *ent.CredentialTypeMutation) (ent.Value, error)
@@ -141,6 +153,18 @@ func (f JobTaskFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.JobTaskMutation", m)
 }
 
+// The JournalEntryFunc type is an adapter to allow the use of ordinary
+// function as JournalEntry mutator.
+type JournalEntryFunc func(context.Context, *ent.JournalEntryMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f JournalEntryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.JournalEntryMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.JournalEntryMutation", m)
+}
+
 // The LocalCredentialFunc type is an adapter to allow the use of ordinary
 // function as LocalCredential mutator.
 type LocalCredentialFunc func(context.Context, *ent.LocalCredentialMutation) (ent.Value, error)
@@ -151,6 +175,18 @@ func (f LocalCredentialFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Va
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.LocalCredentialMutation", m)
+}
+
+// The MeshSigningKeyFunc type is an adapter to allow the use of ordinary
+// function as MeshSigningKey mutator.
+type MeshSigningKeyFunc func(context.Context, *ent.MeshSigningKeyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f MeshSigningKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.MeshSigningKeyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.MeshSigningKeyMutation", m)
 }
 
 // The OrganizationFunc type is an adapter to allow the use of ordinary

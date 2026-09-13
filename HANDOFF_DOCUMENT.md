@@ -4,149 +4,142 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Phase 86.5 is complete, built for real this time.** Its predecessor spec presented as 9 of 12 items
-done; none of it existed (`FAILURE_PATTERNS.md` #202). This session built the real thing, verified
-against `go test`/`-race` and a real device, not assumed. Nothing has been committed yet (no
-autonomous commits; awaiting the user's own go-ahead).
+**Branch `feature/Phase-40-Run-Journal`. Phase 40's twenty build-order steps of
+`.SPECIFICATION/PHASE40_MASKING_DECISION.md` Section 8 are ALL DONE, including step 20's human
+dogfood pass. `make ci` now clears every stage except the last test-running one: read "Where
+`make ci` actually stands" below before claiming it passes.** Pushed and raised as a pull
+request against `main`.
 
-`pkg/remoteexec/shell.go` (new): `Conn.Shell`/`Shell.WriteLine`/`Shell.ReadUntil`/`Shell.Close`, the
-PTY-based primitive `pkg/netcli` builds on. `WriteLine` sends a bare `"\r"`, not `"\r\n"`, and the first
-draft used `"\r\n"` and, run for real against a device, made every prompt appear to print twice (a
-phantom empty Enter from the trailing `\n`), caught only by live testing, never by the fake-server
-suite, which passed throughout.
+The dogfood pass was not a formality. It found two real defects that every existing gate had
+been passing over, and the `make ci` work found three more things nobody was looking for.
 
-`pkg/netcli` (new): `Dialect`/`Session`/`IOS`/`FromPrompt`. Every literal in the `IOS` dialect (prompt
-shapes, `terminal length 0`, the `(config-if)#` sub-mode a real interface creation drives it into, the
-`"% Invalid input..."` error convention) was pinned against a real device
-(`pkg/netcli/live_probe_test.go`, `PLEIADES_E2E_IOS`-gated), not assumed.
+### What step 20 actually did
 
-`net.cli.command`, `net.cli.config`, `net.ios.config` all flip to `StatusImplemented`. Catalog now 78
-registered, **74 implemented, 4 declared** (was 71/7); `CLAUDE.md`'s own tally corrected to match.
+A real Crawl-tier project (`pleiades init`, four hand-written runbooks, a real sshd container)
+and a real Walk-tier deployment: the real `cmd/controller` and `cmd/runner` binaries, real NATS
+with JetStream, org/inventory/device/template created through the HTTP API, jobs launched with
+`curl`, rows read back through a plain `sqlite3` connection that never touches ent.
 
-Two further real bugs found only by running this against a real device, both fixed, both with a
-regression test:
+**Two defects found, both fixed, both with a test that fails without the fix.**
 
-1. **A hang, not a slow response.** `net.cli.command`'s generic dialect has no paging-disable
-   convention, so a long-output command (`show version`) paused on the device's real `--More--`-style
-   pager forever, because `cmd/pleiades run` calls it with `context.Background()`. Fixed:
-   `internal/catalog/net/cli/cli.go`'s `runCommand` bounds every generic-dialect command to 30s
-   regardless of the caller's own ctx (`net.ios.config`'s own reads are deliberately NOT given this
-   bound: its paging genuinely is disabled, and a large legitimate backup taking longer than any fixed
-   bound is a real, different risk).
-2. **An unmasked secret.** `net.ios.config`'s `backup: true` stat is a full running-config; on the real
-   device it held a real `enable secret`, `enable password`, a local user's password hash, and a
-   TACACS+ shared key, printed unmasked in `--verbose` output. Fixed by documenting
-   `register_mask: backup` as required in the method's own `Doc.Returns` entry (there is no way for the
-   platform to know a stat is secret without being told).
+1. **`FAILURE_PATTERNS.md` #209: a multi-device job silently lost skipped-task journal rows.**
+   A row is identified by `(job_id, device_id, attempt, node_id)`, which assumes every entry
+   names a device. A skipped task, a controller-side task and the synthetic parallel marker
+   name none, so every dispatch of one job produced the identical key and the store discarded
+   all but the first as "already recorded". Four identical two-device launches gave 5, 6, 6 and
+   5 rows: completeness depended on whether JetStream happened to redeliver, since a different
+   attempt separates the keys. Fixed in `internal/adapters/native/journal.go`, beside the
+   `JobID` and `Attempt` the publisher already stamps.
+2. **`FAILURE_PATTERNS.md` #210: one run spelled "no keys" two ways.** `normalize` exists to
+   prevent exactly that and was applied at the file sink only, so the Walk tier stored the JSON
+   scalar `null`. SQLite hides it. The columns are `jsonb`, and PostgreSQL refuses
+   `jsonb_array_length('null')` outright, measured against a real server, so an operator's query
+   failed on precisely the rows where a task recorded no keys, which is every failed task.
 
-Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`
-(`TestCLI_RunAppliesAndRevertsIOSConfig`, `PLEIADES_E2E_IOS`-gated), drives the real binary through
-`init`/`add-host`/`add-credential`/`run` against the real DevNet Catalyst 8000 Always-On sandbox,
-verifies every claim over a second, independent connection this test opens itself. Passed clean
-(12.5s), confirmed independently afterward that nothing was left on the shared device.
+`LESSONS_LEARNED.md` #174 is the generalization: a suite is blind to any defect needing two of
+its conditions at once, because a fixture isolates one and neutralizes the rest. Defect #209
+needs more than one device AND a node that resolves none. Every gate dispatches one device and
+no gate's runbook has a `when:`, so nothing held both.
 
-`examples/catalyst8000_lab/` (new): the same round trip as a runnable demo runbook, module-as-key
-sugar form with a `metadata:` block (a first draft used explicit `fqcn:`/`params:`, see "Debt" below),
-run for real against the same device, README documents both bugs above.
+Three claims the pass CONFIRMED rather than broke, worth not re-deriving: SIGINT to a real
+`pleiades run` mid-level lost the terminal's entire output and kept every completed level in
+the journal file; Book 10's documented `jq` recipe works verbatim; and five sentinels planted
+through four routes reached the device and `--verbose` and neither journal, with 102 Walk rows
+re-scanned clean afterward.
 
-Doc generation confirmed idempotent by diffing two consecutive `gendocs` runs byte-for-byte, not just
-re-running and eyeballing it. `TestCatalogDataDocsMatchTheRegistry` and the full `internal/archtest`
-suite pass; `TestEveryImplementedMethodAnswersReversibility` reports 74.
+### The `make ci` blocker, which was not what the last handoff said it was
 
-### Documentation pass (same session)
+**The two packages the previous handoff named are fine.** `internal/catalog/pleiades/builtin/wait`
+and `pkg/remotefile` passed every run. No `flaky-packages.json` entry was warranted or added.
 
-Every runbook example the project ships now uses module-as-key sugar. 278 conversions:
-266 in `Doc.Examples` across `internal/catalog/**` and their byte-identical
-`internal/forge/catalogdata` twins, which regenerated 133 `fqcn:` lines out of 70 pages under
-`docs/reference/`, plus 12 in `docs/02-get-started.md` and `examples/webserver_lab/`. The
-transform is exactly lossless, which the parser guarantees rather than the author claiming it:
-`internal/engine/task_syntax.go`'s `rewriteModuleKeyNode` accepts a mapping (arguments) or a null
-scalar (no arguments), so `fqcn: X` plus `params:` becomes `X:`, `params: {}` becomes `X: {}`, and
-a bare `fqcn: X` becomes a bare `X:`. Both forms were validated side by side through the real
-binary before any file was touched, and all 14 example runbooks validate afterward.
+The real blocker was the gate's own parallelism. `go test` defaults `-p` to GOMAXPROCS, 20 on
+this host, and `DOCKER_DEPENDENT_PACKAGES` names 22 packages, so one Docker daemon was asked to
+start twenty packages' containers at once. Seven different packages failed across two runs and
+every failure was the daemon's own: a `containers/<id>/json` inspect exceeding its deadline
+after 553 retries, a published sshd port answering connection refused, a NATS container never
+reachable. All seven were already in `flaky-packages.json`, which `make ci` deliberately
+ignores, so the waiver path could not have produced a clean run even in principle.
 
-Two files were deliberately NOT converted, and should stay that way:
-`examples/upgrade_ios/pleiades/runbooks/upgrade_ios_xe.yaml` and the "Two ways to write a Pleiades
-task" section of `examples/upgrade_ios/README.md`. That runbook is the explicit-form twin of
-`upgrade_ios_xe_sugar.yaml` and exists purely to show the two shapes side by side; converting it
-would delete the comparison.
+Fixed in the Makefile: `test-race` and `test-integration` run the container packages at
+`DOCKER_TEST_PARALLELISM`, which is 1. Each half is an intersection with the tag-appropriate
+`go list`, because naming a package explicitly is not the same as matching it with `./...`
+(`tests/e2e` and `internal/ent/migrate/gen` are `[setup failed]` when named).
 
-Three stale claims were found by the same pass and corrected. `README.md` and
-`docs/01-start-here.md` both said the catalog has "77 declared methods; 34 are implemented",
-understating implemented methods by forty; the real figure, from the generated
-`docs/reference/schemas/module-catalog.json`, is 78 registered, 74 implemented, 4 declared, and
-both passages were rewritten around the short list of four that are NOT implemented rather than a
-now-unwieldy list of what is. `docs/02-get-started.md` said `ssh_exec` "is the one action that
-genuinely reaches a device today", which stopped being true long before this session; it now says
-plainly that `ssh_exec` is a legacy action name kept working, and points at `exec.command` and the
-catalog. The same file had an orphaned `params:` fragment left by the conversion, since it is a
-partial snippet with no `fqcn:` line above it for the transform to anchor on; found by sweeping
-for `params:` afterward rather than by assuming the conversion was complete.
+**`make ci` now takes noticeably longer.** The container packages run in sequence rather than
+together. That is the price of a gate that can pass at all.
 
-### Three more Cisco IOS methods (same session)
+### One security finding, taken rather than filed
 
-`net.ios.facts`, `net.ios.ping` and `net.ios.save`, all built on the Phase 86.5 interactive CLI
-transport, scaffolded through the real `pleiades forge` CLI and then implemented. Catalog goes to
-**81 registered, 77 implemented, 4 declared**.
+`govulncheck` flagged three vulnerabilities this module's code actually reaches, all in
+`golang.org/x/crypto/ssh` at v0.54.0: GO-2026-6355 and GO-2026-6354 (DoS on a deadlocked SSH
+channel, reached from `realDial`'s `ssh.NewClientConn`, which is every SSH connection this
+platform makes) and GO-2026-6303. Bumped to v0.56.0, which is clean. It raises the `go`
+directive from 1.25.0 to 1.26.0 because x/crypto and the x/ modules it pulls forward declare
+it; `toolchain go1.26.6` was already pinned, so nothing about building here changed.
 
-`net.ios.facts` closes a real hole rather than adding a convenience: `facts.gather` requires
-`FactGathererCapable`, which no Cisco device type declares, so before this a Cisco device could be
-commanded and configured but never described, and the only device facts in the catalog came from
-`net.catalyst.device_facts` over Catalyst Center's REST API. It parses `show version`,
-`show inventory` and `show ip interface brief`, and emits through `EmitFact`, matching
-`facts.gather` and `net.catalyst.device_facts`.
+This is the one failure CLAUDE.md says a local run cannot predict: the advisory database is
+live, so the gate can fail tomorrow on a tree nobody touched.
 
-**Every parser was written against output captured from the real device first**, via a new
-read-only diagnostic (`pkg/netcli/live_probe_test.go`'s `TestLiveIOSFactsShapes`), and the captured
-output is pasted verbatim into the unit tests as fixtures. Two shapes only a real device would have
-revealed: an interface status can be TWO words (`administratively down`) followed by a one-word
-protocol column, which a positional split silently truncates; and IOS omits the
-`round-trip min/avg/max` clause ENTIRELY at 0 percent success rather than printing zeroes, which is
-the ping shape a parser written against only the success case gets wrong. Both are covered.
+### The one thing left open, deliberately not waived
 
-`net.ios.save` is built but deliberately NOT exercised against the DevNet sandbox: `write memory`
-would copy whatever other users have left in running-config into startup-config on a device we do
-not own. Covered by unit tests only, and that gap is stated in the Release Gate's own doc comment
-rather than left for a reader to find.
+`pkg/remoteexec`'s `TestConnect_HopChain_StressManyConcurrentSessions` failed ONCE, during one
+`test-repeat` sweep, with 1 of 300 concurrent sessions reporting
+`ssh: unexpected packet in response to channel open: <nil>`. That `<nil>` is `%T` of a nil
+message, which is what a receive on a closed mux yields, so that session's connection died
+between handshake and channel open.
 
-Release Gate: `cmd/pleiades/net_ios_config_release_gate_test.go`'s
-`TestCLI_RunGathersIOSFactsAndPings`, read-only so it needs no cleanup, passed against the real
-device (14.0s). It discovers the device's own management address over its own independent
-connection rather than hardcoding one, because this sandbox has no outbound path and a gate
-pinging the public internet would fail for reasons unrelated to this platform.
+What is established: it is load dependent (five isolated `-count=3` runs pass), it is not a
+`-count=3` state bug, and it is not a shared-client race, because `Run` calls `Connect` per
+session and each of the 300 has its own bastion connection. What is NOT established is whether
+it is ours or x/crypto's. The two deadlock advisories above are literally about concurrent SSH
+channels and were fixed in the version now taken, which is a plausible match and not a proven
+one.
 
-Two defects in already-staged work were found by running the FULL suite, which the documentation
-pass before it had not done (it covered catalog/engine/forge/archtest only, and that gap is what
-let them through): `cmd/pleiades/doc_test.go` failed because the sugar conversion removed the
-`fqcn:` line it asserted on, and `pleiades doc --snippet` itself generated explicit `fqcn:`/`params:`
-skeletons, meaning the CLI was handing users the very form the examples had just stopped teaching.
-The generator now emits module-as-key sugar; a method with no parameters prints a bare
-`module.name:`, which `rewriteModuleKeyNode` accepts explicitly as a module with no arguments.
+**It is deliberately not in `flaky-packages.json`.** The diagnosis is unfinished, and a waiver
+written on an unfinished diagnosis is the blind entry that file's own header warns produces a
+package nothing checks anywhere. If it recurs, that is real evidence; treat a recurrence as a
+reason to investigate rather than to waive.
 
-`internal/catalog/net/ios` coverage moved 48.8 to 80.3 percent; its floor is raised 47.0 to 79.0.
+### Where `make ci` actually stands, precisely
 
-### Next step
+**Green, measured, repeatedly:** `build`, `devtools`, `vet` (both tag sets), `fmt`,
+`tidy-check`, `test-race`, `test-repeat`, `test-integration` (`tests/e2e` included, 278s),
+`gosec` (9 findings, all waived) and `govulncheck` (clean after the bump). Every one of those
+had failed or been unreachable on this branch before.
 
-Nothing is committed. This work is on `feature/cisco-cli-buildout`, cut from `main` at 49386d4; an
-earlier revision of this document claimed it sat on `main` and still needed a branch, which was never
-checked and was wrong. `make ci` has now been run in full: 13 of its 14 targets pass, and the one
-failure is `docs-gen-check`, which runs `git diff --exit-code` over regenerated documentation and so
-cannot pass until this work is committed. Remaining: the user's own review and go-ahead to commit.
+**Still red: `coverage`.** It is the one stage the parallelism fix above does NOT reach.
+`tools/coverage-check` runs its own fourth full `go test ./...` with no `-p` of its own, so
+the daemon saturates exactly as `test-race` used to, and three container packages
+(`internal/lock`, `internal/runner`, `internal/topology`) failed there with the same
+10.8-second container-start shape. `make ci`'s coverage stage is deliberately non-tolerant, so
+a listed package failing still stops it.
 
-### Debt, carried deliberately
+This was left undone on purpose rather than bolted on at the end of a long session. The fix is
+a real design decision with three parts that want review: where the container package list
+lives if a Go tool needs it too (the Makefile's own comment argues hard for ONE named list and
+against a derived one), whether the Makefile may hand that list to a tool that feeds it to
+exec.Command (`tools/coverage-check` currently refuses to read even its timeout from the
+environment, citing G204 taint), and how two coverage maps merge. `flakegate.RunGoTestJSON`
+hardcodes `./...` and has two callers, so its signature changes too.
 
-- Runbook authoring form was violated on the first draft of every file in `examples/catalyst8000_lab/`:
-  explicit `fqcn:`/`params:` instead of module-as-key sugar, and no `metadata:` block, despite an
-  existing memory (`pleiades-runbook-authoring-form`) already stating the rule, corrected 12+ times
-  before this session. Fixed in place; the memory itself was strengthened with a note that the failure
-  mode is not missing information, it is not consulting what is already loaded before writing runbook
-  YAML.
-- `net.junos.config`/`net.eos.config` remain `StatusDeclared`: zero device types implement
-  `JunosCapable`/`AristaEOSCapable` (Phase 74's own open item), and `net.netconf.config` remains
-  Phase 74's entirely.
-- `examples/catalyst8000_lab/`'s four runbooks all name `Loopback8990` literally, on a device shared
-  with every other DevNet sandbox user, so two concurrent runs of the example would fight over one
-  interface. The Release Gate covering the same two methods derives its interface name from its
-  process ID; a runbook has no equivalent, because task-param rendering at run time is a separate
-  unbuilt piece of work. Documented prominently in the example's own README and in each runbook's
-  header rather than papered over.
+**The fourth failure in that same stage was NOT contention and is fixed:**
+`FAILURE_PATTERNS.md` #211, a stress test racing a fixed 50ms sleep. It appeared immediately
+after the x/crypto bump and looked exactly like a regression; a worktree pinned to the old
+v0.54.0 reproduces it identically at `-count=200`, so the bump is innocent. 500 repetitions
+pass after the fix.
+
+### Also this session
+
+`.AGENTS/AGENTS.md` gained a **Security Findings** section, at the user's request: report at
+the "could be" threshold rather than "proven", as a named finding with five specifics, and
+never disclose a third-party vulnerability outside this repository on your own. That file is
+gitignored, so it is not in the pull request.
+
+### Commits
+
+Seven on top of the previous handoff: three for the dogfood defects and their documentation,
+one for the sshd readiness race in `cmd/pleiades`'s gate helper, one for the Makefile
+parallelism split, one for the x/crypto bump, one for the stderr stress-test race.
+
+**The seven `c5ddb20` through `554da39` UI commits are still an unrelated side quest** on this
+branch (the web UI's appearance system). Flag them separately if this branch is ever split.

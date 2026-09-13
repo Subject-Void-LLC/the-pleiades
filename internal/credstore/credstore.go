@@ -127,6 +127,94 @@ type Credential struct {
 	TemplateIDs []int
 }
 
+// InputSource is one binding between a credential's input and the
+// credential that supplies its value from an external secret manager.
+//
+// It is the row form of what Credential.External says as a string, and the
+// two coexist: internal/credstore/resolve's graph.go carries the reasoning
+// for why one did not replace the other.
+type InputSource struct {
+	ID int
+
+	// InputID is the id of the TARGET credential's input this binding
+	// supplies.
+	InputID string
+
+	// SourceCredentialID and the two fields after it describe the source
+	// without requiring a second fetch, matching Credential's own
+	// convention for its type.
+	SourceCredentialID        int
+	SourceCredentialName      string
+	SourceCredentialNamespace string
+
+	// Metadata is the source's own per-field addressing: for a HashiCorp
+	// Vault source, the secret path, the key within it, and optionally a
+	// version.
+	//
+	// NOT redacted, deliberately, and for the identical reason External is
+	// not: a path is a pointer to a secret rather than a secret, and hiding
+	// it would make "which credentials point at this mount" unanswerable
+	// during a migration or an incident.
+	Metadata map[string]string
+}
+
+// InputSourceBinding is one binding as a caller writes it.
+//
+// Separate from InputSource because a write names the source by id and a
+// read carries its name and namespace too. Reusing one struct would mean a
+// caller had to populate fields the store ignores, which is how a caller
+// comes to believe it can rename a source by writing to it.
+type InputSourceBinding struct {
+	InputID            string
+	SourceCredentialID int
+	Metadata           map[string]string
+}
+
+// CredentialOption configures a credential write.
+//
+// Variadic options rather than more parameters, because the two writers
+// already take six arguments each and because every existing caller means
+// "no source bindings" and should keep saying so by saying nothing.
+type CredentialOption func(*credentialWrite)
+
+// credentialWrite carries what the options set.
+type credentialWrite struct {
+	sources    []InputSourceBinding
+	hasSources bool
+}
+
+// WithInputSources binds inputs of the credential being written to source
+// credentials, in the same write.
+//
+// Passing an empty slice is meaningful and different from not passing the
+// option at all: it clears every binding, the way sending an empty list to
+// SetCredentialInputSources does.
+func WithInputSources(sources []InputSourceBinding) CredentialOption {
+	return func(w *credentialWrite) {
+		w.sources = sources
+		w.hasSources = true
+	}
+}
+
+// applyCredentialOptions collects the options into one value.
+func applyCredentialOptions(opts []CredentialOption) credentialWrite {
+	var w credentialWrite
+	for _, opt := range opts {
+		opt(&w)
+	}
+	return w
+}
+
+// sourcedIDs returns the input ids these bindings supply, for the required
+// input check.
+func sourcedIDs(bindings []InputSourceBinding) []string {
+	out := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		out = append(out, b.InputID)
+	}
+	return out
+}
+
 // Bound projects this credential into the shape the binding rule reads.
 //
 // The vault identifier is carried on the projection rather than read out of
@@ -235,7 +323,13 @@ type Store interface {
 	// values on the way IN, which is the asymmetry this whole package
 	// rests on: writing a secret is ordinary, reading one back is not
 	// possible.
-	CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string) (Credential, error)
+	//
+	// WithInputSources makes the credential and its source bindings one
+	// write. That is not a convenience: a required input supplied by a
+	// source has no stored value, so creating the credential first and
+	// binding it second would have to either refuse the create or leave a
+	// window in which the credential exists and cannot authenticate.
+	CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error)
 
 	// UpdateCredential replaces a credential's values.
 	//
@@ -243,7 +337,12 @@ type Store interface {
 	// is already stored, which is what lets a form round-trip: it renders
 	// the marker for a secret, the operator edits an unrelated field, and
 	// submitting does not overwrite the secret with the marker text.
-	UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string) (Credential, error)
+	//
+	// Bindings are left alone unless WithInputSources is passed, so an
+	// ordinary edit of a name or an unrelated field cannot silently unbind
+	// an input. When it is passed it replaces the whole set, matching
+	// SetCredentialInputSources.
+	UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error)
 
 	// DeleteCredential removes a credential and every binding to it.
 	DeleteCredential(ctx context.Context, id int) error
@@ -260,4 +359,18 @@ type Store interface {
 	// caller gets a conflict naming both credentials, and the store checks
 	// so a second writer cannot skip it.
 	SetTemplateCredentials(ctx context.Context, templateID int, credentialIDs []int) error
+
+	// ListCredentialInputSources returns one credential's input bindings,
+	// ordered by input id.
+	ListCredentialInputSources(ctx context.Context, credentialID int) ([]InputSource, error)
+
+	// SetCredentialInputSources replaces a credential's input bindings.
+	//
+	// It refuses, before writing any of them, an input the credential's
+	// type does not declare, a source in another organization, a source
+	// that is not an external-kind credential, and a set that would make
+	// resolution return to the credential it started from. Each of those
+	// would otherwise surface at dispatch, which is days later and
+	// somebody else's job.
+	SetCredentialInputSources(ctx context.Context, credentialID int, bindings []InputSourceBinding) ([]InputSource, error)
 }

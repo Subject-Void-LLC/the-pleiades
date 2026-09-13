@@ -218,8 +218,8 @@ func TestIPCCollectionExecutor_Invoke_RejectsNonWireDevice(t *testing.T) {
 	}
 }
 
-// TestSecretValues_ExtractsEveryValue pins the helper credential.Mask is
-// fed from: a secret missing from this slice is a secret that will not be
+// TestSecretValues_ExtractsEveryValue pins the helper redact.Text is fed
+// from: a secret missing from this slice is a secret that will not be
 // masked out of captured subprocess output.
 func TestSecretValues_ExtractsEveryValue(t *testing.T) {
 	got := secretValues(map[string]string{"username": "admin", "password": "hunter2"})

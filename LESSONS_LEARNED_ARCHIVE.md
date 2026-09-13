@@ -3669,3 +3669,330 @@ by exactly the broken case. When a chart's structure forces the same list
 into two places, put the shared part in a named template so the two cannot
 drift, which is the same reasoning that applies to any duplicated
 declaration.
+
+## 169. A hazard closed in one function is not closed in its siblings, and a latent one reads as no hazard at all
+
+`internal/topology.DurableName` was written with an explicit doc comment
+explaining that sanitizing a caller-supplied string is not enough on its
+own, that two inputs differing only in illegal characters must not collapse
+onto one output, and that this is a Schema/Injection Hardening concern
+rather than a naming convenience. It cites `FAILURE_PATTERNS.md` #18, which
+is the same class: an unvalidated id widening a NATS subject.
+
+Three functions in the same file, a few dozen lines away, concatenated a
+caller-supplied string straight into a subject with none of that.
+`LogSubject(jobID)` and `ResultSubject(jobID)` did it, and `DispatchSubject`
+avoided it only because it took no parameter at all, which was itself the
+defect Phase 101a existed to fix.
+
+What kept it invisible for several phases is the part worth carrying
+forward. Job ids are `uuid.New().String()`, so nothing illegal ever reached
+those two in practice, and a hazard that cannot currently fire looks
+exactly like a hazard that does not exist. Nobody reading the file saw a
+bug, because there wasn't one yet. The device id was the input that would
+have fired it: `pkg/inventory` documents it as opaque and operator-supplied,
+so an entirely ordinary `router1.example.com` would have expanded a
+three-token subject into a six-token one.
+
+One correction belongs here rather than in a quiet edit, because the
+overstatement is itself an instance of the lesson. This entry first claimed
+such a subject would match no filter this package declares and would
+silently stop that device being dispatched to anybody. That is false. The
+fleet filter ends in `>`, which matches one or more trailing tokens, so the
+dispatch would have been delivered normally; a single-token `*` filter is
+what receives nothing. Both halves were verified against a real broker
+rather than reasoned about, and the reasoning that produced the wrong
+version was the same shortcut the rest of this entry is about: an
+unexamined assumption about how something behaves, believed because it made
+the story tidier. What an over-wide id actually breaks is every
+single-token per-device filter, which is the scoping mechanism the next
+stage depends on.
+
+Two habits come out of it.
+
+When a function is hardened against an input class, look for every sibling
+that takes the same shape of input, and judge them by the input they COULD
+receive rather than the input they currently do. The reason `DurableName`
+was hardened applies to any caller-supplied string becoming a NATS
+identifier, and the file it lives in held three more of them.
+
+Put the mapping inside the builder rather than at its callers. The subjects
+here are written in one process and read in another: the Runner publishes a
+job's log lines and the Controller's SSE viewer subscribes to them. Sanitize
+at the call sites and the two processes agree only for as long as every
+caller remembers; sanitize inside `LogSubject` and they agree by construction,
+and the change costs zero call-site edits. The corollary is that the
+exceptions then have to be loud, because they look like oversights:
+`DeadLetterSubject` and `EventSubject` both receive an already-dotted value
+on purpose, and each now says so in its own comment, or the next tidy-up
+"fixes" them and breaks the dead letter path.
+
+## 170. An identity-function diagnostic exonerates only the call sites a value flows through, because identity makes a wrongly passed argument accidentally correct
+
+FAILURE_PATTERNS.md #206's first fix split `internal/lock`'s NATS adapter
+into an itemID (what the caller passed, what `ID()` returns) and a stored
+key (the encoded value every broker operation uses). It failed against the
+conformance suite in a way that read as a broker mystery: shared-mode
+churn collapsing with "key not found" and "lease is no longer current"
+while, apparently, every call site used the encoded value.
+
+Two diagnostics were run, and both produced answers that were precisely
+wrong.
+
+Setting the encoder to the identity function made the suite pass, which
+was read as "the refactor is correct, the encoding breaks it". But the
+refactor had missed three call sites: `publishWithTTL`, which hand-builds
+the "$KV.<bucket>.<key>" subject, had four callers, and three still passed
+the lease's raw `itemID`. Under identity, itemID and key are equal, so a
+wrongly passed itemID lands on the right subject anyway. Identity does not
+exercise a split; it erases it. A diagnostic input with a fixed point at
+the bug's location cannot see the bug.
+
+Substituting `itemID + "-x"` for the real encoder failed identically to
+it, which was read as "any deviation of key from itemID breaks it, so the
+cause is in shared-mode CAS, not the encoding". The correlation was
+perfect and the conclusion inverted: ANY non-identity encoder exposes the
+three missed sites equally, because what breaks is the disagreement
+between the switched sites and the missed ones, not the encoding itself.
+
+The observed failure mechanics, for the record: the three missed publishes
+carried CAS expectations taken from the encoded key's revision history to
+the raw-itemID subject, which could never satisfy them, so every
+TTL-refresh spun in its retry loop until the never-refreshed 5s per-key
+TTL expired the lock underneath it. A fourth distortion stacked on top:
+"exclusive mode untouched" came from reading a `tail -4` of the output
+while the exclusive KeepAlive conformance failure scrolled past above it,
+believable because every lifecycle test of exclusive KeepAlive asserts a
+failure path and none asserted that a healthy refresh actually lands.
+
+The resolution came from refusing to trust the recorded reading: the
+attempt was reconstructed exactly from the session transcript, reproduced
+against a real broker, and fixed by switching only the three missed sites.
+The shipped form then retired the whole error class instead of the one
+instance: the encoded key is a distinct Go type (`storedKey`), the
+subject-building functions accept only it, and passing a raw itemID where
+a key belongs became a compile error, which was verified by writing that
+exact mistake and watching the build refuse it.
+
+The rule: when a diagnostic simplification makes a failure disappear, ask
+what else it made equal before believing what it seems to isolate. An
+identity function, a shared fixture, a zero value, a same-string rename:
+each collapses a distinction, and any bug living exactly in that
+distinction is invisible under it. Prefer a probe that keeps every
+distinction and varies one (here: the real encoder with one call site
+switched at a time), and when two variants "fail identically", diff the
+failure MECHANISM, not just the failure count, before concluding they
+share a cause. And when a mistake is one a comment must warn against,
+give the two things different types so the compiler runs the sweep every
+build, on every site, including the ones nobody re-read.
+
+## 171. A gate proves the intersection of what the code does and what the fixture is configured to allow, and a permission list asserted against a restatement of itself asserts nothing
+
+Phase 101b shipped five defects behind a Release Gate that passed in twelve
+seconds and a unit test that passed on every one of them
+(`FAILURE_PATTERNS.md` #207). Both were written carefully. Both were
+structurally incapable of failing.
+
+The gate ran a real broker, in operator mode, with real minted credentials,
+in acts, with a control proving anonymous access was refused and a negative
+control proving a forged publish was denied. By every convention in this
+repository it was a good gate. Its broker ran without `-js`, and all five
+defects lived on the JetStream control plane.
+
+That is the first rule, and it is not about NATS. A gate measures the
+INTERSECTION of what the code does and what the fixture is configured to
+exercise. A fixture missing the subsystem the code exists to serve turns
+every assertion into a statement about the other subsystem. The question to
+ask of a fixture is not "is it real" but "is it configured like the thing
+it stands in for", and the specific form here is worth keeping: the only
+NATS start in the entire repository that omitted `-js` was the one gating
+the code whose whole purpose was JetStream permissions.
+
+The unit test failed differently and worse. It compared the grant against a
+hand-written list of the subjects the Runner needs, by exact string
+membership. The list was written in the same sitting as the grant, from the
+same misunderstanding of a wildcard, so it carried the identical wrong
+suffixes. It asserted that the grant equalled itself. A test written from
+the same source as the code under test inherits the code's errors, and
+inherits them invisibly, because both sides move together whenever anyone
+changes them.
+
+The repair generalises. Assert against the OTHER SIDE OF THE CONTRACT: the
+subject the driver actually sends, taken from the driver's own templates,
+matched by the matching rules the server actually applies. That turns a
+comparison between two copies of one belief into a comparison between a
+belief and an independent fact. And when the matching rules are themselves
+the thing misunderstood, pin them in their own table first, with the case
+that caused the bug written as a row (`a.b.>` does not match `a.b`), so the
+helper cannot quietly drift into agreeing with a broken grant.
+
+Both failures share one ancestor: a check that cannot distinguish success
+from its absence. #206 met the same shape a week earlier, where an
+identity-function diagnostic made a wrongly passed argument accidentally
+correct (#170). The habit that catches all three is to ask, of any passing
+check, what would have to be true for this to fail, and to go and make that
+true once.
+
+
+---
+
+## 172. A "no input substring survives" assertion needs an empty-input baseline as its control, or it is unusable and gets deleted
+
+Phase 40's run journal is built on the claim that no value a device produced
+can reach a journal entry. The design note asks for a fuzz target that
+states that as a property: marshal the produced entries and assert that no
+substring of any input value survives.
+
+Written literally, that assertion cannot be shipped. A journal entry
+serializes to field names, JSON punctuation, closed-enum values, fixed
+platform identifiers and a zero timestamp, and a short fuzzed input
+collides with those constantly and meaninglessly. An input of `a` is a
+substring of `TaskName`. An input of `0001-01` is a substring of the zero
+time. Neither is a leak, and neither is worth an exception, because the
+exceptions accumulate until the rule is mostly exceptions and someone
+deletes it.
+
+The previous increment reached the same wall and answered it by dropping
+the substring property entirely in favor of a whitelist: every field of the
+produced entry must be drawn from an enumerable set. That is the stronger
+property and it stays the primary one. But it can only check the fields
+whoever wrote it thought to check, and the failure this whole phase guards
+against is a field a LATER phase adds.
+
+The repair is a control rather than an exception list. Run the projection
+once with entirely empty input and marshal that. Anything already present
+in the result cannot have come from the input, so it is explained once, by
+construction, instead of case by case forever. What the baseline does not
+explain is explained by a second, small, enumerable alphabet: the names the
+projection is independently allowed to store, for the case where a fuzzed
+value happens to spell a registered method name or a declared key. Anything
+explained by neither is a leak.
+
+Two details make it work rather than merely look like it works. Both the
+entry and each needle go through `encoding/json`, so a value carrying a
+quote or a control byte is compared in the same escaped form the entry
+holds it in; searching for a raw input inside escaped output silently
+misses most of what a fuzzer produces and all of what a running-config
+contains. And the whole helper carries its own negative control, asserting
+that an arbitrary value is NOT explained while a resolved method name and a
+field name ARE, because a property test that cannot fail is
+indistinguishable from one that passes.
+
+It earned its place immediately. A deliberately planted leak, a skip's
+reason sentence copied into the entry's `DeviceID`, was invisible to the
+whitelist (which did not inspect a skipped entry's device) and was reported
+by the substring property on the first seed.
+
+The general form: when a property is stated as "X must not appear in the
+output" and the output has structure of its own, the control is not a list
+of allowed exceptions, it is a run of the same code with X removed.
+
+## 173. A tooling mandate a rules file states in prose is not in force until something wires the tool in and something else can fail when it is missing
+
+This repository has told every agent to prefer the language server over
+grep since the IDE & LSP Tooling section was written. The rule was correct,
+the reasoning under it was correct, and it was written in the imperative.
+None of that put it in force. It named `gopls references` and `gopls
+definition`, two command line invocations, and it offered `gopls version`
+as the way to confirm the tool before relying on it. Those three facts
+between them are why the rule was followed unevenly for months.
+
+`gopls version` is the part that looks like a check and is not one. It
+prints a string from a binary that is on PATH. It does not prove the binary
+can load this module, which is the only thing anyone actually wants to
+know, and which fails for its own reasons: a gopls older than the toolchain
+`go.mod` asks for will print its version happily and then type-check
+nothing. A check that cannot distinguish a working setup from a broken one
+is not a weak check, it is a green light wired to nothing, and this
+repository already knows that shape from a permanently red CI gate gating
+nothing.
+
+The command line invocations are the part that made following the rule
+expensive. Each `gopls references` is a cold start that loads and
+type-checks the workspace again, which here is several seconds for one
+question. An agent under any time or token pressure that pays that per
+query, against a grep that answers instantly, will drift to grep and
+produce exactly the guesses the rule was written to forbid. The mandate was
+asking for the more expensive tool without noticing it was doing so.
+
+Both are fixed by the same thing, which already existed and was not wired
+in: `gopls mcp`, the language server's headless MCP mode. `.mcp.json` in
+the repository root exposes it, so a session holds one warm server for its
+whole life and eight typed queries cost a fraction of a single cold CLI
+invocation. That inverts the pressure the rule was fighting, because the
+correct tool is now also the fast one and the cheap one. `go_package_api`
+returns a package's exported surface in a screen or two where reading that
+package to learn the same thing costs thousands of lines of context, so
+following the rule now saves the budget that breaking it used to save.
+
+And `make lsp` is the check that can fail. It is a real MCP handshake that
+ends in a `go_workspace` call and greps the reply for this module's path,
+so it goes red on all three ways the setup breaks: gopls absent from PATH,
+gopls not speaking the protocol, gopls unable to load this tree. It is
+about a second on a warm cache and it was tested against a deliberately
+wrong module path before being believed, on the same principle as the
+negative control in 172: a check nobody has watched fail is indistinguishable
+from a check that cannot.
+
+It stays out of `make ci` on purpose. CI never invokes gopls, gopls is
+deliberately the one tool here that is not version pinned for exactly that
+reason, and a target whose whole job is to describe a developer's own
+machine has nothing to say about a hosted runner.
+
+The general form: a rule that depends on a tool has three parts, and prose
+is only the first. Wire the tool in so following the rule is the path of
+least resistance, and give the setup a check that has been seen to fail.
+A mandate whose tool is unreachable does not produce careful work, it
+produces a silent fallback to whatever was reachable, plus a rules file
+that reads as though it had not.
+
+## 174. A fixture that holds one of a defect's two conditions proves nothing about the defect
+
+Phase 40's run journal shipped with two structural archtests, a fuzz target, a
+benchmark, a Crawl-tier Release Gate against a real sshd, and a Walk-tier gate
+against real NATS and real containers. All of them green. The human dogfood pass
+then found two real defects inside twenty minutes, and the more serious one
+(`FAILURE_PATTERNS.md` #209) was invisible to every one of those tests for a
+reason worth generalizing.
+
+It needed two conditions at once: a job dispatched to MORE THAN ONE device, and a
+node that resolves NO device (a skipped task, a controller-side task, or the
+synthetic parallel marker). Each condition on its own is well covered. The
+Walk-tier gates dispatch one device and exercise failures, redelivery to
+exhaustion and the unique index. The engine's own tests cover skipped nodes in
+detail, including the ordinal and total a `when` list reports. Neither suite has
+a fixture holding both, so the store's row identity silently collapsed two
+devices' copies of one skipped node into a single row, and no assertion anywhere
+was in a position to notice.
+
+This is not a gap in diligence. It is the shape of test suites: a fixture is
+built to isolate the thing under test, so it holds one condition and neutralizes
+the rest. The consequence is that a suite is systematically blind to defects
+that live in the INTERSECTION of two conditions its fixtures each hold
+separately, and the suite's greenness carries no information about that region at
+all.
+
+Two practical rules follow.
+
+First, when reviewing a mechanism, list the conditions its fixtures neutralize
+rather than the ones they exercise, and ask which PAIRS of those are reachable in
+production. Here "more than one device" and "a node with no device" are both
+ordinary; their combination is a fan-out with a `when:` on a task, which is
+about as common as runbooks get.
+
+Second, this is what a dogfood pass is FOR, and why it cannot be replaced by
+running the suite again. A person using the product does not build fixtures. They
+write the runbook they actually wanted, against the fleet they actually have, and
+that runbook carries every condition at once by default. The spec's own stated
+reason for the step (`register_mask` once shipped with every one of its own tests
+green while masking nothing, because every test shared the wrong path assumption
+the bug had) is the same observation from the other side: a suite agrees with
+itself, and only use disagrees with it.
+
+The dogfood pass that found these also CONFIRMED several claims that could
+otherwise only be asserted, which is the other half of its value: a SIGINT to a
+real `pleiades run` mid-level discarded the terminal's entire output and kept
+every completed level in the journal file, exactly as the design says; the
+documented `jq` recipe works verbatim; and five sentinel values planted through
+four separate routes reached the device and reached `--verbose`, and reached
+neither journal.

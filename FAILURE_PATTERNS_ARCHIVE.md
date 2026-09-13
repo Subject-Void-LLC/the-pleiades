@@ -6892,3 +6892,437 @@ none, so they are exactly the ones that vanish. Cheap detection, which is what f
 `` `[x]` `` items against a sibling phase's gate names. A phase missing `Adversarial Pattern
 Justification` or `Schema/Injection Hardening` is missing them because someone rewrote it, since 106 and
 103 phases respectively carry each.
+
+---
+
+## 204. A capability was given only its structural half, so it passed the architecture sweep and no real device could ever satisfy it
+
+**Symptom.** `capability.NetconfCapable` had existed in the vocabulary since Phase 32, requiring a
+`NetconfPort() int` accessor. Zero types in the module implemented it. Phase 74's device-type item
+proposed the obvious fix, "give `cisco.Router` and `cisco.Switch` a real `NetconfPort() int` reading a
+`netconf_port` property", and that fix on its own would have been silently insufficient: the accessor
+would exist, `internal/archtest` would report the capability satisfiable, `make ci` would be green, and
+`net.netconf.config` would still have been undispatchable against every real inventory item in
+existence.
+
+**Root cause.** A capability in this codebase has two halves, and only one of them is code.
+`record.Base.HasCapability` is `Declares(name) && capability.Implements(c, name)`
+(`internal/inventory/devices/cisco/router.go`): the STRUCTURAL half is the Go method set, and the DATA
+half is the capability name appearing in the item's own declared set. `NetconfCapable` is registered
+with `Parent: NameNetworkCLI`, making it a SIBLING of `CiscoIOSCapable` rather than an ancestor, so
+`capability.Resolves` never resolved a Cisco router's declared `CiscoIOSCapable` up to it. Nothing else
+could supply the name either: `pleiades add-host` has no capability flag at all (only `--dir`,
+`--type`, `--classify`, `--tags` and `--set`), and a `--type`-created `record.Record` carries
+`Capabilities: nil`.
+
+The reason the architecture sweep could not see this is the interesting part.
+`satisfiableCapabilities` in `internal/archtest/registry_sweep_test.go` hydrates every probe Record with
+EVERY registered capability name, deliberately, so that the sweep tests the structural half in
+isolation. That is the right design for what it tests, and it means the sweep is structurally incapable
+of noticing that no real path exists to put a name into a real item's declared set. The sweep and the
+gap are blind to each other by construction.
+
+**Fix.** `netconfBaseline` in `internal/inventory/devices/cisco/router.go` appends
+`capability.NameNetconf` to the vendor baseline when the record's own `netconf_enabled` property is
+true, giving the capability its data half through a property that already existed. Keyed on the
+property rather than granted unconditionally, because NETCONF is configuration on a Cisco device and
+not a property of the model: the same sandbox device answers NETCONF on port 830 while refusing to
+serve it on 22. Tests assert BOTH directions, since a device with NETCONF switched off claiming the
+capability would make the property meaningless. This also retired a separate complaint the phase spec
+had recorded, that `SupportsNETCONF() bool` "asserts a claim the type system cannot check": the
+property it reads is now the classification data half of a capability whose structural half
+`NetconfPort` proves.
+
+**Lesson.** When adding an accessor to satisfy a capability, ask the second question explicitly: what
+puts this capability's NAME into a real item's declared set? Answer it by naming the mechanism
+(a vendor constructor's baseline, a classification rule, an operator-supplied property), not by
+observing that `make arch` is green. Cheap detection, and the one that found this: construct the device
+type the ordinary way, with no classification data, and call `HasCapability` on it. If that returns
+false while the structural assertion passes, the capability has one half. An `archtest` sweep whose
+probe hydrates every capability name cannot answer this question and must not be read as though it
+had.
+
+## 205. A colon in a KV key made the Runner's duplicate suppression client-side invalid, and the error was swallowed as a warning, so the feature has never once run
+
+**Symptom.** None visible. The Runner logs two Warn lines per dispatch and
+carries on. No startup failure, no test failure, no wire traffic.
+
+**Root cause.** `internal/runner/agent_dedup.go:52`'s `dispatchDedupKey`
+returns `payload.JobID + ":" + payload.DeviceID`. NATS KV keys are
+validated client-side against
+`validKeyRe = ^[-/_=\.a-zA-Z0-9]+$` (`nats.go@v1.52.0/jetstream/kv.go:502`),
+which does not include the colon, and `keyValid` guards `get` and `put`
+alike (`kv.go:908`, `:923`, `:1031`, `:1094`, `:1126`). Every `SeenRecently`
+and every `MarkSeen` therefore fails with `ErrInvalidKey` before a single
+byte reaches the broker.
+
+The second half is what hid it. `agent_dedup.go:71-76` treats a store error
+as "not seen" and logs a warning, and `:94-100` logs and moves on. Both
+choices are individually correct and documented: refusing to run real work
+because a KV read failed would convert an optimisation into an outage. The
+two together mean a permanently broken store is indistinguishable from a
+healthy one that has seen nothing.
+
+**Fix.** Not applied here, deliberately, and recorded rather than done
+quietly: this was found during Phase 101b recon and fixing it is a
+behavioural change to duplicate suppression that needs its own test proving
+a redelivered dispatch is actually suppressed. The key needs an encoding
+that is legal in a KV key. The colon was chosen to match the idempotency
+key `internal/dispatch` stamps and the one the write-ahead log derives, and
+that agreement is the point of it, so the encoding has to preserve the
+agreement rather than just pick a different separator here.
+
+**Lesson.** A fallback that treats "the store is broken" as "the store says
+no" removes the only signal that would have reported the breakage. When a
+degraded path is deliberately silent, something else has to assert the
+happy path actually works, or the feature can ship dead. Note what did NOT
+catch this: the key was agreed across three mechanisms, which felt like
+evidence, and none of the three ever checked that the agreed string was
+legal in the one place it had to be a KV key.
+
+## 206. A hazard closed for the dispatch subject was left open in the lock subject, whose own comment argued it could not happen
+
+**Symptom.** Latent, and narrower than it first looks. A device id
+containing a dot produces `$KV.Pleiades_Locks.router1.example.com`, a
+five-token subject where three were intended. Dots are LEGAL in a NATS KV
+key (`validKeyRe` includes `\.`), and nats.go builds the subject from the
+key itself, so the lock works correctly today and will keep working under a
+`$KV.Pleiades_Locks.>` grant. What it breaks is a single-token grant, which
+is the per-device scoping this phase exists to make possible.
+
+**Root cause.** `internal/lock/nats.go`'s `kvSubject` interpolates the raw
+item id into `$KV.<bucket>.<key>`, and `itemIDValid` rejects only `".."`.
+Phase 101a closed exactly this class for the dispatch subject with
+`topology.SubjectToken` and recorded it as `LESSONS_LEARNED.md` #169.
+
+The interesting part is the doc comment already sitting above
+`itemIDValid`, which argues the hazard cannot occur because "a real caller
+only ever passes an inventory device ID (a UUID) or the scheduler's own
+fixed key here". That is the same reasoning that hid the same class in
+`LogSubject` and `ResultSubject`, and it is wrong for the same reason: a
+device id is operator-supplied text from a YAML inventory, and
+`pkg/inventory` documents it as opaque, so "it is a UUID" is a description
+of today's fixtures rather than a property of the type.
+
+**Fix.** RESOLVED 2026-08-25, later the same day the first attempt was
+reverted. The first attempt's failure was never a broker mystery, and the
+paragraph recording it is preserved below because how it misdiagnosed
+itself is the durable part.
+
+The first attempt encoded once at `tryAcquireOnce`, carried the encoded
+value on `natsLease` as a `key` field, left `ID()` returning the caller's
+itemID (the conformance suite makes that part of the port contract), and
+switched all six `kv.Create`/`kv.Get`/`kv.Delete` call sites. Its account
+of itself said "all six call sites use the encoded value", and that
+sentence was the bug: the key-bearing surface was TEN sites, not six.
+`publishWithTTL` builds the raw "$KV.<bucket>.<key>" subject itself, it
+has FOUR callers, and the attempt switched only the shared-join one. The
+three lease-side callers (exclusive KeepAlive, shared KeepAlive, shared
+non-last Release) still passed `l.itemID`, so every TTL-refreshing publish
+went to a subject nothing was reading, carrying a CAS expectation taken
+from the encoded key's revision history that the raw subject could never
+satisfy. Every symptom follows: the refresh loops spun on an impossible
+publish, the key's 5s TTL was never refreshed, keys expired mid-churn
+("key not found"), other workers re-Created them with fresh holders
+("lease is no longer current"), and the last-holder Delete saw the key
+vanish between its Get and its Delete.
+
+The recorded isolation evidence was itself the trap, twice over:
+
+  - The identity-function diagnostic "proved the refactor correct" by
+    making the wrongly passed `l.itemID` accidentally equal to the right
+    argument. Identity does not exercise a split, it erases it. And the
+    "-x" probe then indicted the encoding for the same reason reversed:
+    ANY non-identity encoder exposes the three missed sites, so the
+    failure tracked "key differs from itemID at all" perfectly while
+    having nothing to do with the encoder. See LESSONS_LEARNED.md #170.
+  - "Exclusive mode untouched" was an artifact of reading a `tail -4` of
+    the test output. The conformance suite's KeepAliveOnValidLease runs
+    in the zero-value mode, which is ModeExclusive, and under the attempt
+    its KeepAlive fails loudly; the failure was simply off-screen. It
+    survived into this archive because every lifecycle test of exclusive
+    KeepAlive asserts a FAILURE path, so an error where success belonged
+    had no test asking the opposite question.
+
+Proven by reconstructing the attempt exactly from the session transcript
+and reproducing the collapse against a real broker (the churn overflowed
+its own 144-slot error channel and deadlocked to the 5m timeout), then
+switching ONLY the three missed sites: the same churn passes in 27s.
+
+The shipped fix makes the mistake unwritable rather than merely fixed:
+`kvKey` returns a distinct `storedKey` type, `publishWithTTL` and
+`kvSubject` accept only that type, and passing `l.itemID` where a key
+belongs is now a compile error (verified by writing exactly that and
+watching the build fail). `itemIDValid`'s ".." rejection is retired: the
+encoder makes every itemID a single legal token, so the fuzz target now
+asserts the total property (every itemID acquires and releases cleanly,
+no allowance branches) and `TestNatsLockKeyIsASingleSubjectToken` pins
+broker state for a dotted itemID, including that KeepAlive's refresh
+publish advances the ENCODED key's revision, the exact observable the
+three missed sites broke silently.
+
+**Lesson.** #169 said a hazard closed in one function is not closed in its
+siblings. This is that rule finding a sibling in a different package the
+same week, which is the argument for treating the rule as a sweep to run
+rather than a note to remember. And a comment asserting a hazard cannot
+occur is a claim about callers, not about the function; when the input type
+is documented as opaque, the comment is the thing to distrust.
+
+## 207. Five defects shipped behind a green Release Gate, because the gate's broker was configured without the subsystem the code under test exists to serve
+
+**Symptom.** Latent, and complete: under a real operator-mode broker with
+JetStream on, NOTHING worked. The Controller died at startup provisioning
+the stream, the Runner authenticated and then received no job ever, its
+ten-second heartbeat probe was withheld so the whole fleet reported
+unhealthy, and a five-times-failed `job.requested` vanished silently. None
+of it was visible in any test, and Phase 101b's Release Gate passed in 12
+seconds.
+
+Five separate defects, in code committed the same session:
+
+1. `internal/meshid/grant.go` granted
+   `$JS.API.CONSUMER.MSG.NEXT.PLEIADES.runner-agent.>`, but nats.go's
+   template is `apiRequestNextT = "CONSUMER.MSG.NEXT.%s.%s"`
+   (`jetstream/api.go:61`), which ends AT the consumer name. `>` matches
+   one or more trailing tokens and never zero, so the grant covered every
+   subject except the one the driver sends.
+2. The same, for `CONSUMER.INFO` (`api.go:58`), which the heartbeat probes.
+3. `ControllerGrant` used `streamAPI(">")`, putting `>` in a NON-FINAL
+   token (`$JS.API.STREAM.>.PLEIADES`), which is not a wildcard position at
+   all.
+4. `pleiades.dlq.pleiades.jobs.requested` was granted to nobody, and
+   `internal/event/dlq.go` returns before `msg.Term()` when the publish
+   fails, so the job is neither dead-lettered nor terminated.
+5. `meshid.NewAccount` never set `claims.Limits`, and `jwt.NewAccountClaims`
+   initialises `JetStreamLimits` to all zeros, whose own comment reads
+   "JetStream is disabled by default by setting MemoryStorage and
+   DiskStorage to zero". Every account the platform minted had JetStream
+   off.
+
+A sixth thing was not a defect but a missing fact with the same shape: in
+operator mode, JetStream REFUSES TO START without a system account
+("Can't start JetStream: setting up internal jetstream subscriptions
+failed: system account not setup", then exit 1), and that system account
+must NOT have JetStream enabled ("Not allowed to enable JetStream on the
+system account"). An operator-mode deployment needs two accounts minted.
+Phase 101b minted one.
+
+**Root cause.** Two blind spots that lined up perfectly.
+
+The GATE's broker ran with JetStream off. Its command was `-c
+/etc/nats/nats.conf` and nothing else, the only NATS start in the
+repository without `-js`, and it asserted core publishes only. Every one of
+the five defects lives on the JetStream control plane. The gate was
+otherwise exemplary, with acts, a control and a negative control, and it
+could not have caught any of this, because the fixture was missing the
+subsystem the code under test exists to serve.
+
+The UNIT test asserted the grant against a hand-written list of expected
+entries, by exact string membership. The list was written from the same
+misunderstanding as the grant, so it carried the identical wrong suffixes.
+It asserted that the grant equalled itself, and passed on all four subject
+defects. There was no `ControllerGrant` test at all.
+
+**Fix.** A gate that calls the REAL functions against a JetStream-enabled
+operator-mode broker: `topology.ProvisionStream`, `topology.BindLockBucket`,
+`topology.DispatchConsumerConfig`, a real `CreateOrUpdateConsumer`, a real
+`FetchNoWait`, a real dispatch published by the Controller and pulled and
+acked by the Runner. Falsified against two of the five defects
+individually, each failing at the right act with the right message.
+
+The unit test now asserts MATCHING rather than equality, using a NATS token
+matcher whose own semantics are pinned by a table (`a.b.>` does not match
+`a.b`; `a.>.c` does not match `a.b.c`), and its required list is the
+subject the DRIVER sends, taken from nats.go's templates. Falsified by
+restoring the old suffix: it fails naming both operations. `ControllerGrant`
+gained the test it never had.
+
+`meshid.NewSystemAccount` exists so the two account kinds are distinguished
+at the call site rather than by a boolean, and
+`TestAccountKindsDifferOnlyInJetStream` pins both directions without Docker.
+
+**Lesson.** See `LESSONS_LEARNED.md` #171. Two rules, and the second is the
+one that generalises furthest: configure a gate's fixture like production
+or it proves only that the fixture works; and never assert a permission
+list against a restatement of itself, because the restatement is written by
+the same person, at the same moment, from the same misunderstanding.
+
+
+---
+
+## 208. A decodable-but-invalid message became a poison pill, because the consumer split "retry" from "give up" on the wrong axis
+
+**Symptom.** Phase 40's Controller-side run journal consumer answered its two
+failure kinds deliberately: a batch it could not decode was acknowledged and
+logged, because it would never become decodable and retrying it forever would
+block the consumer group; a store failure was returned, because a database
+being briefly unavailable is exactly the condition redelivery exists for. Both
+halves had tests and both passed.
+
+The phase's own Schema and Injection Hardening audit then fed the consumer a
+deliberately hostile payload, a deeply nested object about two thousand levels
+deep. It decoded cleanly. `encoding/json` was perfectly happy to produce a
+`Batch` holding one entry whose every field was its zero value, including an
+empty `Outcome`. That entry then reached the store, which refused it, because
+the outcome column is an enum with no empty member and the mapping is an
+exhaustive switch that fails closed. The consumer saw a store failure, returned
+it, and asked for the message to be sent again. Forever.
+
+**Root cause.** The split was drawn between "could not decode" and "could not
+store", and that is not the axis that matters. The axis that matters is whether
+offering the same bytes again could ever produce a different answer. A
+malformed payload and a batch carrying a value no column can hold are the same
+kind of failure on that axis and opposite kinds on the axis that was used. An
+unreachable database is the only one of the three that is genuinely transient.
+
+The deeper trap is that the two halves were each tested against exactly the
+input the author had in mind. The malformed-payload test used bytes that were
+not JSON at all; the store-failure test used an entry with a deliberately
+invalid outcome and asserted an error came back, which at the time read as
+correct. Neither test asked what happens to a payload that is malformed AND
+decodes, which is the region between them and the only place the bug lives.
+
+**Fix.** The store now marks what it will never accept, with a sentinel error
+(`journal.ErrUnstorable`) wrapped around the validation failure, and the
+consumer classifies on that rather than on where the error came from. A batch
+marked unstorable is acknowledged and logged at error, exactly like an
+undecodable one. Everything else is returned and retried.
+
+Both directions have a test, and the pair is the point: one proves a permanent
+failure is acknowledged, the other proves a transient one (produced by closing
+the client, an unreachable database rather than a malformed row) still comes
+back as an error. A single test could have been satisfied by classifying
+everything one way.
+
+**Lesson.** When a consumer decides between retrying and giving up, the
+question to write the split on is "could the same bytes ever succeed", not
+"which layer said no". Layers are where errors come from; they are not what
+errors mean. And when two failure paths are handled oppositely, test the
+region BETWEEN the two inputs you had in mind, because a message that is
+malformed enough to be wrong and well formed enough to decode is the one that
+belongs to neither test.
+
+## 209. A multi-device job silently lost every copy but one of a skipped task's journal row, because the row's identity assumed a field that only some rows carry
+
+**Symptom.** A Walk-tier job fanned out to two devices, each dispatch running the
+same three-node runbook with one task skipped on both, stored FIVE journal rows
+instead of six. No error, no warning, and no log line above debug said so. Worse,
+it was intermittent: four identical launches of the same template produced 5, 6,
+6 and 5 rows. Nothing in the runbook, the inventory or the two devices differed
+between the launches that lost a row and the ones that did not.
+
+**Root cause.** A journal row is identified by `(job_id, device_id, attempt,
+node_id)`, a unique index chosen so that a redelivered publish of one batch
+collapses into the row it already wrote. That identity silently assumes every
+entry names a device. Three kinds do not: a skipped task (the condition is
+evaluated once per node, before any device is resolved), a controller-side task
+with no target, and the synthetic parallel fan-out marker. All three reached the
+store with an empty `device_id`, so each of a job's dispatches produced the
+IDENTICAL key for such a node, and `EntStore.saveOne` discarded every copy after
+the first through the branch that reads a constraint error as "already
+recorded". Which is correct for a republished batch and wrong for a different
+device's run of the same node.
+
+The intermittency is the second half. Two dispatches collide only while they
+share an attempt number, so a job where JetStream happened to redeliver one of
+the two dispatches stored both rows and looked healthy. The completeness of the
+audit record depended on whether a delivery had been retried.
+
+Every automated gate missed it for one shared reason: all of them dispatch a
+one-device job, and none of their runbooks contains a skipped task. The defect
+needs at least two devices AND a node that resolves none, and no test had both.
+It was found by launching a real two-device template through the real Controller
+and Runner binaries and counting the rows.
+
+**Fix.** `journalPublisher.Record` now fills in an entry's empty `DeviceID` from
+the device the dispatch names, beside the `JobID` and `Attempt` it already
+stamps there and for the same reason: a run cannot know which dispatch it is
+serving, and on this tier a dispatch is scoped to exactly one device, so a node
+that skipped in that run skipped for that device. It fills a gap rather than
+overwriting, so a device the run genuinely resolved is still the run's own
+answer. `TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode` drives two
+dispatches of one job through the real publisher, bus, subscriber and database
+and asserts six rows with one skip row per device; it fails at five without the
+fix.
+
+**Lesson.** A unique index is a claim about identity, and a nullable column in
+one makes that claim only about the rows that fill it. Before writing such an
+index, ask which rows carry every component, and what two rows that share a
+blank one actually mean. Here they meant two different devices, and the store
+read them as one fact arriving twice. The reason it survived every test is worth
+keeping separately: a defect that needs two independent conditions at once (more
+than one device, and a node belonging to none) is invisible to a suite whose
+fixtures each hold one of them.
+
+## 210. One run recorded "no keys" two different ways, because a normalization was applied at one of the two sinks
+
+**Symptom.** The same journal entry read `"stat_keys": []` in the Crawl tier's
+JSON Lines file and the JSON scalar `null` in the Walk tier's `journal_entries`
+column. Both mean "this task recorded no keys", and every failed task records
+none, so the divergence covered exactly the rows an operator opens the journal
+for.
+
+**Root cause.** `internal/journal/record.go`'s `normalize` exists precisely to
+stop this: `encoding/json` writes `null` for a nil slice and `[]` for an empty
+one, the projection leaves a vector nil whenever it admitted no keys, and a
+reader should not have to handle two spellings of one fact. It was called on the
+file sink's encode path only. `EntStore.saveOne` passed the nil slice straight
+into the column, even though the same function sitting in the same package had
+already been written for the same problem, and even though that method already
+handled the analogous zero-value case for `started_at` and `finished_at`.
+
+On SQLite the difference hides: `json_array_length('null')` returns 0, the same
+as for `'[]'`. The columns are `jsonb` on PostgreSQL, where the same call fails
+outright with "cannot get array length of a scalar", measured against a real
+server rather than assumed.
+
+**Fix.** `saveOne` calls the same `normalize` before building the row, and
+`normalize`'s own doc comment now records that both sinks apply it and what the
+PostgreSQL half costs.
+`TestEntStoreStoresAnEmptyKeyVectorAsAnEmptyArray` reads the three columns back
+raw and fails on `null`.
+
+**Lesson.** When a normalization exists because two readers must see one
+spelling, it belongs at every write, not at the one where the problem was first
+noticed. And a difference that a development backend forgives is not a
+difference that does not exist: SQLite and PostgreSQL disagree about JSON null,
+so "it queries fine locally" says nothing about the deployment.
+
+## 211. A stress test raced a fixed sleep, so the gate failed describing an empty buffer instead of an unbounded one
+
+**Symptom.** `TestSubsystem_StderrIsBoundedAndMarkedTruncated` failed inside
+`tools/coverage-check`'s own full suite pass with
+`Stderr() = 0 bytes ending "", want it marked truncated`, in 0.00s, while the same
+package had already passed three times earlier in the same `make ci` run. It arrived
+immediately after a `golang.org/x/crypto` bump, which made the bump the obvious
+suspect and the wrong one.
+
+**Root cause.** The test's fake server writes a 16 KiB flood to the channel's standard
+error and then sleeps 50 milliseconds. The client opens the subsystem, closes it at
+once, and reads `Stderr()`. Closing tears the channel down, so the whole assertion
+rests on the drain goroutine having been scheduled inside that 50 millisecond window.
+It is a fixed delay racing a scheduler, and under a full parallel suite the scheduler
+wins.
+
+The implementation was not at fault and is worth noting for the next reader: `Close`
+already waits on the drain (`drainCloseGrace`), precisely so a post-`Close` `Stderr` is
+complete rather than racy. What it cannot do is invent bytes that never crossed the
+wire before the close.
+
+**Fix.** The test now waits for the flood to reach the client, polling the client's own
+buffer until it holds `maxSubsystemStderrBytes` or five seconds pass, and only then
+closes and asserts. The server's `Write` returning was never the right signal: it says
+the bytes left the server, not that this side saw them.
+
+Ruled out rather than assumed, because the timing made it look like a regression: the
+identical failure reproduces at `-count=200` on a worktree pinned to the OLD x/crypto
+v0.54.0, so the dependency bump did not cause it. After the fix, 500 repetitions pass,
+and 100 more under `-race`.
+
+**Lesson.** A fixed sleep on the far side of a boundary is not synchronization, it is a
+bet on a scheduler, and the bet is lost exactly when the machine is busiest, which is
+when the full gate runs. Wait for the condition the assertion actually depends on, and
+poll the side that will do the asserting. When a flake appears right after a dependency
+bump, pin the old version in a worktree and reproduce there before believing the
+coincidence; this one had every appearance of a regression and was years older than the
+bump.

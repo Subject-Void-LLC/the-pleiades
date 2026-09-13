@@ -70,9 +70,10 @@ type PageModel struct {
 	// Theme is the resolved appearance override, or ThemeSystem.
 	Theme string
 
-	// Skin is the resolved theme family: "brutalist" or "las-ventanas".
-	// It is a separate axis from Theme because the two answer different
-	// questions and compose -- every skin has a light mode and a dark one.
+	// Skin is the resolved theme family, one of the Skin constants in
+	// skin.go. It is a separate axis from Theme because the two answer
+	// different questions and compose -- every skin has a light mode and
+	// a dark one.
 	Skin string
 
 	// A11y is the explicit in-app accessibility override. It is never a

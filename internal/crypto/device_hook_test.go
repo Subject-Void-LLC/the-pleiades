@@ -3,6 +3,7 @@ package crypto_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -122,7 +123,10 @@ func TestDeviceEnvelopeProperties_RawStorageIsCiphertext(t *testing.T) {
 	if !strings.Contains(rawJSON, `"_encrypted"`) {
 		t.Fatalf("raw database row is NOT encrypted: %s", rawJSON)
 	}
-	if !strings.Contains(rawJSON, "v1$AES256GCM$") {
+	// The BOUND tag, since Phase 78c: a device's properties are now sealed
+	// against the row's own secret_binding, so a ciphertext copied onto
+	// another row no longer opens.
+	if !strings.Contains(rawJSON, "v1$AES256GCM-AAD$") {
 		t.Fatalf("raw database row missing the version header: %s", rawJSON)
 	}
 	if strings.Contains(rawJSON, testAAALogin) {
@@ -130,14 +134,23 @@ func TestDeviceEnvelopeProperties_RawStorageIsCiphertext(t *testing.T) {
 	}
 }
 
-// TestDeviceEnvelopeProperties_BulkUpdateEncrypts matches
-// internal/inventory/ent_save.go's exact call shape
-// (client.Device.Update().Where(...).SetProperties(...)), the real
-// production write path, to prove the hook's ent.OpUpdate registration
-// actually fires on it. Device.properties is not .Immutable(), unlike
-// Fact.payload, so this write path exists at all — Fact's hook never
-// needed to cover it.
-func TestDeviceEnvelopeProperties_BulkUpdateEncrypts(t *testing.T) {
+// TestDeviceEnvelopeProperties_BulkUpdateIsRefused is the inverse of what
+// this test asserted before Phase 78c, and the inversion is the point.
+//
+// It used to match internal/inventory/ent_save.go's exact call shape,
+// client.Device.Update().Where(...).SetProperties(...), and prove the
+// hook's ent.OpUpdate registration fired on it. That was correct while the
+// ciphertext was unbound: one encrypted value was equally valid on every
+// row, which is exactly the property that made it relocatable.
+//
+// Sealing properties against the row's own secret_binding makes a bulk
+// write meaningless, because one ciphertext could be correct for at most
+// one of the rows it lands on, and ent exposes the old binding on UpdateOne
+// alone. So the hook now refuses it, and internal/inventory's save path was
+// converted to UpdateOneID in the same phase. This test holds that refusal
+// in place: without it, a future caller reaching for the bulk builder would
+// silently write a ciphertext bound to nothing anybody can open.
+func TestDeviceEnvelopeProperties_BulkUpdateIsRefused(t *testing.T) {
 	ctx := context.Background()
 	client := enttest.Open(t, "sqlite3", "file:bulkupdate?mode=memory&cache=shared&_fk=1")
 	t.Cleanup(func() { _ = client.Close() })
@@ -151,32 +164,34 @@ func TestDeviceEnvelopeProperties_BulkUpdateEncrypts(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	affected, err := client.Device.Update().
+	_, err = client.Device.Update().
 		Where(device.NameEQ("bulk-1")).
 		SetProperties(map[string]interface{}{"aaa_token": testAAALogin}).
 		Save(ctx)
-	if err != nil {
-		t.Fatalf("bulk Update() error = %v", err)
-	}
-	if affected != 1 {
-		t.Fatalf("bulk Update() affected %d rows, want 1", affected)
+	if !errors.Is(err, crypto.ErrBulkDeviceProperties) {
+		t.Fatalf("bulk Update() error = %v, want it refused", err)
 	}
 
+	// And nothing was written. A refusal that still persisted the row
+	// would be worse than no refusal at all, because the value would be on
+	// disk in whatever state the hook abandoned it in.
 	reloaded, err := client.Device.Query().Where(device.NameEQ("bulk-1")).Only(ctx)
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
-	if got := reloaded.Properties["aaa_token"]; got != testAAALogin {
-		t.Fatalf("bulk update path did not round-trip through encryption: got %v", reloaded.Properties)
+	if len(reloaded.Properties) != 0 {
+		t.Fatalf("a refused bulk update still wrote properties: %v", reloaded.Properties)
 	}
 }
 
 // TestDeviceEnvelopeProperties_UpdateOneEncrypts proves the hook's
 // ent.OpUpdateOne registration fires on a direct client.Device.UpdateOneID
 // write. No real caller in this codebase uses UpdateOneID for Device
-// today (RotateDeviceProperties uses the bulk Update builder scoped to
-// one row via a Where clause instead, so its write can be conditional on
-// the row's stored version — see rotate.go); OpUpdateOne stays registered
+// today. That statement was true until Phase 78c, which converted both
+// real callers, RotateDeviceProperties and internal/inventory's own Save,
+// to UpdateOneID with the version predicate, because the hook needs the
+// row's own secret_binding and ent exposes it on UpdateOne alone;
+// OpUpdateOne stays registered
 // on the hook defensively, matching this package's Interceptor pattern
 // rationale (PATTERNS.md): the interception point, not which builder a
 // future caller happens to choose, is what must guarantee the invariant.
@@ -319,7 +334,7 @@ func TestDeviceEnvelopeProperties_ColludingPropertyKeyDoesNotBypassEncryption(t 
 	// The raw stored row must not contain the secret in the clear: the
 	// whole map, including the colliding key, must have been swept into
 	// one real ciphertext blob rather than skipped.
-	if got, ok := dev.Properties[crypto.EncryptedKeyMarker].(string); !ok || !strings.HasPrefix(got, "v1$AES256GCM$") {
+	if got, ok := dev.Properties[crypto.EncryptedKeyMarker].(string); !ok || !strings.HasPrefix(got, "v1$AES256GCM-AAD$") {
 		t.Fatalf("expected the properties map to be encrypted as a whole (real envelope string), got %v", dev.Properties)
 	}
 	if strings.Contains(fmt.Sprintf("%v", dev.Properties), testAAALogin) {

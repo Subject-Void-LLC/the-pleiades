@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -27,6 +27,19 @@ export PATH := $(shell go env GOPATH)/bin:$(PATH)
 # design, so a newly published advisory against a dependency still fails
 # CI the day it lands. That is the intended behavior, and it is not a
 # local/CI divergence, since both sides query the same database.
+# The module path, read from go.mod rather than written down a second
+# time, so `make lsp` below cannot check for a module name this repository
+# no longer has.
+MODULE_PATH := $(shell awk '/^module /{print $$2}' go.mod)
+
+# How long `make lsp` holds the MCP server's stdin open waiting for a
+# reply. gopls has to load and type-check the whole workspace before it
+# can answer go_workspace, which is cold-cache work on a first run; the
+# handshake closes stdin the moment the module path shows up in the
+# reply, so this is a ceiling on a broken setup rather than a cost a
+# working one pays.
+LSP_HANDSHAKE_SECONDS ?= 45
+
 GOSEC_VERSION       ?= v2.28.0
 GOVULNCHECK_VERSION ?= v1.6.0
 
@@ -70,18 +83,73 @@ tools:
 image-tools:
 	@$(call ensure-tool,trivy,github.com/aquasecurity/trivy/cmd/trivy,$(TRIVY_VERSION))
 
+# lsp proves this machine's Go language server is usable by an agent
+# rather than merely installed, which are different claims. It is the
+# check behind this file's LSP over grep mandate: an agent that cannot
+# reach gopls falls back to grep, and a grep derived claim about Go
+# semantics is a guess.
+#
+# What it checks, in the order a failure would bite:
+#
+#   1. gopls resolves on PATH. The export at the top of this file puts
+#      $(go env GOPATH)/bin there for make, but Claude Code spawns an MCP
+#      server from its own shell, so PATH has to be set persistently for
+#      the agent too (see this file's IDE & LSP Tooling section).
+#   2. gopls speaks MCP. `gopls mcp` is the headless server .mcp.json
+#      wires in, and it is what turns one grep over the tree into one
+#      typed query.
+#   3. gopls loads THIS module. The handshake ends with a real
+#      go_workspace call and greps the answer for the module path, which
+#      is the only one of the three a version string cannot fake: a gopls
+#      too old for go.mod's toolchain prints its version happily and then
+#      type-checks nothing.
+#
+# Deliberately not part of ci: CI never invokes gopls, and gopls is the
+# one tool here that is not pinned for exactly that reason (see tools).
+lsp:
+	@command -v gopls >/dev/null 2>&1 || { echo "lsp: gopls is not on PATH. Install it with: go install golang.org/x/tools/gopls@latest"; exit 1; }
+	@gopls version | head -1
+	@out="$$(mktemp)"; \
+	trap 'rm -f "$$out"' EXIT INT TERM; \
+	{ printf '%s\n' \
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"make-lsp","version":"0"}}}' \
+		'{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
+		'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"go_workspace","arguments":{}}}'; \
+		i=0; \
+		while [ "$$i" -lt "$(LSP_HANDSHAKE_SECONDS)" ] && ! grep -qF '$(MODULE_PATH)' "$$out" 2>/dev/null; do \
+			sleep 1; i=$$((i+1)); \
+		done; } \
+		| gopls mcp >"$$out" 2>/dev/null; \
+	grep -qF '$(MODULE_PATH)' "$$out" \
+		|| { echo "lsp: gopls answered no go_workspace for $(MODULE_PATH) within $(LSP_HANDSHAKE_SECONDS)s. The server is installed but not working on this tree: run 'gopls check ./cmd/pleiades/main.go' for the real error, and confirm gopls is new enough for go.mod's Go version."; exit 1; }
+	@echo "lsp: gopls mcp answers go_workspace for $(MODULE_PATH); the agent's LSP tooling is live"
+
 # hooks points this clone's Git hooks at the tracked .githooks directory,
-# so `git push` runs push-gate (everything `make ci` runs, with
-# test-race/test-integration swapped for tools/testgate's more tolerant
-# equivalents; see push-gate's own comment above) and a failure lands here
-# instead of on a pushed branch. This is deliberately opt-in per clone
-# rather than automatic: Git never executes a hook that arrived with a
-# fetch until the person who cloned the repository asks it to, and
-# core.hooksPath is local config, not a tracked file. Run it once per
-# clone; see .githooks/pre-push for what it does and how to skip it.
+# enabling all three of them at once:
+#
+#   pre-commit   tools/commitgate over the staged content (well under a
+#                second: no build, no tests, index only)
+#   commit-msg   tools/commitgate over the commit message
+#   pre-push     push-gate, everything `make ci` runs with
+#                test-race/test-integration swapped for tools/testgate's
+#                more tolerant equivalents (see push-gate's own comment)
+#
+# so a rule AGENTS.md states lands at the moment it is broken rather than
+# three commits later, and a failing gate lands here instead of on a
+# pushed branch. This is deliberately opt-in per clone rather than
+# automatic: Git never executes a hook that arrived with a fetch until the
+# person who cloned the repository asks it to, and core.hooksPath is local
+# config, not a tracked file. Run it once per clone; see each hook for
+# what it does and how to skip it.
 hooks:
 	git config core.hooksPath .githooks
-	@echo "hooks: 'git push' will now run .githooks/pre-push (make push-gate) first; skip a single push with --no-verify"
+	@echo "hooks: 'git commit' now runs .githooks/pre-commit and .githooks/commit-msg (make commitgate), and 'git push' runs .githooks/pre-push (make push-gate); skip a single one with --no-verify"
+
+# commitgate runs the commit-time gate by hand, against whatever is
+# staged right now. The pre-commit hook runs exactly this, so it is the
+# way to see what a commit would be told before making one.
+commitgate:
+	go run ./tools/commitgate
 
 build:
 	go build ./...
@@ -166,8 +234,67 @@ GO_TEST_TIMEOUT ?= 20m
 test:
 	go test -timeout $(GO_TEST_TIMEOUT) ./...
 
+# DOCKER_TEST_PARALLELISM is how many container-provisioning packages
+# `go test` may run at once. It is the fix for the condition
+# FAILURE_PATTERNS.md #61 describes and flaky-packages.json tolerates:
+# the failing package changes between runs, and every one of them
+# provisions real containers.
+#
+# `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 22
+# packages. So the default asks one Docker daemon to build, start, port
+# map and health check the containers of twenty packages simultaneously,
+# on top of a Ryuk reaper per package. Two consecutive full `make ci`
+# runs on 2026-09-13 failed that way in seven different packages between
+# them, and the failures were the daemon's own, not any test's: a
+# `containers/<id>/json` inspect call exceeding its deadline after 553
+# retries, a published port answering with connection refused, a NATS
+# container never reachable on its mapped port.
+#
+# One, not a tuned number. The serial case is the only value justified
+# without measuring this specific machine, and a number chosen to be
+# just fast enough on the host that chose it is a number that saturates
+# a smaller one. It costs wall clock and buys a gate that can pass:
+# these packages now take the sum of their runtimes rather than the max,
+# which is minutes, against a gate that could not go green at all.
+# Raising it is a real decision to make with measurements, which is why
+# it is an overridable variable rather than a literal in three recipes.
+DOCKER_TEST_PARALLELISM ?= 1
+
+# test-race is the -race pass over everything, split in two so the
+# packages that provision containers do not run on top of each other.
+# Both halves always run and the worst exit status wins, so one group's
+# failure never hides the other's: a fail-fast && would report the fast
+# packages and say nothing about the slow ones, which are the ones this
+# split exists for.
+#
+# Both lists are built from one `go list` of the pattern this target
+# would otherwise have passed straight to `go test`, and the container
+# half is its INTERSECTION with DOCKER_DEPENDENT_PACKAGES rather than
+# that list itself. Naming a package explicitly is not the same as
+# matching it with ./...: `go test ./...` silently passes over a package
+# whose build constraints exclude every file, while naming it is a hard
+# "build constraints exclude all Go files ... [setup failed]". Two of
+# the packages in the list are exactly that under these tags,
+# tests/e2e (integration) and internal/ent/migrate/gen, so the
+# intersection is what keeps this split from changing which packages the
+# target covers.
 test-race:
-	go test -race -timeout $(GO_TEST_TIMEOUT) ./...
+	@all="$$(go list ./...)"; \
+	rest="$$all"; \
+	docker=""; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		if echo "$$all" | grep -q "^$$pkg$$"; then docker="$$docker $$pkg"; fi; \
+		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
+	done; \
+	status=0; \
+	echo "test-race: $$(echo "$$rest" | wc -w) packages in parallel"; \
+	go test -race -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
+	if [ -n "$$docker" ]; then \
+		echo "test-race: $$(echo "$$docker" | wc -w) container packages, $(DOCKER_TEST_PARALLELISM) at a time"; \
+		go test -race -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
+	fi; \
+	exit $$status
 
 # DOCKER_DEPENDENT_PACKAGES is every package whose test files import
 # testcontainers-go directly (a real, ephemeral Docker container: NATS,
@@ -194,6 +321,7 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/archtest \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2 \
 	github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3 \
+	github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve \
 	github.com/Subject-Void-LLC/the-pleiades/internal/election \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent \
 	github.com/Subject-Void-LLC/the-pleiades/internal/ent/migrate/gen \
@@ -201,10 +329,12 @@ DOCKER_DEPENDENT_PACKAGES := \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins \
 	github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws \
 	github.com/Subject-Void-LLC/the-pleiades/internal/lock \
+	github.com/Subject-Void-LLC/the-pleiades/internal/meshid \
 	github.com/Subject-Void-LLC/the-pleiades/internal/runner \
 	github.com/Subject-Void-LLC/the-pleiades/internal/topology \
 	github.com/Subject-Void-LLC/the-pleiades/internal/transport/ssh \
 	github.com/Subject-Void-LLC/the-pleiades/pkg/awscloud \
+	github.com/Subject-Void-LLC/the-pleiades/pkg/netconf \
 	github.com/Subject-Void-LLC/the-pleiades/tests/e2e
 
 # test-no-docker runs every package NOT in DOCKER_DEPENDENT_PACKAGES, so
@@ -296,8 +426,33 @@ test-repeat:
 # so Go's test cache sees no dependency on either binary's source and will
 # replay a stale PASS after a controller change. See tests/e2e's own
 # harness doc comment.
+#
+# Split the same way test-race is, and for the same reason, which bites
+# harder here: this is the pass that also stands up tests/e2e's real
+# controller and runner binaries against real Postgres and NATS, so it
+# asks the most of the daemon of any target in this file. Six packages
+# failed in it on 2026-09-13 under the unsplit command, every one of them
+# a container package and every one of them already in
+# flaky-packages.json. See DOCKER_TEST_PARALLELISM.
+# The package lists are built under the integration tag, so tests/e2e
+# lands in the container half here and is absent from test-race's,
+# exactly as each tag set's own ./... would have resolved it.
 test-integration:
-	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
+	@all="$$(go list -tags integration ./...)"; \
+	rest="$$all"; \
+	docker=""; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		if echo "$$all" | grep -q "^$$pkg$$"; then docker="$$docker $$pkg"; fi; \
+		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
+	done; \
+	status=0; \
+	echo "test-integration: $$(echo "$$rest" | wc -w) packages in parallel"; \
+	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
+	if [ -n "$$docker" ]; then \
+		echo "test-integration: $$(echo "$$docker" | wc -w) container packages, $(DOCKER_TEST_PARALLELISM) at a time"; \
+		go test -tags integration -race -count=1 -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
+	fi; \
+	exit $$status
 
 # gosec-check (tools/gosec-check) wraps gosec with the per-finding waiver
 # file (gosec-waivers.json) the Phase 0 CI harness item's pre-existing-

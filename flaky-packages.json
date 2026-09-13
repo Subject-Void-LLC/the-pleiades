@@ -48,6 +48,34 @@
     {
       "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/ent",
       "reason": "internal/ent/conformance_backends_test.go provisions a real ephemeral Postgres container directly (testcontainers-go) to run the same conformance suite against both SQLite and Postgres backends."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/meshid",
+      "reason": "Observed 2026-08-26 under `make push-gate`'s test-repeat: TestReleaseGate_AnExpiringCredentialEvictsALiveConnection failed with 'container port: port \"4222/tcp\" not found', the identical NATS container port-mapping race this file's own tests/e2e entry already records by name. Not a defect in the test: the failure is inside the shared broker-start helper before any assertion runs. Reran the package alone immediately afterwards and it passed in 26.9s, which is the isolation signature FAILURE_PATTERNS.md #61 describes. The package provisions two real ephemeral nats:2.14.4-alpine containers, one per Release Gate, and both run a JetStream-enabled broker in operator mode, so it belongs on this list for the same mechanism as internal/event and internal/lock."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/credstore/resolve",
+      "reason": "Observed 2026-08-26 in the same push-gate run as internal/meshid above: TestReleaseGate_AnInputResolvesOutOfARealVault failed with 'container port: port \"8200/tcp\" not found'. Same race, different image: the port mapping is not published yet when the test reads it, under full parallel repeat load. Reran alone immediately afterwards and it passed in 12.9s. The package provisions a real ephemeral HashiCorp Vault container. That two different packages lost the same race in one run, on two different ports, is itself FAILURE_PATTERNS.md #61's stated signature: 'the specific package that loses the race changes between runs'."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/pkg/netconf",
+      "reason": "Observed 2026-08-26 under `make push-gate`'s test-repeat: TestConformance_LeavesNoGoroutinesBehind failed with 'found unexpected goroutines', and the goroutine it named was testcontainers' OWN reaper connection (testcontainers-go@v0.43.0/reaper.go:544-549), not anything pkg/netconf starts. The reaper connects lazily and its goroutine can still be live when a later package's goleak check runs, so whether this fires depends on which package happens to be last to touch the shared reaper. Reran the test alone immediately afterwards and it passed in 12.6s. The package provisions a real ephemeral netopeer2 NETCONF container, which is the same criterion every other entry here meets. This is a leak-detector reporting a dependency's own goroutine, not a leak in this repository's code, so it is listed rather than chased."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins/aws",
+      "reason": "Observed 2026-08-26 under `make push-gate`, and the evidence is unusually clean because the package PASSED TWICE in the same run before failing: ok at test-race and ok at test-repeat, then FAIL inside push-gate-coverage, which is the fourth full suite pass of one invocation. Same commit, same code, same machine. The four tests named were TestConnect_Succeeds, TestConnect_UnreachableEndpoint, TestDiscover_YieldsAccountThenInstances and TestSync_RoundTripsRealInstances, and the failure is not in any of them: it is 'shared LocalStack container setup failed: ... wait until ready: get state: Get http://%2Fvar%2Frun%2Fdocker.sock/... context deadline exceeded', which is the Docker daemon failing to answer a state query, not an assertion. The package provisions a real ephemeral LocalStack container, the heaviest single container this repository starts, so it is the first to lose when the daemon is saturated late in a multi-pass run."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/s3",
+      "reason": "Observed 2026-08-26 under `make push-gate`, with the same signature as this file's internal/inventory/plugins/aws entry and the same single root cause: the package passed EARLIER IN THE SAME INVOCATION and failed on a later pass. ok at test-race, FAIL at test-integration, in one push-gate run. Every one of its tests failed together, which is the shape of a shared container that never came up rather than of a defect, and the underlying error is the Docker daemon timing out on a state query while starting LocalStack. This package, internal/catalog/cloud/aws/ec2 and internal/inventory/plugins/aws are the three LocalStack consumers in this repository; they fail together, for one reason, and are listed together so a future reader does not diagnose them separately. All three were already in the Makefile's DOCKER_DEPENDENT_PACKAGES."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/catalog/cloud/aws/ec2",
+      "reason": "Observed 2026-08-26 under `make push-gate`, with the same signature as this file's internal/inventory/plugins/aws entry and the same single root cause: the package passed EARLIER IN THE SAME INVOCATION and failed on a later pass. ok at test-race, FAIL at test-integration, in one push-gate run. Every one of its tests failed together, which is the shape of a shared container that never came up rather than of a defect, and the underlying error is the Docker daemon timing out on a state query while starting LocalStack. This package, internal/catalog/cloud/aws/ec2 and internal/inventory/plugins/aws are the three LocalStack consumers in this repository; they fail together, for one reason, and are listed together so a future reader does not diagnose them separately. All three were already in the Makefile's DOCKER_DEPENDENT_PACKAGES."
+    },
+    {
+      "import_path": "github.com/Subject-Void-LLC/the-pleiades/internal/inventory/plugins",
+      "reason": "Observed 2026-08-26 under `make push-gate`, and the evidence here is the sharpest of the LocalStack group: this package holds the SHARED sync-plugin conformance suite, which drives every registered plugin through the identical assertions, and when it failed, every single failing subtest was the /aws one. TestPluginConformance_CloseIsSafe/aws, DiscoverStreamsUnclassifiedRecords/aws, ForeignOwnerIsAConflict/aws, ReadOnlyInventoryIsADryRun/aws, ResyncIsIdempotent/aws and SyncOnboardsEveryDevice/aws all failed while the same six assertions passed for every other plugin in the same run. That is not a conformance defect, which would fail across plugins; it is the LocalStack container this file already records for internal/inventory/plugins/aws, reached through the conformance suite. This is the fourth and last LocalStack consumer in the repository. Already in DOCKER_DEPENDENT_PACKAGES."
     }
   ]
 }

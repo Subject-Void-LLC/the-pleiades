@@ -204,6 +204,14 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 201. A volume mount was added to a StatefulSet whose volumes block existed only in two branches the default configuration did not take
 202. A phase spec's checkmarks, doc comments, and a specific bug story all described code that was never written
 203. A phase section was rewritten to correct a fabrication, and silently dropped two of the mandatory gates in the process
+204. A capability was given only its structural half, so it passed the architecture sweep and no real device could ever satisfy it
+205. A colon in a KV key made the Runner's duplicate suppression client-side invalid, and the error was swallowed as a warning, so the feature has never once run
+206. A hazard closed for the dispatch subject was left open in the lock subject, whose own comment argued it could not happen
+207. Five defects shipped behind a green Release Gate, because the gate's broker was configured without the subsystem the code under test exists to serve
+208. A decodable-but-invalid message became a poison pill, because the consumer split "retry" from "give up" on the wrong axis
+209. A multi-device job silently lost every copy but one of a skipped task's journal row, because the row's identity assumed a field that only some rows carry
+210. One run recorded "no keys" two different ways, because a normalization was applied at one of the two sinks
+211. A stress test raced a fixed sleep, so the gate failed describing an empty buffer instead of an unbounded one
 
 ---
 

@@ -92,6 +92,8 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 			apispec.DeleteCredentialEndpoint.Route(handler.DeleteCredential),
 			apispec.ListTemplateCredentials.Route(handler.ListTemplateCredentials),
 			apispec.SetTemplateCredentials.Route(handler.SetTemplateCredentials),
+			apispec.ListCredentialInputSources.Route(handler.ListCredentialInputSources),
+			apispec.SetCredentialInputSources.Route(handler.SetCredentialInputSources),
 		},
 	})
 	if err != nil {
@@ -770,11 +772,11 @@ func (f failingCredentialStore) ListCredentials(context.Context, int) ([]credsto
 	return nil, f.err
 }
 
-func (f failingCredentialStore) CreateCredential(context.Context, int, int, string, string, map[string]string, map[string]string) (credstore.Credential, error) {
+func (f failingCredentialStore) CreateCredential(context.Context, int, int, string, string, map[string]string, map[string]string, ...credstore.CredentialOption) (credstore.Credential, error) {
 	return credstore.Credential{}, f.err
 }
 
-func (f failingCredentialStore) UpdateCredential(context.Context, int, string, string, map[string]string, map[string]string) (credstore.Credential, error) {
+func (f failingCredentialStore) UpdateCredential(context.Context, int, string, string, map[string]string, map[string]string, ...credstore.CredentialOption) (credstore.Credential, error) {
 	return credstore.Credential{}, f.err
 }
 
@@ -786,6 +788,14 @@ func (f failingCredentialStore) TemplateCredentials(context.Context, int) ([]cre
 
 func (f failingCredentialStore) SetTemplateCredentials(context.Context, int, []int) error {
 	return f.err
+}
+
+func (f failingCredentialStore) ListCredentialInputSources(context.Context, int) ([]credstore.InputSource, error) {
+	return nil, f.err
+}
+
+func (f failingCredentialStore) SetCredentialInputSources(context.Context, int, []credstore.InputSourceBinding) ([]credstore.InputSource, error) {
+	return nil, f.err
 }
 
 // TestAStoreFailureAnswersServerErrorWithoutLeakingIt covers every handler's
@@ -821,6 +831,8 @@ func TestAStoreFailureAnswersServerErrorWithoutLeakingIt(t *testing.T) {
 			apispec.DeleteCredentialEndpoint.Route(api.NewCredentialHandler(store, render.New()).DeleteCredential),
 			apispec.ListTemplateCredentials.Route(api.NewCredentialHandler(store, render.New()).ListTemplateCredentials),
 			apispec.SetTemplateCredentials.Route(api.NewCredentialHandler(store, render.New()).SetTemplateCredentials),
+			apispec.ListCredentialInputSources.Route(api.NewCredentialHandler(store, render.New()).ListCredentialInputSources),
+			apispec.SetCredentialInputSources.Route(api.NewCredentialHandler(store, render.New()).SetCredentialInputSources),
 		},
 	})
 	if err != nil {
@@ -846,6 +858,8 @@ func TestAStoreFailureAnswersServerErrorWithoutLeakingIt(t *testing.T) {
 		{"delete credential", http.MethodDelete, "/api/v1/credentials/1", ""},
 		{"list a template's credentials", http.MethodGet, "/api/v1/templates/1/credentials", ""},
 		{"bind", http.MethodPut, "/api/v1/templates/1/credentials", `{"credentials":[1]}`},
+		{"list input sources", http.MethodGet, "/api/v1/credentials/1/input-sources", ""},
+		{"set input sources", http.MethodPut, "/api/v1/credentials/1/input-sources", `{"input_sources":[]}`},
 	}
 
 	for _, tt := range cases {

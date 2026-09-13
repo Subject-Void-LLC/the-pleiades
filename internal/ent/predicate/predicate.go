@@ -18,6 +18,9 @@ type Contact func(*sql.Selector)
 // Credential is the predicate function for credential builders.
 type Credential func(*sql.Selector)
 
+// CredentialInputSource is the predicate function for credentialinputsource builders.
+type CredentialInputSource func(*sql.Selector)
+
 // CredentialType is the predicate function for credentialtype builders.
 type CredentialType func(*sql.Selector)
 
@@ -39,8 +42,14 @@ type Job func(*sql.Selector)
 // JobTask is the predicate function for jobtask builders.
 type JobTask func(*sql.Selector)
 
+// JournalEntry is the predicate function for journalentry builders.
+type JournalEntry func(*sql.Selector)
+
 // LocalCredential is the predicate function for localcredential builders.
 type LocalCredential func(*sql.Selector)
+
+// MeshSigningKey is the predicate function for meshsigningkey builders.
+type MeshSigningKey func(*sql.Selector)
 
 // Organization is the predicate function for organization builders.
 type Organization func(*sql.Selector)

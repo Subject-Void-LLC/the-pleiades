@@ -70,6 +70,11 @@ func Name(v string) predicate.SavedLaunchConfig {
 	return predicate.SavedLaunchConfig(sql.FieldEQ(FieldName, v))
 }
 
+// SecretBinding applies equality check predicate on the "secret_binding" field. It's identical to SecretBindingEQ.
+func SecretBinding(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldEQ(FieldSecretBinding, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.SavedLaunchConfig {
 	return predicate.SavedLaunchConfig(sql.FieldEQ(FieldCreatedAt, v))
@@ -243,6 +248,81 @@ func AnswersIsNil() predicate.SavedLaunchConfig {
 // AnswersNotNil applies the NotNil predicate on the "answers" field.
 func AnswersNotNil() predicate.SavedLaunchConfig {
 	return predicate.SavedLaunchConfig(sql.FieldNotNull(FieldAnswers))
+}
+
+// SecretBindingEQ applies the EQ predicate on the "secret_binding" field.
+func SecretBindingEQ(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldEQ(FieldSecretBinding, v))
+}
+
+// SecretBindingNEQ applies the NEQ predicate on the "secret_binding" field.
+func SecretBindingNEQ(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldNEQ(FieldSecretBinding, v))
+}
+
+// SecretBindingIn applies the In predicate on the "secret_binding" field.
+func SecretBindingIn(vs ...string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldIn(FieldSecretBinding, vs...))
+}
+
+// SecretBindingNotIn applies the NotIn predicate on the "secret_binding" field.
+func SecretBindingNotIn(vs ...string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldNotIn(FieldSecretBinding, vs...))
+}
+
+// SecretBindingGT applies the GT predicate on the "secret_binding" field.
+func SecretBindingGT(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldGT(FieldSecretBinding, v))
+}
+
+// SecretBindingGTE applies the GTE predicate on the "secret_binding" field.
+func SecretBindingGTE(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldGTE(FieldSecretBinding, v))
+}
+
+// SecretBindingLT applies the LT predicate on the "secret_binding" field.
+func SecretBindingLT(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldLT(FieldSecretBinding, v))
+}
+
+// SecretBindingLTE applies the LTE predicate on the "secret_binding" field.
+func SecretBindingLTE(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldLTE(FieldSecretBinding, v))
+}
+
+// SecretBindingContains applies the Contains predicate on the "secret_binding" field.
+func SecretBindingContains(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldContains(FieldSecretBinding, v))
+}
+
+// SecretBindingHasPrefix applies the HasPrefix predicate on the "secret_binding" field.
+func SecretBindingHasPrefix(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldHasPrefix(FieldSecretBinding, v))
+}
+
+// SecretBindingHasSuffix applies the HasSuffix predicate on the "secret_binding" field.
+func SecretBindingHasSuffix(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldHasSuffix(FieldSecretBinding, v))
+}
+
+// SecretBindingIsNil applies the IsNil predicate on the "secret_binding" field.
+func SecretBindingIsNil() predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldIsNull(FieldSecretBinding))
+}
+
+// SecretBindingNotNil applies the NotNil predicate on the "secret_binding" field.
+func SecretBindingNotNil() predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldNotNull(FieldSecretBinding))
+}
+
+// SecretBindingEqualFold applies the EqualFold predicate on the "secret_binding" field.
+func SecretBindingEqualFold(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldEqualFold(FieldSecretBinding, v))
+}
+
+// SecretBindingContainsFold applies the ContainsFold predicate on the "secret_binding" field.
+func SecretBindingContainsFold(v string) predicate.SavedLaunchConfig {
+	return predicate.SavedLaunchConfig(sql.FieldContainsFold(FieldSecretBinding, v))
 }
 
 // HasTemplate applies the HasEdge predicate on the "template" edge.

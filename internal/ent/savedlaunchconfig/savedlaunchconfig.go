@@ -24,6 +24,8 @@ const (
 	FieldFields = "fields"
 	// FieldAnswers holds the string denoting the answers field in the database.
 	FieldAnswers = "answers"
+	// FieldSecretBinding holds the string denoting the secret_binding field in the database.
+	FieldSecretBinding = "secret_binding"
 	// EdgeTemplate holds the string denoting the template edge name in mutations.
 	EdgeTemplate = "template"
 	// Table holds the table name of the savedlaunchconfig in the database.
@@ -45,6 +47,7 @@ var Columns = []string{
 	FieldName,
 	FieldFields,
 	FieldAnswers,
+	FieldSecretBinding,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "saved_launch_configs"
@@ -75,6 +78,8 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultSecretBinding holds the default value on creation for the "secret_binding" field.
+	DefaultSecretBinding func() string
 )
 
 // OrderOption defines the ordering options for the SavedLaunchConfig queries.
@@ -98,6 +103,11 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByName orders the results by the name field.
 func ByName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldName, opts...).ToFunc()
+}
+
+// BySecretBinding orders the results by the secret_binding field.
+func BySecretBinding(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSecretBinding, opts...).ToFunc()
 }
 
 // ByTemplateField orders the results by template field.

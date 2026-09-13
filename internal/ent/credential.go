@@ -50,9 +50,13 @@ type CredentialEdges struct {
 	Organization *Organization `json:"organization,omitempty"`
 	// Templates holds the value of the templates edge.
 	Templates []*Template `json:"templates,omitempty"`
+	// InputSources holds the value of the input_sources edge.
+	InputSources []*CredentialInputSource `json:"input_sources,omitempty"`
+	// SourcedBy holds the value of the sourced_by edge.
+	SourcedBy []*CredentialInputSource `json:"sourced_by,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [5]bool
 }
 
 // CredentialTypeOrErr returns the CredentialType value or an error if the edge
@@ -84,6 +88,24 @@ func (e CredentialEdges) TemplatesOrErr() ([]*Template, error) {
 		return e.Templates, nil
 	}
 	return nil, &NotLoadedError{edge: "templates"}
+}
+
+// InputSourcesOrErr returns the InputSources value or an error if the edge
+// was not loaded in eager-loading.
+func (e CredentialEdges) InputSourcesOrErr() ([]*CredentialInputSource, error) {
+	if e.loadedTypes[3] {
+		return e.InputSources, nil
+	}
+	return nil, &NotLoadedError{edge: "input_sources"}
+}
+
+// SourcedByOrErr returns the SourcedBy value or an error if the edge
+// was not loaded in eager-loading.
+func (e CredentialEdges) SourcedByOrErr() ([]*CredentialInputSource, error) {
+	if e.loadedTypes[4] {
+		return e.SourcedBy, nil
+	}
+	return nil, &NotLoadedError{edge: "sourced_by"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -210,6 +232,16 @@ func (_m *Credential) QueryOrganization() *OrganizationQuery {
 // QueryTemplates queries the "templates" edge of the Credential entity.
 func (_m *Credential) QueryTemplates() *TemplateQuery {
 	return NewCredentialClient(_m.config).QueryTemplates(_m)
+}
+
+// QueryInputSources queries the "input_sources" edge of the Credential entity.
+func (_m *Credential) QueryInputSources() *CredentialInputSourceQuery {
+	return NewCredentialClient(_m.config).QueryInputSources(_m)
+}
+
+// QuerySourcedBy queries the "sourced_by" edge of the Credential entity.
+func (_m *Credential) QuerySourcedBy() *CredentialInputSourceQuery {
+	return NewCredentialClient(_m.config).QuerySourcedBy(_m)
 }
 
 // Update returns a builder for updating this Credential.

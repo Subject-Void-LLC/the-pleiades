@@ -143,7 +143,9 @@ make arch               # go test ./internal/archtest/...  — Section 25 layeri
 make docs-lint          # go run ./tools/docs-lint — fails if a gitignored internal doc is cited anywhere a user could see it
 make docs-gen-check     # regenerates docs/reference and internal/api/wellknown, fails on any diff or untracked file
 make tools              # installs gosec/govulncheck at the Makefile's pinned versions; no-op when already correct
-make hooks              # once per clone: point core.hooksPath at .githooks so `git push` runs `make push-gate` first
+make hooks              # once per clone: point core.hooksPath at .githooks, enabling all three hooks below
+make lsp                # verify gopls answers over MCP for this module (the agent's LSP tooling)
+make commitgate         # go run ./tools/commitgate: the commit-time gate, against whatever is staged right now
 make push-gate           # everything `ci` runs, with test-race/test-integration/coverage swapped for tolerant equivalents; warns instead of failing on flaky-packages.json packages
 ```
 
@@ -160,6 +162,18 @@ around twenty packages provision real ephemeral containers through `testcontaine
 timing-sensitive (`internal/event`'s Phase 96a gate severs a real broker for 150
 seconds). A permanently red gate gates nothing. So `make ci` is now a gate a human runs,
 and `.githooks/pre-push` (`make hooks`, once per clone) is what makes that automatic.
+
+`make hooks` now enables three hooks, not one. `.githooks/pre-commit` and `.githooks/commit-msg`
+run `tools/commitgate`, which takes well under a second because it builds nothing, runs no test,
+and reads the index rather than the working tree. It refuses what `.AGENTS/AGENTS.md` states
+absolutely and a machine can settle: an em dash in any added line, a staged Go file gofmt would
+rewrite, a Go file the commit adds with no docstring, an ent schema edit with no regenerated code
+beside it or a new entity missing either dialect's migration, a subject that is not a conventional
+commit, and a trailer crediting a model as an author. Rules that file states softly (the 300-line
+cap) and judgements a static check cannot settle (an error message opening with a capital) print
+as warnings and do not block. It deliberately does not build, vet, test or scan, and it cannot tell
+whether a doc comment is true or a test is representative under RULE 0, so a green run is not
+evidence of having followed that file. `git commit --no-verify` skips it.
 
 There is still no CI-only step and no CI-only tool version — `gosec` and `govulncheck`
 are pinned once in the `Makefile` (`GOSEC_VERSION`, `GOVULNCHECK_VERSION`) and installed
@@ -204,14 +218,34 @@ Required one-time tool setup (`.AGENTS/AGENTS.md`'s IDE & LSP Tooling section):
 
 ```bash
 go install golang.org/x/tools/gopls@latest
-# ensure $(go env GOPATH)/bin is on PATH persistently (not just this shell) — see AGENTS.md
+# ensure $(go env GOPATH)/bin is on PATH persistently, not just in this shell:
+# a bare `export` lasts one shell, and an agent's shell is never that shell
 
-make hooks   # once per clone: run `make push-gate` before every push, so CI failures land here first
+make lsp     # verify the language server works here before relying on it
+make hooks   # once per clone: enable the pre-commit, commit-msg and pre-push hooks
 ```
 
-Prefer `gopls references` / `gopls definition` over `grep` for any claim about Go call
-graphs or symbol usage — AGENTS.md treats a grep-derived claim about Go semantics as a
-guess, not evidence. Grep is fine for prose/YAML/markdown.
+### Use the language server, not grep, for Go
+
+`.mcp.json` wires `gopls mcp`, the language server's headless MCP mode, in as a server named
+`gopls`, and `.claude/settings.json` pre-approves it. A session started in this repository
+therefore has eight typed Go tools: `go_search`, `go_symbol_references`, `go_package_api`,
+`go_file_context`, `go_diagnostics`, `go_workspace`, `go_vulncheck` and `go_rename_symbol`.
+Use them for any claim about Go call graphs, symbol usage or interface compliance.
+AGENTS.md treats a grep-derived claim about Go semantics as a guess rather than evidence,
+and the typed query is also much cheaper: `go_package_api` returns a package's exported
+surface in a screen or two, where reading that package's files to learn the same thing costs
+thousands of lines. Call `go_diagnostics` after every Go edit; it reports in about a second
+the compile error a `go test` run needs a minute to reach, though it proves only that the
+code compiles and never that the behavior is real (RULE 0 is unchanged).
+
+`make lsp` is the check that the server really answers for this module, since a version
+string proves nothing: it does a real MCP handshake, calls `go_workspace`, and looks for this
+module's path in the reply. If the `gopls` tools are missing from a session then the server
+did not connect, which is a broken setup and not a suspended rule: run `make lsp` to see
+whether gopls or the wiring is at fault, use `gopls references` and `gopls definition` on the
+command line for that session, and say so in the writeup. Grep stays correct for prose, YAML
+and markdown.
 
 ### ent code generation
 

@@ -31,6 +31,8 @@ type Device struct {
 	Type string `json:"type,omitempty"`
 	// Properties holds the value of the "properties" field.
 	Properties map[string]interface{} `json:"properties,omitempty"`
+	// SecretBinding holds the value of the "secret_binding" field.
+	SecretBinding string `json:"secret_binding,omitempty"`
 	// Version holds the value of the "version" field.
 	Version uint64 `json:"version,omitempty"`
 	// State holds the value of the "state" field.
@@ -146,7 +148,7 @@ func (*Device) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case device.FieldID, device.FieldVersion:
 			values[i] = new(sql.NullInt64)
-		case device.FieldDeviceID, device.FieldName, device.FieldType, device.FieldState, device.FieldSource:
+		case device.FieldDeviceID, device.FieldName, device.FieldType, device.FieldSecretBinding, device.FieldState, device.FieldSource:
 			values[i] = new(sql.NullString)
 		case device.FieldCreatedAt, device.FieldUpdatedAt, device.FieldSourceSyncedAt:
 			values[i] = new(sql.NullTime)
@@ -212,6 +214,12 @@ func (_m *Device) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.Properties); err != nil {
 					return fmt.Errorf("unmarshal field properties: %w", err)
 				}
+			}
+		case device.FieldSecretBinding:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field secret_binding", values[i])
+			} else if value.Valid {
+				_m.SecretBinding = value.String
 			}
 		case device.FieldVersion:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -348,6 +356,9 @@ func (_m *Device) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("properties=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Properties))
+	builder.WriteString(", ")
+	builder.WriteString("secret_binding=")
+	builder.WriteString(_m.SecretBinding)
 	builder.WriteString(", ")
 	builder.WriteString("version=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Version))

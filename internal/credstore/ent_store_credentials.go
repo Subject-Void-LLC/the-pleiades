@@ -11,6 +11,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/storage"
 )
 
 // The credential half of the ent store. Split from ent_store.go for the
@@ -84,7 +85,8 @@ func (s *entStore) ListAllCredentials(ctx context.Context) ([]Credential, error)
 // package rests on: writing a secret is ordinary, reading one back is not
 // possible. The hook on the client encrypts them before they reach the
 // database; nothing here sees ciphertext or plaintext twice.
-func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string) (Credential, error) {
+func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
+	write := applyCredentialOptions(opts)
 	ct, err := s.client.CredentialType.Get(ctx, typeID)
 	if err != nil {
 		return Credential{}, wrapNotFound(err, "credential type")
@@ -114,23 +116,44 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 	// check over external alone; it was the same rule written twice, which
 	// is the duplication PLAN.md Section 25 forbids, and it was deleted
 	// rather than kept in sync.
-	if err := ct.Inputs.CheckValues(inputs, external); err != nil {
+	//
+	// A required input supplied by a source binding is the fourth
+	// exemption, alongside a default, an external reference and a launch
+	// prompt. It has to be passed in here rather than read back, because
+	// on a create the bindings do not exist yet: that ordering is the
+	// whole reason WithInputSources exists.
+	if err := ct.Inputs.CheckValues(inputs, external, sourcedIDs(write.sources)...); err != nil {
 		return Credential{}, err
 	}
 
-	row, err := s.client.Credential.Create().
-		SetName(name).
-		SetDescription(description).
-		SetOrganizationID(organizationID).
-		SetCredentialTypeID(typeID).
-		SetInputs(inputs).
-		SetExternal(external).
-		Save(ctx)
-	if err != nil {
-		return Credential{}, wrapConstraint(err, "credential")
+	// The credential and its bindings are one transaction. A partial
+	// application would leave a credential whose required input has no
+	// value and no source, which fails at injection rather than here.
+	var createdID int
+	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		tx := ent.FromContext(txCtx)
+		row, createErr := tx.Credential.Create().
+			SetName(name).
+			SetDescription(description).
+			SetOrganizationID(organizationID).
+			SetCredentialTypeID(typeID).
+			SetInputs(inputs).
+			SetExternal(external).
+			Save(txCtx)
+		if createErr != nil {
+			return wrapConstraint(createErr, "credential")
+		}
+		createdID = row.ID
+
+		if !write.hasSources {
+			return nil
+		}
+		return s.writeInputSources(txCtx, row.ID, ct.Inputs, organizationID, write.sources)
+	}); err != nil {
+		return Credential{}, err
 	}
 
-	loaded, err := s.loadCredential(ctx, credential.IDEQ(row.ID))
+	loaded, err := s.loadCredential(ctx, credential.IDEQ(createdID))
 	if err != nil {
 		return Credential{}, err
 	}
@@ -146,27 +169,56 @@ func (s *entStore) CreateCredential(ctx context.Context, organizationID, typeID 
 // "$encrypted$". Without this the first edit of any credential would
 // destroy every secret on it, which is a data-loss bug that looks like a
 // successful save.
-func (s *entStore) UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string) (Credential, error) {
+func (s *entStore) UpdateCredential(ctx context.Context, id int, name, description string, inputs, external map[string]string, opts ...CredentialOption) (Credential, error) {
+	write := applyCredentialOptions(opts)
+
 	row, err := s.loadCredential(ctx, credential.IDEQ(id))
 	if err != nil {
 		return Credential{}, err
 	}
 	ct := row.Edges.CredentialType
-	if ct == nil {
-		return Credential{}, fmt.Errorf("credstore: credential %d was read without its type", id)
+	org := row.Edges.Organization
+	if ct == nil || org == nil {
+		return Credential{}, fmt.Errorf("credstore: credential %d was read without its type or organization", id)
+	}
+
+	// Which inputs count as sourced depends on whether this write replaces
+	// the bindings. When it does not, the stored ones still stand, and
+	// reading them back is what stops an ordinary rename from failing the
+	// required check on an input that has a source it is not touching.
+	sourced := sourcedIDs(write.sources)
+	if !write.hasSources {
+		existing, listErr := s.ListCredentialInputSources(ctx, id)
+		if listErr != nil {
+			return Credential{}, listErr
+		}
+		sourced = sourced[:0]
+		for _, e := range existing {
+			sourced = append(sourced, e.InputID)
+		}
 	}
 
 	merged := mergeInputs(row.Inputs, inputs)
-	if err := ct.Inputs.CheckValues(merged, external); err != nil {
+	if err := ct.Inputs.CheckValues(merged, external, sourced...); err != nil {
 		return Credential{}, err
 	}
-	if _, err := s.client.Credential.UpdateOneID(id).
-		SetName(name).
-		SetDescription(description).
-		SetInputs(merged).
-		SetExternal(external).
-		Save(ctx); err != nil {
-		return Credential{}, wrapConstraint(err, "credential")
+
+	if err := storage.NewEntUnitOfWork(s.client).WithTx(ctx, func(txCtx context.Context) error {
+		tx := ent.FromContext(txCtx)
+		if _, updateErr := tx.Credential.UpdateOneID(id).
+			SetName(name).
+			SetDescription(description).
+			SetInputs(merged).
+			SetExternal(external).
+			Save(txCtx); updateErr != nil {
+			return wrapConstraint(updateErr, "credential")
+		}
+		if !write.hasSources {
+			return nil
+		}
+		return s.writeInputSources(txCtx, id, ct.Inputs, org.ID, write.sources)
+	}); err != nil {
+		return Credential{}, err
 	}
 
 	updated, err := s.loadCredential(ctx, credential.IDEQ(id))
