@@ -74,7 +74,7 @@ var skinLabels = []struct {
 	{SkinBrutalist, "Brutalist"},
 	{SkinLasVentanas, "Las Ventanas"},
 	{SkinHoneycrisp, "Honeycrisp"},
-	{SkinLasVentanasOnce, "Ventanas Once"},
+	{SkinLasVentanasOnce, "V. Once"},
 }
 
 // ParseSkin reads a submitted skin, falling back to the default for

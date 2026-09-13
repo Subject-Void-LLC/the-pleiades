@@ -1239,8 +1239,16 @@ select {
   /* A flex item's default min-width is auto, not 0: without this, a
    * button cannot shrink past its own text's intrinsic width, so once a
    * fourth skin's label no longer fits four-across, the row overflows its
-   * own card instead of letting the label wrap. */
+   * own card instead of letting the label wrap. min-width:0 alone lets the
+   * BUTTON shrink and the label wrap at the space between two words, but a
+   * single word longer than the button's own shrunk width -- "Ventanas"
+   * once four buttons share what three used to -- still has nowhere to
+   * break inside itself and overflows the button on its own line.
+   * overflow-wrap:anywhere is what lets that one word break too, so
+   * nothing this button ever displays can push past its box regardless of
+   * how many skins eventually share this row. */
   min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 0.7rem;
   text-transform: uppercase;
