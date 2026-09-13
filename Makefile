@@ -288,8 +288,10 @@ test-race:
 		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
 	done; \
 	status=0; \
+	echo "test-race: $$(echo "$$rest" | wc -w) packages in parallel"; \
 	go test -race -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
 	if [ -n "$$docker" ]; then \
+		echo "test-race: $$(echo "$$docker" | wc -w) container packages, $(DOCKER_TEST_PARALLELISM) at a time"; \
 		go test -race -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
 	fi; \
 	exit $$status
@@ -444,8 +446,10 @@ test-integration:
 		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
 	done; \
 	status=0; \
+	echo "test-integration: $$(echo "$$rest" | wc -w) packages in parallel"; \
 	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
 	if [ -n "$$docker" ]; then \
+		echo "test-integration: $$(echo "$$docker" | wc -w) container packages, $(DOCKER_TEST_PARALLELISM) at a time"; \
 		go test -tags integration -race -count=1 -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
 	fi; \
 	exit $$status
