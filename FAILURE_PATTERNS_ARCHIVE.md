@@ -7326,3 +7326,114 @@ poll the side that will do the asserting. When a flake appears right after a dep
 bump, pin the old version in a worktree and reproduce there before believing the
 coincidence; this one had every appearance of a regression and was years older than the
 bump.
+
+## 212. A tab's title named a filter its query never applied
+
+**Symptom.** A template's record page carried a tab reading "Completed jobs". It listed
+running, pending and failed jobs alongside completed ones, so the count beside it and
+the rows under it disagreed with the word above them. Nobody reported it, because a
+reader who sees a running job under a heading saying "Completed" concludes the heading
+is loose rather than that the page is wrong.
+
+**Root cause.** `completedJobsSection` calls `dispatch.JobStore.ListForTemplate`, which
+returns every job a template has produced whatever state it reached. The title was
+written when the section was imagined and never revisited against the call it describes.
+Nothing could catch it: the title is a string, the query is a method, and no test asserts
+a relationship between them because none can be stated.
+
+**Fix.** Renamed the tab to "Jobs", which is both accurate and the word AWX uses for the
+same tab, and rewrote the summary to say "whatever state it reached" out loud. The
+function is `jobsSection` now, so the name in the code and the name on the page agree.
+
+**Lesson.** A title is an assertion about a query, and it is the only assertion in a view
+declaration that nothing verifies. When a section's rows come from a method whose name
+does not contain the same qualifier as the title -- "completed", "recent", "active",
+"failed" -- read the method before believing the title. The qualifier is usually the part
+that is wrong, because it was written first.
+
+## 213. The stylesheet had no rule for two classes its own templates emitted
+
+**Symptom.** The primary action on every record page rendered as an ordinary button:
+`Launch`, `Save` and `New` were visually identical to `Edit` and `Cancel`. Related-record
+sections ran into each other with no spacing under their headings.
+
+**Root cause.** `views.templ` emitted `class="btn btn-primary"` on record actions and
+`class="detail-section"` on every section panel. Neither class existed anywhere in
+`app.css`. `.btn` matched, so the control was styled enough to look deliberate, and
+`.detail-section` matched nothing at all. It had been that way since the classes were
+first written: a class attribute with no rule is not an error in any language involved,
+produces no console warning, and renders as "slightly plainer than intended", which is
+indistinguishable from a design choice.
+
+**Fix.** Added both rules. `.btn-primary` takes `--fill-info`/`--on-fill-info` rather than
+a colour of its own, because that pair is already walked by the contrast gate across all
+four skins, both themes and accessibility mode; a new colour would have been a new pair
+for that matrix to cover. Then added a check that extracts every `class="..."` value from
+the `.templ` sources and asserts each name has a rule in the stylesheet.
+
+**Lesson.** A missing CSS rule is the quietest defect in a web UI: nothing fails, nothing
+warns, and the result looks like a decision. The templates and the stylesheet are two
+lists of class names that must agree and neither compiler checks the other, so the
+agreement has to be checked by something. Grepping the templates for class names and
+diffing against the stylesheet's selectors takes one command and finds years-old gaps.
+
+## 214. Making a record's name its own link produced anchors with no accessible name
+
+**Symptom.** `TestViewConformance_EveryViewRendersItsList/runbooks` failed with "a link
+has no accessible name, so it is announced only as its URL", twice on one page.
+
+**Root cause.** The trailing "Open" column was replaced by making each row's primary cell
+a link to its record, which is the right design and is what every comparable control plane
+does. The primary cell is whichever field declares `MobilePrimary`, and nothing guarantees
+that field has a value: a runbook with no name rendered `<a href="/ui/runbooks/x"></a>`.
+An empty anchor is focusable, is announced as its own URL, and is worse than the plain
+cell it replaced. The old "Open" column could not have this bug because its text was a
+literal.
+
+**Fix.** `TableModel.CellText` falls back to the row's identifier for an empty primary
+cell, and `CellHref` only offers a link where `CellText` guarantees text. The two are
+documented as a pair that must agree. The conformance suite already had the assertion --
+it was written for a different reason and caught this on the first run.
+
+**Lesson.** Replacing a literal with data is where accessible names get lost. Any change
+of the form "stop rendering a fixed label, use the record's own value instead" needs the
+empty case answered in the same commit, and the answer is never "render an empty link":
+either substitute something that is never empty, or render no link. A row must also stay
+reachable, so dropping the link is only correct when the row leads nowhere on its own.
+
+## 215. The contrast gate measured a colour pair that was not on the screen
+
+**Symptom.** The Las Ventanas skin rendered the entire dashboard on `#008080` teal:
+headings, summaries, chart caption and section text all sat directly on it. The muted
+summary lines were effectively unreadable. Every contrast test in
+`internal/ui/static/contrast_test.go` passed, across all four skins, both themes and
+accessibility mode, for the whole time this was true.
+
+**Root cause.** Two facts that were each correct alone. `body` paints
+`var(--body-bg, var(--bg))`, and Las Ventanas is the one skin where those differ on
+purpose: `--body-bg` is the Windows 95 DESKTOP teal and `--bg` is the `#C0C0C0` dialog
+face, documented in the token block as teal sitting "behind the dialog rather than under
+it". Nothing drew the dialog. `.block` was the only rule in the stylesheet that painted
+`--bg`, so every region that is not a `.block` -- the whole dashboard, every collection
+table, every related-record section -- rendered onto the desktop colour.
+
+The gate could not see it. Every assertion measures a token against `--bg`, which is the
+right pair to measure and was not the pair on screen. `--fg-muted` is `#4A4A4A`: about
+7:1 against `#C0C0C0`, which is what the gate measured and reported as a pass, and about
+1.5:1 against `#008080`, which is what a reader actually got. Three skins alias
+`--body-bg` to `--bg`, so the gate was accidentally right for them and the one skin it
+was wrong about was the one nobody had looked at.
+
+**Fix.** `.layout` and `.main` now paint `background: var(--bg)`, which is a no-op for the
+three aliasing skins and is what makes the measured pair the real one. `--layout-inset`
+(undeclared everywhere, `0.5rem` on Las Ventanas) keeps the desktop meaningful by insetting
+the shell so the application reads as a window sitting on teal, which is what the token was
+for. `TestTheShellPaintsWhateverTextSitsOn` asserts both rules declare that background, so
+the gate's own premise is now checked rather than assumed.
+
+**Lesson.** A contrast suite asserts a relationship between two tokens; it does not assert
+that either one is what the browser paints. When a stylesheet has more than one background
+token, something has to prove which one is actually behind the text, or the suite is
+measuring a hypothetical. The tell is a token that only one rule consumes: `--bg` was read
+by `.block` alone while `--body-bg` covered everything else, and that imbalance was visible
+in the file long before anyone looked at the skin.
