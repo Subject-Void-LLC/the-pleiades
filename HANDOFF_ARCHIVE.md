@@ -12590,3 +12590,100 @@ unproven), then the user decides commits.
 - **Phase 78d (PFX/PKI) is planned and not built.**
 - **Phase 96a/96d's "the bus is unauthenticated" statements are still true as written** until 101c
   flips enforcement; deliberately left alone.
+
+## Archived handoff: Phase 40 steps 17-19 finished, plus an unplanned four-skin UI pass
+
+## Current Status (this session)
+
+**Branch `feature/Phase-40-Run-Journal`. Build steps 1 through 19 of
+`.SPECIFICATION/PHASE40_MASKING_DECISION.md` Section 8 are DONE, committed, and green,
+including the two items the previous handoff still listed as open (17, and the rest of 19)
+and the "Corrections" paragraph. Only step 20, the human dogfood pass, and a full `make ci`
+run remain.** The previous session's entry is above this one.
+
+The previous handoff's own status line was stale on arrival: it said step 19 was "half done"
+and did not credit step 17 at all, but both were already finished by the commits below (the
+`ent` schema docstring claim was also wrong -- every schema file already had one; that was a
+bad read, not missing work, and needed no fix).
+
+### The fourteen commits since the last handoff
+
+```
+9aad536 docs(engine): correct nine doc comments citing things that no longer exist
+63ca33a fix(journal): give the write probe a unique name, so two runs cannot abort each other
+3d8c746 fix(meshid): grant the run journal's dead letter subject to the Controller
+611f8ee fix(pleiades): open the run journal before the command prints anything
+86bf22e docs(journal): document the sink struct fields, and use American spelling
+c5ddb20 feat(ui): add a third skin, macOS-like and built from Apple system colors
+abffdfd docs(journal): add the field reference for one journal record
+409a799 fix(ui): give Honeycrisp real shape, not just Apple colors
+1234f40 test(runner): add the Walk-tier journal's redelivery gate (Phase 40 step 17)
+c71dc33 fix(ui): make Las Ventanas Windows 95 and Honeycrisp macOS on sight
+50b4f15 feat(ui): add Ventanas Once, a fourth skin for Windows 11 parity
+89fe5f3 fix(ui): stop the fourth theme button overflowing its own row
+62dc6c8 feat(ui): make WCAG AA a guarantee of accessibility mode, not of a skin
+554da39 fix(ui): let a theme button's own label break, not just the row
+```
+
+The first five plus `1234f40` and `abffdfd` are Phase 40 build-order work. Everything else
+(`c5ddb20` through `554da39`, seven commits) is an unplanned side quest the user asked for
+mid-session: the web UI's appearance system. It is a real, tested, contrast-gated change and
+it is on this branch, but it has nothing to do with the run journal and should not be read as
+part of Section 8's scope -- flag it as a separate concern if this branch is ever split before
+merge.
+
+### Phase 40 build order: what actually closed since the last handoff
+
+- **Step 17 (`1234f40`)**: the Walk-tier redelivery gate,
+  `cmd/runner/journal_redelivery_release_gate_test.go`. Two tests against real NATS/sshd
+  containers: forced redelivery to exhaustion asserts `MaxDeliverDefault` distinct ordered
+  `Attempt` values with no duplicate `(job,device,attempt,node)` tuple and distinct `RunID`s;
+  a positive-credential control asserts the journal names the node that ran, not one that
+  failed to start. Both passed clean, twice, and once more under `-race`. The Crawl half was
+  already done and mutation-tested the session before.
+- **Step 19's remainder**: `docs/10-running-in-production.md` gained "Every task execution is
+  recorded in a run journal" under Failure semantics, and "`journal_entries` is the second
+  deliberate exception" beside `Fact.payload` plus the `Revision` disclosure under Data
+  handling, replacing the stale "does not yet run real tasks at all" claim (false since Phase
+  16). `.SPECIFICATION/IMPLEMENTATION.md`'s Book 12 gate item is resolved by git-archaeology
+  rather than guessed at: no Book 12 ever existed when the docs program landed, so the journal's
+  field reference went into Book 10 instead, documented in that same commit (`abffdfd`).
+  `changelog/run-journal.added.md` exists.
+- **Section 8's "Corrections" paragraph**: all three items are discharged, each with an inline
+  comment naming what it replaced --
+  `internal/engine/executor.go:257` and `internal/engine/dag.go:239` no longer cite the deleted
+  `credential.Mask`; `RunResult`'s doc no longer claims results arrive "in the order each one
+  finished" (it is deterministic graph position, per `runConcurrently`); `pkg/sdk/diff.go` and
+  `pkg/remotefile/remotefile.go` no longer cite the removed `pkg/collection.Inverse.Captures`.
+- **Step 18** was already done and recorded in the previous handoff (the poison-message defect,
+  `FAILURE_PATTERNS.md` #208).
+
+**Explicitly still out of scope, correctly**: the spec's own closing paragraph names one more
+thing worth doing (`internal/adapters/native/adapter.go`'s secret-union computation could move
+earlier than `executor.Run` returns) but calls it "its own small item" outside this decision.
+It was checked this session and confirmed still not done -- that is correct, not a gap.
+
+### What remains
+
+1. **Step 20, the human dogfood pass.** Not started. Must not be skipped or reduced to running
+   the existing automated suite again -- the spec's own reason: `register_mask` once shipped
+   with every one of its own tests green while masking nothing, because every test shared the
+   wrong path assumption the bug had. This needs a person (or an agent acting as one) actually
+   running `pleiades init`, writing a real runbook, running it, and reading the resulting
+   journal file/rows with fresh eyes, specifically trying to catch the mechanism proving
+   something the field itself does not actually guarantee.
+2. **A full, clean `make ci` run.** Never completed on this branch. THE BLOCKER described in
+   the previous handoff is unchanged and still unresolved: `internal/catalog/pleiades/builtin/wait`
+   and `pkg/remotefile` fail under full parallel `-race` load from what looks like real
+   TCP-port contention, not Docker (neither package imports testcontainers; `wait` opens real
+   ephemeral-port `net.Listener`s and takes 13.8s alone, `pkg/remotefile` runs
+   `remoteexectest.Start`, an in-process real-TCP SSH server, and takes 0.13s alone; both pass
+   in isolation). This needs reproducing once under a real full `make ci`, the actual failure
+   text captured per package, and then a decision -- fix the contention, or a `flaky-packages.json`
+   entry with a real, specific, written reason, never a blind copy of the container-boilerplate
+   entries that file's own header warns against. `pkg/remotefile` at 0.13s is the suspicious
+   one: that fast failing under load reads more like a bind race in the harness than genuine
+   contention.
+
+Do step 20 before `make ci`, not after: a dogfood pass is likelier to surface something worth
+fixing, and re-running the full gate after a fix is cheaper than running it twice regardless.

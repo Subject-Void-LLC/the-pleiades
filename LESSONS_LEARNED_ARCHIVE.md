@@ -3886,3 +3886,62 @@ by the substring property on the first seed.
 The general form: when a property is stated as "X must not appear in the
 output" and the output has structure of its own, the control is not a list
 of allowed exceptions, it is a run of the same code with X removed.
+
+## 173. A tooling mandate a rules file states in prose is not in force until something wires the tool in and something else can fail when it is missing
+
+This repository has told every agent to prefer the language server over
+grep since the IDE & LSP Tooling section was written. The rule was correct,
+the reasoning under it was correct, and it was written in the imperative.
+None of that put it in force. It named `gopls references` and `gopls
+definition`, two command line invocations, and it offered `gopls version`
+as the way to confirm the tool before relying on it. Those three facts
+between them are why the rule was followed unevenly for months.
+
+`gopls version` is the part that looks like a check and is not one. It
+prints a string from a binary that is on PATH. It does not prove the binary
+can load this module, which is the only thing anyone actually wants to
+know, and which fails for its own reasons: a gopls older than the toolchain
+`go.mod` asks for will print its version happily and then type-check
+nothing. A check that cannot distinguish a working setup from a broken one
+is not a weak check, it is a green light wired to nothing, and this
+repository already knows that shape from a permanently red CI gate gating
+nothing.
+
+The command line invocations are the part that made following the rule
+expensive. Each `gopls references` is a cold start that loads and
+type-checks the workspace again, which here is several seconds for one
+question. An agent under any time or token pressure that pays that per
+query, against a grep that answers instantly, will drift to grep and
+produce exactly the guesses the rule was written to forbid. The mandate was
+asking for the more expensive tool without noticing it was doing so.
+
+Both are fixed by the same thing, which already existed and was not wired
+in: `gopls mcp`, the language server's headless MCP mode. `.mcp.json` in
+the repository root exposes it, so a session holds one warm server for its
+whole life and eight typed queries cost a fraction of a single cold CLI
+invocation. That inverts the pressure the rule was fighting, because the
+correct tool is now also the fast one and the cheap one. `go_package_api`
+returns a package's exported surface in a screen or two where reading that
+package to learn the same thing costs thousands of lines of context, so
+following the rule now saves the budget that breaking it used to save.
+
+And `make lsp` is the check that can fail. It is a real MCP handshake that
+ends in a `go_workspace` call and greps the reply for this module's path,
+so it goes red on all three ways the setup breaks: gopls absent from PATH,
+gopls not speaking the protocol, gopls unable to load this tree. It is
+about a second on a warm cache and it was tested against a deliberately
+wrong module path before being believed, on the same principle as the
+negative control in 172: a check nobody has watched fail is indistinguishable
+from a check that cannot.
+
+It stays out of `make ci` on purpose. CI never invokes gopls, gopls is
+deliberately the one tool here that is not version pinned for exactly that
+reason, and a target whose whole job is to describe a developer's own
+machine has nothing to say about a hosted runner.
+
+The general form: a rule that depends on a tool has three parts, and prose
+is only the first. Wire the tool in so following the rule is the path of
+least resistance, and give the setup a check that has been seen to fail.
+A mandate whose tool is unreachable does not produce careful work, it
+produces a silent fallback to whatever was reachable, plus a rules file
+that reads as though it had not.
