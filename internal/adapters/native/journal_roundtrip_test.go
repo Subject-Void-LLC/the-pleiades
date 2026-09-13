@@ -154,3 +154,83 @@ func readJournalRows(t *testing.T, path string) []map[string]string {
 	}
 	return out
 }
+
+// TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode is the
+// regression test for a silent loss found by running a real two-device
+// job rather than by any test.
+//
+// A node that resolves no device (a skipped task, a controller-side
+// task, or the synthetic parallel marker) left DeviceID empty. The store
+// identifies a row by (job, device, attempt, node), so each dispatch of
+// one job produced the identical key for that node and every copy after
+// the first was discarded as already recorded. A two-device job with one
+// skipped task stored one skip row rather than two, with no error and no
+// log line, and it did so only when both dispatches happened to land on
+// the same attempt number, which made the audit record's completeness
+// depend on whether JetStream had redelivered.
+//
+// Two dispatches of one job, same attempt, different devices, which is
+// exactly what a fan-out to two devices is.
+func TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "journal.db")
+	client := enttest.Open(t, "sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=10000&_fk=1", dbPath))
+	t.Cleanup(func() { _ = client.Close() })
+
+	bus := event.NewInProcessBus()
+	t.Cleanup(func() { _ = bus.Close() })
+
+	ctx := journal.WithAttempt(context.Background(), 1)
+	subscriber := journal.NewSubscriber(journal.NewEntStore(client), quietLogger())
+	if err := subscriber.Subscribe(ctx, bus); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	// The middle task is skipped on every device, which is what gives the
+	// run a node with no device of its own.
+	runbooks := writeRunbook(t, "pb-2",
+		"id: pb-2\ntasks:\n  - name: first\n    fqcn: noop\n"+
+			"  - name: skipped everywhere\n    fqcn: noop\n    when: \"1 == 2\"\n"+
+			"  - name: third\n    fqcn: noop\n")
+	adapter, err := NewAdapter(bus, runbooks, nil)
+	if err != nil {
+		t.Fatalf("NewAdapter: %v", err)
+	}
+
+	const jobID = "66666666-7777-8888-9999-000000000000"
+	for _, device := range []string{"device-1", "device-2"} {
+		payload := wire.DispatchPayload{
+			JobID: jobID, RunbookID: "pb-2",
+			DeviceID: device, DeviceName: device, DeviceHost: "10.0.0.1",
+		}
+		if err := adapter.Execute(ctx, payload); err != nil {
+			t.Fatalf("Execute for %s: %v", device, err)
+		}
+	}
+
+	// Three nodes per dispatch, two dispatches. Before the fix this
+	// timed out at five.
+	rows := waitForJournalRows(t, dbPath, 6)
+	if len(rows) != 6 {
+		t.Fatalf("the journal holds %d rows for a two-device job of three nodes, want 6", len(rows))
+	}
+
+	// The half that matters: the skipped node is recorded once per
+	// device, and each row names the device whose dispatch skipped it.
+	// Without that, "was this task skipped on device-2" is a question the
+	// durable record cannot answer.
+	skippedBy := make(map[string]int, 2)
+	for _, row := range rows {
+		if row["outcome"] != "skipped" {
+			continue
+		}
+		if row["device_id"] == "" {
+			t.Error("a skipped node recorded no device, so two dispatches of this job collide on one row")
+		}
+		skippedBy[row["device_id"]]++
+	}
+	for _, device := range []string{"device-1", "device-2"} {
+		if skippedBy[device] != 1 {
+			t.Errorf("device %s has %d skip rows, want exactly 1: %v", device, skippedBy[device], skippedBy)
+		}
+	}
+}

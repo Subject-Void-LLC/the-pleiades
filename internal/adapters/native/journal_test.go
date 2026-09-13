@@ -286,3 +286,52 @@ func TestAdapterExecutePublishesTheRunJournal(t *testing.T) {
 		t.Errorf("the journal recorded %d entries for a one-task runbook, want 1", entries)
 	}
 }
+
+func TestJournalPublisherAttributesADevicelessEntryToTheDispatchsDevice(t *testing.T) {
+	// A skipped task, a controller-side task and the synthetic parallel
+	// marker all reach the sink with no device: the engine resolves one
+	// per node, and those nodes resolve none. The dispatch names exactly
+	// one device, so the entry belongs to it, and leaving it blank made
+	// two dispatches of one job collide on the store's own
+	// (job, device, attempt, node) identity.
+	bus := &mockBus{}
+	ctx := journal.WithAttempt(context.Background(), 1)
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+
+	entries := journalEntries("run-1", 1, 2)
+	entries[0].DeviceID = ""
+	entries[0].Outcome = engine.OutcomeSkipped
+
+	if err := p.Record(ctx, entries); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	batch := decodeBatch(t, bus)
+	for i, e := range batch.Entries {
+		if e.DeviceID != "device-1" {
+			t.Errorf("entry %d carries device %q, want the dispatch's own device-1", i, e.DeviceID)
+		}
+	}
+}
+
+func TestJournalPublisherKeepsTheDeviceTheRunResolved(t *testing.T) {
+	// The gap-filler fills a gap and does not overrule the run. Nothing
+	// in the Walk tier can resolve a device other than the dispatch's
+	// own, so this is a guard on the rule rather than on a case that
+	// happens: a sink that overwrote would be reporting the payload's
+	// value as though the run had observed it.
+	bus := &mockBus{}
+	ctx := journal.WithAttempt(context.Background(), 1)
+	p := newJournalPublisher(ctx, bus, quietLogger(), "job-1", "device-1")
+
+	entries := journalEntries("run-1", 1)
+	entries[0].DeviceID = "device-the-run-resolved"
+
+	if err := p.Record(ctx, entries); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	if got := decodeBatch(t, bus).Entries[0].DeviceID; got != "device-the-run-resolved" {
+		t.Errorf("entry carries device %q, want the one the run resolved", got)
+	}
+}

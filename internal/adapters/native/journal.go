@@ -6,12 +6,14 @@
 // level, onto the job's own journal subject, for the Controller to
 // consume and store.
 //
-// Two things are stamped here and nowhere else. JobID comes from the
+// Three things are stamped here and nowhere else. JobID comes from the
 // dispatch this adapter was built for, never from anything the run
 // itself reports, because a run cannot know which dispatch it is
 // serving. Attempt comes from the delivery, through the context the
 // Runner set it on, because JetStream's redelivery counter exists only
-// on the message.
+// on the message. And DeviceID is filled in, for the entries that carry
+// none, from the one device the dispatch names: see Record for why a
+// blank one silently cost a multi-device job its skipped-task rows.
 package native
 
 import (
@@ -99,6 +101,26 @@ func (p *journalPublisher) Record(ctx context.Context, entries []engine.JournalE
 	for i, entry := range entries {
 		entry.JobID = p.jobID
 		entry.Attempt = p.attempt
+		// A node that resolved no device still ran inside a dispatch that
+		// names exactly one, so it is attributed to that device rather
+		// than left blank. A skipped task, a controller-side task and the
+		// synthetic parallel marker all reach here with an empty
+		// DeviceID, and a blank one is not merely less useful: the store
+		// identifies a row by (job, device, attempt, node), so every
+		// dispatch of one job produced the identical key for such a node
+		// and all but the first were discarded as already recorded. A
+		// two-device job with one skipped task therefore stored one skip
+		// row instead of two, silently, and only when both dispatches
+		// happened to land on the same attempt number.
+		//
+		// Filled in rather than overwritten. Where the run did resolve a
+		// device it can only be this one, since the adapter scopes the
+		// whole run to the device the dispatch names, and preserving what
+		// the run observed keeps this a gap-filler rather than a second
+		// opinion.
+		if entry.DeviceID == "" {
+			entry.DeviceID = p.deviceID
+		}
 		stamped[i] = entry
 	}
 
