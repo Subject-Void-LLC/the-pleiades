@@ -51,7 +51,22 @@ func startReleaseGateContainer(t *testing.T) (string, int) {
 			"USER_NAME":       releaseGateSSHUser,
 			"USER_PASSWORD":   releaseGateSSHPassword,
 		},
-		WaitingFor: wait.ForLog("done.").WithStartupTimeout(testsupport.SSHDStartupTimeout),
+		// Both halves, because the log line alone has twice let a test
+		// past a port it could not reach. "[ls.io-init] done." is the
+		// image's own init chain finishing, which says nothing about the
+		// host side of the mapping, and this package's two recorded
+		// flakes are both on that side: `port "2222/tcp" not found`
+		// (flaky-packages.json's own entry for this package) and, under
+		// the make ci run of 2026-09-13, a mapped port that answered the
+		// dial with connection refused. ForListeningPort dials the
+		// published port FROM the host in a retry loop, which is the
+		// check the log strategy cannot make, so the container is not
+		// declared ready until the address every test here uses actually
+		// accepts a connection.
+		WaitingFor: wait.ForAll(
+			wait.ForLog("done."),
+			wait.ForListeningPort("2222/tcp"),
+		).WithStartupTimeout(testsupport.SSHDStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
