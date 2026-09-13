@@ -3945,3 +3945,54 @@ least resistance, and give the setup a check that has been seen to fail.
 A mandate whose tool is unreachable does not produce careful work, it
 produces a silent fallback to whatever was reachable, plus a rules file
 that reads as though it had not.
+
+## 174. A fixture that holds one of a defect's two conditions proves nothing about the defect
+
+Phase 40's run journal shipped with two structural archtests, a fuzz target, a
+benchmark, a Crawl-tier Release Gate against a real sshd, and a Walk-tier gate
+against real NATS and real containers. All of them green. The human dogfood pass
+then found two real defects inside twenty minutes, and the more serious one
+(`FAILURE_PATTERNS.md` #209) was invisible to every one of those tests for a
+reason worth generalizing.
+
+It needed two conditions at once: a job dispatched to MORE THAN ONE device, and a
+node that resolves NO device (a skipped task, a controller-side task, or the
+synthetic parallel marker). Each condition on its own is well covered. The
+Walk-tier gates dispatch one device and exercise failures, redelivery to
+exhaustion and the unique index. The engine's own tests cover skipped nodes in
+detail, including the ordinal and total a `when` list reports. Neither suite has
+a fixture holding both, so the store's row identity silently collapsed two
+devices' copies of one skipped node into a single row, and no assertion anywhere
+was in a position to notice.
+
+This is not a gap in diligence. It is the shape of test suites: a fixture is
+built to isolate the thing under test, so it holds one condition and neutralizes
+the rest. The consequence is that a suite is systematically blind to defects
+that live in the INTERSECTION of two conditions its fixtures each hold
+separately, and the suite's greenness carries no information about that region at
+all.
+
+Two practical rules follow.
+
+First, when reviewing a mechanism, list the conditions its fixtures neutralize
+rather than the ones they exercise, and ask which PAIRS of those are reachable in
+production. Here "more than one device" and "a node with no device" are both
+ordinary; their combination is a fan-out with a `when:` on a task, which is
+about as common as runbooks get.
+
+Second, this is what a dogfood pass is FOR, and why it cannot be replaced by
+running the suite again. A person using the product does not build fixtures. They
+write the runbook they actually wanted, against the fleet they actually have, and
+that runbook carries every condition at once by default. The spec's own stated
+reason for the step (`register_mask` once shipped with every one of its own tests
+green while masking nothing, because every test shared the wrong path assumption
+the bug had) is the same observation from the other side: a suite agrees with
+itself, and only use disagrees with it.
+
+The dogfood pass that found these also CONFIRMED several claims that could
+otherwise only be asserted, which is the other half of its value: a SIGINT to a
+real `pleiades run` mid-level discarded the terminal's entire output and kept
+every completed level in the journal file, exactly as the design says; the
+documented `jq` recipe works verbatim; and five sentinel values planted through
+four separate routes reached the device and reached `--verbose`, and reached
+neither journal.

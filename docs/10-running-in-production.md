@@ -348,7 +348,8 @@ into a task name".
 ### What one journal record contains
 
 A Crawl-tier journal file is JSON Lines: one record per line, one line per node
-the run executed. The order is the graph's, not the clock's: level by level, and
+the run reached, per device it ran against. A node the run never reached, because
+an earlier task failed, has no record at all. The order is the graph's, not the clock's: level by level, and
 within a level in graph position. Nodes in a level really do run at the same time
 and can finish in any order, so if you need wall-clock order, sort on
 `finished_at`; `sequence` gives you run order. Any tool that reads JSON will read
@@ -369,7 +370,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 | `run_id` | One `Executor.Run` call. Names the Crawl-tier file. |
 | `sequence` | Order within that run. A level runs concurrently, so two records can share an instant; this cannot tie. |
 | `node_id` | Position in the compiled graph, such as `tasks[0]`. Not the task's `register:` name. |
-| `device_id` | The inventory item's stored id. Never a device property. |
+| `device_id` | The inventory item's stored id. Never a device property. A node that resolved no device, a skipped task or a controller-side one, names the Walk-tier dispatch's own device, because a dispatch runs against exactly one. On the Crawl tier the same node leaves it empty: one run there spans every device the task targets, and the skip was decided once for all of them. |
 | `job_id`, `attempt` | The Walk-tier dispatch and its redelivery count. Both empty or zero on the Crawl tier, which has no dispatch. |
 | `started_at`, `finished_at` | UTC, bounding this one execution. |
 
@@ -387,7 +388,7 @@ The Walk tier stores the same fields as columns in `journal_entries`.
 
 | Field | Meaning |
 |---|---|
-| `outcome` | One of `ran`, `changed`, `skipped`, `failed`, `not_reached`. |
+| `outcome` | One of `ran`, `changed`, `skipped`, `failed`, `not_reached`. The first four read as they sound. `not_reached` is the record of a parallel group's own fan-out marker, which carries no method, no device and no timings because it executes nothing itself; despite the name it is never a task an earlier failure stopped the run short of, since those leave no record at all. |
 | `failure_stage` | Where a failure happened, read off control flow rather than parsed from an error: `workflow_read`, `condition_eval`, `secret_mask`, `resolve_target`, `lock_all`, `lock_device`, `action`, `register_mask`, `record`. Empty unless `outcome` is `failed`. |
 | `skip_kind` | Which gate skipped the task: `when`, `when_or`, `when_cel` or `lifecycle`. Empty unless `outcome` is `skipped`. |
 | `skip_ordinal`, `skip_total` | Which condition of how many decided a `when` skip. The ordinal is zero for `when_or`, where every condition had to be false and none is the actionable one. |

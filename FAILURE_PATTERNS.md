@@ -209,6 +209,8 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 206. A hazard closed for the dispatch subject was left open in the lock subject, whose own comment argued it could not happen
 207. Five defects shipped behind a green Release Gate, because the gate's broker was configured without the subsystem the code under test exists to serve
 208. A decodable-but-invalid message became a poison pill, because the consumer split "retry" from "give up" on the wrong axis
+209. A multi-device job silently lost every copy but one of a skipped task's journal row, because the row's identity assumed a field that only some rows carry
+210. One run recorded "no keys" two different ways, because a normalization was applied at one of the two sinks
 
 ---
 

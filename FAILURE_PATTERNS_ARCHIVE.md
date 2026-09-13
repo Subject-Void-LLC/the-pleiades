@@ -7201,3 +7201,89 @@ errors mean. And when two failure paths are handled oppositely, test the
 region BETWEEN the two inputs you had in mind, because a message that is
 malformed enough to be wrong and well formed enough to decode is the one that
 belongs to neither test.
+
+## 209. A multi-device job silently lost every copy but one of a skipped task's journal row, because the row's identity assumed a field that only some rows carry
+
+**Symptom.** A Walk-tier job fanned out to two devices, each dispatch running the
+same three-node runbook with one task skipped on both, stored FIVE journal rows
+instead of six. No error, no warning, and no log line above debug said so. Worse,
+it was intermittent: four identical launches of the same template produced 5, 6,
+6 and 5 rows. Nothing in the runbook, the inventory or the two devices differed
+between the launches that lost a row and the ones that did not.
+
+**Root cause.** A journal row is identified by `(job_id, device_id, attempt,
+node_id)`, a unique index chosen so that a redelivered publish of one batch
+collapses into the row it already wrote. That identity silently assumes every
+entry names a device. Three kinds do not: a skipped task (the condition is
+evaluated once per node, before any device is resolved), a controller-side task
+with no target, and the synthetic parallel fan-out marker. All three reached the
+store with an empty `device_id`, so each of a job's dispatches produced the
+IDENTICAL key for such a node, and `EntStore.saveOne` discarded every copy after
+the first through the branch that reads a constraint error as "already
+recorded". Which is correct for a republished batch and wrong for a different
+device's run of the same node.
+
+The intermittency is the second half. Two dispatches collide only while they
+share an attempt number, so a job where JetStream happened to redeliver one of
+the two dispatches stored both rows and looked healthy. The completeness of the
+audit record depended on whether a delivery had been retried.
+
+Every automated gate missed it for one shared reason: all of them dispatch a
+one-device job, and none of their runbooks contains a skipped task. The defect
+needs at least two devices AND a node that resolves none, and no test had both.
+It was found by launching a real two-device template through the real Controller
+and Runner binaries and counting the rows.
+
+**Fix.** `journalPublisher.Record` now fills in an entry's empty `DeviceID` from
+the device the dispatch names, beside the `JobID` and `Attempt` it already
+stamps there and for the same reason: a run cannot know which dispatch it is
+serving, and on this tier a dispatch is scoped to exactly one device, so a node
+that skipped in that run skipped for that device. It fills a gap rather than
+overwriting, so a device the run genuinely resolved is still the run's own
+answer. `TestJournalRoundTripKeepsEveryDispatchsCopyOfADevicelessNode` drives two
+dispatches of one job through the real publisher, bus, subscriber and database
+and asserts six rows with one skip row per device; it fails at five without the
+fix.
+
+**Lesson.** A unique index is a claim about identity, and a nullable column in
+one makes that claim only about the rows that fill it. Before writing such an
+index, ask which rows carry every component, and what two rows that share a
+blank one actually mean. Here they meant two different devices, and the store
+read them as one fact arriving twice. The reason it survived every test is worth
+keeping separately: a defect that needs two independent conditions at once (more
+than one device, and a node belonging to none) is invisible to a suite whose
+fixtures each hold one of them.
+
+## 210. One run recorded "no keys" two different ways, because a normalization was applied at one of the two sinks
+
+**Symptom.** The same journal entry read `"stat_keys": []` in the Crawl tier's
+JSON Lines file and the JSON scalar `null` in the Walk tier's `journal_entries`
+column. Both mean "this task recorded no keys", and every failed task records
+none, so the divergence covered exactly the rows an operator opens the journal
+for.
+
+**Root cause.** `internal/journal/record.go`'s `normalize` exists precisely to
+stop this: `encoding/json` writes `null` for a nil slice and `[]` for an empty
+one, the projection leaves a vector nil whenever it admitted no keys, and a
+reader should not have to handle two spellings of one fact. It was called on the
+file sink's encode path only. `EntStore.saveOne` passed the nil slice straight
+into the column, even though the same function sitting in the same package had
+already been written for the same problem, and even though that method already
+handled the analogous zero-value case for `started_at` and `finished_at`.
+
+On SQLite the difference hides: `json_array_length('null')` returns 0, the same
+as for `'[]'`. The columns are `jsonb` on PostgreSQL, where the same call fails
+outright with "cannot get array length of a scalar", measured against a real
+server rather than assumed.
+
+**Fix.** `saveOne` calls the same `normalize` before building the row, and
+`normalize`'s own doc comment now records that both sinks apply it and what the
+PostgreSQL half costs.
+`TestEntStoreStoresAnEmptyKeyVectorAsAnEmptyArray` reads the three columns back
+raw and fails on `null`.
+
+**Lesson.** When a normalization exists because two readers must see one
+spelling, it belongs at every write, not at the one where the problem was first
+noticed. And a difference that a development backend forgives is not a
+difference that does not exist: SQLite and PostgreSQL disagree about JSON null,
+so "it queries fine locally" says nothing about the deployment.
