@@ -67,8 +67,8 @@ var registerRecordViews = sync.OnceFunc(func() {
 		// This is Descriptor.FieldsFor, not the "vary" action's own
 		// per-action FieldsFor above -- the two are deliberately
 		// independent seams, and this view exercises both.
-		FieldsFor: func(_ context.Context, id string) ([]view.Field, error) {
-			if id == "broken" {
+		FieldsFor: func(_ context.Context, r view.Resolve) ([]view.Field, error) {
+			if r.ID == "broken" {
 				return nil, errors.New("deliberate record-field resolution failure")
 			}
 			return []view.Field{
@@ -375,13 +375,32 @@ func TestForms_RenderForCreateAndEdit(t *testing.T) {
 		}
 	})
 
-	t.Run("create never resolves the per-record dynamic fields", func(t *testing.T) {
+	// This asserted the opposite until the seam was widened for
+	// Credentials, whose fields are declared by the type being chosen in
+	// the form rather than by anything a stored record names. A view that
+	// only wants per-record fields, like Templates, gets the old behaviour
+	// by reading Resolve.ID and returning nothing when it is empty; that is
+	// a decision for the resolver now, not a rule the caller enforces.
+	t.Run("create resolves the dynamic fields too, with an empty id", func(t *testing.T) {
 		rec := p.get(t, "/ui/"+gadgetView+"/new")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 		}
-		if strings.Contains(rec.Body.String(), `name="extra"`) {
-			t.Error("the create form renders a control FieldsFor resolved, but no record exists yet to resolve one from")
+		if !strings.Contains(rec.Body.String(), `name="extra"`) {
+			t.Error("the create form does not render the control FieldsFor resolved for an empty id")
+		}
+	})
+
+	// The no-JavaScript half of a dependent form: a driving control's value
+	// arrives on the query string, and the form has to come back with that
+	// control still holding it or the choice has to be made twice.
+	t.Run("a create form prefills a declared field from the query string", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/new?name=seeded-by-query")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "seeded-by-query") {
+			t.Error("the create form dropped a declared field's value from the query string")
 		}
 	})
 

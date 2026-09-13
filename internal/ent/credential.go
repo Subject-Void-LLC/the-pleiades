@@ -50,13 +50,15 @@ type CredentialEdges struct {
 	Organization *Organization `json:"organization,omitempty"`
 	// Templates holds the value of the templates edge.
 	Templates []*Template `json:"templates,omitempty"`
+	// Projects holds the value of the projects edge.
+	Projects []*Project `json:"projects,omitempty"`
 	// InputSources holds the value of the input_sources edge.
 	InputSources []*CredentialInputSource `json:"input_sources,omitempty"`
 	// SourcedBy holds the value of the sourced_by edge.
 	SourcedBy []*CredentialInputSource `json:"sourced_by,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
+	loadedTypes [6]bool
 }
 
 // CredentialTypeOrErr returns the CredentialType value or an error if the edge
@@ -90,10 +92,19 @@ func (e CredentialEdges) TemplatesOrErr() ([]*Template, error) {
 	return nil, &NotLoadedError{edge: "templates"}
 }
 
+// ProjectsOrErr returns the Projects value or an error if the edge
+// was not loaded in eager-loading.
+func (e CredentialEdges) ProjectsOrErr() ([]*Project, error) {
+	if e.loadedTypes[3] {
+		return e.Projects, nil
+	}
+	return nil, &NotLoadedError{edge: "projects"}
+}
+
 // InputSourcesOrErr returns the InputSources value or an error if the edge
 // was not loaded in eager-loading.
 func (e CredentialEdges) InputSourcesOrErr() ([]*CredentialInputSource, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.InputSources, nil
 	}
 	return nil, &NotLoadedError{edge: "input_sources"}
@@ -102,7 +113,7 @@ func (e CredentialEdges) InputSourcesOrErr() ([]*CredentialInputSource, error) {
 // SourcedByOrErr returns the SourcedBy value or an error if the edge
 // was not loaded in eager-loading.
 func (e CredentialEdges) SourcedByOrErr() ([]*CredentialInputSource, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.SourcedBy, nil
 	}
 	return nil, &NotLoadedError{edge: "sourced_by"}
@@ -232,6 +243,11 @@ func (_m *Credential) QueryOrganization() *OrganizationQuery {
 // QueryTemplates queries the "templates" edge of the Credential entity.
 func (_m *Credential) QueryTemplates() *TemplateQuery {
 	return NewCredentialClient(_m.config).QueryTemplates(_m)
+}
+
+// QueryProjects queries the "projects" edge of the Credential entity.
+func (_m *Credential) QueryProjects() *ProjectQuery {
+	return NewCredentialClient(_m.config).QueryProjects(_m)
 }
 
 // QueryInputSources queries the "input_sources" edge of the Credential entity.

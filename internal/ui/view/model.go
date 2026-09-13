@@ -267,6 +267,25 @@ func (v Values) Bool(name string) bool {
 // it unset: it is declining to overwrite what only storage knows.
 func (v Values) Editing() bool { return v.editing }
 
+// Fields returns the fields this submission was narrowed against, in
+// declaration order where the caller preserved one and otherwise in map
+// order.
+//
+// It exists for a binder whose field set is not knowable from its own
+// package. Credentials is the case: its controls come from the credential
+// type's input schema, so its Bind cannot walk a static list to find out
+// what was submitted, and walking the raw submission instead would read
+// keys that were never declared -- exactly the narrowing this type exists
+// to perform. Ranging over the declared set keeps the guarantee intact:
+// what comes back is what a Field permitted, never what a request carried.
+func (v Values) Fields() []Field {
+	out := make([]Field, 0, len(v.declared))
+	for _, f := range v.declared {
+		out = append(out, f)
+	}
+	return out
+}
+
 // Int returns a declared KindNumber field's value, and zero for a field
 // left empty.
 //

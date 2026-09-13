@@ -28,6 +28,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
@@ -114,6 +115,7 @@ func checkColumn(t, c string) error {
 			localcredential.Table:       localcredential.ValidColumn,
 			meshsigningkey.Table:        meshsigningkey.ValidColumn,
 			organization.Table:          organization.ValidColumn,
+			project.Table:               project.ValidColumn,
 			revision.Table:              revision.ValidColumn,
 			rolebinding.Table:           rolebinding.ValidColumn,
 			savedlaunchconfig.Table:     savedlaunchconfig.ValidColumn,

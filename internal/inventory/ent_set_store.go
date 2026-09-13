@@ -314,3 +314,50 @@ func (s *entSetStore) ListOrganizations(ctx context.Context) ([]Organization, er
 	}
 	return out, nil
 }
+
+// maxMemberChoices bounds ListMembers when a caller asks for no ceiling of
+// its own. Deliberately larger than a page and far smaller than a fleet: it
+// is what a <select multiple> can render without becoming unusable, not
+// what the database can return.
+const maxMemberChoices = 500
+
+// ListMembers returns the devices and groups a membership control may
+// offer. See SetStore.ListMembers for why it is bounded.
+func (s *entSetStore) ListMembers(ctx context.Context, limit int) (Members, error) {
+	if limit <= 0 || limit > maxMemberChoices {
+		limit = maxMemberChoices
+	}
+
+	// One more than asked for, so truncation is observed rather than
+	// inferred from a full page, which is the same trick the list readers
+	// in internal/ui use for a next cursor.
+	devices, err := s.client.Device.Query().
+		Order(ent.Asc(entdevice.FieldName)).
+		Limit(limit + 1).
+		All(ctx)
+	if err != nil {
+		return Members{}, fmt.Errorf("inventory: listing devices for a membership control: %w", err)
+	}
+	groups, err := s.client.Group.Query().
+		Order(ent.Asc(entgroup.FieldName)).
+		Limit(limit + 1).
+		All(ctx)
+	if err != nil {
+		return Members{}, fmt.Errorf("inventory: listing groups for a membership control: %w", err)
+	}
+
+	out := Members{Truncated: len(devices) > limit || len(groups) > limit}
+	if len(devices) > limit {
+		devices = devices[:limit]
+	}
+	if len(groups) > limit {
+		groups = groups[:limit]
+	}
+	for _, row := range devices {
+		out.Devices = append(out.Devices, Member{ID: row.ID, Name: row.Name})
+	}
+	for _, row := range groups {
+		out.Groups = append(out.Groups, Member{ID: row.ID, Name: row.Name})
+	}
+	return out, nil
+}

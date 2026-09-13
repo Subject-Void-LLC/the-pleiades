@@ -65,13 +65,15 @@ type OrganizationEdges struct {
 	CredentialTypes []*CredentialType `json:"credential_types,omitempty"`
 	// Credentials holds the value of the credentials edge.
 	Credentials []*Credential `json:"credentials,omitempty"`
+	// Projects holds the value of the projects edge.
+	Projects []*Project `json:"projects,omitempty"`
 	// Announcements holds the value of the announcements edge.
 	Announcements []*Announcement `json:"announcements,omitempty"`
 	// Contacts holds the value of the contacts edge.
 	Contacts []*Contact `json:"contacts,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [9]bool
+	loadedTypes [10]bool
 }
 
 // DevicesOrErr returns the Devices value or an error if the edge
@@ -137,10 +139,19 @@ func (e OrganizationEdges) CredentialsOrErr() ([]*Credential, error) {
 	return nil, &NotLoadedError{edge: "credentials"}
 }
 
+// ProjectsOrErr returns the Projects value or an error if the edge
+// was not loaded in eager-loading.
+func (e OrganizationEdges) ProjectsOrErr() ([]*Project, error) {
+	if e.loadedTypes[7] {
+		return e.Projects, nil
+	}
+	return nil, &NotLoadedError{edge: "projects"}
+}
+
 // AnnouncementsOrErr returns the Announcements value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[8] {
 		return e.Announcements, nil
 	}
 	return nil, &NotLoadedError{edge: "announcements"}
@@ -149,7 +160,7 @@ func (e OrganizationEdges) AnnouncementsOrErr() ([]*Announcement, error) {
 // ContactsOrErr returns the Contacts value or an error if the edge
 // was not loaded in eager-loading.
 func (e OrganizationEdges) ContactsOrErr() ([]*Contact, error) {
-	if e.loadedTypes[8] {
+	if e.loadedTypes[9] {
 		return e.Contacts, nil
 	}
 	return nil, &NotLoadedError{edge: "contacts"}
@@ -314,6 +325,11 @@ func (_m *Organization) QueryCredentialTypes() *CredentialTypeQuery {
 // QueryCredentials queries the "credentials" edge of the Organization entity.
 func (_m *Organization) QueryCredentials() *CredentialQuery {
 	return NewOrganizationClient(_m.config).QueryCredentials(_m)
+}
+
+// QueryProjects queries the "projects" edge of the Organization entity.
+func (_m *Organization) QueryProjects() *ProjectQuery {
+	return NewOrganizationClient(_m.config).QueryProjects(_m)
 }
 
 // QueryAnnouncements queries the "announcements" edge of the Organization entity.

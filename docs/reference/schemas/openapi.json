@@ -6528,6 +6528,730 @@
         "x-link-relation": "execute"
       }
     },
+    "/projects": {
+      "get": {
+        "description": "Returns the source repositories this deployment runs automation out of.",
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "projects": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "credential": {
+                            "description": "The credential the clone authenticates as, absent for a public repository.",
+                            "type": "integer"
+                          },
+                          "description": {
+                            "description": "What is in this repository.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Stable numeric identifier.",
+                            "type": "integer"
+                          },
+                          "last_synced_at": {
+                            "description": "When the last sync ran, absent if none has.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "Unique within its organization, not globally.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "description": "The tenancy boundary this project belongs to.",
+                            "type": "integer"
+                          },
+                          "revision": {
+                            "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                            "type": "string"
+                          },
+                          "scm_branch": {
+                            "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                            "type": "string"
+                          },
+                          "scm_type": {
+                            "description": "How the content is reached. Only \"git\" is implemented.",
+                            "type": "string"
+                          },
+                          "scm_url": {
+                            "description": "The repository to clone.",
+                            "type": "string"
+                          },
+                          "sync_error": {
+                            "description": "Why the last sync failed, with credential material already stripped.",
+                            "type": "string"
+                          },
+                          "sync_status": {
+                            "description": "One of never, pending, running, succeeded or failed.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The projects."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "List projects",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Registers a source repository. Nothing is fetched until a sync runs.",
+        "operationId": "create_project",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project as stored."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required field is missing, or a git project carries no URL."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Create a project",
+        "x-link-relation": "create"
+      }
+    },
+    "/projects/{id}": {
+      "delete": {
+        "description": "Removes a project. Its working tree on disk is left in place.",
+        "operationId": "delete_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Delete a project",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Returns one project, including the state of its last sync.",
+        "operationId": "get_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "Get one project",
+        "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Changes a project's name, description or source. The checkout is not refetched until a sync runs.",
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project as stored."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required field is missing, or a git project carries no URL."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Update a project",
+        "x-link-relation": "update"
+      }
+    },
+    "/projects/{id}/sync": {
+      "post": {
+        "description": "Clones or fast-forwards the project's working tree and records the commit it ended up at.",
+        "operationId": "sync_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project after the attempt. A sync that RAN AND FAILED is also a 200: the outcome is in sync_status and sync_error, because the request succeeded and somebody else's repository did not."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project has no fetchable source."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Sync a project",
+        "x-link-relation": "execute"
+      }
+    },
     "/runbooks": {
       "get": {
         "description": "Returns every runbook id this control plane can resolve, sorted. Ids only: compiling the whole library to render a list of names would make opening the catalog cost more the more automation an organization has written. Read GET /runbooks/{id} for one runbook's requirements.",

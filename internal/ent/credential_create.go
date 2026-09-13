@@ -14,6 +14,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -133,6 +134,21 @@ func (_c *CredentialCreate) AddTemplates(v ...*Template) *CredentialCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTemplateIDs(ids...)
+}
+
+// AddProjectIDs adds the "projects" edge to the Project entity by IDs.
+func (_c *CredentialCreate) AddProjectIDs(ids ...int) *CredentialCreate {
+	_c.mutation.AddProjectIDs(ids...)
+	return _c
+}
+
+// AddProjects adds the "projects" edges to the Project entity.
+func (_c *CredentialCreate) AddProjects(v ...*Project) *CredentialCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddProjectIDs(ids...)
 }
 
 // AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
@@ -336,6 +352,22 @@ func (_c *CredentialCreate) createSpec() (*Credential, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ProjectsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

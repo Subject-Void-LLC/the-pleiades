@@ -44,6 +44,8 @@ type Tx struct {
 	MeshSigningKey *MeshSigningKeyClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
+	// Project is the client for interacting with the Project builders.
+	Project *ProjectClient
 	// Revision is the client for interacting with the Revision builders.
 	Revision *RevisionClient
 	// RoleBinding is the client for interacting with the RoleBinding builders.
@@ -211,6 +213,7 @@ func (tx *Tx) init() {
 	tx.LocalCredential = NewLocalCredentialClient(tx.config)
 	tx.MeshSigningKey = NewMeshSigningKeyClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
+	tx.Project = NewProjectClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)
 	tx.SavedLaunchConfig = NewSavedLaunchConfigClient(tx.config)

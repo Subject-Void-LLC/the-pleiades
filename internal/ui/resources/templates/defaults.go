@@ -34,9 +34,15 @@ const promptSuffix = "_prompt"
 // a control per declared field, prefilled with what the template is saved
 // with (via the projector's Form func, defaultsValues below), and a
 // checkbox beside it that is checked when a launch may override it.
-func defaultsFields(store launch.Store) func(context.Context, string) ([]view.Field, error) {
-	return func(ctx context.Context, id string) ([]view.Field, error) {
-		tmpl, ok := load(ctx, store, id)
+func defaultsFields(store launch.Store) func(context.Context, view.Resolve) ([]view.Field, error) {
+	return func(ctx context.Context, r view.Resolve) ([]view.Field, error) {
+		// A template's execution fields come from the kind its STORED
+		// record names, so this reads r.ID and ignores r.Values. A create
+		// resolves to nothing, which is the behaviour the seam had before
+		// it could be called on a create at all: the kind is chosen by the
+		// definition field, and until that is saved there is no descriptor
+		// to read fields from.
+		tmpl, ok := load(ctx, store, r.ID)
 		if !ok {
 			// A template that cannot be read offers no controls for values
 			// nothing here could apply. GET returns not-found separately.

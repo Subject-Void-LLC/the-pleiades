@@ -541,12 +541,21 @@ type Descriptor struct {
 	// generalised to the record's own form rather than a second one invented
 	// for it.
 	//
-	// It never applies to create: the record does not exist yet, so there is
-	// nothing to resolve a per-record field set from. A view that needs its
-	// dynamic fields at creation, too, has to resolve them some other way,
-	// because the mechanism here is deliberately the smallest thing that
-	// covers what an edit can know that a create cannot.
-	FieldsFor func(ctx context.Context, id string) ([]Field, error)
+	// It applies to create as well as edit, which it did not until
+	// Credentials needed it. The original seam took an id and refused a
+	// create outright, on the reasoning that there is nothing to resolve a
+	// per-record field set from before the record exists. That reasoning
+	// held only because Templates, its one caller, drives its dynamic
+	// fields off a kind the stored record already names.
+	//
+	// A credential does not work that way. Its fields are declared by the
+	// credential type the person is choosing right now, in the form, so
+	// what drives the resolution is a value in the submission rather than
+	// a value in the database, and it exists on a create exactly as much
+	// as on an edit. Resolve carries both: an id that is empty on a create,
+	// and the submission narrowed to the static fields. A caller that only
+	// wants the id keeps working by reading r.ID and ignoring r.Values.
+	FieldsFor func(ctx context.Context, r Resolve) ([]Field, error)
 
 	// Applies optionally withdraws an affordance for one particular
 	// record -- an archived device offers no delete to anyone, however
@@ -597,18 +606,42 @@ func (d Descriptor) FormFieldsFor(editing bool) []Field {
 // The merged result is what the render path, the submission narrower and
 // Validate all have to agree on, so it is computed once, here, rather than
 // separately by each of them.
-func (d Descriptor) ResolveFormFields(ctx context.Context, id string) ([]Field, error) {
-	editing := id != ""
-	fields := d.FormFieldsFor(editing)
-	if !editing || d.FieldsFor == nil {
+func (d Descriptor) ResolveFormFields(ctx context.Context, r Resolve) ([]Field, error) {
+	fields := d.FormFieldsFor(r.Editing())
+	if d.FieldsFor == nil {
 		return fields, nil
 	}
-	extra, err := d.FieldsFor(ctx, id)
+	extra, err := d.FieldsFor(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	return append(fields, extra...), nil
 }
+
+// Resolve is what a dynamic form field set is resolved against: which
+// record, and what the driving controls currently hold.
+//
+// Values is the submission narrowed to the STATIC fields only, which is the
+// answer to the ordering problem this type exists for. The set of declared
+// fields depends on a submitted value, and narrowing a submission requires
+// knowing the declared set, so one of the two has to go first. The static
+// set does: it is fixed, it is what a driving control belongs to, and
+// narrowing to it is enough to read the one value the resolution turns on.
+//
+// The narrowing that matters for safety is the SECOND one, which the caller
+// performs against the merged set this resolution returns. Nothing read
+// here reaches a domain object; it only decides which controls exist. That
+// is why this pass may read the query string while the second may not.
+type Resolve struct {
+	// ID is the record being edited, empty on a create.
+	ID string
+
+	// Values is the submission narrowed to the static form fields.
+	Values Values
+}
+
+// Editing reports whether this resolution is for an existing record.
+func (r Resolve) Editing() bool { return r.ID != "" }
 
 // TitleField is the field whose value titles a record page, empty when this
 // view has neither a declared name nor an identity field.

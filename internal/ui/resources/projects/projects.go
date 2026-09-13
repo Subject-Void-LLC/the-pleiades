@@ -1,88 +1,285 @@
-// Package projects is the Projects view, registered as declared.
+// Package projects is the Projects view: the source repositories this
+// deployment runs automation out of.
 //
-// The keystone relationship a template has and the one this platform is
-// missing most visibly: a template's playbook is chosen from a project's
-// synced tree, and a project belongs to an organization, which is what
-// makes a content catalog tenanted rather than deployment-wide.
+// It was a declared shape with no backing port, because nothing in this
+// module could clone a repository. internal/project can now, so this is
+// real: create a project, press Sync, and the playbooks in it become
+// things a Template can run.
 //
-// Declared rather than omitted, for the reason governance.go gives: the
-// navigation is a statement about the shape of the product, and an AWX
-// operator evaluating this platform reads the sidebar before anything
-// else. Declared rather than faked, because a view rendering an empty
-// table over nothing is indistinguishable from a working view with no
-// records, which is the ambiguity this project has shipped twice.
+// # Sync is synchronous, and that is a known limit
 //
-// It is reachable only because internal/ui/resources/registrars.go names
-// it (FAILURE_PATTERNS.md #52).
+// AWX models a project update as a Job, which gets it a log stream, a
+// history, a relaunch and a cancel for free. That is the right end state
+// and it is a large change. This runs the fetch inside the request instead,
+// which is honest for a repository of ordinary size and wrong for a large
+// one: the page blocks while it clones. The Refresh spec is what makes the
+// badge settle on its own once that is fixed, so the view does not have to
+// change again when it becomes a Job.
+//
+// It is reachable only because internal/ui/resources/registrars.go names it
+// (FAILURE_PATTERNS.md #52).
 package projects
 
-import "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+import (
+	"context"
+	"strconv"
+	"strings"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+)
 
 // Name is this view's registration key and URL segment.
 const Name = "projects"
 
-// fields declare the shape a real implementation fills. They render
-// nothing today; they exist so the contract is written down where the
-// implementation will need it rather than in a document beside it.
-var fields = []view.Field{
-	{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true},
-	{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true},
-	{Name: "scm_type", Label: "TYPE", Kind: view.KindBadge, InList: true},
-	{Name: "scm_url", Label: "SOURCE", Kind: view.KindText, InList: true},
-	{Name: "revision", Label: "REVISION", Kind: view.KindText, InList: true},
-	{Name: "status", Label: "LAST SYNC", Kind: view.KindBadge, InList: true},
+// declaredFields are the shape.
+func declaredFields(orgs inventory.OrganizationLister) []view.Field {
+	return []view.Field{
+		{
+			Name: "name", Label: "NAME", Kind: view.KindText,
+			Required: true, MaxLen: 253, InList: true, InForm: true, MobilePrimary: true,
+			Autocomplete: "off",
+			Help:         "What this repository is called here, within its organization.",
+		},
+		{
+			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
+			MaxLen: 1024, InForm: true,
+			Help: "What is in it, for somebody who did not add it.",
+		},
+		{
+			Name: "organization", Label: "ORGANIZATION", Kind: view.KindSelect,
+			Required: true, Immutable: true, InList: true, InForm: true,
+			References: "organizations",
+			Help:       "The tenant that owns this project. Fixed once saved.",
+			Options: func(ctx context.Context) ([]view.Option, error) {
+				found, err := orgs.ListOrganizations(ctx)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]view.Option, 0, len(found))
+				for _, org := range found {
+					out = append(out, view.Option{Label: org.Name, Value: strconv.Itoa(org.ID)})
+				}
+				return out, nil
+			},
+		},
+		{
+			Name: "scm_type", Label: "SOURCE", Kind: view.KindSelect,
+			Required: true, InList: true, InForm: true,
+			Help: "How the content is reached. Only git is implemented; the other two exist so an AWX import has somewhere truthful to record what it was.",
+			Options: func(context.Context) ([]view.Option, error) {
+				return []view.Option{
+					{Label: "Git", Value: string(project.SCMGit)},
+					{Label: "Archive (not implemented)", Value: string(project.SCMArchive)},
+					{Label: "Manual (not implemented)", Value: string(project.SCMManual)},
+				}, nil
+			},
+		},
+		{
+			Name: "scm_url", Label: "URL", Kind: view.KindText,
+			MaxLen: 2048, InList: true, InForm: true, Autocomplete: "off",
+			Help: "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
+		},
+		{
+			Name: "scm_branch", Label: "BRANCH", Kind: view.KindText,
+			MaxLen: 255, InForm: true, Autocomplete: "off",
+			Help: "The branch, tag or commit to check out. Leave empty for whatever the remote's own default branch is.",
+		},
+		{
+			Name: "sync_status", Label: "SYNC", Kind: view.KindBadge, InList: true,
+			Help:       "Where the last sync got to. A project that has never synced has no playbooks to offer a template.",
+			BadgeClass: syncBadge,
+		},
+		{
+			Name: "revision", Label: "REVISION", Kind: view.KindReadOnly, InList: true,
+			Help: "The commit the working tree is at, abbreviated. Empty until a sync has succeeded once.",
+		},
+		{
+			Name: "sync_error", Label: "LAST ERROR", Kind: view.KindReadOnly,
+			Help: "Why the last sync failed. Credential material is stripped before this is stored.",
+		},
+		{
+			Name: "last_synced", Label: "LAST SYNCED", Kind: view.KindTimestamp, InList: true,
+		},
+	}
 }
 
-// Register adds the declared Projects view. It takes no dependencies
-// because it has none: there is no port to adapt yet.
-func Register() error {
+// syncBadge colours a sync state. Failure and never-synced are deliberately
+// different: they look the same in a listing if both read as empty, and
+// they call for opposite actions.
+func syncBadge(status string) string {
+	switch project.SyncStatus(status) {
+	case project.SyncSucceeded:
+		return "badge-ok"
+	case project.SyncFailed:
+		return "badge-failed"
+	case project.SyncRunning, project.SyncPending:
+		return "badge-changed"
+	default:
+		return "badge-neutral"
+	}
+}
+
+// reader adapts the read half.
+type reader struct{ store project.Store }
+
+func (r reader) List(ctx context.Context, q view.Query) (view.Page[project.Project], error) {
+	found, err := r.store.List(ctx, project.Query{Limit: q.Limit})
+	if err != nil {
+		return view.Page[project.Project]{}, err
+	}
+	if search := strings.ToLower(strings.TrimSpace(q.Search)); search != "" {
+		kept := found[:0]
+		for _, p := range found {
+			if strings.Contains(strings.ToLower(p.Name), search) || strings.Contains(strings.ToLower(p.SCMURL), search) {
+				kept = append(kept, p)
+			}
+		}
+		found = kept
+	}
+	return view.Page[project.Project]{Items: found}, nil
+}
+
+func (r reader) Get(ctx context.Context, id string) (project.Project, error) {
+	numeric, err := strconv.Atoi(id)
+	if err != nil {
+		return project.Project{}, project.ErrNotFound
+	}
+	return r.store.Get(ctx, numeric)
+}
+
+// writer adapts the write half.
+type writer struct{ store project.Store }
+
+func (w writer) Create(ctx context.Context, p project.Project) (string, error) {
+	created, err := w.store.Create(ctx, p)
+	if err != nil {
+		return "", asFault(err)
+	}
+	return strconv.Itoa(created.ID), nil
+}
+
+func (w writer) Update(ctx context.Context, id string, p project.Project) error {
+	numeric, err := strconv.Atoi(id)
+	if err != nil {
+		return project.ErrNotFound
+	}
+	existing, err := w.store.Get(ctx, numeric)
+	if err != nil {
+		return err
+	}
+	p.ID = numeric
+	// Immutable, so an edit never carries it and the store must not be
+	// told to move the project between tenants.
+	p.OrganizationID = existing.OrganizationID
+	return asFault(w.store.Update(ctx, p))
+}
+
+func (w writer) Delete(ctx context.Context, id string) error {
+	numeric, err := strconv.Atoi(id)
+	if err != nil {
+		return project.ErrNotFound
+	}
+	return w.store.Delete(ctx, numeric)
+}
+
+// asFault blames a name collision on the control that caused it, rather
+// than answering a duplicate name with a 500.
+func asFault(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), project.ErrExists.Error()) {
+		return view.FieldFault{Field: "name", Message: "A project with this name already exists in this organization."}
+	}
+	return err
+}
+
+// Register wires this view over the live project store.
+func Register(store project.Store, syncer project.Syncer, orgs inventory.OrganizationLister) error {
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Projects",
 		NavLabel: "PROJECTS",
 		NavOrder: 55,
 		NavGroup: view.NavGroupResources,
-		Summary:  "Where automation content comes from: a synced repository or a directory.",
-		Status:   view.StatusDeclared,
+		Summary:  "Where automation content comes from: a synced repository of playbooks.",
+		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   fields,
-		// AWX's project tabs, declared in full. A project is the keystone
-		// relationship this platform is missing, so the shape of what it
-		// will carry is worth writing down where the implementation will
-		// need it rather than in a document beside it.
-		Sections: []view.Section{
-			view.Planned("Access",
-				"The role bindings that reach this project's content.",
-				"Access has no project-scoped binding yet: auth.ScopeType has system, organization, inventory, group and device, and no project.",
-				[]view.Field{
-					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
-					{Name: "role", Label: "ROLE", Kind: view.KindText, InList: true},
-					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
-				}),
-			view.Planned("Templates",
-				"The templates that run content from this project.",
-				"A template names a definition from the catalog rather than a project, so nothing records which project a definition came from yet.",
-				[]view.Field{
-					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
-					{Name: "definition", Label: "RUNS", Kind: view.KindText, InList: true},
-					{Name: "last_ran", Label: "LAST RAN", Kind: view.KindText, InList: true},
-				}),
-			view.Planned("Schedules",
-				"When this project re-syncs from its source.",
-				"A schedule attaches to a template, which is the only Launchable kind there is. A project sync is not one yet.",
-				[]view.Field{
-					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "schedules"},
-					{Name: "rrule", Label: "RECURRENCE", Kind: view.KindText, InList: true},
-					{Name: "next_run", Label: "NEXT RUN", Kind: view.KindText, InList: true},
-					{Name: "enabled", Label: "ENABLED", Kind: view.KindBadge, InList: true},
-				}),
-			view.Planned("Notifications",
-				"Who is told when a sync from this project succeeds or fails.",
-				"Notification policies have no backing entity in this build. The Notification Engine owns them and nothing here has a port to it.",
-				[]view.Field{
-					{Name: "target", Label: "TARGET", Kind: view.KindText, InList: true, MobilePrimary: true},
-					{Name: "on", Label: "ON", Kind: view.KindText, InList: true},
-				}),
+		Fields:   declaredFields(orgs),
+		Actions:  []view.RecordAction{syncAction(store, syncer)},
+		Sections: []view.Section{playbooksSection(syncer, store)},
+		Ops: view.Ops{
+			List:   &apispec.ListProjects,
+			Get:    &apispec.GetProject,
+			Create: &apispec.CreateProject,
+			Update: &apispec.UpdateProject,
+			Delete: &apispec.DeleteProject,
 		},
+		Handlers: view.MustBind[project.Project](reader{store}, writer{store}, view.Projector[project.Project]{
+			Row: func(p project.Project) view.Row {
+				return view.Row{
+					ID:   strconv.Itoa(p.ID),
+					Refs: map[string]string{"organization": strconv.Itoa(p.OrganizationID)},
+					Cells: view.Cells{
+						"name":         p.Name,
+						"description":  p.Description,
+						"organization": p.OrganizationName,
+						"scm_type":     string(p.SCMType),
+						"scm_url":      p.SCMURL,
+						"scm_branch":   p.SCMBranch,
+						"sync_status":  string(p.SyncStatus),
+						"revision":     p.ShortRevision(),
+						"sync_error":   p.SyncError,
+						"last_synced":  timestamp(p),
+					},
+				}
+			},
+			Form: func(p project.Project) map[string]string {
+				return map[string]string{
+					"name":         p.Name,
+					"description":  p.Description,
+					"organization": strconv.Itoa(p.OrganizationID),
+					"scm_type":     string(p.SCMType),
+					"scm_url":      p.SCMURL,
+					"scm_branch":   p.SCMBranch,
+				}
+			},
+			Bind: func(v view.Values) (project.Project, view.FieldErrors) {
+				errs := view.FieldErrors{}
+				p := project.Project{
+					Name:        strings.TrimSpace(v.Get("name")),
+					Description: strings.TrimSpace(v.Get("description")),
+					SCMType:     project.SCMType(v.Get("scm_type")),
+					SCMURL:      strings.TrimSpace(v.Get("scm_url")),
+					SCMBranch:   strings.TrimSpace(v.Get("scm_branch")),
+				}
+				if !v.Editing() {
+					org, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
+					if err != nil || org < 1 {
+						errs.Add("organization", "Choose the organization this project belongs to.")
+					}
+					p.OrganizationID = org
+				}
+				// Caught here rather than at sync time, because a git
+				// project with no URL is a project that can never do the one
+				// thing it exists for, and finding that out by pressing Sync
+				// and reading a failure is a worse way to be told.
+				if p.SCMType == project.SCMGit && p.SCMURL == "" {
+					errs.Add("scm_url", "A git project needs a repository URL.")
+				}
+				return p, errs
+			},
+		}),
 	})
+}
+
+// timestamp renders when the last sync ran, empty when none has.
+func timestamp(p project.Project) string {
+	if p.LastSyncedAt == nil {
+		return ""
+	}
+	return p.LastSyncedAt.UTC().Format("2006-01-02T15:04:05Z")
 }

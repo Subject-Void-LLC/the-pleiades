@@ -181,4 +181,25 @@ const (
 	// engineer may own the definitions while an operations team owns the
 	// calendar.
 	ScopeScheduleWrite Scope = "schedule:write"
+
+	// ScopeProjectRead grants the right to see which source repositories a
+	// deployment runs automation out of, and what state each one's checkout
+	// is in.
+	//
+	// Appended at the end of this block rather than filed beside the
+	// credential scopes it reads next to, which is worth one sentence
+	// because it looks like carelessness. gosec-waivers.json waives two
+	// G101 findings in this file by exact line number, and those two lines
+	// have already moved once when settings:read and settings:write were
+	// inserted above them. Appending costs nothing and moves nothing.
+	ScopeProjectRead Scope = "project:read"
+
+	// ScopeProjectWrite grants create, update, delete and sync of projects.
+	//
+	// Sync is a write rather than a read even though it fetches: it runs a
+	// network operation as the deployment, against an address the project
+	// names, and writes the result to local disk. Somebody who may only
+	// look at a project should not be able to make the controller reach
+	// out to an arbitrary host.
+	ScopeProjectWrite Scope = "project:write"
 )

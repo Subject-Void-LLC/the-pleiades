@@ -132,6 +132,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
@@ -995,6 +996,12 @@ func main() {
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
+	// One store and one syncer value shared with the UI's own Projects
+	// view below, so what an operator syncs through the browser and what a
+	// caller syncs over the API are the same checkout, not two.
+	projectStore := project.NewEntStore(client)
+	projectSyncer := project.NewGitSyncer(projectRoot())
+	projectsAPI := api.NewProjectHandler(projectStore, projectSyncer, logger)
 	catalog := api.NewRunbookHandler(runbooks, logger)
 
 	// The two resources the web UI's navigation is built around: the
@@ -1169,6 +1176,13 @@ func main() {
 		apispec.UpdateBinding.Name: accounts.UpdateBinding,
 		apispec.DeleteBinding.Name: accounts.DeleteBinding,
 
+		apispec.ListProjects.Name:  projectsAPI.List,
+		apispec.GetProject.Name:    projectsAPI.Get,
+		apispec.CreateProject.Name: projectsAPI.Create,
+		apispec.UpdateProject.Name: projectsAPI.Update,
+		apispec.DeleteProject.Name: projectsAPI.Delete,
+		apispec.SyncProject.Name:   projectsAPI.Sync,
+
 		apispec.ListActivity.Name:     activityLog.ListActivity,
 		apispec.GetActivityEntry.Name: activityLog.GetActivityEntry,
 
@@ -1202,6 +1216,12 @@ func main() {
 		Schedules:  scheduleStore,
 		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
+		// Source control. The syncer is rooted at a directory this process
+		// owns rather than anywhere a project names: a working tree's path
+		// is derived from numeric ids (internal/project's pathFor), so
+		// nothing an operator types reaches the filesystem.
+		Projects:    projectStore,
+		ProjectSync: projectSyncer,
 		// The redacted credential store, never the resolver: the UI's
 		// credential views hold a projection with no field a plaintext
 		// value could occupy, and internal/archtest fails the build if
@@ -1516,4 +1536,18 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// boundary.
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(envelopeSvc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
+}
+
+// projectRoot is the directory every project's working tree lives under.
+//
+// Overridable because the default is a system path a container may not have
+// written to, and a deployment that mounts a volume needs to say where. The
+// value is used as a prefix under which internal/project builds paths out
+// of numeric ids, so it is the only part of a checkout's location anybody
+// outside this process chooses.
+func projectRoot() string {
+	if dir := strings.TrimSpace(os.Getenv("PLEIADES_PROJECT_ROOT")); dir != "" {
+		return dir
+	}
+	return "/var/lib/pleiades/projects"
 }

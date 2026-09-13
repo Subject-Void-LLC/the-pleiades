@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory/record"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
@@ -99,6 +101,12 @@ func registerViews(t *testing.T) {
 			Jobs:      newFakeJobStore(),
 			Runbooks:  fakeRunbookSource{},
 			Templates: newTestTemplateStore(t),
+			// Source control. The syncer is rooted in a temp directory so
+			// the suite never touches a real checkout path, and the store
+			// seeds one synced project so the Playbooks tab has something
+			// to render.
+			Projects:    newFakeProjectStore(),
+			ProjectSync: fakeProjectSyncer{},
 			// Built after the template store, and the order matters: a
 			// schedule requires a template to attach to, and the fixture
 			// seeds one by reading what that store just created.
@@ -407,6 +415,27 @@ func newFakeSetStore() *fakeSetStore {
 	}}}
 }
 
+// ListMembers offers the devices and groups the seeded inventory already
+// references, plus one of each that it does not.
+//
+// Both halves matter. Without the referenced ones an edit form could not
+// render the current membership as selected; without the unreferenced ones
+// a test could not tell "added the host somebody chose" from "kept what was
+// already there".
+func (s *fakeSetStore) ListMembers(_ context.Context, _ int) (inventory.Members, error) {
+	return inventory.Members{
+		Devices: []inventory.Member{
+			{ID: 11, Name: "router-1"},
+			{ID: 12, Name: "router-2"},
+			{ID: 13, Name: "router-3"},
+		},
+		Groups: []inventory.Member{
+			{ID: 7, Name: "core"},
+			{ID: 8, Name: "edge"},
+		},
+	}, nil
+}
+
 func (s *fakeSetStore) Create(_ context.Context, set inventory.Set) (inventory.Set, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -438,8 +467,35 @@ func (s *fakeSetStore) List(_ context.Context, q inventory.SetQuery) ([]inventor
 	return out, nil
 }
 
-func (s *fakeSetStore) Update(context.Context, inventory.Set) error { return nil }
-func (s *fakeSetStore) Delete(context.Context, int) error           { return nil }
+// Update really stores, which it did not until an inventory's membership
+// became editable.
+//
+// It returned nil and kept nothing, so every assertion about an inventory
+// edit in this suite was satisfied by the handler not erroring. That is
+// enough to test a form's rendering and nothing at all to test a write:
+// "the device somebody chose is in the inventory afterwards" cannot fail
+// against a store that discards the update. RULE 0's representative-or-
+// nothing rule applies to a fake's write half as much as to its read half.
+func (s *fakeSetStore) Update(_ context.Context, set inventory.Set) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.sets {
+		if existing.ID != set.ID {
+			continue
+		}
+		// The organization and its name are not submitted by an edit form
+		// (the field is Immutable) and the real writer reads them back from
+		// storage, so preserving them here is what the real store does too.
+		set.OrganizationID = existing.OrganizationID
+		set.OrganizationName = existing.OrganizationName
+		set.Owner = existing.Owner
+		s.sets[i] = set
+		return nil
+	}
+	return inventory.ErrSetNotFound
+}
+
+func (s *fakeSetStore) Delete(context.Context, int) error { return nil }
 
 func (s *fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) { return []int{1}, nil }
 
@@ -639,3 +695,135 @@ func (it *sliceIterator) Next(context.Context) bool {
 func (it *sliceIterator) Item() pkginventory.InventoryItem { return it.items[it.idx-1] }
 func (it *sliceIterator) Error() error                     { return nil }
 func (it *sliceIterator) Close() error                     { return nil }
+
+// fakeProjectStore is an in-memory project.Store holding one synced
+// project.
+//
+// It really stores, including through RecordSync, for the reason
+// fakeSetStore.Update now does: a store that discards writes cannot fail an
+// assertion about a write, and "the sync recorded what it found" is exactly
+// such an assertion.
+type fakeProjectStore struct {
+	mu       sync.Mutex
+	projects []project.Project
+}
+
+func newFakeProjectStore() *fakeProjectStore {
+	return &fakeProjectStore{projects: []project.Project{{
+		ID: 1, Name: "playbooks", Description: "The team's automation.",
+		OrganizationID: 1, OrganizationName: "acme",
+		SCMType: project.SCMGit, SCMURL: "https://git.example.test/team/playbooks.git",
+		SyncStatus: project.SyncNever,
+	}}}
+}
+
+func (s *fakeProjectStore) Create(_ context.Context, p project.Project) (project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.projects {
+		if existing.Name == p.Name && existing.OrganizationID == p.OrganizationID {
+			return project.Project{}, project.ErrExists
+		}
+	}
+	p.ID = len(s.projects) + 1
+	p.OrganizationName = "acme"
+	if p.SyncStatus == "" {
+		p.SyncStatus = project.SyncNever
+	}
+	s.projects = append(s.projects, p)
+	return p, nil
+}
+
+func (s *fakeProjectStore) Get(_ context.Context, id int) (project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.projects {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return project.Project{}, project.ErrNotFound
+}
+
+func (s *fakeProjectStore) List(_ context.Context, _ project.Query) ([]project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]project.Project(nil), s.projects...), nil
+}
+
+func (s *fakeProjectStore) Update(_ context.Context, p project.Project) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.projects {
+		if existing.ID != p.ID {
+			continue
+		}
+		// The sync half of the row belongs to RecordSync, which is the
+		// same split the real store draws.
+		p.OrganizationID, p.OrganizationName = existing.OrganizationID, existing.OrganizationName
+		p.Revision, p.SyncStatus = existing.Revision, existing.SyncStatus
+		p.SyncError, p.LastSyncedAt = existing.SyncError, existing.LastSyncedAt
+		s.projects[i] = p
+		return nil
+	}
+	return project.ErrNotFound
+}
+
+func (s *fakeProjectStore) Delete(_ context.Context, id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.projects {
+		if p.ID == id {
+			s.projects = append(s.projects[:i], s.projects[i+1:]...)
+			return nil
+		}
+	}
+	return project.ErrNotFound
+}
+
+func (s *fakeProjectStore) RecordSync(_ context.Context, id int, result project.Result) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.projects {
+		if p.ID != id {
+			continue
+		}
+		p.SyncStatus, p.SyncError = result.Status, result.Err
+		if result.Status == project.SyncSucceeded {
+			p.Revision, p.LocalPath = result.Revision, result.LocalPath
+		}
+		at := result.At
+		p.LastSyncedAt = &at
+		s.projects[i] = p
+		return nil
+	}
+	return project.ErrNotFound
+}
+
+// fakeProjectSyncer reports a successful clone without touching a network.
+//
+// The real clone is covered by internal/project's own tests, which drive a
+// genuine git repository. What this suite tests is the view around it, so
+// standing in for the network here is the representative choice rather
+// than a shortcut: a conformance run that cloned from the internet would be
+// testing somebody else's uptime.
+type fakeProjectSyncer struct{}
+
+func (fakeProjectSyncer) Sync(_ context.Context, p project.Project, _ project.Auth) (project.Result, error) {
+	if !p.Syncable() {
+		return project.Result{}, project.ErrNotSyncable
+	}
+	return project.Result{
+		Status:    project.SyncSucceeded,
+		Revision:  "2f6c1b0ae3d4c5b6a7980f1e2d3c4b5a69788796",
+		LocalPath: "/tmp/pleiades-conformance/" + strconv.Itoa(p.ID),
+		At:        time.Now().UTC(),
+	}, nil
+}
+
+func (fakeProjectSyncer) Playbooks(_ context.Context, p project.Project) ([]string, error) {
+	if p.SyncStatus != project.SyncSucceeded {
+		return nil, nil
+	}
+	return []string{"site.yml", "playbooks/deploy.yml"}, nil
+}

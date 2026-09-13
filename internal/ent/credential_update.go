@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialinputsource"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -121,6 +122,21 @@ func (_u *CredentialUpdate) AddTemplates(v ...*Template) *CredentialUpdate {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddProjectIDs adds the "projects" edge to the Project entity by IDs.
+func (_u *CredentialUpdate) AddProjectIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.AddProjectIDs(ids...)
+	return _u
+}
+
+// AddProjects adds the "projects" edges to the Project entity.
+func (_u *CredentialUpdate) AddProjects(v ...*Project) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddProjectIDs(ids...)
+}
+
 // AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
 func (_u *CredentialUpdate) AddInputSourceIDs(ids ...int) *CredentialUpdate {
 	_u.mutation.AddInputSourceIDs(ids...)
@@ -181,6 +197,27 @@ func (_u *CredentialUpdate) RemoveTemplates(v ...*Template) *CredentialUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearProjects clears all "projects" edges to the Project entity.
+func (_u *CredentialUpdate) ClearProjects() *CredentialUpdate {
+	_u.mutation.ClearProjects()
+	return _u
+}
+
+// RemoveProjectIDs removes the "projects" edge to Project entities by IDs.
+func (_u *CredentialUpdate) RemoveProjectIDs(ids ...int) *CredentialUpdate {
+	_u.mutation.RemoveProjectIDs(ids...)
+	return _u
+}
+
+// RemoveProjects removes "projects" edges to Project entities.
+func (_u *CredentialUpdate) RemoveProjects(v ...*Project) *CredentialUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveProjectIDs(ids...)
 }
 
 // ClearInputSources clears all "input_sources" edges to the CredentialInputSource entity.
@@ -380,6 +417,51 @@ func (_u *CredentialUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProjectsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedProjectsIDs(); len(nodes) > 0 && !_u.mutation.ProjectsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProjectsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -587,6 +669,21 @@ func (_u *CredentialUpdateOne) AddTemplates(v ...*Template) *CredentialUpdateOne
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddProjectIDs adds the "projects" edge to the Project entity by IDs.
+func (_u *CredentialUpdateOne) AddProjectIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.AddProjectIDs(ids...)
+	return _u
+}
+
+// AddProjects adds the "projects" edges to the Project entity.
+func (_u *CredentialUpdateOne) AddProjects(v ...*Project) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddProjectIDs(ids...)
+}
+
 // AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by IDs.
 func (_u *CredentialUpdateOne) AddInputSourceIDs(ids ...int) *CredentialUpdateOne {
 	_u.mutation.AddInputSourceIDs(ids...)
@@ -647,6 +744,27 @@ func (_u *CredentialUpdateOne) RemoveTemplates(v ...*Template) *CredentialUpdate
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearProjects clears all "projects" edges to the Project entity.
+func (_u *CredentialUpdateOne) ClearProjects() *CredentialUpdateOne {
+	_u.mutation.ClearProjects()
+	return _u
+}
+
+// RemoveProjectIDs removes the "projects" edge to Project entities by IDs.
+func (_u *CredentialUpdateOne) RemoveProjectIDs(ids ...int) *CredentialUpdateOne {
+	_u.mutation.RemoveProjectIDs(ids...)
+	return _u
+}
+
+// RemoveProjects removes "projects" edges to Project entities.
+func (_u *CredentialUpdateOne) RemoveProjects(v ...*Project) *CredentialUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveProjectIDs(ids...)
 }
 
 // ClearInputSources clears all "input_sources" edges to the CredentialInputSource entity.
@@ -876,6 +994,51 @@ func (_u *CredentialUpdateOne) sqlSave(ctx context.Context) (_node *Credential, 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProjectsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedProjectsIDs(); len(nodes) > 0 && !_u.mutation.ProjectsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProjectsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   credential.ProjectsTable,
+			Columns: []string{credential.ProjectsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

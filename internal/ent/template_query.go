@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
@@ -29,6 +30,7 @@ type TemplateQuery struct {
 	order               []template.OrderOption
 	inters              []Interceptor
 	predicates          []predicate.Template
+	withProject         *ProjectQuery
 	withOrganization    *OrganizationQuery
 	withInventory       *InventoryQuery
 	withSurveyQuestions *SurveyQuestionQuery
@@ -70,6 +72,28 @@ func (_q *TemplateQuery) Unique(unique bool) *TemplateQuery {
 func (_q *TemplateQuery) Order(o ...template.OrderOption) *TemplateQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryProject chains the current query on the "project" edge.
+func (_q *TemplateQuery) QueryProject() *ProjectQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(template.Table, template.FieldID, selector),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, template.ProjectTable, template.ProjectColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryOrganization chains the current query on the "organization" edge.
@@ -396,6 +420,7 @@ func (_q *TemplateQuery) Clone() *TemplateQuery {
 		order:               append([]template.OrderOption{}, _q.order...),
 		inters:              append([]Interceptor{}, _q.inters...),
 		predicates:          append([]predicate.Template{}, _q.predicates...),
+		withProject:         _q.withProject.Clone(),
 		withOrganization:    _q.withOrganization.Clone(),
 		withInventory:       _q.withInventory.Clone(),
 		withSurveyQuestions: _q.withSurveyQuestions.Clone(),
@@ -406,6 +431,17 @@ func (_q *TemplateQuery) Clone() *TemplateQuery {
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithProject tells the query-builder to eager-load the nodes that are connected to
+// the "project" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *TemplateQuery) WithProject(opts ...func(*ProjectQuery)) *TemplateQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withProject = query
+	return _q
 }
 
 // WithOrganization tells the query-builder to eager-load the nodes that are connected to
@@ -553,7 +589,8 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 		nodes       = []*Template{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [7]bool{
+			_q.withProject != nil,
 			_q.withOrganization != nil,
 			_q.withInventory != nil,
 			_q.withSurveyQuestions != nil,
@@ -562,7 +599,7 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 			_q.withSchedules != nil,
 		}
 	)
-	if _q.withOrganization != nil || _q.withInventory != nil {
+	if _q.withProject != nil || _q.withOrganization != nil || _q.withInventory != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -585,6 +622,12 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withProject; query != nil {
+		if err := _q.loadProject(ctx, query, nodes, nil,
+			func(n *Template, e *Project) { n.Edges.Project = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withOrganization; query != nil {
 		if err := _q.loadOrganization(ctx, query, nodes, nil,
@@ -629,6 +672,38 @@ func (_q *TemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Tem
 	return nodes, nil
 }
 
+func (_q *TemplateQuery) loadProject(ctx context.Context, query *ProjectQuery, nodes []*Template, init func(*Template), assign func(*Template, *Project)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*Template)
+	for i := range nodes {
+		if nodes[i].project_templates == nil {
+			continue
+		}
+		fk := *nodes[i].project_templates
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(project.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "project_templates" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *TemplateQuery) loadOrganization(ctx context.Context, query *OrganizationQuery, nodes []*Template, init func(*Template), assign func(*Template, *Organization)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*Template)

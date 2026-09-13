@@ -17,6 +17,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credentialtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -30,6 +31,7 @@ type CredentialQuery struct {
 	withCredentialType *CredentialTypeQuery
 	withOrganization   *OrganizationQuery
 	withTemplates      *TemplateQuery
+	withProjects       *ProjectQuery
 	withInputSources   *CredentialInputSourceQuery
 	withSourcedBy      *CredentialInputSourceQuery
 	withFKs            bool
@@ -128,6 +130,28 @@ func (_q *CredentialQuery) QueryTemplates() *TemplateQuery {
 			sqlgraph.From(credential.Table, credential.FieldID, selector),
 			sqlgraph.To(template.Table, template.FieldID),
 			sqlgraph.Edge(sqlgraph.M2M, true, credential.TemplatesTable, credential.TemplatesPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryProjects chains the current query on the "projects" edge.
+func (_q *CredentialQuery) QueryProjects() *ProjectQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(credential.Table, credential.FieldID, selector),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, credential.ProjectsTable, credential.ProjectsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -374,6 +398,7 @@ func (_q *CredentialQuery) Clone() *CredentialQuery {
 		withCredentialType: _q.withCredentialType.Clone(),
 		withOrganization:   _q.withOrganization.Clone(),
 		withTemplates:      _q.withTemplates.Clone(),
+		withProjects:       _q.withProjects.Clone(),
 		withInputSources:   _q.withInputSources.Clone(),
 		withSourcedBy:      _q.withSourcedBy.Clone(),
 		// clone intermediate query.
@@ -412,6 +437,17 @@ func (_q *CredentialQuery) WithTemplates(opts ...func(*TemplateQuery)) *Credenti
 		opt(query)
 	}
 	_q.withTemplates = query
+	return _q
+}
+
+// WithProjects tells the query-builder to eager-load the nodes that are connected to
+// the "projects" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *CredentialQuery) WithProjects(opts ...func(*ProjectQuery)) *CredentialQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withProjects = query
 	return _q
 }
 
@@ -516,10 +552,11 @@ func (_q *CredentialQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*C
 		nodes       = []*Credential{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [5]bool{
+		loadedTypes = [6]bool{
 			_q.withCredentialType != nil,
 			_q.withOrganization != nil,
 			_q.withTemplates != nil,
+			_q.withProjects != nil,
 			_q.withInputSources != nil,
 			_q.withSourcedBy != nil,
 		}
@@ -564,6 +601,13 @@ func (_q *CredentialQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*C
 		if err := _q.loadTemplates(ctx, query, nodes,
 			func(n *Credential) { n.Edges.Templates = []*Template{} },
 			func(n *Credential, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withProjects; query != nil {
+		if err := _q.loadProjects(ctx, query, nodes,
+			func(n *Credential) { n.Edges.Projects = []*Project{} },
+			func(n *Credential, e *Project) { n.Edges.Projects = append(n.Edges.Projects, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -706,6 +750,37 @@ func (_q *CredentialQuery) loadTemplates(ctx context.Context, query *TemplateQue
 		for kn := range nodes {
 			assign(kn, n)
 		}
+	}
+	return nil
+}
+func (_q *CredentialQuery) loadProjects(ctx context.Context, query *ProjectQuery, nodes []*Credential, init func(*Credential), assign func(*Credential, *Project)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Credential)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Project(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(credential.ProjectsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.credential_projects
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "credential_projects" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "credential_projects" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

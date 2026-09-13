@@ -81,6 +81,7 @@ func viewerScopes() []Scope {
 		ScopeTemplateRead,
 		ScopeCredentialRead,
 		ScopeScheduleRead,
+		ScopeProjectRead,
 	}
 }
 
@@ -100,6 +101,7 @@ func operatorScopes() []Scope {
 		ScopeRunbookExecute,
 		ScopeTemplateWrite,
 		ScopeCredentialWrite,
+		ScopeProjectWrite,
 		ScopeAnnouncementWrite,
 		ScopeScheduleWrite,
 	)
@@ -154,6 +156,8 @@ func AllScopes() []Scope {
 		ScopeCredentialWrite,
 		ScopeScheduleRead,
 		ScopeScheduleWrite,
+		ScopeProjectRead,
+		ScopeProjectWrite,
 		ScopeAccessWrite,
 	}
 }

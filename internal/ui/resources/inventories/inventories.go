@@ -78,12 +78,19 @@ func fields(sets inventory.SetStore) []view.Field {
 			},
 		},
 		{
-			Name: "groups", Label: "GROUPS", Kind: view.KindReadOnly, InList: true,
-			Help: "How many device groups this inventory contains.",
+			// One name doing two jobs, which the two halves of the projector
+			// keep apart: the list cell is a COUNT, because a column of
+			// primary keys is unreadable where the number is what is being
+			// scanned for, and the form value is the SELECTION. Row and Form
+			// are separate functions, so neither has to compromise.
+			Name: "groups", Label: "GROUPS", Kind: view.KindLookup, InList: true, InForm: true,
+			Help:    "The device groups this inventory contains. Replacing this list replaces the membership.",
+			Options: groupOptions(sets),
 		},
 		{
-			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindReadOnly, InList: true,
-			Help: "Devices attached with no intervening group. Devices reached through a group are not counted here.",
+			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindLookup, InList: true, InForm: true,
+			Help:    "Devices attached with no intervening group. Devices reached through a group are not listed here, and removing one here does not remove it from a group.",
+			Options: deviceOptions(sets),
 		},
 		{
 			Name: "owner", Label: "CREATED BY", Kind: view.KindReadOnly,
@@ -167,8 +174,12 @@ func (w writer) Update(ctx context.Context, id string, set inventory.Set) error 
 	}
 	set.ID = numeric
 	set.OrganizationID = existing.OrganizationID
-	set.GroupIDs = existing.GroupIDs
-	set.DeviceIDs = existing.DeviceIDs
+	// Membership is NOT read back from storage any more. It used to be,
+	// which meant an inventory could be created and then never filled: the
+	// form carried no control for either list, so copying the stored value
+	// was the only way an edit could avoid clearing them. Both are real
+	// controls now, so the submission is the authority and a deselection
+	// has to be able to mean what it says.
 	return w.sets.Update(ctx, set)
 }
 
@@ -205,6 +216,10 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 				"name":         set.Name,
 				"description":  set.Description,
 				"organization": strconv.Itoa(set.OrganizationID),
+				// Comma separated, which is what FormModel.IsSelected splits
+				// to decide which options render selected.
+				"groups":  joinIDs(set.GroupIDs),
+				"devices": joinIDs(set.DeviceIDs),
 			}
 		},
 		Bind: func(v view.Values) (inventory.Set, view.FieldErrors) {
@@ -233,6 +248,8 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 				Name:           v.Get("name"),
 				Description:    v.Get("description"),
 				OrganizationID: org,
+				GroupIDs:       parseIDs(v.Selected("groups")),
+				DeviceIDs:      parseIDs(v.Selected("devices")),
 			}, errs
 		},
 	}
@@ -255,15 +272,7 @@ func Register(sets inventory.SetStore, bindings access.Bindings) error {
 		// whoever eventually builds it.
 		Sections: []view.Section{
 			grants.SectionForScope(bindings, auth.ScopeInventory, "inventory"),
-			view.Planned("Devices",
-				"The devices in this inventory, whether named directly or reached through a group.",
-				"A set records its members as device and group ids, and this view holds no port to resolve them into devices. The Devices view lists the fleet in full.",
-				[]view.Field{
-					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "devices"},
-					{Name: "type", Label: "TYPE", Kind: view.KindText, InList: true},
-					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
-					{Name: "via", Label: "REACHED BY", Kind: view.KindText, InList: true},
-				}),
+			membersSection(sets),
 			view.Planned("Sources",
 				"Where this inventory's membership is synced from.",
 				"Sync plugins implement a four-stage contract and run out of band; nothing records which source last populated a set.",

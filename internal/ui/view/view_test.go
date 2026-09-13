@@ -886,7 +886,7 @@ func TestCheckReferences_RefusesAReferenceToNothing(t *testing.T) {
 func TestResolveFormFields_WithNoFieldsForIsJustTheStaticSet(t *testing.T) {
 	d := validDescriptor("resolve-fields-static")
 
-	create, err := d.ResolveFormFields(t.Context(), "")
+	create, err := d.ResolveFormFields(t.Context(), view.Resolve{})
 	if err != nil {
 		t.Fatalf("ResolveFormFields(create) = %v", err)
 	}
@@ -894,7 +894,7 @@ func TestResolveFormFields_WithNoFieldsForIsJustTheStaticSet(t *testing.T) {
 		t.Errorf("ResolveFormFields(create) returned %d fields, want the same as FormFieldsFor(false)", len(create))
 	}
 
-	edit, err := d.ResolveFormFields(t.Context(), "router-1")
+	edit, err := d.ResolveFormFields(t.Context(), view.Resolve{ID: "router-1"})
 	if err != nil {
 		t.Fatalf("ResolveFormFields(edit) = %v", err)
 	}
@@ -903,37 +903,49 @@ func TestResolveFormFields_WithNoFieldsForIsJustTheStaticSet(t *testing.T) {
 	}
 }
 
-// TestResolveFormFields_MergesFieldsForOnlyWhenEditing is the seam
-// Templates (internal/ui/resources/templates) is built on: FieldsFor's
-// answer is appended for an edit, and never consulted for a create, since
-// a record that does not exist yet has nothing to resolve a per-record
-// field set from.
-func TestResolveFormFields_MergesFieldsForOnlyWhenEditing(t *testing.T) {
+// TestResolveFormFields_MergesFieldsForInBothModes covers the seam after it
+// was widened for Credentials.
+//
+// It used to assert the opposite of half of this: that FieldsFor was never
+// consulted for a create, because a record that does not exist yet has
+// nothing to resolve a per-record field set from. That reasoning only ever
+// held for a view whose dynamic fields are declared by something the STORED
+// record names, which is how Templates uses it. A credential's fields are
+// declared by the type being chosen in the form, so the thing driving the
+// resolution is in the submission rather than in the database, and it is
+// there on a create exactly as much as on an edit.
+func TestResolveFormFields_MergesFieldsForInBothModes(t *testing.T) {
 	extra := view.Field{Name: "forks", Label: "FORKS", Kind: view.KindNumber, InForm: true}
-	var calledWith string
+	var calls []view.Resolve
 	d := validDescriptor("resolve-fields-dynamic")
-	d.FieldsFor = func(_ context.Context, id string) ([]view.Field, error) {
-		calledWith = id
+	d.FieldsFor = func(_ context.Context, r view.Resolve) ([]view.Field, error) {
+		calls = append(calls, r)
 		return []view.Field{extra}, nil
 	}
 
-	create, err := d.ResolveFormFields(t.Context(), "")
+	create, err := d.ResolveFormFields(t.Context(), view.Resolve{})
 	if err != nil {
 		t.Fatalf("ResolveFormFields(create) = %v", err)
 	}
-	if len(create) != len(d.FormFieldsFor(false)) {
-		t.Errorf("ResolveFormFields(create) = %d fields, want FieldsFor left uncalled and the static set alone", len(create))
+	if want := len(d.FormFieldsFor(false)) + 1; len(create) != want {
+		t.Errorf("ResolveFormFields(create) = %d fields, want %d (the static create set plus FieldsFor's one)", len(create), want)
 	}
-	if calledWith != "" {
-		t.Errorf("FieldsFor was called on a create (id %q), want it never called before a record exists", calledWith)
+	if len(calls) != 1 {
+		t.Fatalf("FieldsFor called %d times for a create, want exactly once", len(calls))
+	}
+	if calls[0].Editing() {
+		t.Errorf("FieldsFor saw Editing() true on a create, want false with an empty ID")
 	}
 
-	edit, err := d.ResolveFormFields(t.Context(), "router-1")
+	edit, err := d.ResolveFormFields(t.Context(), view.Resolve{ID: "router-1"})
 	if err != nil {
 		t.Fatalf("ResolveFormFields(edit) = %v", err)
 	}
-	if calledWith != "router-1" {
-		t.Errorf("FieldsFor was called with %q, want the record id", calledWith)
+	if len(calls) != 2 || calls[1].ID != "router-1" {
+		t.Fatalf("FieldsFor calls = %+v, want a second one carrying the record id", calls)
+	}
+	if !calls[1].Editing() {
+		t.Errorf("FieldsFor saw Editing() false for record %q, want true", calls[1].ID)
 	}
 	wantLen := len(d.FormFieldsFor(true)) + 1
 	if len(edit) != wantLen {
@@ -951,9 +963,9 @@ func TestResolveFormFields_MergesFieldsForOnlyWhenEditing(t *testing.T) {
 func TestResolveFormFields_PropagatesAFieldsForError(t *testing.T) {
 	wantErr := errors.New("could not resolve the record's own fields")
 	d := validDescriptor("resolve-fields-error")
-	d.FieldsFor = func(context.Context, string) ([]view.Field, error) { return nil, wantErr }
+	d.FieldsFor = func(context.Context, view.Resolve) ([]view.Field, error) { return nil, wantErr }
 
-	if _, err := d.ResolveFormFields(t.Context(), "router-1"); !errors.Is(err, wantErr) {
+	if _, err := d.ResolveFormFields(t.Context(), view.Resolve{ID: "router-1"}); !errors.Is(err, wantErr) {
 		t.Errorf("ResolveFormFields(edit) = %v, want it to propagate FieldsFor's own error", err)
 	}
 }

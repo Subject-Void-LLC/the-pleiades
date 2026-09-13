@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/render"
@@ -496,7 +497,15 @@ func (h *Handler) newForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.renderForm(w, r, d, "", d.FormFieldsFor(false), map[string]string{}, view.FieldErrors{}, http.StatusOK)
+	fields, ok := h.resolveFields(w, r, d, "")
+	if !ok {
+		return
+	}
+	// A create form prefills from the query string for the same reason
+	// resolveFields reads it: the no-JavaScript path returns here with the
+	// driving control's chosen value, and it has to come back selected or
+	// the person has to choose it twice.
+	h.renderForm(w, r, d, "", fields, drivingValues(r, fields), view.FieldErrors{}, http.StatusOK)
 }
 
 func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
@@ -516,9 +525,8 @@ func (h *Handler) editForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fields, err := d.ResolveFormFields(r.Context(), id)
-	if err != nil {
-		h.serverError(w, r, "resolve fields for "+d.Name, err)
+	fields, ok := h.resolveFields(w, r, d, id)
+	if !ok {
 		return
 	}
 	h.renderForm(w, r, d, id, fields, values, view.FieldErrors{}, http.StatusOK)
@@ -577,7 +585,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fields := d.FormFieldsFor(false)
+	fields, ok := h.resolveFields(w, r, d, "")
+	if !ok {
+		return
+	}
 	values, submitted, ok := h.formValues(w, r, fields, false)
 	if !ok {
 		return
@@ -625,9 +636,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-	fields, err := d.ResolveFormFields(r.Context(), id)
-	if err != nil {
-		h.serverError(w, r, "resolve fields for "+d.Name, err)
+	fields, ok := h.resolveFields(w, r, d, id)
+	if !ok {
 		return
 	}
 
@@ -684,6 +694,76 @@ func (h *Handler) destroy(w http.ResponseWriter, r *http.Request) {
 // about what this submission was allowed to carry. editing selects which
 // mode NewValues measures Immutable against; an immutable field posted to
 // an update is therefore undeclared rather than quietly dropped.
+// drivingValues prefills a create form from the query string, restricted to
+// the fields the descriptor declares.
+//
+// It exists for the no-JavaScript path through a dependent form. Choosing a
+// credential type submits a GET back to this same page carrying the choice,
+// and without this the select would render unselected and the person would
+// have to make the same choice twice to get past it. Only declared fields
+// are read, so a crafted link cannot seed a control that does not exist,
+// and this feeds a render rather than a write: the create itself reads
+// r.PostForm through formValues and never sees any of this.
+func drivingValues(r *http.Request, fields []view.Field) map[string]string {
+	out := make(map[string]string, len(fields))
+	if r.URL == nil {
+		return out
+	}
+	q := r.URL.Query()
+	for _, f := range fields {
+		if v := strings.TrimSpace(q.Get(f.Name)); v != "" {
+			out[f.Name] = v
+		}
+	}
+	return out
+}
+
+// resolveFields is the control set one form render or submission works
+// against: the descriptor's static fields, plus whatever FieldsFor resolves
+// from the record and the driving values already submitted.
+//
+// This is the first of two narrowings and the reason they are not the same
+// call. The declared field set depends on a submitted value (a credential's
+// type declares the inputs beneath it), and narrowing a submission needs
+// the declared set, so the static set goes first: it is fixed, it is what a
+// driving control belongs to, and it is enough to read the value the
+// resolution turns on. The caller then narrows a second time against the
+// merged set this returns, through formValues, which is the pass that
+// enforces the contract and rejects anything undeclared.
+//
+// Two deliberate asymmetries with that second pass:
+//
+// It reads r.Form rather than r.PostForm, so a query string may take part.
+// That is what makes the no-JavaScript path work: choosing a type submits a
+// GET carrying ?credential_type=N, and the form comes back with that type's
+// controls on it. Letting the query choose which CONTROLS appear is safe in
+// a way that letting it supply VALUES would not be, and formValues still
+// reads only r.PostForm, so nothing reached from here can be written by a
+// crafted link.
+//
+// It ignores the undeclared-field check. On this pass the dynamic fields
+// are by definition not declared yet, so failing on them would reject every
+// submission it exists to serve. Nothing read here reaches a domain object;
+// it only decides which controls exist, and the second pass rejects an
+// undeclared field against the set that actually matters.
+func (h *Handler) resolveFields(w http.ResponseWriter, r *http.Request, d view.Descriptor, id string) ([]view.Field, bool) {
+	static := d.FormFieldsFor(id != "")
+	if d.FieldsFor == nil {
+		return static, true
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "malformed form submission", http.StatusBadRequest)
+		return nil, false
+	}
+	driving, _ := view.NewValues(static, r.Form, id != "")
+	fields, err := d.ResolveFormFields(r.Context(), view.Resolve{ID: id, Values: driving})
+	if err != nil {
+		h.serverError(w, r, "resolve fields for "+d.Name, err)
+		return nil, false
+	}
+	return fields, true
+}
+
 func (h *Handler) formValues(w http.ResponseWriter, r *http.Request, fields []view.Field, editing bool) (view.Values, map[string]string, bool) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "malformed form submission", http.StatusBadRequest)

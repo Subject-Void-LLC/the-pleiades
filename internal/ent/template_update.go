@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
@@ -165,6 +166,25 @@ func (_u *TemplateUpdate) SetNillableAllowSimultaneous(v *bool) *TemplateUpdate 
 	return _u
 }
 
+// SetProjectID sets the "project" edge to the Project entity by ID.
+func (_u *TemplateUpdate) SetProjectID(id int) *TemplateUpdate {
+	_u.mutation.SetProjectID(id)
+	return _u
+}
+
+// SetNillableProjectID sets the "project" edge to the Project entity by ID if the given value is not nil.
+func (_u *TemplateUpdate) SetNillableProjectID(id *int) *TemplateUpdate {
+	if id != nil {
+		_u = _u.SetProjectID(*id)
+	}
+	return _u
+}
+
+// SetProject sets the "project" edge to the Project entity.
+func (_u *TemplateUpdate) SetProject(v *Project) *TemplateUpdate {
+	return _u.SetProjectID(v.ID)
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_u *TemplateUpdate) SetOrganizationID(id int) *TemplateUpdate {
 	_u.mutation.SetOrganizationID(id)
@@ -250,6 +270,12 @@ func (_u *TemplateUpdate) AddSchedules(v ...*Schedule) *TemplateUpdate {
 // Mutation returns the TemplateMutation object of the builder.
 func (_u *TemplateUpdate) Mutation() *TemplateMutation {
 	return _u.mutation
+}
+
+// ClearProject clears the "project" edge to the Project entity.
+func (_u *TemplateUpdate) ClearProject() *TemplateUpdate {
+	_u.mutation.ClearProject()
+	return _u
 }
 
 // ClearOrganization clears the "organization" edge to the Organization entity.
@@ -465,6 +491,35 @@ func (_u *TemplateUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AllowSimultaneous(); ok {
 		_spec.SetField(template.FieldAllowSimultaneous, field.TypeBool, value)
+	}
+	if _u.mutation.ProjectCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   template.ProjectTable,
+			Columns: []string{template.ProjectColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProjectIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   template.ProjectTable,
+			Columns: []string{template.ProjectColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -854,6 +909,25 @@ func (_u *TemplateUpdateOne) SetNillableAllowSimultaneous(v *bool) *TemplateUpda
 	return _u
 }
 
+// SetProjectID sets the "project" edge to the Project entity by ID.
+func (_u *TemplateUpdateOne) SetProjectID(id int) *TemplateUpdateOne {
+	_u.mutation.SetProjectID(id)
+	return _u
+}
+
+// SetNillableProjectID sets the "project" edge to the Project entity by ID if the given value is not nil.
+func (_u *TemplateUpdateOne) SetNillableProjectID(id *int) *TemplateUpdateOne {
+	if id != nil {
+		_u = _u.SetProjectID(*id)
+	}
+	return _u
+}
+
+// SetProject sets the "project" edge to the Project entity.
+func (_u *TemplateUpdateOne) SetProject(v *Project) *TemplateUpdateOne {
+	return _u.SetProjectID(v.ID)
+}
+
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
 func (_u *TemplateUpdateOne) SetOrganizationID(id int) *TemplateUpdateOne {
 	_u.mutation.SetOrganizationID(id)
@@ -939,6 +1013,12 @@ func (_u *TemplateUpdateOne) AddSchedules(v ...*Schedule) *TemplateUpdateOne {
 // Mutation returns the TemplateMutation object of the builder.
 func (_u *TemplateUpdateOne) Mutation() *TemplateMutation {
 	return _u.mutation
+}
+
+// ClearProject clears the "project" edge to the Project entity.
+func (_u *TemplateUpdateOne) ClearProject() *TemplateUpdateOne {
+	_u.mutation.ClearProject()
+	return _u
 }
 
 // ClearOrganization clears the "organization" edge to the Organization entity.
@@ -1184,6 +1264,35 @@ func (_u *TemplateUpdateOne) sqlSave(ctx context.Context) (_node *Template, err 
 	}
 	if value, ok := _u.mutation.AllowSimultaneous(); ok {
 		_spec.SetField(template.FieldAllowSimultaneous, field.TypeBool, value)
+	}
+	if _u.mutation.ProjectCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   template.ProjectTable,
+			Columns: []string{template.ProjectColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProjectIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   template.ProjectTable,
+			Columns: []string{template.ProjectColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.OrganizationCleared() {
 		edge := &sqlgraph.EdgeSpec{
