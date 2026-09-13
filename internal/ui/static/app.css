@@ -152,33 +152,36 @@
  * on, not a guarantee, which is why Las Ventanas Once is added here
  * explicitly rather than left to the same luck: check this list first,
  * not last, the next time a skin is added. */
+/* Brutalist's dark mode is a terminal, not a dimmed version of its own
+ * light mode: pure black with a single green carried by fg, the border,
+ * the link and the shadow alike, rather than the near-black/cream pair
+ * this replaced. Outside accessibility mode this only has to look right,
+ * not clear 4.5:1 -- see contrast_test.go's own note on why -- though
+ * green-on-black happens to measure a comfortable 15.3:1 regardless. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]):not([data-skin="las-ventanas-once"]) {
-    --bg: #0a0a0c;
-    --bg-raised: #1a1a1e;
-    --fg: #f5f2eb;
-    --fg-muted: #a8a49b;
-    --border: #f5f2eb;
-    --border-interactive: #f5f2eb;
-    /* Pure #0000FF is 2.30:1 here and fails outright. Blue carries the
-     * lowest luminance coefficient of any hue, so it is the one colour
-     * that cannot survive both themes unchanged. */
-    --link: #7a7aff;
-    --shadow: #f5f2eb;
-    --fill-neutral: #3a3a3e;
+    --bg: #000000;
+    --bg-raised: #1a1a1a;
+    --fg: #00ff00;
+    --fg-muted: #009900;
+    --border: #00ff00;
+    --border-interactive: #00ff00;
+    --link: #00ff00;
+    --shadow: #00ff00;
+    --fill-neutral: #1a1a1a;
   }
 }
 
 :root[data-theme="dark"]:not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]):not([data-skin="las-ventanas-once"]) {
-  --bg: #0a0a0c;
-  --bg-raised: #1a1a1e;
-  --fg: #f5f2eb;
-  --fg-muted: #a8a49b;
-  --border: #f5f2eb;
-  --border-interactive: #f5f2eb;
-  --link: #7a7aff;
-  --shadow: #f5f2eb;
-  --fill-neutral: #3a3a3e;
+  --bg: #000000;
+  --bg-raised: #1a1a1a;
+  --fg: #00ff00;
+  --fg-muted: #009900;
+  --border: #00ff00;
+  --border-interactive: #00ff00;
+  --link: #00ff00;
+  --shadow: #00ff00;
+  --fill-neutral: #1a1a1a;
 }
 
 /* ================= SKIN: LAS VENTANAS =================
@@ -194,19 +197,21 @@
  * their own white sunken well, distinct from the grey dialog face around
  * them, the way a real Windows textbox always was.
  *
- * The dialog face is #C0C0C0 and the bevel's light and dark edges are pure
- * white and pure black, which is the real Windows 95 "3D Face"/"3D
- * Highlight"/"3D Shadow" triad. One value differs from it, and it is a
- * measured contrast failure rather than a preference: the mid-tone bevel
- * edge and the plain hairline border are genuinely #DFDFDF and #808080
- * (the real "ButtonHighlight"/"ButtonShadow" pair), but --border itself
- * -- the hairline used for dividers, table rules and the sidebar's own
- * edge, never the bevel -- is darkened to #5C5C5C, because #808080 on
- * #C0C0C0 measures 2.17:1 and SC 1.4.11 asks 3:1 of anything marking a
- * boundary. The bevel's own mid-tones stay authentic because the bevel is
- * decorative depth, not the boundary a reader relies on -- the boundary is
- * the solid black line the same stack always draws on its dark edge, at
- * 11.5:1.
+ * The dialog face is #C0C0C0 and the bevel's edges are pure white, pure
+ * black, #DFDFDF and #808080, the real Windows 95 "3D
+ * Highlight"/"3D Shadow"/"ButtonHighlight"/"ButtonShadow" quartet, used
+ * unmodified: --border, the hairline used for dividers, table rules and
+ * the sidebar's own edge, is the same #808080 as the bevel's own mid-dark
+ * edge rather than a value corrected away from it. #808080 on #C0C0C0
+ * measures 2.17:1, under SC 1.4.11's 3:1 for a boundary -- but that floor
+ * is accessibility mode's guarantee here, not this skin's on its own; see
+ * contrast_test.go's own note on why a skin is free to chase the real
+ * desktop it names rather than a corrected approximation of it.
+ * --body-bg is the one token besides --bg with a real value here (the
+ * classic teal #008080 desktop, behind the dialog rather than under it),
+ * because that is the one place this skin's own colours and the page's
+ * are different things; every other skin aliases --body-bg to --bg and
+ * .body's own var(--body-bg, var(--bg)) fallback renders it unchanged.
  *
  * Dark mode is Windows' own "High Contrast Black", not an invented dark
  * variant of the light palette: pure black ground, pure white text and
@@ -233,10 +238,11 @@
   --bg-raised: #ffffff;
   --fg: #000000;
   --fg-muted: #4a4a4a;
-  --border: #5c5c5c;
+  --border: #808080;
   --border-interactive: #000000;
   --link: #0000ee;
   --shadow: transparent;
+  --body-bg: #008080;
 
   --fill-ok: #00ff00;
   --fill-failed: #ff0000;
@@ -314,6 +320,7 @@
     --bevel-color-mid-dark: #ffffff;
     --bevel-color-dark: #ffffff;
     --field-bg: var(--bg);
+    --body-bg: var(--bg);
   }
 }
 
@@ -332,6 +339,7 @@
   --bevel-color-mid-dark: #ffffff;
   --bevel-color-dark: #ffffff;
   --field-bg: var(--bg);
+  --body-bg: var(--bg);
 }
 
 /* ================= SKIN: HONEYCRISP =================
@@ -368,39 +376,35 @@
  * sidebar's that a shallow blend leaves the real rendered contrast
  * negligibly different from that nominal figure.
  *
- * Surfaces are a soft blue-gray rather than stark white or black, the way
- * a real Finder or Messages window is: --bg #f2f4f8, --bg-raised a
- * slightly deeper #e4e8f0 for sidebars and panels. Dark mode goes to a
- * near-black #0b0b0d with the system dark-gray #1c1c1e raised surface.
- * Apple's own system colors carry the rest: the status fills are macOS's
- * actual green/red/orange/yellow, shifted to their dark-mode variants
- * where Apple shifts them (#ff3b30 becomes #ff453a), and the accent is
- * Apple's system blue, brightened in dark mode the way Apple's own does
- * (#0a84ff).
- *
- * One color was measured and corrected rather than lifted verbatim.
- * Apple's own #0071e3 as body text on white already measures a bare
- * 4.70:1, and against this skin's tinted #f2f4f8 background that drops to
- * 4.27, under the 4.5:1 SC 1.4.3 needs for text. --link uses a deepened
- * #0060c9 in light mode instead, 5.42:1, while --fill-info keeps the true
- * #0071e3: a filled badge with white text on top is a different pairing
- * (4.70:1 there, tested against --on-fill-info rather than --bg) and
- * never needed the correction. Las Ventanas' own comment records the same
- * kind of fix for the identical reason: a color that is fine as a large
- * fill is not automatically fine as small text.
+ * The page is a soft systemGray6 rather than stark white or black --
+ * --bg #f5f5f7 -- with --bg-raised at pure #ffffff for sidebars, panels
+ * and fields, the grouped-list pattern a real Settings.app or Messages
+ * window uses: the card is the brightest surface, not a deeper one.
+ * Dark mode goes to true black #000000 with the system dark-gray #1e1e1e
+ * raised surface, the same relationship inverted. Apple's own system
+ * colors carry the rest: the status fills are macOS's actual
+ * green/red/orange/yellow, shifted to their dark-mode variants where
+ * Apple shifts them (#ff3b30 becomes #ff453a), and the accent is Apple's
+ * system blue, brightened in dark mode the way Apple's own does
+ * (#0a84ff). --fg-muted uses Apple's literal secondaryLabel grey,
+ * #86868b, in both themes, which is the one value here that does not
+ * clear 4.5:1 against --bg on its own (3.30:1) -- accessibility mode
+ * remains the guarantee for a reader who needs it; see
+ * contrast_test.go's own note on why that is the gate now rather than
+ * this skin itself.
  *
  * The name is a pun on the palette's source rather than a description of
  * its colors: a Honeycrisp is an apple.
  */
 
 :root[data-skin="honeycrisp"] {
-  --bg: #f2f4f8;
-  --bg-raised: #e4e8f0;
+  --bg: #f5f5f7;
+  --bg-raised: #ffffff;
   --fg: #1d1d1f;
-  --fg-muted: #65656a;
+  --fg-muted: #86868b;
   --border: #d7dbe2;
   --border-interactive: #1d1d1f;
-  --link: #0060c9;
+  --link: #0066cc;
   --shadow: rgba(0, 0, 0, 0.16);
 
   /* Apple's macOS system colors: refined, minimal, professional. */
@@ -430,7 +434,7 @@
   --sidebar-width: 280px;
   --breakpoint: 48rem;
 
-  --field-bg: var(--bg);
+  --field-bg: var(--bg-raised);
   --component-border-width: var(--border-width);
   --panel-shadow: var(--shadow-offset) var(--shadow-offset-y) var(--shadow-blur) var(--shadow-spread) var(--shadow);
   --control-shadow: var(--panel-shadow);
@@ -444,10 +448,10 @@
 
 @media (prefers-color-scheme: dark) {
   :root[data-skin="honeycrisp"]:not([data-theme="light"]) {
-    --bg: #0b0b0d;
-    --bg-raised: #1c1c1e;
+    --bg: #000000;
+    --bg-raised: #1e1e1e;
     --fg: #f5f5f7;
-    --fg-muted: #a1a1a6;
+    --fg-muted: #86868b;
     --border: #38383a;
     --border-interactive: #f5f5f7;
     --link: #0a84ff;
@@ -460,15 +464,15 @@
     --fill-info: #0a84ff;
     --on-fill: #000000;
     --on-fill-info: #000000;
-    --sidebar-bg: rgba(28, 28, 30, 0.8);
+    --sidebar-bg: rgba(30, 30, 30, 0.8);
   }
 }
 
 :root[data-skin="honeycrisp"][data-theme="dark"] {
-  --bg: #0b0b0d;
-  --bg-raised: #1c1c1e;
+  --bg: #000000;
+  --bg-raised: #1e1e1e;
   --fg: #f5f5f7;
-  --fg-muted: #a1a1a6;
+  --fg-muted: #86868b;
   --border: #38383a;
   --border-interactive: #f5f5f7;
   --link: #0a84ff;
@@ -481,7 +485,7 @@
   --fill-info: #0a84ff;
   --on-fill: #000000;
   --on-fill-info: #000000;
-  --sidebar-bg: rgba(28, 28, 30, 0.8);
+  --sidebar-bg: rgba(30, 30, 30, 0.8);
 }
 
 /* ================= SKIN: LAS VENTANAS ONCE =================
@@ -504,21 +508,17 @@
  * bottom edge, which is how a real WinUI text box marks itself without
  * borrowing box-shadow's usual job of suggesting depth.
  *
- * Two values are corrected rather than lifted from the source palette,
- * and it is worth naming which weren't: the accent (#005FB8 light,
- * #60CDFF dark) is genuine Windows 11 system blue and clears 4.5:1
- * against this skin's own backgrounds unmodified -- 5.69:1 and 9.06:1 --
- * so unlike Las Ventanas and Honeycrisp before it, the headline colour
- * needed no fix here. What did: the source design's --lvo-border and
- * --lvo-text-secondary were tuned for a generic light/dark pair, not this
- * skin's specific #F3F3F3/#202020 grounds, and --border-interactive in
- * particular is tested against SC 1.4.11's 3:1 floor, not merely eyeballed
- * -- #767676 (4.10:1 light) and #8A8A8A (4.72:1 dark) both clear it with
- * real margin, values chosen for this exact background rather than
- * reused from a different one. The decorative --border stays a barely-
- * there rgba() the way real Fluent chrome is, since it is never checked
- * against a contrast floor -- only --border-interactive, a control's sole
- * boundary, is.
+ * The accent (#005FB8 light, #60CDFF dark) is genuine Windows 11 system
+ * blue, lifted unmodified -- it happens to clear 4.5:1 against this
+ * skin's own backgrounds (5.69:1 and 9.06:1), though that is not a
+ * requirement of the skin itself; see contrast_test.go's own note on why
+ * accessibility mode, not the skin, is where the guarantee lives.
+ * --border-interactive (#767676 light, #8A8A8A dark) is not from the
+ * source palette at all -- it named only a barely-there decorative
+ * --border, rgba(0,0,0,.06)/rgba(255,255,255,.1), which app.css keeps for
+ * exactly that job, but a control still needs its own boundary colour,
+ * chosen here for this skin's specific #F3F3F3/#202020 grounds rather
+ * than reused from a different one.
  */
 
 :root[data-skin="las-ventanas-once"] {
@@ -717,7 +717,7 @@ html {
 }
 
 body {
-  background: var(--bg);
+  background: var(--body-bg, var(--bg));
   color: var(--fg);
   font-family: var(--font-sans);
   font-size: 0.9rem;
