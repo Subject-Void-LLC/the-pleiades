@@ -7287,3 +7287,42 @@ spelling, it belongs at every write, not at the one where the problem was first
 noticed. And a difference that a development backend forgives is not a
 difference that does not exist: SQLite and PostgreSQL disagree about JSON null,
 so "it queries fine locally" says nothing about the deployment.
+
+## 211. A stress test raced a fixed sleep, so the gate failed describing an empty buffer instead of an unbounded one
+
+**Symptom.** `TestSubsystem_StderrIsBoundedAndMarkedTruncated` failed inside
+`tools/coverage-check`'s own full suite pass with
+`Stderr() = 0 bytes ending "", want it marked truncated`, in 0.00s, while the same
+package had already passed three times earlier in the same `make ci` run. It arrived
+immediately after a `golang.org/x/crypto` bump, which made the bump the obvious
+suspect and the wrong one.
+
+**Root cause.** The test's fake server writes a 16 KiB flood to the channel's standard
+error and then sleeps 50 milliseconds. The client opens the subsystem, closes it at
+once, and reads `Stderr()`. Closing tears the channel down, so the whole assertion
+rests on the drain goroutine having been scheduled inside that 50 millisecond window.
+It is a fixed delay racing a scheduler, and under a full parallel suite the scheduler
+wins.
+
+The implementation was not at fault and is worth noting for the next reader: `Close`
+already waits on the drain (`drainCloseGrace`), precisely so a post-`Close` `Stderr` is
+complete rather than racy. What it cannot do is invent bytes that never crossed the
+wire before the close.
+
+**Fix.** The test now waits for the flood to reach the client, polling the client's own
+buffer until it holds `maxSubsystemStderrBytes` or five seconds pass, and only then
+closes and asserts. The server's `Write` returning was never the right signal: it says
+the bytes left the server, not that this side saw them.
+
+Ruled out rather than assumed, because the timing made it look like a regression: the
+identical failure reproduces at `-count=200` on a worktree pinned to the OLD x/crypto
+v0.54.0, so the dependency bump did not cause it. After the fix, 500 repetitions pass,
+and 100 more under `-race`.
+
+**Lesson.** A fixed sleep on the far side of a boundary is not synchronization, it is a
+bet on a scheduler, and the bet is lost exactly when the machine is busiest, which is
+when the full gate runs. Wait for the condition the assertion actually depends on, and
+poll the side that will do the asserting. When a flake appears right after a dependency
+bump, pin the old version in a worktree and reproduce there before believing the
+coincidence; this one had every appearance of a regression and was years older than the
+bump.

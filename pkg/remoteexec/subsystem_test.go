@@ -223,6 +223,25 @@ func TestSubsystem_StderrIsBoundedAndMarkedTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subsystem() error = %v, want nil", err)
 	}
+
+	// Wait for the flood to reach this side before closing, rather than
+	// trusting the server handler's own sleep to be long enough. Close
+	// tears the channel down, so a drain that has not yet seen a byte
+	// reports nothing and the assertion below fails describing an empty
+	// buffer instead of an unbounded one. The handler's sleep made that
+	// unlikely, never impossible: it is a fixed delay racing a scheduler,
+	// and under a full parallel suite the scheduler wins. Reproduced at
+	// -count=200 on this package alone, at both x/crypto v0.54.0 and
+	// v0.56.0, so it is this test's own timing and not the transport's.
+	//
+	// Polling the client's own buffer is the signal that actually
+	// answers the question. The server's Write returning says only that
+	// the bytes left the server.
+	deadline := time.Now().Add(5 * time.Second)
+	for len(sub.Stderr()) < maxSubsystemStderrBytes && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+
 	if err := sub.Close(); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Close() error = %v", err)
 	}
