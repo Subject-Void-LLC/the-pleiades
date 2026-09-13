@@ -234,8 +234,65 @@ GO_TEST_TIMEOUT ?= 20m
 test:
 	go test -timeout $(GO_TEST_TIMEOUT) ./...
 
+# DOCKER_TEST_PARALLELISM is how many container-provisioning packages
+# `go test` may run at once. It is the fix for the condition
+# FAILURE_PATTERNS.md #61 describes and flaky-packages.json tolerates:
+# the failing package changes between runs, and every one of them
+# provisions real containers.
+#
+# `go test` defaults -p to GOMAXPROCS, which is 20 on this project's own
+# development host, and DOCKER_DEPENDENT_PACKAGES below names 22
+# packages. So the default asks one Docker daemon to build, start, port
+# map and health check the containers of twenty packages simultaneously,
+# on top of a Ryuk reaper per package. Two consecutive full `make ci`
+# runs on 2026-09-13 failed that way in seven different packages between
+# them, and the failures were the daemon's own, not any test's: a
+# `containers/<id>/json` inspect call exceeding its deadline after 553
+# retries, a published port answering with connection refused, a NATS
+# container never reachable on its mapped port.
+#
+# One, not a tuned number. The serial case is the only value justified
+# without measuring this specific machine, and a number chosen to be
+# just fast enough on the host that chose it is a number that saturates
+# a smaller one. It costs wall clock and buys a gate that can pass:
+# these packages now take the sum of their runtimes rather than the max,
+# which is minutes, against a gate that could not go green at all.
+# Raising it is a real decision to make with measurements, which is why
+# it is an overridable variable rather than a literal in three recipes.
+DOCKER_TEST_PARALLELISM ?= 1
+
+# test-race is the -race pass over everything, split in two so the
+# packages that provision containers do not run on top of each other.
+# Both halves always run and the worst exit status wins, so one group's
+# failure never hides the other's: a fail-fast && would report the fast
+# packages and say nothing about the slow ones, which are the ones this
+# split exists for.
+#
+# Both lists are built from one `go list` of the pattern this target
+# would otherwise have passed straight to `go test`, and the container
+# half is its INTERSECTION with DOCKER_DEPENDENT_PACKAGES rather than
+# that list itself. Naming a package explicitly is not the same as
+# matching it with ./...: `go test ./...` silently passes over a package
+# whose build constraints exclude every file, while naming it is a hard
+# "build constraints exclude all Go files ... [setup failed]". Two of
+# the packages in the list are exactly that under these tags,
+# tests/e2e (integration) and internal/ent/migrate/gen, so the
+# intersection is what keeps this split from changing which packages the
+# target covers.
 test-race:
-	go test -race -timeout $(GO_TEST_TIMEOUT) ./...
+	@all="$$(go list ./...)"; \
+	rest="$$all"; \
+	docker=""; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		if echo "$$all" | grep -q "^$$pkg$$"; then docker="$$docker $$pkg"; fi; \
+		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
+	done; \
+	status=0; \
+	go test -race -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
+	if [ -n "$$docker" ]; then \
+		go test -race -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
+	fi; \
+	exit $$status
 
 # DOCKER_DEPENDENT_PACKAGES is every package whose test files import
 # testcontainers-go directly (a real, ephemeral Docker container: NATS,
@@ -367,8 +424,31 @@ test-repeat:
 # so Go's test cache sees no dependency on either binary's source and will
 # replay a stale PASS after a controller change. See tests/e2e's own
 # harness doc comment.
+#
+# Split the same way test-race is, and for the same reason, which bites
+# harder here: this is the pass that also stands up tests/e2e's real
+# controller and runner binaries against real Postgres and NATS, so it
+# asks the most of the daemon of any target in this file. Six packages
+# failed in it on 2026-09-13 under the unsplit command, every one of them
+# a container package and every one of them already in
+# flaky-packages.json. See DOCKER_TEST_PARALLELISM.
+# The package lists are built under the integration tag, so tests/e2e
+# lands in the container half here and is absent from test-race's,
+# exactly as each tag set's own ./... would have resolved it.
 test-integration:
-	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) ./...
+	@all="$$(go list -tags integration ./...)"; \
+	rest="$$all"; \
+	docker=""; \
+	for pkg in $(DOCKER_DEPENDENT_PACKAGES); do \
+		if echo "$$all" | grep -q "^$$pkg$$"; then docker="$$docker $$pkg"; fi; \
+		rest="$$(echo "$$rest" | grep -v "^$$pkg$$")"; \
+	done; \
+	status=0; \
+	go test -tags integration -race -count=1 -timeout $(GO_TEST_TIMEOUT) $$rest || status=1; \
+	if [ -n "$$docker" ]; then \
+		go test -tags integration -race -count=1 -p $(DOCKER_TEST_PARALLELISM) -timeout $(GO_TEST_TIMEOUT) $$docker || status=1; \
+	fi; \
+	exit $$status
 
 # gosec-check (tools/gosec-check) wraps gosec with the per-finding waiver
 # file (gosec-waivers.json) the Phase 0 CI harness item's pre-existing-
