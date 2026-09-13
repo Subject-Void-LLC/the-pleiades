@@ -159,6 +159,15 @@ func encode(entries []engine.JournalEntry) ([]byte, error) {
 // the projection leaves a vector nil whenever it admitted no keys. Both
 // mean "no keys", so the difference carries nothing and only makes every
 // reader handle two spellings of one fact.
+//
+// Both sinks apply it, which is the point rather than a detail. It was
+// applied on the file side alone at first, so the same run recorded []
+// on the Crawl tier and null in the Walk tier's jsonb column, and there
+// the difference is not cosmetic: SQLite reads json_array_length('null')
+// as 0, while PostgreSQL refuses it with "cannot get array length of a
+// scalar". An operator's query over stat_keys therefore failed on
+// exactly the rows where a task recorded no keys, which is every failed
+// task.
 func normalize(entry engine.JournalEntry) engine.JournalEntry {
 	if entry.StatKeys == nil {
 		entry.StatKeys = []string{}

@@ -383,3 +383,38 @@ func newClosableEntStore(t *testing.T) (*journal.EntStore, func()) {
 	t.Cleanup(closeIt)
 	return journal.NewEntStore(client), closeIt
 }
+
+func TestEntStoreStoresAnEmptyKeyVectorAsAnEmptyArray(t *testing.T) {
+	// The two sinks have to spell "no keys" the same way. The file sink
+	// normalizes a nil vector to [] before encoding; this store wrote the
+	// nil straight through, so the same run recorded [] on the Crawl tier
+	// and the JSON scalar null in these columns.
+	//
+	// The difference is not cosmetic on the backend this tier is built
+	// for. SQLite reads json_array_length('null') as 0, but the columns
+	// are jsonb on PostgreSQL and it refuses that call outright with
+	// "cannot get array length of a scalar", so an operator's query over
+	// stat_keys failed on exactly the rows where a task recorded no keys,
+	// which is every failed task.
+	store, path := newEntStore(t)
+	entry := walkEntry("job-1", "device-1", 1, 1, "tasks[0]")
+	entry.Outcome = engine.OutcomeFailed
+	entry.FailureStage = engine.FailureStageAction
+	entry.StatKeys = nil
+	entry.ParamKeys = nil
+	entry.InverseParamKeys = nil
+
+	if _, err := store.Save(context.Background(), []engine.JournalEntry{entry}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, column := range []string{"stat_keys", "param_keys", "inverse_param_keys"} {
+		got := rawQuery(t, path, "SELECT "+column+" FROM journal_entries")
+		if len(got) != 1 {
+			t.Fatalf("%s: read %d rows, want 1", column, len(got))
+		}
+		if got[0] != "[]" {
+			t.Errorf("%s stored as %q, want %q: a nil vector and an empty one both mean no keys, and only one of the two spellings survives a jsonb array query", column, got[0], "[]")
+		}
+	}
+}

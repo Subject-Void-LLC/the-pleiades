@@ -88,6 +88,12 @@ func (s *EntStore) saveOne(ctx context.Context, entry engine.JournalEntry) (bool
 		return false, err
 	}
 
+	// The same normalization the file sink applies, for the same reason
+	// and with one extra consequence on this side: these three columns
+	// are jsonb, and PostgreSQL refuses jsonb_array_length on the scalar
+	// null that a nil slice marshals to. See normalize (record.go).
+	entry = normalize(entry)
+
 	create := s.client.JournalEntry.Create().
 		SetJobID(entry.JobID).
 		SetDeviceID(entry.DeviceID).
