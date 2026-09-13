@@ -2,9 +2,7 @@ package web
 
 import (
 	"net/http"
-	"net/url"
 	"path"
-	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
@@ -93,7 +91,7 @@ func (h *Handler) setSkin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writePreference(w, skinCookieName, string(view.ParseSkin(r.PostFormValue("skin"))))
-	http.Redirect(w, r, h.safeReturn(r), http.StatusSeeOther)
+	http.Redirect(w, r, h.returnTo(r), http.StatusSeeOther)
 }
 
 // setA11y toggles the explicit accessibility override.
@@ -111,7 +109,7 @@ func (h *Handler) setA11y(w http.ResponseWriter, r *http.Request) {
 		value = "on"
 	}
 	h.writePreference(w, a11yCookieName, value)
-	http.Redirect(w, r, h.safeReturn(r), http.StatusSeeOther)
+	http.Redirect(w, r, h.returnTo(r), http.StatusSeeOther)
 }
 
 // setTheme records an appearance choice and returns where the user was.
@@ -127,37 +125,20 @@ func (h *Handler) setTheme(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writePreference(w, themeCookieName, string(view.ParseTheme(r.PostFormValue("theme"))))
-	http.Redirect(w, r, h.safeReturn(r), http.StatusSeeOther)
+	http.Redirect(w, r, h.returnTo(r), http.StatusSeeOther)
 }
 
-// safeReturn is where an appearance control returns the user to.
+// safeReturn is where a control with no explicit return field sends the
+// caller back to.
 //
-// It discards rather than validates. The Referer is caller-controlled, so
-// the scheme, host, userinfo and fragment are thrown away outright and only
-// the path survives -- discarding cannot be got subtly wrong, whereas
-// "check it looks like one of ours" has a long history of being bypassed by
-// a shape nobody thought of (//evil.com, https://ui.example.com@evil.com,
-// backslashes some browsers normalise to slashes).
-//
-// What remains is cleaned, which resolves any "..", and then required to be
-// inside this UI's own prefix. The result is always a rooted path on this
-// origin, so it cannot be an open redirect regardless of what arrives.
+// It delegates to constrain, which is the one place that decides what counts
+// as safe. It used to hold that logic itself and keep only the path, which
+// quietly discarded the reader's place once tabs and cursors moved into the
+// query string; returnTo in preferences.go is what appearance controls use
+// now, and this stays for callers that carry no return field.
 func (h *Handler) safeReturn(r *http.Request) string {
-	ref := r.Referer()
-	if ref == "" {
-		return h.cfg.Prefix
-	}
-
-	parsed, err := url.Parse(ref)
-	if err != nil {
-		return h.cfg.Prefix
-	}
-
-	// Only the path. Everything that could point at another origin is
-	// dropped here rather than inspected.
-	cleaned := path.Clean("/" + strings.TrimPrefix(parsed.Path, "/"))
-	if cleaned == h.cfg.Prefix || strings.HasPrefix(cleaned, h.cfg.Prefix+"/") {
-		return cleaned
+	if candidate := h.constrain(r.Referer()); candidate != "" {
+		return candidate
 	}
 	return h.cfg.Prefix
 }
@@ -184,6 +165,13 @@ func (h *Handler) renderLogin(w http.ResponseWriter, r *http.Request, failed boo
 		// with no local credential store gets the token field alone rather
 		// than a password box that can only ever fail.
 		PasswordLogin: h.cfg.Passwords != nil && h.cfg.Identities != nil,
+		// So toggling accessibility mode on the sign-in page returns to
+		// the sign-in page. Without it the redirect falls back to the
+		// Referer, and a browser arriving at a login page by redirect
+		// often sends none -- which would land somebody in accessibility
+		// mode on the index, get them bounced back to sign in, and look
+		// like the control had thrown their page away.
+		ReturnTo: h.currentURL(r),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

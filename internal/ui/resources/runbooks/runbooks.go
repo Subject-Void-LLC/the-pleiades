@@ -298,7 +298,13 @@ func Register(source runbook.Source, store launch.Store, sets inventory.SetStore
 		Summary:  "Every runbook this control plane can dispatch.",
 		Status:   view.StatusImplemented,
 		IDField:  "id",
-		Fields:   fields,
+		// The record page is headed by what the runbook is called, not by
+		// the identifier it is addressed at. This is the one implemented
+		// view whose identifier is not already a name, so it is the one
+		// that needed saying: every other view's IDField is its name, and
+		// Descriptor.TitleField falls back to IDField for all of them.
+		NameField: "name",
+		Fields:    fields,
 		Ops: view.Ops{
 			List: &apispec.ListRunbooks,
 			Get:  &apispec.GetRunbook,
@@ -307,6 +313,7 @@ func Register(source runbook.Source, store launch.Store, sets inventory.SetStore
 			// unversioned way to change what this platform executes.
 		},
 		Actions:  []view.RecordAction{templateAction(store, sets)},
+		Sections: []view.Section{templatesSection(store)},
 		Handlers: view.MustBind[*runbook.Runbook](reader{source}, nil, projector),
 	})
 }

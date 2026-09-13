@@ -22,7 +22,7 @@ func TestAccessSection_AnOrganizationShowsTheGrantsThatNameIt(t *testing.T) {
 		t.Fatal("the fixture rendered no organization to open")
 	}
 
-	body := h.get(t, "/ui/organizations/"+id).Body.String()
+	body := h.section(t, "/ui/organizations/"+id, "Access")
 	if !strings.Contains(body, "Access") {
 		t.Fatal("an organization's detail page has no Access section")
 	}
@@ -50,7 +50,7 @@ func TestAccessSection_ATeamShowsWhatItReaches(t *testing.T) {
 		t.Fatal("the fixture rendered no team to open")
 	}
 
-	body := h.get(t, "/ui/teams/"+id).Body.String()
+	body := h.section(t, "/ui/teams/"+id, "Access")
 	if !strings.Contains(body, "Access") {
 		t.Fatal("a team's detail page has no Access section")
 	}
@@ -77,7 +77,7 @@ func TestAccessSection_SaysSoWhenThereAreNoGrants(t *testing.T) {
 	}
 
 	id := recordIDNamed(t, h, "organizations", ungranted)
-	body := h.get(t, "/ui/organizations/"+id).Body.String()
+	body := h.section(t, "/ui/organizations/"+id, "Access")
 
 	// An empty table and "nothing grants access to this" look identical,
 	// and here the difference matters more than usual: one of them is a

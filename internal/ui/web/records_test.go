@@ -214,12 +214,26 @@ const session_CSRFHeader = "X-CSRF-Token"
 // TestDetail_RendersFieldsAndSections proves the record page composes the
 // record's own fields with its related tables, and that a section receives
 // the parent identifier it was opened for.
+//
+// A section is reachable at its own tab rather than stacked under the
+// record's fields, so this asserts both halves of that: the tab is offered on
+// the record page, and following it renders the section. Asserting only the
+// first would pass for a tab strip that links nowhere, which is the failure
+// this arrangement could plausibly have.
 func TestDetail_RendersFieldsAndSections(t *testing.T) {
 	p := newRecordProbe(t)
 
 	rec := p.get(t, "/ui/"+gadgetView+"/alpha")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "tab=related-records") {
+		t.Fatalf("the record page offers no tab for its section: %s", rec.Body.String())
+	}
+
+	rec = p.get(t, "/ui/"+gadgetView+"/alpha?tab=related-records")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("section tab status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
 
@@ -233,6 +247,24 @@ func TestDetail_RendersFieldsAndSections(t *testing.T) {
 	}
 }
 
+// TestDetail_UnknownTabFallsBackToTheRecord proves a tab slug nobody
+// recognises renders the record rather than an empty page.
+//
+// The value arrives in a query parameter, which means it arrives from
+// whatever somebody pasted into an address bar or from a link made against a
+// section that has since been renamed. Neither should produce a blank page.
+func TestDetail_UnknownTabFallsBackToTheRecord(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha?tab=no-such-section")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "detail-list") {
+		t.Error("an unrecognised tab did not fall back to the record's own fields")
+	}
+}
+
 // TestDetail_SurvivesASectionThatCannotLoad is the deliberate degradation.
 // The record's own fields are the answer to "what is this", and losing them
 // because a related table could not be read would turn a partial outage into
@@ -241,7 +273,7 @@ func TestDetail_RendersFieldsAndSections(t *testing.T) {
 func TestDetail_SurvivesASectionThatCannotLoad(t *testing.T) {
 	p := newRecordProbe(t)
 
-	rec := p.get(t, "/ui/"+gadgetView+"/alpha")
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha?tab=broken-section")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 despite a failing section", rec.Code)
 	}
@@ -253,7 +285,9 @@ func TestDetail_SurvivesASectionThatCannotLoad(t *testing.T) {
 	if strings.Contains(body, sectionErr.Error()) {
 		t.Error("the section's error text leaked into the response")
 	}
-	if !strings.Contains(body, "parent=alpha") {
+	// A failing section must not take the rest of the record's navigation
+	// with it: the healthy section is still offered as a tab beside it.
+	if !strings.Contains(body, "tab=related-records") {
 		t.Error("one failing section suppressed a healthy one")
 	}
 }

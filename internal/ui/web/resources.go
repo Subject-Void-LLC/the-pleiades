@@ -105,6 +105,9 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Descriptor: d,
 		Rows:       page.Rows,
 		NextCursor: page.NextCursor,
+		// The cursor this page was read from, so an empty page can tell
+		// "nothing exists" apart from "you have paged past the end".
+		Cursor: r.URL.Query().Get("after"),
 		// Rebuilt from the parsed values rather than echoed from
 		// r.URL.RequestURI(), so a refresh carries the reader's narrowing
 		// without reflecting whatever else was in the query string back
@@ -422,6 +425,23 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 		Row:        row,
 		Aff:        h.affordances(r.Context(), identityFrom(r.Context()), d),
 		Sections:   h.loadSections(r, d, chi.URLParam(r, "id")),
+		// Unvalidated on purpose: this arrives from the query string, and
+		// DetailModel.CurrentTab is the one place that decides what an
+		// unrecognised value means. Sanitising it twice would give two
+		// answers to that question.
+		Tab: r.URL.Query().Get("tab"),
+	}
+
+	// A record page's title is the record, not the view it belongs to. The
+	// browser tab is the one place a reader distinguishes eight open jobs
+	// from each other, and "Jobs // Pleiades" eight times over does not.
+	model.Page.Title = model.RecordName()
+
+	// Only the Output tab reads a stream, so only it pulls the stream
+	// script onto the page. Same argument as the charting bundle: code for
+	// a thing this page does not do is code nobody asked for.
+	if model.ShowStream() {
+		model.Page.Stream = d.Stream
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

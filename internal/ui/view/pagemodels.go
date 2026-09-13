@@ -25,6 +25,16 @@ type ListModel struct {
 	NextCursor string
 	Aff        Affordances
 
+	// Cursor is the position this page was read from, empty on the first.
+	//
+	// Held because an empty page means opposite things at the two ends of a
+	// list: an empty first page is a collection with nothing in it, and an
+	// empty later page is somebody who has paged past the end, usually by
+	// following a stale link. Offering "create the first one" to the second
+	// reader is wrong, and offering "back to the start" to the first one is
+	// a control that goes nowhere.
+	Cursor string
+
 	// Sections are the related-record tables rendered beneath the list,
 	// already loaded. On a collection page they hang off the collection
 	// rather than any row, which is what the dashboard's operator notices
@@ -104,14 +114,7 @@ func (m ListModel) Cell(row Row, f Field) string { return row.Cells[f.Name] }
 // so an unrecognized value degrades to the neutral badge rather than being
 // interpolated.
 func (m ListModel) BadgeClass(row Row, f Field) string {
-	if f.BadgeClass == nil {
-		return "badge-neutral"
-	}
-	class := f.BadgeClass(row.Cells[f.Name])
-	if !ValidBadgeClasses[class] {
-		return "badge-neutral"
-	}
-	return class
+	return BadgeClassFor(f, row.Cells[f.Name])
 }
 
 // IsPrimary reports whether a field is the one a narrow viewport promotes
@@ -204,6 +207,12 @@ type DetailModel struct {
 	// already made rather than one the template discovers halfway down
 	// the page.
 	Sections []LoadedSection
+
+	// Tab is the requested tab's slug, straight from the query string and
+	// therefore unvalidated. CurrentTab is what resolves it, falling back
+	// to the record's own fields for anything it does not recognise: this
+	// value arrives from whatever somebody pasted into an address bar.
+	Tab string
 }
 
 // LoadedSection is one Section with its rows in hand.
@@ -242,14 +251,7 @@ func (s LoadedSection) Cell(row Row, f Field) string { return row.Cells[f.Name] 
 // BadgeClass keeps a section's badges inside the validated set, exactly as
 // the main list does. A section is not a lesser table.
 func (s LoadedSection) BadgeClass(row Row, f Field) string {
-	if f.BadgeClass == nil {
-		return "badge-neutral"
-	}
-	class := f.BadgeClass(row.Cells[f.Name])
-	if !ValidBadgeClasses[class] {
-		return "badge-neutral"
-	}
-	return class
+	return BadgeClassFor(f, row.Cells[f.Name])
 }
 
 // IsPrimary reports whether a field is the one a narrow viewport promotes
@@ -263,6 +265,17 @@ func (s LoadedSection) IsPrimary(f Field) string {
 
 // HasRows reports whether this section has anything to show.
 func (s LoadedSection) HasRows() bool { return len(s.Rows) > 0 }
+
+// Slug is this section's address as a tab.
+//
+// Deliberately not ID's slug, though both derive from the same title. ID
+// builds a DOM identifier and maps every non-alphanumeric rune to its own
+// hyphen, which its own test pins against a hostile title; a URL slug
+// collapses those runs and trims, because an address is read by people. The
+// two never have to agree -- nothing links a tab to a heading anchor -- and
+// the one thing that matters, that neither can emit anything outside
+// [a-z0-9-], is true of both.
+func (s LoadedSection) Slug() string { return TabSlug(s.Spec.Title) }
 
 // Fields are every field with a value to show, in declaration order.
 func (m DetailModel) Fields() []Field { return m.Descriptor.Fields }

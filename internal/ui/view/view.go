@@ -454,6 +454,56 @@ type Descriptor struct {
 	// IDField names the Field whose value identifies a record.
 	IDField string
 
+	// NameField is the field whose value titles a record's page.
+	//
+	// Separate from IDField because the two answer different questions. An
+	// identifier addresses a record; a name says what it is, and a page
+	// headed by a primary key has moved the join into the reader's head.
+	// Optional: a view whose identifier already is its name leaves this
+	// empty and TitleField falls back, which is why Devices and Templates
+	// need no declaration here and Jobs does.
+	NameField string
+
+	// DefaultTab is the part of a record that opens first, named by its
+	// section title or by the stream's title. Empty opens the record's own
+	// fields, which is the right answer for almost every view.
+	//
+	// Jobs is why it exists. A job's details are what it was asked to do
+	// and its output is what happened, and somebody opening a job has
+	// nearly always come for the second: AWX lands on Output for exactly
+	// this reason, and a reader who has to click through to it every time
+	// is a reader the page is getting in the way of.
+	//
+	// Named by title rather than by slug so a declaration reads as English
+	// and cannot drift from the section it points at: a title that matches
+	// nothing falls back to the record's fields, which ResolveDefaultTab
+	// is where that is decided.
+	DefaultTab string
+
+	// StatusBadgeField names the field whose value is this record's state,
+	// rendered as a badge beside its title. Empty means no badge.
+	//
+	// Declared rather than inferred, and the inference it replaced is why.
+	// Taking the first listed badge field looked reasonable and was wrong
+	// almost everywhere: a job's first badge is its KIND, so a failed job was
+	// headed "4821 runbook" rather than "4821 failed", and a runbook's only
+	// badge is INTERRUPTIBLE, so every runbook record was headed with the
+	// word "YES". A badge beside a title is a claim that this value is what
+	// the record currently IS, and most badge fields are properties rather
+	// than states. Nothing can tell the two apart by looking, so the
+	// descriptor says which.
+	StatusBadgeField string
+
+	// Empty is what a list with no rows says.
+	//
+	// Section has carried one of these since it existed, and uses it well:
+	// "this job has not recorded any per-device outcomes yet" and "this
+	// dispatched to nothing" are very different facts that a blank table
+	// renders identically. The collection view had no equivalent, so every
+	// one of them said "No records." -- which conflates a first-run
+	// install, a filtered-to-nothing search and a genuinely idle fleet.
+	Empty string
+
 	// Chart optionally adds one chart to this view.
 	Chart *ChartSpec
 
@@ -558,6 +608,52 @@ func (d Descriptor) ResolveFormFields(ctx context.Context, id string) ([]Field, 
 		return nil, err
 	}
 	return append(fields, extra...), nil
+}
+
+// TitleField is the field whose value titles a record page, empty when this
+// view has neither a declared name nor an identity field.
+//
+// The fallback to IDField is what lets most views declare nothing: a device
+// and a template are already addressed by their names, so the identifier is
+// the name. Only a view addressed by a generated key -- a job -- needs to say
+// which of its fields a reader would recognise.
+func (d Descriptor) TitleField() string {
+	if d.NameField != "" {
+		return d.NameField
+	}
+	return d.IDField
+}
+
+// StatusField is the field a record's state badge reads, and whether there is
+// one at all.
+//
+// Strictly what StatusBadgeField names, and nothing when it names nothing. A
+// view that wants a badge beside its title says so; a view that does not gets
+// no badge rather than the first one this package could find. It must be a
+// badge field and it must be listed, because a badge class comes from a
+// BadgeClass function and an unlisted field is one the view chose not to show.
+func (d Descriptor) StatusField() (Field, bool) {
+	if d.StatusBadgeField == "" {
+		return Field{}, false
+	}
+	for _, f := range d.Fields {
+		if f.Name == d.StatusBadgeField && f.Kind == KindBadge && f.listed() {
+			return f, true
+		}
+	}
+	return Field{}, false
+}
+
+// EmptyText is what a list with no rows says, never blank.
+//
+// The fallback names the view, because "No records." on a page whose heading
+// already says Jobs is a sentence that spends a line to say nothing. A view
+// that wants better declares Empty.
+func (d Descriptor) EmptyText() string {
+	if d.Empty != "" {
+		return d.Empty
+	}
+	return "No " + strings.ToLower(d.Title) + " to show."
 }
 
 // PrimaryField returns the field a narrow viewport uses as each card's

@@ -231,6 +231,14 @@ func Register(s store) error {
 		Sections: []view.Section{
 			grants.SectionForTeam(s),
 			contacts.SectionForTeam(s),
+			view.Planned("Members",
+				"Who is in this team, and therefore who holds everything its Access tab lists.",
+				"Membership is an edge on the team and no port lists it, which is why the Access tab shows what the team reaches rather than who reaches through it.",
+				[]view.Field{
+					{Name: "user", Label: "USER", Kind: view.KindText, InList: true, MobilePrimary: true, References: "users"},
+					{Name: "email", Label: "EMAIL", Kind: view.KindText, InList: true},
+					{Name: "added", Label: "ADDED", Kind: view.KindTimestamp, InList: true},
+				}),
 		},
 		Ops: view.Ops{
 			List:   &apispec.ListTeams,

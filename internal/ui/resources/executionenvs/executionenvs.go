@@ -44,5 +44,15 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Templates",
+				"The templates that run inside this image.",
+				"A template names a launch kind, and the kind names an execution adapter rather than an image. Nothing records an image per template yet.",
+				[]view.Field{
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
+					{Name: "kind", Label: "KIND", Kind: view.KindBadge, InList: true},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+				}),
+		},
 	})
 }

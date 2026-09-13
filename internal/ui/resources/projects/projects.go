@@ -46,5 +46,43 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		// AWX's project tabs, declared in full. A project is the keystone
+		// relationship this platform is missing, so the shape of what it
+		// will carry is worth writing down where the implementation will
+		// need it rather than in a document beside it.
+		Sections: []view.Section{
+			view.Planned("Access",
+				"The role bindings that reach this project's content.",
+				"Access has no project-scoped binding yet: auth.ScopeType has system, organization, inventory, group and device, and no project.",
+				[]view.Field{
+					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
+					{Name: "role", Label: "ROLE", Kind: view.KindText, InList: true},
+					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Templates",
+				"The templates that run content from this project.",
+				"A template names a definition from the catalog rather than a project, so nothing records which project a definition came from yet.",
+				[]view.Field{
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
+					{Name: "definition", Label: "RUNS", Kind: view.KindText, InList: true},
+					{Name: "last_ran", Label: "LAST RAN", Kind: view.KindText, InList: true},
+				}),
+			view.Planned("Schedules",
+				"When this project re-syncs from its source.",
+				"A schedule attaches to a template, which is the only Launchable kind there is. A project sync is not one yet.",
+				[]view.Field{
+					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "schedules"},
+					{Name: "rrule", Label: "RECURRENCE", Kind: view.KindText, InList: true},
+					{Name: "next_run", Label: "NEXT RUN", Kind: view.KindText, InList: true},
+					{Name: "enabled", Label: "ENABLED", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Notifications",
+				"Who is told when a sync from this project succeeds or fails.",
+				"Notification policies have no backing entity in this build. The Notification Engine owns them and nothing here has a port to it.",
+				[]view.Field{
+					{Name: "target", Label: "TARGET", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "on", Label: "ON", Kind: view.KindText, InList: true},
+				}),
+		},
 	})
 }

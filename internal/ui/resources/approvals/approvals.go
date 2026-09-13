@@ -45,5 +45,16 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Decision",
+				"Who was asked, what they decided, and when.",
+				"Nothing pauses a run for a person in this build, so no approval has ever been requested.",
+				[]view.Field{
+					{Name: "approver", Label: "APPROVER", Kind: view.KindText, InList: true, MobilePrimary: true, References: "users"},
+					{Name: "decision", Label: "DECISION", Kind: view.KindBadge, InList: true},
+					{Name: "comment", Label: "COMMENT", Kind: view.KindText, InList: true},
+					{Name: "at", Label: "WHEN", Kind: view.KindTimestamp, InList: true},
+				}),
+		},
 	})
 }

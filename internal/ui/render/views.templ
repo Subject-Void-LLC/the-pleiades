@@ -10,35 +10,22 @@ import "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 // resource adds no template.
 templ List(m view.ListModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Descriptor.Title }</h1>
-			if m.Descriptor.Summary != "" {
-				<p class="view-summary">{ m.Descriptor.Summary }</p>
-			}
-		</header>
+		@pageChrome(m.Chrome())
 		if m.Aff.Unknown {
-			@affordanceAlert()
+			@zeroState(view.AffordanceUnknown())
 		}
 		if m.HasChart() {
 			@chart(m)
 		}
-		if m.CanCreate() {
-			<p><a class="btn" href={ templ.SafeURL(m.CreateHref()) }>New</a></p>
-		}
 		// A view need not list anything. The dashboard is a chart and
-		// nothing else, which is a finished shape rather than an
+		// its operator notices, which is a finished shape rather than an
 		// unfinished one, so the page renders whichever of its sections
 		// exist instead of assuming a table is always the point.
-		// The next-page link is deliberately not rendered here. It lives
-		// inside listRegion, because a refresh swaps that region and a
-		// link outside it would go on pointing at the cursor the page was
-		// first painted with. Rendering it in both places put two of them
-		// on every list.
 		if m.Descriptor.ListsRecords() {
 			@listRegion(m)
 		}
-		for _, section := range m.Sections {
-			@section_(section)
+		for _, section := range m.SectionViews() {
+			@sectionPanel(section)
 		}
 	}
 }
@@ -55,7 +42,7 @@ templ List(m view.ListModel) {
 // and nothing has to cancel a timer.
 templ listRegion(m view.ListModel) {
 	<div
-		class="table-scroll"
+		class="list-region"
 		id="resource-list"
 		data-focus-after-swap="true"
 		data-announce={ m.ResultCount() }
@@ -66,56 +53,14 @@ templ listRegion(m view.ListModel) {
 			data-poll="true"
 		}
 	>
-		if len(m.Rows) == 0 {
-			<p role="status">No records.</p>
-		} else {
-			<table class="table">
-				<thead>
-					<tr>
-						for _, col := range m.Columns() {
-							<th scope="col">{ col.Label }</th>
-						}
-						<th scope="col">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, row := range m.Rows {
-						<tr>
-							for _, col := range m.Columns() {
-								// data-label is what a narrow viewport
-								// renders in place of the column
-								// header once the table becomes cards,
-								// so a cell still says what it is.
-								<td data-label={ col.Label } data-primary={ m.IsPrimary(col) }>
-									if col.RendersBadge() {
-										<span class={ "badge", m.BadgeClass(row, col) }>{ m.Cell(row, col) }</span>
-									} else if m.RefHref(row, col) != "" {
-										// A reference renders as a link to
-										// the record it names, so the
-										// hierarchy is walkable and not
-										// merely readable. The text is
-										// always the target's name: a cell
-										// showing a primary key has moved
-										// the join into the reader's head.
-										<a href={ templ.SafeURL(m.RefHref(row, col)) }>{ m.Cell(row, col) }</a>
-									} else {
-										{ m.Cell(row, col) }
-									}
-								</td>
-							}
-							<td data-label="Actions">
-								<a href={ templ.SafeURL(m.DetailHref(row)) }>Open</a>
-							</td>
-						</tr>
-					}
-				</tbody>
-			</table>
-		}
+		@dataTable(m.Table())
 		// Inside the region rather than after it. The cursor is computed
 		// from the rows this render produced, so a link left outside would
 		// keep pointing past rows a refresh had already replaced.
 		if m.NextHref() != "" {
-			<p><a class="btn" href={ templ.SafeURL(m.NextHref()) }>Next page</a></p>
+			<nav class="pager" aria-label="Pagination">
+				<a class="btn" href={ templ.SafeURL(m.NextHref()) }>Next page</a>
+			</nav>
 		}
 	</div>
 }
@@ -192,79 +137,69 @@ templ chart(m view.ListModel) {
 // desk, and usually because something has already gone wrong.
 templ Stream(m view.StreamModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Heading() }</h1>
-			<p class="view-summary"><a href={ templ.SafeURL(m.BackHref()) }>Back to record</a></p>
-		</header>
-		<div class="stream-controls">
-			<div class="field">
-				<label for="log-filter">Filter</label>
-				<input type="search" id="log-filter" data-log-filter="true" autocomplete="off"/>
-			</div>
-			<div class="field field-inline">
-				<input type="checkbox" id="log-follow" data-log-follow="true" checked/>
-				<label for="log-follow">Follow new lines</label>
-			</div>
-		</div>
-		// A status region, not an alert: connection state changes are worth
-		// announcing but must not interrupt what is being read.
-		<p class="stream-status" id="log-status" role="status" aria-live="polite">Connecting…</p>
-		// The log is a log element with its own live region. Lines wrap
-		// rather than scrolling sideways, so a phone never asks its reader
-		// to pan horizontally to finish a sentence.
-		<div
-			class="stream-log"
-			id="log-output"
-			role="log"
-			aria-live="polite"
-			aria-label="Live output"
-			tabindex="0"
-			data-stream-url={ m.StreamURL() }
-		></div>
+		@pageChrome(m.Chrome())
+		@streamRegion(m.StreamURL())
 	}
+}
+
+// streamRegion is the live log itself, with its controls.
+//
+// Its own component because two pages render it: this standalone one, kept
+// for links made before the record had a tab for it, and the record's own
+// Output tab. One definition means watching a job from its record and
+// watching it from a bookmark cannot behave differently.
+templ streamRegion(url string) {
+	<div class="stream-controls">
+		<div class="field">
+			<label for="log-filter">Filter</label>
+			<input type="search" id="log-filter" data-log-filter="true" autocomplete="off"/>
+		</div>
+		<div class="field field-inline">
+			<input type="checkbox" id="log-follow" data-log-follow="true" checked/>
+			<label for="log-follow">Follow new lines</label>
+		</div>
+	</div>
+	// A status region, not an alert: connection state changes are worth
+	// announcing but must not interrupt what is being read.
+	<p class="stream-status" id="log-status" role="status" aria-live="polite">Connecting…</p>
+	// The log is a log element with its own live region. Lines wrap
+	// rather than scrolling sideways, so a phone never asks its reader
+	// to pan horizontally to finish a sentence.
+	<div
+		class="stream-log"
+		id="log-output"
+		role="log"
+		aria-live="polite"
+		aria-label="Live output"
+		tabindex="0"
+		data-stream-url={ url }
+	></div>
 }
 
 // Detail renders one record.
 templ Detail(m view.DetailModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Row.ID }</h1>
-			<p class="view-summary"><a href={ templ.SafeURL(m.ListHref()) }>Back to { m.Descriptor.Title }</a></p>
-		</header>
+		@pageChrome(m.Chrome())
 		if m.Aff.Unknown {
-			@affordanceAlert()
+			@zeroState(view.AffordanceUnknown())
 		}
 		@detailRegion(m)
-		<div class="form-actions">
-			for _, action := range m.Actions() {
-				<a class="btn btn-primary" href={ templ.SafeURL(action.Href) }>{ action.Label }</a>
-			}
-			if m.CanStream() {
-				<a class="btn" href={ templ.SafeURL(m.LogsHref()) }>Live output</a>
-			}
-			if m.CanEdit() {
-				<a class="btn" href={ templ.SafeURL(m.EditHref()) }>Edit</a>
-			}
-			if m.CanDelete() {
-				<button class="btn btn-danger" type="button" data-dialog-open="confirm-delete">Delete</button>
-			}
-		</div>
 		if m.CanDelete() {
 			@confirmDelete(m)
 		}
 	}
 }
 
-// detailRegion is a record's live content: its own fields and its related
-// tables, which are the two things that change while work is running.
+// detailRegion is a record's live content: whichever of its parts the
+// selected tab names.
 //
-// The action bar is deliberately outside it. Those controls are computed
-// from the caller's permitted set, and re-rendering them every few seconds
-// would move a Delete button under a cursor that was already travelling
+// The action bar is deliberately outside it, on the chrome. Those controls
+// are computed from the caller's permitted set, and re-rendering them every
+// few seconds would move a Delete button under a cursor already travelling
 // toward it. What changes on its own is data, not what a person may do.
 templ detailRegion(m view.DetailModel) {
 	<div
-		class="block"
+		class="record-region"
 		id="record-detail"
 		data-announce={ m.RefreshAnnouncement() }
 		if m.Polls() {
@@ -274,80 +209,45 @@ templ detailRegion(m view.DetailModel) {
 			data-poll="true"
 		}
 	>
-		<dl class="detail-list">
-			for _, f := range m.Fields() {
-				<dt>{ f.Label }</dt>
-				<dd>{ m.Value(f) }</dd>
-			}
-		</dl>
-		for _, section := range m.Sections {
-			@section_(section)
+		if m.ShowDetails() {
+			<div class="block">
+				<dl class="detail-list">
+					for _, f := range m.Fields() {
+						<dt>{ f.Label }</dt>
+						<dd>@detailValue(m, f)</dd>
+					}
+				</dl>
+			</div>
+		} else if m.ShowStream() {
+			@streamRegion(m.StreamURL())
+		}
+		for _, section := range m.SectionViews() {
+			@sectionPanel(section)
 		}
 	</div>
+}
+
+// detailValue renders one of a record's own values.
+//
+// The same three cases a table cell has, for the same reason: a state should
+// read as a badge wherever it appears, and a field that names another record
+// should reach it from the record page too. Without this the detail list was
+// the one place in the application where a reference was plain text, so the
+// walk down a hierarchy stopped at the first record you opened.
+templ detailValue(m view.DetailModel, f view.Field) {
+	if f.RendersBadge() {
+		<span class={ "badge", m.BadgeClass(f) }>{ m.Value(f) }</span>
+	} else if href := m.RefHref(f); href != "" {
+		<a href={ templ.SafeURL(href) }>{ m.Value(f) }</a>
+	} else {
+		{ m.Value(f) }
+	}
 }
 
 // DetailFragment is a record's live region alone, answered from the record's
 // own URL when the request carries HTMX's header.
 templ DetailFragment(m view.DetailModel) {
 	@detailRegion(m)
-}
-
-// detailSection renders one table of related records under a record's own
-// fields: a job's per-device outcomes, an inventory's members.
-//
-// It is the same table machinery the list view uses, driven by the same
-// Field declaration, so a section inherits the column rendering, the
-// validated badge classes and the mobile card layout rather than being a
-// second, lesser table that has to have all of that added to it later.
-templ section_(section view.LoadedSection) {
-	<section class="detail-section" aria-labelledby={ section.HeadingID() }>
-		<h2 id={ section.HeadingID() }>{ section.Spec.Title }</h2>
-		if section.Spec.Summary != "" {
-			<p class="view-summary">{ section.Spec.Summary }</p>
-		}
-		if !section.Spec.Implemented() {
-			// The same panel a declared view renders, for the same reason:
-			// an empty table would read as "no records", which is a claim
-			// about live data this section has no port to make.
-			<div class="declared" role="status">
-				<p><strong>Declared, not implemented.</strong></p>
-				<p>{ section.Spec.Empty }</p>
-			</div>
-		} else if !section.HasRows() {
-			// The declared empty text, never a blank table. "Nothing has
-			// reported yet" and "this dispatched to nothing" look identical
-			// as an empty table and are very different facts about a job
-			// somebody is investigating.
-			<p role="status">{ section.Spec.Empty }</p>
-		} else {
-			<div class="table-scroll">
-				<table class="table">
-					<thead>
-						<tr>
-							for _, col := range section.Columns() {
-								<th scope="col">{ col.Label }</th>
-							}
-						</tr>
-					</thead>
-					<tbody>
-						for _, row := range section.Rows {
-							<tr>
-								for _, col := range section.Columns() {
-									<td data-label={ col.Label } data-primary={ section.IsPrimary(col) }>
-										if col.RendersBadge() {
-											<span class={ "badge", section.BadgeClass(row, col) }>{ section.Cell(row, col) }</span>
-										} else {
-											{ section.Cell(row, col) }
-										}
-									</td>
-								}
-							</tr>
-						}
-					</tbody>
-				</table>
-			</div>
-		}
-	</section>
 }
 
 // confirmDelete is a native dialog, which brings the focus trap, the
@@ -371,9 +271,7 @@ templ confirmDelete(m view.DetailModel) {
 // Form renders a create or edit form.
 templ Form(m view.FormModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Heading() }</h1>
-		</header>
+		@pageChrome(m.Chrome())
 		<form method="post" action={ templ.SafeURL(m.Action()) }>
 			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
 			if m.HasErrors() {
@@ -408,9 +306,7 @@ templ Form(m view.FormModel) {
 // and the one that drifts is always the one with fewer readers.
 templ Action(m view.ActionModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Heading() }</h1>
-		</header>
+		@pageChrome(m.Chrome())
 		<form method="post" action={ templ.SafeURL(m.ActionHref()) }>
 			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
 			if m.Form().HasErrors() {
@@ -438,29 +334,24 @@ templ Action(m view.ActionModel) {
 // is a skeleton rather than presenting an empty page that looks broken.
 templ Declared(m view.DeclaredModel) {
 	@Layout(m.Page) {
-		<header class="view-header">
-			<h1>{ m.Descriptor.Title }</h1>
-			if m.Descriptor.Summary != "" {
-				<p class="view-summary">{ m.Descriptor.Summary }</p>
-			}
-		</header>
-		<div class="declared" role="status">
-			<p><strong>Declared, not implemented.</strong></p>
-			<p>{ m.Reason }</p>
-		</div>
+		@pageChrome(m.Chrome())
+		// The columns this view will list, with the not-implemented panel
+		// inside them. A declared view that says only "this is missing"
+		// is a view nobody can review; one that shows its shape is one
+		// somebody can say is the wrong shape before it is built.
+		@dataTable(m.Table())
+		if m.HasFutureTabs() {
+			<section class="detail-section" aria-labelledby="future-tabs-heading">
+				<h2 id="future-tabs-heading">Record tabs</h2>
+				<p class="view-summary">What a single record will carry once this view has a port behind it.</p>
+				<ul class="future-tabs">
+					for _, tab := range m.FutureTabs() {
+						<li>{ tab.Label }</li>
+					}
+				</ul>
+			</section>
+		}
 	}
-}
-
-// affordanceAlert renders when authorization could not be evaluated.
-//
-// HTML has no way to express the JSON API's "the _links field is absent,
-// which is not the same as empty", so the honest rendering is no action
-// buttons plus a visible explanation. Silently presenting a read-only page
-// would repeat FAILURE_PATTERNS #73 in a new medium.
-templ affordanceAlert() {
-	<div class="error-summary" role="alert">
-		<p>Available actions could not be determined. Reload to try again.</p>
-	</div>
 }
 
 // Login exchanges a credential for a session cookie.
@@ -526,48 +417,159 @@ templ Login(m view.PageModel, failed bool) {
 	}
 }
 
-// Account is the signed-in caller's own page: the one place a person
-// changes their own password.
+// Settings is the signed-in caller's own preferences.
 //
-// It takes no record id, and the form posts to a route that takes none
-// either. That is the authorization: the session is the subject, so there
-// is no field anybody could put another account's address into.
-templ Account(m view.PageModel) {
-	@Layout(m) {
-		<header class="view-header">
-			<h1>Account</h1>
-		</header>
-		if m.Notice != "" {
+// It takes no record id, and every form on it posts to a route that takes
+// none either. That is the authorization: the session is the subject, so
+// there is no field anybody could put another account's address into.
+templ Account(m view.AccountModel) {
+	@Layout(m.Page) {
+		@pageChrome(m.Chrome())
+		if m.Page.Notice != "" {
 			<div class="error-summary" role="alert" tabindex="-1">
-				<p>{ m.Notice }</p>
+				<p>{ m.Page.Notice }</p>
 			</div>
 		}
-		<section class="block">
-			<h2>Signed in as</h2>
-			<p>{ m.Subject }</p>
-		</section>
-		<form class="block" method="post" action={ templ.SafeURL(m.Prefix + "/account/password") }>
-			<input type="hidden" name="_csrf" value={ m.CSRFToken }/>
-			<h2>Change password</h2>
-			<p class="field-hint" id="change-hint">
-				Changing your password signs out every other session you have
-				open. This one stays signed in.
-			</p>
-			<div class="field">
-				<label for="current_password">Current password</label>
-				<input type="password" id="current_password" name="current_password" autocomplete="current-password" required/>
-			</div>
-			<div class="field">
-				<label for="new_password">New password</label>
-				<input type="password" id="new_password" name="new_password" autocomplete="new-password" required/>
-			</div>
-			<div class="field">
-				<label for="confirm_password">Repeat new password</label>
-				<input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" aria-describedby="change-hint" required/>
-			</div>
+		if m.ShowAppearance() {
+			@appearanceSection(m)
+		} else if m.ShowPassword() {
+			@passwordSection(m)
+		}
+	}
+}
+
+// appearanceSection is the three appearance axes, each its own form.
+//
+// All three post real forms, so every one works with scripting disabled and
+// none needs client-side persistence. Each is its own fieldset with its own
+// legend, so a screen reader user hears what a group of controls is for
+// before hearing the controls.
+templ appearanceSection(m view.AccountModel) {
+	<section class="block settings-block">
+		<form method="post" action={ m.Page.SkinAction() }>
+			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			<input type="hidden" name="_return" value={ m.Page.ReturnTo }/>
+			<fieldset class="choice-set">
+				<legend><h2>Style</h2></legend>
+				<p class="field-hint">Applies to every page you load. Each is a complete palette and shape system, not a colour swap.</p>
+				<div class="choice-grid">
+					for _, c := range m.SkinChoices() {
+						@choiceButton("skin", c)
+					}
+				</div>
+			</fieldset>
+		</form>
+	</section>
+	<section class="block settings-block">
+		<form method="post" action={ m.Page.ThemeAction() }>
+			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			<input type="hidden" name="_return" value={ m.Page.ReturnTo }/>
+			<fieldset class="choice-set">
+				<legend><h2>Theme</h2></legend>
+				// Three buttons, not a toggle: "follow the system" has to
+				// stay reachable after the user has expressed a preference,
+				// and a two-state control cannot express it.
+				<p class="field-hint">Three states rather than a switch, because once you have chosen one, following the device has to stay reachable.</p>
+				<div class="choice-grid">
+					for _, c := range m.ThemeChoices() {
+						@choiceButton("theme", c)
+					}
+				</div>
+			</fieldset>
+		</form>
+	</section>
+	<section class="block settings-block">
+		<h2>Accessibility mode</h2>
+		<p class="field-hint">
+			The switch is at the foot of the sidebar on every page, so it is never more
+			than one click away from whatever you were reading. It is currently
+			<strong>{ m.Page.A11yStateLabel() }</strong>.
+		</p>
+		<p class="field-hint">
+			It is never a degraded mode. Every feature, column and action stays exactly
+			where it was, and only the rendering changes. Over whichever style and theme
+			are active it:
+		</p>
+		<ul class="effect-list">
+			for _, effect := range m.AccessibilityEffects() {
+				<li>{ effect }</li>
+			}
+		</ul>
+		<form method="post" action={ m.Page.A11yAction() }>
+			<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+			<input type="hidden" name="_return" value={ m.Page.ReturnTo }/>
 			<div class="form-actions">
-				<button class="btn" type="submit">Change password</button>
+				<button class="btn" type="submit" name="a11y" value={ m.Page.A11yNext() } aria-pressed={ m.Page.A11yPressed() }>
+					if m.Page.A11y {
+						Turn accessibility mode off
+					} else {
+						Turn accessibility mode on
+					}
+				</button>
 			</div>
 		</form>
+	</section>
+}
+
+// choiceButton is one option in an appearance control.
+//
+// A submit button rather than a radio plus a save control: there is nothing
+// else on the form to save, so a second step would be a step that exists only
+// to be clicked. aria-pressed is what makes it read as a setting rather than
+// as an action, and the state also appears as a word, because a selection
+// signalled only by fill is signalled by colour alone.
+templ choiceButton(name string, c view.SkinChoice) {
+	<button class="choice" type="submit" name={ name } value={ c.Value } aria-pressed={ c.Pressed }>
+		<span class="choice-label">
+			{ c.Label }
+			if c.Selected {
+				<span class="choice-state">Selected</span>
+			}
+		</span>
+		<span class="choice-summary">{ c.Summary }</span>
+	</button>
+}
+
+// passwordSection is the one place a person changes their own password.
+templ passwordSection(m view.AccountModel) {
+	<form class="block settings-block" method="post" action={ templ.SafeURL(m.PasswordAction()) }>
+		<input type="hidden" name="_csrf" value={ m.Page.CSRFToken }/>
+		<h2>Change password</h2>
+		<p class="field-hint" id="change-hint">
+			Changing your password signs out every other session you have open. This
+			one stays signed in.
+		</p>
+		<div class="field">
+			<label for="current_password">Current password</label>
+			<input type="password" id="current_password" name="current_password" autocomplete="current-password" required/>
+		</div>
+		<div class="field">
+			<label for="new_password">New password</label>
+			<input type="password" id="new_password" name="new_password" autocomplete="new-password" required/>
+		</div>
+		<div class="field">
+			<label for="confirm_password">Repeat new password</label>
+			<input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" aria-describedby="change-hint" required/>
+		</div>
+		<div class="form-actions">
+			<button class="btn btn-primary" type="submit">Change password</button>
+		</div>
+	</form>
+}
+
+// SystemSettings is the deployment's own configuration.
+//
+// A fixed route with no record id, like the account page, because settings are
+// a singleton: there is one deployment and it has one configuration. Unlike
+// the account page the authorization is a scope rather than the structural
+// "the session is the subject", because this surface is about everyone.
+templ SystemSettings(m view.SystemSettingsModel) {
+	@Layout(m.Page) {
+		@pageChrome(m.Chrome())
+		// One statement for the whole area rather than one per group. The
+		// reason is the same everywhere, and repeating it six times would
+		// train a reader to stop reading it.
+		@zeroState(m.Declared())
+		@settingsTile(m.CurrentTile())
 	}
 }

@@ -44,5 +44,24 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Instances",
+				"The runners in this group, and whether each is taking work.",
+				"Runners pull from a durable NATS consumer group and are not registered anywhere, so this deployment cannot enumerate them.",
+				[]view.Field{
+					{Name: "instance", Label: "INSTANCE", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "capacity", Label: "CAPACITY", Kind: view.KindText, InList: true},
+					{Name: "last_seen", Label: "LAST SEEN", Kind: view.KindTimestamp, InList: true},
+				}),
+			view.Planned("Jobs",
+				"What this group has run, newest first.",
+				"A job records the devices it reached, not the runner that reached them, so a job cannot be attributed to a group.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "created", Label: "WHEN", Kind: view.KindText, InList: true},
+				}),
+		},
 	})
 }

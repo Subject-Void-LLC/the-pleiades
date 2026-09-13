@@ -195,9 +195,30 @@ func Register(store credstore.Store) error {
 		NavOrder: 50,
 		NavGroup: view.NavGroupResources,
 		Summary:  "Which secrets exist and what runs as them. Never a value.",
-		Status:   view.StatusImplemented,
-		IDField:  "name",
-		Fields:   fields,
+		// AWX's credential tabs. Neither is backed: bindings have no
+		// credential-scoped level, and the credential store resolves
+		// template to credentials rather than the reverse.
+		Sections: []view.Section{
+			view.Planned("Templates",
+				"The templates this credential is bound to, and how it reaches each run.",
+				"The store answers which credentials a template binds, not which templates bind a credential, so this needs the inverse index.",
+				[]view.Field{
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
+					{Name: "injector", Label: "INJECTED AS", Kind: view.KindText, InList: true},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+				}),
+			view.Planned("Access",
+				"The role bindings that reach this credential.",
+				"auth.ScopeType has system, organization, inventory, group and device, and no credential: access to one is inherited from the organization that owns it.",
+				[]view.Field{
+					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
+					{Name: "role", Label: "ROLE", Kind: view.KindText, InList: true},
+					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
+				}),
+		},
+		Status:  view.StatusImplemented,
+		IDField: "name",
+		Fields:  fields,
 		Ops: view.Ops{
 			List: &apispec.ListCredentials,
 			Get:  &apispec.GetCredential,

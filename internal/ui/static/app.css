@@ -300,6 +300,18 @@
   --control-shadow-active: var(--bevel-sunken);
   --field-shadow: var(--bevel-sunken);
 
+  /* The pane divider and the empty-state well. Every other skin leaves
+   * these undeclared and their fallbacks render exactly as before; this is
+   * the one skin where a boundary is a bevel rather than a line, and where
+   * an empty region is a sunken list box rather than a dashed outline. */
+  --divider-color: var(--bevel-color-light);
+  --pane-rule-width: 2px;
+  --pane-rule-color: var(--bevel-color-mid-dark);
+  --well-border-width: 0;
+  --well-border-style: solid;
+  --well-shadow: var(--bevel-sunken);
+  --well-bg: var(--field-bg);
+
   --titlebar-bg: #000080;
   --titlebar-fg: #ffffff;
 }
@@ -809,15 +821,39 @@ a {
 
 /* ---- Layout ---- */
 
+/* ---- The application shell ----
+ *
+ * The shell paints itself, which for three of the four skins is a no-op they
+ * could have done without: they alias --body-bg to --bg, so the page was one
+ * colour whether anything painted it or not.
+ *
+ * Las Ventanas is the skin that makes it necessary, and it is worth being
+ * precise about why, because the bug was invisible for as long as nobody
+ * looked at that skin. Its --body-bg is #008080, the Windows 95 DESKTOP, and
+ * its --bg is #C0C0C0, the dialog face. The token block says so exactly:
+ * teal sits "behind the dialog rather than under it". Nothing drew the
+ * dialog. body painted the desktop, .block was the only rule that painted
+ * --bg, and every region that is not a .block -- the whole dashboard, every
+ * list, every section -- rendered its text straight onto teal. --fg-muted is
+ * #4A4A4A, which on #008080 measures about 1.5:1 and is what a summary line
+ * on that page actually was.
+ *
+ * The inset is what keeps the desktop meaningful now that the shell is
+ * opaque: every skin leaves --layout-inset undeclared and the shell fills the
+ * viewport exactly as it always did, while Las Ventanas declares one and
+ * becomes a window sitting on its own desktop, which is what the teal was for.
+ */
 .layout {
   display: flex;
-  min-height: 100dvh;
+  min-height: calc(100dvh - (2 * var(--layout-inset, 0px)));
+  margin: var(--layout-inset, 0);
+  background: var(--bg);
 }
 
 .sidebar {
   width: var(--sidebar-width);
   flex: 0 0 var(--sidebar-width);
-  border-right: var(--border-width) solid var(--border);
+  border-right: var(--border-width) solid var(--divider-color, var(--border));
   padding: 1.5rem;
   background: var(--sidebar-bg, var(--bg));
   backdrop-filter: var(--sidebar-backdrop-filter, none);
@@ -838,6 +874,32 @@ a {
  * .sidebar-brand keeps rendering exactly as it always did (no background,
  * inherited colour), and this rule only ever fires under
  * [data-skin="las-ventanas"], so Brutalist and Honeycrisp are untouched. */
+/* The window on the desktop. A second Las-Ventanas-only rule, for the reason
+ * the titlebar below is one: an application framed by its own desktop colour
+ * is a behaviour no other skin has any use for, not a value one of them would
+ * ever want. The bevel is the same raised stack every panel in this skin
+ * gets, so the shell reads as a window rather than as a rectangle. */
+:root[data-skin="las-ventanas"] {
+  --layout-inset: 0.5rem;
+}
+[data-skin="las-ventanas"] .layout {
+  /* A real border rather than --panel-shadow's inset bevel, and the reason
+   * is the whole bug this replaces: an inset shadow paints inside the
+   * padding box, and .sidebar and .main are both opaque, so the children
+   * covered the outer bevel completely and the window read as a flat grey
+   * rectangle on teal. A border is outside the padding box and nothing a
+   * child paints can reach it.
+   *
+   * Light on the top and left, dark on the bottom and right, which is the
+   * raised edge every Windows 95 window has and what makes this read as a
+   * maximized application on a desktop rather than as a page with a teal
+   * margin. The colours are this skin's own bevel quartet, not new values. */
+  border-top: 2px solid var(--bevel-color-light);
+  border-left: 2px solid var(--bevel-color-light);
+  border-right: 2px solid var(--bevel-color-dark);
+  border-bottom: 2px solid var(--bevel-color-dark);
+}
+
 [data-skin="las-ventanas"] .sidebar-brand {
   margin: -1.5rem -1.5rem 1.5rem;
   padding: 0.6rem 1.5rem;
@@ -920,16 +982,216 @@ a {
   flex: 1 1 auto;
   padding: 2rem;
   min-width: 0; /* lets children shrink instead of forcing a page-wide scroll */
+  /* Painted as well as the shell, because .main is what scrolls: a shell
+   * background alone stops at the viewport and the content below it would
+   * fall back onto the body's desktop colour again. */
+  background: var(--bg);
+  /* The other half of the pane divider. Undeclared in every skin but Las
+   * Ventanas, where a flat line between two panes is not a thing this
+   * design language has: a boundary is a bevel, so the sidebar's own right
+   * edge takes the light colour and this takes the dark one, and the two
+   * together read as the panes being stamped into the same sheet. */
+  border-left: var(--pane-rule-width, 0) solid var(--pane-rule-color, transparent);
 }
 
+/* ---- Page chrome ----
+ *
+ * One header for every page: breadcrumb, title row, summary, tabs. It is one
+ * component in the template layer and one block of rules here, which is the
+ * whole reason a record page and a form page cannot drift apart the way they
+ * did when each wrote its own <header>.
+ *
+ * The h1 is 1.5rem rather than the 3rem it was. A control plane's job is to
+ * show rows, and a heading that spends 53 vertical pixels saying JOBS above a
+ * table of jobs is spending the reader's screen on something they already
+ * know. The type scale below it is unchanged: this is the one size that moved.
+ */
 .view-header {
   border-bottom: var(--border-width) solid var(--border);
-  padding-bottom: 1rem;
+  padding-bottom: 0;
   margin-bottom: 1.5rem;
+}
+/* A header with no tab strip has nothing to provide its own bottom spacing,
+ * so it provides its own. A header with tabs must not: the tabs sit on the
+ * border, and padding under them would lift them off it. */
+.view-header-plain {
+  padding-bottom: 1rem;
+}
+.view-header h1 {
+  font-size: 1.5rem;
 }
 .view-summary {
   color: var(--fg-muted);
   font-family: var(--font-mono);
+  /* A summary is a sentence, and a sentence set across a 1100px column is a
+   * sentence the eye loses its place in. */
+  max-width: 80ch;
+}
+.view-header .view-summary {
+  margin-top: 0.5rem;
+}
+
+/* The trail. An ordered list because the order is the meaning, with the
+ * separators drawn in CSS so a screen reader reads four list items rather
+ * than "Views slash Jobs slash 4821". */
+.crumbs {
+  margin-bottom: 0.5rem;
+}
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.crumbs li + li::before {
+  content: "/";
+  margin-right: 0.35rem;
+  opacity: 0.55;
+}
+.crumbs a {
+  color: var(--fg-muted);
+}
+.crumbs [aria-current="page"] {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+/* The title row carries the page's primary controls, right-aligned. They used
+ * to sit at the foot of the page under a rule, which is where a form's submit
+ * belongs and is not where anybody looks for Launch. */
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  /* Pushed to the trailing edge, and allowed to wrap underneath rather than
+   * squeezing the title when a record's name is long. */
+  margin-left: auto;
+}
+
+/* ---- Tabs ----
+ *
+ * Links, not the ARIA tab pattern, and therefore no role="tablist" here. Each
+ * one is a real navigation to a real URL that the server renders: the content
+ * security policy carries no 'unsafe-inline', the scripted pattern needs
+ * roving tabindex and arrow-key handling to be correct, and a tab whose state
+ * lives in the URL is one a reader can bookmark, link to and reload.
+ */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  /* Sits on the header's bottom border, which is what makes the current tab
+   * read as attached to the content below rather than floating above it. */
+  margin-bottom: calc(-1 * var(--border-width));
+}
+.tabs .tab {
+  padding: 0.6rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  text-decoration: none;
+  /* Transparent rather than absent, so the current tab's border does not
+   * change the element's height and shift the row by three pixels. */
+  border-bottom: var(--border-width) solid transparent;
+}
+.tabs .tab:hover {
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+.tabs .tab-current {
+  color: var(--fg);
+  border-bottom-color: var(--fg);
+}
+.tab-count {
+  margin-left: 0.4rem;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+/* ---- Zero states ----
+ *
+ * One shape for every absence: an empty collection, an empty section, a view
+ * with no implementation behind it, and authorization that could not be
+ * evaluated. They differ in tone and wording, which is data, and not in
+ * markup, which was four blocks of it.
+ */
+.zero {
+  border: var(--well-border-width, var(--border-width)) var(--well-border-style, dashed) var(--border);
+  box-shadow: var(--well-shadow, none);
+  background: var(--well-bg, transparent);
+  padding: 2rem;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.zero-heading {
+  font-size: 1rem;
+}
+.zero-body {
+  margin: 0.5rem auto 0;
+  max-width: 52ch;
+  color: var(--fg-muted);
+}
+.zero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 1.25rem;
+}
+/* A problem is not an absence. It takes the failure colour and a solid border,
+ * because "we could not work out what you may do here" is a different thing
+ * from "there is nothing here" and must not read as one. */
+.zero-problem {
+  /* A width of its own, not the well's. A problem is not an absence: Las
+   * Ventanas draws an empty region as a bevelled well with no border at
+   * all, which is right for "there is nothing here" and would silently
+   * delete the boundary that makes "we could not work out what you may do"
+   * read as a failure. The shadow goes too, for the same reason -- a
+   * sunken well says "empty", and this region is not. */
+  border-width: var(--border-width);
+  border-style: solid;
+  border-color: var(--fill-failed);
+  box-shadow: none;
+  background: transparent;
+  text-align: left;
+}
+.zero-problem .zero-body {
+  margin-left: 0;
+}
+.zero-problem .zero-actions {
+  justify-content: flex-start;
+}
+
+/* ---- Regions ----
+ *
+ * The swappable wrappers. They carry no visual weight of their own: what is
+ * inside them is a table, a zero state or a record's fields, each of which
+ * draws its own boundary. A border here would double every one of them.
+ */
+.list-region,
+.record-region {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.pager {
+  display: flex;
+  gap: 0.5rem;
 }
 
 /* ---- The block: the shape everything reuses ---- */
@@ -970,6 +1232,33 @@ a {
 .btn-danger:hover {
   background: var(--fill-failed);
   color: var(--on-fill);
+}
+
+/* The one control a page is for: launch, save, create.
+ *
+ * It was emitted by the record page's action bar long before it had a rule,
+ * so a primary action has been rendering as an ordinary button. It takes the
+ * info fill rather than a colour of its own because that pair, --fill-info
+ * with --on-fill-info, is the one accent every skin declares and the contrast
+ * gate already walks across all four skins, both themes and accessibility
+ * mode. A new colour here would be a new pair for that matrix to cover.
+ *
+ * The hover deliberately does not become the success green every other button
+ * turns: this control is already the emphasised one, and a fill that changes
+ * hue on hover reads as a different control rather than the same one under a
+ * cursor. */
+.btn-primary {
+  background: var(--fill-info);
+  color: var(--on-fill-info);
+  border-color: var(--border);
+}
+.btn-primary:hover {
+  background: var(--fill-info);
+  color: var(--on-fill-info);
+  /* The affordance is the outline, which works in forced-colors and for
+   * anyone who cannot distinguish the fill from its hover. */
+  outline: var(--rule-width) solid var(--fg);
+  outline-offset: 2px;
 }
 
 label {
@@ -1099,6 +1388,19 @@ select {
   overflow-x: auto;
 }
 
+/* ---- Related-record sections ----
+ *
+ * One per tab now rather than a stack of them, so this is spacing and a
+ * heading and nothing else: the table inside draws its own boundary, and the
+ * zero state inside draws its own. Another one here would double both. */
+.detail-section h2 {
+  font-size: 1.125rem;
+  margin-bottom: 0.25rem;
+}
+.detail-section .view-summary {
+  margin-bottom: 1rem;
+}
+
 /* ---- Detail list ---- */
 .detail-list {
   display: grid;
@@ -1214,71 +1516,20 @@ select {
 }
 
 /* ---- Theme control ---- */
-.theme-switch {
-  margin-top: 2rem;
-  border-top: var(--rule-width) solid var(--border);
-  padding-top: 1rem;
-}
-.theme-switch fieldset {
-  border: 0;
-}
-.theme-switch legend {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-.theme-options {
-  display: flex;
-  gap: 0.25rem;
-  margin-top: 0.5rem;
-}
-.theme-options button {
-  flex: 1 1 0;
-  /* A flex item's default min-width is auto, not 0: without this, a
-   * button cannot shrink past its own text's intrinsic width, so once a
-   * fourth skin's label no longer fits four-across, the row overflows its
-   * own card instead of letting the label wrap. min-width:0 alone lets the
-   * BUTTON shrink and the label wrap at the space between two words, but a
-   * single word longer than the button's own shrunk width -- "Ventanas"
-   * once four buttons share what three used to -- still has nowhere to
-   * break inside itself and overflows the button on its own line.
-   * overflow-wrap:anywhere is what lets that one word break too, so
-   * nothing this button ever displays can push past its box regardless of
-   * how many skins eventually share this row. */
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  padding: 0.4rem 0.2rem;
-  min-height: 2.75rem;
-  background: var(--bg);
-  color: var(--fg);
-  border: var(--component-border-width) solid var(--border);
-  border-radius: var(--radius-control) !important;
-  box-shadow: var(--control-shadow);
-  cursor: pointer;
-}
-.theme-options button[aria-pressed="true"] {
-  background: var(--fg);
-  color: var(--bg);
-  box-shadow: var(--control-shadow-active);
-}
-
-/* ---- Session block ----
+/* ---- Sidebar foot ----
  *
- * Last in the sidebar. Sign-out is a destructive-ish action and putting it
- * anywhere near the navigation invites the mis-click, so it sits below the
- * appearance controls with the same separating rule those use. */
+ * Identity, the way out, and the one appearance control that did not move to
+ * the settings page. Sign-out sits below the navigation with a separating
+ * rule, because it is destructive-ish and putting it next to a nav item
+ * invites the mis-click.
+ */
 .session {
   margin-top: 2rem;
   padding-top: 1rem;
   border-top: var(--rule-width) solid var(--border);
 }
 .session-subject {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 .session-label {
   display: block;
@@ -1296,17 +1547,185 @@ select {
    * wraps rather than overflowing its own container. */
   overflow-wrap: anywhere;
 }
-.session .btn {
-  width: 100%;
-  text-align: center;
+.session-links {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.session-links::before {
+  content: "";
+}
+.session-links form {
+  display: inline;
 }
 
-/* ---- Declared-but-not-implemented panel ---- */
-.declared {
-  border: var(--border-width) dashed var(--border);
-  padding: 2rem;
-  text-align: center;
+/* A submit control that reads as a link.
+ *
+ * Sign-out has to be a form, for the reasons layout.templ gives, but it does
+ * not have to look like a button to say so -- and a full-width button here is
+ * what the sidebar foot spent most of its height on. It keeps every button
+ * behaviour: it is focusable, it is announced as a button, and it submits. */
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+/* ---- The accessibility toggle ----
+ *
+ * Full width at the very foot of the sidebar, on every page. It is the one
+ * control somebody reaches for when the page in front of them has become hard
+ * to read, so it is never somewhere they have to go and find.
+ *
+ * Its state is a word as well as a fill, because a toggle signalled only by
+ * its background is a toggle signalled by colour alone.
+ */
+.a11y-toggle {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: var(--rule-width) solid var(--border);
+}
+.a11y-toggle button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  /* 24x24 is the AA floor; this clears it in every direction. */
+  min-height: 2.75rem;
+  padding: 0.5rem 0.6rem;
   font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--component-border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--control-shadow);
+  cursor: pointer;
+}
+.a11y-toggle button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: var(--control-shadow-active);
+}
+.a11y-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+}
+.a11y-label {
+  flex: 1 1 auto;
+  /* "Accessibility mode" is two words in a 280px column minus an icon and a
+   * state word. It wraps rather than overflowing. */
+  overflow-wrap: anywhere;
+}
+.a11y-state {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+/* ---- Settings page ---- */
+.settings-block + .settings-block {
+  margin-top: 1.5rem;
+}
+.settings-block h2 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.choice-set {
+  border: 0;
+}
+.choice-set legend {
+  /* A legend cannot contain a heading and still be a legend in every
+   * engine's accessibility tree, so the heading is inside it and the legend
+   * itself contributes only the grouping. */
+  padding: 0;
+}
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem;
+  text-align: left;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--component-border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--control-shadow);
+  cursor: pointer;
+  font: inherit;
+}
+.choice-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  /* The lesson from the control this replaced, carried forward rather than
+   * relearned. The sidebar's skin row was fixed twice for overflow: once when
+   * a fourth button stopped fitting four-across, and again when "Ventanas"
+   * turned out to have nowhere to break inside itself. This grid wraps to one
+   * column long before that, so it cannot happen the same way, and the guard
+   * costs nothing if a fifth skin arrives with a longer name. */
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.choice-state {
+  margin-left: auto;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+.choice-summary {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.choice[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: var(--control-shadow-active);
+}
+/* The muted token is measured against the page background, not against the
+ * inverted fill a selected choice carries, so the summary inside one takes
+ * the inverted foreground instead. */
+.choice[aria-pressed="true"] .choice-summary {
+  color: var(--bg);
+}
+.effect-list {
+  margin: 0.75rem 0 0 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  max-width: 80ch;
+}
+.effect-list li + li {
+  margin-top: 0.5rem;
+}
+
+/* ---- Declared-but-not-implemented ----
+ *
+ * Styled by .zero-declared above rather than by a panel of its own. It is one
+ * of four absences that render the same shape, and the only thing that made
+ * it different was that it was written second.
+ */
+.zero-declared {
+  border-style: var(--well-border-style, dashed);
 }
 
 /* ---- Chart ---- */
@@ -1541,7 +1960,10 @@ select {
 @media (pointer: coarse) {
   .btn,
   .nav-list a,
-  .theme-options button,
+  .tabs .tab,
+  .choice,
+  .a11y-toggle button,
+  .a11y-bar button,
   input,
   select,
   textarea {
@@ -1555,6 +1977,10 @@ select {
 @media (forced-colors: active) {
   .block,
   .btn,
+  .choice,
+  .a11y-toggle button,
+  .a11y-bar button,
+  .zero,
   .table th,
   .table td,
   input,
@@ -1562,8 +1988,165 @@ select {
   textarea {
     border-color: ButtonText;
   }
+  /* The current tab is marked by a border colour, which forced-colors
+   * overrides, so it is marked by a system-highlighted one instead. */
+  .tabs .tab-current {
+    border-bottom-color: Highlight;
+  }
   .badge {
     border-color: CanvasText;
     forced-color-adjust: none;
+  }
+}
+
+/* ---- The signed-out accessibility bar ----
+ *
+ * The same control as the sidebar's, in the one place it has to be when there
+ * is no sidebar yet: first in the document, and therefore the first thing a
+ * keyboard or screen reader user reaches on the sign-in page.
+ *
+ * A bar rather than a floating button. Somebody who needs this is somebody
+ * who may be at high zoom, where a floated control overlaps the content it
+ * sits on top of; a bar in the flow pushes the page down instead and cannot
+ * cover anything.
+ */
+.a11y-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 1rem;
+  border-bottom: var(--rule-width) solid var(--border);
+  background: var(--bg);
+}
+.a11y-bar button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--component-border-width) solid var(--border);
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--control-shadow);
+  cursor: pointer;
+}
+.a11y-bar button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: var(--control-shadow-active);
+}
+
+/* A declared region's zero state sits inside its own table, under the columns
+ * it is going to have. The cell is a layout container and must not be read as
+ * a data cell, so it drops the row rule the others carry. */
+.zero-row td {
+  border-bottom: 0;
+  padding: 1rem 0 0;
+}
+
+/* The tabs a declared view's record will carry. A list rather than a tab
+ * strip, because a tab that goes nowhere is a control that lies about being
+ * one. */
+.future-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin-top: 0.75rem;
+}
+.future-tabs li {
+  padding: 0.35rem 0.7rem;
+  border: var(--rule-width) dashed var(--border);
+  border-radius: var(--radius-control) !important;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* ---- The settings area ----
+ *
+ * Descriptions rather than live controls, deliberately. Nothing here is
+ * editable and a text box that looks ready to accept a client secret and then
+ * silently discards it is worse than no text box: the shape is the thing worth
+ * reviewing, and a description carries it without the lie.
+ */
+.settings-group + .settings-group {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: var(--rule-width) solid var(--border);
+}
+.settings-group h2 {
+  font-size: 1.125rem;
+  margin-bottom: 0.25rem;
+}
+.settings-group .view-summary {
+  margin-bottom: 0.75rem;
+}
+.settings-reason {
+  padding: 0.75rem 1rem;
+  border-left: var(--border-width) solid var(--fill-skipped);
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  max-width: 88ch;
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) 1fr;
+  gap: 0.5rem 1.5rem;
+  margin-top: 1rem;
+  max-width: 110ch;
+}
+.settings-fields dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-bottom: var(--rule-width) solid var(--border);
+  /* A settings name can be long and this column is narrow. It wraps rather
+   * than overflowing into the description beside it. */
+  overflow-wrap: anywhere;
+}
+.settings-fields dd {
+  padding: 0.5rem 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  border-bottom: var(--rule-width) solid var(--border);
+}
+/* The kind of value a setting takes, beside its name. Quiet, because it is a
+ * type and not a label: a reader wants it available, not announced. */
+.settings-kind {
+  font-weight: 400;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* Below the breakpoint the two columns stack, and the rule between a name and
+ * its description would then read as a separator inside one entry. */
+@media (max-width: 48rem) {
+  .settings-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .settings-fields dt {
+    border-bottom: 0;
+    padding-bottom: 0;
   }
 }

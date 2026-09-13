@@ -49,7 +49,7 @@ func registrars() []Registrar {
 		func(Deps) error { return governance.Register() },
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
-		func(d Deps) error { return inventories.Register(d.Sets) },
+		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
 		func(d Deps) error { return jobs.Register(d.Jobs) },
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
@@ -59,7 +59,7 @@ func registrars() []Registrar {
 		func(d Deps) error { return schedules.Register(d.Schedules, d.Templates) },
 		func(d Deps) error { return teams.Register(d.Access) },
 		func(d Deps) error {
-			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog, d.Credentials)
+			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog, d.Credentials, d.Schedules)
 		},
 		func(d Deps) error { return users.Register(d.Access) },
 	}

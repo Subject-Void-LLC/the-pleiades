@@ -154,15 +154,28 @@ func (h *Handler) Routes() http.Handler {
 		r.Post("/login", h.doLogin)
 	})
 
+	// Appearance preferences, reachable signed in or signed out.
+	//
+	// They set a cookie holding a rendering choice and touch nothing else,
+	// which is what makes them the only writes here that do not need an
+	// identity. Accessibility mode is the reason it matters: it exists for
+	// somebody who cannot comfortably read the page in front of them, and
+	// the sign-in page is a page. See preferences.go.
+	r.Group(func(r chi.Router) {
+		r.Use(h.optionalSession)
+		r.Use(h.preferenceCSRF)
+
+		r.Post("/theme", h.setTheme)
+		r.Post("/skin", h.setSkin)
+		r.Post("/a11y", h.setA11y)
+	})
+
 	// Everything else requires a session.
 	r.Group(func(r chi.Router) {
 		r.Use(h.requireSession)
 		r.Use(h.csrf)
 
 		r.Post("/logout", h.doLogout)
-		r.Post("/theme", h.setTheme)
-		r.Post("/skin", h.setSkin)
-		r.Post("/a11y", h.setA11y)
 
 		// The caller's own account. No {id} anywhere in either route,
 		// which is the authorization rather than a check inside the
@@ -171,6 +184,11 @@ func (h *Handler) Routes() http.Handler {
 		// the users resource.
 		r.Get("/account", h.showAccount)
 		r.Post("/account/password", h.changePassword)
+
+		// The deployment's own settings. Static, so chi resolves it before
+		// /{resource} and a view registered under this name could never
+		// reach its own page. See systemsettings.go.
+		r.Get("/settings", h.showSystemSettings)
 
 		r.Get("/", h.index)
 		r.Get("/{resource}", h.list)
@@ -335,16 +353,27 @@ func (h *Handler) page(r *http.Request, title, current string) view.PageModel {
 	})
 
 	return view.PageModel{
-		Banner:    h.cfg.Banner,
-		Title:     title,
-		Theme:     h.themeOf(r),
-		Skin:      h.skinOf(r),
-		A11y:      h.a11yOf(r),
-		Version:   h.cfg.Version,
-		Prefix:    h.cfg.Prefix,
-		CSRFToken: h.csrfTokenFor(r),
-		Subject:   subjectOf(identity),
-		Nav:       nav,
+		Banner:  h.cfg.Banner,
+		Title:   title,
+		Theme:   h.themeOf(r),
+		Skin:    h.skinOf(r),
+		A11y:    h.a11yOf(r),
+		Version: h.cfg.Version,
+		Prefix:  h.cfg.Prefix,
+		// The settings area is a fixed route rather than a registered view,
+		// so it is not in the descriptor list BuildNavSections filters. It
+		// is gated on the same scope its handler checks, through the same
+		// admission chain, so the navigation cannot advertise a page the
+		// router would refuse -- which is the failure mode a second opinion
+		// about authorization always produces.
+		ShowSettings: h.permits(r.Context(), identity, auth.ScopeSettingsRead),
+		CSRFToken:    h.csrfTokenFor(r),
+		Subject:      subjectOf(identity),
+		Nav:          nav,
+		// Where an appearance control returns the reader to, carried in a
+		// hidden field rather than inferred from a Referer a browser may
+		// not send. See preferences.go's returnTo.
+		ReturnTo: h.currentURL(r),
 	}
 }
 

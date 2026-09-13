@@ -203,11 +203,16 @@ func notificationsSection() view.Section {
 // template run" is the question somebody has on this page, and answering it
 // by filtering a page of the global job list would scan the fastest-growing
 // table here to find a handful of rows.
-func completedJobsSection(jobs dispatch.JobStore) view.Section {
+func jobsSection(jobs dispatch.JobStore) view.Section {
 	return view.Section{
-		Status:  view.StatusImplemented,
-		Title:   "Completed jobs",
-		Summary: "What this template has run, newest first.",
+		Status: view.StatusImplemented,
+		// "Jobs", as AWX names the same tab, and not "Completed jobs":
+		// ListForTemplate returns every job this template has produced
+		// whatever state it is in, so the old title was wrong about its
+		// own contents as well as about the word the audience arrives
+		// with. A running job is the one somebody most wants to find here.
+		Title:   "Jobs",
+		Summary: "What this template has run, newest first, whatever state it reached.",
 		Empty:   "This template has not been launched yet.",
 		Fields: []view.Field{
 			{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},

@@ -127,6 +127,26 @@ type PageModel struct {
 	// Nav is the sidebar, in order, already filtered by authorization.
 	Nav []NavSection
 
+	// ShowSettings reports whether this caller may reach the deployment's
+	// own settings.
+	//
+	// Computed by the handler through the same admission chain the settings
+	// route itself checks, rather than decided here: a template that made
+	// its own judgement would be a second opinion about authorization, and
+	// the one that drifts is always the one nobody is testing.
+	ShowSettings bool
+
+	// ReturnTo is the URL of the page being rendered, carried in a hidden
+	// field by every appearance control so a preference change puts the
+	// reader back exactly where they were.
+	//
+	// Path and query, on this origin. It exists because a Referer is
+	// routinely stripped by privacy settings, proxies and referrer
+	// policies, and because the query is where a record's tab and a list's
+	// cursor now live: a control that returns you to the path alone is one
+	// that quietly sends you to a different tab every time you use it.
+	ReturnTo string
+
 	// Banner is the environment or classification marking. It is on the
 	// page model rather than read from config inside a template because a
 	// template must not reach for global state, and because the login page

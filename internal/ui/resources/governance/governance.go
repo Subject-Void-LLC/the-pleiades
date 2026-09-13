@@ -45,6 +45,25 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "policy",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Gates",
+				"The promotion gates this policy applies, in the order they are evaluated.",
+				"Promotion gates are a Run-tier concern and this deployment is Walk tier: there is no gate engine to read.",
+				[]view.Field{
+					{Name: "gate", Label: "GATE", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "applies_to", Label: "APPLIES TO", Kind: view.KindText, InList: true},
+					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Decisions",
+				"What this policy has allowed and refused, newest first.",
+				"Nothing evaluates a policy in this build, so there are no decisions to show.",
+				[]view.Field{
+					{Name: "subject", Label: "SUBJECT", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true},
+					{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
+					{Name: "at", Label: "WHEN", Kind: view.KindTimestamp, InList: true},
+				}),
+		},
 		// No Ops. There is no endpoint to name, and naming one that does
 		// not exist is precisely what Register refuses.
 	})

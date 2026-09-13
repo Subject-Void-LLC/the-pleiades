@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // This file covers the launch form, which is the one place in this UI where
@@ -117,20 +119,33 @@ func TestTemplatesView_TheDetailPageSaysWhatIsNotBuilt(t *testing.T) {
 	body := w.Body.String()
 
 	// Four sections that reach a port, and one that says out loud that it
-	// does not. An empty Notifications table would read as "no policies are
-	// configured", which is indistinguishable from a working section with
-	// no records, and this project has shipped that ambiguity twice.
-	for _, section := range []string{"Survey", "Access", "Notifications", "Completed jobs"} {
-		if !strings.Contains(body, section) {
-			t.Errorf("the detail page has no %q section", section)
+	// does not. Each is a tab on the record, so this asserts the tab is
+	// offered rather than merely that its title appears somewhere: a title
+	// in a heading and a title in a tab strip that links nowhere look the
+	// same to strings.Contains.
+	for _, section := range []string{"Survey", "Access", "Notifications", "Jobs"} {
+		slug := view.TabSlug(section)
+		if !strings.Contains(body, "tab="+slug) {
+			t.Errorf("the detail page offers no %q tab", section)
 		}
 	}
-	if !strings.Contains(body, "Declared, not implemented.") {
+
+	// An empty Notifications table would read as "no policies are
+	// configured", which is indistinguishable from a working section with
+	// no records, and this project has shipped that ambiguity twice.
+	if !strings.Contains(h.section(t, "/ui/templates/1", "Notifications"), "Declared, not implemented") {
 		t.Error("the Notifications section renders as though it were backed by something")
+	}
+
+	// The sections that do reach a port render their tables rather than
+	// that panel, which is the other half of the same claim.
+	if strings.Contains(h.section(t, "/ui/templates/1", "Access"), "Declared, not implemented") {
+		t.Error("the Access section claims to be unimplemented")
 	}
 
 	// The survey's questions are listed; the answers to them are not. What
 	// a survey asks is not secret, and what somebody answered is.
+	body = h.section(t, "/ui/templates/1", "Survey")
 	if !strings.Contains(body, "version") {
 		t.Error("the Survey section does not list the question the template asks")
 	}

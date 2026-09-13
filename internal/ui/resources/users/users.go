@@ -108,6 +108,28 @@ func Register(store access.Users) error {
 		Title:    "Users",
 		NavLabel: "USERS",
 		NavGroup: view.NavGroupAccess,
+		// AWX's user tabs. Roles is deliberately absent and its absence is
+		// the point: this platform grants roles to teams and never to a
+		// person, so a user's reach is the union of their teams' grants.
+		// Rendering a per-user roles tab would invite somebody to look for
+		// a grant that cannot exist.
+		Sections: []view.Section{
+			view.Planned("Teams",
+				"The teams this person belongs to. Their access is the union of what those teams hold.",
+				"Membership is an edge on the team rather than a listing on the user, and no port reads it from this side yet.",
+				[]view.Field{
+					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+				}),
+			view.Planned("Sessions",
+				"Where this person is currently signed in.",
+				"Sessions are rows this UI reads only for the caller's own request; enumerating another account's is a capability nothing here has.",
+				[]view.Field{
+					{Name: "started", Label: "STARTED", Kind: view.KindTimestamp, InList: true, MobilePrimary: true},
+					{Name: "expires", Label: "EXPIRES", Kind: view.KindTimestamp, InList: true},
+					{Name: "source", Label: "SOURCE", Kind: view.KindText, InList: true},
+				}),
+		},
 		NavOrder: 110,
 		Summary:  "Known identities. Membership of a team is what grants anything.",
 		Status:   view.StatusImplemented,

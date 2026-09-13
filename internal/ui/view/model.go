@@ -170,6 +170,13 @@ type SummaryError struct {
 var reservedFormKeys = map[string]bool{
 	"_csrf":   true,
 	"_method": true,
+	// Where an appearance control puts the reader back. It rides on the
+	// preference forms rather than on a resource form, but the edit-form
+	// conformance suite resubmits every control rendered on a page, so any
+	// key the chrome emits has to be declared here or it reads as
+	// over-posting. The underscore is the convention that says "the form
+	// machinery owns this, it is not a field".
+	"_return": true,
 }
 
 // Values is a submitted form, narrowed to the fields a descriptor actually

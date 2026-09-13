@@ -153,7 +153,11 @@ func TestAccessViews_CarryTheContactsOfTheRecordTheyAreOn(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d, want 200", tc.path, w.Code)
 		}
-		body := w.Body.String()
+		if !strings.Contains(w.Body.String(), "tab=contacts") {
+			t.Errorf("%s offers no Contacts tab", tc.path)
+			continue
+		}
+		body := h.section(t, tc.path, "Contacts")
 
 		if !strings.Contains(body, "Contacts") {
 			t.Errorf("%s has no Contacts section", tc.path)

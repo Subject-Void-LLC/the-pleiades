@@ -34,6 +34,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -557,7 +558,7 @@ func yesNo(v bool) string {
 // has this run", and the bindings answer "who can reach it".
 func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStore,
 	dispatcher *api.Dispatcher, bindings access.Bindings, catalog launch.Catalog,
-	creds credentials) error {
+	creds credentials, schedules schedule.Store) error {
 
 	return view.Register(view.Descriptor{
 		Name:     Name,
@@ -566,12 +567,13 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 		// First within Resources, which is where AWX puts the same object:
 		// it is what an operator touches daily, and everything else in the
 		// group is something it names or something that names it.
-		NavOrder: 40,
-		NavGroup: view.NavGroupResources,
-		Summary:  "What to run, where to run it, and how: the saved definitions this platform launches.",
-		Status:   view.StatusImplemented,
-		IDField:  "name",
-		Fields:   fields(sets, catalog),
+		NavOrder:         40,
+		NavGroup:         view.NavGroupResources,
+		Summary:          "What to run, where to run it, and how: the saved definitions this platform launches.",
+		Status:           view.StatusImplemented,
+		IDField:          "name",
+		StatusBadgeField: "activity",
+		Fields:           fields(sets, catalog),
 		// One control and one checkbox per field of this template's own
 		// kind, resolved per record because the field set is per kind
 		// (defaults.go). Never offered on create: the kind is not chosen
@@ -591,9 +593,10 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 		},
 		Sections: []view.Section{
 			surveySection(store),
+			schedulesSection(schedules),
 			accessSection(store, bindings),
 			notificationsSection(),
-			completedJobsSection(jobs),
+			jobsSection(jobs),
 		},
 		Handlers: view.MustBind(reader{store: store, jobs: jobs}, writer{store}, projector()),
 	})

@@ -24,6 +24,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/session"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/web"
 	pkginventory "github.com/Subject-Void-LLC/the-pleiades/pkg/inventory"
 	"github.com/go-chi/chi/v5"
@@ -139,6 +140,19 @@ var (
 			auth.ScopeTemplateRead, auth.ScopeTemplateWrite,
 			auth.ScopeScheduleRead, auth.ScopeScheduleWrite},
 	}
+	// settingsAdminIdentity is the only identity in this suite holding
+	// settings:read. It is separate from adminIdentity on purpose: the pair
+	// is what proves the settings surface is gated on its own scope rather
+	// than on being an administrator of anything else.
+	// Deliberately RoleOperator and not RoleAdmin. The admin role bypasses
+	// every scope check unconditionally (auth.Identity.HasScope), so an
+	// admin reaching the settings page would prove nothing about the scope
+	// that guards it -- the assertion would pass with the gate deleted.
+	settingsAdminIdentity = &auth.Identity{
+		Subject: "conformance-settings-admin",
+		Role:    auth.RoleOperator,
+		Scopes:  []auth.Scope{auth.ScopeSettingsRead, auth.ScopeJobRead, auth.ScopeInventoryRead},
+	}
 	viewerIdentity = &auth.Identity{
 		Subject: "conformance-viewer",
 		Role:    auth.RoleViewer,
@@ -227,6 +241,25 @@ func (h *harness) get(t *testing.T, path string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	h.handler.ServeHTTP(w, r)
 	return w
+}
+
+// section fetches a record's page at the tab holding one named section, and
+// returns the body.
+//
+// A record's related tables live behind tabs rather than stacked under its
+// fields, so reaching one is a second navigation. Going through view.TabSlug
+// rather than spelling the slug out means a test names the section the way
+// its descriptor does, and a section renamed in a declaration does not leave
+// a dozen hand-written slugs quietly fetching a tab that no longer exists --
+// which would fall back to the record's own fields and fail with a confusing
+// message about a missing heading.
+func (h *harness) section(t *testing.T, path, sectionTitle string) string {
+	t.Helper()
+	rec := h.get(t, path+"?tab="+view.TabSlug(sectionTitle))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s at section %q = %d, want 200", path, sectionTitle, rec.Code)
+	}
+	return rec.Body.String()
 }
 
 // post issues an authenticated POST carrying a valid CSRF token, so a test

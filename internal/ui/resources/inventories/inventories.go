@@ -20,6 +20,9 @@ package inventories
 
 import (
 	"context"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/grants"
 	"strconv"
 	"strings"
 
@@ -178,7 +181,7 @@ func (w writer) Delete(ctx context.Context, id string) error {
 }
 
 // Register wires this view over the live set store.
-func Register(sets inventory.SetStore) error {
+func Register(sets inventory.SetStore, bindings access.Bindings) error {
 	declared := fields(sets)
 
 	projector := view.Projector[inventory.Set]{
@@ -245,7 +248,41 @@ func Register(sets inventory.SetStore) error {
 		Summary:  "Named sets of devices a runbook can be dispatched against.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   declared,
+		// AWX's inventory tabs. Access is real: an inventory is a grant
+		// target in auth.ScopeType, its record id is the numeric set id the
+		// bindings key on, and nothing was rendering it. The rest name what
+		// this platform does not have yet rather than leaving the shape to
+		// whoever eventually builds it.
+		Sections: []view.Section{
+			grants.SectionForScope(bindings, auth.ScopeInventory, "inventory"),
+			view.Planned("Devices",
+				"The devices in this inventory, whether named directly or reached through a group.",
+				"A set records its members as device and group ids, and this view holds no port to resolve them into devices. The Devices view lists the fleet in full.",
+				[]view.Field{
+					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "devices"},
+					{Name: "type", Label: "TYPE", Kind: view.KindText, InList: true},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "via", Label: "REACHED BY", Kind: view.KindText, InList: true},
+				}),
+			view.Planned("Sources",
+				"Where this inventory's membership is synced from.",
+				"Sync plugins implement a four-stage contract and run out of band; nothing records which source last populated a set.",
+				[]view.Field{
+					{Name: "plugin", Label: "PLUGIN", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "last_sync", Label: "LAST SYNC", Kind: view.KindTimestamp, InList: true},
+					{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Jobs",
+				"What has run against this inventory, newest first.",
+				"A job records the template it came from rather than the inventory that template named, so jobs cannot be listed by inventory yet.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "created", Label: "WHEN", Kind: view.KindText, InList: true},
+				}),
+		},
+		Fields: declared,
 		Ops: view.Ops{
 			List:   &apispec.ListInventories,
 			Get:    &apispec.GetInventory,

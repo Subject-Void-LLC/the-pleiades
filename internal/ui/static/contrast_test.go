@@ -505,3 +505,76 @@ func TestBannerContrast(t *testing.T) {
 		}
 	}
 }
+
+// TestTheShellPaintsWhateverTextSitsOn is the gap the contrast gate above had,
+// and the reason a whole skin was unreadable while every contrast test passed.
+//
+// Every assertion in this file measures a token against --bg. The page did not
+// paint --bg. body painted --body-bg and .block was the only rule that set
+// --bg, so every region that is not a .block -- the entire dashboard, every
+// collection table, every related-record section -- rendered its text onto
+// --body-bg instead. For three skins that is the same colour and the gate was
+// accidentally right. Las Ventanas is the one skin where the two differ on
+// purpose: teal #008080 desktop, #C0C0C0 dialog face. Its muted text was
+// landing on teal at roughly 1.5:1, on a page this suite reported as passing.
+//
+// The gate was not wrong about the pair it measured. It was measuring a pair
+// that was not on screen, which is the harder failure to see, so this asserts
+// the thing that makes the measured pair the real one: the shell paints --bg.
+func TestTheShellPaintsWhateverTextSitsOn(t *testing.T) {
+	body, err := static.Read("app.css")
+	if err != nil {
+		t.Fatalf("reading app.css: %v", err)
+	}
+	css := string(body)
+
+	// The two rules that stand between text and the body's own colour. The
+	// shell covers the viewport; .main covers what scrolls past it.
+	for _, sel := range []string{".layout", ".main"} {
+		rule := ruleBody(t, css, sel)
+		if rule == "" {
+			t.Fatalf("%s has no rule at all, so nothing paints the content surface", sel)
+		}
+		if !strings.Contains(rule, "background: var(--bg)") {
+			t.Errorf("%s does not paint var(--bg), so text renders onto whatever --body-bg is.\n"+
+				"Every contrast assertion in this file measures against --bg, and is only "+
+				"meaningful while that is the colour actually behind the text.\nRule was:\n%s", sel, rule)
+		}
+	}
+}
+
+// ruleBody returns the declarations of the first top-level rule whose selector
+// is exactly sel, or the empty string.
+//
+// Deliberately crude, matching this file's existing posture: these tests read
+// the stylesheet as text rather than parsing it, because a parser would be a
+// dependency asserting things about a file the browser reads literally.
+func ruleBody(t *testing.T, css, sel string) string {
+	t.Helper()
+	for _, block := range strings.Split(css, "}") {
+		open := strings.Index(block, "{")
+		if open < 0 {
+			continue
+		}
+		if strings.TrimSpace(stripComments(block[:open])) == sel {
+			return block[open+1:]
+		}
+	}
+	return ""
+}
+
+// stripComments removes /* ... */ from a selector fragment, since a rule is
+// routinely preceded by the comment explaining it.
+func stripComments(s string) string {
+	for {
+		start := strings.Index(s, "/*")
+		if start < 0 {
+			return s
+		}
+		end := strings.Index(s[start:], "*/")
+		if end < 0 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+2:]
+	}
+}
