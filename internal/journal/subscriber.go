@@ -23,7 +23,13 @@ import (
 
 // Subscriber writes published journal batches into the store.
 type Subscriber struct {
-	store  *EntStore
+	// store is where a decoded batch lands.
+	store *EntStore
+
+	// logger carries the two things this consumer can only report, never
+	// fix: a batch that could not be decoded and one the store will never
+	// accept. Both are acknowledged, so the log line is the only record
+	// that either happened.
 	logger *slog.Logger
 }
 

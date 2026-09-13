@@ -146,7 +146,7 @@ func TestEntStoreRefusesAnOutcomeItHasNoColumnValueFor(t *testing.T) {
 }
 
 func TestEntStoreStopsAtTheFirstRealFailure(t *testing.T) {
-	// A duplicate is skipped and its neighbours land; a real failure is
+	// A duplicate is skipped and its neighbors land; a real failure is
 	// returned along with how many rows did land, so a caller can tell a
 	// partial write from none at all.
 	store, _ := newEntStore(t)

@@ -34,11 +34,25 @@ import (
 // and its own publisher, so two of these never share state. A publisher
 // held on the Adapter would need one.
 type journalPublisher struct {
-	bus      event.Bus
-	logger   *slog.Logger
+	// bus is the port this publishes through. Deliberately not a
+	// jetstream handle: internal/adapters/native is not on
+	// internal/archtest's adapter allowlist and must not import a
+	// concrete driver.
+	bus event.Bus
+
+	// logger reports the one thing this decides rather than receives: a
+	// dispatch that carried no attempt.
+	logger *slog.Logger
+
+	// jobID and deviceID identify the dispatch this publisher was built
+	// for. They come from the payload, never from anything the run
+	// reports, because a run cannot know which dispatch it serves.
 	jobID    string
 	deviceID string
-	attempt  int
+
+	// attempt is the delivery's redelivery count, read from the context
+	// once at construction rather than per Record.
+	attempt int
 }
 
 // newJournalPublisher builds the sink for one dispatch.

@@ -41,6 +41,10 @@ var ErrUnstorable = errors.New("the journal batch can never be stored")
 
 // EntStore persists journal entries into the control plane's database.
 type EntStore struct {
+	// client is the control plane's own ent client, shared with every
+	// other store rather than opened again here: this writes into the
+	// same database, in the same process, as everything else the
+	// Controller persists.
 	client *ent.Client
 }
 
@@ -61,7 +65,7 @@ func NewEntStore(client *ent.Client) *EntStore {
 // Entries are written one at a time rather than as a bulk insert. A bulk
 // insert is one statement, so on Postgres a single conflicting row
 // aborts the whole transaction and takes the entries that were fine with
-// it; written singly, a duplicate skips and its neighbours land. A level
+// it; written singly, a duplicate skips and its neighbors land. A level
 // is a handful of nodes, so the cost is a handful of statements.
 func (s *EntStore) Save(ctx context.Context, entries []engine.JournalEntry) (int, error) {
 	written := 0
