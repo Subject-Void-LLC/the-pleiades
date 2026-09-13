@@ -23,14 +23,22 @@
 
 /* ---- Token vocabulary ----
  *
- * Two skins, three appearance modes, one set of token NAMES. Every
+ * Three skins, three appearance modes, one set of token NAMES. Every
  * component rule below reads var(--fg), var(--border), var(--shadow-offset)
  * and so on, so a skin is a block of values rather than a second
  * stylesheet -- a skin needing its own component rules would be a fork,
  * not a skin.
  *
+ * --radius, --shadow-blur and --shadow-spread are shape tokens on the same
+ * footing as the colour ones: Brutalist and Las Ventanas both declare them
+ * as zero, which is why the universal reset below still reads as "square
+ * corners, hard edges" for either. Honeycrisp is the one skin that sets
+ * them to something else, and that is the whole mechanism by which it gets
+ * rounded corners and a soft shadow without a single component rule of its
+ * own -- exactly the same way it gets its own colours.
+ *
  * Three orthogonal axes, all resolved server-side onto <html>:
- *   data-skin  = brutalist | las-ventanas
+ *   data-skin  = brutalist | las-ventanas | honeycrisp
  *   data-theme = (absent, follow the OS) | light | dark
  *   data-a11y  = (absent) | true
  *
@@ -70,6 +78,9 @@
   --border-width: 4px;
   --rule-width: 1px;
   --shadow-offset: 5px;
+  --radius: 0;
+  --shadow-blur: 0;
+  --shadow-spread: 0;
   --heading-weight: 900;
   --heading-tracking: -0.05em;
   --heading-case: uppercase;
@@ -77,8 +88,18 @@
   --breakpoint: 48rem;
 }
 
+/* This is Brutalist's own dark-mode block, and the double :not() is a
+ * skin allowlist written as an exclusion list: "not any OTHER skin,"
+ * which only stays correct if every new skin is added to it. Honeycrisp
+ * was not, when it landed, and the omission cost nothing observable only
+ * because Honeycrisp's own dark block (further down) redeclares every
+ * property this one sets, at equal selector specificity, later in the
+ * file -- so Honeycrisp's values always won the tiebreak by source
+ * order. That is an accident of what the two blocks happen to overlap
+ * on, not a guarantee, and it would have broken the moment a fourth skin
+ * added a property this block touches without also overriding it. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-skin="las-ventanas"]) {
+  :root:not([data-theme="light"]):not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]) {
     --bg: #0a0a0c;
     --bg-raised: #1a1a1e;
     --fg: #f5f2eb;
@@ -94,7 +115,7 @@
   }
 }
 
-:root[data-theme="dark"]:not([data-skin="las-ventanas"]) {
+:root[data-theme="dark"]:not([data-skin="las-ventanas"]):not([data-skin="honeycrisp"]) {
   --bg: #0a0a0c;
   --bg-raised: #1a1a1e;
   --fg: #f5f2eb;
@@ -155,6 +176,9 @@
   --border-width: 2px;
   --rule-width: 1px;
   --shadow-offset: 0px;
+  --radius: 0;
+  --shadow-blur: 0;
+  --shadow-spread: 0;
   --heading-weight: 700;
   --heading-tracking: -0.02em;
   --heading-case: none;
@@ -192,37 +216,48 @@
 
 /* ================= SKIN: HONEYCRISP =================
  *
- * A macOS-like skin: minimal, high contrast, and built almost entirely
- * from Apple's own system colors rather than from a palette invented
- * here.
+ * A macOS-like skin, and not merely a macOS-colored one: rounded corners
+ * and a soft blurred shadow are the two things that actually read as
+ * "Mac" (a hard-edged, square-cornered panel does not, no matter what
+ * color it is), so this is the one skin that sets --radius, --shadow-blur
+ * and --shadow-spread to something other than zero. That is the entire
+ * mechanism: no component rule here is Honeycrisp-specific, only these
+ * three tokens plus the usual color ones.
  *
- * Light mode is pure white on pure black text, with a cool grey raised
- * surface (#f5f5f7) and Apple's system blue (#0071e3) as the single
- * accent. Dark mode inverts to pure black with a near-black raised
- * surface (#1d1d1f), off-white text (#f5f5f7), and the brighter system
- * blue (#0a84ff) that Apple substitutes on dark backgrounds. The status
- * fills are the macOS system greens, reds, oranges and yellows in both
- * modes, shifted to their dark-mode variants where Apple shifts them
- * (#ff3b30 becomes #ff453a).
+ * Surfaces are a soft blue-gray rather than stark white or black, the way
+ * a real Finder or Messages window is: --bg #f2f4f8, --bg-raised a
+ * slightly deeper #e4e8f0 for sidebars and panels. Dark mode goes to a
+ * near-black #0b0b0d with the system dark-gray #1c1c1e raised surface.
+ * Apple's own system colors carry the rest: the status fills are macOS's
+ * actual green/red/orange/yellow, shifted to their dark-mode variants
+ * where Apple shifts them (#ff3b30 becomes #ff453a), and the accent is
+ * Apple's system blue, brightened in dark mode the way Apple's own does
+ * (#0a84ff).
  *
- * It is the quietest of the three skins by design: 1px borders, a 1px
- * shadow offset, normal letter spacing, and no case transform on
- * headings. Brutalist is the loud one; this is the one that gets out of
- * the way.
+ * One color was measured and corrected rather than lifted verbatim.
+ * Apple's own #0071e3 as body text on white already measures a bare
+ * 4.70:1, and against this skin's tinted #f2f4f8 background that drops to
+ * 4.27, under the 4.5:1 SC 1.4.3 needs for text. --link uses a deepened
+ * #0060c9 in light mode instead, 5.42:1, while --fill-info keeps the true
+ * #0071e3: a filled badge with white text on top is a different pairing
+ * (4.70:1 there, tested against --on-fill-info rather than --bg) and
+ * never needed the correction. Las Ventanas' own comment records the same
+ * kind of fix for the identical reason: a color that is fine as a large
+ * fill is not automatically fine as small text.
  *
  * The name is a pun on the palette's source rather than a description of
  * its colors: a Honeycrisp is an apple.
  */
 
 :root[data-skin="honeycrisp"] {
-  --bg: #ffffff;
-  --bg-raised: #f5f5f7;
-  --fg: #000000;
+  --bg: #f2f4f8;
+  --bg-raised: #e4e8f0;
+  --fg: #1d1d1f;
   --fg-muted: #65656a;
-  --border: #d5d5d7;
-  --border-interactive: #000000;
-  --link: #0071e3;
-  --shadow: #000000;
+  --border: #d7dbe2;
+  --border-interactive: #1d1d1f;
+  --link: #0060c9;
+  --shadow: rgba(0, 0, 0, 0.16);
 
   /* Apple's macOS system colors: refined, minimal, professional. */
   --fill-ok: #34c759;
@@ -239,7 +274,10 @@
 
   --border-width: 1px;
   --rule-width: 1px;
-  --shadow-offset: 1px;
+  --shadow-offset: 0px;
+  --radius: 10px;
+  --shadow-blur: 24px;
+  --shadow-spread: -6px;
   --heading-weight: 600;
   --heading-tracking: 0em;
   --heading-case: none;
@@ -249,14 +287,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root[data-skin="honeycrisp"]:not([data-theme="light"]) {
-    --bg: #000000;
-    --bg-raised: #1d1d1f;
+    --bg: #0b0b0d;
+    --bg-raised: #1c1c1e;
     --fg: #f5f5f7;
     --fg-muted: #a1a1a6;
-    --border: #424245;
+    --border: #38383a;
     --border-interactive: #f5f5f7;
     --link: #0a84ff;
-    --shadow: #000000;
+    --shadow: rgba(0, 0, 0, 0.55);
     --fill-ok: #34c759;
     --fill-failed: #ff453a;
     --fill-changed: #ff9500;
@@ -269,14 +307,14 @@
 }
 
 :root[data-skin="honeycrisp"][data-theme="dark"] {
-  --bg: #000000;
-  --bg-raised: #1d1d1f;
+  --bg: #0b0b0d;
+  --bg-raised: #1c1c1e;
   --fg: #f5f5f7;
   --fg-muted: #a1a1a6;
-  --border: #424245;
+  --border: #38383a;
   --border-interactive: #f5f5f7;
   --link: #0a84ff;
-  --shadow: #000000;
+  --shadow: rgba(0, 0, 0, 0.55);
   --fill-ok: #34c759;
   --fill-failed: #ff453a;
   --fill-changed: #ff9500;
@@ -371,9 +409,17 @@
 }
 
 /* ---- Reset ----
- * border-radius and the timing function are forced, because they are the
- * aesthetic. box-shadow is deliberately NOT reset away: the hard,
- * non-blurry offset shadow is the signature of this style, and the
+ * border-radius reads var(--radius) rather than being forced to zero,
+ * because Honeycrisp needs real corners and the token system is how a
+ * skin gets to differ without a component rule of its own (see the shape
+ * tokens note in the vocabulary comment above). It stays !important for
+ * the same reason it always was: a skin's shape is a property of the
+ * skin, never of one component fighting it locally, and !important is
+ * what makes that a guarantee instead of a convention. Brutalist and Las
+ * Ventanas both declare --radius: 0, so this rule still reads as "square
+ * corners, hard edges" for either -- nothing about their rendering
+ * changes. box-shadow is deliberately NOT reset away: even Brutalist's
+ * hard, non-blurry offset shadow is the signature of that style, and the
  * previous stylesheet's blanket `box-shadow: none !important` would have
  * made it impossible to draw. */
 *,
@@ -382,7 +428,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  border-radius: 0 !important;
+  border-radius: var(--radius) !important;
   transition-timing-function: linear !important;
 }
 
@@ -593,7 +639,7 @@ a {
 .block {
   background: var(--bg);
   border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
   padding: 1rem;
 }
 
@@ -609,7 +655,7 @@ a {
   background: var(--bg);
   color: var(--fg);
   border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
   cursor: pointer;
   text-decoration: none;
   /* 24x24 is the AA floor; this clears it in every direction. */
@@ -699,7 +745,7 @@ select {
 
 .error-summary {
   border: var(--border-width) solid var(--fill-failed);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
   padding: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -715,7 +761,7 @@ select {
   font-weight: 700;
   text-transform: uppercase;
   padding: 0.15rem 0.5rem;
-  border: 2px solid var(--border);
+  border: var(--border-width) solid var(--border);
   color: var(--on-fill);
 }
 .badge-ok { background: var(--fill-ok); }
@@ -892,7 +938,7 @@ select {
   min-height: 2.75rem;
   background: var(--bg);
   color: var(--fg);
-  border: 2px solid var(--border);
+  border: var(--border-width) solid var(--border);
   cursor: pointer;
 }
 .theme-options button[aria-pressed="true"] {
@@ -945,7 +991,7 @@ select {
 /* ---- Chart ---- */
 .chart-figure {
   border: var(--border-width) solid var(--border);
-  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
   padding: 1rem;
 }
 .chart-canvas {
@@ -1133,7 +1179,7 @@ select {
   }
   .table tr {
     border: var(--border-width) solid var(--border);
-    box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--shadow);
+    box-shadow: var(--shadow-offset) var(--shadow-offset) var(--shadow-blur) var(--shadow-spread) var(--shadow);
     margin-bottom: 1.25rem;
     padding: 0.5rem;
   }

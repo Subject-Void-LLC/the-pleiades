@@ -28,12 +28,16 @@ const (
 	// single accent, 2px borders, and no drop shadows at all.
 	SkinLasVentanas Skin = "las-ventanas"
 
-	// SkinHoneycrisp is the macOS-like skin, and the quietest of the
-	// three: pure white on pure black in light mode, pure black with
-	// off-white text in dark mode, Apple's own system blue as the single
-	// accent, the macOS system colors for every status fill, 1px borders
-	// and a 1px shadow offset. The name is a pun on the palette's source
-	// rather than a description of its colors: a Honeycrisp is an apple.
+	// SkinHoneycrisp is the macOS-like skin: soft blue-gray surfaces
+	// instead of stark white or black, rounded corners, a soft blurred
+	// shadow, 1px borders, and Apple's own system colors for its accent
+	// and every status fill. It is the one skin whose shape, not just its
+	// colors, differs from the other two: app.css's shared --radius and
+	// --shadow-blur tokens exist because of it, and Brutalist and Las
+	// Ventanas both set them to zero, which is what keeps their own
+	// square-cornered, hard-edged look exactly as it was. The name is a
+	// pun on the palette's source rather than a description of its
+	// colors: a Honeycrisp is an apple.
 	SkinHoneycrisp Skin = "honeycrisp"
 )
 

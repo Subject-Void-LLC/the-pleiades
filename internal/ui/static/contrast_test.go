@@ -343,7 +343,7 @@ func TestLinkColourDiffersBetweenThemes(t *testing.T) {
 	}
 	css := string(body)
 
-	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas} {
+	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp} {
 		t.Run(string(skin), func(t *testing.T) {
 			light := resolve(t, css, combination{Skin: skin, Theme: view.ThemeLight})
 			dark := resolve(t, css, combination{Skin: skin, Theme: view.ThemeDark})
