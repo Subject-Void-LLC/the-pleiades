@@ -139,6 +139,43 @@
   --control-shadow: var(--panel-shadow);
   --control-shadow-active: none;
   --field-shadow: none;
+
+  /* Selected state, as tokens rather than as a rule each skin repeats.
+   *
+   * Brutalist marks a chosen thing by inverting it to a solid block, and
+   * three of the four skins want exactly that, so the inversion is the
+   * default here and those three declare nothing. Las Ventanas Once is the
+   * one exception: Fluent never inverts a selection, it tints the surface
+   * and marks it with an accent edge, so it overrides these six values and
+   * no component rule at all. A skin needing its own component rule is a
+   * fork rather than a skin, which is the line this file is built on. */
+  --selected-bg: var(--fg);
+  /* A selected card's surface, split from --selected-bg because the two
+   * are only the same thing in a design language that inverts. Both
+   * Fluent and Cocoa tint a selected nav row but leave a selected card on
+   * its ordinary surface and mark it with an accent ring instead, and a
+   * card is the one selected thing here carrying secondary text: tinting
+   * it darkens the ground under the muted token and costs contrast the
+   * nav row, which has no muted text, never spends. */
+  --selected-surface: var(--selected-bg);
+  --selected-fg: var(--bg);
+  /* The muted token is measured against the page background, not against
+   * the fill a selected thing carries, so it takes the inverted foreground
+   * wherever the selection inverts. */
+  --selected-fg-muted: var(--bg);
+  /* A selected card's border. Neutral by default, because a skin that
+   * inverts the whole card has already said everything the border could.
+   * The skins that keep the surface carry the accent here instead, and
+   * pair it with a 1px inset ring so the edge reads as the 2px the two
+   * design languages both specify without a width change shifting
+   * everything beside it by a pixel. */
+  --selected-border-color: var(--border);
+  --selected-ring: var(--control-shadow-active);
+  /* The leading edge marker on a selected nav item. Zero-width everywhere
+   * but Las Ventanas Once, so the pseudo-element costs the other skins a
+   * box of no size rather than a rule they have to opt out of. */
+  --selected-edge: transparent;
+  --selected-edge-width: 0px;
 }
 
 /* This is Brutalist's own dark-mode block, and the triple :not() is a
@@ -456,6 +493,30 @@
   /* Vibrancy: .sidebar only, see the comment above. */
   --sidebar-bg: rgba(255, 255, 255, 0.82);
   --sidebar-backdrop-filter: blur(24px) saturate(180%);
+
+  /* Vibrancy had the same problem Mica did and for the same reason: the
+   * filter was always declared, but 0.82 alpha and a 24px blur over one
+   * uniform #f5f5f7 composites back to very nearly #f5f5f7, so the sidebar
+   * read as opaque. NSVisualEffectView samples a desktop; on the web the
+   * ground has to be given some variation or the effect has nothing to
+   * work on.
+   *
+   * Bounded between two surfaces this skin already declares, for the
+   * reason spelled out on Las Ventanas Once's copy of this: --fg clears
+   * both endpoints, so it clears every point on the ramp, and the token
+   * test and the screen cannot disagree. */
+  --body-bg: radial-gradient(120% 120% at 0% 0%, var(--bg-raised) 0%, var(--bg) 55%);
+
+  /* macOS selects with a translucent rounded rect and leaves the label in
+   * its own colour. Note --selected-edge stays at the base zero: the
+   * leading accent bar is a Fluent idiom, and Cocoa does not have it. The
+   * card ring is Apple blue, which --link already is in both themes. */
+  --selected-bg: rgba(0, 0, 0, 0.08);
+  --selected-surface: var(--bg);
+  --selected-fg: var(--fg);
+  --selected-fg-muted: var(--fg-muted);
+  --selected-border-color: var(--link);
+  --selected-ring: inset 0 0 0 1px var(--link);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -477,6 +538,7 @@
     --on-fill: #000000;
     --on-fill-info: #000000;
     --sidebar-bg: rgba(30, 30, 30, 0.8);
+    --selected-bg: rgba(255, 255, 255, 0.12);
   }
 }
 
@@ -498,6 +560,7 @@
   --on-fill: #000000;
   --on-fill-info: #000000;
   --sidebar-bg: rgba(30, 30, 30, 0.8);
+  --selected-bg: rgba(255, 255, 255, 0.12);
 }
 
 /* ================= SKIN: LAS VENTANAS ONCE =================
@@ -579,6 +642,38 @@
   /* Vibrancy: .sidebar only, see the vocabulary comment above. */
   --sidebar-bg: rgba(255, 255, 255, 0.7);
   --sidebar-backdrop-filter: blur(20px);
+
+  /* Mica needs something to blur. A translucent surface over a perfectly
+   * flat ground renders as a slightly different flat colour and nothing
+   * else, which is what the sidebar was doing: 0.7 alpha and a 20px blur
+   * over one uniform #f3f3f3 is just #f6f6f6. A desktop supplies a
+   * wallpaper; a web app has to supply the variation itself.
+   *
+   * The gradient runs between two surfaces this skin already declares, and
+   * that is the whole reason it is safe: contrast_test measures --fg
+   * against the ground, and every point on a ramp between --bg-raised and
+   * --bg is a colour --fg already clears. A gradient reaching outside that
+   * pair would pass the token test and fail on screen, which is the shape
+   * of FAILURE_PATTERNS #215 and the reason this one is bounded.
+   *
+   * Only the body takes it. .main paints --bg over itself and .sidebar
+   * paints --sidebar-bg, so the ramp is visible exactly where the
+   * translucent surface sits above it. Dark mode needs no second
+   * declaration: both endpoints are tokens that swap themselves. */
+  --body-bg: radial-gradient(120% 120% at 0% 0%, var(--bg-raised) 0%, var(--bg) 60%);
+
+  /* Fluent marks a selection with a tinted surface and an accent edge, and
+   * never by inverting it. The tint is deliberately an alpha over whatever
+   * is behind rather than a fixed hex, so it composites correctly over the
+   * Mica ramp above instead of punching a flat rectangle through it. */
+  --selected-bg: rgba(0, 0, 0, 0.04);
+  --selected-surface: var(--bg);
+  --selected-fg: var(--fg);
+  --selected-fg-muted: var(--fg-muted);
+  --selected-border-color: var(--link);
+  --selected-ring: inset 0 0 0 1px var(--link);
+  --selected-edge: var(--link);
+  --selected-edge-width: 3px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -595,6 +690,8 @@
     --field-bg: #2b2b2b;
     --panel-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.4);
     --sidebar-bg: rgba(43, 43, 43, 0.7);
+    /* A dark surface is tinted by adding light, not by adding more dark. */
+    --selected-bg: rgba(255, 255, 255, 0.06);
   }
 }
 
@@ -611,6 +708,8 @@
   --field-bg: #2b2b2b;
   --panel-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), 0 0 2px rgba(0, 0, 0, 0.4);
   --sidebar-bg: rgba(43, 43, 43, 0.7);
+  /* A dark surface is tinted by adding light, not by adding more dark. */
+  --selected-bg: rgba(255, 255, 255, 0.06);
 }
 
 /* ================= ACCESSIBILITY MODE =================
@@ -974,8 +1073,34 @@ a {
   background: var(--bg-raised);
 }
 .nav-list a[aria-current="page"] {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--selected-bg);
+  color: var(--selected-fg);
+  /* Zero in the three skins whose radius token is zero, so this is the
+   * Fluent pill only where a skin asked for one. */
+  border-radius: var(--radius-control);
+  /* Positions the edge marker below; harmless where that marker has no
+   * width. */
+  position: relative;
+}
+/* Fluent's selected-navigation marker: a short accent bar inset from both
+ * ends, rather than a fill. Inset by a quarter at each end because a
+ * full-height bar reads as a table rule or a pane divider, which is a
+ * different thing this stylesheet already draws elsewhere.
+ *
+ * It is drawn in --link, which contrast_test already holds to 4.5:1
+ * against the ground -- well above the 3.0 a non-text boundary owes under
+ * SC 1.4.11. And it is never the only signal: aria-current="page" is what
+ * actually carries the state, so a reader who cannot resolve the colour
+ * still gets the answer. */
+.nav-list a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: var(--selected-edge-width);
+  background: var(--selected-edge);
+  border-radius: var(--radius-control);
 }
 
 .main {
@@ -1698,15 +1823,21 @@ select {
   color: var(--fg-muted);
 }
 .choice[aria-pressed="true"] {
-  background: var(--fg);
-  color: var(--bg);
-  box-shadow: var(--control-shadow-active);
+  background: var(--selected-surface);
+  color: var(--selected-fg);
+  border-color: var(--selected-border-color);
+  /* The ring is an inset shadow rather than a thicker border because a
+   * border that changes width on selection moves everything beside it by a
+   * pixel. Inset costs no layout. */
+  box-shadow: var(--selected-ring);
 }
-/* The muted token is measured against the page background, not against the
- * inverted fill a selected choice carries, so the summary inside one takes
- * the inverted foreground instead. */
+/* Follows whatever the selected surface turned out to be: the inverted
+ * foreground where a skin inverts, the ordinary muted token where a skin
+ * only tints. The reasoning that used to live here now sits on
+ * --selected-fg-muted, where both halves of the choice are visible at
+ * once. */
 .choice[aria-pressed="true"] .choice-summary {
-  color: var(--bg);
+  color: var(--selected-fg-muted);
 }
 .effect-list {
   margin: 0.75rem 0 0 1.25rem;
