@@ -27,6 +27,14 @@ const (
 	// and cream rather than pure black and white, Facebook Blue as the
 	// single accent, 2px borders, and no drop shadows at all.
 	SkinLasVentanas Skin = "las-ventanas"
+
+	// SkinHoneycrisp is the macOS-like skin, and the quietest of the
+	// three: pure white on pure black in light mode, pure black with
+	// off-white text in dark mode, Apple's own system blue as the single
+	// accent, the macOS system colors for every status fill, 1px borders
+	// and a 1px shadow offset. The name is a pun on the palette's source
+	// rather than a description of its colors: a Honeycrisp is an apple.
+	SkinHoneycrisp Skin = "honeycrisp"
 )
 
 // skinLabels is every selectable skin, in the order the control lists
@@ -37,6 +45,7 @@ var skinLabels = []struct {
 }{
 	{SkinBrutalist, "Brutalist"},
 	{SkinLasVentanas, "Las Ventanas"},
+	{SkinHoneycrisp, "Honeycrisp"},
 }
 
 // ParseSkin reads a submitted skin, falling back to the default for
@@ -47,10 +56,13 @@ var skinLabels = []struct {
 // a page that still works. A banner marking that silently changed would be
 // a safety problem; a stylesheet that does is a cosmetic one.
 func ParseSkin(raw string) Skin {
-	if Skin(strings.TrimSpace(strings.ToLower(raw))) == SkinLasVentanas {
-		return SkinLasVentanas
+	s := Skin(strings.TrimSpace(strings.ToLower(raw)))
+	switch s {
+	case SkinLasVentanas, SkinHoneycrisp:
+		return s
+	default:
+		return SkinBrutalist
 	}
-	return SkinBrutalist
 }
 
 // SkinOption is one button in the appearance control.

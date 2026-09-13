@@ -226,7 +226,7 @@ func resolve(t *testing.T, css string, c combination) map[string]string {
 // explicit ones.
 func everyCombination() []combination {
 	var out []combination
-	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas} {
+	for _, skin := range []view.Skin{view.SkinBrutalist, view.SkinLasVentanas, view.SkinHoneycrisp} {
 		for _, theme := range []view.Theme{view.ThemeLight, view.ThemeDark} {
 			for _, a11y := range []bool{false, true} {
 				out = append(out, combination{Skin: skin, Theme: theme, A11y: a11y})

@@ -211,6 +211,7 @@ func TestStylesheet_SupportsAllThreeThemeStates(t *testing.T) {
 	}{
 		{"@media (prefers-color-scheme: dark)", "system preference must be honoured when the user has expressed none"},
 		{`[data-skin="las-ventanas"]`, "the second skin must exist"},
+		{`[data-skin="honeycrisp"]`, "the third skin must exist"},
 		{`[data-a11y="true"]`, "the explicit accessibility override must exist"},
 		{`:root:not([data-theme="light"])`, "an explicit light choice must win over a dark OS"},
 		{`:root[data-theme="dark"]`, "an explicit dark choice must win over a light OS"},

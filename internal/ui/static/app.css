@@ -190,6 +190,103 @@
   --on-fill-info: #0a0f1a;
 }
 
+/* ================= SKIN: HONEYCRISP =================
+ *
+ * A macOS-like skin: minimal, high contrast, and built almost entirely
+ * from Apple's own system colors rather than from a palette invented
+ * here.
+ *
+ * Light mode is pure white on pure black text, with a cool grey raised
+ * surface (#f5f5f7) and Apple's system blue (#0071e3) as the single
+ * accent. Dark mode inverts to pure black with a near-black raised
+ * surface (#1d1d1f), off-white text (#f5f5f7), and the brighter system
+ * blue (#0a84ff) that Apple substitutes on dark backgrounds. The status
+ * fills are the macOS system greens, reds, oranges and yellows in both
+ * modes, shifted to their dark-mode variants where Apple shifts them
+ * (#ff3b30 becomes #ff453a).
+ *
+ * It is the quietest of the three skins by design: 1px borders, a 1px
+ * shadow offset, normal letter spacing, and no case transform on
+ * headings. Brutalist is the loud one; this is the one that gets out of
+ * the way.
+ *
+ * The name is a pun on the palette's source rather than a description of
+ * its colors: a Honeycrisp is an apple.
+ */
+
+:root[data-skin="honeycrisp"] {
+  --bg: #ffffff;
+  --bg-raised: #f5f5f7;
+  --fg: #000000;
+  --fg-muted: #65656a;
+  --border: #d5d5d7;
+  --border-interactive: #000000;
+  --link: #0071e3;
+  --shadow: #000000;
+
+  /* Apple's macOS system colors: refined, minimal, professional. */
+  --fill-ok: #34c759;
+  --fill-failed: #ff3b30;
+  --fill-changed: #ff9500;
+  --fill-skipped: #fbbf24;
+  --fill-neutral: #e5e5e7;
+  --fill-info: #0071e3;
+  --on-fill: #000000;
+  --on-fill-info: #ffffff;
+
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: "-apple-system", BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --border-width: 1px;
+  --rule-width: 1px;
+  --shadow-offset: 1px;
+  --heading-weight: 600;
+  --heading-tracking: 0em;
+  --heading-case: none;
+  --sidebar-width: 280px;
+  --breakpoint: 48rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-skin="honeycrisp"]:not([data-theme="light"]) {
+    --bg: #000000;
+    --bg-raised: #1d1d1f;
+    --fg: #f5f5f7;
+    --fg-muted: #a1a1a6;
+    --border: #424245;
+    --border-interactive: #f5f5f7;
+    --link: #0a84ff;
+    --shadow: #000000;
+    --fill-ok: #34c759;
+    --fill-failed: #ff453a;
+    --fill-changed: #ff9500;
+    --fill-skipped: #fbbf24;
+    --fill-neutral: #424245;
+    --fill-info: #0a84ff;
+    --on-fill: #000000;
+    --on-fill-info: #000000;
+  }
+}
+
+:root[data-skin="honeycrisp"][data-theme="dark"] {
+  --bg: #000000;
+  --bg-raised: #1d1d1f;
+  --fg: #f5f5f7;
+  --fg-muted: #a1a1a6;
+  --border: #424245;
+  --border-interactive: #f5f5f7;
+  --link: #0a84ff;
+  --shadow: #000000;
+  --fill-ok: #34c759;
+  --fill-failed: #ff453a;
+  --fill-changed: #ff9500;
+  --fill-skipped: #fbbf24;
+  --fill-neutral: #424245;
+  --fill-info: #0a84ff;
+  --on-fill: #000000;
+  --on-fill-info: #000000;
+}
+
 /* ================= ACCESSIBILITY MODE =================
  *
  * The explicit in-app override, applied over whichever skin and theme are
