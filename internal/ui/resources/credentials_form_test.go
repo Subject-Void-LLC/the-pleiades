@@ -97,10 +97,13 @@ func TestCredentialsForm_CreatesAndNeverEchoesTheSecret(t *testing.T) {
 	typeID := optionValue(t, form, "credential_type", "Conformance API")
 	orgID := optionValue(t, body(t, h, "/ui/credentials/new?credential_type="+typeID), "organization", "acme")
 
-	const (
-		name   = "form-created-credential"
-		secret = "sk-live-FORM-CANARY-9f8e7d6c5b4a"
-	)
+	// uniqueName rather than a literal, because the view registry and the
+	// stores it captured are process-wide: `go test -count=3` runs this
+	// body three times against the same store, and a fixed name collides
+	// with the credential the previous run created.
+	name := uniqueName(t, "form-created-credential")
+	const secret = "sk-live-FORM-CANARY-9f8e7d6c5b4a"
+
 	w := h.post(t, "/ui/credentials", map[string]string{
 		"credential_type": typeID,
 		"organization":    orgID,
@@ -144,7 +147,7 @@ func TestCredentialsForm_RejectsAnInputTheTypeDoesNotDeclare(t *testing.T) {
 	w := h.post(t, "/ui/credentials", map[string]string{
 		"credential_type":    typeID,
 		"organization":       orgID,
-		"name":               "smuggled-input-credential",
+		"name":               uniqueName(t, "smuggled-input-credential"),
 		"input_api_token":    "irrelevant",
 		"input_not_declared": "should be refused",
 	})
