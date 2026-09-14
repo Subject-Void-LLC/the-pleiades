@@ -161,7 +161,7 @@ func TestProjectsView_OffersACredentialAndStoresTheChoice(t *testing.T) {
 	if !strings.Contains(form, "public repository") {
 		t.Error("the credential chooser offers no way to say a repository is public")
 	}
-	credID := optionValue(t, form, "credential", "conformance credential (Conformance API)")
+	credID := optionValue(t, form, "credential", "conformance scm credential (Source Control)")
 
 	name := uniqueName(t, "private-project")
 	if w := h.post(t, "/ui/projects", map[string]string{
@@ -181,4 +181,63 @@ func TestProjectsView_OffersACredentialAndStoresTheChoice(t *testing.T) {
 	if !strings.Contains(block, "selected") {
 		t.Errorf("the saved credential is not selected on the edit form:\n%s", block)
 	}
+}
+
+// TestProjectsView_RefusesACredentialThatCannotAuthenticateAClone is the
+// rule enforced rather than merely rendered.
+//
+// The chooser hides these, so reaching the refusal needs a submission that
+// did not come from the form. That is precisely why it is worth asserting:
+// a rule enforced only by what a page happens to offer is not enforced, and
+// the same field is accepted over the API.
+func TestProjectsView_RefusesACredentialThatCannotAuthenticateAClone(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	form := body(t, h, "/ui/projects/new")
+	orgID := optionValue(t, form, "organization", "acme")
+
+	// The cloud credential the fixture seeds carries an api_token and an
+	// api_url: real inputs, none of which a clone can use. It must not be
+	// offered...
+	if strings.Contains(selectBlock(t, form, "credential"), "Conformance API") {
+		t.Error("the chooser offers a cloud credential, which cannot authenticate a clone")
+	}
+
+	// ...and submitting it anyway must be refused rather than saved and
+	// discovered at the first sync.
+	cloudID := cloudCredentialID(t, h)
+	w := h.post(t, "/ui/projects", map[string]string{
+		"name":         uniqueName(t, "wrong-credential-project"),
+		"organization": orgID,
+		"scm_type":     "git",
+		"scm_url":      "https://git.example.test/team/private.git",
+		"credential":   cloudID,
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("submitting an unusable credential = %d, want 422", w.Code)
+	}
+	// Caught by view.Validate, which refuses a choice that is not among the
+	// control's own options, before the writer's check is reached. That
+	// ordering is worth knowing rather than worth changing: the framework
+	// rule is the one that fires here, and usableForGit is the backstop for
+	// the API path, which has no options to validate against.
+	if got := w.Body.String(); !strings.Contains(got, "not a valid choice") {
+		t.Errorf("the submission was refused without saying the credential was the problem:\n%s", got)
+	}
+	if got := w.Body.String(); !strings.Contains(got, "f-credential-error") {
+		t.Error("the refusal is not attached to the credential control, so it reads as a form-wide failure")
+	}
+}
+
+// cloudCredentialID reads the seeded cloud credential's id off the
+// Credentials list, which is the only place this suite can learn it without
+// reaching into the store.
+func cloudCredentialID(t *testing.T, h *harness) string {
+	t.Helper()
+	list := body(t, h, "/ui/credentials")
+	m := regexp.MustCompile(`href="/ui/credentials/([0-9]+)"[^>]*>\s*conformance credential`).FindStringSubmatch(list)
+	if m == nil {
+		t.Fatalf("the credentials list has no link to the seeded cloud credential:\n%s", list)
+	}
+	return m[1]
 }

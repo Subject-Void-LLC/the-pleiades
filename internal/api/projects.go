@@ -14,6 +14,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 )
 
@@ -29,15 +31,63 @@ import (
 type ProjectHandler struct {
 	projects project.Store
 	syncer   project.Syncer
+	creds    credentialLister
 	logger   *slog.Logger
 }
 
+// credentialLister reads the redacted credential projection, which is all
+// this handler needs and all it may hold: internal/archtest asserts this
+// package never reaches the one that decrypts.
+//
+// It is enough because credstore replaces a secret with a marker rather
+// than dropping the key, so "does this credential supply a password" is
+// answerable without a plaintext read.
+type credentialLister interface {
+	ListAllCredentials(ctx context.Context) ([]credstore.Credential, error)
+}
+
 // NewProjectHandler returns a handler over the given store and syncer.
-func NewProjectHandler(store project.Store, syncer project.Syncer, logger *slog.Logger) *ProjectHandler {
+//
+// A nil creds accepts any credential id, which is the behaviour a
+// deployment with no credential store gets rather than a refusal of
+// everything.
+func NewProjectHandler(store project.Store, syncer project.Syncer, creds credentialLister, logger *slog.Logger) *ProjectHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ProjectHandler{projects: store, syncer: syncer, logger: logger}
+	return &ProjectHandler{projects: store, syncer: syncer, creds: creds, logger: logger}
+}
+
+// checkCredential refuses a credential that cannot authenticate a clone.
+//
+// The same rule the UI enforces, through the same predicate, because a rule
+// applied on one of two write paths is not a rule. Answered as a 400 rather
+// than a 422: the id names a real credential and the request is
+// well-formed, it just asks for something that cannot work.
+func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request, id int) bool {
+	if id == 0 || h.creds == nil {
+		return true
+	}
+	found, err := h.creds.ListAllCredentials(r.Context())
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "failed to read credentials for a project write",
+			slog.String("error", err.Error()))
+		RespondError(w, r, http.StatusInternalServerError, "internal error")
+		return false
+	}
+	for _, c := range found {
+		if c.ID != id {
+			continue
+		}
+		if !project.AuthenticatesGit(c.Inputs) {
+			RespondError(w, r, http.StatusBadRequest,
+				"that credential carries neither a password or token nor an SSH private key, so it cannot authenticate a clone")
+			return false
+		}
+		return true
+	}
+	RespondError(w, r, http.StatusBadRequest, "no credential with that id")
+	return false
 }
 
 // projectDTO is one project on the wire.
@@ -152,6 +202,9 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, r, http.StatusBadRequest, "organization is required")
 		return
 	}
+	if !h.checkCredential(w, r, p.CredentialID) {
+		return
+	}
 
 	created, err := h.projects.Create(r.Context(), p)
 	if err != nil {
@@ -177,6 +230,9 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.ID = id
+	if !h.checkCredential(w, r, p.CredentialID) {
+		return
+	}
 
 	if err := h.projects.Update(r.Context(), p); err != nil {
 		h.respondStoreError(w, r, "update", err)

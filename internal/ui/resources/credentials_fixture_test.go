@@ -93,6 +93,22 @@ func newTestCredentialStore(t *testing.T) credstore.Store {
 		t.Fatalf("CreateCredential() error = %v", err)
 	}
 
+	// A Source Control credential, so the Projects view's chooser has
+	// something it can legitimately offer. The conformance credential above
+	// is a cloud type carrying an api_token, which is exactly the kind of
+	// credential that chooser must REFUSE, so a suite holding only that one
+	// could not tell a working filter from a broken one.
+	scmType, err := store.GetTypeByNamespace(ctx, "scm")
+	if err != nil {
+		t.Fatalf("reading the shipped Source Control type: %v", err)
+	}
+	if _, err := store.CreateCredential(ctx, org.ID, scmType.ID,
+		"conformance scm credential", "clones a private repository",
+		map[string]string{"username": "git", "password": "ghp-conformance-token"},
+		nil); err != nil {
+		t.Fatalf("CreateCredential(scm) error = %v", err)
+	}
+
 	// Bound to the first template the template fixture seeded, which is
 	// what makes the launch form's credential prompt reachable at all. The
 	// template fixture runs first because the Deps literal names Templates

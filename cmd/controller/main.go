@@ -1032,7 +1032,7 @@ func main() {
 	// what an operator syncs through the browser, what a caller syncs over
 	// the API, and what a dispatch resolves are one checkout rather than
 	// three.
-	projectsAPI := api.NewProjectHandler(projectStore, projectSyncer, logger)
+	projectsAPI := api.NewProjectHandler(projectStore, projectSyncer, credentialStore, logger)
 	catalog := api.NewRunbookHandler(runbooks, logger)
 
 	// The two resources the web UI's navigation is built around: the
@@ -1611,11 +1611,11 @@ func (a projectAuth) ResolveAuth(ctx context.Context, credentialID int) (project
 
 	in := found[0].Inputs
 	auth := project.Auth{
-		Username:   in["username"],
-		Password:   in["password"],
-		Passphrase: in["ssh_key_unlock"],
+		Username:   in[project.InputUsername],
+		Password:   in[project.InputPassword],
+		Passphrase: in[project.InputPassphrase],
 	}
-	if key := in["ssh_key_data"]; key != "" {
+	if key := in[project.InputPrivateKey]; key != "" {
 		auth.PrivateKey = []byte(key)
 	}
 	return auth, nil

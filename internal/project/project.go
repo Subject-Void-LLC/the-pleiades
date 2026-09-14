@@ -210,6 +210,46 @@ func (a Auth) Empty() bool {
 // UsesKey reports whether this authenticates with an SSH key.
 func (a Auth) UsesKey() bool { return len(a.PrivateKey) > 0 }
 
+// The credential inputs a git clone can use, named once here because three
+// places have to agree about them: the chooser that offers a credential,
+// the check that refuses an unusable one, and the composition root that
+// maps a resolved credential onto an Auth. They were duplicated as string
+// literals in the last of those, with nothing keeping them in step.
+//
+// These are AWX's own names, which is what internal/credtype/managed's
+// Source Control and Machine types declare and what an AWX export already
+// carries.
+const (
+	InputUsername   = "username"
+	InputPassword   = "password"
+	InputPrivateKey = "ssh_key_data"
+	InputPassphrase = "ssh_key_unlock"
+)
+
+// AuthenticatesGit reports whether a credential supplying these inputs can
+// authenticate a clone.
+//
+// Structural rather than nominal: it asks what the credential CARRIES, not
+// what its type is CALLED. A Source Control type is the natural fit and a
+// Machine type declares the same key and username, but a deployment may
+// well have written its own, and matching on kind would refuse a credential
+// that works perfectly. This is the same reasoning the platform already
+// applies to device capabilities, which are matched by what a type
+// implements rather than by its name.
+//
+// A username alone is not enough and that is the point of checking the
+// secret halves only. Git will happily attempt a clone with a username and
+// no secret, fail on the far side, and report something about
+// authentication that does not say the credential was empty.
+//
+// It works on a redacted projection as well as a resolved one. credstore
+// replaces a secret value with a marker rather than dropping the key, so a
+// non-empty value here means "this credential supplies that input" in both
+// directions, and nothing needs a plaintext read to make this decision.
+func AuthenticatesGit(inputs map[string]string) bool {
+	return inputs[InputPassword] != "" || inputs[InputPrivateKey] != ""
+}
+
 // AuthResolver turns a credential id into the values a clone needs.
 //
 // It is an interface declared here and implemented by the composition root,

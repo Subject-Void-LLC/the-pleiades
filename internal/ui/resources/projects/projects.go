@@ -85,9 +85,9 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 		{
 			Name: "credential", Label: "CREDENTIAL", Kind: view.KindSelect,
 			InForm: true, References: "credentials",
-			Help: "How a private repository is authenticated: a token, a username and password, or an SSH key. " +
-				"Leave it unset for a public repository. A Source Control credential is the natural fit, but any " +
-				"credential carrying the same inputs works.",
+			Help: "How a private repository is authenticated: a token, a username and password, or an SSH key " +
+				"with its passphrase. Leave it unset for a public repository. Only credentials carrying one of " +
+				"those are offered, so a credential missing from this list holds nothing a clone can use.",
 			Options: credentialOptions(creds),
 		},
 		{
@@ -159,9 +159,21 @@ func (r reader) Get(ctx context.Context, id string) (project.Project, error) {
 }
 
 // writer adapts the write half.
-type writer struct{ store project.Store }
+//
+// It holds the credential lister as well as the store, because the one rule
+// this view enforces beyond the store's own is about a credential: a
+// project may only name one that can actually authenticate a clone. Bind
+// cannot check it, having no context to read with, so it lands here, on the
+// path every write takes rather than only the one the form takes.
+type writer struct {
+	store project.Store
+	creds credentialLister
+}
 
 func (w writer) Create(ctx context.Context, p project.Project) (string, error) {
+	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+		return "", err
+	}
 	created, err := w.store.Create(ctx, p)
 	if err != nil {
 		return "", asFault(err)
@@ -182,6 +194,9 @@ func (w writer) Update(ctx context.Context, id string, p project.Project) error 
 	// Immutable, so an edit never carries it and the store must not be
 	// told to move the project between tenants.
 	p.OrganizationID = existing.OrganizationID
+	if err := usableForGit(ctx, w.creds, p.CredentialID); err != nil {
+		return err
+	}
 	return asFault(w.store.Update(ctx, p))
 }
 
@@ -226,7 +241,7 @@ func Register(store project.Store, syncer project.Syncer, orgs inventory.Organiz
 			Update: &apispec.UpdateProject,
 			Delete: &apispec.DeleteProject,
 		},
-		Handlers: view.MustBind[project.Project](reader{store}, writer{store}, view.Projector[project.Project]{
+		Handlers: view.MustBind[project.Project](reader{store}, writer{store, creds}, view.Projector[project.Project]{
 			Row: func(p project.Project) view.Row {
 				return view.Row{
 					ID:   strconv.Itoa(p.ID),
