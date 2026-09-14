@@ -319,11 +319,7 @@ func (m ListModel) Chrome() Chrome {
 // through a cursor, so "how many are there" is a question nothing here can
 // answer without scanning every row.
 func (m ListModel) CountLabel() string {
-	n := strconv.Itoa(len(m.Rows))
-	if len(m.Rows) == 1 {
-		return n + " shown"
-	}
-	return n + " shown"
+	return strconv.Itoa(len(m.Rows)) + " shown"
 }
 
 // CreateLabel is what the create control says.
