@@ -343,19 +343,27 @@ func (m DetailModel) SectionViews() []SectionView {
 		out = append(out, SectionView{
 			LoadedSection: s,
 			Prefix:        m.Page.Prefix,
-			Actions:       m.Descriptor.sectionActions(s.Spec, m.Page.Prefix, m.Row.ID),
+			Actions:       m.Descriptor.sectionActions(s.Spec, m.Page.Prefix, m.Row, m.Aff),
 		})
 	}
 	return out
 }
 
 // sectionActions resolves a section's named header actions into rendered
-// controls acting on parentID. It returns none when parentID is empty --
-// the collection page has no record for a section action to act on -- and
-// none for a name matching no declared action, which Register has already
-// refused, so this stays a lookup rather than a second validation.
-func (d Descriptor) sectionActions(spec Section, prefix, parentID string) []ChromeAction {
-	if parentID == "" || len(spec.Actions) == 0 {
+// controls acting on the parent record. It returns none when that record
+// has no id -- the collection page has no record for a section action to
+// act on -- and none for a name matching no declared action, which Register
+// has already refused, so this stays a lookup rather than a second
+// validation.
+//
+// Each control passes the same two filters a record's own actions do: the
+// permitted set the JSON _links array is computed from, and the record's
+// own Applies state. A section is a write surface like any other, so
+// offering "Add input" to a caller who cannot write, or on a managed type
+// the store would refuse, is the same "control that can only fail" the
+// affordance layer exists to withhold.
+func (d Descriptor) sectionActions(spec Section, prefix string, parent Row, aff Affordances) []ChromeAction {
+	if parent.ID == "" || len(spec.Actions) == 0 {
 		return nil
 	}
 	out := make([]ChromeAction, 0, len(spec.Actions))
@@ -364,9 +372,15 @@ func (d Descriptor) sectionActions(spec Section, prefix, parentID string) []Chro
 			if a.Name != name {
 				continue
 			}
+			if !permits(a.Endpoint, aff) {
+				break
+			}
+			if d.Applies != nil && a.Endpoint != nil && !d.Applies(parent, a.Endpoint.Rel) {
+				break
+			}
 			out = append(out, ChromeAction{
 				Label: a.Label,
-				Href:  path.Join(prefix, d.Name, url.PathEscape(parentID), a.Name),
+				Href:  path.Join(prefix, d.Name, url.PathEscape(parent.ID), a.Name),
 				Kind:  ActionNormal,
 			})
 			break

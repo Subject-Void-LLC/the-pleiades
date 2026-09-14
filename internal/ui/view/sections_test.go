@@ -766,6 +766,7 @@ func TestSectionView_HeaderActionsResolveWithTheParentID(t *testing.T) {
 		Row:        view.Row{ID: "type-7", Cells: view.Cells{}},
 		Sections:   []view.LoadedSection{section},
 		Tab:        view.TabSlug("Inputs"),
+		Aff:        view.NewAffordances([]auth.LinkRel{apispec.LaunchTemplate.Rel}),
 	}
 
 	views := m.SectionViews()
@@ -815,4 +816,48 @@ func TestSectionView_HeaderActionsNeedAParent(t *testing.T) {
 			t.Errorf("section %q offered header actions with no parent record", sv.Spec.Title)
 		}
 	}
+}
+
+// TestSectionView_HeaderActionsAreGatedLikeRecordActions proves a section's
+// header control passes the same two filters a record's own action does: the
+// permitted set, and the record's own Applies state. A section is a write
+// surface, so offering "Add" to a caller who cannot write, or on a record
+// the store would refuse, is the control-that-can-only-fail the affordance
+// layer exists to withhold.
+func TestSectionView_HeaderActionsAreGatedLikeRecordActions(t *testing.T) {
+	d := actionDescriptor() // declares action "run" gated on LaunchTemplate
+	section := view.LoadedSection{Spec: view.Section{
+		Title:   "Inputs",
+		Status:  view.StatusImplemented,
+		Fields:  sectionFields,
+		Empty:   "none",
+		Rows:    func(context.Context, string) ([]view.Row, error) { return nil, nil },
+		Actions: []string{"run"},
+	}}
+	base := view.DetailModel{
+		Page:       view.PageModel{Prefix: "/ui"},
+		Descriptor: d,
+		Row:        view.Row{ID: "type-7", Cells: view.Cells{"state": "ok"}},
+		Sections:   []view.LoadedSection{section},
+		Tab:        view.TabSlug("Inputs"),
+	}
+
+	t.Run("withheld when the caller lacks the relation", func(t *testing.T) {
+		m := base
+		m.Aff = view.NewAffordances([]auth.LinkRel{auth.RelSelf})
+		if sv := m.SectionViews(); len(sv) == 1 && sv[0].HasActions() {
+			t.Error("a caller without the relation was offered the section's header action")
+		}
+	})
+
+	t.Run("withheld when Applies withdraws it for this record", func(t *testing.T) {
+		withApplies := d
+		withApplies.Applies = func(_ view.Row, rel auth.LinkRel) bool { return rel != apispec.LaunchTemplate.Rel }
+		m := base
+		m.Descriptor = withApplies
+		m.Aff = view.NewAffordances([]auth.LinkRel{apispec.LaunchTemplate.Rel})
+		if sv := m.SectionViews(); len(sv) == 1 && sv[0].HasActions() {
+			t.Error("Applies withdrew the relation, but the section still offered its header action")
+		}
+	})
 }
