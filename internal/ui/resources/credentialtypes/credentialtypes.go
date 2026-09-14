@@ -324,7 +324,8 @@ func Register(store credstore.Store, orgs inventory.OrganizationLister, eng rend
 			}
 			return true
 		},
-		Actions: []view.RecordAction{testAction(store, eng)},
+		Sections: []view.Section{inputsSection(store)},
+		Actions:  []view.RecordAction{testAction(store, eng)},
 		Handlers: view.MustBind[credstore.CredentialType](reader{store}, writer{store}, view.Projector[credstore.CredentialType]{
 			Form: formValues,
 			Bind: func(v view.Values) (credstore.CredentialType, view.FieldErrors) {

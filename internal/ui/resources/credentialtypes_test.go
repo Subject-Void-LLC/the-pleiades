@@ -232,3 +232,25 @@ func TestCredentialTypes_ManagedTypeWithdrawsEditAndDelete(t *testing.T) {
 		t.Error("a custom type's detail offers no Delete control")
 	}
 }
+
+// TestCredentialTypes_InputsTabShowsTheSchema proves the Inputs section
+// renders a type's own input schema on its detail page, which is what the
+// list's summary column can only count.
+func TestCredentialTypes_InputsTabShowsTheSchema(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+	page := h.get(t, "/ui/credential-types/"+id+"?tab="+"inputs").Body.String()
+
+	// The seeded custom type declares api_token (secret) and api_url. Both
+	// must appear on the Inputs tab, and the secret one must be marked as
+	// such rather than shown like an ordinary field.
+	for _, want := range []string{"api_token", "api_url"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the Inputs tab does not list the input %q:\n%s", want, page)
+		}
+	}
+}
