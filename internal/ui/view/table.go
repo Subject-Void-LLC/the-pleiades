@@ -284,7 +284,19 @@ type SectionView struct {
 	// Prefix is the UI mount point, for the links inside this section's
 	// cells.
 	Prefix string
+
+	// Actions are this section's header controls, already resolved to a
+	// label and a link acting on the record the section hangs off. Empty
+	// on a collection page, where there is no such record: the resolver
+	// that fills this in is the one place that knows the parent id, so the
+	// template renders whatever it is handed and decides nothing.
+	Actions []ChromeAction
 }
+
+// HasActions reports whether this section renders any header control, so
+// the template omits the header row entirely rather than drawing an empty
+// one.
+func (s SectionView) HasActions() bool { return len(s.Actions) > 0 }
 
 // Table is this section's rows as the one table component wants them.
 func (s SectionView) Table() TableModel {
@@ -320,11 +332,45 @@ func (s SectionView) ZeroState() ZeroState {
 }
 
 // SectionViews wraps this record's visible sections for rendering.
+//
+// This is the one place a section's header actions are resolved, because it
+// is the one place that has both the parent record's id and the descriptor
+// whose Actions the section named. The template is handed finished links.
 func (m DetailModel) SectionViews() []SectionView {
 	visible := m.VisibleSections()
 	out := make([]SectionView, 0, len(visible))
 	for _, s := range visible {
-		out = append(out, SectionView{LoadedSection: s, Prefix: m.Page.Prefix})
+		out = append(out, SectionView{
+			LoadedSection: s,
+			Prefix:        m.Page.Prefix,
+			Actions:       m.Descriptor.sectionActions(s.Spec, m.Page.Prefix, m.Row.ID),
+		})
+	}
+	return out
+}
+
+// sectionActions resolves a section's named header actions into rendered
+// controls acting on parentID. It returns none when parentID is empty --
+// the collection page has no record for a section action to act on -- and
+// none for a name matching no declared action, which Register has already
+// refused, so this stays a lookup rather than a second validation.
+func (d Descriptor) sectionActions(spec Section, prefix, parentID string) []ChromeAction {
+	if parentID == "" || len(spec.Actions) == 0 {
+		return nil
+	}
+	out := make([]ChromeAction, 0, len(spec.Actions))
+	for _, name := range spec.Actions {
+		for _, a := range d.Actions {
+			if a.Name != name {
+				continue
+			}
+			out = append(out, ChromeAction{
+				Label: a.Label,
+				Href:  path.Join(prefix, d.Name, url.PathEscape(parentID), a.Name),
+				Kind:  ActionNormal,
+			})
+			break
+		}
 	}
 	return out
 }

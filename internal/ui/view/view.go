@@ -247,6 +247,28 @@ type Section struct {
 	// A declared section uses it as the panel's own sentence: what will be
 	// here, and what owns it.
 	Empty string
+
+	// Actions name RecordActions offered in this section's header, acting
+	// on the record the section hangs off rather than on any row of it:
+	// "Add input" on a credential type's Inputs section, "Add question" on
+	// a template's Survey. Each name must be one of the parent
+	// Descriptor's own Actions, so a section reuses the whole action path
+	// -- the shared form, its validation, its scope gate -- rather than
+	// inventing a second write surface. Register refuses a name that
+	// matches no declared action.
+	//
+	// A section reaches the collection page as well as a record page, and
+	// on the collection page there is no record for these to act on, so
+	// they render only where a parent id exists. That is a rendering
+	// decision rather than a validation one, because the same declaration
+	// is correct on both pages: act on the record when there is one, offer
+	// nothing when there is not.
+	//
+	// Only an implemented section may name them. A declared section reaches
+	// no port, so an action button on it would post to a write path its own
+	// panel says is not wired -- the contradiction StatusDeclared exists to
+	// remove.
+	Actions []string
 }
 
 // Implemented reports whether this section reaches a real port, the same
@@ -795,7 +817,7 @@ func Register(d Descriptor) error {
 	if err := validateStream(d.Name, d.Stream); err != nil {
 		return err
 	}
-	if err := validateSections(d.Name, d.Sections); err != nil {
+	if err := validateSections(d.Name, d.Sections, d.Actions); err != nil {
 		return err
 	}
 	if err := validateActions(d.Name, d.Actions); err != nil {
@@ -871,8 +893,12 @@ func validateChart(name string, chart *ChartSpec) error {
 }
 
 // validateSections refuses a section that would render as an unlabelled or
-// unexplained table.
-func validateSections(name string, sections []Section) error {
+// unexplained table, or one whose header actions name nothing.
+func validateSections(name string, sections []Section, actions []RecordAction) error {
+	declared := make(map[string]bool, len(actions))
+	for _, a := range actions {
+		declared[a.Name] = true
+	}
 	titles := make(map[string]bool, len(sections))
 	for _, s := range sections {
 		switch {
@@ -901,6 +927,22 @@ func validateSections(name string, sections []Section) error {
 
 		if err := validateFields(s.Fields); err != nil {
 			return fmt.Errorf("view %q detail section %q %s", name, s.Title, err)
+		}
+
+		if len(s.Actions) > 0 && !s.Implemented() {
+			// A declared section reaches no port, so a header action on it
+			// would post to a write path the same panel says is not wired.
+			return fmt.Errorf("view %q detail section %q is declared but declares header actions", name, s.Title)
+		}
+		for _, a := range s.Actions {
+			if !declared[a] {
+				// A section header action names one of the parent view's
+				// own actions, so it can reuse that action's form, scope
+				// and handler. A name matching none would render a button
+				// to a route nobody mounted -- the silent 404 the endpoint
+				// checks exist to convert into a startup refusal.
+				return fmt.Errorf("view %q detail section %q names header action %q, which is not a declared action", name, s.Title, a)
+			}
 		}
 	}
 	return nil

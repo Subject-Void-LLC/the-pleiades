@@ -200,7 +200,18 @@ templ tableCell(t view.TableModel, row view.Row, col view.Field) {
 // itself, which is why this is six lines rather than sixty.
 templ sectionPanel(s view.SectionView) {
 	<section class="detail-section" aria-labelledby={ s.HeadingID() }>
-		<h2 id={ s.HeadingID() }>{ s.Spec.Title }</h2>
+		if s.HasActions() {
+			<div class="section-head">
+				<h2 id={ s.HeadingID() }>{ s.Spec.Title }</h2>
+				<div class="section-actions">
+					for _, a := range s.Actions {
+						@chromeAction(a)
+					}
+				</div>
+			</div>
+		} else {
+			<h2 id={ s.HeadingID() }>{ s.Spec.Title }</h2>
+		}
 		if s.Spec.Summary != "" {
 			<p class="view-summary">{ s.Spec.Summary }</p>
 		}

@@ -1525,6 +1525,21 @@ select {
 .detail-section .view-summary {
   margin-bottom: 1rem;
 }
+/* The heading row when a section offers header actions: the heading keeps its
+ * place and the controls sit at the trailing edge, wrapping underneath on a
+ * narrow screen rather than crowding the title. Mirrors .title-row. */
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+}
 
 /* ---- Detail list ---- */
 .detail-list {

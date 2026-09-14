@@ -662,3 +662,157 @@ func TestField_APasswordFieldIsNeverAColumn(t *testing.T) {
 		t.Error("a password field cannot be submitted, so no survey could ask for one")
 	}
 }
+
+// A section's header actions reuse the parent view's own actions: the same
+// shared form, the same scope gate, the same handler, rather than a second
+// write surface invented for the panel. These cover the registration guard
+// that a named action exists, and the single place -- the model layer, with
+// the parent id in hand -- that resolves the names into rendered controls.
+
+// sectionAction is a minimal valid action a section may name.
+func sectionAction(name string) view.RecordAction {
+	return view.RecordAction{
+		Name:     name,
+		Label:    "Add input",
+		Heading:  "Add an input",
+		Endpoint: &apispec.LaunchTemplate,
+		Fields:   []view.Field{{Name: "id", Label: "ID", Kind: view.KindText, InForm: true, Required: true}},
+		Submit:   func(context.Context, string, view.Values) (string, view.FieldErrors, error) { return "", nil, nil },
+	}
+}
+
+// implementedSection is a real related-record table, as a writable section
+// under a record would declare it.
+func implementedSection(actions ...string) view.Section {
+	return view.Section{
+		Title:   "Inputs",
+		Summary: "what a credential of this type holds",
+		Status:  view.StatusImplemented,
+		Fields:  sectionFields,
+		Empty:   "No inputs declared yet.",
+		Rows:    func(context.Context, string) ([]view.Row, error) { return nil, nil },
+		Actions: actions,
+	}
+}
+
+func TestRegister_SectionHeaderActionsMustNameADeclaredAction(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*view.Descriptor)
+		wantMsg string
+	}{
+		{
+			name: "names an action the view does not declare",
+			mutate: func(d *view.Descriptor) {
+				d.Actions = []view.RecordAction{sectionAction("add-input")}
+				d.Sections = []view.Section{implementedSection("no-such-action")}
+			},
+			wantMsg: "not a declared action",
+		},
+		{
+			name: "a declared section offering header actions",
+			mutate: func(d *view.Descriptor) {
+				d.Actions = []view.RecordAction{sectionAction("add-input")}
+				s := implementedSection("add-input")
+				s.Status = view.StatusDeclared
+				s.Rows = nil
+				d.Sections = []view.Section{s}
+			},
+			wantMsg: "declared but declares header actions",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := validDescriptor("section-action-" + strings.ReplaceAll(tc.name, " ", "-"))
+			tc.mutate(&d)
+			err := view.Register(d)
+			if err == nil {
+				t.Fatal("a section naming an undeclared action was accepted")
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("err = %q, want it to mention %q", err, tc.wantMsg)
+			}
+		})
+	}
+}
+
+func TestRegister_AcceptsASectionNamingADeclaredAction(t *testing.T) {
+	t.Cleanup(view.SnapshotForTest())
+	d := validDescriptor("section-action-valid")
+	d.Actions = []view.RecordAction{sectionAction("add-input")}
+	d.Sections = []view.Section{implementedSection("add-input")}
+	if err := view.Register(d); err != nil {
+		t.Fatalf("Register() = %v, want a section naming a declared action to be accepted", err)
+	}
+}
+
+// TestSectionView_HeaderActionsResolveWithTheParentID proves the resolution
+// happens once, in the model, and produces a control acting on the record
+// the section hangs off -- not on any row of it, and not on the collection.
+func TestSectionView_HeaderActionsResolveWithTheParentID(t *testing.T) {
+	d := actionDescriptor() // named "widgets", declares action "run" labelled "Run"
+	section := view.LoadedSection{Spec: view.Section{
+		Title:   "Inputs",
+		Status:  view.StatusImplemented,
+		Fields:  sectionFields,
+		Empty:   "none",
+		Rows:    func(context.Context, string) ([]view.Row, error) { return nil, nil },
+		Actions: []string{"run"},
+	}}
+
+	m := view.DetailModel{
+		Page:       view.PageModel{Prefix: "/ui"},
+		Descriptor: d,
+		Row:        view.Row{ID: "type-7", Cells: view.Cells{}},
+		Sections:   []view.LoadedSection{section},
+		Tab:        view.TabSlug("Inputs"),
+	}
+
+	views := m.SectionViews()
+	if len(views) != 1 {
+		t.Fatalf("SectionViews() = %d sections, want the one the tab selects", len(views))
+	}
+	got := views[0].Actions
+	if len(got) != 1 {
+		t.Fatalf("section header actions = %d, want 1", len(got))
+	}
+	if got[0].Label != "Run" {
+		t.Errorf("label = %q, want the declared action's own label %q", got[0].Label, "Run")
+	}
+	if got[0].Href != "/ui/widgets/type-7/run" {
+		t.Errorf("href = %q, want it to act on the parent record", got[0].Href)
+	}
+	if !views[0].HasActions() {
+		t.Error("HasActions() = false despite a resolved header action")
+	}
+}
+
+// TestSectionView_HeaderActionsNeedAParent proves a section on a page with
+// no record -- the collection page -- offers none of them, because there is
+// nothing for a record action to act on there. The same declaration is
+// correct on both pages; only the resolver decides, and it decides on the
+// presence of a parent id.
+func TestSectionView_HeaderActionsNeedAParent(t *testing.T) {
+	d := actionDescriptor()
+	section := view.LoadedSection{Spec: view.Section{
+		Title:   "Inputs",
+		Status:  view.StatusImplemented,
+		Fields:  sectionFields,
+		Empty:   "none",
+		Rows:    func(context.Context, string) ([]view.Row, error) { return nil, nil },
+		Actions: []string{"run"},
+	}}
+
+	m := view.DetailModel{
+		Page:       view.PageModel{Prefix: "/ui"},
+		Descriptor: d,
+		Row:        view.Row{ID: "", Cells: view.Cells{}},
+		Sections:   []view.LoadedSection{section},
+		Tab:        view.TabSlug("Inputs"),
+	}
+	for _, sv := range m.SectionViews() {
+		if sv.HasActions() {
+			t.Errorf("section %q offered header actions with no parent record", sv.Spec.Title)
+		}
+	}
+}
