@@ -141,3 +141,44 @@ func recordPath(t *testing.T, list, name string) string {
 	}
 	return m[1]
 }
+
+// TestProjectsView_OffersACredentialAndStoresTheChoice covers the control a
+// private repository needs.
+//
+// The chooser stores an id and never a value. That is not an implementation
+// detail worth restating in a test for its own sake: it is why this view can
+// exist at all, since internal/archtest fails the build if the UI side can
+// reach a plaintext credential, and the resolution happens inside the syncer
+// from the id this form saved.
+func TestProjectsView_OffersACredentialAndStoresTheChoice(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	form := body(t, h, "/ui/projects/new")
+	orgID := optionValue(t, form, "organization", "acme")
+
+	// "None" has to be offered, or a public repository would have no way to
+	// say so and every project would demand a credential.
+	if !strings.Contains(form, "public repository") {
+		t.Error("the credential chooser offers no way to say a repository is public")
+	}
+	credID := optionValue(t, form, "credential", "conformance credential (Conformance API)")
+
+	name := uniqueName(t, "private-project")
+	if w := h.post(t, "/ui/projects", map[string]string{
+		"name":         name,
+		"organization": orgID,
+		"scm_type":     "git",
+		"scm_url":      "https://git.example.test/team/private.git",
+		"credential":   credID,
+	}); w.Code >= http.StatusBadRequest {
+		t.Fatalf("creating a project with a credential = %d: %s", w.Code, w.Body.String())
+	}
+
+	// The edit form has to come back with the credential still chosen, or
+	// an ordinary rename would silently make a private repository public.
+	edit := body(t, h, recordPath(t, body(t, h, "/ui/projects"), name)+"/edit")
+	block := selectBlock(t, edit, "credential")
+	if !strings.Contains(block, "selected") {
+		t.Errorf("the saved credential is not selected on the edit form:\n%s", block)
+	}
+}

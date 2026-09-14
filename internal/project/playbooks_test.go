@@ -42,7 +42,7 @@ func (s stubStore) RecordSync(context.Context, int, project.Result) error { retu
 // stubSyncer lists what is actually on disk under the project's path.
 type stubSyncer struct{}
 
-func (stubSyncer) Sync(context.Context, project.Project, project.Auth) (project.Result, error) {
+func (stubSyncer) Sync(context.Context, project.Project) (project.Result, error) {
 	return project.Result{}, nil
 }
 func (stubSyncer) Playbooks(_ context.Context, p project.Project) ([]string, error) {

@@ -35,7 +35,7 @@ import (
 const Name = "projects"
 
 // declaredFields are the shape.
-func declaredFields(orgs inventory.OrganizationLister) []view.Field {
+func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) []view.Field {
 	return []view.Field{
 		{
 			Name: "name", Label: "NAME", Kind: view.KindText,
@@ -81,6 +81,14 @@ func declaredFields(orgs inventory.OrganizationLister) []view.Field {
 			Name: "scm_url", Label: "URL", Kind: view.KindText,
 			MaxLen: 2048, InList: true, InForm: true, Autocomplete: "off",
 			Help: "The repository to clone. Prefer an https address with a credential over embedding a token in the URL: a URL's userinfo ends up in error messages.",
+		},
+		{
+			Name: "credential", Label: "CREDENTIAL", Kind: view.KindSelect,
+			InForm: true, References: "credentials",
+			Help: "How a private repository is authenticated: a token, a username and password, or an SSH key. " +
+				"Leave it unset for a public repository. A Source Control credential is the natural fit, but any " +
+				"credential carrying the same inputs works.",
+			Options: credentialOptions(creds),
 		},
 		{
 			Name: "scm_branch", Label: "BRANCH", Kind: view.KindText,
@@ -198,7 +206,7 @@ func asFault(err error) error {
 }
 
 // Register wires this view over the live project store.
-func Register(store project.Store, syncer project.Syncer, orgs inventory.OrganizationLister) error {
+func Register(store project.Store, syncer project.Syncer, orgs inventory.OrganizationLister, creds credentialLister) error {
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Projects",
@@ -208,7 +216,7 @@ func Register(store project.Store, syncer project.Syncer, orgs inventory.Organiz
 		Summary:  "Where automation content comes from: a synced repository of playbooks.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   declaredFields(orgs),
+		Fields:   declaredFields(orgs, creds),
 		Actions:  []view.RecordAction{syncAction(store, syncer)},
 		Sections: []view.Section{playbooksSection(syncer, store)},
 		Ops: view.Ops{
@@ -245,6 +253,7 @@ func Register(store project.Store, syncer project.Syncer, orgs inventory.Organiz
 					"scm_type":     string(p.SCMType),
 					"scm_url":      p.SCMURL,
 					"scm_branch":   p.SCMBranch,
+					"credential":   credentialValue(p),
 				}
 			},
 			Bind: func(v view.Values) (project.Project, view.FieldErrors) {
@@ -255,6 +264,10 @@ func Register(store project.Store, syncer project.Syncer, orgs inventory.Organiz
 					SCMType:     project.SCMType(v.Get("scm_type")),
 					SCMURL:      strings.TrimSpace(v.Get("scm_url")),
 					SCMBranch:   strings.TrimSpace(v.Get("scm_branch")),
+					// Zero means no credential, which is a public
+					// repository rather than an error: the chooser's empty
+					// option is a real choice.
+					CredentialID: optionalID(v.Get("credential")),
 				}
 				if !v.Editing() {
 					org, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))

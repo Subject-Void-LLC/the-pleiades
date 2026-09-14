@@ -152,28 +152,80 @@ type Syncer interface {
 	// what it ended up at. A returned Result with SyncFailed carries the
 	// reason in Err; the error return is reserved for a failure to even
 	// attempt, such as an unsyncable project.
-	Sync(ctx context.Context, p Project, auth Auth) (Result, error)
+	//
+	// It takes no Auth. The credential is resolved inside the
+	// implementation, from the id the project already carries, so a caller
+	// asking for a sync never holds a secret and cannot leak one it was
+	// handed.
+	Sync(ctx context.Context, p Project) (Result, error)
 
 	// Playbooks lists the runnable files in a synced working tree, as
 	// paths relative to its root.
 	Playbooks(ctx context.Context, p Project) ([]string, error)
 }
 
-// Auth is how a clone authenticates, resolved from a Credential by the
-// caller so this package never reads the credential store itself.
+// Auth is how a clone authenticates.
 //
-// An empty Auth is a public repository. Both fields are secret-adjacent and
-// neither is ever logged or stored: see scrubURL for the one place they
-// could otherwise escape.
+// An empty Auth is a public repository. Every field here is secret material
+// or adjacent to it, and none of it is ever logged, stored or rendered: a
+// value lives in this struct for the length of one clone. scrubURL is the
+// one place it could otherwise escape, because transport errors quote the
+// URL they tried.
+//
+// The three shapes a forge actually offers, in one type because git treats
+// the first two identically and the transport decides which applies:
+//
+//   - a token alone, which is what GitHub, GitLab and Bitbucket issue in
+//     place of a password. Username is then whatever the forge wants as a
+//     placeholder and is supplied by authMethod, not by the operator.
+//   - a username and password over HTTPS.
+//   - an SSH private key, optionally encrypted, in which case Passphrase
+//     unlocks it. A key with a passphrase and no passphrase supplied fails
+//     at parse time with a clear error rather than hanging on a prompt,
+//     which is the difference between an unattended sync and an
+//     interactive one.
 type Auth struct {
 	Username string
 
-	// Password is a password or a personal access token. Over HTTPS a
-	// token is what a forge actually issues, and git treats the two
-	// identically, so there is one field rather than two that would have
-	// to be kept in step.
+	// Password is a password or a personal access token. One field rather
+	// than two, because git sends both the same way and keeping two in
+	// step would be two chances to send the wrong one.
 	Password string
+
+	// PrivateKey is a PEM-encoded SSH private key.
+	PrivateKey []byte
+
+	// Passphrase decrypts PrivateKey, empty for an unencrypted key. It is
+	// never a password for anything else: an encrypted key with the wrong
+	// passphrase must fail as a key problem rather than fall back to a
+	// password attempt that would put this value on the wire.
+	Passphrase string
 }
 
 // Empty reports whether this is an unauthenticated clone.
-func (a Auth) Empty() bool { return a.Username == "" && a.Password == "" }
+func (a Auth) Empty() bool {
+	return a.Username == "" && a.Password == "" && len(a.PrivateKey) == 0
+}
+
+// UsesKey reports whether this authenticates with an SSH key.
+func (a Auth) UsesKey() bool { return len(a.PrivateKey) > 0 }
+
+// AuthResolver turns a credential id into the values a clone needs.
+//
+// It is an interface declared here and implemented by the composition root,
+// rather than this package importing the credential resolver directly, and
+// that is load bearing rather than stylistic. internal/archtest asserts
+// that internal/api never DEPENDS on the package which produces plaintext
+// credential values, transitively rather than by direct import. The API's
+// project handler holds a Syncer, so a Syncer that imported the resolver
+// would put the resolver in the API's dependency graph and fail that
+// assertion, correctly: it exists so "no plaintext read API" is a property
+// of the build rather than a promise.
+//
+// A nil resolver means every clone is unauthenticated, which is the honest
+// behaviour for a deployment that has wired no credentials.
+type AuthResolver interface {
+	// ResolveAuth returns the credential's values, or an empty Auth when
+	// id is zero.
+	ResolveAuth(ctx context.Context, credentialID int) (Auth, error)
+}

@@ -809,7 +809,7 @@ func (s *fakeProjectStore) RecordSync(_ context.Context, id int, result project.
 // testing somebody else's uptime.
 type fakeProjectSyncer struct{}
 
-func (fakeProjectSyncer) Sync(_ context.Context, p project.Project, _ project.Auth) (project.Result, error) {
+func (fakeProjectSyncer) Sync(_ context.Context, p project.Project) (project.Result, error) {
 	if !p.Syncable() {
 		return project.Result{}, project.ErrNotSyncable
 	}

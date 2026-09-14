@@ -1,19 +1,17 @@
 // This file is the Sync button and the Playbooks tab: the two halves of
 // "the repository is here now".
 //
-// # Public repositories only, for now
+// # No credential passes through this file
 //
-// syncAction passes an empty project.Auth, so a private repository fails to
-// clone. The schema, the domain type and the Syncer contract all carry a
-// credential already; what is missing is the resolution step, which means
-// reading a decrypted secret out of credstore and handing it over here.
+// A private clone authenticates as an ordinary Credential, and resolving
+// one means reading a decrypted secret. This view cannot: internal/archtest
+// fails the build if the UI side ever reaches the package that decrypts,
+// and that rule is why syncAction hands the syncer nothing.
 //
-// That step belongs in this file rather than in internal/project, and the
-// split is the point: the package that touches the network takes an Auth it
-// is given, holds no key material, and has no way to reach the credential
-// store even by mistake. Wiring it up is a small change in one place. Until
-// it happens, a private URL produces a recorded sync failure rather than a
-// silent empty checkout, which is the honest failure of the two.
+// The syncer resolves the project's own credential id internally, through
+// an interface internal/project declares and the composition root
+// implements. So the secret exists inside one clone and is never held by a
+// page, a handler or a form.
 package projects
 
 import (
@@ -51,7 +49,7 @@ func syncAction(store project.Store, syncer project.Syncer) view.RecordAction {
 				return "", errs, err
 			}
 
-			result, err := syncer.Sync(ctx, p, project.Auth{})
+			result, err := syncer.Sync(ctx, p)
 			if err != nil {
 				// A project with nothing to fetch is a configuration
 				// problem rather than a failure to record: saying so

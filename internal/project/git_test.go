@@ -67,10 +67,10 @@ func TestGitSyncer_ClonesAndListsPlaybooks(t *testing.T) {
 		".hidden.yml":           "not offered\n",
 	})
 
-	syncer := project.NewGitSyncer(t.TempDir())
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
 
-	got, err := syncer.Sync(t.Context(), p, project.Auth{})
+	got, err := syncer.Sync(t.Context(), p)
 	if err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}
@@ -106,13 +106,13 @@ func TestGitSyncer_ClonesAndListsPlaybooks(t *testing.T) {
 func TestGitSyncer_SyncingTwiceIsFine(t *testing.T) {
 	origin, want := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
 
-	syncer := project.NewGitSyncer(t.TempDir())
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
 
-	if _, err := syncer.Sync(t.Context(), p, project.Auth{}); err != nil {
+	if _, err := syncer.Sync(t.Context(), p); err != nil {
 		t.Fatalf("first Sync() = %v", err)
 	}
-	got, err := syncer.Sync(t.Context(), p, project.Auth{})
+	got, err := syncer.Sync(t.Context(), p)
 	if err != nil {
 		t.Fatalf("second Sync() = %v", err)
 	}
@@ -129,13 +129,13 @@ func TestGitSyncer_SyncingTwiceIsFine(t *testing.T) {
 // to record against the project and show an operator, not a failure to
 // attempt.
 func TestGitSyncer_AFailedSyncIsAResultNotAnError(t *testing.T) {
-	syncer := project.NewGitSyncer(t.TempDir())
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 		SCMURL: filepath.Join(t.TempDir(), "no-such-repository"),
 	}
 
-	got, err := syncer.Sync(t.Context(), p, project.Auth{})
+	got, err := syncer.Sync(t.Context(), p)
 	if err != nil {
 		t.Fatalf("Sync() = %v, want the failure reported in the Result", err)
 	}
@@ -151,12 +151,12 @@ func TestGitSyncer_AFailedSyncIsAResultNotAnError(t *testing.T) {
 // there is nothing to attempt, so it is an error rather than a recorded
 // failure.
 func TestGitSyncer_AnUnsyncableProjectIsRefusedOutright(t *testing.T) {
-	syncer := project.NewGitSyncer(t.TempDir())
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	for _, p := range []project.Project{
 		{ID: 1, SCMType: project.SCMGit},                              // no URL
 		{ID: 2, SCMType: project.SCMManual, SCMURL: "https://x.test"}, // not implemented
 	} {
-		if _, err := syncer.Sync(t.Context(), p, project.Auth{}); err == nil {
+		if _, err := syncer.Sync(t.Context(), p); err == nil {
 			t.Errorf("Sync(%+v) = nil, want ErrNotSyncable", p)
 		}
 	}
@@ -172,13 +172,13 @@ func TestGitSyncer_AnUnsyncableProjectIsRefusedOutright(t *testing.T) {
 func TestGitSyncer_NeverStoresACredentialInTheFailureReason(t *testing.T) {
 	const token = "ghp-SUPERSECRET-TOKEN-0123456789"
 
-	syncer := project.NewGitSyncer(t.TempDir())
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 		SCMURL: "https://someone:" + token + "@git.invalid/private/repo.git",
 	}
 
-	got, err := syncer.Sync(t.Context(), p, project.Auth{})
+	got, err := syncer.Sync(t.Context(), p)
 	if err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}

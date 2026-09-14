@@ -222,10 +222,11 @@ func (h *ProjectHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Public repositories only: nothing resolves a credential into an Auth
-	// yet. See internal/ui/resources/projects/sync.go, which carries the
-	// same limitation and the reasoning for where that resolution belongs.
-	result, err := h.syncer.Sync(r.Context(), p, project.Auth{})
+	// No credential is passed or held. The syncer resolves the project's
+	// own credential id internally, so this handler cannot leak a secret it
+	// was never given, which is the same boundary internal/archtest asserts
+	// over this whole package.
+	result, err := h.syncer.Sync(r.Context(), p)
 	if err != nil {
 		RespondError(w, r, http.StatusBadRequest, err.Error())
 		return

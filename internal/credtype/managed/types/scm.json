@@ -1,0 +1,35 @@
+{
+  "name": "Source Control",
+  "namespace": "scm",
+  "kind": "scm",
+  "managed": true,
+  "description": "A username with a password or token, or an SSH key, used to clone a project's repository.",
+  "inputs": {
+    "fields": [
+      {"id": "username", "label": "Username", "type": "string"},
+      {
+        "id": "password",
+        "label": "Password or Token",
+        "type": "string",
+        "secret": true,
+        "help_text": "A password over HTTPS, or the personal access token a forge issues in place of one. A token may be supplied on its own, with no username."
+      },
+      {
+        "id": "ssh_key_data",
+        "label": "SSH Private Key",
+        "type": "string",
+        "format": "ssh_private_key",
+        "secret": true,
+        "multiline": true
+      },
+      {
+        "id": "ssh_key_unlock",
+        "label": "Private Key Passphrase",
+        "type": "string",
+        "secret": true,
+        "help_text": "Required only if the key above is encrypted."
+      }
+    ]
+  },
+  "injectors": {}
+}

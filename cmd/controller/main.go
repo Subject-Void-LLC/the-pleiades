@@ -702,35 +702,6 @@ func main() {
 		}
 	}
 
-	// Source control, built here rather than beside the other stores
-	// because a project is the second place a playbook comes from and the
-	// composite below has to exist before anything that resolves one.
-	//
-	// The syncer is rooted at a directory this process owns rather than
-	// anywhere a project names: a working tree's path is derived from
-	// numeric ids (internal/project's pathFor), so nothing an operator
-	// types reaches the filesystem.
-	projectStore := project.NewEntStore(client)
-	projectSyncer := project.NewGitSyncer(projectRoot())
-
-	// One list, for the reason the catalog comment further down states: a
-	// definition that can be CHOSEN has to be one that can be RUN, or a
-	// template saves and then fails at launch. The catalog and the worker
-	// both resolve through this same value, so the two cannot disagree
-	// about what exists.
-	//
-	// The playbook kind is now always available, which it was not before.
-	// It used to be registered only when PLAYBOOK_DIR was set, and that was
-	// decidable at startup because a mounted directory either exists or does
-	// not. A project is created at run time, so a deployment with no
-	// PLAYBOOK_DIR can acquire playbooks after boot, and refusing the kind
-	// on the strength of a startup check would make them permanently
-	// unreachable until a restart.
-	playbooks := playbook.NewMultiSource(
-		playbookDirSource,
-		project.NewPlaybookSource(projectStore, projectSyncer),
-	)
-
 	// credentials resolves a device's stored SSH credential at dispatch
 	// time, so worker below can attach it directly to
 	// wire.DispatchPayload.Secrets (Phase 16, Native Go Execution
@@ -796,6 +767,42 @@ func main() {
 		fatal("failed to build the external secret source table", err)
 	}
 	credentialResolver := resolve.NewEntResolver(client, resolve.WithLookups(externalLookups))
+
+	// Source control, built after the credential resolver because a private
+	// clone authenticates as an ordinary Credential and the syncer resolves
+	// that itself.
+	//
+	// projectAuth is the bridge, and this is the only place it can live.
+	// internal/archtest asserts that internal/api never DEPENDS on the
+	// resolver, transitively, and the API's project handler holds a Syncer;
+	// a syncer that imported the resolver would put it in that graph. A
+	// composition root wiring a concrete implementation into an interface
+	// somebody else declared is exactly what a composition root is for.
+	//
+	// The syncer is rooted at a directory this process owns rather than
+	// anywhere a project names: a working tree's path is derived from
+	// numeric ids (internal/project's pathFor), so nothing an operator
+	// types reaches the filesystem.
+	projectStore := project.NewEntStore(client)
+	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver})
+
+	// One list, for the reason the catalog comment further down states: a
+	// definition that can be CHOSEN has to be one that can be RUN, or a
+	// template saves and then fails at launch. The catalog and the worker
+	// both resolve through this same value, so the two cannot disagree
+	// about what exists.
+	//
+	// The playbook kind is now always available, which it was not before.
+	// It used to be registered only when PLAYBOOK_DIR was set, and that was
+	// decidable at startup because a mounted directory either exists or does
+	// not. A project is created at run time, so a deployment with no
+	// PLAYBOOK_DIR can acquire playbooks after boot, and refusing the kind
+	// on the strength of a startup check would make them permanently
+	// unreachable until a restart.
+	playbooks := playbook.NewMultiSource(
+		playbookDirSource,
+		project.NewPlaybookSource(projectStore, projectSyncer),
+	)
 
 	// injector renders a resolved credential into what a run executes with.
 	// It takes the same render engine the store validates writes with, so a
@@ -1574,4 +1581,42 @@ func projectRoot() string {
 		return dir
 	}
 	return "/var/lib/pleiades/projects"
+}
+
+// projectAuth resolves a project's credential into the values one clone
+// needs.
+//
+// It maps AWX's Source Control input names, which is the vocabulary
+// internal/credtype/managed/types/scm.json declares and an AWX export
+// already uses. A credential of some other type is not rejected: an ssh
+// type carries the same ssh_key_data and username, and refusing it would
+// be this bridge inventing a rule the credential system does not have.
+type projectAuth struct{ resolver resolve.Resolver }
+
+// ResolveAuth reads one credential's real values.
+func (a projectAuth) ResolveAuth(ctx context.Context, credentialID int) (project.Auth, error) {
+	if credentialID == 0 {
+		return project.Auth{}, nil
+	}
+	found, err := a.resolver.Resolve(ctx, []int{credentialID})
+	if err != nil {
+		// Deliberately not wrapped: the resolver's error can name the
+		// credential and its inputs, and this string is on its way to a
+		// stored sync_error that an operator reads.
+		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
+	}
+	if len(found) != 1 {
+		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
+	}
+
+	in := found[0].Inputs
+	auth := project.Auth{
+		Username:   in["username"],
+		Password:   in["password"],
+		Passphrase: in["ssh_key_unlock"],
+	}
+	if key := in["ssh_key_data"]; key != "" {
+		auth.PrivateKey = []byte(key)
+	}
+	return auth, nil
 }

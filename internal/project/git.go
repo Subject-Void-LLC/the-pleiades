@@ -27,7 +27,9 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 )
 
 // userinfoPattern matches a URL's embedded credentials. Deliberately broad
@@ -48,14 +50,22 @@ type GitSyncer struct {
 	// root is the directory every working tree lives under.
 	root string
 
+	// auth turns a project's credential id into the values a clone needs.
+	// Nil means every clone is unauthenticated, which is the honest
+	// behaviour for a deployment that has wired no credentials.
+	auth AuthResolver
+
 	// locks serialises work per project id. Two syncs interleaving a
 	// checkout of the same tree produce a working directory that matches
 	// no commit, which is worse than either sync losing.
 	locks sync.Map
 }
 
-// NewGitSyncer returns a syncer rooted at dir.
-func NewGitSyncer(dir string) *GitSyncer { return &GitSyncer{root: dir} }
+// NewGitSyncer returns a syncer rooted at dir, resolving credentials
+// through auth. A nil auth clones only public repositories.
+func NewGitSyncer(dir string, auth AuthResolver) *GitSyncer {
+	return &GitSyncer{root: dir, auth: auth}
+}
 
 // lockFor returns the mutex guarding one project's working tree.
 func (s *GitSyncer) lockFor(id int) *sync.Mutex {
@@ -75,7 +85,7 @@ func (s *GitSyncer) pathFor(p Project) string {
 }
 
 // Sync clones the project or fast-forwards an existing checkout.
-func (s *GitSyncer) Sync(ctx context.Context, p Project, auth Auth) (Result, error) {
+func (s *GitSyncer) Sync(ctx context.Context, p Project) (Result, error) {
 	if !p.Syncable() {
 		return Result{}, ErrNotSyncable
 	}
@@ -87,7 +97,22 @@ func (s *GitSyncer) Sync(ctx context.Context, p Project, auth Auth) (Result, err
 	dir := s.pathFor(p)
 	result := Result{LocalPath: dir, At: time.Now().UTC()}
 
-	repo, err := s.open(ctx, dir, p, auth)
+	// Resolved here, inside the lock and immediately before use, rather
+	// than passed in. The value exists for the length of this call and is
+	// never returned, stored or logged.
+	auth, err := s.resolveAuth(ctx, p)
+	if err != nil {
+		result.Status = SyncFailed
+		result.Err = scrubURL(err.Error(), p.SCMURL)
+		return result, nil
+	}
+
+	repo, openErr := s.open(ctx, dir, p, auth)
+	if openErr != nil {
+		result.Status = SyncFailed
+		result.Err = scrubURL(openErr.Error(), p.SCMURL)
+		return result, nil
+	}
 	if err != nil {
 		result.Status = SyncFailed
 		result.Err = scrubURL(err.Error(), p.SCMURL)
@@ -130,9 +155,13 @@ func (s *GitSyncer) open(ctx context.Context, dir string, p Project, auth Auth) 
 
 // clone makes the first checkout.
 func (s *GitSyncer) clone(ctx context.Context, dir string, p Project, auth Auth) (*gogit.Repository, error) {
+	method, err := authMethod(auth)
+	if err != nil {
+		return nil, err
+	}
 	opts := &gogit.CloneOptions{
 		URL:   p.SCMURL,
-		Auth:  authMethod(auth),
+		Auth:  method,
 		Depth: 1,
 	}
 	// An empty branch means the remote's own default, which is not assumed
@@ -147,11 +176,14 @@ func (s *GitSyncer) clone(ctx context.Context, dir string, p Project, auth Auth)
 
 // fetch fast-forwards an existing checkout.
 func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project, auth Auth) error {
-	err := repo.FetchContext(ctx, &gogit.FetchOptions{
-		Auth:  authMethod(auth),
+	method, err := authMethod(auth)
+	if err != nil {
+		return err
+	}
+	if err := repo.FetchContext(ctx, &gogit.FetchOptions{
+		Auth:  method,
 		Force: true,
-	})
-	if err != nil && !isUpToDate(err) {
+	}); err != nil && !isUpToDate(err) {
 		return err
 	}
 
@@ -159,7 +191,7 @@ func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project
 	if err != nil {
 		return err
 	}
-	pull := &gogit.PullOptions{Auth: authMethod(auth)}
+	pull := &gogit.PullOptions{Auth: method}
 	if p.SCMBranch != "" {
 		pull.ReferenceName = plumbing.NewBranchReferenceName(p.SCMBranch)
 	}
@@ -175,20 +207,56 @@ func isUpToDate(err error) bool {
 	return err == gogit.NoErrAlreadyUpToDate
 }
 
+// resolveAuth turns the project's credential id into values for this one
+// clone, or an empty Auth when the repository is public.
+func (s *GitSyncer) resolveAuth(ctx context.Context, p Project) (Auth, error) {
+	if s.auth == nil || p.CredentialID == 0 {
+		return Auth{}, nil
+	}
+	return s.auth.ResolveAuth(ctx, p.CredentialID)
+}
+
 // authMethod maps an Auth onto go-git's transport auth, nil for a public
 // repository.
-func authMethod(a Auth) *githttp.BasicAuth {
-	if a.Empty() {
-		return nil
+//
+// The returned type is the interface rather than a concrete one, because
+// the two shapes are genuinely different transports: a key goes over SSH
+// and a password goes over HTTPS, and the URL decides which the remote will
+// even accept.
+func authMethod(a Auth) (transport.AuthMethod, error) {
+	switch {
+	case a.Empty():
+		return nil, nil
+
+	case a.UsesKey():
+		// An SSH URL names the user before the host ("git@github.com"),
+		// and go-git wants it separately. "git" is what every forge uses
+		// and what a bare key with no username implies.
+		user := a.Username
+		if user == "" {
+			user = "git"
+		}
+		keys, err := gitssh.NewPublicKeys(user, a.PrivateKey, a.Passphrase)
+		if err != nil {
+			// Deliberately not wrapped with the underlying error's own
+			// text. An encrypted key with no passphrase and an encrypted
+			// key with the WRONG passphrase produce different messages
+			// from x/crypto, and the difference is an oracle. Both are the
+			// same problem to the person fixing it.
+			return nil, fmt.Errorf("the SSH key could not be read: check that it is a private key and that the passphrase is correct")
+		}
+		return keys, nil
+
+	default:
+		// go-git rejects an empty username even when the token is the
+		// whole credential, which is the shape a forge issues. The literal
+		// is what GitHub, GitLab and Bitbucket all document for that case.
+		username := a.Username
+		if username == "" {
+			username = "git"
+		}
+		return &githttp.BasicAuth{Username: username, Password: a.Password}, nil
 	}
-	// go-git rejects an empty username even when the password is the whole
-	// credential, which is the shape a forge token takes. The literal is
-	// what GitHub, GitLab and Bitbucket all document for that case.
-	username := a.Username
-	if username == "" {
-		username = "git"
-	}
-	return &githttp.BasicAuth{Username: username, Password: a.Password}
 }
 
 // Playbooks lists the runnable files in a synced working tree.
