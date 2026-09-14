@@ -694,13 +694,42 @@ func main() {
 	// The Runner reads the same variable for the execution side
 	// (cmd/runner/main.go), the identical two-binary convention
 	// RUNBOOK_DIR already follows.
-	var playbooks *playbook.DirSource
+	var playbookDirSource *playbook.DirSource
 	if playbookDir := getenv("PLAYBOOK_DIR", ""); playbookDir != "" {
-		playbooks, err = playbook.NewDirSource(playbookDir)
+		playbookDirSource, err = playbook.NewDirSource(playbookDir)
 		if err != nil {
 			fatal("failed to init playbook source", err)
 		}
 	}
+
+	// Source control, built here rather than beside the other stores
+	// because a project is the second place a playbook comes from and the
+	// composite below has to exist before anything that resolves one.
+	//
+	// The syncer is rooted at a directory this process owns rather than
+	// anywhere a project names: a working tree's path is derived from
+	// numeric ids (internal/project's pathFor), so nothing an operator
+	// types reaches the filesystem.
+	projectStore := project.NewEntStore(client)
+	projectSyncer := project.NewGitSyncer(projectRoot())
+
+	// One list, for the reason the catalog comment further down states: a
+	// definition that can be CHOSEN has to be one that can be RUN, or a
+	// template saves and then fails at launch. The catalog and the worker
+	// both resolve through this same value, so the two cannot disagree
+	// about what exists.
+	//
+	// The playbook kind is now always available, which it was not before.
+	// It used to be registered only when PLAYBOOK_DIR was set, and that was
+	// decidable at startup because a mounted directory either exists or does
+	// not. A project is created at run time, so a deployment with no
+	// PLAYBOOK_DIR can acquire playbooks after boot, and refusing the kind
+	// on the strength of a startup check would make them permanently
+	// unreachable until a restart.
+	playbooks := playbook.NewMultiSource(
+		playbookDirSource,
+		project.NewPlaybookSource(projectStore, projectSyncer),
+	)
 
 	// credentials resolves a device's stored SSH credential at dispatch
 	// time, so worker below can attach it directly to
@@ -820,10 +849,8 @@ func main() {
 		dispatch.WithSetStore(sets),
 		dispatch.WithCredentials(credentialResolver, injector),
 	}
-	if playbooks != nil {
-		workerOpts = append(workerOpts,
-			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
-	}
+	workerOpts = append(workerOpts,
+		dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
 	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, deviceCredentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
@@ -915,19 +942,17 @@ func main() {
 			},
 		},
 	}
-	if playbooks != nil {
-		kindCatalogs["playbook"] = launch.KindCatalogFuncs{
-			ListFunc: playbooks.List,
-			VerifyFunc: func(ctx context.Context, definition string) error {
-				if _, err := playbooks.Get(ctx, definition); err != nil {
-					if errors.Is(err, playbook.ErrNotFound) {
-						return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
-					}
-					return fmt.Errorf("resolving playbook %q: %w", definition, err)
+	kindCatalogs["playbook"] = launch.KindCatalogFuncs{
+		ListFunc: playbooks.List,
+		VerifyFunc: func(ctx context.Context, definition string) error {
+			if _, err := playbooks.Get(ctx, definition); err != nil {
+				if errors.Is(err, playbook.ErrNotFound) {
+					return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
 				}
-				return nil
-			},
-		}
+				return fmt.Errorf("resolving playbook %q: %w", definition, err)
+			}
+			return nil
+		},
 	}
 	launchCatalog := launch.NewSourceCatalog(kindCatalogs)
 
@@ -996,11 +1021,10 @@ func main() {
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
-	// One store and one syncer value shared with the UI's own Projects
-	// view below, so what an operator syncs through the browser and what a
-	// caller syncs over the API are the same checkout, not two.
-	projectStore := project.NewEntStore(client)
-	projectSyncer := project.NewGitSyncer(projectRoot())
+	// The same store and syncer the playbook source above was built on, so
+	// what an operator syncs through the browser, what a caller syncs over
+	// the API, and what a dispatch resolves are one checkout rather than
+	// three.
 	projectsAPI := api.NewProjectHandler(projectStore, projectSyncer, logger)
 	catalog := api.NewRunbookHandler(runbooks, logger)
 
