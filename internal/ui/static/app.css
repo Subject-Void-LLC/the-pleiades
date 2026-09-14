@@ -1634,11 +1634,34 @@ select {
   padding: 0.15rem 0.25rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* Every line reserves the edge, transparent until a status names one, so
+   * a classified line does not shift its text sideways relative to an
+   * unclassified one as the log scrolls past. */
+  border-left: var(--border-width) solid transparent;
 }
 .stream-line-meta {
   color: var(--fg-muted);
   font-style: italic;
 }
+
+/* ---- A line's outcome ----
+ *
+ * A left edge in the same fills the status badges use, rather than a
+ * background. The badge palette was validated against --on-fill over a
+ * badge-sized area; a full-width line filled with --fill-ok is unreadable
+ * at any length, and tinting whole rows is what took dark Honeycrisp's
+ * --fg-muted from 5.80:1 to 3.19:1 the last time it was tried.
+ *
+ * Never colour alone (WCAG SC 1.4.1). stream.js writes the status word into
+ * the line's own text, and the filter box searches that text, so "failed"
+ * typed into the filter finds the failures whether or not the reader can
+ * see the edge. */
+.stream-line-started { border-left-color: var(--fill-neutral); }
+.stream-line-ok { border-left-color: var(--fill-ok); }
+.stream-line-changed { border-left-color: var(--fill-changed); }
+.stream-line-skipped { border-left-color: var(--fill-skipped); }
+.stream-line-failed { border-left-color: var(--fill-failed); }
+.stream-line-task { border-left-color: var(--fill-neutral); }
 
 /* ---- Theme control ---- */
 /* ---- Sidebar foot ----
