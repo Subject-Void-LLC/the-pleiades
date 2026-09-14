@@ -6,21 +6,34 @@
 // read the variables these inject, which is why this is the gap that
 // decides whether a migration is possible at all.
 //
-// # Read-only, and that is a decision rather than an omission
+// # Writable, through structured controls only
 //
-// A credential type's injector document is executable in every sense that
-// matters: it decides which environment variables a customer's playbook
-// runs with, and internal/credtype refuses a set of them (LD_PRELOAD and
-// its relatives) precisely because an injector that could set one is code
-// execution inside the run. Authoring that through a browser form is a
-// worse idea than authoring it through an API call an operator had to
-// deliberately construct, so this view lists, shows, and tests, and the
-// write path stays on the API and the import command.
+// A credential type's metadata -- its name, description, kind, namespace
+// and owning tenant -- is created, edited and deleted here. Its inputs
+// schema and injector document are shown as summaries and, for now,
+// authored through the API and the import command.
 //
-// The Test action is the useful half of authoring and carries none of that
-// risk: it renders a type's injectors against values the caller supplies,
-// touches no stored credential, and reports the SHAPE it would produce
-// with no value in it.
+// That split is a decision rather than an omission. An injector document is
+// executable in every sense that matters: it decides which environment
+// variables a customer's playbook runs with, and internal/credtype refuses
+// a set of them (LD_PRELOAD and its relatives) precisely because an
+// injector that could set one is code execution inside the run. So when
+// this view learns to author inputs and injectors it will do so through
+// structured, validated repeating rows -- every template compiled through
+// the real render engine at save, every name held to credtype's own
+// refusals -- never a free-form field a browser could paste an arbitrary
+// document into. The metadata form carries none of that risk, which is why
+// it lands first.
+//
+// A managed type belongs to nobody and cannot be edited or deleted, which
+// an import relies on to reuse the built-ins rather than recreating them;
+// the store refuses either write, and this view withdraws the controls so
+// the refusal is not something a reader has to discover by trying.
+//
+// The Test action is the other half of authoring and carries none of the
+// injector risk: it renders a type's injectors against values the caller
+// supplies, touches no stored credential, and reports the SHAPE it would
+// produce with no value in it.
 //
 // It is reachable only because internal/ui/resources/registrars.go names
 // it (FAILURE_PATTERNS.md #52).
@@ -34,9 +47,11 @@ import (
 	"strings"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype/managed"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
@@ -44,49 +59,63 @@ import (
 // Name is this view's registration key and URL segment.
 const Name = "credential-types"
 
-// fields declare the shape.
+// declaredFields declare the shape.
 //
-// There is deliberately no field carrying a template's rendered output.
-// The columns describe the type; a value belongs to a credential, and a
-// credential's secret values are not readable through any port this view
-// could hold.
-var fields = []view.Field{
-	{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true},
-	{
-		Name: "kind", Label: "KIND", Kind: view.KindBadge, InList: true,
-		Help:       "AWX's coarse grouping. It is what the one-credential-per-kind binding rule keys on.",
-		BadgeClass: kindClass,
-	},
-	{
-		Name: "namespace", Label: "NAMESPACE", Kind: view.KindReadOnly, InList: true,
-		Help: "The stable identifier an import matches on, rather than the display name.",
-	},
-	{
-		Name: "inputs", Label: "INPUTS", Kind: view.KindReadOnly, InList: true,
-		Help: "What a credential of this type holds. A secret input is marked, and its value is never readable here or anywhere else.",
-	},
-	{
-		Name: "injectors", Label: "INJECTORS", Kind: view.KindReadOnly, InList: true,
-		Help: "Where those inputs go at run time: environment variables, extra variables, generated files.",
-	},
-	{
-		Name: "organization", Label: "ORGANIZATION", Kind: view.KindReadOnly, InList: true,
-		Help: "The tenant that owns this type. A managed type belongs to nobody and is usable by everybody.",
-	},
-	{
-		Name: "managed", Label: "MANAGED", Kind: view.KindBadge, InList: true,
-		Help:       "Whether this platform ships the type. A managed type cannot be edited, which is what lets an import reuse it rather than recreating it.",
-		BadgeClass: managedClass,
-	},
+// The metadata half is writable; the inputs and injectors columns are
+// read-only summaries. There is deliberately no field carrying a template's
+// rendered output: the columns describe the type, a value belongs to a
+// credential, and a credential's secret values are not readable through any
+// port this view could hold.
+//
+// Namespace and organization are immutable, so the edit form drops them:
+// the namespace is what an import matches on and the store will not rewrite
+// it, and the owner decides who can reach the type. Both are required on a
+// create and settled there.
+func declaredFields(orgs inventory.OrganizationLister) []view.Field {
+	return []view.Field{
+		{
+			Name: "name", Label: "NAME", Kind: view.KindText,
+			Required: true, MaxLen: 253, InList: true, InForm: true, MobilePrimary: true,
+			Autocomplete: "off",
+			Help:         "What this type is called, within its organization.",
+		},
+		{
+			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
+			MaxLen: 1024, InForm: true,
+			Help: "What a credential of this type is for, for somebody who did not create it.",
+		},
+		{
+			Name: "kind", Label: "KIND", Kind: view.KindSelect,
+			Required: true, InList: true, InForm: true,
+			Options: kindOptions,
+			Help:    "AWX's coarse grouping. It is what the one-credential-per-kind binding rule keys on.",
+		},
+		{
+			Name: "namespace", Label: "NAMESPACE", Kind: view.KindText,
+			Required: true, Immutable: true, InList: true, InForm: true,
+			Help: "The stable identifier an import matches on, rather than the display name. Fixed once saved.",
+		},
+		{
+			Name: "inputs", Label: "INPUTS", Kind: view.KindReadOnly, InList: true,
+			Help: "What a credential of this type holds. A secret input is marked, and its value is never readable here or anywhere else.",
+		},
+		{
+			Name: "injectors", Label: "INJECTORS", Kind: view.KindReadOnly, InList: true,
+			Help: "Where those inputs go at run time: environment variables, extra variables, generated files.",
+		},
+		{
+			Name: "organization", Label: "ORGANIZATION", Kind: view.KindSelect,
+			Required: true, Immutable: true, InList: true, InForm: true,
+			Options: orgOptions(orgs),
+			Help:    "The tenant that owns this type. A managed type belongs to nobody and is usable by everybody. Fixed once saved.",
+		},
+		{
+			Name: "managed", Label: "MANAGED", Kind: view.KindBadge, InList: true,
+			Help:       "Whether this platform ships the type. A managed type cannot be edited, which is what lets an import reuse it rather than recreating it.",
+			BadgeClass: managedClass,
+		},
+	}
 }
-
-// kindClass colours the grouping badge.
-//
-// One neutral class for every kind rather than a palette, because a kind is
-// not a status: rendering "cloud" in the same green as a succeeded job
-// would import a meaning it does not have. The badge earns its place by
-// being scannable, not by being coloured.
-func kindClass(string) string { return "badge-neutral" }
 
 // managedClass distinguishes what this platform ships from what an
 // operator wrote, which is the one column here that changes what a reader
@@ -261,8 +290,12 @@ func describeInjectors(inj credtype.Injectors) string {
 	return strings.Join(parts, "; ")
 }
 
+// managedRow reports whether a projected row is a type this platform
+// ships, which is the one fact that changes what a reader may do with it.
+func managedRow(r view.Row) bool { return r.Cells["managed"] == "platform" }
+
 // Register wires the Credential Types view over the type catalog.
-func Register(types credstore.TypeReader, eng render.Engine) error {
+func Register(store credstore.Store, orgs inventory.OrganizationLister, eng render.Engine) error {
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Credential Types",
@@ -272,13 +305,31 @@ func Register(types credstore.TypeReader, eng render.Engine) error {
 		Summary:  "What a credential holds, and how its secrets reach the automation.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   fields,
+		Fields:   declaredFields(orgs),
 		Ops: view.Ops{
-			List: &apispec.ListCredentialTypes,
-			Get:  &apispec.GetCredentialType,
+			List:   &apispec.ListCredentialTypes,
+			Get:    &apispec.GetCredentialType,
+			Create: &apispec.CreateCredentialType,
+			Update: &apispec.UpdateCredentialType,
+			Delete: &apispec.DeleteCredentialType,
 		},
-		Actions: []view.RecordAction{testAction(types, eng)},
-		Handlers: view.MustBind[credstore.CredentialType](reader{types}, nil, view.Projector[credstore.CredentialType]{
+		// A managed type is refused by the store on both an edit and a
+		// delete, so the affordance is withdrawn rather than offered and
+		// then refused. It is keyed on the relation because a predicate
+		// that ignored it would withdraw every affordance, leaving the
+		// page looking as though the caller could do nothing at all.
+		Applies: func(r view.Row, rel auth.LinkRel) bool {
+			if managedRow(r) && (rel == apispec.UpdateCredentialType.Rel || rel == apispec.DeleteCredentialType.Rel) {
+				return false
+			}
+			return true
+		},
+		Actions: []view.RecordAction{testAction(store, eng)},
+		Handlers: view.MustBind[credstore.CredentialType](reader{store}, writer{store}, view.Projector[credstore.CredentialType]{
+			Form: formValues,
+			Bind: func(v view.Values) (credstore.CredentialType, view.FieldErrors) {
+				return bindType(v)
+			},
 			Row: func(ct credstore.CredentialType) view.Row {
 				managedLabel := "custom"
 				if ct.Managed {
@@ -287,12 +338,13 @@ func Register(types credstore.TypeReader, eng render.Engine) error {
 				return view.Row{
 					ID: strconv.Itoa(ct.ID),
 					Cells: view.Cells{
-						"name":      ct.Name,
-						"kind":      string(ct.Kind),
-						"namespace": ct.Namespace,
-						"inputs":    describeInputs(ct.Inputs),
-						"injectors": describeInjectors(ct.Injectors),
-						"managed":   managedLabel,
+						"name":         ct.Name,
+						"kind":         string(ct.Kind),
+						"namespace":    ct.Namespace,
+						"inputs":       describeInputs(ct.Inputs),
+						"injectors":    describeInjectors(ct.Injectors),
+						"organization": describeOwner(ct),
+						"managed":      managedLabel,
 					},
 				}
 			},

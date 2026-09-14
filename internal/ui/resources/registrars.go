@@ -42,7 +42,7 @@ func registrars() []Registrar {
 		func(Deps) error { return approvals.Register() },
 		func(d Deps) error { return contacts.Register(d.Access) },
 		func(d Deps) error { return credentials.Register(d.Credentials, d.Sets) },
-		func(d Deps) error { return credentialtypes.Register(d.Credentials, d.Render) },
+		func(d Deps) error { return credentialtypes.Register(d.Credentials, d.Sets, d.Render) },
 		func(d Deps) error { return dashboard.Register(d.Jobs, d.Announce) },
 		func(d Deps) error { return devices.Register(d.Inventory, d.Factory) },
 		func(Deps) error { return executionenvs.Register() },

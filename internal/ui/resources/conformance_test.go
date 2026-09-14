@@ -838,3 +838,57 @@ func TestViewConformance_TheDrillDownChainWalks(t *testing.T) {
 		})
 	}
 }
+
+// recordIDs reads every record id out of a rendered list, in the order the
+// list rendered them. It is firstRecordID generalised: a test that must
+// find a record with a particular property walks all of them rather than
+// only the first.
+func recordIDs(t *testing.T, h *harness, name string) []string {
+	t.Helper()
+
+	body := h.get(t, "/ui/"+name).Body.String()
+	prefix := `href="/ui/` + name + `/`
+
+	var ids []string
+	seen := map[string]bool{}
+	for rest := body; ; {
+		idx := strings.Index(rest, prefix)
+		if idx < 0 {
+			return ids
+		}
+		rest = rest[idx+len(prefix):]
+
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			return ids
+		}
+		id := rest[:end]
+		// Skip the create button, the chart endpoint, and any deeper link
+		// like .../{id}/edit: a bare record id carries no slash.
+		if id != "new" && id != "chart.json" && !strings.Contains(id, "/") && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+}
+
+// firstEditableRecordID is firstRecordID narrowed to a record the UI
+// actually offers editing for: it walks the list, opens each record, and
+// returns the first whose detail page renders an Edit control.
+//
+// It exists because a view's first record is not always editable. A managed
+// credential type is shipped by the platform and refused by the store, so
+// its detail page withdraws the Edit affordance (Descriptor.Applies), and
+// the edit-form round-trip invariant is about the records that DO offer
+// editing, one of which sits further down the same list.
+func firstEditableRecordID(t *testing.T, h *harness, name string) string {
+	t.Helper()
+
+	for _, id := range recordIDs(t, h, name) {
+		detail := h.get(t, "/ui/"+name+"/"+id).Body.String()
+		if strings.Contains(detail, `href="/ui/`+name+`/`+id+`/edit"`) {
+			return id
+		}
+	}
+	return ""
+}
