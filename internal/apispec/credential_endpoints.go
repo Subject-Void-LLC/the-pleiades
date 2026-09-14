@@ -620,3 +620,31 @@ var TestCredentialType = Endpoint{
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
 	},
 }
+
+// SetCredentialTypeInputs is PUT /credential-types/{id}/inputs.
+var SetCredentialTypeInputs = Endpoint{
+	Name:    "set_credential_type_inputs",
+	Method:  http.MethodPut,
+	Pattern: "/credential-types/{id}/inputs",
+	Scope:   auth.ScopeCredentialWrite,
+	Rel:     auth.RelSetInputs,
+	Summary: "Replace a credential type's input schema",
+	Description: "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the " +
+		"same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not " +
+		"round-trip the injector document. A managed type is refused, as is a schema an injector already depends on " +
+		"that this would remove.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"inputs": inputsSchema},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the schema does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+	},
+}

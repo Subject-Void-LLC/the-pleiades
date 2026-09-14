@@ -1151,6 +1151,7 @@ func main() {
 		apispec.UpdateCredentialType.Name:     credentials.UpdateCredentialType,
 		apispec.DeleteCredentialType.Name:     credentials.DeleteCredentialType,
 		apispec.TestCredentialType.Name:       credentials.TestCredentialType,
+		apispec.SetCredentialTypeInputs.Name:  credentials.SetCredentialTypeInputs,
 		apispec.ListCredentials.Name:          credentials.ListCredentials,
 		apispec.GetCredential.Name:            credentials.GetCredential,
 		apispec.CreateCredential.Name:         credentials.CreateCredential,

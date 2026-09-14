@@ -2946,6 +2946,299 @@
         "x-link-relation": "update"
       }
     },
+    "/credential-types/{id}/inputs": {
+      "put": {
+        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove.",
+        "operationId": "set_credential_type_inputs",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "inputs": {
+                    "description": "What a credential of this type holds.",
+                    "properties": {
+                      "fields": {
+                        "description": "The inputs, in the order a form should show them.",
+                        "items": {
+                          "properties": {
+                            "ask_at_runtime": {
+                              "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                              "type": "boolean"
+                            },
+                            "choices": {
+                              "description": "An optional bounded value set.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                              "type": "string"
+                            },
+                            "format": {
+                              "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                              "type": "string"
+                            },
+                            "help_text": {
+                              "description": "Explanatory text a form shows beneath the control.",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What a form shows above the control.",
+                              "type": "string"
+                            },
+                            "multiline": {
+                              "description": "Whether a form should render a text area.",
+                              "type": "boolean"
+                            },
+                            "secret": {
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "\"string\" or \"boolean\". Absent means string.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the schema does not validate."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The type is managed and cannot be modified."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Replace a credential type's input schema",
+        "x-link-relation": "set-inputs"
+      }
+    },
     "/credential-types/{id}/test": {
       "post": {
         "description": "Renders this type's injectors against values the caller supplies, and reports what it would produce with every value masked. No stored credential is read and nothing is written. It is how an author finds a miswritten injector before a run does.",

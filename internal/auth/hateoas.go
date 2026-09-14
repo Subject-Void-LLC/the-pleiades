@@ -86,6 +86,19 @@ const (
 	// of the two. A client reading "update" and inferring it may do both
 	// would be inferring wrongly.
 	RelCredentials LinkRel = "credentials"
+
+	// RelSetInputs is the affordance that replaces a credential type's
+	// input schema.
+	//
+	// Its own relation rather than RelUpdate, for the reason RelCredentials
+	// gives: a relation is unique per resource, and a credential type
+	// already uses "update" for its metadata edit. A second affordance
+	// sharing that relation would give one resource two candidates a client
+	// cannot tell apart, and two controls the UI cannot label separately.
+	// It carries the same credential:write scope the metadata edit does; the
+	// separation is about identifying the affordance, not about a different
+	// privilege.
+	RelSetInputs LinkRel = "set-inputs"
 )
 
 // Affordance is one candidate action, described purely in authorization

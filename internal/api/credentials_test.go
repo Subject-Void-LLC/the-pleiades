@@ -85,6 +85,7 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 			apispec.UpdateCredentialType.Route(handler.UpdateCredentialType),
 			apispec.DeleteCredentialType.Route(handler.DeleteCredentialType),
 			apispec.TestCredentialType.Route(handler.TestCredentialType),
+			apispec.SetCredentialTypeInputs.Route(handler.SetCredentialTypeInputs),
 			apispec.ListCredentials.Route(handler.ListCredentials),
 			apispec.GetCredential.Route(handler.GetCredential),
 			apispec.CreateCredential.Route(handler.CreateCredential),
@@ -1132,5 +1133,77 @@ func TestAReadFailureAfterASuccessfulBindIsReported(t *testing.T) {
 	// as "the binding was cleared".
 	if rec.Code == http.StatusOK {
 		t.Error("the handler reported success after failing to read back what it bound")
+	}
+}
+
+// TestSetCredentialTypeInputsReplacesTheSchemaAndKeepsInjectors proves the
+// narrowed endpoint edits the schema without disturbing the injector
+// document beside it, which is the whole reason it reads the stored type
+// first rather than writing what the caller sent wholesale.
+func TestSetCredentialTypeInputsReplacesTheSchemaAndKeepsInjectors(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID), map[string]any{
+		"inputs": map[string]any{
+			"fields": []map[string]any{
+				{"id": "api_token", "label": "Token", "secret": true},
+				{"id": "api_url", "label": "URL"},
+				{"id": "api_region", "label": "Region"},
+			},
+			"required": []string{"api_token"},
+		},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("setting inputs answered %d: %s", status, body)
+	}
+
+	var decoded struct {
+		Inputs struct {
+			Fields []struct {
+				ID string `json:"id"`
+			} `json:"fields"`
+		} `json:"inputs"`
+		Injectors struct {
+			Env map[string]string `json:"env"`
+		} `json:"injectors"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	found := false
+	for _, fld := range decoded.Inputs.Fields {
+		if fld.ID == "api_region" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the new input api_region is not in the returned schema: %+v", decoded.Inputs.Fields)
+	}
+	if decoded.Injectors.Env["API_TOKEN"] == "" {
+		t.Error("replacing the inputs blanked the injector the edit never touched")
+	}
+}
+
+// TestSetCredentialTypeInputsRefusesRemovingAnInjectedInput proves the
+// endpoint inherits the store's whole-type validation: an injector that
+// would be left pointing at an input this removed is refused here rather
+// than at somebody's launch.
+func TestSetCredentialTypeInputsRefusesRemovingAnInjectedInput(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	// The seeded injector reads {{ api_token }}. Dropping api_token would
+	// leave it dangling, so the update must refuse.
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID), map[string]any{
+		"inputs": map[string]any{
+			"fields": []map[string]any{{"id": "api_url", "label": "URL"}},
+		},
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("removing an injected input answered %d, want 400: %s", status, body)
 	}
 }
