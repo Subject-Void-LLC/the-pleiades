@@ -223,7 +223,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore) error {
+func Register(jobs dispatch.JobStore, runner Relauncher) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -274,6 +274,10 @@ func Register(jobs dispatch.JobStore) error {
 			// anywhere in this build, so offering any of them would be a
 			// button for a route nobody mounted.
 		},
+		Actions: []view.RecordAction{relaunchAction(runner)},
+		// Withdraws Relaunch on the jobs it would fail on: one still
+		// running, and one that never came from a template.
+		Applies:  applies,
 		Sections: []view.Section{deviceOutcomes(jobs)},
 		// AWX's job page opens on Output, and this one does too. Somebody
 		// opening a job has nearly always come to see what happened rather

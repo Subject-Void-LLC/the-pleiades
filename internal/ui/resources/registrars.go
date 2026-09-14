@@ -50,7 +50,7 @@ func registrars() []Registrar {
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
 		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
-		func(d Deps) error { return jobs.Register(d.Jobs) },
+		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d)) },
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
@@ -63,4 +63,19 @@ func registrars() []Registrar {
 		},
 		func(d Deps) error { return users.Register(d.Access) },
 	}
+}
+
+// jobRelauncher hands the Jobs view a relauncher, or an untyped nil.
+//
+// Deps.Dispatcher is a *api.Dispatcher, and passing a nil one straight into
+// an interface parameter produces a NON-nil interface holding a nil
+// pointer, so the view's own "is this wired" check would pass and the first
+// relaunch would dereference it. A deployment with no dispatcher is real
+// (the conformance harness is one), so this converts explicitly rather than
+// relying on every callee to know the difference.
+func jobRelauncher(d Deps) jobs.Relauncher {
+	if d.Dispatcher == nil {
+		return nil
+	}
+	return d.Dispatcher
 }
