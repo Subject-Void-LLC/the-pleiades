@@ -515,3 +515,117 @@ func names(sets []inventory.Set) []string {
 	}
 	return out
 }
+
+// TestListMembers_OffersEveryDeviceAndGroupByName covers the reader behind
+// the inventory membership control.
+//
+// Sorted by name rather than by id, because the control it fills is a
+// listbox somebody reads: insertion order is meaningless to them, and a
+// device's primary key is the value they must not have to recognise.
+func TestListMembers_OffersEveryDeviceAndGroupByName(t *testing.T) {
+	store, client := newTestSetStore(t)
+	org := newOrg(t, client, "network")
+
+	// Created deliberately out of order, so a passing assertion is about
+	// the ORDER BY rather than about insertion happening to be sorted.
+	newDevice(t, client, "web-02", org)
+	newDevice(t, client, "app-01", org)
+	newDevice(t, client, "db-03", org)
+	newGroup(t, client, "production")
+	newGroup(t, client, "canary")
+
+	got, err := store.ListMembers(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if got.Truncated {
+		t.Error("Truncated = true for a deployment well under the cap")
+	}
+
+	wantDevices := []string{"app-01", "db-03", "web-02"}
+	if names := memberNames(got.Devices); !equalStrings(names, wantDevices) {
+		t.Errorf("devices = %v, want %v", names, wantDevices)
+	}
+	wantGroups := []string{"canary", "production"}
+	if names := memberNames(got.Groups); !equalStrings(names, wantGroups) {
+		t.Errorf("groups = %v, want %v", names, wantGroups)
+	}
+	// The ids have to come back too, because the name is what a person
+	// picks and the id is what gets written.
+	for _, m := range got.Devices {
+		if m.ID == 0 {
+			t.Errorf("device %q came back with no id, so selecting it would write nothing", m.Name)
+		}
+	}
+}
+
+// TestListMembers_ReportsTruncationRatherThanHidingIt is the case that
+// decides whether somebody is silently unable to find their device.
+//
+// A truncated list that does not say so is the worst outcome available
+// here: the control looks complete, the device is simply absent, and there
+// is nothing on screen to suggest looking further.
+func TestListMembers_ReportsTruncationRatherThanHidingIt(t *testing.T) {
+	store, client := newTestSetStore(t)
+	org := newOrg(t, client, "network")
+	for _, name := range []string{"a", "b", "c"} {
+		newDevice(t, client, name, org)
+	}
+	newGroup(t, client, "only-group")
+
+	got, err := store.ListMembers(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if !got.Truncated {
+		t.Error("Truncated = false while devices were dropped")
+	}
+	if len(got.Devices) != 2 {
+		t.Errorf("returned %d devices, want the requested 2", len(got.Devices))
+	}
+	// The groups fitted, and must come back whole: truncation is reported
+	// for the request, not applied to a collection that did not overflow.
+	if len(got.Groups) != 1 {
+		t.Errorf("returned %d groups, want the 1 that fitted", len(got.Groups))
+	}
+}
+
+// TestListMembers_ClampsAnUnreasonableLimit keeps a caller from asking for
+// an unbounded read of every device in the deployment.
+func TestListMembers_ClampsAnUnreasonableLimit(t *testing.T) {
+	store, client := newTestSetStore(t)
+	org := newOrg(t, client, "network")
+	newDevice(t, client, "only", org)
+
+	for _, limit := range []int{0, -1, 1 << 20} {
+		got, err := store.ListMembers(context.Background(), limit)
+		if err != nil {
+			t.Fatalf("ListMembers(%d): %v", limit, err)
+		}
+		if len(got.Devices) != 1 || got.Truncated {
+			t.Errorf("ListMembers(%d) = %+v, want the one device and no truncation", limit, got)
+		}
+	}
+}
+
+// memberNames projects members onto their names.
+func memberNames(members []inventory.Member) []string {
+	out := make([]string, 0, len(members))
+	for _, m := range members {
+		out = append(out, m.Name)
+	}
+	return out
+}
+
+// equalStrings compares two slices element by element.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
