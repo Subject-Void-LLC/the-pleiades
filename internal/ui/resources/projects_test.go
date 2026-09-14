@@ -196,11 +196,20 @@ func TestProjectsView_RefusesACredentialThatCannotAuthenticateAClone(t *testing.
 	form := body(t, h, "/ui/projects/new")
 	orgID := optionValue(t, form, "organization", "acme")
 
-	// The cloud credential the fixture seeds carries an api_token and an
-	// api_url: real inputs, none of which a clone can use. It must not be
-	// offered...
-	if strings.Contains(selectBlock(t, form, "credential"), "Conformance API") {
+	offered := selectBlock(t, form, "credential")
+
+	// The cloud credential carries an api_token and an api_url: real
+	// inputs, none of which a clone can use.
+	if strings.Contains(offered, "Conformance API") {
 		t.Error("the chooser offers a cloud credential, which cannot authenticate a clone")
+	}
+
+	// The Machine credential is the one that matters. It holds a real SSH
+	// key, so a filter keyed on what a credential CARRIES would offer it,
+	// and it must still be refused: it was issued to open shells on managed
+	// devices, not to read a repository.
+	if strings.Contains(offered, "conformance machine credential") {
+		t.Error("the chooser offers a Machine credential for a git sync, so a device credential can be spent on a repository")
 	}
 
 	// ...and submitting it anyway must be refused rather than saved and

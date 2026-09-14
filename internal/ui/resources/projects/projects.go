@@ -86,8 +86,8 @@ func declaredFields(orgs inventory.OrganizationLister, creds credentialLister) [
 			Name: "credential", Label: "CREDENTIAL", Kind: view.KindSelect,
 			InForm: true, References: "credentials",
 			Help: "How a private repository is authenticated: a token, a username and password, or an SSH key " +
-				"with its passphrase. Leave it unset for a public repository. Only credentials carrying one of " +
-				"those are offered, so a credential missing from this list holds nothing a clone can use.",
+				"with its passphrase. Leave it unset for a public repository. Only Source Control credentials " +
+				"are offered, so a credential missing from this list is either the wrong type or carries no secret.",
 			Options: credentialOptions(creds),
 		},
 		{

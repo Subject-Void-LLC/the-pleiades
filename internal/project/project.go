@@ -26,6 +26,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
 )
 
 // Common failures a caller distinguishes.
@@ -226,28 +228,40 @@ const (
 	InputPassphrase = "ssh_key_unlock"
 )
 
-// AuthenticatesGit reports whether a credential supplying these inputs can
-// authenticate a clone.
+// AuthenticatesGit reports whether a credential may authenticate a clone.
 //
-// Structural rather than nominal: it asks what the credential CARRIES, not
-// what its type is CALLED. A Source Control type is the natural fit and a
-// Machine type declares the same key and username, but a deployment may
-// well have written its own, and matching on kind would refuse a credential
-// that works perfectly. This is the same reasoning the platform already
-// applies to device capabilities, which are matched by what a type
-// implements rather than by its name.
+// Two conditions, and the first is the one that matters. The credential's
+// KIND must be scm: a project sync must not be reachable with a credential
+// issued for something else, whatever that credential happens to carry. A
+// Machine credential opens shells on managed devices and a cloud credential
+// spends money, and neither becomes a source-control credential by
+// declaring a field with a familiar name.
 //
-// A username alone is not enough and that is the point of checking the
-// secret halves only. Git will happily attempt a clone with a username and
-// no secret, fail on the far side, and report something about
-// authentication that does not say the credential was empty.
+// This replaced a purely structural test that asked only what a credential
+// carried. That was too loose in exactly one way, and it was not
+// hypothetical: any custom type declaring an input called "password" passed
+// it, whatever the type was for.
 //
-// It works on a redacted projection as well as a resolved one. credstore
-// replaces a secret value with a marker rather than dropping the key, so a
-// non-empty value here means "this credential supplies that input" in both
-// directions, and nothing needs a plaintext read to make this decision.
-func AuthenticatesGit(inputs map[string]string) bool {
-	return inputs[InputPassword] != "" || inputs[InputPrivateKey] != ""
+// The second condition is that it actually supplies something usable, which
+// catches an scm credential holding only a username. Git will attempt a
+// clone with that, fail on the far side, and report something about
+// authentication that never says the credential carried no secret.
+//
+// It decides this from a redacted projection, without a plaintext read. A
+// stored secret reads back as a marker rather than a dropped key, and an
+// externally sourced one is named in external instead: both mean the input
+// is supplied, and consulting only the first would refuse every credential
+// whose password lives in a secret manager.
+func AuthenticatesGit(kind credtype.Kind, inputs, external map[string]string) bool {
+	if kind != credtype.KindSCM {
+		return false
+	}
+	return supplies(inputs, external, InputPassword) || supplies(inputs, external, InputPrivateKey)
+}
+
+// supplies reports whether an input has a value from either source.
+func supplies(inputs, external map[string]string, id string) bool {
+	return inputs[id] != "" || external[id] != ""
 }
 
 // AuthResolver turns a credential id into the values a clone needs.

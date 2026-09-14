@@ -27,14 +27,13 @@ type credentialLister interface {
 // credentialOptions offers the credentials a project can actually
 // authenticate as.
 //
-// Only those carrying something a clone can use: a password or token, or an
-// SSH private key. An earlier version of this offered every credential on
-// the reasoning that filtering by kind would be this chooser inventing a
-// rule the credential system does not have. That reasoning was about the
-// wrong test. Filtering by KIND would indeed invent a rule; filtering by
-// what the credential CARRIES does not, and offering a cloud credential for
-// a git clone is not flexibility, it is a choice that can only fail, made
-// at the one moment somebody has enough context to avoid it.
+// Only Source Control credentials that carry a password, token or SSH key.
+//
+// This has been narrowed twice. It first offered every credential, then
+// every credential CARRYING usable material, and neither was right: the
+// second still passed any custom type that happened to declare an input
+// called "password", whatever that type was for. A project sync must not be
+// reachable with a credential issued for something else.
 //
 // project.AuthenticatesGit is the predicate, shared with the check that
 // refuses such a credential on submission, so the chooser and the validator
@@ -50,7 +49,7 @@ func credentialOptions(creds credentialLister) func(context.Context) ([]view.Opt
 			return nil, err
 		}
 		for _, c := range found {
-			if !project.AuthenticatesGit(c.Inputs) {
+			if !project.AuthenticatesGit(c.Kind, c.Inputs, c.External) {
 				continue
 			}
 			label := c.Name
@@ -85,11 +84,11 @@ func usableForGit(ctx context.Context, creds credentialLister, id int) error {
 		if c.ID != id {
 			continue
 		}
-		if !project.AuthenticatesGit(c.Inputs) {
+		if !project.AuthenticatesGit(c.Kind, c.Inputs, c.External) {
 			return view.FieldFault{
 				Field: "credential",
-				Message: "That credential carries neither a password or token nor an SSH private key, " +
-					"so it cannot authenticate a clone. Choose one that does, or leave this unset for a public repository.",
+				Message: "That is not a Source Control credential carrying a password, token or SSH key, " +
+					"so it cannot authenticate a clone. Choose one that is, or leave this unset for a public repository.",
 			}
 		}
 		return nil

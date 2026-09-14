@@ -79,9 +79,9 @@ func (h *ProjectHandler) checkCredential(w http.ResponseWriter, r *http.Request,
 		if c.ID != id {
 			continue
 		}
-		if !project.AuthenticatesGit(c.Inputs) {
+		if !project.AuthenticatesGit(c.Kind, c.Inputs, c.External) {
 			RespondError(w, r, http.StatusBadRequest,
-				"that credential carries neither a password or token nor an SSH private key, so it cannot authenticate a clone")
+				"that is not a source control credential carrying a password, token or SSH key, so it cannot authenticate a clone")
 			return false
 		}
 		return true
