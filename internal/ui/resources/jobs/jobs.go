@@ -101,7 +101,12 @@ func stateBadge(state string) string {
 		return "badge-ok"
 	case "failed":
 		return "badge-failed"
-	case "fanning_out":
+	case "canceled":
+		// Neutral rather than badge-failed. A canceled run did not break,
+		// somebody stopped it, and colouring the two alike would undo the
+		// distinction the state exists to draw.
+		return "badge-neutral"
+	case "fanning_out", "running":
 		return "badge-changed"
 	case "pending":
 		return "badge-skipped"
@@ -269,14 +274,17 @@ func Register(jobs dispatch.JobStore, runner Relauncher) error {
 			Get:  &apispec.GetJob,
 			// No Create: dispatching is a runbook's action, offered on the
 			// Runbooks view where an operator already has the runbook in
-			// front of them. No Update and no Delete either -- there is no
-			// job:write scope, no JobStore.Cancel and no cancellation path
-			// anywhere in this build, so offering any of them would be a
-			// button for a route nobody mounted.
+			// front of them. No Update and no Delete either: a job is a
+			// historical record, and editing or erasing one would be
+			// editing the audit trail. Stopping a running job is a
+			// different thing entirely and is offered as an action below.
 		},
-		Actions: []view.RecordAction{relaunchAction(runner)},
-		// Withdraws Relaunch on the jobs it would fail on: one still
-		// running, and one that never came from a template.
+		Actions: []view.RecordAction{cancelAction(jobs), relaunchAction(runner)},
+		// Withdraws each control on the jobs it would fail on: Relaunch on
+		// one still running, and on one that never came from a template;
+		// Cancel on one that has already stopped. The two are exclusive by
+		// construction, since both read the same terminalStates map from
+		// opposite sides, so a record never offers both at once.
 		Applies:  applies,
 		Sections: []view.Section{deviceOutcomes(jobs)},
 		// AWX's job page opens on Output, and this one does too. Somebody
@@ -317,6 +325,7 @@ func formatTime(t time.Time) string {
 var terminalStates = map[string]bool{
 	"completed": true,
 	"failed":    true,
+	"canceled":  true,
 }
 
 // stillRunning reports whether a job's record page is worth refreshing.

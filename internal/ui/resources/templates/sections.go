@@ -264,6 +264,12 @@ func stateBadge(state string) string {
 		return "badge-ok"
 	case "failed":
 		return "badge-failed"
+	case "canceled":
+		// Neutral, matching the Jobs view's own badge for the same state.
+		// Without this arm a canceled run falls to the default below and
+		// reads as still in progress, on a page whose whole purpose is
+		// showing what this template has already done.
+		return "badge-neutral"
 	default:
 		return "badge-changed"
 	}

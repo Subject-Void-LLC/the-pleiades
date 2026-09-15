@@ -53,13 +53,27 @@ func relaunchable(row view.Row) bool {
 	return terminalStates[row.Cells["state"]] && row.Cells["template"] != ""
 }
 
-// applies withdraws the relaunch control on the records it would not work
-// on, and leaves every other affordance alone.
+// applies withdraws each control on the records it would not work on, and
+// leaves every other affordance alone.
+//
+// Keyed on the relation, and the default is deliberately true: a predicate
+// that ignored rel would withdraw every affordance at once, so the page
+// would render as though the caller had no access to anything at all.
+//
+// The two gates are exact opposites, both read off terminalStates, so a
+// job offers Relaunch or Cancel and never both. That is not a coincidence
+// worth leaving implicit: a job is either still running, in which case
+// stopping it is the only sensible control, or it has finished, in which
+// case running it again is.
 func applies(row view.Row, rel auth.LinkRel) bool {
-	if rel != auth.RelExecute {
+	switch rel {
+	case auth.RelExecute:
+		return relaunchable(row)
+	case auth.RelCancel:
+		return cancelable(row)
+	default:
 		return true
 	}
-	return relaunchable(row)
 }
 
 // relaunchAction runs this job's template again and sends the caller to the
