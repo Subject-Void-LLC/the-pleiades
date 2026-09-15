@@ -254,3 +254,56 @@ func TestCredentialTypes_InputsTabShowsTheSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestCredentialTypesForm_AddInputAppendsToTheSchema drives the Add-input
+// header action end to end and proves the new field lands on the Inputs tab
+// while the type's existing inputs and its injector survive.
+func TestCredentialTypesForm_AddInputAppendsToTheSchema(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	// The input id pattern refuses a hyphen, so uniqueName's is translated.
+	inputID := strings.ReplaceAll(uniqueName(t, "region"), "-", "_")
+
+	w := h.post(t, "/ui/credential-types/"+id+"/add-input", map[string]string{
+		"id":    inputID,
+		"label": "Region",
+		"type":  "string",
+	})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("adding an input = %d, want a redirect: %s", w.Code, w.Body.String())
+	}
+
+	page := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if !strings.Contains(page, inputID) {
+		t.Errorf("the added input %q is not on the Inputs tab:\n%s", inputID, page)
+	}
+	// The injector the add never touched must still be there.
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id).Body.String(), "CONFORMANCE_TOKEN") {
+		t.Error("adding an input blanked the type's injector")
+	}
+}
+
+// TestCredentialTypesForm_AddInputRejectsABadIdentifier proves the store's
+// own refusal reaches the form as a field error rather than a 500.
+func TestCredentialTypesForm_AddInputRejectsABadIdentifier(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/add-input", map[string]string{
+		"id":    "Not A Valid Id",
+		"label": "Region",
+		"type":  "string",
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("an invalid input id = %d, want 422 with a field error: %s", w.Code, w.Body.String())
+	}
+}
