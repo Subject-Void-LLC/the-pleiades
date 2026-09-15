@@ -15,6 +15,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -228,6 +229,21 @@ func (_u *ProjectUpdate) AddTemplates(v ...*Template) *ProjectUpdate {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddSyncRunIDs adds the "sync_runs" edge to the SyncRun entity by IDs.
+func (_u *ProjectUpdate) AddSyncRunIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.AddSyncRunIDs(ids...)
+	return _u
+}
+
+// AddSyncRuns adds the "sync_runs" edges to the SyncRun entity.
+func (_u *ProjectUpdate) AddSyncRuns(v ...*SyncRun) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSyncRunIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdate) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -264,6 +280,27 @@ func (_u *ProjectUpdate) RemoveTemplates(v ...*Template) *ProjectUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearSyncRuns clears all "sync_runs" edges to the SyncRun entity.
+func (_u *ProjectUpdate) ClearSyncRuns() *ProjectUpdate {
+	_u.mutation.ClearSyncRuns()
+	return _u
+}
+
+// RemoveSyncRunIDs removes the "sync_runs" edge to SyncRun entities by IDs.
+func (_u *ProjectUpdate) RemoveSyncRunIDs(ids ...int) *ProjectUpdate {
+	_u.mutation.RemoveSyncRunIDs(ids...)
+	return _u
+}
+
+// RemoveSyncRuns removes "sync_runs" edges to SyncRun entities.
+func (_u *ProjectUpdate) RemoveSyncRuns(v ...*SyncRun) *ProjectUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSyncRunIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -506,6 +543,51 @@ func (_u *ProjectUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.SyncRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSyncRunsIDs(); len(nodes) > 0 && !_u.mutation.SyncRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SyncRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{project.Label}
@@ -723,6 +805,21 @@ func (_u *ProjectUpdateOne) AddTemplates(v ...*Template) *ProjectUpdateOne {
 	return _u.AddTemplateIDs(ids...)
 }
 
+// AddSyncRunIDs adds the "sync_runs" edge to the SyncRun entity by IDs.
+func (_u *ProjectUpdateOne) AddSyncRunIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.AddSyncRunIDs(ids...)
+	return _u
+}
+
+// AddSyncRuns adds the "sync_runs" edges to the SyncRun entity.
+func (_u *ProjectUpdateOne) AddSyncRuns(v ...*SyncRun) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSyncRunIDs(ids...)
+}
+
 // Mutation returns the ProjectMutation object of the builder.
 func (_u *ProjectUpdateOne) Mutation() *ProjectMutation {
 	return _u.mutation
@@ -759,6 +856,27 @@ func (_u *ProjectUpdateOne) RemoveTemplates(v ...*Template) *ProjectUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTemplateIDs(ids...)
+}
+
+// ClearSyncRuns clears all "sync_runs" edges to the SyncRun entity.
+func (_u *ProjectUpdateOne) ClearSyncRuns() *ProjectUpdateOne {
+	_u.mutation.ClearSyncRuns()
+	return _u
+}
+
+// RemoveSyncRunIDs removes the "sync_runs" edge to SyncRun entities by IDs.
+func (_u *ProjectUpdateOne) RemoveSyncRunIDs(ids ...int) *ProjectUpdateOne {
+	_u.mutation.RemoveSyncRunIDs(ids...)
+	return _u
+}
+
+// RemoveSyncRuns removes "sync_runs" edges to SyncRun entities.
+func (_u *ProjectUpdateOne) RemoveSyncRuns(v ...*SyncRun) *ProjectUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSyncRunIDs(ids...)
 }
 
 // Where appends a list predicates to the ProjectUpdate builder.
@@ -1024,6 +1142,51 @@ func (_u *ProjectUpdateOne) sqlSave(ctx context.Context) (_node *Project, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SyncRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSyncRunsIDs(); len(nodes) > 0 && !_u.mutation.SyncRunsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SyncRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

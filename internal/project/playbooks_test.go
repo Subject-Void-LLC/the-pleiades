@@ -44,6 +44,10 @@ func (s stubStore) BeginSync(_ context.Context, id int) (project.Project, error)
 }
 func (s stubStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, nil }
 
+func (s stubStore) ListSyncRuns(context.Context, int, int) ([]project.SyncRun, error) {
+	return nil, nil
+}
+
 // stubSyncer lists what is actually on disk under the project's path.
 type stubSyncer struct{}
 

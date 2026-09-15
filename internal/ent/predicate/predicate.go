@@ -78,6 +78,9 @@ type Session func(*sql.Selector)
 // SurveyQuestion is the predicate function for surveyquestion builders.
 type SurveyQuestion func(*sql.Selector)
 
+// SyncRun is the predicate function for syncrun builders.
+type SyncRun func(*sql.Selector)
+
 // Team is the predicate function for team builders.
 type Team func(*sql.Selector)
 

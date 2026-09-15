@@ -715,6 +715,7 @@ func (it *sliceIterator) Close() error                     { return nil }
 type fakeProjectStore struct {
 	mu       sync.Mutex
 	projects []project.Project
+	runs     map[int][]project.SyncRun
 }
 
 func newFakeProjectStore() *fakeProjectStore {
@@ -804,9 +805,49 @@ func (s *fakeProjectStore) RecordSync(_ context.Context, id int, result project.
 		at := result.At
 		p.LastSyncedAt = &at
 		s.projects[i] = p
+		s.appendRun(id, result)
 		return nil
 	}
 	return project.ErrNotFound
+}
+
+// appendRun records one completed attempt, mirroring the real store, so the
+// Sync history section has something to render. The caller holds the lock.
+func (s *fakeProjectStore) appendRun(id int, result project.Result) {
+	if result.Status != project.SyncSucceeded && result.Status != project.SyncFailed {
+		return
+	}
+	if s.runs == nil {
+		s.runs = map[int][]project.SyncRun{}
+	}
+	started := result.StartedAt
+	if started.IsZero() {
+		started = result.At
+	}
+	s.runs[id] = append(s.runs[id], project.SyncRun{
+		ID:         len(s.runs[id]) + 1,
+		Status:     result.Status,
+		Revision:   result.Revision,
+		Err:        result.Err,
+		StartedAt:  started,
+		FinishedAt: result.At,
+	})
+}
+
+func (s *fakeProjectStore) ListSyncRuns(_ context.Context, projectID, limit int) ([]project.SyncRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	runs := s.runs[projectID]
+	// Newest first, which is the order the real store returns.
+	out := make([]project.SyncRun, 0, len(runs))
+	for i := len(runs) - 1; i >= 0; i-- {
+		out = append(out, runs[i])
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (s *fakeProjectStore) BeginSync(_ context.Context, id int) (project.Project, error) {

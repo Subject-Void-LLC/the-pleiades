@@ -36,6 +36,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -123,6 +124,7 @@ func checkColumn(t, c string) error {
 			scheduleoccurrence.Table:    scheduleoccurrence.ValidColumn,
 			session.Table:               session.ValidColumn,
 			surveyquestion.Table:        surveyquestion.ValidColumn,
+			syncrun.Table:               syncrun.ValidColumn,
 			team.Table:                  team.ValidColumn,
 			template.Table:              template.ValidColumn,
 			user.Table:                  user.ValidColumn,

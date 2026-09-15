@@ -8,11 +8,16 @@ package project
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent"
 	entorg "github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	entproject "github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
+	entsyncrun "github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 )
+
+// historyLimit bounds a sync history read when a caller names no limit.
+const historyLimit = 50
 
 // defaultPageSize bounds a List with no explicit limit. It is the store's,
 // never the caller's: a page size read from a query parameter with no
@@ -166,7 +171,81 @@ func (s *entStore) RecordSync(ctx context.Context, id int, result Result) error 
 		}
 		return fmt.Errorf("project: recording a sync for %d: %w", id, err)
 	}
+
+	// The history row is written after the project's own latest outcome,
+	// deliberately. That row is what a badge and a playbook lookup read, so
+	// it is the one that must be right if only one of the two lands; a
+	// missing history entry is an observational gap, while a project left
+	// reading running would be a project nobody could sync again. The error
+	// is still returned rather than swallowed, so the gap is logged.
+	if err := s.recordHistory(ctx, id, result); err != nil {
+		return err
+	}
 	return nil
+}
+
+// recordHistory appends one completed attempt to a project's history.
+//
+// A run with no start time recorded falls back to the finish, which is what
+// a caller that bypassed the runner produces: a zero start would otherwise
+// render as an attempt that began in year one and ran for two millennia.
+func (s *entStore) recordHistory(ctx context.Context, id int, result Result) error {
+	// Only terminal attempts are history. A caller recording anything else
+	// is describing a project's state rather than an attempt that finished.
+	if result.Status != SyncSucceeded && result.Status != SyncFailed {
+		return nil
+	}
+
+	finished := result.At
+	if finished.IsZero() {
+		finished = time.Now()
+	}
+	started := result.StartedAt
+	if started.IsZero() {
+		started = finished
+	}
+
+	err := s.client.SyncRun.Create().
+		SetStatus(entsyncrun.Status(result.Status)).
+		SetRevision(result.Revision).
+		SetError(result.Err).
+		SetStartedAt(started).
+		SetFinishedAt(finished).
+		SetProjectID(id).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("project: recording sync history for %d: %w", id, err)
+	}
+	return nil
+}
+
+// ListSyncRuns returns a project's completed attempts, newest first.
+func (s *entStore) ListSyncRuns(ctx context.Context, projectID, limit int) ([]SyncRun, error) {
+	if limit <= 0 || limit > historyLimit {
+		limit = historyLimit
+	}
+
+	rows, err := s.client.SyncRun.Query().
+		Where(entsyncrun.HasProjectWith(entproject.IDEQ(projectID))).
+		Order(ent.Desc(entsyncrun.FieldStartedAt), ent.Desc(entsyncrun.FieldID)).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("project: listing sync history for %d: %w", projectID, err)
+	}
+
+	out := make([]SyncRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, SyncRun{
+			ID:         row.ID,
+			Status:     SyncStatus(row.Status),
+			Revision:   row.Revision,
+			Err:        row.Error,
+			StartedAt:  row.StartedAt,
+			FinishedAt: row.FinishedAt,
+		})
+	}
+	return out, nil
 }
 
 // BeginSync claims a project for an asynchronous sync, moving it to running

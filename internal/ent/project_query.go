@@ -16,6 +16,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -29,6 +30,7 @@ type ProjectQuery struct {
 	withOrganization *OrganizationQuery
 	withCredential   *CredentialQuery
 	withTemplates    *TemplateQuery
+	withSyncRuns     *SyncRunQuery
 	withFKs          bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -125,6 +127,28 @@ func (_q *ProjectQuery) QueryTemplates() *TemplateQuery {
 			sqlgraph.From(project.Table, project.FieldID, selector),
 			sqlgraph.To(template.Table, template.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, project.TemplatesTable, project.TemplatesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySyncRuns chains the current query on the "sync_runs" edge.
+func (_q *ProjectQuery) QuerySyncRuns() *SyncRunQuery {
+	query := (&SyncRunClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, selector),
+			sqlgraph.To(syncrun.Table, syncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.SyncRunsTable, project.SyncRunsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -327,6 +351,7 @@ func (_q *ProjectQuery) Clone() *ProjectQuery {
 		withOrganization: _q.withOrganization.Clone(),
 		withCredential:   _q.withCredential.Clone(),
 		withTemplates:    _q.withTemplates.Clone(),
+		withSyncRuns:     _q.withSyncRuns.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -363,6 +388,17 @@ func (_q *ProjectQuery) WithTemplates(opts ...func(*TemplateQuery)) *ProjectQuer
 		opt(query)
 	}
 	_q.withTemplates = query
+	return _q
+}
+
+// WithSyncRuns tells the query-builder to eager-load the nodes that are connected to
+// the "sync_runs" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ProjectQuery) WithSyncRuns(opts ...func(*SyncRunQuery)) *ProjectQuery {
+	query := (&SyncRunClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSyncRuns = query
 	return _q
 }
 
@@ -445,10 +481,11 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		nodes       = []*Project{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withOrganization != nil,
 			_q.withCredential != nil,
 			_q.withTemplates != nil,
+			_q.withSyncRuns != nil,
 		}
 	)
 	if _q.withOrganization != nil || _q.withCredential != nil {
@@ -491,6 +528,13 @@ func (_q *ProjectQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Proj
 		if err := _q.loadTemplates(ctx, query, nodes,
 			func(n *Project) { n.Edges.Templates = []*Template{} },
 			func(n *Project, e *Template) { n.Edges.Templates = append(n.Edges.Templates, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSyncRuns; query != nil {
+		if err := _q.loadSyncRuns(ctx, query, nodes,
+			func(n *Project) { n.Edges.SyncRuns = []*SyncRun{} },
+			func(n *Project, e *SyncRun) { n.Edges.SyncRuns = append(n.Edges.SyncRuns, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -587,6 +631,37 @@ func (_q *ProjectQuery) loadTemplates(ctx context.Context, query *TemplateQuery,
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "project_templates" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ProjectQuery) loadSyncRuns(ctx context.Context, query *SyncRunQuery, nodes []*Project, init func(*Project), assign func(*Project, *SyncRun)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Project)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.SyncRun(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(project.SyncRunsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.project_sync_runs
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "project_sync_runs" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "project_sync_runs" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

@@ -39,6 +39,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -97,6 +98,8 @@ type Client struct {
 	Session *SessionClient
 	// SurveyQuestion is the client for interacting with the SurveyQuestion builders.
 	SurveyQuestion *SurveyQuestionClient
+	// SyncRun is the client for interacting with the SyncRun builders.
+	SyncRun *SyncRunClient
 	// Team is the client for interacting with the Team builders.
 	Team *TeamClient
 	// Template is the client for interacting with the Template builders.
@@ -138,6 +141,7 @@ func (c *Client) init() {
 	c.ScheduleOccurrence = NewScheduleOccurrenceClient(c.config)
 	c.Session = NewSessionClient(c.config)
 	c.SurveyQuestion = NewSurveyQuestionClient(c.config)
+	c.SyncRun = NewSyncRunClient(c.config)
 	c.Team = NewTeamClient(c.config)
 	c.Template = NewTemplateClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -257,6 +261,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ScheduleOccurrence:    NewScheduleOccurrenceClient(cfg),
 		Session:               NewSessionClient(cfg),
 		SurveyQuestion:        NewSurveyQuestionClient(cfg),
+		SyncRun:               NewSyncRunClient(cfg),
 		Team:                  NewTeamClient(cfg),
 		Template:              NewTemplateClient(cfg),
 		User:                  NewUserClient(cfg),
@@ -303,6 +308,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ScheduleOccurrence:    NewScheduleOccurrenceClient(cfg),
 		Session:               NewSessionClient(cfg),
 		SurveyQuestion:        NewSurveyQuestionClient(cfg),
+		SyncRun:               NewSyncRunClient(cfg),
 		Team:                  NewTeamClient(cfg),
 		Template:              NewTemplateClient(cfg),
 		User:                  NewUserClient(cfg),
@@ -340,7 +346,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
 		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
 		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
-		c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -355,7 +361,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.Inventory, c.Job, c.JobTask, c.JournalEntry, c.LocalCredential,
 		c.MeshSigningKey, c.Organization, c.Project, c.Revision, c.RoleBinding,
 		c.SavedLaunchConfig, c.Schedule, c.ScheduleOccurrence, c.Session,
-		c.SurveyQuestion, c.Team, c.Template, c.User,
+		c.SurveyQuestion, c.SyncRun, c.Team, c.Template, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -412,6 +418,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Session.mutate(ctx, m)
 	case *SurveyQuestionMutation:
 		return c.SurveyQuestion.mutate(ctx, m)
+	case *SyncRunMutation:
+		return c.SyncRun.mutate(ctx, m)
 	case *TeamMutation:
 		return c.Team.mutate(ctx, m)
 	case *TemplateMutation:
@@ -3379,6 +3387,22 @@ func (c *ProjectClient) QueryTemplates(_m *Project) *TemplateQuery {
 	return query
 }
 
+// QuerySyncRuns queries the sync_runs edge of a Project.
+func (c *ProjectClient) QuerySyncRuns(_m *Project) *SyncRunQuery {
+	query := (&SyncRunClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(project.Table, project.FieldID, id),
+			sqlgraph.To(syncrun.Table, syncrun.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, project.SyncRunsTable, project.SyncRunsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *ProjectClient) Hooks() []Hook {
 	return c.hooks.Project
@@ -4479,6 +4503,155 @@ func (c *SurveyQuestionClient) mutate(ctx context.Context, m *SurveyQuestionMuta
 	}
 }
 
+// SyncRunClient is a client for the SyncRun schema.
+type SyncRunClient struct {
+	config
+}
+
+// NewSyncRunClient returns a client for the SyncRun from the given config.
+func NewSyncRunClient(c config) *SyncRunClient {
+	return &SyncRunClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `syncrun.Hooks(f(g(h())))`.
+func (c *SyncRunClient) Use(hooks ...Hook) {
+	c.hooks.SyncRun = append(c.hooks.SyncRun, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `syncrun.Intercept(f(g(h())))`.
+func (c *SyncRunClient) Intercept(interceptors ...Interceptor) {
+	c.inters.SyncRun = append(c.inters.SyncRun, interceptors...)
+}
+
+// Create returns a builder for creating a SyncRun entity.
+func (c *SyncRunClient) Create() *SyncRunCreate {
+	mutation := newSyncRunMutation(c.config, OpCreate)
+	return &SyncRunCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of SyncRun entities.
+func (c *SyncRunClient) CreateBulk(builders ...*SyncRunCreate) *SyncRunCreateBulk {
+	return &SyncRunCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *SyncRunClient) MapCreateBulk(slice any, setFunc func(*SyncRunCreate, int)) *SyncRunCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &SyncRunCreateBulk{err: fmt.Errorf("calling to SyncRunClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*SyncRunCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &SyncRunCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for SyncRun.
+func (c *SyncRunClient) Update() *SyncRunUpdate {
+	mutation := newSyncRunMutation(c.config, OpUpdate)
+	return &SyncRunUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *SyncRunClient) UpdateOne(_m *SyncRun) *SyncRunUpdateOne {
+	mutation := newSyncRunMutation(c.config, OpUpdateOne, withSyncRun(_m))
+	return &SyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *SyncRunClient) UpdateOneID(id int) *SyncRunUpdateOne {
+	mutation := newSyncRunMutation(c.config, OpUpdateOne, withSyncRunID(id))
+	return &SyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for SyncRun.
+func (c *SyncRunClient) Delete() *SyncRunDelete {
+	mutation := newSyncRunMutation(c.config, OpDelete)
+	return &SyncRunDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *SyncRunClient) DeleteOne(_m *SyncRun) *SyncRunDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *SyncRunClient) DeleteOneID(id int) *SyncRunDeleteOne {
+	builder := c.Delete().Where(syncrun.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &SyncRunDeleteOne{builder}
+}
+
+// Query returns a query builder for SyncRun.
+func (c *SyncRunClient) Query() *SyncRunQuery {
+	return &SyncRunQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeSyncRun},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a SyncRun entity by its id.
+func (c *SyncRunClient) Get(ctx context.Context, id int) (*SyncRun, error) {
+	return c.Query().Where(syncrun.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *SyncRunClient) GetX(ctx context.Context, id int) *SyncRun {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryProject queries the project edge of a SyncRun.
+func (c *SyncRunClient) QueryProject(_m *SyncRun) *ProjectQuery {
+	query := (&ProjectClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(syncrun.Table, syncrun.FieldID, id),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, syncrun.ProjectTable, syncrun.ProjectColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *SyncRunClient) Hooks() []Hook {
+	return c.hooks.SyncRun
+}
+
+// Interceptors returns the client interceptors.
+func (c *SyncRunClient) Interceptors() []Interceptor {
+	return c.inters.SyncRun
+}
+
+func (c *SyncRunClient) mutate(ctx context.Context, m *SyncRunMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&SyncRunCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&SyncRunUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&SyncRunUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&SyncRunDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown SyncRun mutation op: %q", m.Op())
+	}
+}
+
 // TeamClient is a client for the Team schema.
 type TeamClient struct {
 	config
@@ -5092,14 +5265,14 @@ type (
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
 		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
 		LocalCredential, MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team,
-		Template, User []ent.Hook
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
+		SyncRun, Team, Template, User []ent.Hook
 	}
 	inters struct {
 		ActivityEntry, Announcement, Contact, Credential, CredentialInputSource,
 		CredentialType, Device, Fact, Group, Inventory, Job, JobTask, JournalEntry,
 		LocalCredential, MeshSigningKey, Organization, Project, Revision, RoleBinding,
-		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion, Team,
-		Template, User []ent.Interceptor
+		SavedLaunchConfig, Schedule, ScheduleOccurrence, Session, SurveyQuestion,
+		SyncRun, Team, Template, User []ent.Interceptor
 	}
 )

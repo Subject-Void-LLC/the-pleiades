@@ -59,9 +59,11 @@ type ProjectEdges struct {
 	Credential *Credential `json:"credential,omitempty"`
 	// Templates holds the value of the templates edge.
 	Templates []*Template `json:"templates,omitempty"`
+	// SyncRuns holds the value of the sync_runs edge.
+	SyncRuns []*SyncRun `json:"sync_runs,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // OrganizationOrErr returns the Organization value or an error if the edge
@@ -93,6 +95,15 @@ func (e ProjectEdges) TemplatesOrErr() ([]*Template, error) {
 		return e.Templates, nil
 	}
 	return nil, &NotLoadedError{edge: "templates"}
+}
+
+// SyncRunsOrErr returns the SyncRuns value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProjectEdges) SyncRunsOrErr() ([]*SyncRun, error) {
+	if e.loadedTypes[3] {
+		return e.SyncRuns, nil
+	}
+	return nil, &NotLoadedError{edge: "sync_runs"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -244,6 +255,11 @@ func (_m *Project) QueryCredential() *CredentialQuery {
 // QueryTemplates queries the "templates" edge of the Project entity.
 func (_m *Project) QueryTemplates() *TemplateQuery {
 	return NewProjectClient(_m.config).QueryTemplates(_m)
+}
+
+// QuerySyncRuns queries the "sync_runs" edge of the Project entity.
+func (_m *Project) QuerySyncRuns() *SyncRunQuery {
+	return NewProjectClient(_m.config).QuerySyncRuns(_m)
 }
 
 // Update returns a builder for updating this Project.

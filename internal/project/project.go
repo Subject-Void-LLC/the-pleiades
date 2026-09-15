@@ -155,6 +155,11 @@ type Store interface {
 	// project could never be synced again, because BeginSync's swap would
 	// never match. It is meant to run once at startup.
 	ResetInterruptedSyncs(ctx context.Context) (int, error)
+
+	// ListSyncRuns returns a project's completed sync attempts, newest
+	// first, capped at limit. It is the history behind the latest outcome
+	// the project row itself carries.
+	ListSyncRuns(ctx context.Context, projectID, limit int) ([]SyncRun, error)
 }
 
 // Result is the outcome of one sync attempt.
@@ -169,7 +174,39 @@ type Result struct {
 	Err string
 
 	At time.Time
+
+	// StartedAt is when the attempt began. The Runner stamps it rather than
+	// the syncer, because the syncer reports what it found and the runner is
+	// what knows when it was asked. It is here rather than on a separate
+	// argument so recording an outcome stays one call: a history row needs
+	// both ends of the attempt, and a duration cannot answer "what was the
+	// last thing that ran, and when".
+	//
+	// Zero means unrecorded, which is what a caller that bypasses the runner
+	// produces; RecordSync falls back to At so a history row is never
+	// written with a start in the distant past.
+	StartedAt time.Time
 }
+
+// SyncRun is one completed attempt to fetch a project's source.
+//
+// Only terminal attempts are recorded, so Status is SyncSucceeded or
+// SyncFailed. An attempt still running is visible on the project's own
+// SyncStatus; see the SyncRun ent schema for why it is not also a row here.
+type SyncRun struct {
+	ID       int
+	Status   SyncStatus
+	Revision string
+
+	// Err is why this attempt failed, scrubbed the same way Result.Err is.
+	Err string
+
+	StartedAt  time.Time
+	FinishedAt time.Time
+}
+
+// Took reports how long this attempt ran.
+func (r SyncRun) Took() time.Duration { return r.FinishedAt.Sub(r.StartedAt) }
 
 // Syncer fetches a project's source onto local disk.
 type Syncer interface {

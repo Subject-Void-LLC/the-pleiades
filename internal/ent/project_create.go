@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -226,6 +227,21 @@ func (_c *ProjectCreate) AddTemplates(v ...*Template) *ProjectCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTemplateIDs(ids...)
+}
+
+// AddSyncRunIDs adds the "sync_runs" edge to the SyncRun entity by IDs.
+func (_c *ProjectCreate) AddSyncRunIDs(ids ...int) *ProjectCreate {
+	_c.mutation.AddSyncRunIDs(ids...)
+	return _c
+}
+
+// AddSyncRuns adds the "sync_runs" edges to the SyncRun entity.
+func (_c *ProjectCreate) AddSyncRuns(v ...*SyncRun) *ProjectCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddSyncRunIDs(ids...)
 }
 
 // Mutation returns the ProjectMutation object of the builder.
@@ -505,6 +521,22 @@ func (_c *ProjectCreate) createSpec() (*Project, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(template.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SyncRunsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   project.SyncRunsTable,
+			Columns: []string{project.SyncRunsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(syncrun.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

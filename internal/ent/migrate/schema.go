@@ -868,6 +868,39 @@ var (
 			},
 		},
 	}
+	// SyncRunsColumns holds the columns for the "sync_runs" table.
+	SyncRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"succeeded", "failed"}},
+		{Name: "revision", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "error", Type: field.TypeString, Size: 2048, Default: ""},
+		{Name: "started_at", Type: field.TypeTime},
+		{Name: "finished_at", Type: field.TypeTime},
+		{Name: "project_sync_runs", Type: field.TypeInt},
+	}
+	// SyncRunsTable holds the schema information for the "sync_runs" table.
+	SyncRunsTable = &schema.Table{
+		Name:       "sync_runs",
+		Columns:    SyncRunsColumns,
+		PrimaryKey: []*schema.Column{SyncRunsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "sync_runs_projects_sync_runs",
+				Columns:    []*schema.Column{SyncRunsColumns[8]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "syncrun_started_at_project_sync_runs",
+				Unique:  false,
+				Columns: []*schema.Column{SyncRunsColumns[6], SyncRunsColumns[8]},
+			},
+		},
+	}
 	// TeamsColumns holds the columns for the "teams" table.
 	TeamsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -1138,6 +1171,7 @@ var (
 		ScheduleOccurrencesTable,
 		SessionsTable,
 		SurveyQuestionsTable,
+		SyncRunsTable,
 		TeamsTable,
 		TemplatesTable,
 		UsersTable,
@@ -1175,6 +1209,7 @@ func init() {
 	SchedulesTable.ForeignKeys[2].RefTable = TemplatesTable
 	ScheduleOccurrencesTable.ForeignKeys[0].RefTable = SchedulesTable
 	SurveyQuestionsTable.ForeignKeys[0].RefTable = TemplatesTable
+	SyncRunsTable.ForeignKeys[0].RefTable = ProjectsTable
 	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	TemplatesTable.ForeignKeys[0].RefTable = InventoriesTable
 	TemplatesTable.ForeignKeys[1].RefTable = OrganizationsTable

@@ -111,13 +111,23 @@ func (r *Runner) Enqueue(ctx context.Context, id int) error {
 func (r *Runner) run(p Project) {
 	defer r.wg.Done()
 
+	// Stamped here rather than by the syncer: the syncer reports what it
+	// found, and this is what knows when it was asked. It reaches the
+	// history row through the Result.
+	started := time.Now()
+
 	select {
 	case r.sem <- struct{}{}:
 	case <-r.ctx.Done():
 		// A shutdown reached us before the pool had room. Record the claim
 		// as failed rather than leaving the row running, which a restart
 		// would otherwise have to clear.
-		r.record(p.ID, Result{Status: SyncFailed, Err: "the server is shutting down; sync again", At: time.Now()})
+		r.record(p.ID, Result{
+			Status:    SyncFailed,
+			Err:       "the server is shutting down; sync again",
+			At:        time.Now(),
+			StartedAt: started,
+		})
 		return
 	}
 	defer func() { <-r.sem }()
@@ -130,6 +140,7 @@ func (r *Runner) run(p Project) {
 		// rather than leaving it running.
 		result = Result{Status: SyncFailed, Err: err.Error(), At: time.Now()}
 	}
+	result.StartedAt = started
 	r.record(p.ID, result)
 }
 

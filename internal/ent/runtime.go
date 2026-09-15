@@ -30,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schema"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -831,6 +832,33 @@ func init() {
 	surveyquestionDescDisplayOrder := surveyquestionFields[9].Descriptor()
 	// surveyquestion.DefaultDisplayOrder holds the default value on creation for the display_order field.
 	surveyquestion.DefaultDisplayOrder = surveyquestionDescDisplayOrder.Default.(int)
+	syncrunMixin := schema.SyncRun{}.Mixin()
+	syncrunMixinFields0 := syncrunMixin[0].Fields()
+	_ = syncrunMixinFields0
+	syncrunFields := schema.SyncRun{}.Fields()
+	_ = syncrunFields
+	// syncrunDescCreatedAt is the schema descriptor for created_at field.
+	syncrunDescCreatedAt := syncrunMixinFields0[0].Descriptor()
+	// syncrun.DefaultCreatedAt holds the default value on creation for the created_at field.
+	syncrun.DefaultCreatedAt = syncrunDescCreatedAt.Default.(func() time.Time)
+	// syncrunDescUpdatedAt is the schema descriptor for updated_at field.
+	syncrunDescUpdatedAt := syncrunMixinFields0[1].Descriptor()
+	// syncrun.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	syncrun.DefaultUpdatedAt = syncrunDescUpdatedAt.Default.(func() time.Time)
+	// syncrun.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	syncrun.UpdateDefaultUpdatedAt = syncrunDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// syncrunDescRevision is the schema descriptor for revision field.
+	syncrunDescRevision := syncrunFields[1].Descriptor()
+	// syncrun.DefaultRevision holds the default value on creation for the revision field.
+	syncrun.DefaultRevision = syncrunDescRevision.Default.(string)
+	// syncrun.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	syncrun.RevisionValidator = syncrunDescRevision.Validators[0].(func(string) error)
+	// syncrunDescError is the schema descriptor for error field.
+	syncrunDescError := syncrunFields[2].Descriptor()
+	// syncrun.DefaultError holds the default value on creation for the error field.
+	syncrun.DefaultError = syncrunDescError.Default.(string)
+	// syncrun.ErrorValidator is a validator for the "error" field. It is called by the builders before save.
+	syncrun.ErrorValidator = syncrunDescError.Validators[0].(func(string) error)
 	teamMixin := schema.Team{}.Mixin()
 	teamMixinFields0 := teamMixin[0].Fields()
 	_ = teamMixinFields0

@@ -45,6 +45,8 @@ const (
 	EdgeCredential = "credential"
 	// EdgeTemplates holds the string denoting the templates edge name in mutations.
 	EdgeTemplates = "templates"
+	// EdgeSyncRuns holds the string denoting the sync_runs edge name in mutations.
+	EdgeSyncRuns = "sync_runs"
 	// Table holds the table name of the project in the database.
 	Table = "projects"
 	// OrganizationTable is the table that holds the organization relation/edge.
@@ -68,6 +70,13 @@ const (
 	TemplatesInverseTable = "templates"
 	// TemplatesColumn is the table column denoting the templates relation/edge.
 	TemplatesColumn = "project_templates"
+	// SyncRunsTable is the table that holds the sync_runs relation/edge.
+	SyncRunsTable = "sync_runs"
+	// SyncRunsInverseTable is the table name for the SyncRun entity.
+	// It exists in this package in order to avoid circular dependency with the "syncrun" package.
+	SyncRunsInverseTable = "sync_runs"
+	// SyncRunsColumn is the table column denoting the sync_runs relation/edge.
+	SyncRunsColumn = "project_sync_runs"
 )
 
 // Columns holds all SQL columns for project fields.
@@ -295,6 +304,20 @@ func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTemplatesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// BySyncRunsCount orders the results by sync_runs count.
+func BySyncRunsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSyncRunsStep(), opts...)
+	}
+}
+
+// BySyncRuns orders the results by sync_runs terms.
+func BySyncRuns(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSyncRunsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -314,5 +337,12 @@ func newTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TemplatesTable, TemplatesColumn),
+	)
+}
+func newSyncRunsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SyncRunsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SyncRunsTable, SyncRunsColumn),
 	)
 }

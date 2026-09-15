@@ -1,7 +1,9 @@
-// This file covers the two store operations the asynchronous sync path
-// added: BeginSync, the compare-and-swap that claims a project so two Syncs
-// cannot both clone into one working tree, and ResetInterruptedSyncs, the
-// startup sweep that clears a claim a process restart left behind.
+// This file covers the store operations the asynchronous sync path added:
+// BeginSync, the compare-and-swap that claims a project so two Syncs cannot
+// both clone into one working tree; ResetInterruptedSyncs, the startup sweep
+// that clears a claim a process restart left behind; and the sync history a
+// completed attempt appends, which is separate from the latest outcome the
+// project row itself keeps.
 package project_test
 
 import (
@@ -9,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/enttest"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
@@ -135,4 +138,78 @@ func mustOrgID(t *testing.T, store project.Store, ctx context.Context) int {
 		t.Fatalf("List() = %v (%d rows), want the seeded project", err, len(ps))
 	}
 	return ps[0].OrganizationID
+}
+
+// TestRecordSync_AppendsToTheHistory proves each completed attempt becomes a
+// row of its own, newest first, while the project keeps the latest outcome.
+func TestRecordSync_AppendsToTheHistory(t *testing.T) {
+	store, id := syncableProject(t)
+	ctx := context.Background()
+
+	failedStart := time.Now().Add(-time.Minute)
+	if err := store.RecordSync(ctx, id, project.Result{
+		Status:    project.SyncFailed,
+		Err:       "host unreachable",
+		StartedAt: failedStart,
+		At:        failedStart.Add(2 * time.Second),
+	}); err != nil {
+		t.Fatalf("recording the failed attempt: %v", err)
+	}
+
+	okStart := time.Now()
+	if err := store.RecordSync(ctx, id, project.Result{
+		Status:    project.SyncSucceeded,
+		Revision:  "abc123",
+		LocalPath: "/var/lib/pleiades/projects/1",
+		StartedAt: okStart,
+		At:        okStart.Add(3 * time.Second),
+	}); err != nil {
+		t.Fatalf("recording the successful attempt: %v", err)
+	}
+
+	runs, err := store.ListSyncRuns(ctx, id, 0)
+	if err != nil {
+		t.Fatalf("ListSyncRuns() = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("recorded %d runs, want both attempts", len(runs))
+	}
+	if runs[0].Status != project.SyncSucceeded || runs[0].Revision != "abc123" {
+		t.Errorf("newest run = %+v, want the succeeded attempt first", runs[0])
+	}
+	if runs[1].Status != project.SyncFailed || runs[1].Err != "host unreachable" {
+		t.Errorf("older run = %+v, want the failed attempt with its reason", runs[1])
+	}
+	if runs[0].Took() <= 0 {
+		t.Errorf("a run reports no duration (%v), so a history cannot say how long it took", runs[0].Took())
+	}
+
+	// The project itself still carries the LATEST outcome, which is what a
+	// badge and a playbook lookup read rather than sorting this history.
+	p, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get() = %v", err)
+	}
+	if p.SyncStatus != project.SyncSucceeded || p.Revision != "abc123" {
+		t.Errorf("project latest = %q/%q, want the succeeded attempt", p.SyncStatus, p.Revision)
+	}
+}
+
+// TestListSyncRuns_RecordsOnlyTerminalAttempts proves a running claim is not
+// also a history row: the project's own status is where an in-flight attempt
+// shows, and duplicating it here would strand a row on every crash.
+func TestListSyncRuns_RecordsOnlyTerminalAttempts(t *testing.T) {
+	store, id := syncableProject(t)
+	ctx := context.Background()
+
+	if _, err := store.BeginSync(ctx, id); err != nil {
+		t.Fatalf("BeginSync() = %v", err)
+	}
+	runs, err := store.ListSyncRuns(ctx, id, 0)
+	if err != nil {
+		t.Fatalf("ListSyncRuns() = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("a claimed but unfinished sync wrote %d history rows, want none", len(runs))
+	}
 }

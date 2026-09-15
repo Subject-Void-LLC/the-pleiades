@@ -238,7 +238,7 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 		IDField:  "name",
 		Fields:   declaredFields(orgs, creds),
 		Actions:  []view.RecordAction{syncAction(runner)},
-		Sections: []view.Section{playbooksSection(syncer, store)},
+		Sections: []view.Section{playbooksSection(syncer, store), historySection(store)},
 		Ops: view.Ops{
 			List:   &apispec.ListProjects,
 			Get:    &apispec.GetProject,

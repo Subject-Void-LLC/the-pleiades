@@ -253,3 +253,37 @@ func cloudCredentialID(t *testing.T, h *harness) string {
 	}
 	return m[1]
 }
+
+// TestProjectsView_SyncHistoryRecordsEachAttempt proves the Sync history tab
+// lists a completed attempt, which is the question the project's own badge
+// cannot answer: not "is it usable now" but "what has it been doing".
+func TestProjectsView_SyncHistoryRecordsEachAttempt(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	orgID := optionValue(t, body(t, h, "/ui/projects/new"), "organization", "acme")
+	created := uniqueName(t, "history-me")
+	if w := h.post(t, "/ui/projects", map[string]string{
+		"name":         created,
+		"organization": orgID,
+		"scm_type":     "git",
+		"scm_url":      "https://git.example.test/team/history-me.git",
+	}); w.Code >= http.StatusBadRequest {
+		t.Fatalf("creating the project = %d: %s", w.Code, w.Body.String())
+	}
+	id := recordPath(t, body(t, h, "/ui/projects"), created)
+
+	// Nothing has run, so the history is empty rather than absent.
+	if before := h.section(t, id, "Sync history"); !strings.Contains(before, "no completed syncs yet") {
+		t.Errorf("a never-synced project's history does not say so:\n%s", before)
+	}
+
+	if w := h.post(t, id+"/sync", map[string]string{}); w.Code >= http.StatusBadRequest {
+		t.Fatalf("syncing = %d: %s", w.Code, w.Body.String())
+	}
+	conformanceProjectRunner.Wait()
+
+	after := h.section(t, id, "Sync history")
+	if !strings.Contains(after, "succeeded") {
+		t.Errorf("the Sync history tab does not record the completed attempt:\n%s", after)
+	}
+}

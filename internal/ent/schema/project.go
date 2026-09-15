@@ -136,6 +136,10 @@ func (Project) Edges() []ent.Edge {
 
 		// The templates that run playbooks out of this project.
 		edge.To("templates", Template.Type),
+
+		// Every completed attempt to fetch this project's source. The latest
+		// outcome stays on this row; these are the history behind it.
+		edge.To("sync_runs", SyncRun.Type),
 	}
 }
 
