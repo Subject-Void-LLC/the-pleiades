@@ -150,7 +150,16 @@ func ControllerGrant(name string) Grant {
 		Pub: []string{
 			topology.DispatchSubjectAll(),
 			topology.JobRequestedSubject(),
-			topology.EventSubject(">"),
+
+			// No grant for topology.EventSubject's own space. Nothing in
+			// this module publishes a lifecycle event: EventSubject has no
+			// caller outside its own unit test, so this entry was
+			// permission for traffic that does not exist. It is called out
+			// rather than silently dropped because the architecture does
+			// describe such events, and the next reader comparing this file
+			// against that description should find the reason here instead
+			// of assuming an omission. Restore it in the same change that
+			// gives the subject a publisher.
 
 			// The per-job cancel signal the Runner grant above subscribes
 			// to. Core NATS, so a denied publish IS reported here, unlike

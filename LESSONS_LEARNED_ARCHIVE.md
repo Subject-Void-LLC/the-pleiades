@@ -4193,3 +4193,41 @@ registration bug instead.
 unflushed, and it then failed by itself about one run in three, carrying the exact race the
 implementation had just been fixed for. A test that subscribes is a subscriber, and it owes the
 same discipline as the code it is testing.
+
+## 182. A timeout parameter is a promise about a whole operation, and a library default underneath it can quietly own a shorter one. A nil configuration field is a choice, not an absence.
+
+**Two instances, three years of code apart in reading order and both in this module.**
+
+`pkg/winrmexec` found it first, and found it the expensive way. Windows refuses unencrypted
+WinRM by default, so every operation goes through `winrm.Encryption`, whose `Transport` method
+builds a bare `&http.Client{}`: no `Timeout`, the default transport, an unset and therefore
+unlimited `ResponseHeaderTimeout`, and requests built with `http.NewRequest` rather than
+`NewRequestWithContext`, so a caller's context never reaches the HTTP layer at all. The measured
+consequence was a task that reconfigured a device's own network address, destroying the
+connection carrying it, blocking for two minutes fifty-one seconds and then three minutes ten
+seconds on separate runs, with neither `Options.Timeout` nor a context deadline shortening
+either. That package documents all of it in thirty lines above the fix.
+
+`internal/catalog/http` then shipped the identical class (FAILURE_PATTERNS #218): the verifying
+path returned a bare `&http.Client{}`, a nil `Transport` means `http.DefaultTransport`, and its
+`TLSHandshakeTimeout` is a fixed ten seconds that the method's own documented `timeout`
+parameter could not reach. An operator asking for sixty got ten.
+
+**The lesson is not "remember about http.Client".** It is that the first instance's knowledge
+lived in a comment above the code that suffered from it, which is exactly where nobody writing a
+different HTTP client will ever read it. A defect class that has been found once and documented
+locally is not closed; it is closed when the next instance is either prevented or enumerable.
+The cheap enumeration here is a grep for `&http.Client{}`, `http.DefaultClient` and
+`DefaultTransport`, which takes seconds and today returns exactly these two sites.
+
+**Two specific habits fall out of it.**
+
+A nil field is a configuration decision rather than a blank. `&http.Client{}` is not an
+unconfigured client, it is the process-wide shared default one, with somebody else's deadlines
+and somebody else's connection pool. Reading it as "nothing set here" is what made both
+instances invisible to review.
+
+And when exposing a timeout, enumerate every deadline the call can hit rather than only the one
+being set. An operation with two deadlines where the caller controls one is an operation whose
+documented limit is a guess, and the failure surfaces as the shorter one, which is the one
+nobody wrote down.

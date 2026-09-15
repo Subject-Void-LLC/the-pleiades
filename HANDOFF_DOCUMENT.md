@@ -74,6 +74,18 @@ was RAISING the deadline: it then failed identically at thirty seconds.
    over jobs whose `updated_at` is older than a bound, and the honest question to answer
    first is what a stranded job should become: `failed` naming the devices that never
    reported is the obvious answer, and it should not be `completed`.
-4. A job whose every device's run failed still ends in `completed` with the tallies telling the
+4. **Nothing consumes dead letters, which is FAILURE_PATTERNS #217's shape a second time.**
+   Found by sweeping every subject `internal/topology` declares for a subscriber, which is the
+   check that finding should have left behind. `event.HandleDeliveryFailure` publishes to
+   `topology.DeadLetterSubject(...)` (`internal/event/dlq.go`), and no consumer exists anywhere
+   in the module; the grants carry publish rights and no subscribe. So a message that exhausted
+   `MaxDeliverDefault` redeliveries, a job that could never be fanned out or a journal batch the
+   store keeps refusing, lands on a subject nobody reads and is gone at `MaxAge`. Nothing
+   alerts. `topology.go`'s own comment describes "one operator-facing consumer" watching all of
+   them with a trailing wildcard, which is aspirational in the way the result subject's was
+   until this session. Left as a decision rather than improvised: where a dead letter should
+   land and who is told are product questions, and the answer is probably a durable consumer
+   writing to a table the UI can show, next to the run journal.
+5. A job whose every device's run failed still ends in `completed` with the tallies telling the
    story. That is unchanged from before this work rather than introduced by it, and it is worth
    a decision now that per-device results exist to base one on.

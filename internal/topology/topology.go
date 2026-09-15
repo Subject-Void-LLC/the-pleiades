@@ -179,6 +179,11 @@ func SubjectToken(s string) string {
 // internal/engine/executor.go's own workflow-status events already publish
 // under; topology only formalizes it as the single place that spelling is
 // decided.
+// Nothing in this module calls this function today. It has no publisher
+// and no subscriber, and internal/meshid deliberately grants no rights over
+// the space it names. That is worth knowing before building on it: the
+// subject is a declared convention rather than a live event bus, so the
+// first caller also has to add the grant.
 func EventSubject(eventType string) string {
 	return eventSubjectPrefix + eventType
 }
