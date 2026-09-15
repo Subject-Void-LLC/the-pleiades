@@ -1,4 +1,4 @@
-.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
+.PHONY: build devtools vet fmt fmt-fix tidy-check test test-race test-no-docker test-repeat test-integration gosec govulncheck arch coverage docs-lint docs-gen-check helm-lint templ-gen templ-gen-check tools hooks lsp commitgate sweep sweep-dry sweep-timer sweep-timer-off dev-cert ui-dev ui-stop break-glass image-tools image-scan ci ci-remote push-gate push-gate-race push-gate-integration push-gate-coverage
 
 # GOBIN's tools (gopls, golangci-lint, gosec, govulncheck) live under
 # $(go env GOPATH)/bin, which is not guaranteed to be on PATH for every
@@ -150,6 +150,34 @@ hooks:
 # way to see what a commit would be told before making one.
 commitgate:
 	go run ./tools/commitgate
+
+# sweep removes stale build output this working tree no longer needs: the
+# static binaries every cmd/ composition root and tools/gendocs link, plus
+# leftover .log/.test/.out files. Roughly 300 MB accumulates here after a
+# full `make ci`, and `make build` regenerates all of it.
+#
+# Nothing is removed unless `git check-ignore` confirms it is ignored, and
+# directories are skipped outright, so the gitignored internal document
+# trees (.AGENTS/, .DESIGN/, .IGNORE/, .SPECIFICATION/) cannot be caught by
+# it. Default age threshold is 7 days, so today's binary is left alone.
+sweep:
+	go run ./tools/sweep
+
+# sweep-dry reports what sweep would remove and removes nothing. Run this
+# first if you have never run the sweep on this checkout.
+sweep-dry:
+	go run ./tools/sweep -dry-run
+
+# sweep-timer installs a systemd user timer that runs the sweep weekly.
+# This WSL distro boots systemd (/etc/wsl.conf sets systemd=true), so a
+# user timer is the mechanism that actually fires here. `loginctl
+# enable-linger` is what lets it run when no shell is open.
+sweep-timer:
+	go run ./tools/sweep -install-timer
+
+# sweep-timer-off stops and removes the weekly timer.
+sweep-timer-off:
+	go run ./tools/sweep -remove-timer
 
 build:
 	go build ./...
