@@ -55,14 +55,19 @@ type Deps struct {
 	// Activity is the append-only record of who changed what. Read-only
 	// here: the views never write to it, and the only writer is the
 	// audited store the composition root wraps Access with.
-	Activity   activity.Store
-	Inventory  inventory.Repository
-	Sets       inventory.SetStore
-	Announce   announce.Store
-	Factory    *inventory.ItemFactory
-	Jobs       dispatch.JobStore
-	Runbooks   runbook.Source
-	Dispatcher *api.Dispatcher
+	Activity  activity.Store
+	Inventory inventory.Repository
+	Sets      inventory.SetStore
+	Announce  announce.Store
+	Factory   *inventory.ItemFactory
+	Jobs      dispatch.JobStore
+	// JobCanceller is the one path a cancel takes: it settles the record
+	// AND signals a Runner already executing the job. Jobs above can do
+	// only the first, so a view that cancelled through it would stop the
+	// job on paper and leave the runbook running on the device.
+	JobCanceller *dispatch.Canceller
+	Runbooks     runbook.Source
+	Dispatcher   *api.Dispatcher
 
 	// Templates is the saved definitions this platform launches, and the
 	// one port the Templates view both reads and writes.

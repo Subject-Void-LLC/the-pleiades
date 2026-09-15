@@ -257,7 +257,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore, runner Relauncher) error {
+func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -308,7 +308,7 @@ func Register(jobs dispatch.JobStore, runner Relauncher) error {
 			// editing the audit trail. Stopping a running job is a
 			// different thing entirely and is offered as an action below.
 		},
-		Actions: []view.RecordAction{cancelAction(jobs), relaunchAction(runner)},
+		Actions: []view.RecordAction{cancelAction(canceller), relaunchAction(runner)},
 		// Withdraws each control on the jobs it would fail on: Relaunch on
 		// one still running, and on one that never came from a template;
 		// Cancel on one that has already stopped. The two are exclusive by

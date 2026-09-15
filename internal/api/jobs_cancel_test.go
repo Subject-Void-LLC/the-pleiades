@@ -175,3 +175,10 @@ func TestJobHandler_CancelUnwiredIsNotImplemented(t *testing.T) {
 		t.Fatalf("status with no canceller wired = %d, want %d", rr.Code, http.StatusNotImplemented)
 	}
 }
+
+// The real cancel path must satisfy this package's port. Asserted at
+// compile time here rather than left to cmd/controller to discover,
+// because the failure mode is a change to one consumer's interface
+// silently leaving the other behind, and the browser takes the identical
+// implementation through internal/ui/resources/jobs.Canceler.
+var _ api.JobCanceler = (*dispatch.Canceller)(nil)

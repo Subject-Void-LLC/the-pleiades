@@ -50,7 +50,7 @@ func registrars() []Registrar {
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
 		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
-		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d)) },
+		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d)) },
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
@@ -65,6 +65,21 @@ func registrars() []Registrar {
 		},
 		func(d Deps) error { return users.Register(d.Access) },
 	}
+}
+
+// jobCanceller hands the Jobs view the one path a cancel takes, or an
+// untyped nil, by the identical conversion jobRelauncher below performs and
+// for the identical reason.
+//
+// It is Deps.JobCanceller rather than Deps.Jobs deliberately. The store
+// alone can settle the record, and the browser using it directly is exactly
+// the bug this exists to prevent: a Cancel button that stopped the job on
+// paper and left the runbook running on the device.
+func jobCanceller(d Deps) jobs.Canceler {
+	if d.JobCanceller == nil {
+		return nil
+	}
+	return d.JobCanceller
 }
 
 // jobRelauncher hands the Jobs view a relauncher, or an untyped nil.

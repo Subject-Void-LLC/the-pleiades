@@ -16,7 +16,6 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
-	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -45,6 +44,12 @@ type JobRepository interface {
 
 // JobCanceler is the one write a job handler performs, kept separate from
 // JobRepository above rather than widening it.
+//
+// The real implementation is dispatch.Canceller, which settles the record
+// AND signals a Runner already executing the job. This handler deliberately
+// does not do the second half itself: the browser cancels through the same
+// port, and when the publish lived here the browser's own Cancel button
+// stopped the record while leaving the runbook running on the device.
 //
 // The split is the point: every other job handler is read-only, and a
 // reader that happened to hold this interface could stop a run. It also
@@ -75,23 +80,13 @@ type JobHandler struct {
 	// same way every other optional collaborator in this package is
 	// treated.
 	canceler JobCanceler
-
-	// signals reaches a Runner already executing this job. Nil is an
-	// ordinary arrangement, not a broken one: without it a cancel still
-	// settles the record and still stops the fan-out, and only work
-	// already running on a device is left to finish.
-	signals event.CancelPublisher
 }
 
 // NewJobHandler builds the Job resource's handlers over jobs, with
 // canceler supplying the one write. Pass a nil canceler to mount the
 // read-only handlers alone.
-func NewJobHandler(jobs JobRepository, canceler JobCanceler, opts ...JobHandlerOption) *JobHandler {
-	h := &JobHandler{jobs: jobs, canceler: canceler}
-	for _, opt := range opts {
-		opt(h)
-	}
-	return h
+func NewJobHandler(jobs JobRepository, canceler JobCanceler) *JobHandler {
+	return &JobHandler{jobs: jobs, canceler: canceler}
 }
 
 // jobTaskDTO is the wire projection of one dispatch.JobTask: a single
@@ -252,23 +247,6 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusOK, &dto)
 }
 
-// JobHandlerOption configures a JobHandler beyond its two required
-// collaborators.
-type JobHandlerOption func(*JobHandler)
-
-// WithCancelSignals lets a cancel reach a Runner that is already executing
-// the job, rather than only settling the record and stopping the fan-out.
-//
-// Optional on purpose. The two halves of a cancel are independent: the
-// durable half always happens, and this one is best effort by construction
-// (see internal/event's control channel). A Controller wired without it
-// cancels correctly, it just cannot interrupt work already in flight.
-func WithCancelSignals(signals event.CancelPublisher) JobHandlerOption {
-	return func(h *JobHandler) {
-		h.signals = signals
-	}
-}
-
 // jobTerminalStates are the states a job can no longer be stopped from.
 //
 // Listed positively, matching internal/dispatch's own Cancel guard and
@@ -343,26 +321,6 @@ func (h *JobHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 			slog.String("error", err.Error()))
 		RespondError(w, r, http.StatusInternalServerError, "internal error")
 		return
-	}
-
-	// Signalled only after the durable write succeeded, never before. The
-	// record is what makes a cancel true; this only carries that decision
-	// to whichever Runner is executing the job right now. Publishing first
-	// would let a failed write leave a stopped execution behind a job that
-	// still reads as running, which is the one inconsistency worth ruling
-	// out by ordering.
-	//
-	// A failure here is logged and nothing more. The cancel has already
-	// happened as far as the record is concerned, and answering an error
-	// would invite a retry that would then 409 while the job stayed
-	// canceled. What is lost is the best-effort half, which is the half
-	// that was never promised.
-	if h.signals != nil {
-		if sigErr := h.signals.PublishCancel(r.Context(), jobID); sigErr != nil {
-			loggerFrom(r).WarnContext(r.Context(), "job was canceled but the running execution could not be signalled",
-				slog.String("job_id", jobID),
-				slog.String("error", sigErr.Error()))
-		}
 	}
 
 	// Re-read, unlike the project sync cancel's own handler, which answers

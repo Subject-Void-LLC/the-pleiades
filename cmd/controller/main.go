@@ -1057,15 +1057,18 @@ func main() {
 	// path that rebuilds one read back out of storage. A second factory
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
-	// jobStore satisfies both the read port and the cancel one; the split
-	// lives in internal/api so a read-only handler cannot stop a run.
-	//
-	// The cancel signal rides nc, the connection the log streamer already
-	// holds, because it is core NATS and needs no JetStream handle of its
-	// own. It carries the operator's decision to a Runner that is already
-	// executing the job; the record and the fan-out are settled by
-	// jobStore above and do not depend on it.
-	jobs := api.NewJobHandler(jobStore, jobStore, api.WithCancelSignals(event.NewNATSControl(nc)))
+	// One canceller, shared by the JSON API below and the browser's own
+	// Cancel button, so the two cannot mean different things by stopping a
+	// job. It settles the record through jobStore and signals a Runner
+	// already executing the job over nc, the connection the log streamer
+	// already holds: the control subject is core NATS and needs no
+	// JetStream handle of its own.
+	jobCanceller := dispatch.NewCanceller(jobStore, event.NewNATSControl(nc), logger)
+
+	// jobStore satisfies the read port; the canceller is the one write.
+	// The split lives in internal/api so a read-only handler cannot stop
+	// a run.
+	jobs := api.NewJobHandler(jobStore, jobCanceller)
 	// The same store and syncer the playbook source above was built on, so
 	// what an operator syncs through the browser, what a caller syncs over
 	// the API, and what a dispatch resolves are one checkout rather than
@@ -1274,15 +1277,16 @@ func main() {
 	// controller that cannot build its own UI must not start and then
 	// serve broken pages.
 	if err := resources.RegisterAll(resources.Deps{
-		Access:    accessStore,
-		Activity:  activityStream,
-		Inventory: repo,
-		Sets:      sets,
-		Announce:  announce.NewEntStore(client),
-		Factory:   inventory.NewItemFactory(),
-		Jobs:      jobStore,
-		Runbooks:  runbooks,
-		Templates: templateStore,
+		Access:       accessStore,
+		Activity:     activityStream,
+		Inventory:    repo,
+		Sets:         sets,
+		Announce:     announce.NewEntStore(client),
+		Factory:      inventory.NewItemFactory(),
+		Jobs:         jobStore,
+		JobCanceller: jobCanceller,
+		Runbooks:     runbooks,
+		Templates:    templateStore,
 		// The same store value the Scanner above runs on, so what the
 		// Schedules view saves is exactly what the scheduler reads. Two
 		// stores over one database would be two places for the next_run

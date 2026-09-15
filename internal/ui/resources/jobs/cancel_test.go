@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
@@ -163,3 +164,9 @@ func TestCancelAction_RefusesWhenUnwired(t *testing.T) {
 		t.Fatal("Submit with no canceller wired returned no error")
 	}
 }
+
+// The real cancel path must satisfy this view's port, and it is the same
+// implementation internal/api takes. Asserted at compile time on both
+// sides: a change to either interface that left the other behind would
+// otherwise only surface when the composition root was next built.
+var _ Canceler = (*dispatch.Canceller)(nil)
