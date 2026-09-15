@@ -307,3 +307,55 @@ func TestCredentialTypesForm_AddInputRejectsABadIdentifier(t *testing.T) {
 		t.Fatalf("an invalid input id = %d, want 422 with a field error: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestCredentialTypesForm_AddInjectorAppendsToTheDocument drives the
+// Add-injector action and proves the new environment variable lands on the
+// Injectors tab while the type's inputs survive.
+func TestCredentialTypesForm_AddInjectorAppendsToTheDocument(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/add-injector", map[string]string{
+		"target":   "env",
+		"name":     "API_URL",
+		"template": "{{ api_url }}",
+	})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("adding an injector = %d, want a redirect: %s", w.Code, w.Body.String())
+	}
+
+	page := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if !strings.Contains(page, "API_URL") {
+		t.Errorf("the added injector API_URL is not on the Injectors tab:\n%s", page)
+	}
+	// The inputs the injector edit never touched must still be there.
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String(), "api_token") {
+		t.Error("adding an injector blanked the type's input schema")
+	}
+}
+
+// TestCredentialTypesForm_AddInjectorRejectsADangerousEnvName proves the
+// store's refusal of a code-execution environment variable reaches the form
+// as a field error rather than a 500. This is the reason authoring an
+// injector through a structured, validated control is safe.
+func TestCredentialTypesForm_AddInjectorRejectsADangerousEnvName(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/add-injector", map[string]string{
+		"target":   "env",
+		"name":     "LD_PRELOAD",
+		"template": "{{ api_token }}",
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a code-execution env name = %d, want 422 with a field error: %s", w.Code, w.Body.String())
+	}
+}
