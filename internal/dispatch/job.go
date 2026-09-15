@@ -443,6 +443,24 @@ type JobStore interface {
 	// be dispatched to, which the fan-out loop enforces by way of
 	// RecordTask returning ErrCanceled.
 	Cancel(ctx context.Context, jobID string, canceledBy string) error
+
+	// SettleCanceled stamps the tallies a fan-out had reached at the
+	// moment it was stopped, on a job already in the "canceled" state. It
+	// changes no state: Cancel already did that, and this only fills in
+	// what the worker had managed before it found out.
+	//
+	// It exists because the tallies are shown on a job's own record and
+	// in the job list. Without it a job canceled after three hundred
+	// devices had been dispatched to would report zero of everything
+	// forever, since Complete, the only writer of those columns, never
+	// runs for a canceled job. Zero is the truthful answer only for a job
+	// canceled before any worker claimed it.
+	//
+	// Guarded on state and fence together, like Complete and Fail: the
+	// caller is the worker that was performing the fan-out and must still
+	// hold its claim, and a job that has somehow left "canceled" is not
+	// one whose tallies this call should be writing.
+	SettleCanceled(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error
 }
 
 // ErrJobNotFound is returned by JobStore methods when jobID names no job

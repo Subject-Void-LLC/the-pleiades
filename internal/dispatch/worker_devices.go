@@ -255,6 +255,28 @@ func fenced(jobID string, err error) bool {
 	return true
 }
 
+// canceled reports whether err is (or wraps) JobStore's ErrCanceled,
+// logging an Info-level line naming jobID when it is. A true result means
+// somebody stopped this job while its fan-out was in flight, and the
+// caller must stop and return nil from HandleJobRequested exactly as it
+// does for fenced: retrying cannot help, because a cancel never becomes
+// un-canceled.
+//
+// Separate from fenced rather than folded into it, even though both mean
+// "stop and ack", because the two log lines are the whole point. Fenced
+// says another worker owns this job now; canceled says nobody should be
+// running it at all. Collapsing them would print the wrong cause for
+// whichever one the shared message did not name, and the log line is
+// exactly what somebody reads when asking why a fan-out ended early.
+func canceled(jobID string, err error) bool {
+	if !errors.Is(err, ErrCanceled) {
+		return false
+	}
+	slog.Info("job fan-out stopped: the job was canceled",
+		slog.String("job_id", jobID))
+	return true
+}
+
 // tagStrings converts device.Tags()'s own []pkginventory.Tag into the
 // []string wire.DispatchPayload.Tags carries. A bare slice conversion
 // ([]string)(tags) is not legal Go here: pkginventory.Tag and string are

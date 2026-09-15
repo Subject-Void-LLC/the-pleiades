@@ -148,3 +148,29 @@ func (s *entJobStore) cancelRejected(ctx context.Context, jobID string) error {
 	}
 	return fmt.Errorf("job %s: %w", jobID, ErrNotCancelable)
 }
+
+// SettleCanceled stamps a stopped fan-out's tallies onto an already
+// canceled job. See JobStore.SettleCanceled.
+func (s *entJobStore) SettleCanceled(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error {
+	// No SetState call: this write exists only to make the numbers on a
+	// canceled job's record true, and a method that could also move the
+	// state would be one more way for a late worker to overwrite what a
+	// person decided.
+	affected, err := s.client.Job.Update().
+		Where(
+			job.JobIDEQ(jobID),
+			job.StateEQ(job.StateCanceled),
+			job.FenceEQ(fence),
+		).
+		SetDispatchedCount(dispatched).
+		SetSkippedCount(skipped).
+		SetFailedCount(failed).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to settle canceled job %s: %w", jobID, err)
+	}
+	if affected > 0 {
+		return nil
+	}
+	return s.cancelRejected(ctx, jobID)
+}
