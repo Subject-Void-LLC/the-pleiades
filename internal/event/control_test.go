@@ -11,6 +11,8 @@ package event_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,12 +22,24 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// controlTestJobID and otherControlJobID are two distinct jobs, for the
+// jobID and otherJobID are two distinct jobs, for the
 // cases that prove a signal reaches one and not the other.
 const (
-	controlTestJobID  = "0f1e2d3c-4b5a-4968-8776-655443322110"
-	otherControlJobID = "11223344-5566-4778-899a-bbccddeeff00"
+	jobID      = "0f1e2d3c-4b5a-4968-8776-655443322110"
+	otherJobID = "11223344-5566-4778-899a-bbccddeeff00"
 )
+
+// controlJobID mints a job id unique to one subtest.
+//
+// The NATS cases below share a single broker, so two subtests reusing one
+// job id would share a subject and one could observe the other's traffic.
+// Deriving the id from the subtest's own name keeps them apart without
+// needing a container each, and t.Name() is unique by construction.
+func controlJobID(t *testing.T) string {
+	t.Helper()
+	sum := sha256.Sum256([]byte(t.Name()))
+	return hex.EncodeToString(sum[:16])
+}
 
 // awaitTrue polls flag until it is set. Used instead of a fixed sleep for
 // the cases whose correct outcome is that something happens.
@@ -65,7 +79,33 @@ func natsControlChannel(t *testing.T, url string) event.CancelChannel {
 	return event.NewNATSControl(nc)
 }
 
-// TestNATSControl_CancelReachesEverySubscriber is the property that
+// TestNATSControl runs every broker-backed case against ONE ephemeral
+// container rather than one each.
+//
+// Five containers for five tests is load this package does not need, and
+// that load is not free to the rest of the suite: a full run provisions
+// real brokers across about twenty packages at once, and a saturated
+// machine is what turns unrelated in-process tests elsewhere into
+// timeouts. These share a broker safely because each case derives its own
+// job id from its own subtest name, so no two ever name one subject.
+func TestNATSControl(t *testing.T) {
+	url := startNatsContainer(t)
+
+	for _, tc := range []struct {
+		name string
+		run  func(*testing.T, string)
+	}{
+		{"cancel reaches every subscriber", natsControlCase_CancelReachesEverySubscriber},
+		{"cancel is scoped to its job", natsControlCase_CancelIsScopedToItsJob},
+		{"unsubscribing stops delivery", natsControlCase_UnsubscribeStops},
+		{"a cancel nobody hears is not an error", natsControlCase_NoSubscriberIsNotAnError},
+		{"publishes under the declared subject", natsControlCase_PublishesUnderTheDeclaredSubject},
+	} {
+		t.Run(tc.name, func(t *testing.T) { tc.run(t, url) })
+	}
+}
+
+// natsControlCase_CancelReachesEverySubscriber is the property that
 // decided this channel's design, asserted against a real broker.
 //
 // If this were built on event.Bus, both subscribers would share one
@@ -74,25 +114,25 @@ func natsControlChannel(t *testing.T, url string) event.CancelChannel {
 // one holding the job: nothing stops, and nothing reports that nothing
 // stopped. Two subscribers here is the smallest arrangement that can tell
 // the two delivery models apart.
-func TestNATSControl_CancelReachesEverySubscriber(t *testing.T) {
-	url := startNatsContainer(t)
+func natsControlCase_CancelReachesEverySubscriber(t *testing.T, url string) {
+	jobID := controlJobID(t)
 
 	first := natsControlChannel(t, url)
 	second := natsControlChannel(t, url)
 
 	var firstSaw, secondSaw atomic.Bool
-	unsubFirst, err := first.SubscribeCancel(context.Background(), controlTestJobID, func() { firstSaw.Store(true) })
+	unsubFirst, err := first.SubscribeCancel(context.Background(), jobID, func() { firstSaw.Store(true) })
 	if err != nil {
 		t.Fatalf("first SubscribeCancel: %v", err)
 	}
 	defer unsubFirst()
-	unsubSecond, err := second.SubscribeCancel(context.Background(), controlTestJobID, func() { secondSaw.Store(true) })
+	unsubSecond, err := second.SubscribeCancel(context.Background(), jobID, func() { secondSaw.Store(true) })
 	if err != nil {
 		t.Fatalf("second SubscribeCancel: %v", err)
 	}
 	defer unsubSecond()
 
-	if err := first.PublishCancel(context.Background(), controlTestJobID); err != nil {
+	if err := first.PublishCancel(context.Background(), jobID); err != nil {
 		t.Fatalf("PublishCancel: %v", err)
 	}
 
@@ -100,7 +140,7 @@ func TestNATSControl_CancelReachesEverySubscriber(t *testing.T) {
 	awaitTrue(t, &secondSaw, "the second subscriber to receive the cancel: a consumer group would have delivered to only one")
 }
 
-// TestNATSControl_CancelIsScopedToItsJob proves a signal for one job does
+// natsControlCase_CancelIsScopedToItsJob proves a signal for one job does
 // not stop another.
 //
 // A Runner's subscribe grant names the whole control space, because a
@@ -108,23 +148,24 @@ func TestNATSControl_CancelReachesEverySubscriber(t *testing.T) {
 // it genuinely receives traffic for jobs it is not running. Without the
 // per-job subject and the id check behind it, cancelling any one job would
 // abort every execution in the fleet.
-func TestNATSControl_CancelIsScopedToItsJob(t *testing.T) {
-	url := startNatsContainer(t)
+func natsControlCase_CancelIsScopedToItsJob(t *testing.T, url string) {
+	jobID := controlJobID(t)
+	otherJobID := jobID + "-other"
 	control := natsControlChannel(t, url)
 
 	var mine, theirs atomic.Bool
-	unsubMine, err := control.SubscribeCancel(context.Background(), controlTestJobID, func() { mine.Store(true) })
+	unsubMine, err := control.SubscribeCancel(context.Background(), jobID, func() { mine.Store(true) })
 	if err != nil {
 		t.Fatalf("SubscribeCancel: %v", err)
 	}
 	defer unsubMine()
-	unsubTheirs, err := control.SubscribeCancel(context.Background(), otherControlJobID, func() { theirs.Store(true) })
+	unsubTheirs, err := control.SubscribeCancel(context.Background(), otherJobID, func() { theirs.Store(true) })
 	if err != nil {
 		t.Fatalf("SubscribeCancel: %v", err)
 	}
 	defer unsubTheirs()
 
-	if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+	if err := control.PublishCancel(context.Background(), jobID); err != nil {
 		t.Fatalf("PublishCancel: %v", err)
 	}
 
@@ -134,15 +175,15 @@ func TestNATSControl_CancelIsScopedToItsJob(t *testing.T) {
 	}
 }
 
-// TestNATSControl_UnsubscribeStops proves the subscription really ends,
+// natsControlCase_UnsubscribeStops proves the subscription really ends,
 // so a Runner that has finished a job is not still listening for its
 // cancellation.
-func TestNATSControl_UnsubscribeStops(t *testing.T) {
-	url := startNatsContainer(t)
+func natsControlCase_UnsubscribeStops(t *testing.T, url string) {
+	jobID := controlJobID(t)
 	control := natsControlChannel(t, url)
 
 	var saw atomic.Bool
-	unsubscribe, err := control.SubscribeCancel(context.Background(), controlTestJobID, func() { saw.Store(true) })
+	unsubscribe, err := control.SubscribeCancel(context.Background(), jobID, func() { saw.Store(true) })
 	if err != nil {
 		t.Fatalf("SubscribeCancel: %v", err)
 	}
@@ -151,7 +192,7 @@ func TestNATSControl_UnsubscribeStops(t *testing.T) {
 	// caller has already released it, and a second call must not panic.
 	unsubscribe()
 
-	if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+	if err := control.PublishCancel(context.Background(), jobID); err != nil {
 		t.Fatalf("PublishCancel: %v", err)
 	}
 
@@ -163,31 +204,31 @@ func TestNATSControl_UnsubscribeStops(t *testing.T) {
 	}
 }
 
-// TestNATSControl_NoSubscriberIsNotAnError pins the honest limit of this
+// natsControlCase_NoSubscriberIsNotAnError pins the honest limit of this
 // channel: a cancel published while nothing is listening is silently lost,
 // and the publisher is told nothing.
 //
 // This is not a defect to fix, it is the contract, and it is why every
 // description of job cancel calls this half best effort. Pinning it in a
 // test is what stops somebody later reading a nil error as delivery.
-func TestNATSControl_NoSubscriberIsNotAnError(t *testing.T) {
-	url := startNatsContainer(t)
+func natsControlCase_NoSubscriberIsNotAnError(t *testing.T, url string) {
+	jobID := controlJobID(t)
 	control := natsControlChannel(t, url)
 
-	if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+	if err := control.PublishCancel(context.Background(), jobID); err != nil {
 		t.Fatalf("PublishCancel with nobody listening = %v, want nil: a core publish is not acknowledged", err)
 	}
 }
 
-// TestNATSControl_PublishesUnderTheDeclaredSubject proves the channel uses
+// natsControlCase_PublishesUnderTheDeclaredSubject proves the channel uses
 // topology's own builder rather than a subject of its own invention.
 //
 // It matters because the Runner's subscribe grant and the Controller's
 // publish grant both name topology.ControlSubjectAll(). A channel
 // publishing anywhere else would be denied in a secured deployment, and a
 // denied core subscribe reports nothing, so the failure would be silent.
-func TestNATSControl_PublishesUnderTheDeclaredSubject(t *testing.T) {
-	url := startNatsContainer(t)
+func natsControlCase_PublishesUnderTheDeclaredSubject(t *testing.T, url string) {
+	jobID := controlJobID(t)
 	control := natsControlChannel(t, url)
 
 	nc, err := nats.Connect(url)
@@ -222,13 +263,13 @@ func TestNATSControl_PublishesUnderTheDeclaredSubject(t *testing.T) {
 		t.Fatalf("failed to flush the control wildcard subscription: %v", err)
 	}
 
-	if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+	if err := control.PublishCancel(context.Background(), jobID); err != nil {
 		t.Fatalf("PublishCancel: %v", err)
 	}
 
 	select {
 	case subject := <-received:
-		if want := topology.ControlSubject(controlTestJobID); subject != want {
+		if want := topology.ControlSubject(jobID); subject != want {
 			t.Errorf("published on %q, want %q", subject, want)
 		}
 	case <-time.After(30 * time.Second):
@@ -244,22 +285,24 @@ func TestNATSControl_PublishesUnderTheDeclaredSubject(t *testing.T) {
 // are cheap to run prove something about a channel production does not
 // have.
 func TestInProcessControl_MatchesTheNATSContract(t *testing.T) {
+	jobID := controlJobID(t)
+	otherJobID := jobID + "-other"
 	control := event.NewInProcessControl()
 
 	t.Run("reaches every subscriber", func(t *testing.T) {
 		var first, second atomic.Bool
-		unsubFirst, err := control.SubscribeCancel(context.Background(), controlTestJobID, func() { first.Store(true) })
+		unsubFirst, err := control.SubscribeCancel(context.Background(), jobID, func() { first.Store(true) })
 		if err != nil {
 			t.Fatalf("SubscribeCancel: %v", err)
 		}
 		defer unsubFirst()
-		unsubSecond, err := control.SubscribeCancel(context.Background(), controlTestJobID, func() { second.Store(true) })
+		unsubSecond, err := control.SubscribeCancel(context.Background(), jobID, func() { second.Store(true) })
 		if err != nil {
 			t.Fatalf("SubscribeCancel: %v", err)
 		}
 		defer unsubSecond()
 
-		if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+		if err := control.PublishCancel(context.Background(), jobID); err != nil {
 			t.Fatalf("PublishCancel: %v", err)
 		}
 		if !first.Load() || !second.Load() {
@@ -269,13 +312,13 @@ func TestInProcessControl_MatchesTheNATSContract(t *testing.T) {
 
 	t.Run("is scoped to its job", func(t *testing.T) {
 		var theirs atomic.Bool
-		unsubscribe, err := control.SubscribeCancel(context.Background(), otherControlJobID, func() { theirs.Store(true) })
+		unsubscribe, err := control.SubscribeCancel(context.Background(), otherJobID, func() { theirs.Store(true) })
 		if err != nil {
 			t.Fatalf("SubscribeCancel: %v", err)
 		}
 		defer unsubscribe()
 
-		if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+		if err := control.PublishCancel(context.Background(), jobID); err != nil {
 			t.Fatalf("PublishCancel: %v", err)
 		}
 		if theirs.Load() {
@@ -285,14 +328,14 @@ func TestInProcessControl_MatchesTheNATSContract(t *testing.T) {
 
 	t.Run("unsubscribing stops delivery, twice over", func(t *testing.T) {
 		var saw atomic.Bool
-		unsubscribe, err := control.SubscribeCancel(context.Background(), controlTestJobID, func() { saw.Store(true) })
+		unsubscribe, err := control.SubscribeCancel(context.Background(), jobID, func() { saw.Store(true) })
 		if err != nil {
 			t.Fatalf("SubscribeCancel: %v", err)
 		}
 		unsubscribe()
 		unsubscribe()
 
-		if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+		if err := control.PublishCancel(context.Background(), jobID); err != nil {
 			t.Fatalf("PublishCancel: %v", err)
 		}
 		if saw.Load() {
@@ -309,7 +352,7 @@ func TestInProcessControl_MatchesTheNATSContract(t *testing.T) {
 		var unsubscribe func()
 		done := make(chan struct{})
 		var err error
-		unsubscribe, err = control.SubscribeCancel(context.Background(), controlTestJobID, func() {
+		unsubscribe, err = control.SubscribeCancel(context.Background(), jobID, func() {
 			unsubscribe()
 			close(done)
 		})
@@ -317,7 +360,7 @@ func TestInProcessControl_MatchesTheNATSContract(t *testing.T) {
 			t.Fatalf("SubscribeCancel: %v", err)
 		}
 
-		if err := control.PublishCancel(context.Background(), controlTestJobID); err != nil {
+		if err := control.PublishCancel(context.Background(), jobID); err != nil {
 			t.Fatalf("PublishCancel: %v", err)
 		}
 		select {
