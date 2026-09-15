@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 )
 
 // TestJobRelauncher_ANilDispatcherIsANilInterface is the regression guard.
@@ -36,5 +37,35 @@ func TestJobRelauncher_ARealDispatcherIsPassedThrough(t *testing.T) {
 	dispatcher := &api.Dispatcher{}
 	if got := jobRelauncher(Deps{Dispatcher: dispatcher}); got == nil {
 		t.Fatal("jobRelauncher dropped a real dispatcher, so the relaunch control would never work")
+	}
+}
+
+// TestJobCanceller_ANilCancellerIsANilInterface is the identical guard for
+// the cancel control, and it is needed for the identical reason.
+//
+// Deps.JobCanceller is a *dispatch.Canceller, so passing a nil one into an
+// interface parameter yields a non-nil interface holding a nil pointer, the
+// view's wiring check passes, and the first cancel dereferences it. This
+// package's own conformance harness builds Deps without one, so the Jobs
+// view really is registered against a nil canceller on every run of that
+// suite.
+func TestJobCanceller_ANilCancellerIsANilInterface(t *testing.T) {
+	got := jobCanceller(Deps{})
+	if got != nil {
+		t.Fatalf("jobCanceller(Deps{}) = %#v, want an untyped nil; "+
+			"a typed nil here passes the view's wiring check and panics on the first cancel", got)
+	}
+}
+
+// TestJobCanceller_ARealCancellerIsPassedThrough is the other half.
+//
+// Without it the conversion could return nil unconditionally and still pass
+// the guard above, which would withdraw the cancel control everywhere
+// rather than only where it is unwired. That failure is quiet: a Cancel
+// button that is simply never drawn looks like a design decision.
+func TestJobCanceller_ARealCancellerIsPassedThrough(t *testing.T) {
+	canceller := dispatch.NewCanceller(nil, nil, nil)
+	if got := jobCanceller(Deps{JobCanceller: canceller}); got == nil {
+		t.Fatal("jobCanceller dropped a real canceller, so no job could ever be stopped from the browser")
 	}
 }

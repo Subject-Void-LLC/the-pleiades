@@ -37,6 +37,14 @@ func jobsRouter(t *testing.T, jobs api.JobRepository) http.Handler {
 // never exercises.
 func jobsRouterWithCanceler(t *testing.T, jobs api.JobRepository, canceler api.JobCanceler) http.Handler {
 	t.Helper()
+	return jobsRouterWithAuth(t, jobs, canceler, alwaysAuthenticated)
+}
+
+// jobsRouterWithAuth is jobsRouterWithCanceler with the authentication
+// middleware chosen by the caller, so a test can drive the path where a
+// request arrives carrying no identity at all.
+func jobsRouterWithAuth(t *testing.T, jobs api.JobRepository, canceler api.JobCanceler, authn func(http.Handler) http.Handler) http.Handler {
+	t.Helper()
 	handler := api.NewJobHandler(jobs, canceler)
 	routes := []api.Route{
 		{Method: http.MethodGet, Pattern: "/jobs", Scope: auth.ScopeJobRead, Rel: auth.RelCollection, Handler: handler.List},
@@ -52,7 +60,7 @@ func jobsRouterWithCanceler(t *testing.T, jobs api.JobRepository, canceler api.J
 	routes = append(routes, apispec.CancelJob.Route(handler.Cancel))
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Auth:      alwaysAuthenticated,
+		Auth:      authn,
 		Admission: &fakeAdmitter{},
 		HATEOAS:   allowAllGenerator(t),
 		Routes:    routes,
