@@ -7437,3 +7437,73 @@ token, something has to prove which one is actually behind the text, or the suit
 measuring a hypothetical. The tell is a token that only one rule consumes: `--bg` was read
 by `.block` alone while `--body-bg` covered everything else, and that imbalance was visible
 in the file long before anyone looked at the skin.
+
+## 216. `natsControl.SubscribeCancel` returned before the broker had registered the subscription, so a cancel arriving in that window was dropped permanently rather than delivered late
+
+**Symptom:** found while building job cancel, by its own test, before it shipped.
+`TestNATSControl_CancelReachesEverySubscriber` failed for the entire length of its timeout
+rather than intermittently, and only when a second connection was subscribed: delivery to a
+subscriber on the PUBLISHING connection always worked, delivery to any other connection failed
+roughly one run in three. The first diagnosis was wrong and worth recording. The failure
+appeared under parallel load, `internal/event` is a listed flaky package, and the obvious
+reading was FAILURE_PATTERNS #61 resource contention. Widening the deadline from two seconds to
+thirty is what disproved that: the test then failed for the full thirty seconds, which no amount
+of scheduling delay explains.
+
+**Root cause:** nats.go buffers the `SUB` protocol line and writes it asynchronously, so
+`nc.Subscribe` returning says nothing about whether the server knows the subscription exists. A
+cancel is a plain core publish with no queue, no acknowledgement and no redelivery, so a message
+published before the server has processed the `SUB` is not queued for that subscriber, it is
+routed to nobody and discarded. Losing the race therefore does not make delivery late, it makes
+delivery never. The same-connection case passed consistently because the `SUB` and the `PUB`
+share one write buffer and reach the server in that order in a single flush, which is exactly
+the asymmetry that made the bug look like a delivery-model problem rather than a registration
+one. In production the window sits where it does the most harm: `executeWithLease` subscribes
+immediately before calling `Execute`, so the vulnerable moment is the first instants of a run,
+which is when an operator who has just launched something is most likely to stop it.
+
+**Fix:** `SubscribeCancel` (`internal/event/control.go`) calls `FlushWithContext` after
+subscribing, bounded by `subscribeRegistrationTimeout`, and unsubscribes and returns an error if
+that flush fails rather than handing back a subscription the server may not have. The test's own
+raw wildcard subscription needed the identical treatment and did not get it in the first pass,
+which is why `TestNATSControl_PublishesUnderTheDeclaredSubject` then failed once in three runs by
+itself: the test carried the very race the implementation had just been fixed for. Both sides
+flush now, and the pair has run clean eight times consecutively.
+
+**Lesson:** see `LESSONS_LEARNED.md` #181.
+
+## 217. Job results were published only when `RUNNER_WAL_DIR` was set, and nothing in the module ever consumed them
+
+**Symptom:** found while planning job cancel, by asking what a `running` job state would be built
+on. `topology.ResultSubjectAll()` had exactly two non-test references in the whole module: the
+Runner's own publish, and the Runner's publish permission in `internal/meshid/grant.go`. Nothing
+subscribed. Separately, `reportResult` (`internal/runner/agent_wal.go`) returned immediately when
+`a.wal == nil`, and the WAL is only constructed when an operator sets `RUNNER_WAL_DIR`
+(`cmd/runner/main.go`), so a default deployment published nothing at all. The subject carried real
+traffic in a WAL-enabled deployment and reached nobody in any of them.
+
+**Root cause:** two independent halves of one feature, each individually reasonable. PLAN.md
+Section 16's State Desync Mitigation describes a Runner buffering a result in a local
+write-ahead log and retrying, and the option was built as one unit, so the DURABILITY of a
+result and the REPORTING of it became the same switch. Nothing noticed, because the consumer
+side was never built: a publish nobody reads produces no error, no backlog a person would see,
+and no failing test. The gap was invisible for as long as the platform never asked a question
+whose answer depended on it, and `completed` meaning "the fan-out finished" was exactly such a
+platform. It stopped being invisible the moment a job needed to stay `running` until its devices
+reported, at which point a Runner reporting nothing would leave every job it touched running
+forever.
+
+**Fix:** reporting and durability are separate options now. `WithResultReporting` publishes every
+outcome and is wired unconditionally by `cmd/runner`; `WithResultWAL` adds the durable retry on
+top and stays behind `RUNNER_WAL_DIR`. `internal/dispatch.ResultConsumer` is the missing other
+end, one durable consumer shared by every Controller replica. Its end-to-end test publishes on
+the subject a Runner derives rather than calling the handler directly, because a handler-only
+test would have passed throughout the entire period the subject reached nobody.
+
+**Lesson:** a port with a publisher and no consumer is not half-built, it is unbuilt, and it
+reports success the whole time. When a producer's output is not read by anything, nothing about
+the producer working is evidence the feature works, so the absence has to be checked for
+directly: ask who subscribes, by symbol reference rather than by reading the producer. The
+related trap is the one this pair produced together, that an optional durability wrapper quietly
+became an optional feature switch, so check whether an option gates the mechanism or only its
+resilience.

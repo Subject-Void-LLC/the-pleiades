@@ -4155,3 +4155,41 @@ scope or a superuser makes both halves of the assertion vacuous, and the positiv
 half fails silently: it will pass with the thing it is testing removed. Write the
 negative case with the weakest identity that should be refused and the positive
 case with the weakest identity that should be admitted.
+
+## 181. A fire-and-forget signal must have its subscription confirmed by the broker before the work it can interrupt is allowed to start, because losing that race does not delay delivery, it cancels it.
+
+**The incident.** Job cancel's control channel is deliberately core NATS rather than the durable
+`event.Bus`: a cancel means something only to whoever is listening at the moment it is sent, and
+`Bus.Subscribe` builds a consumer group that would hand it to one arbitrary Runner instead of the
+one holding the job. That reasoning was right. What it made easy to forget is what the same
+property costs on the SUBSCRIBE side. nats.go buffers the `SUB` line and writes it
+asynchronously, so `Subscribe` returning means the client intends to subscribe, not that the
+server will route anything to it yet. With a durable subject the gap is invisible, because the
+message waits. With a core publish there is nothing to wait: the server routes to whoever is
+registered at that instant and discards the rest.
+
+`executeWithLease` subscribed and then immediately called `Execute`, so the unregistered window
+sat exactly across the start of a run, which is the single most likely moment for somebody who
+has just launched something to stop it.
+
+**Why the first diagnosis was wrong, and what corrected it.** The failure arrived under parallel
+container load in a package already listed in `flaky-packages.json`, and it looked precisely like
+FAILURE_PATTERNS #61 resource contention. The move that settled it was raising the deadline
+rather than lowering it: a contention theory predicts that a thirty-second budget passes where a
+two-second one failed, and instead the test failed for the full thirty seconds. A timeout that
+does not care how long it is given is not measuring slowness. That is a cheap, general
+discriminator worth reaching for before accepting a flake explanation, and it is cheaper than it
+looks, because a passing run returns as soon as its condition is met and pays none of the extra
+budget.
+
+**The asymmetry that hid it.** Delivery to a subscriber on the PUBLISHING connection worked every
+time, because the `SUB` and the `PUB` share one write buffer and arrive in that order in a single
+flush. Only a second connection could see the bug. A test with one connection would have passed
+forever, which is also why the two-subscriber arrangement was worth building: it was written to
+prove delivery reaches everybody rather than one consumer-group member, and it caught a
+registration bug instead.
+
+**The symmetric obligation.** The first fix left the test's own raw wildcard subscription
+unflushed, and it then failed by itself about one run in three, carrying the exact race the
+implementation had just been fixed for. A test that subscribes is a subscriber, and it owes the
+same discipline as the code it is testing.
