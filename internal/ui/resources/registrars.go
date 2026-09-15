@@ -54,7 +54,9 @@ func registrars() []Registrar {
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
-		func(d Deps) error { return projects.Register(d.Projects, d.ProjectSync, d.Sets, d.Credentials) },
+		func(d Deps) error {
+			return projects.Register(d.Projects, d.ProjectSync, d.ProjectRunner, d.Sets, d.Credentials)
+		},
 		func(d Deps) error { return runbooks.Register(d.Runbooks, d.Templates, d.Sets) },
 		func(d Deps) error { return schedules.Register(d.Schedules, d.Templates) },
 		func(d Deps) error { return teams.Register(d.Access) },

@@ -1261,8 +1261,9 @@ func main() {
 		// owns rather than anywhere a project names: a working tree's path
 		// is derived from numeric ids (internal/project's pathFor), so
 		// nothing an operator types reaches the filesystem.
-		Projects:    projectStore,
-		ProjectSync: projectSyncer,
+		Projects:      projectStore,
+		ProjectSync:   projectSyncer,
+		ProjectRunner: projectRunner,
 		// The redacted credential store, never the resolver: the UI's
 		// credential views hold a projection with no field a plaintext
 		// value could occupy, and internal/archtest fails the build if

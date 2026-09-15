@@ -96,6 +96,9 @@ func TestProjectsView_SyncRecordsTheRevisionAndRevealsThePlaybooks(t *testing.T)
 	if w := h.post(t, id+"/sync", map[string]string{}); w.Code >= http.StatusBadRequest {
 		t.Fatalf("syncing = %d: %s", w.Code, w.Body.String())
 	}
+	// The clone runs off the request now, so wait for it the way the page's
+	// Refresh badge does, before asserting what it produced.
+	conformanceProjectRunner.Wait()
 
 	after := h.section(t, id, "Playbooks")
 	for _, want := range []string{"site.yml", "playbooks/deploy.yml"} {

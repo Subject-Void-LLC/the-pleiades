@@ -75,6 +75,11 @@ type Deps struct {
 	Projects    project.Store
 	ProjectSync project.Syncer
 
+	// ProjectRunner starts a Sync's clone in the background so the button
+	// does not block the page on it. The syncer above is still the port the
+	// Playbooks tab reads a synced tree through.
+	ProjectRunner *project.Runner
+
 	// Schedules is when those definitions run without anybody pressing
 	// launch. The same store value the controller hands its scheduler,
 	// narrowed here to the administration half: this side can describe

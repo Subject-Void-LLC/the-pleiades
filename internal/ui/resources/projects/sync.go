@@ -16,6 +16,7 @@ package projects
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
@@ -27,12 +28,20 @@ import (
 // listing.
 const sectionLimit = 200
 
-// syncAction clones or fast-forwards the project's working tree.
+// syncEnqueuer starts a project's clone in the background. It is
+// *project.Runner in a real controller; the action holds the interface so a
+// test can drive the button without a real clone.
+type syncEnqueuer interface {
+	Enqueue(ctx context.Context, id int) error
+}
+
+// syncAction starts an asynchronous clone of the project's working tree.
 //
 // It prompts for nothing, which is why it has no Fields: everything a sync
 // needs is already on the record. The confirmation a person gets is the
-// heading, and the result is the badge on the page they land back on.
-func syncAction(store project.Store, syncer project.Syncer) view.RecordAction {
+// heading, and the result is the badge on the page they land back on, which
+// the Refresh spec keeps current as the background clone runs.
+func syncAction(enqueue syncEnqueuer) view.RecordAction {
 	return view.RecordAction{
 		Name:     "sync",
 		Label:    "Sync",
@@ -44,24 +53,22 @@ func syncAction(store project.Store, syncer project.Syncer) view.RecordAction {
 			if err != nil {
 				return "", errs, project.ErrNotFound
 			}
-			p, err := store.Get(ctx, numeric)
-			if err != nil {
-				return "", errs, err
-			}
 
-			result, err := syncer.Sync(ctx, p)
-			if err != nil {
+			switch err := enqueue.Enqueue(ctx, numeric); {
+			case err == nil, errors.Is(err, project.ErrSyncInProgress):
+				// Started, or one is already running: either way the page
+				// this lands on shows a running badge, which is the answer
+				// a second press would ask for.
+				return "", errs, nil
+			case errors.Is(err, project.ErrNotSyncable):
 				// A project with nothing to fetch is a configuration
-				// problem rather than a failure to record: saying so
-				// against the control that causes it is more useful than
-				// filing it as a failed sync.
+				// problem, so it is said against the control that causes it
+				// rather than filed as a failed sync in the background.
 				errs.Add("scm_url", err.Error())
 				return "", errs, nil
-			}
-			if err := store.RecordSync(ctx, numeric, result); err != nil {
+			default:
 				return "", errs, err
 			}
-			return "", errs, nil
 		},
 	}
 }

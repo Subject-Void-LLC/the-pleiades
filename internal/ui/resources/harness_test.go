@@ -79,12 +79,20 @@ func uniqueName(t *testing.T, prefix string) string {
 // the registration.
 var conformanceStream activity.Store
 
+// conformanceProjectRunner is the runner the Projects view's Sync button
+// enqueues onto, captured at registration so a test can wait on a background
+// clone the way a caller waits on a poll.
+var conformanceProjectRunner *project.Runner
+
 func registerViews(t *testing.T) {
 	t.Helper()
 	registerOnce.Do(func() {
 		repo := newFakeRepository()
 		accessStore, activityStream := newTestAccessStore(t)
 		conformanceStream = activityStream
+		projectStore := newFakeProjectStore()
+		projectSyncer := fakeProjectSyncer{}
+		conformanceProjectRunner = project.NewRunner(projectStore, projectSyncer, nil)
 		if err := resources.RegisterAll(resources.Deps{
 			// A real ent-backed store rather than a fake, and the reason is
 			// arithmetic rather than principle: access.Store is twenty
@@ -105,8 +113,9 @@ func registerViews(t *testing.T) {
 			// the suite never touches a real checkout path, and the store
 			// seeds one synced project so the Playbooks tab has something
 			// to render.
-			Projects:    newFakeProjectStore(),
-			ProjectSync: fakeProjectSyncer{},
+			Projects:      projectStore,
+			ProjectSync:   projectSyncer,
+			ProjectRunner: conformanceProjectRunner,
 			// Built after the template store, and the order matters: a
 			// schedule requires a template to attach to, and the fixture
 			// seeds one by reading what that store just created.

@@ -6,15 +6,18 @@
 // real: create a project, press Sync, and the playbooks in it become
 // things a Template can run.
 //
-// # Sync is synchronous, and that is a known limit
+// # Sync is asynchronous
 //
-// AWX models a project update as a Job, which gets it a log stream, a
-// history, a relaunch and a cancel for free. That is the right end state
-// and it is a large change. This runs the fetch inside the request instead,
-// which is honest for a repository of ordinary size and wrong for a large
-// one: the page blocks while it clones. The Refresh spec is what makes the
-// badge settle on its own once that is fixed, so the view does not have to
-// change again when it becomes a Job.
+// Pressing Sync no longer blocks the page on the clone. It starts the clone
+// on internal/project's Runner and returns at once; the badge moves to
+// running, and the Refresh spec keeps it current until it settles on
+// succeeded or failed. A repository large enough to take a while no longer
+// holds the page open while it fetches.
+//
+// A log stream, a run history, and a cancel are the parts of AWX's "a
+// project update is a Job" this does not yet have. They are follow-on work;
+// the async fetch is the part that unblocks the page, and the view did not
+// have to change to get it, which is what the Refresh spec was there for.
 //
 // It is reachable only because internal/ui/resources/registrars.go names it
 // (FAILURE_PATTERNS.md #52).
@@ -220,8 +223,10 @@ func asFault(err error) error {
 	return err
 }
 
-// Register wires this view over the live project store.
-func Register(store project.Store, syncer project.Syncer, orgs inventory.OrganizationLister, creds credentialLister) error {
+// Register wires this view over the live project store. The runner starts a
+// Sync's clone in the background; the syncer is still needed for the
+// read-only Playbooks tab, which reads a synced tree rather than fetching.
+func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, orgs inventory.OrganizationLister, creds credentialLister) error {
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Projects",
@@ -232,7 +237,7 @@ func Register(store project.Store, syncer project.Syncer, orgs inventory.Organiz
 		Status:   view.StatusImplemented,
 		IDField:  "name",
 		Fields:   declaredFields(orgs, creds),
-		Actions:  []view.RecordAction{syncAction(store, syncer)},
+		Actions:  []view.RecordAction{syncAction(runner)},
 		Sections: []view.Section{playbooksSection(syncer, store)},
 		Ops: view.Ops{
 			List:   &apispec.ListProjects,
