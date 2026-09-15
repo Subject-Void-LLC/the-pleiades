@@ -682,6 +682,8 @@ func TestMalformedBodiesAnswerBadRequest(t *testing.T) {
 		{"creating a type", http.MethodPost, "/api/v1/credential-types"},
 		{"creating a credential", http.MethodPost, "/api/v1/credentials"},
 		{"binding", http.MethodPut, fmt.Sprintf("/api/v1/templates/%d/credentials", 1)},
+		{"setting inputs", http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID)},
+		{"setting injectors", http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID)},
 	}
 
 	for _, tt := range cases {
@@ -1265,5 +1267,24 @@ func TestSetCredentialTypeInjectorsRefusesADangerousEnvName(t *testing.T) {
 	})
 	if status != http.StatusBadRequest {
 		t.Fatalf("a code-execution env name answered %d, want 400: %s", status, body)
+	}
+}
+
+// TestSetCredentialTypeSchemaEndpointsRefuseBadTargets covers the two guard
+// branches the schema-setting endpoints share: a path id that is not a
+// positive integer, and a well-formed request for a type that does not
+// exist.
+func TestSetCredentialTypeSchemaEndpointsRefuseBadTargets(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	for _, path := range []string{"inputs", "injectors"} {
+		if status, body := f.do(t, http.MethodPut, "/api/v1/credential-types/not-a-number/"+path, map[string]any{}); status != http.StatusBadRequest {
+			t.Errorf("PUT .../%s with a non-numeric id = %d, want 400: %s", path, status, body)
+		}
+		if status, body := f.do(t, http.MethodPut, "/api/v1/credential-types/999999/"+path, map[string]any{}); status != http.StatusNotFound {
+			t.Errorf("PUT .../%s for a missing type = %d, want 404: %s", path, status, body)
+		}
 	}
 }
