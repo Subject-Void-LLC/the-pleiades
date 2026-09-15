@@ -190,7 +190,7 @@ func TestDispatcher_ReleaseGate(t *testing.T) {
 
 	dispatcher := api.NewDispatcher(runbooks, jobStore, bus,
 		api.WithTemplates(templates), api.WithLaunchConfigs(templates))
-	jobsHandler := api.NewJobHandler(jobStore)
+	jobsHandler := api.NewJobHandler(jobStore, jobStore)
 
 	// The real auth pipeline, wired exactly as cmd/controller/main.go
 	// wires it: one AdmissionChain, shared by both the enforcing

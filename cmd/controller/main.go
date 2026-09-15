@@ -1046,7 +1046,9 @@ func main() {
 	// path that rebuilds one read back out of storage. A second factory
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
-	jobs := api.NewJobHandler(jobStore)
+	// jobStore satisfies both the read port and the cancel one; the split
+	// lives in internal/api so a read-only handler cannot stop a run.
+	jobs := api.NewJobHandler(jobStore, jobStore)
 	// The same store and syncer the playbook source above was built on, so
 	// what an operator syncs through the browser, what a caller syncs over
 	// the API, and what a dispatch resolves are one checkout rather than
@@ -1136,6 +1138,7 @@ func main() {
 		apispec.ListJobs.Name:      jobs.List,
 		apispec.GetJob.Name:        jobs.Get,
 		apispec.StreamJobLogs.Name: streamer.StreamLogs,
+		apispec.CancelJob.Name:     jobs.Cancel,
 		apispec.RelaunchJob.Name:   dispatcher.RelaunchJob,
 
 		// Templates split across two handlers on purpose, along the same

@@ -6084,6 +6084,209 @@
         "x-link-relation": "self"
       }
     },
+    "/jobs/{id}/cancel": {
+      "post": {
+        "description": "Stops a job and returns at once. What this guarantees is the record and the fan-out: the job settles to \"canceled\" naming whoever stopped it, and no device the job has not already reached is dispatched to. What it cannot guarantee is work already running on a device. That is signalled best-effort to whichever Runner holds it, a task declaring itself un-interruptible runs to completion by design, and one device may already have been dispatched to in the instant the cancel landed. A job that has already finished is a 409 rather than a success, because reporting success for having stopped nothing would tell a caller it had done something it had not.",
+        "operationId": "cancel_job",
+        "parameters": [
+          {
+            "description": "The job ID, a UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "dispatched": {
+                      "description": "Reads 0 until state reaches \"completed\", regardless of live fan-out progress.",
+                      "type": "integer"
+                    },
+                    "failed": {
+                      "type": "integer"
+                    },
+                    "failure_reason": {
+                      "description": "Why a failed job could not run. Empty for every other state.",
+                      "type": "string"
+                    },
+                    "inventory": {
+                      "description": "The device set it targeted.",
+                      "type": "integer"
+                    },
+                    "job_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "description": "Which registered launch kind ran, and therefore which execution adapter handled it.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenant it belongs to, inherited from that inventory.",
+                      "type": "integer"
+                    },
+                    "runbook_id": {
+                      "type": "string"
+                    },
+                    "skipped": {
+                      "type": "integer"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "tasks": {
+                      "items": {
+                        "properties": {
+                          "device_id": {
+                            "type": "string"
+                          },
+                          "device_name": {
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "template": {
+                      "description": "The saved definition this job was launched from.",
+                      "type": "integer"
+                    },
+                    "template_name": {
+                      "description": "That template's name as it was at launch. Captured rather than resolved live: a job's history has to outlive the template.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job was canceled. It is returned as it now stands; poll it for the final tallies, which the stopping fan-out records."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a UUID."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No identity on the request context."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No job with that ID exists."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job has already finished, so there was nothing to stop."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The job could not be canceled."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "runbook:execute"
+            ]
+          }
+        ],
+        "summary": "Cancel a running job",
+        "x-link-relation": "cancel"
+      }
+    },
     "/jobs/{id}/logs": {
       "get": {
         "description": "id is validated as a UUID before use: it is concatenated into a NATS subject, and an unvalidated value could widen a wildcard subject to stream every job in the system. A fresh, ephemeral JetStream consumer scoped to exactly this job ID is created per request, so each concurrent viewer sees only the job it asked for. Each SSE frame's data is the raw JSON event payload the engine publishes per task status change, best-effort masked through every secret known at the moment that event was published (see docs/10-running-in-production.md's data handling section for the precise, non-retroactive scope of that masking).",

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -41,6 +42,21 @@ type JobRepository interface {
 	List(ctx context.Context, after string, limit int) ([]*dispatch.Job, error)
 }
 
+// JobCanceler is the one write a job handler performs, kept separate from
+// JobRepository above rather than widening it.
+//
+// The split is the point: every other job handler is read-only, and a
+// reader that happened to hold this interface could stop a run. It also
+// keeps the read handlers testable with a double that cannot write, which
+// is the same Interface Segregation shape JobRepository's own doc comment
+// describes.
+type JobCanceler interface {
+	// Cancel stops jobID on behalf of canceledBy, returning an error
+	// satisfying errors.Is(err, dispatch.ErrJobNotFound) if no such job
+	// exists, or dispatch.ErrNotCancelable if it has already finished.
+	Cancel(ctx context.Context, jobID string, canceledBy string) error
+}
+
 // defaultJobListLimit and maxJobListLimit bound a job list page, matching
 // the device list's own bounds and existing for the same reason: the cap
 // is the server's, so ?limit=100000 is not a supported way to ask it to
@@ -53,11 +69,18 @@ const (
 // JobHandler serves the Job resource.
 type JobHandler struct {
 	jobs JobRepository
+	// canceler may be nil on a Controller that wires no cancellation.
+	// Cancel answers 501 in that case rather than dereferencing it, the
+	// same way every other optional collaborator in this package is
+	// treated.
+	canceler JobCanceler
 }
 
-// NewJobHandler builds the Job resource's handlers over jobs.
-func NewJobHandler(jobs JobRepository) *JobHandler {
-	return &JobHandler{jobs: jobs}
+// NewJobHandler builds the Job resource's handlers over jobs, with
+// canceler supplying the one write. Pass a nil canceler to mount the
+// read-only handlers alone.
+func NewJobHandler(jobs JobRepository, canceler JobCanceler) *JobHandler {
+	return &JobHandler{jobs: jobs, canceler: canceler}
 }
 
 // jobTaskDTO is the wire projection of one dispatch.JobTask: a single
@@ -196,6 +219,101 @@ func (h *JobHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	dto := toJobResponse(job, tasks)
 	Respond(w, r, http.StatusOK, &dto)
+}
+
+// jobTerminalStates are the states a job can no longer be stopped from.
+//
+// Listed positively, matching internal/dispatch's own Cancel guard and
+// internal/ui/resources/jobs's terminalStates map, and for the same
+// reason: a state added later is not terminal until somebody decides it
+// is. A negative list would quietly make every future state terminal,
+// which is the direction that fails silently.
+var jobTerminalStates = map[string]bool{
+	"completed": true,
+	"failed":    true,
+	"canceled":  true,
+}
+
+// AllowsRel implements LinkFilter, withdrawing the cancel affordance from
+// a job that has already finished.
+//
+// Without this the _links array would advertise cancel on every job any
+// runbook:execute caller can see, including ones that finished last week,
+// and a client following it would get a 409. The relation is the key: a
+// filter that ignored it would withdraw every affordance and leave the
+// payload looking as though the caller could do nothing at all.
+func (j jobResponse) AllowsRel(rel auth.LinkRel) bool {
+	if rel != auth.RelCancel {
+		return true
+	}
+	return !jobTerminalStates[j.State]
+}
+
+// Cancel stops a job that is still running.
+//
+// It answers 202 rather than 200, and the distinction is not ceremony.
+// What this call settles synchronously is the record and the fan-out: the
+// job is canceled, and no device it has not already reached will be
+// dispatched to. Work already running on a device is signalled separately
+// and best-effort, so "accepted" is the honest word for what happened.
+func (h *JobHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(jobID); err != nil {
+		RespondError(w, r, http.StatusBadRequest, "job id must be a UUID")
+		return
+	}
+
+	if h.canceler == nil {
+		RespondError(w, r, http.StatusNotImplemented, "cancelling is not wired on this controller")
+		return
+	}
+
+	// The caller's own identity, read from the request rather than from
+	// the job. Stopping a run is a new decision by whoever made it, and
+	// stamping the job's original actor would put somebody else's name on
+	// a choice they did not make. Relaunch takes the identity the same way
+	// and for the same reason.
+	identity, ok := IdentityFromContext(r.Context())
+	if !ok || identity == nil {
+		RespondError(w, r, http.StatusUnauthorized, "no identity on the request context")
+		return
+	}
+
+	switch err := h.canceler.Cancel(r.Context(), jobID, identity.Subject); {
+	case errors.Is(err, dispatch.ErrJobNotFound):
+		RespondError(w, r, http.StatusNotFound, "job not found")
+		return
+	case errors.Is(err, dispatch.ErrNotCancelable):
+		RespondError(w, r, http.StatusConflict, "job has already finished")
+		return
+	case err != nil:
+		// The store's own text is logged rather than returned, the same
+		// posture Get above takes: it can name tables and columns a caller
+		// holding runbook:execute has no business reading.
+		loggerFrom(r).ErrorContext(r.Context(), "failed to cancel job",
+			slog.String("job_id", jobID),
+			slog.String("error", err.Error()))
+		RespondError(w, r, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// Re-read, unlike the project sync cancel's own handler, which answers
+	// with the record as it was a moment before. Here the write has already
+	// landed by the time this returns, so the caller can be handed the
+	// canceled job itself rather than the running one it just stopped. A
+	// read failure now is not worth failing the cancel over: it succeeded,
+	// and saying otherwise would invite a retry that would then 409.
+	job, tasks, err := h.jobs.Get(r.Context(), jobID)
+	if err != nil {
+		loggerFrom(r).WarnContext(r.Context(), "job was canceled but could not be read back",
+			slog.String("job_id", jobID),
+			slog.String("error", err.Error()))
+		Respond(w, r, http.StatusAccepted, &jobResponse{JobID: jobID, State: "canceled"})
+		return
+	}
+
+	dto := toJobResponse(job, tasks)
+	Respond(w, r, http.StatusAccepted, &dto)
 }
 
 // jobSummaryDTO is one job in a list: identity, state, and tallies,
