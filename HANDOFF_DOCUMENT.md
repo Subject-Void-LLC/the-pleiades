@@ -44,13 +44,29 @@ was RAISING the deadline: it then failed identically at thirty seconds.
 
 ### Where it stands
 
-- `go build ./...`, `go vet ./...`, `make fmt`, `make arch`, `make gosec`, `make docs-gen-check`
-  all clean. `internal/dispatch`, `internal/api`, `internal/ui/...`, `internal/runner`,
-  `internal/event`, `internal/topology`, `internal/meshid` all pass.
-- `make ci` end to end: see the note below.
-- Negative controls were run for the three assertions most worth doubting (the
-  fence-beats-canceled ordering, the fan-out stop, and the `interruptible: false` gate); each
-  fails when its guard is removed.
+`make push-gate` was run to completion. Both test phases pass: the `-race` pass and the
+integration pass each report passed, with their only failures confined to packages
+`flaky-packages.json` already names and each warned rather than blocking.
+
+**The one remaining blocker is environmental and cannot be fixed from the code.**
+`coverage-check` reports two regressions, `internal/catalog/cloud/aws/ec2` at 49.2% against a
+96.7% floor and `internal/catalog/cloud/aws/s3` at 48.0% against 98.0%. Both packages skip
+their LocalStack-backed tests when `LOCALSTACK_AUTH_TOKEN` is unset, which accounts for the
+whole of each drop; neither is touched by this branch. Set the token and they should return to
+their floors.
+
+That exposes a real gap in the gate itself, worth a decision separately from this work.
+`tools/testgate` learned to tell "the test failed because its infrastructure was not there"
+apart from "the test failed", which is what `flaky-packages.json` is. `tools/coverage-check`
+never learned the equivalent distinction: it reads a percentage and nothing else, so a package
+whose tests all skipped for want of a token is indistinguishable from one that is genuinely
+untested. Until it can tell those apart, any environment without every piece of optional
+infrastructure fails the ratchet for reasons that have nothing to do with the diff.
+
+Negative controls were run for the assertions most worth doubting, and each fails when its
+guard is removed: the fence-beats-canceled ordering, the fan-out stopping on a cancel, the
+`interruptible: false` gate, the three HTTP client properties, and the result consumer's
+subject.
 
 ### Next steps
 
