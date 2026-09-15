@@ -800,6 +800,40 @@ func (s *fakeProjectStore) RecordSync(_ context.Context, id int, result project.
 	return project.ErrNotFound
 }
 
+func (s *fakeProjectStore) BeginSync(_ context.Context, id int) (project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.projects {
+		if p.ID != id {
+			continue
+		}
+		if !p.Syncable() {
+			return project.Project{}, project.ErrNotSyncable
+		}
+		if p.SyncStatus == project.SyncRunning {
+			return project.Project{}, project.ErrSyncInProgress
+		}
+		p.SyncStatus, p.SyncError = project.SyncRunning, ""
+		s.projects[i] = p
+		return p, nil
+	}
+	return project.Project{}, project.ErrNotFound
+}
+
+func (s *fakeProjectStore) ResetInterruptedSyncs(_ context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i, p := range s.projects {
+		if p.SyncStatus == project.SyncRunning {
+			p.SyncStatus, p.SyncError = project.SyncFailed, "interrupted by a restart"
+			s.projects[i] = p
+			n++
+		}
+	}
+	return n, nil
+}
+
 // fakeProjectSyncer reports a successful clone without touching a network.
 //
 // The real clone is covered by internal/project's own tests, which drive a

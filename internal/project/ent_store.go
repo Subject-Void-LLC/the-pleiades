@@ -169,6 +169,68 @@ func (s *entStore) RecordSync(ctx context.Context, id int, result Result) error 
 	return nil
 }
 
+// BeginSync claims a project for an asynchronous sync, moving it to running
+// and returning the record to hand to the syncer.
+//
+// The move is a compare-and-swap: the update matches only a project that is
+// NOT already running, so two presses of Sync, or two replicas racing on
+// one request, cannot both start a clone into the same working tree. A
+// caller that loses the race is told ErrSyncInProgress rather than silently
+// starting a second one. Syncability is checked first so an unfetchable
+// project is refused synchronously, on the control that caused it, instead
+// of being claimed and failed in the background where nobody is looking.
+func (s *entStore) BeginSync(ctx context.Context, id int) (Project, error) {
+	p, err := s.Get(ctx, id)
+	if err != nil {
+		return Project{}, err
+	}
+	if !p.Syncable() {
+		return Project{}, ErrNotSyncable
+	}
+
+	n, err := s.client.Project.Update().
+		Where(
+			entproject.IDEQ(id),
+			entproject.SyncStatusNEQ(entproject.SyncStatus(SyncRunning)),
+		).
+		SetSyncStatus(entproject.SyncStatus(SyncRunning)).
+		SetSyncError("").
+		Save(ctx)
+	if err != nil {
+		return Project{}, fmt.Errorf("project: claiming a sync for %d: %w", id, err)
+	}
+	if n == 0 {
+		return Project{}, ErrSyncInProgress
+	}
+
+	p.SyncStatus = SyncRunning
+	p.SyncError = ""
+	return p, nil
+}
+
+// ResetInterruptedSyncs clears syncs a process restart left mid-flight,
+// moving every running project to failed. It is meant to run once at
+// startup: a sync runs in memory, so a running row at boot is a clone whose
+// process is gone, and leaving it running would refuse every future Sync
+// (BeginSync's compare-and-swap would never match). Marking it failed is
+// both honest and the state from which a Sync is offered again.
+//
+// It returns how many it cleared, for the startup log. A completing sync on
+// another live replica that this resets is corrected when that replica's own
+// RecordSync writes the real outcome, which addresses the row by id rather
+// than by a status it must still hold.
+func (s *entStore) ResetInterruptedSyncs(ctx context.Context) (int, error) {
+	n, err := s.client.Project.Update().
+		Where(entproject.SyncStatusEQ(entproject.SyncStatus(SyncRunning))).
+		SetSyncStatus(entproject.SyncStatus(SyncFailed)).
+		SetSyncError("The sync was interrupted by a restart. Sync again to retry.").
+		Save(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("project: resetting interrupted syncs: %w", err)
+	}
+	return n, nil
+}
+
 // hydrate projects a row, carrying the organization's name across so a list
 // can render it without a second query.
 func hydrate(row *ent.Project) Project {

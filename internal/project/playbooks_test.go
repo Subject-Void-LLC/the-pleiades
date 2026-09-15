@@ -39,6 +39,11 @@ func (s stubStore) Update(context.Context, project.Project) error         { retu
 func (s stubStore) Delete(context.Context, int) error                     { return nil }
 func (s stubStore) RecordSync(context.Context, int, project.Result) error { return nil }
 
+func (s stubStore) BeginSync(_ context.Context, id int) (project.Project, error) {
+	return s.Get(context.Background(), id)
+}
+func (s stubStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, nil }
+
 // stubSyncer lists what is actually on disk under the project's path.
 type stubSyncer struct{}
 

@@ -41,6 +41,13 @@ var (
 	// ErrNotSyncable is a project whose source cannot be fetched: an
 	// unsupported scm type, or a git project with no URL.
 	ErrNotSyncable = errors.New("project: this project has no fetchable source")
+
+	// ErrSyncInProgress is a claim on a project whose sync is already
+	// running. It is what makes pressing Sync twice safe: the second press
+	// is refused rather than starting a second clone into the same working
+	// tree, which race each other on the one path a project keys its
+	// checkout by.
+	ErrSyncInProgress = errors.New("project: a sync is already running for this project")
 )
 
 // SCMType is how a project's source is reached.
@@ -132,6 +139,22 @@ type Store interface {
 	// must not put the old name back, and an Update must not reset a
 	// revision it knows nothing about.
 	RecordSync(ctx context.Context, id int, result Result) error
+
+	// BeginSync claims a project for an asynchronous sync, moving it to
+	// running and returning the record to hand to the syncer. The move is a
+	// compare-and-swap that matches only a project not already running, so
+	// two presses of Sync cannot both start a clone into the one working
+	// tree a project keys by id; the loser is told ErrSyncInProgress. An
+	// unsyncable project is refused synchronously with ErrNotSyncable
+	// rather than claimed and failed where nobody is looking.
+	BeginSync(ctx context.Context, id int) (Project, error)
+
+	// ResetInterruptedSyncs moves every running project to failed and
+	// reports how many it moved. A sync runs in memory, so a running row at
+	// process start is a clone whose process is gone; left as it is, its
+	// project could never be synced again, because BeginSync's swap would
+	// never match. It is meant to run once at startup.
+	ResetInterruptedSyncs(ctx context.Context) (int, error)
 }
 
 // Result is the outcome of one sync attempt.
