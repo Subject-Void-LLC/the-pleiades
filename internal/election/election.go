@@ -8,6 +8,45 @@
 // (PATTERNS.md's own "Distributed Lock" entry). PLAN.md Section 25 names
 // this the "Leader elector" Build-Once Contract; this package is its one
 // implementation.
+//
+// # What this lease promises, and what it does not
+//
+// A LeaderElector is a LOAD OPTIMIZATION and never a mutual-exclusion
+// guarantee. Every consumer must be correct when two replicas believe
+// they lead at the same time.
+//
+// The reason is in the constants below. electionTTL is two seconds and
+// there is no fencing token, so a holder that is not scheduled for longer
+// than the TTL has its key expire server-side while it still reports
+// IsLeader true, and another replica may acquire before it notices. A GC
+// pause, a throttled CPU, a paused VM and a full-suite parallel test run
+// all reach that state by the same route. No tuning of the two constants
+// removes it: it is what a time-based lease without fencing does.
+//
+// So IsLeader answers "should this replica be the one doing the periodic
+// work", which bounds duplicated query load across a deployment. It does
+// not answer "is it safe for only this replica to do this work". Each
+// consumer today carries its own guard for that second question, and a
+// new one must bring its own before it is wired up:
+//
+//   - internal/schedule's Scanner claims a unique index on
+//     (schedule, occurrence_at) before launching. That index, not this
+//     lease, is what makes a schedule fire once, and
+//     internal/ent/schema/schedule_occurrence.go says so itself.
+//   - internal/dispatch's Reaper republishes job.requested under an
+//     idempotency key of the job id, on a tick well inside the stream's
+//     duplicate window, so two leaders reaping one stale job collapse to
+//     a single message.
+//   - cmd/controller's session sweep deletes expired sessions, which is
+//     naturally idempotent.
+//
+// Fencing tokens were considered and deliberately NOT added. A fencing
+// token buys something only where the protected resource can reject a
+// stale one, and all three consumers above already reject duplicates by
+// other means, so tokens would be a distributed protocol with nothing to
+// enforce them against. Revisit that only if a consumer appears whose
+// work cannot be made idempotent, which is the condition that would make
+// this lease load-bearing for correctness rather than for load.
 package election
 
 import (
@@ -110,10 +149,19 @@ func (e *LeaderElector) Run(ctx context.Context) {
 			// lease, release it immediately instead of leaving it to
 			// expire on its own TTL, so a waiting replica can take over
 			// on its very next poll rather than waiting out electionTTL.
+			// Step down locally BEFORE releasing, and keep that order
+			// at all three step-down sites below. Releasing first opens
+			// a window in which the lease is free for another replica to
+			// acquire while this one still reports IsLeader true, and
+			// under load that window is however long this goroutine
+			// waits to be scheduled again, not the microsecond it looks
+			// like. Clearing first can only produce the harmless
+			// direction: a replica that still holds the lease and
+			// already says it does not.
+			e.isLeader.Store(false)
 			if currentLease != nil {
 				e.releaseBestEffort(currentLease)
 			}
-			e.isLeader.Store(false)
 			return
 
 		case <-ticker.C:
@@ -143,8 +191,8 @@ func (e *LeaderElector) Run(ctx context.Context) {
 						// case's own log-free treatment being
 						// contradicted by a "renewal failed" warning
 						// here for the identical situation.
-						e.releaseBestEffort(currentLease)
 						e.isLeader.Store(false)
+						e.releaseBestEffort(currentLease)
 						return
 					}
 					// Renewal failed: this lease can no longer be
@@ -158,9 +206,9 @@ func (e *LeaderElector) Run(ctx context.Context) {
 						slog.String("key", e.key),
 						slog.String("error", err.Error()),
 					)
+					e.isLeader.Store(false)
 					e.releaseBestEffort(currentLease)
 					currentLease = nil
-					e.isLeader.Store(false)
 				}
 				continue
 			}

@@ -1086,6 +1086,29 @@ func HasCredentialsWith(preds ...predicate.Credential) predicate.Organization {
 	})
 }
 
+// HasProjects applies the HasEdge predicate on the "projects" edge.
+func HasProjects() predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ProjectsTable, ProjectsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasProjectsWith applies the HasEdge predicate on the "projects" edge with a given conditions (other predicates).
+func HasProjectsWith(preds ...predicate.Project) predicate.Organization {
+	return predicate.Organization(func(s *sql.Selector) {
+		step := newProjectsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAnnouncements applies the HasEdge predicate on the "announcements" edge.
 func HasAnnouncements() predicate.Organization {
 	return predicate.Organization(func(s *sql.Selector) {

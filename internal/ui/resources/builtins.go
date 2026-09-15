@@ -28,6 +28,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/runbook"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
@@ -66,6 +67,18 @@ type Deps struct {
 	// Templates is the saved definitions this platform launches, and the
 	// one port the Templates view both reads and writes.
 	Templates launch.Store
+
+	// Projects is where automation content comes from, and ProjectSync is
+	// the half of it that touches a network and a disk. Two ports rather
+	// than one because they fail in unrelated ways: a store failure is a
+	// database problem, a sync failure is somebody else's repository.
+	Projects    project.Store
+	ProjectSync project.Syncer
+
+	// ProjectRunner starts a Sync's clone in the background so the button
+	// does not block the page on it. The syncer above is still the port the
+	// Playbooks tab reads a synced tree through.
+	ProjectRunner *project.Runner
 
 	// Schedules is when those definitions run without anybody pressing
 	// launch. The same store value the controller hands its scheduler,

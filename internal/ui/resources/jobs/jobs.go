@@ -71,7 +71,11 @@ var fields = []view.Field{
 	{Name: "dispatched", Label: "DISPATCHED", Kind: view.KindReadOnly, InList: true},
 	{Name: "skipped", Label: "SKIPPED", Kind: view.KindReadOnly},
 	{Name: "failed", Label: "FAILED", Kind: view.KindReadOnly},
-	{Name: "actor", Label: "ACTOR", Kind: view.KindReadOnly},
+	// LAUNCHED BY rather than ACTOR, which is what
+	// templates/sections.go already called the identical value on its own
+	// Jobs tab. One concept with two names is a reader wondering whether
+	// they are two concepts.
+	{Name: "actor", Label: "LAUNCHED BY", Kind: view.KindReadOnly},
 	{Name: "created", Label: "CREATED", Kind: view.KindTimestamp, InList: true},
 }
 
@@ -162,7 +166,13 @@ func taskBadge(outcome string) string {
 // what may appear there -- a device name, a lifecycle state, or a missing
 // capability, never a device's properties -- so it is safe to render.
 var taskFields = []view.Field{
-	{Name: "device", Label: "DEVICE", Kind: view.KindText, InList: true, MobilePrimary: true},
+	// The device is a link, because this row is where an investigation
+	// stops being about a job and starts being about a machine. "42
+	// dispatched, 3 failed" sends somebody here; "edge-mad-07 failed
+	// because dpkg was locked" sends them to edge-mad-07, and until this
+	// reference existed that was a name they had to copy into the Devices
+	// list by hand.
+	{Name: "device", Label: "DEVICE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "devices"},
 	{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true, BadgeClass: taskBadge},
 	{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
 }
@@ -187,11 +197,19 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 			}
 			rows := make([]view.Row, 0, len(tasks))
 			for _, t := range tasks {
-				rows = append(rows, view.Row{ID: t.DeviceID, Cells: view.Cells{
-					"device":  t.DeviceName,
-					"outcome": t.Outcome.String(),
-					"reason":  t.Reason,
-				}})
+				rows = append(rows, view.Row{
+					ID: t.DeviceID,
+					Cells: view.Cells{
+						"device":  t.DeviceName,
+						"outcome": t.Outcome.String(),
+						"reason":  t.Reason,
+					},
+					// The stored device id, which is what the link is
+					// built from. The cell shows the name: a cell showing
+					// a primary key has moved the join into the reader's
+					// head, which is the thing the link exists to undo.
+					Refs: map[string]string{"device": t.DeviceID},
+				})
 			}
 			return rows, nil
 		},
@@ -205,7 +223,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore) error {
+func Register(jobs dispatch.JobStore, runner Relauncher) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -242,9 +260,10 @@ func Register(jobs dispatch.JobStore) error {
 		// it loaded, with nothing to say it had. Five seconds is slow
 		// enough to cost almost nothing and fast enough that a dispatch
 		// appears while somebody is still looking for it.
-		Refresh: &view.RefreshSpec{Interval: 5 * time.Second, Active: stillRunning},
-		IDField: "job_id",
-		Fields:  fields,
+		Refresh:          &view.RefreshSpec{Interval: 5 * time.Second, Active: stillRunning},
+		IDField:          "job_id",
+		StatusBadgeField: "state",
+		Fields:           fields,
 		Ops: view.Ops{
 			List: &apispec.ListJobs,
 			Get:  &apispec.GetJob,
@@ -255,7 +274,16 @@ func Register(jobs dispatch.JobStore) error {
 			// anywhere in this build, so offering any of them would be a
 			// button for a route nobody mounted.
 		},
+		Actions: []view.RecordAction{relaunchAction(runner)},
+		// Withdraws Relaunch on the jobs it would fail on: one still
+		// running, and one that never came from a template.
+		Applies:  applies,
 		Sections: []view.Section{deviceOutcomes(jobs)},
+		// AWX's job page opens on Output, and this one does too. Somebody
+		// opening a job has nearly always come to see what happened rather
+		// than to re-read what it was asked to do, and the details are one
+		// click away either way.
+		DefaultTab: "Live output",
 		Stream: &view.StreamSpec{
 			Title: "Live output",
 			// Built from the API's own prefix and the endpoint's own

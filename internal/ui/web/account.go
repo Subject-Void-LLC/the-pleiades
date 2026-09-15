@@ -31,6 +31,7 @@ import (
 	"net/http"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/render"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // ErrWeakPassword reports a new password refused for what it is, rather
@@ -70,13 +71,25 @@ func (h *Handler) showAccount(w http.ResponseWriter, r *http.Request) {
 // was refused; this page is read by whoever is sitting at the browser, who
 // is not necessarily the account's owner.
 func (h *Handler) renderAccount(w http.ResponseWriter, r *http.Request, notice string, status int) {
-	page := h.page(r, "Account", "")
+	page := h.page(r, "Preferences", "")
 	page.Notice = notice
+
+	model := view.AccountModel{
+		Page: page,
+		// Unvalidated on purpose: it arrives from the query string, and
+		// AccountModel.CurrentTab is the one place that decides what an
+		// unrecognised value means.
+		Tab: r.URL.Query().Get("tab"),
+		// A deployment federating against an external issuer holds no
+		// local credentials, so the password section is not offered at
+		// all rather than offered and refused.
+		PasswordChanges: h.cfg.PasswordChanges != nil,
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := render.Account(page).Render(r.Context(), w); err != nil {
-		h.serverError(w, r, "render account", err)
+	if err := render.Account(model).Render(r.Context(), w); err != nil {
+		h.serverError(w, r, "render preferences", err)
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
@@ -36,6 +37,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/scheduleoccurrence"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -66,6 +68,7 @@ const (
 	TypeLocalCredential       = "LocalCredential"
 	TypeMeshSigningKey        = "MeshSigningKey"
 	TypeOrganization          = "Organization"
+	TypeProject               = "Project"
 	TypeRevision              = "Revision"
 	TypeRoleBinding           = "RoleBinding"
 	TypeSavedLaunchConfig     = "SavedLaunchConfig"
@@ -73,6 +76,7 @@ const (
 	TypeScheduleOccurrence    = "ScheduleOccurrence"
 	TypeSession               = "Session"
 	TypeSurveyQuestion        = "SurveyQuestion"
+	TypeSyncRun               = "SyncRun"
 	TypeTeam                  = "Team"
 	TypeTemplate              = "Template"
 	TypeUser                  = "User"
@@ -2618,6 +2622,9 @@ type CredentialMutation struct {
 	templates              map[int]struct{}
 	removedtemplates       map[int]struct{}
 	clearedtemplates       bool
+	projects               map[int]struct{}
+	removedprojects        map[int]struct{}
+	clearedprojects        bool
 	input_sources          map[int]struct{}
 	removedinput_sources   map[int]struct{}
 	clearedinput_sources   bool
@@ -3150,6 +3157,60 @@ func (m *CredentialMutation) ResetTemplates() {
 	m.removedtemplates = nil
 }
 
+// AddProjectIDs adds the "projects" edge to the Project entity by ids.
+func (m *CredentialMutation) AddProjectIDs(ids ...int) {
+	if m.projects == nil {
+		m.projects = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.projects[ids[i]] = struct{}{}
+	}
+}
+
+// ClearProjects clears the "projects" edge to the Project entity.
+func (m *CredentialMutation) ClearProjects() {
+	m.clearedprojects = true
+}
+
+// ProjectsCleared reports if the "projects" edge to the Project entity was cleared.
+func (m *CredentialMutation) ProjectsCleared() bool {
+	return m.clearedprojects
+}
+
+// RemoveProjectIDs removes the "projects" edge to the Project entity by IDs.
+func (m *CredentialMutation) RemoveProjectIDs(ids ...int) {
+	if m.removedprojects == nil {
+		m.removedprojects = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.projects, ids[i])
+		m.removedprojects[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedProjects returns the removed IDs of the "projects" edge to the Project entity.
+func (m *CredentialMutation) RemovedProjectsIDs() (ids []int) {
+	for id := range m.removedprojects {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ProjectsIDs returns the "projects" edge IDs in the mutation.
+func (m *CredentialMutation) ProjectsIDs() (ids []int) {
+	for id := range m.projects {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetProjects resets all changes to the "projects" edge.
+func (m *CredentialMutation) ResetProjects() {
+	m.projects = nil
+	m.clearedprojects = false
+	m.removedprojects = nil
+}
+
 // AddInputSourceIDs adds the "input_sources" edge to the CredentialInputSource entity by ids.
 func (m *CredentialMutation) AddInputSourceIDs(ids ...int) {
 	if m.input_sources == nil {
@@ -3514,7 +3575,7 @@ func (m *CredentialMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *CredentialMutation) AddedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.credential_type != nil {
 		edges = append(edges, credential.EdgeCredentialType)
 	}
@@ -3523,6 +3584,9 @@ func (m *CredentialMutation) AddedEdges() []string {
 	}
 	if m.templates != nil {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.projects != nil {
+		edges = append(edges, credential.EdgeProjects)
 	}
 	if m.input_sources != nil {
 		edges = append(edges, credential.EdgeInputSources)
@@ -3551,6 +3615,12 @@ func (m *CredentialMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case credential.EdgeProjects:
+		ids := make([]ent.Value, 0, len(m.projects))
+		for id := range m.projects {
+			ids = append(ids, id)
+		}
+		return ids
 	case credential.EdgeInputSources:
 		ids := make([]ent.Value, 0, len(m.input_sources))
 		for id := range m.input_sources {
@@ -3569,9 +3639,12 @@ func (m *CredentialMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *CredentialMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.removedtemplates != nil {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.removedprojects != nil {
+		edges = append(edges, credential.EdgeProjects)
 	}
 	if m.removedinput_sources != nil {
 		edges = append(edges, credential.EdgeInputSources)
@@ -3589,6 +3662,12 @@ func (m *CredentialMutation) RemovedIDs(name string) []ent.Value {
 	case credential.EdgeTemplates:
 		ids := make([]ent.Value, 0, len(m.removedtemplates))
 		for id := range m.removedtemplates {
+			ids = append(ids, id)
+		}
+		return ids
+	case credential.EdgeProjects:
+		ids := make([]ent.Value, 0, len(m.removedprojects))
+		for id := range m.removedprojects {
 			ids = append(ids, id)
 		}
 		return ids
@@ -3610,7 +3689,7 @@ func (m *CredentialMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *CredentialMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 5)
+	edges := make([]string, 0, 6)
 	if m.clearedcredential_type {
 		edges = append(edges, credential.EdgeCredentialType)
 	}
@@ -3619,6 +3698,9 @@ func (m *CredentialMutation) ClearedEdges() []string {
 	}
 	if m.clearedtemplates {
 		edges = append(edges, credential.EdgeTemplates)
+	}
+	if m.clearedprojects {
+		edges = append(edges, credential.EdgeProjects)
 	}
 	if m.clearedinput_sources {
 		edges = append(edges, credential.EdgeInputSources)
@@ -3639,6 +3721,8 @@ func (m *CredentialMutation) EdgeCleared(name string) bool {
 		return m.clearedorganization
 	case credential.EdgeTemplates:
 		return m.clearedtemplates
+	case credential.EdgeProjects:
+		return m.clearedprojects
 	case credential.EdgeInputSources:
 		return m.clearedinput_sources
 	case credential.EdgeSourcedBy:
@@ -3673,6 +3757,9 @@ func (m *CredentialMutation) ResetEdge(name string) error {
 		return nil
 	case credential.EdgeTemplates:
 		m.ResetTemplates()
+		return nil
+	case credential.EdgeProjects:
+		m.ResetProjects()
 		return nil
 	case credential.EdgeInputSources:
 		m.ResetInputSources()
@@ -15916,6 +16003,9 @@ type OrganizationMutation struct {
 	credentials             map[int]struct{}
 	removedcredentials      map[int]struct{}
 	clearedcredentials      bool
+	projects                map[int]struct{}
+	removedprojects         map[int]struct{}
+	clearedprojects         bool
 	announcements           map[int]struct{}
 	removedannouncements    map[int]struct{}
 	clearedannouncements    bool
@@ -16988,6 +17078,60 @@ func (m *OrganizationMutation) ResetCredentials() {
 	m.removedcredentials = nil
 }
 
+// AddProjectIDs adds the "projects" edge to the Project entity by ids.
+func (m *OrganizationMutation) AddProjectIDs(ids ...int) {
+	if m.projects == nil {
+		m.projects = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.projects[ids[i]] = struct{}{}
+	}
+}
+
+// ClearProjects clears the "projects" edge to the Project entity.
+func (m *OrganizationMutation) ClearProjects() {
+	m.clearedprojects = true
+}
+
+// ProjectsCleared reports if the "projects" edge to the Project entity was cleared.
+func (m *OrganizationMutation) ProjectsCleared() bool {
+	return m.clearedprojects
+}
+
+// RemoveProjectIDs removes the "projects" edge to the Project entity by IDs.
+func (m *OrganizationMutation) RemoveProjectIDs(ids ...int) {
+	if m.removedprojects == nil {
+		m.removedprojects = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.projects, ids[i])
+		m.removedprojects[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedProjects returns the removed IDs of the "projects" edge to the Project entity.
+func (m *OrganizationMutation) RemovedProjectsIDs() (ids []int) {
+	for id := range m.removedprojects {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ProjectsIDs returns the "projects" edge IDs in the mutation.
+func (m *OrganizationMutation) ProjectsIDs() (ids []int) {
+	for id := range m.projects {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetProjects resets all changes to the "projects" edge.
+func (m *OrganizationMutation) ResetProjects() {
+	m.projects = nil
+	m.clearedprojects = false
+	m.removedprojects = nil
+}
+
 // AddAnnouncementIDs adds the "announcements" edge to the Announcement entity by ids.
 func (m *OrganizationMutation) AddAnnouncementIDs(ids ...int) {
 	if m.announcements == nil {
@@ -17490,7 +17634,7 @@ func (m *OrganizationMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *OrganizationMutation) AddedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.devices != nil {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -17511,6 +17655,9 @@ func (m *OrganizationMutation) AddedEdges() []string {
 	}
 	if m.credentials != nil {
 		edges = append(edges, organization.EdgeCredentials)
+	}
+	if m.projects != nil {
+		edges = append(edges, organization.EdgeProjects)
 	}
 	if m.announcements != nil {
 		edges = append(edges, organization.EdgeAnnouncements)
@@ -17567,6 +17714,12 @@ func (m *OrganizationMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case organization.EdgeProjects:
+		ids := make([]ent.Value, 0, len(m.projects))
+		for id := range m.projects {
+			ids = append(ids, id)
+		}
+		return ids
 	case organization.EdgeAnnouncements:
 		ids := make([]ent.Value, 0, len(m.announcements))
 		for id := range m.announcements {
@@ -17585,7 +17738,7 @@ func (m *OrganizationMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *OrganizationMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.removeddevices != nil {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -17606,6 +17759,9 @@ func (m *OrganizationMutation) RemovedEdges() []string {
 	}
 	if m.removedcredentials != nil {
 		edges = append(edges, organization.EdgeCredentials)
+	}
+	if m.removedprojects != nil {
+		edges = append(edges, organization.EdgeProjects)
 	}
 	if m.removedannouncements != nil {
 		edges = append(edges, organization.EdgeAnnouncements)
@@ -17662,6 +17818,12 @@ func (m *OrganizationMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case organization.EdgeProjects:
+		ids := make([]ent.Value, 0, len(m.removedprojects))
+		for id := range m.removedprojects {
+			ids = append(ids, id)
+		}
+		return ids
 	case organization.EdgeAnnouncements:
 		ids := make([]ent.Value, 0, len(m.removedannouncements))
 		for id := range m.removedannouncements {
@@ -17680,7 +17842,7 @@ func (m *OrganizationMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *OrganizationMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 9)
+	edges := make([]string, 0, 10)
 	if m.cleareddevices {
 		edges = append(edges, organization.EdgeDevices)
 	}
@@ -17701,6 +17863,9 @@ func (m *OrganizationMutation) ClearedEdges() []string {
 	}
 	if m.clearedcredentials {
 		edges = append(edges, organization.EdgeCredentials)
+	}
+	if m.clearedprojects {
+		edges = append(edges, organization.EdgeProjects)
 	}
 	if m.clearedannouncements {
 		edges = append(edges, organization.EdgeAnnouncements)
@@ -17729,6 +17894,8 @@ func (m *OrganizationMutation) EdgeCleared(name string) bool {
 		return m.clearedcredential_types
 	case organization.EdgeCredentials:
 		return m.clearedcredentials
+	case organization.EdgeProjects:
+		return m.clearedprojects
 	case organization.EdgeAnnouncements:
 		return m.clearedannouncements
 	case organization.EdgeContacts:
@@ -17770,6 +17937,9 @@ func (m *OrganizationMutation) ResetEdge(name string) error {
 	case organization.EdgeCredentials:
 		m.ResetCredentials()
 		return nil
+	case organization.EdgeProjects:
+		m.ResetProjects()
+		return nil
 	case organization.EdgeAnnouncements:
 		m.ResetAnnouncements()
 		return nil
@@ -17778,6 +17948,1242 @@ func (m *OrganizationMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Organization edge %s", name)
+}
+
+// ProjectMutation represents an operation that mutates the Project nodes in the graph.
+type ProjectMutation struct {
+	config
+	op                  Op
+	typ                 string
+	id                  *int
+	created_at          *time.Time
+	updated_at          *time.Time
+	name                *string
+	description         *string
+	scm_type            *project.ScmType
+	scm_url             *string
+	scm_branch          *string
+	local_path          *string
+	revision            *string
+	sync_status         *project.SyncStatus
+	sync_error          *string
+	last_synced_at      *time.Time
+	clearedFields       map[string]struct{}
+	organization        *int
+	clearedorganization bool
+	credential          *int
+	clearedcredential   bool
+	templates           map[int]struct{}
+	removedtemplates    map[int]struct{}
+	clearedtemplates    bool
+	sync_runs           map[int]struct{}
+	removedsync_runs    map[int]struct{}
+	clearedsync_runs    bool
+	done                bool
+	oldValue            func(context.Context) (*Project, error)
+	predicates          []predicate.Project
+}
+
+var _ ent.Mutation = (*ProjectMutation)(nil)
+
+// projectOption allows management of the mutation configuration using functional options.
+type projectOption func(*ProjectMutation)
+
+// newProjectMutation creates new mutation for the Project entity.
+func newProjectMutation(c config, op Op, opts ...projectOption) *ProjectMutation {
+	m := &ProjectMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeProject,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withProjectID sets the ID field of the mutation.
+func withProjectID(id int) projectOption {
+	return func(m *ProjectMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *Project
+		)
+		m.oldValue = func(ctx context.Context) (*Project, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().Project.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withProject sets the old Project of the mutation.
+func withProject(node *Project) projectOption {
+	return func(m *ProjectMutation) {
+		m.oldValue = func(context.Context) (*Project, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ProjectMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ProjectMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ProjectMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ProjectMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().Project.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ProjectMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ProjectMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ProjectMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ProjectMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ProjectMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ProjectMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetName sets the "name" field.
+func (m *ProjectMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *ProjectMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *ProjectMutation) ResetName() {
+	m.name = nil
+}
+
+// SetDescription sets the "description" field.
+func (m *ProjectMutation) SetDescription(s string) {
+	m.description = &s
+}
+
+// Description returns the value of the "description" field in the mutation.
+func (m *ProjectMutation) Description() (r string, exists bool) {
+	v := m.description
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDescription returns the old "description" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldDescription(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDescription is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDescription requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDescription: %w", err)
+	}
+	return oldValue.Description, nil
+}
+
+// ResetDescription resets all changes to the "description" field.
+func (m *ProjectMutation) ResetDescription() {
+	m.description = nil
+}
+
+// SetScmType sets the "scm_type" field.
+func (m *ProjectMutation) SetScmType(pt project.ScmType) {
+	m.scm_type = &pt
+}
+
+// ScmType returns the value of the "scm_type" field in the mutation.
+func (m *ProjectMutation) ScmType() (r project.ScmType, exists bool) {
+	v := m.scm_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScmType returns the old "scm_type" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldScmType(ctx context.Context) (v project.ScmType, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScmType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScmType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScmType: %w", err)
+	}
+	return oldValue.ScmType, nil
+}
+
+// ResetScmType resets all changes to the "scm_type" field.
+func (m *ProjectMutation) ResetScmType() {
+	m.scm_type = nil
+}
+
+// SetScmURL sets the "scm_url" field.
+func (m *ProjectMutation) SetScmURL(s string) {
+	m.scm_url = &s
+}
+
+// ScmURL returns the value of the "scm_url" field in the mutation.
+func (m *ProjectMutation) ScmURL() (r string, exists bool) {
+	v := m.scm_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScmURL returns the old "scm_url" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldScmURL(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScmURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScmURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScmURL: %w", err)
+	}
+	return oldValue.ScmURL, nil
+}
+
+// ResetScmURL resets all changes to the "scm_url" field.
+func (m *ProjectMutation) ResetScmURL() {
+	m.scm_url = nil
+}
+
+// SetScmBranch sets the "scm_branch" field.
+func (m *ProjectMutation) SetScmBranch(s string) {
+	m.scm_branch = &s
+}
+
+// ScmBranch returns the value of the "scm_branch" field in the mutation.
+func (m *ProjectMutation) ScmBranch() (r string, exists bool) {
+	v := m.scm_branch
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScmBranch returns the old "scm_branch" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldScmBranch(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScmBranch is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScmBranch requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScmBranch: %w", err)
+	}
+	return oldValue.ScmBranch, nil
+}
+
+// ResetScmBranch resets all changes to the "scm_branch" field.
+func (m *ProjectMutation) ResetScmBranch() {
+	m.scm_branch = nil
+}
+
+// SetLocalPath sets the "local_path" field.
+func (m *ProjectMutation) SetLocalPath(s string) {
+	m.local_path = &s
+}
+
+// LocalPath returns the value of the "local_path" field in the mutation.
+func (m *ProjectMutation) LocalPath() (r string, exists bool) {
+	v := m.local_path
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLocalPath returns the old "local_path" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldLocalPath(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLocalPath is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLocalPath requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLocalPath: %w", err)
+	}
+	return oldValue.LocalPath, nil
+}
+
+// ResetLocalPath resets all changes to the "local_path" field.
+func (m *ProjectMutation) ResetLocalPath() {
+	m.local_path = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *ProjectMutation) SetRevision(s string) {
+	m.revision = &s
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *ProjectMutation) Revision() (r string, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldRevision(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *ProjectMutation) ResetRevision() {
+	m.revision = nil
+}
+
+// SetSyncStatus sets the "sync_status" field.
+func (m *ProjectMutation) SetSyncStatus(ps project.SyncStatus) {
+	m.sync_status = &ps
+}
+
+// SyncStatus returns the value of the "sync_status" field in the mutation.
+func (m *ProjectMutation) SyncStatus() (r project.SyncStatus, exists bool) {
+	v := m.sync_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSyncStatus returns the old "sync_status" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldSyncStatus(ctx context.Context) (v project.SyncStatus, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSyncStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSyncStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSyncStatus: %w", err)
+	}
+	return oldValue.SyncStatus, nil
+}
+
+// ResetSyncStatus resets all changes to the "sync_status" field.
+func (m *ProjectMutation) ResetSyncStatus() {
+	m.sync_status = nil
+}
+
+// SetSyncError sets the "sync_error" field.
+func (m *ProjectMutation) SetSyncError(s string) {
+	m.sync_error = &s
+}
+
+// SyncError returns the value of the "sync_error" field in the mutation.
+func (m *ProjectMutation) SyncError() (r string, exists bool) {
+	v := m.sync_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSyncError returns the old "sync_error" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldSyncError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSyncError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSyncError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSyncError: %w", err)
+	}
+	return oldValue.SyncError, nil
+}
+
+// ResetSyncError resets all changes to the "sync_error" field.
+func (m *ProjectMutation) ResetSyncError() {
+	m.sync_error = nil
+}
+
+// SetLastSyncedAt sets the "last_synced_at" field.
+func (m *ProjectMutation) SetLastSyncedAt(t time.Time) {
+	m.last_synced_at = &t
+}
+
+// LastSyncedAt returns the value of the "last_synced_at" field in the mutation.
+func (m *ProjectMutation) LastSyncedAt() (r time.Time, exists bool) {
+	v := m.last_synced_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSyncedAt returns the old "last_synced_at" field's value of the Project entity.
+// If the Project object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProjectMutation) OldLastSyncedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSyncedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSyncedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSyncedAt: %w", err)
+	}
+	return oldValue.LastSyncedAt, nil
+}
+
+// ClearLastSyncedAt clears the value of the "last_synced_at" field.
+func (m *ProjectMutation) ClearLastSyncedAt() {
+	m.last_synced_at = nil
+	m.clearedFields[project.FieldLastSyncedAt] = struct{}{}
+}
+
+// LastSyncedAtCleared returns if the "last_synced_at" field was cleared in this mutation.
+func (m *ProjectMutation) LastSyncedAtCleared() bool {
+	_, ok := m.clearedFields[project.FieldLastSyncedAt]
+	return ok
+}
+
+// ResetLastSyncedAt resets all changes to the "last_synced_at" field.
+func (m *ProjectMutation) ResetLastSyncedAt() {
+	m.last_synced_at = nil
+	delete(m.clearedFields, project.FieldLastSyncedAt)
+}
+
+// SetOrganizationID sets the "organization" edge to the Organization entity by id.
+func (m *ProjectMutation) SetOrganizationID(id int) {
+	m.organization = &id
+}
+
+// ClearOrganization clears the "organization" edge to the Organization entity.
+func (m *ProjectMutation) ClearOrganization() {
+	m.clearedorganization = true
+}
+
+// OrganizationCleared reports if the "organization" edge to the Organization entity was cleared.
+func (m *ProjectMutation) OrganizationCleared() bool {
+	return m.clearedorganization
+}
+
+// OrganizationID returns the "organization" edge ID in the mutation.
+func (m *ProjectMutation) OrganizationID() (id int, exists bool) {
+	if m.organization != nil {
+		return *m.organization, true
+	}
+	return
+}
+
+// OrganizationIDs returns the "organization" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// OrganizationID instead. It exists only for internal usage by the builders.
+func (m *ProjectMutation) OrganizationIDs() (ids []int) {
+	if id := m.organization; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetOrganization resets all changes to the "organization" edge.
+func (m *ProjectMutation) ResetOrganization() {
+	m.organization = nil
+	m.clearedorganization = false
+}
+
+// SetCredentialID sets the "credential" edge to the Credential entity by id.
+func (m *ProjectMutation) SetCredentialID(id int) {
+	m.credential = &id
+}
+
+// ClearCredential clears the "credential" edge to the Credential entity.
+func (m *ProjectMutation) ClearCredential() {
+	m.clearedcredential = true
+}
+
+// CredentialCleared reports if the "credential" edge to the Credential entity was cleared.
+func (m *ProjectMutation) CredentialCleared() bool {
+	return m.clearedcredential
+}
+
+// CredentialID returns the "credential" edge ID in the mutation.
+func (m *ProjectMutation) CredentialID() (id int, exists bool) {
+	if m.credential != nil {
+		return *m.credential, true
+	}
+	return
+}
+
+// CredentialIDs returns the "credential" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// CredentialID instead. It exists only for internal usage by the builders.
+func (m *ProjectMutation) CredentialIDs() (ids []int) {
+	if id := m.credential; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetCredential resets all changes to the "credential" edge.
+func (m *ProjectMutation) ResetCredential() {
+	m.credential = nil
+	m.clearedcredential = false
+}
+
+// AddTemplateIDs adds the "templates" edge to the Template entity by ids.
+func (m *ProjectMutation) AddTemplateIDs(ids ...int) {
+	if m.templates == nil {
+		m.templates = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.templates[ids[i]] = struct{}{}
+	}
+}
+
+// ClearTemplates clears the "templates" edge to the Template entity.
+func (m *ProjectMutation) ClearTemplates() {
+	m.clearedtemplates = true
+}
+
+// TemplatesCleared reports if the "templates" edge to the Template entity was cleared.
+func (m *ProjectMutation) TemplatesCleared() bool {
+	return m.clearedtemplates
+}
+
+// RemoveTemplateIDs removes the "templates" edge to the Template entity by IDs.
+func (m *ProjectMutation) RemoveTemplateIDs(ids ...int) {
+	if m.removedtemplates == nil {
+		m.removedtemplates = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.templates, ids[i])
+		m.removedtemplates[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedTemplates returns the removed IDs of the "templates" edge to the Template entity.
+func (m *ProjectMutation) RemovedTemplatesIDs() (ids []int) {
+	for id := range m.removedtemplates {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// TemplatesIDs returns the "templates" edge IDs in the mutation.
+func (m *ProjectMutation) TemplatesIDs() (ids []int) {
+	for id := range m.templates {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetTemplates resets all changes to the "templates" edge.
+func (m *ProjectMutation) ResetTemplates() {
+	m.templates = nil
+	m.clearedtemplates = false
+	m.removedtemplates = nil
+}
+
+// AddSyncRunIDs adds the "sync_runs" edge to the SyncRun entity by ids.
+func (m *ProjectMutation) AddSyncRunIDs(ids ...int) {
+	if m.sync_runs == nil {
+		m.sync_runs = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.sync_runs[ids[i]] = struct{}{}
+	}
+}
+
+// ClearSyncRuns clears the "sync_runs" edge to the SyncRun entity.
+func (m *ProjectMutation) ClearSyncRuns() {
+	m.clearedsync_runs = true
+}
+
+// SyncRunsCleared reports if the "sync_runs" edge to the SyncRun entity was cleared.
+func (m *ProjectMutation) SyncRunsCleared() bool {
+	return m.clearedsync_runs
+}
+
+// RemoveSyncRunIDs removes the "sync_runs" edge to the SyncRun entity by IDs.
+func (m *ProjectMutation) RemoveSyncRunIDs(ids ...int) {
+	if m.removedsync_runs == nil {
+		m.removedsync_runs = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.sync_runs, ids[i])
+		m.removedsync_runs[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedSyncRuns returns the removed IDs of the "sync_runs" edge to the SyncRun entity.
+func (m *ProjectMutation) RemovedSyncRunsIDs() (ids []int) {
+	for id := range m.removedsync_runs {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// SyncRunsIDs returns the "sync_runs" edge IDs in the mutation.
+func (m *ProjectMutation) SyncRunsIDs() (ids []int) {
+	for id := range m.sync_runs {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetSyncRuns resets all changes to the "sync_runs" edge.
+func (m *ProjectMutation) ResetSyncRuns() {
+	m.sync_runs = nil
+	m.clearedsync_runs = false
+	m.removedsync_runs = nil
+}
+
+// Where appends a list predicates to the ProjectMutation builder.
+func (m *ProjectMutation) Where(ps ...predicate.Project) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ProjectMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ProjectMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.Project, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ProjectMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ProjectMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (Project).
+func (m *ProjectMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ProjectMutation) Fields() []string {
+	fields := make([]string, 0, 12)
+	if m.created_at != nil {
+		fields = append(fields, project.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, project.FieldUpdatedAt)
+	}
+	if m.name != nil {
+		fields = append(fields, project.FieldName)
+	}
+	if m.description != nil {
+		fields = append(fields, project.FieldDescription)
+	}
+	if m.scm_type != nil {
+		fields = append(fields, project.FieldScmType)
+	}
+	if m.scm_url != nil {
+		fields = append(fields, project.FieldScmURL)
+	}
+	if m.scm_branch != nil {
+		fields = append(fields, project.FieldScmBranch)
+	}
+	if m.local_path != nil {
+		fields = append(fields, project.FieldLocalPath)
+	}
+	if m.revision != nil {
+		fields = append(fields, project.FieldRevision)
+	}
+	if m.sync_status != nil {
+		fields = append(fields, project.FieldSyncStatus)
+	}
+	if m.sync_error != nil {
+		fields = append(fields, project.FieldSyncError)
+	}
+	if m.last_synced_at != nil {
+		fields = append(fields, project.FieldLastSyncedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ProjectMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case project.FieldCreatedAt:
+		return m.CreatedAt()
+	case project.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case project.FieldName:
+		return m.Name()
+	case project.FieldDescription:
+		return m.Description()
+	case project.FieldScmType:
+		return m.ScmType()
+	case project.FieldScmURL:
+		return m.ScmURL()
+	case project.FieldScmBranch:
+		return m.ScmBranch()
+	case project.FieldLocalPath:
+		return m.LocalPath()
+	case project.FieldRevision:
+		return m.Revision()
+	case project.FieldSyncStatus:
+		return m.SyncStatus()
+	case project.FieldSyncError:
+		return m.SyncError()
+	case project.FieldLastSyncedAt:
+		return m.LastSyncedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ProjectMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case project.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case project.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case project.FieldName:
+		return m.OldName(ctx)
+	case project.FieldDescription:
+		return m.OldDescription(ctx)
+	case project.FieldScmType:
+		return m.OldScmType(ctx)
+	case project.FieldScmURL:
+		return m.OldScmURL(ctx)
+	case project.FieldScmBranch:
+		return m.OldScmBranch(ctx)
+	case project.FieldLocalPath:
+		return m.OldLocalPath(ctx)
+	case project.FieldRevision:
+		return m.OldRevision(ctx)
+	case project.FieldSyncStatus:
+		return m.OldSyncStatus(ctx)
+	case project.FieldSyncError:
+		return m.OldSyncError(ctx)
+	case project.FieldLastSyncedAt:
+		return m.OldLastSyncedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown Project field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ProjectMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case project.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case project.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case project.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case project.FieldDescription:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDescription(v)
+		return nil
+	case project.FieldScmType:
+		v, ok := value.(project.ScmType)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScmType(v)
+		return nil
+	case project.FieldScmURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScmURL(v)
+		return nil
+	case project.FieldScmBranch:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScmBranch(v)
+		return nil
+	case project.FieldLocalPath:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLocalPath(v)
+		return nil
+	case project.FieldRevision:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	case project.FieldSyncStatus:
+		v, ok := value.(project.SyncStatus)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSyncStatus(v)
+		return nil
+	case project.FieldSyncError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSyncError(v)
+		return nil
+	case project.FieldLastSyncedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSyncedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown Project field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ProjectMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ProjectMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ProjectMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown Project numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ProjectMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(project.FieldLastSyncedAt) {
+		fields = append(fields, project.FieldLastSyncedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ProjectMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ProjectMutation) ClearField(name string) error {
+	switch name {
+	case project.FieldLastSyncedAt:
+		m.ClearLastSyncedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown Project nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ProjectMutation) ResetField(name string) error {
+	switch name {
+	case project.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case project.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case project.FieldName:
+		m.ResetName()
+		return nil
+	case project.FieldDescription:
+		m.ResetDescription()
+		return nil
+	case project.FieldScmType:
+		m.ResetScmType()
+		return nil
+	case project.FieldScmURL:
+		m.ResetScmURL()
+		return nil
+	case project.FieldScmBranch:
+		m.ResetScmBranch()
+		return nil
+	case project.FieldLocalPath:
+		m.ResetLocalPath()
+		return nil
+	case project.FieldRevision:
+		m.ResetRevision()
+		return nil
+	case project.FieldSyncStatus:
+		m.ResetSyncStatus()
+		return nil
+	case project.FieldSyncError:
+		m.ResetSyncError()
+		return nil
+	case project.FieldLastSyncedAt:
+		m.ResetLastSyncedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown Project field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ProjectMutation) AddedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.organization != nil {
+		edges = append(edges, project.EdgeOrganization)
+	}
+	if m.credential != nil {
+		edges = append(edges, project.EdgeCredential)
+	}
+	if m.templates != nil {
+		edges = append(edges, project.EdgeTemplates)
+	}
+	if m.sync_runs != nil {
+		edges = append(edges, project.EdgeSyncRuns)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ProjectMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case project.EdgeOrganization:
+		if id := m.organization; id != nil {
+			return []ent.Value{*id}
+		}
+	case project.EdgeCredential:
+		if id := m.credential; id != nil {
+			return []ent.Value{*id}
+		}
+	case project.EdgeTemplates:
+		ids := make([]ent.Value, 0, len(m.templates))
+		for id := range m.templates {
+			ids = append(ids, id)
+		}
+		return ids
+	case project.EdgeSyncRuns:
+		ids := make([]ent.Value, 0, len(m.sync_runs))
+		for id := range m.sync_runs {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ProjectMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.removedtemplates != nil {
+		edges = append(edges, project.EdgeTemplates)
+	}
+	if m.removedsync_runs != nil {
+		edges = append(edges, project.EdgeSyncRuns)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ProjectMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case project.EdgeTemplates:
+		ids := make([]ent.Value, 0, len(m.removedtemplates))
+		for id := range m.removedtemplates {
+			ids = append(ids, id)
+		}
+		return ids
+	case project.EdgeSyncRuns:
+		ids := make([]ent.Value, 0, len(m.removedsync_runs))
+		for id := range m.removedsync_runs {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ProjectMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 4)
+	if m.clearedorganization {
+		edges = append(edges, project.EdgeOrganization)
+	}
+	if m.clearedcredential {
+		edges = append(edges, project.EdgeCredential)
+	}
+	if m.clearedtemplates {
+		edges = append(edges, project.EdgeTemplates)
+	}
+	if m.clearedsync_runs {
+		edges = append(edges, project.EdgeSyncRuns)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ProjectMutation) EdgeCleared(name string) bool {
+	switch name {
+	case project.EdgeOrganization:
+		return m.clearedorganization
+	case project.EdgeCredential:
+		return m.clearedcredential
+	case project.EdgeTemplates:
+		return m.clearedtemplates
+	case project.EdgeSyncRuns:
+		return m.clearedsync_runs
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ProjectMutation) ClearEdge(name string) error {
+	switch name {
+	case project.EdgeOrganization:
+		m.ClearOrganization()
+		return nil
+	case project.EdgeCredential:
+		m.ClearCredential()
+		return nil
+	}
+	return fmt.Errorf("unknown Project unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ProjectMutation) ResetEdge(name string) error {
+	switch name {
+	case project.EdgeOrganization:
+		m.ResetOrganization()
+		return nil
+	case project.EdgeCredential:
+		m.ResetCredential()
+		return nil
+	case project.EdgeTemplates:
+		m.ResetTemplates()
+		return nil
+	case project.EdgeSyncRuns:
+		m.ResetSyncRuns()
+		return nil
+	}
+	return fmt.Errorf("unknown Project edge %s", name)
 }
 
 // RevisionMutation represents an operation that mutates the Revision nodes in the graph.
@@ -24208,6 +25614,723 @@ func (m *SurveyQuestionMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown SurveyQuestion edge %s", name)
 }
 
+// SyncRunMutation represents an operation that mutates the SyncRun nodes in the graph.
+type SyncRunMutation struct {
+	config
+	op             Op
+	typ            string
+	id             *int
+	created_at     *time.Time
+	updated_at     *time.Time
+	status         *syncrun.Status
+	revision       *string
+	error          *string
+	started_at     *time.Time
+	finished_at    *time.Time
+	clearedFields  map[string]struct{}
+	project        *int
+	clearedproject bool
+	done           bool
+	oldValue       func(context.Context) (*SyncRun, error)
+	predicates     []predicate.SyncRun
+}
+
+var _ ent.Mutation = (*SyncRunMutation)(nil)
+
+// syncrunOption allows management of the mutation configuration using functional options.
+type syncrunOption func(*SyncRunMutation)
+
+// newSyncRunMutation creates new mutation for the SyncRun entity.
+func newSyncRunMutation(c config, op Op, opts ...syncrunOption) *SyncRunMutation {
+	m := &SyncRunMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeSyncRun,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withSyncRunID sets the ID field of the mutation.
+func withSyncRunID(id int) syncrunOption {
+	return func(m *SyncRunMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *SyncRun
+		)
+		m.oldValue = func(ctx context.Context) (*SyncRun, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().SyncRun.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withSyncRun sets the old SyncRun of the mutation.
+func withSyncRun(node *SyncRun) syncrunOption {
+	return func(m *SyncRunMutation) {
+		m.oldValue = func(context.Context) (*SyncRun, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m SyncRunMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m SyncRunMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *SyncRunMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *SyncRunMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().SyncRun.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *SyncRunMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *SyncRunMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *SyncRunMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *SyncRunMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *SyncRunMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *SyncRunMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *SyncRunMutation) SetStatus(s syncrun.Status) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *SyncRunMutation) Status() (r syncrun.Status, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldStatus(ctx context.Context) (v syncrun.Status, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *SyncRunMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *SyncRunMutation) SetRevision(s string) {
+	m.revision = &s
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *SyncRunMutation) Revision() (r string, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldRevision(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *SyncRunMutation) ResetRevision() {
+	m.revision = nil
+}
+
+// SetError sets the "error" field.
+func (m *SyncRunMutation) SetError(s string) {
+	m.error = &s
+}
+
+// Error returns the value of the "error" field in the mutation.
+func (m *SyncRunMutation) Error() (r string, exists bool) {
+	v := m.error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldError returns the old "error" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldError: %w", err)
+	}
+	return oldValue.Error, nil
+}
+
+// ResetError resets all changes to the "error" field.
+func (m *SyncRunMutation) ResetError() {
+	m.error = nil
+}
+
+// SetStartedAt sets the "started_at" field.
+func (m *SyncRunMutation) SetStartedAt(t time.Time) {
+	m.started_at = &t
+}
+
+// StartedAt returns the value of the "started_at" field in the mutation.
+func (m *SyncRunMutation) StartedAt() (r time.Time, exists bool) {
+	v := m.started_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStartedAt returns the old "started_at" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldStartedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStartedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStartedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStartedAt: %w", err)
+	}
+	return oldValue.StartedAt, nil
+}
+
+// ResetStartedAt resets all changes to the "started_at" field.
+func (m *SyncRunMutation) ResetStartedAt() {
+	m.started_at = nil
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (m *SyncRunMutation) SetFinishedAt(t time.Time) {
+	m.finished_at = &t
+}
+
+// FinishedAt returns the value of the "finished_at" field in the mutation.
+func (m *SyncRunMutation) FinishedAt() (r time.Time, exists bool) {
+	v := m.finished_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinishedAt returns the old "finished_at" field's value of the SyncRun entity.
+// If the SyncRun object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SyncRunMutation) OldFinishedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinishedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinishedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinishedAt: %w", err)
+	}
+	return oldValue.FinishedAt, nil
+}
+
+// ResetFinishedAt resets all changes to the "finished_at" field.
+func (m *SyncRunMutation) ResetFinishedAt() {
+	m.finished_at = nil
+}
+
+// SetProjectID sets the "project" edge to the Project entity by id.
+func (m *SyncRunMutation) SetProjectID(id int) {
+	m.project = &id
+}
+
+// ClearProject clears the "project" edge to the Project entity.
+func (m *SyncRunMutation) ClearProject() {
+	m.clearedproject = true
+}
+
+// ProjectCleared reports if the "project" edge to the Project entity was cleared.
+func (m *SyncRunMutation) ProjectCleared() bool {
+	return m.clearedproject
+}
+
+// ProjectID returns the "project" edge ID in the mutation.
+func (m *SyncRunMutation) ProjectID() (id int, exists bool) {
+	if m.project != nil {
+		return *m.project, true
+	}
+	return
+}
+
+// ProjectIDs returns the "project" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProjectID instead. It exists only for internal usage by the builders.
+func (m *SyncRunMutation) ProjectIDs() (ids []int) {
+	if id := m.project; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProject resets all changes to the "project" edge.
+func (m *SyncRunMutation) ResetProject() {
+	m.project = nil
+	m.clearedproject = false
+}
+
+// Where appends a list predicates to the SyncRunMutation builder.
+func (m *SyncRunMutation) Where(ps ...predicate.SyncRun) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the SyncRunMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *SyncRunMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.SyncRun, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *SyncRunMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *SyncRunMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (SyncRun).
+func (m *SyncRunMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *SyncRunMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.created_at != nil {
+		fields = append(fields, syncrun.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, syncrun.FieldUpdatedAt)
+	}
+	if m.status != nil {
+		fields = append(fields, syncrun.FieldStatus)
+	}
+	if m.revision != nil {
+		fields = append(fields, syncrun.FieldRevision)
+	}
+	if m.error != nil {
+		fields = append(fields, syncrun.FieldError)
+	}
+	if m.started_at != nil {
+		fields = append(fields, syncrun.FieldStartedAt)
+	}
+	if m.finished_at != nil {
+		fields = append(fields, syncrun.FieldFinishedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *SyncRunMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case syncrun.FieldCreatedAt:
+		return m.CreatedAt()
+	case syncrun.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case syncrun.FieldStatus:
+		return m.Status()
+	case syncrun.FieldRevision:
+		return m.Revision()
+	case syncrun.FieldError:
+		return m.Error()
+	case syncrun.FieldStartedAt:
+		return m.StartedAt()
+	case syncrun.FieldFinishedAt:
+		return m.FinishedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *SyncRunMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case syncrun.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case syncrun.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case syncrun.FieldStatus:
+		return m.OldStatus(ctx)
+	case syncrun.FieldRevision:
+		return m.OldRevision(ctx)
+	case syncrun.FieldError:
+		return m.OldError(ctx)
+	case syncrun.FieldStartedAt:
+		return m.OldStartedAt(ctx)
+	case syncrun.FieldFinishedAt:
+		return m.OldFinishedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown SyncRun field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SyncRunMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case syncrun.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case syncrun.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case syncrun.FieldStatus:
+		v, ok := value.(syncrun.Status)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case syncrun.FieldRevision:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	case syncrun.FieldError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetError(v)
+		return nil
+	case syncrun.FieldStartedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStartedAt(v)
+		return nil
+	case syncrun.FieldFinishedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinishedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown SyncRun field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *SyncRunMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *SyncRunMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SyncRunMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown SyncRun numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *SyncRunMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *SyncRunMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *SyncRunMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown SyncRun nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *SyncRunMutation) ResetField(name string) error {
+	switch name {
+	case syncrun.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case syncrun.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case syncrun.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case syncrun.FieldRevision:
+		m.ResetRevision()
+		return nil
+	case syncrun.FieldError:
+		m.ResetError()
+		return nil
+	case syncrun.FieldStartedAt:
+		m.ResetStartedAt()
+		return nil
+	case syncrun.FieldFinishedAt:
+		m.ResetFinishedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown SyncRun field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *SyncRunMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.project != nil {
+		edges = append(edges, syncrun.EdgeProject)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *SyncRunMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case syncrun.EdgeProject:
+		if id := m.project; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *SyncRunMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *SyncRunMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *SyncRunMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedproject {
+		edges = append(edges, syncrun.EdgeProject)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *SyncRunMutation) EdgeCleared(name string) bool {
+	switch name {
+	case syncrun.EdgeProject:
+		return m.clearedproject
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *SyncRunMutation) ClearEdge(name string) error {
+	switch name {
+	case syncrun.EdgeProject:
+		m.ClearProject()
+		return nil
+	}
+	return fmt.Errorf("unknown SyncRun unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *SyncRunMutation) ResetEdge(name string) error {
+	switch name {
+	case syncrun.EdgeProject:
+		m.ResetProject()
+		return nil
+	}
+	return fmt.Errorf("unknown SyncRun edge %s", name)
+}
+
 // TeamMutation represents an operation that mutates the Team nodes in the graph.
 type TeamMutation struct {
 	config
@@ -25202,6 +27325,8 @@ type TemplateMutation struct {
 	survey_enabled          *bool
 	allow_simultaneous      *bool
 	clearedFields           map[string]struct{}
+	project                 *int
+	clearedproject          bool
 	organization            *int
 	clearedorganization     bool
 	inventory               *int
@@ -25799,6 +27924,45 @@ func (m *TemplateMutation) OldAllowSimultaneous(ctx context.Context) (v bool, er
 // ResetAllowSimultaneous resets all changes to the "allow_simultaneous" field.
 func (m *TemplateMutation) ResetAllowSimultaneous() {
 	m.allow_simultaneous = nil
+}
+
+// SetProjectID sets the "project" edge to the Project entity by id.
+func (m *TemplateMutation) SetProjectID(id int) {
+	m.project = &id
+}
+
+// ClearProject clears the "project" edge to the Project entity.
+func (m *TemplateMutation) ClearProject() {
+	m.clearedproject = true
+}
+
+// ProjectCleared reports if the "project" edge to the Project entity was cleared.
+func (m *TemplateMutation) ProjectCleared() bool {
+	return m.clearedproject
+}
+
+// ProjectID returns the "project" edge ID in the mutation.
+func (m *TemplateMutation) ProjectID() (id int, exists bool) {
+	if m.project != nil {
+		return *m.project, true
+	}
+	return
+}
+
+// ProjectIDs returns the "project" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ProjectID instead. It exists only for internal usage by the builders.
+func (m *TemplateMutation) ProjectIDs() (ids []int) {
+	if id := m.project; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetProject resets all changes to the "project" edge.
+func (m *TemplateMutation) ResetProject() {
+	m.project = nil
+	m.clearedproject = false
 }
 
 // SetOrganizationID sets the "organization" edge to the Organization entity by id.
@@ -26425,7 +28589,10 @@ func (m *TemplateMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *TemplateMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
+	if m.project != nil {
+		edges = append(edges, template.EdgeProject)
+	}
 	if m.organization != nil {
 		edges = append(edges, template.EdgeOrganization)
 	}
@@ -26451,6 +28618,10 @@ func (m *TemplateMutation) AddedEdges() []string {
 // name in this mutation.
 func (m *TemplateMutation) AddedIDs(name string) []ent.Value {
 	switch name {
+	case template.EdgeProject:
+		if id := m.project; id != nil {
+			return []ent.Value{*id}
+		}
 	case template.EdgeOrganization:
 		if id := m.organization; id != nil {
 			return []ent.Value{*id}
@@ -26489,7 +28660,7 @@ func (m *TemplateMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *TemplateMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.removedsurvey_questions != nil {
 		edges = append(edges, template.EdgeSurveyQuestions)
 	}
@@ -26539,7 +28710,10 @@ func (m *TemplateMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *TemplateMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
+	if m.clearedproject {
+		edges = append(edges, template.EdgeProject)
+	}
 	if m.clearedorganization {
 		edges = append(edges, template.EdgeOrganization)
 	}
@@ -26565,6 +28739,8 @@ func (m *TemplateMutation) ClearedEdges() []string {
 // was cleared in this mutation.
 func (m *TemplateMutation) EdgeCleared(name string) bool {
 	switch name {
+	case template.EdgeProject:
+		return m.clearedproject
 	case template.EdgeOrganization:
 		return m.clearedorganization
 	case template.EdgeInventory:
@@ -26585,6 +28761,9 @@ func (m *TemplateMutation) EdgeCleared(name string) bool {
 // if that edge is not defined in the schema.
 func (m *TemplateMutation) ClearEdge(name string) error {
 	switch name {
+	case template.EdgeProject:
+		m.ClearProject()
+		return nil
 	case template.EdgeOrganization:
 		m.ClearOrganization()
 		return nil
@@ -26599,6 +28778,9 @@ func (m *TemplateMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *TemplateMutation) ResetEdge(name string) error {
 	switch name {
+	case template.EdgeProject:
+		m.ResetProject()
+		return nil
 	case template.EdgeOrganization:
 		m.ResetOrganization()
 		return nil

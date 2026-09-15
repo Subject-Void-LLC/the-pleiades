@@ -170,6 +170,13 @@ type SummaryError struct {
 var reservedFormKeys = map[string]bool{
 	"_csrf":   true,
 	"_method": true,
+	// Where an appearance control puts the reader back. It rides on the
+	// preference forms rather than on a resource form, but the edit-form
+	// conformance suite resubmits every control rendered on a page, so any
+	// key the chrome emits has to be declared here or it reads as
+	// over-posting. The underscore is the convention that says "the form
+	// machinery owns this, it is not a field".
+	"_return": true,
 }
 
 // Values is a submitted form, narrowed to the fields a descriptor actually
@@ -259,6 +266,25 @@ func (v Values) Bool(name string) bool {
 // storage, so a Bind that skips an absent immutable field is not leaving
 // it unset: it is declining to overwrite what only storage knows.
 func (v Values) Editing() bool { return v.editing }
+
+// Fields returns the fields this submission was narrowed against, in
+// declaration order where the caller preserved one and otherwise in map
+// order.
+//
+// It exists for a binder whose field set is not knowable from its own
+// package. Credentials is the case: its controls come from the credential
+// type's input schema, so its Bind cannot walk a static list to find out
+// what was submitted, and walking the raw submission instead would read
+// keys that were never declared -- exactly the narrowing this type exists
+// to perform. Ranging over the declared set keeps the guarantee intact:
+// what comes back is what a Field permitted, never what a request carried.
+func (v Values) Fields() []Field {
+	out := make([]Field, 0, len(v.declared))
+	for _, f := range v.declared {
+		out = append(out, f)
+	}
+	return out
+}
 
 // Int returns a declared KindNumber field's value, and zero for a field
 // left empty.

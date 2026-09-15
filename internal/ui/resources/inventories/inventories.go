@@ -20,6 +20,9 @@ package inventories
 
 import (
 	"context"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/access"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/resources/grants"
 	"strconv"
 	"strings"
 
@@ -75,12 +78,19 @@ func fields(sets inventory.SetStore) []view.Field {
 			},
 		},
 		{
-			Name: "groups", Label: "GROUPS", Kind: view.KindReadOnly, InList: true,
-			Help: "How many device groups this inventory contains.",
+			// One name doing two jobs, which the two halves of the projector
+			// keep apart: the list cell is a COUNT, because a column of
+			// primary keys is unreadable where the number is what is being
+			// scanned for, and the form value is the SELECTION. Row and Form
+			// are separate functions, so neither has to compromise.
+			Name: "groups", Label: "GROUPS", Kind: view.KindLookup, InList: true, InForm: true,
+			Help:    "The device groups this inventory contains. Replacing this list replaces the membership.",
+			Options: groupOptions(sets),
 		},
 		{
-			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindReadOnly, InList: true,
-			Help: "Devices attached with no intervening group. Devices reached through a group are not counted here.",
+			Name: "devices", Label: "DIRECT DEVICES", Kind: view.KindLookup, InList: true, InForm: true,
+			Help:    "Devices attached with no intervening group. Devices reached through a group are not listed here, and removing one here does not remove it from a group.",
+			Options: deviceOptions(sets),
 		},
 		{
 			Name: "owner", Label: "CREATED BY", Kind: view.KindReadOnly,
@@ -164,8 +174,12 @@ func (w writer) Update(ctx context.Context, id string, set inventory.Set) error 
 	}
 	set.ID = numeric
 	set.OrganizationID = existing.OrganizationID
-	set.GroupIDs = existing.GroupIDs
-	set.DeviceIDs = existing.DeviceIDs
+	// Membership is NOT read back from storage any more. It used to be,
+	// which meant an inventory could be created and then never filled: the
+	// form carried no control for either list, so copying the stored value
+	// was the only way an edit could avoid clearing them. Both are real
+	// controls now, so the submission is the authority and a deselection
+	// has to be able to mean what it says.
 	return w.sets.Update(ctx, set)
 }
 
@@ -178,7 +192,7 @@ func (w writer) Delete(ctx context.Context, id string) error {
 }
 
 // Register wires this view over the live set store.
-func Register(sets inventory.SetStore) error {
+func Register(sets inventory.SetStore, bindings access.Bindings) error {
 	declared := fields(sets)
 
 	projector := view.Projector[inventory.Set]{
@@ -202,6 +216,10 @@ func Register(sets inventory.SetStore) error {
 				"name":         set.Name,
 				"description":  set.Description,
 				"organization": strconv.Itoa(set.OrganizationID),
+				// Comma separated, which is what FormModel.IsSelected splits
+				// to decide which options render selected.
+				"groups":  joinIDs(set.GroupIDs),
+				"devices": joinIDs(set.DeviceIDs),
 			}
 		},
 		Bind: func(v view.Values) (inventory.Set, view.FieldErrors) {
@@ -230,6 +248,8 @@ func Register(sets inventory.SetStore) error {
 				Name:           v.Get("name"),
 				Description:    v.Get("description"),
 				OrganizationID: org,
+				GroupIDs:       parseIDs(v.Selected("groups")),
+				DeviceIDs:      parseIDs(v.Selected("devices")),
 			}, errs
 		},
 	}
@@ -245,7 +265,33 @@ func Register(sets inventory.SetStore) error {
 		Summary:  "Named sets of devices a runbook can be dispatched against.",
 		Status:   view.StatusImplemented,
 		IDField:  "name",
-		Fields:   declared,
+		// AWX's inventory tabs. Access is real: an inventory is a grant
+		// target in auth.ScopeType, its record id is the numeric set id the
+		// bindings key on, and nothing was rendering it. The rest name what
+		// this platform does not have yet rather than leaving the shape to
+		// whoever eventually builds it.
+		Sections: []view.Section{
+			grants.SectionForScope(bindings, auth.ScopeInventory, "inventory"),
+			membersSection(sets),
+			view.Planned("Sources",
+				"Where this inventory's membership is synced from.",
+				"Sync plugins implement a four-stage contract and run out of band; nothing records which source last populated a set.",
+				[]view.Field{
+					{Name: "plugin", Label: "PLUGIN", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "last_sync", Label: "LAST SYNC", Kind: view.KindTimestamp, InList: true},
+					{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Jobs",
+				"What has run against this inventory, newest first.",
+				"A job records the template it came from rather than the inventory that template named, so jobs cannot be listed by inventory yet.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "created", Label: "WHEN", Kind: view.KindText, InList: true},
+				}),
+		},
+		Fields: declared,
 		Ops: view.Ops{
 			List:   &apispec.ListInventories,
 			Get:    &apispec.GetInventory,

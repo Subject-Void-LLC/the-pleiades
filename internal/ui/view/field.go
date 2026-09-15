@@ -300,6 +300,28 @@ func (f Field) WritableOn(editing bool) bool {
 	return f.Writable()
 }
 
+// BadgeClassFor resolves a badge field's CSS class for one value, refusing
+// anything outside the validated set.
+//
+// The one implementation. A caller-controlled string reaching a class
+// attribute is exactly what the content security policy exists to make
+// impossible, so an unrecognised value degrades to the neutral badge rather
+// than being interpolated. This lived separately on ListModel and on
+// LoadedSection, identical in both, which meant the rule that keeps a class
+// attribute safe had two places to be forgotten in. A record's status badge
+// is now a third caller, and a fourth copy is not a thing anyone should
+// write.
+func BadgeClassFor(f Field, value string) string {
+	if f.BadgeClass == nil {
+		return "badge-neutral"
+	}
+	class := f.BadgeClass(value)
+	if !ValidBadgeClasses[class] {
+		return "badge-neutral"
+	}
+	return class
+}
+
 // ValidBadgeClasses is the closed set of CSS class names a BadgeClass
 // function may return. A name outside it is a programming error caught by
 // the conformance suite rather than a silently unstyled badge.

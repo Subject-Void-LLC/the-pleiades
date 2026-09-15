@@ -34,6 +34,8 @@ const (
 	EdgeOrganization = "organization"
 	// EdgeTemplates holds the string denoting the templates edge name in mutations.
 	EdgeTemplates = "templates"
+	// EdgeProjects holds the string denoting the projects edge name in mutations.
+	EdgeProjects = "projects"
 	// EdgeInputSources holds the string denoting the input_sources edge name in mutations.
 	EdgeInputSources = "input_sources"
 	// EdgeSourcedBy holds the string denoting the sourced_by edge name in mutations.
@@ -59,6 +61,13 @@ const (
 	// TemplatesInverseTable is the table name for the Template entity.
 	// It exists in this package in order to avoid circular dependency with the "template" package.
 	TemplatesInverseTable = "templates"
+	// ProjectsTable is the table that holds the projects relation/edge.
+	ProjectsTable = "projects"
+	// ProjectsInverseTable is the table name for the Project entity.
+	// It exists in this package in order to avoid circular dependency with the "project" package.
+	ProjectsInverseTable = "projects"
+	// ProjectsColumn is the table column denoting the projects relation/edge.
+	ProjectsColumn = "credential_projects"
 	// InputSourcesTable is the table that holds the input_sources relation/edge.
 	InputSourcesTable = "credential_input_sources"
 	// InputSourcesInverseTable is the table name for the CredentialInputSource entity.
@@ -189,6 +198,20 @@ func ByTemplates(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByProjectsCount orders the results by projects count.
+func ByProjectsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newProjectsStep(), opts...)
+	}
+}
+
+// ByProjects orders the results by projects terms.
+func ByProjects(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProjectsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByInputSourcesCount orders the results by input_sources count.
 func ByInputSourcesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -235,6 +258,13 @@ func newTemplatesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TemplatesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, TemplatesTable, TemplatesPrimaryKey...),
+	)
+}
+func newProjectsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProjectsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ProjectsTable, ProjectsColumn),
 	)
 }
 func newInputSourcesStep() *sqlgraph.Step {

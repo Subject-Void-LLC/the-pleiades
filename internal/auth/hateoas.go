@@ -86,6 +86,39 @@ const (
 	// of the two. A client reading "update" and inferring it may do both
 	// would be inferring wrongly.
 	RelCredentials LinkRel = "credentials"
+
+	// RelSetInputs is the affordance that replaces a credential type's
+	// input schema.
+	//
+	// Its own relation rather than RelUpdate, for the reason RelCredentials
+	// gives: a relation is unique per resource, and a credential type
+	// already uses "update" for its metadata edit. A second affordance
+	// sharing that relation would give one resource two candidates a client
+	// cannot tell apart, and two controls the UI cannot label separately.
+	// It carries the same credential:write scope the metadata edit does; the
+	// separation is about identifying the affordance, not about a different
+	// privilege.
+	RelSetInputs LinkRel = "set-inputs"
+
+	// RelCancel is the affordance that stops work already in flight.
+	//
+	// Its own relation rather than RelExecute or RelDelete, and the contrast
+	// with each is the reason. Execute STARTS the work this cancels, so a
+	// resource offering both under one relation would give a client no way
+	// to tell "run it" from "stop it", which are opposites. Delete retires
+	// the resource; this leaves the resource exactly where it was and ends
+	// only the attempt, so a client reading "delete" and inferring the
+	// record was gone would be inferring wrongly.
+	RelCancel LinkRel = "cancel"
+
+	// RelSetInjectors is the affordance that replaces a credential type's
+	// injector document, distinct from RelSetInputs and RelUpdate for the
+	// same reason each of those is its own: one relation, one endpoint, one
+	// control per resource. It is the highest-consequence write a credential
+	// type has, since an injector decides what a customer's run executes
+	// with, and it still carries credential:write; the store is what refuses
+	// a dangerous injector, not the relation.
+	RelSetInjectors LinkRel = "set-injectors"
 )
 
 // Affordance is one candidate action, described purely in authorization

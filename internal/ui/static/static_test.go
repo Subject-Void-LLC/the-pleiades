@@ -343,7 +343,7 @@ func TestNavigationGroupHeadings_FitTheSidebar(t *testing.T) {
 // The CSP carries no 'unsafe-inline', so the client-side files must not
 // depend on being inlined, and nothing may block paste.
 func TestScripts_HonourTheContentSecurityPolicy(t *testing.T) {
-	for _, name := range []string{"app.js", "chart.js"} {
+	for _, name := range []string{"app.js", "chart.js", "stream.js"} {
 		body, err := static.Read(name)
 		if err != nil {
 			t.Fatalf("reading %s: %v", name, err)
@@ -402,4 +402,54 @@ func TestEmbeddedAssetsAreTrackedByGit(t *testing.T) {
 			t.Errorf("embedded asset %q is not tracked by git", name)
 		}
 	}
+}
+
+// TestStreamLineKindsHaveAColour is the gate on the one place this UI's
+// client and its stylesheet have to agree.
+//
+// stream.js maps a published status onto a class suffix and app.css colours
+// that class. Neither file can see the other, and a status added to one
+// without the other fails silently: the line renders carrying a class
+// nothing styles, which looks exactly like a line that was never
+// classified. The symptom is invisible precisely on the statuses that
+// matter, because a failure with no left edge reads as ordinary output.
+func TestStreamLineKindsHaveAColour(t *testing.T) {
+	js, err := static.Read("stream.js")
+	if err != nil {
+		t.Fatalf("reading stream.js: %v", err)
+	}
+	css, err := static.Read("app.css")
+	if err != nil {
+		t.Fatalf("reading app.css: %v", err)
+	}
+
+	kinds := streamLineKinds(string(js))
+	if len(kinds) == 0 {
+		t.Fatal("no LINE_KINDS table found in stream.js, so this test has lost its subject and would pass for the wrong reason")
+	}
+
+	for _, kind := range kinds {
+		rule := regexp.MustCompile(`\.stream-line-` + regexp.QuoteMeta(kind) + `\b`)
+		if !rule.Match(css) {
+			t.Errorf("stream.js classifies a line as %q but app.css declares no .stream-line-%s rule", kind, kind)
+		}
+	}
+}
+
+// streamLineKinds returns the distinct class suffixes stream.js maps a
+// published status onto.
+func streamLineKinds(src string) []string {
+	block := regexp.MustCompile(`(?s)var LINE_KINDS = \{(.*?)\n  \};`).FindStringSubmatch(src)
+	if block == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range regexp.MustCompile(`:\s*"([a-z.]+)"`).FindAllStringSubmatch(block[1], -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			out = append(out, m[1])
+		}
+	}
+	return out
 }

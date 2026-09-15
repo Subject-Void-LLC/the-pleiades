@@ -3996,3 +3996,162 @@ every completed level in the journal file, exactly as the design says; the
 documented `jq` recipe works verbatim; and five sentinel values planted through
 four separate routes reached the device and reached `--verbose`, and reached
 neither journal.
+
+## 175. A declared skeleton that says only "not implemented" cannot be reviewed
+
+The seven `StatusDeclared` views each rendered one sentence: the view is registered, no
+port serves it. That is honest, and it is the smallest useful thing that could have been
+said. A reader evaluating whether Projects is the right shape, or whether Instance Groups
+should carry Instances and Jobs, got nothing to react to. The shape was therefore going to
+be decided by whoever eventually wrote the port, at the point where changing it costs the
+most.
+
+Everything needed to say more was already in the declaration. `Register` validates a
+declared view's fields exactly as it does an implemented one's, so the columns were real,
+checked, and rendered nowhere. The change was to render them: a declared region now shows
+the column headers it is going to have with the not-implemented panel sitting inside them,
+and a declared view lists the tabs a record of it will carry. `view.Planned` builds a
+section that has a full field list and no port, and the seven views now declare the tab
+sets their AWX counterparts carry.
+
+The empty text carries the other half. "Not implemented" is not actionable; "a schedule
+attaches to a template, which is the only Launchable kind there is, and a project sync is
+not one yet" tells a reader exactly which decision is blocking it and lets them disagree
+with it. Every planned section names the specific thing that is missing, and several of
+those sentences are the clearest statement of a platform gap anywhere in the codebase.
+
+**Rule.** Declare the whole shape, not the absence. A skeleton that renders its future
+columns, its future tabs and the specific reason each is empty is a design somebody can
+argue with before it is built; one that renders an apology is a decision deferred to
+whoever writes the port.
+
+## 176. Two nearly identical templates diverge toward the copy with fewer readers
+
+The collection table and the related-record section table were two blocks of markup with
+the same header loop, the same `data-label` attributes, the same badge handling and the
+same mobile-card treatment. Nearly identical, not identical: the collection copy built
+links for fields declaring `References` and the section copy did not.
+
+The consequence was invisible for as long as it existed. A job's device outcome named a
+device and could not reach it. A template's Access row named a team and could not reach
+it. The detail list had the same gap in a third copy, so a record's own fields named its
+inventory and its organization in plain text. The drill-down stopped at whichever record
+you opened first, and nobody noticed, because the two copies were never read side by side
+and each looked complete on its own.
+
+Collapsing them into one `TableModel` and one `dataTable` component fixed all three at
+once and made the fix impossible to half-apply: the section table gained reference links
+the moment it stopped being a second implementation.
+
+**Rule.** When two templates are nearly the same, the difference is a defect in the one
+with fewer readers, not a variation. Unify them and let the shared component carry every
+capability, rather than maintaining two careful copies that will drift again in the same
+direction next time.
+
+## 177. A redirect that keeps only the path is a bug waiting for state to move into the query
+
+`safeReturn` parsed the `Referer`, discarded scheme, host, userinfo and fragment, cleaned
+the path and required it to sit inside the UI prefix. Discarding rather than validating is
+the right posture for an open-redirect defence and the test suite proves it against
+seventeen techniques. It also discarded the query string, which was invisible and correct
+for as long as every page's state lived in its path.
+
+Adding record tabs and list cursors moved state into the query, and the same helper
+silently became a bug. Changing the theme from page four of a list returned the reader to
+page one. Toggling accessibility mode on a record's Access tab returned them to its first
+tab. The helper had not changed and nothing failed; the meaning of "the path" had changed
+underneath it.
+
+The fix keeps the discard-don't-validate posture and adds an allowlist of the four
+parameters this UI's own handlers read, which is the rule `refreshURL` in the same package
+had already written down: a URL this application builds is built from what it parsed, never
+from what it was sent.
+
+**Rule.** A helper that reduces a URL to part of itself encodes an assumption about where
+state lives. When state moves -- into a query, a fragment, a header -- every such helper is
+a silent bug until re-read. Grep for the reducers when you move state, because none of them
+will fail.
+
+## 178. A control for someone who cannot use the page must not require using the page
+
+Accessibility mode was reachable from the sidebar on every page, and its route sat behind
+`requireSession` with every other write. That is the correct default for a write, and it
+was the wrong answer here: the control renders on the sign-in page, where it posts to a
+route that refuses it.
+
+The failure is worse than a broken button. Accessibility mode exists for somebody who
+cannot comfortably read what is in front of them, and the sign-in page is a page. Gating it
+behind having already signed in asks that person to read and operate the form they cannot
+read in order to reach the control that would fix it. The control was present, visible, and
+useless to exactly the person it was built for.
+
+Skin, theme and accessibility mode set a cookie holding a rendering choice and touch
+nothing else, which is what makes them the only writes here that need no identity. They now
+sit in their own route group with a CSRF middleware that takes the session-bound token when
+there is a session and the sign-in page's double-submit pair when there is not, and on a
+signed-out page the toggle is the first focusable element on the document, ahead of the
+skip link.
+
+**Rule.** Ask who a control exists for, then check they can reach it in the state they will
+be in when they need it. An accessibility affordance, an error recovery path and a
+break-glass control all share this shape: the person who needs it is by definition not in
+the ordinary state, so gating it on the ordinary state is gating it on not needing it.
+
+## 179. Two surfaces called Settings is one surface nobody can find
+
+The account page was labelled "Settings" in the sidebar and titled "Settings" on
+the page. That was fine while it was the only settings surface. It stopped being
+fine the moment the deployment's own configuration needed one, because AWX calls
+that admin area Settings and it is the word its audience arrives with.
+
+The collision is not cosmetic. The two pages have nothing in common beyond the
+word: one is a caller's own appearance and password, protected structurally
+because it carries no identifier and the session IS the subject; the other is how
+everyone authenticates, what every run inherits and how long audit records
+survive, protected by a scope because it is about everyone. Somebody sent to
+"Settings" to configure LDAP and landed on their own theme picker would conclude
+the feature was missing.
+
+The caller's own page is Preferences now, and the deployment's is Settings. The
+rename cost four files and happened before the second page existed, which is the
+only cheap moment it was ever going to have.
+
+**Rule.** Two surfaces cannot share a name, and the one to rename is the one
+whose name is less load-bearing to the audience. When a word is what a user
+arrives searching for, it belongs to the thing they are searching for, and
+whatever already holds it needs a more specific one.
+
+## 180. A permission test that an admin passes is a test of nothing
+
+The first version of the settings authorization test drove the page with the
+conformance suite's admin identity and asserted a 404, reasoning that admin holds
+access:write and deliberately not settings:read, so a caller who administers role
+bindings must not thereby reach the page that points authentication at a
+directory. The reasoning was right and the test was useless:
+auth.Identity.HasScope lets RoleAdmin bypass every scope check unconditionally,
+so the admin got a 200 and the test failed for a reason that had nothing to do
+with the gate.
+
+The positive half was worse, and failed silently. It drove the page with an
+identity that held settings:read AND RoleAdmin and asserted a 200. That would
+have passed with the gate deleted, with the scope constant deleted, with the
+handler's check commented out. A green assertion proving nothing is worse than
+no assertion, because it is counted.
+
+Both were fixed by choosing identities that isolate the mechanism: a RoleViewer
+holding fleet read scopes and not settings:read for the refusal, and a
+RoleOperator holding settings:read for the admission. Neither can pass by
+accident.
+
+This also surfaced something worth knowing rather than only fixing: **role admin
+is settings access today, with no separate grant.** That is the platform's
+existing rule and not this surface's, but it deserves stating on a page that
+names an LDAP bind account and the base URL every identity-provider callback is
+built from.
+
+**Rule.** When testing an authorization gate, pick an identity that can only pass
+through the mechanism under test. A role that bypasses scope checks, a wildcard
+scope or a superuser makes both halves of the assertion vacuous, and the positive
+half fails silently: it will pass with the thing it is testing removed. Write the
+negative case with the weakest identity that should be refused and the positive
+case with the weakest identity that should be admitted.

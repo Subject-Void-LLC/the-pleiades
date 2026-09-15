@@ -251,6 +251,7 @@ type store interface {
 	access.Organizations
 	access.Bindings
 	access.Contacts
+	access.Teams
 }
 
 // Register wires the Organizations view over the access store.
@@ -286,8 +287,24 @@ func Register(store store) error {
 		// a reader who has just pressed Attest should land beside what they
 		// confirmed rather than scroll past a grants table to find it.
 		Sections: []view.Section{
+			teamsSection(store),
 			grants.SectionForScope(store, auth.ScopeOrganization, "organization"),
 			contacts.SectionForOrganization(store),
+			view.Planned("Execution environments",
+				"The container images this organization's jobs may run inside.",
+				"Execution environments have no backing entity in this build, so none can be scoped to an organization.",
+				[]view.Field{
+					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "execution-environments"},
+					{Name: "image", Label: "IMAGE", Kind: view.KindText, InList: true},
+					{Name: "pull", Label: "PULL", Kind: view.KindBadge, InList: true},
+				}),
+			view.Planned("Notifications",
+				"Who is told when work in this organization starts, succeeds or fails.",
+				"Notification policies have no backing entity in this build. The Notification Engine owns them and nothing here has a port to it.",
+				[]view.Field{
+					{Name: "target", Label: "TARGET", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "on", Label: "ON", Kind: view.KindText, InList: true},
+				}),
 		},
 		Handlers: view.MustBind[access.Organization](reader{store}, writer{store}, view.Projector[access.Organization]{
 			Row: func(org access.Organization) view.Row {

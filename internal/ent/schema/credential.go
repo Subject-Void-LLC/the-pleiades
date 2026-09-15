@@ -143,6 +143,11 @@ func (Credential) Edges() []ent.Edge {
 		// Template's own cascade edges; without it the NOT NULL foreign key
 		// would make a credential undeletable the moment it gained a
 		// binding.
+		// The projects that authenticate their clone as this credential.
+		// An scm credential is the ordinary case; nothing restricts the kind
+		// here, because the binding rule that does live in credtype.
+		edge.To("projects", Project.Type),
+
 		edge.To("input_sources", CredentialInputSource.Type).
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 

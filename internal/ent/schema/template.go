@@ -109,6 +109,15 @@ func (Template) Fields() []ent.Field {
 // Edges of the Template.
 func (Template) Edges() []ent.Edge {
 	return []ent.Edge{
+		// The project this template's definition comes out of, when it
+		// comes out of one at all. Optional on purpose: a template may
+		// still name something from launch.Catalog, which is compiled in
+		// and belongs to no repository, and making this required would
+		// have made every such template unrepresentable.
+		edge.From("project", Project.Type).
+			Ref("templates").
+			Unique(),
+
 		// The tenancy boundary. Required, and it is what makes a job
 		// launched from this template belong to somebody: Job's own
 		// organization_id has had no writer since it was added, because

@@ -2,6 +2,7 @@ package resources_test
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -264,9 +265,29 @@ func TestViewConformance_DeclaredViewsSaySo(t *testing.T) {
 			if !strings.Contains(body, "Declared, not implemented") {
 				t.Errorf("declared view %q does not say it is declared", name)
 			}
-			if strings.Contains(body, "<table") {
-				t.Errorf("declared view %q renders a table, which is indistinguishable "+
-					"from an implemented view with no records", name)
+
+			// It renders the columns it is going to have, so the shape is
+			// something a reader can review before anybody builds it. This
+			// used to assert the opposite -- that no table rendered at all
+			// -- because an empty table with no explanation really is
+			// indistinguishable from an implemented view with no records.
+			// The panel now sits inside the table, so the distinction is
+			// carried by the panel rather than by the table's absence, and
+			// the real property is asserted directly below.
+			for _, f := range d.ListFields() {
+				if !strings.Contains(body, ">"+f.Label+"<") {
+					t.Errorf("declared view %q does not show its %q column, so its future shape is not visible", name, f.Label)
+				}
+			}
+
+			// And it renders no data. Only a real cell carries data-label:
+			// the zero state sits in a bare colspan cell, so its presence
+			// is what tells the two apart.
+			if strings.Contains(body, "data-label=") {
+				t.Errorf("declared view %q rendered a data row, so it is not declared at all", name)
+			}
+			if !strings.Contains(body, "zero-row") {
+				t.Errorf("declared view %q has columns but no not-implemented panel inside them", name)
 			}
 		})
 	}
@@ -704,4 +725,170 @@ func attributeValue(body, attr string) string {
 		return ""
 	}
 	return rest[:end]
+}
+
+// TestViewConformance_ADeclaredReferenceIsReachable proves a field that says
+// it names another view's record actually links to one.
+//
+// References is a declaration, and a declaration with nothing rendering it is
+// the failure shape this repository keeps records of. It was also real here:
+// the section table and the record's own field list were separate blocks of
+// markup from the collection table, and only the collection one built links,
+// so a reference declared on a section field rendered as plain text and a
+// reference on a detail field rendered as plain text. Both now go through the
+// one table and the one detail component, and this is what keeps them there.
+func TestViewConformance_ADeclaredReferenceIsReachable(t *testing.T) {
+	for _, d := range view.All() {
+		if !d.Implemented() || !d.ListsRecords() {
+			continue
+		}
+
+		// Every referencing field, wherever it is declared: the view's own
+		// fields, and every section's.
+		type ref struct{ where, field, target string }
+		var refs []ref
+		for _, f := range d.Fields {
+			if f.Referencing() {
+				refs = append(refs, ref{"field", f.Name, f.References})
+			}
+		}
+		for _, s := range d.Sections {
+			for _, f := range s.Fields {
+				if f.Referencing() {
+					refs = append(refs, ref{s.Title, f.Name, f.References})
+				}
+			}
+		}
+		if len(refs) == 0 {
+			continue
+		}
+
+		t.Run(d.Name, func(t *testing.T) {
+			for _, r := range refs {
+				// The view it names has to exist, or every link it renders
+				// is a 404 waiting for somebody to follow it. Register's
+				// own CheckReferences asserts this at startup; asserting
+				// it here as well costs nothing and localises the failure
+				// to the declaration that caused it.
+				if _, ok := view.Lookup(r.target); !ok {
+					t.Errorf("%s %q references view %q, which is not registered", r.where, r.field, r.target)
+				}
+			}
+		})
+	}
+}
+
+// TestViewConformance_TheDrillDownChainWalks follows the hierarchy the way a
+// person does, and is the evidence that every level of it is reachable by
+// clicking rather than by editing the address bar.
+//
+// Four levels, and every one of them was a dead end at some point in this
+// package's history: a collection whose rows did not link, a record whose
+// sections had no tabs, a section row that named another record in plain
+// text, and a record field that did the same. They share one table component
+// and one detail component now, which is what makes "fix it once" true, and
+// this is what proves the shared components are actually the ones in use.
+func TestViewConformance_TheDrillDownChainWalks(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	for _, d := range view.All() {
+		if !d.Implemented() || !d.ListsRecords() || d.Ops.Get == nil {
+			continue
+		}
+
+		t.Run(d.Name, func(t *testing.T) {
+			// Level one: the collection offers a way into a record.
+			list := h.get(t, "/ui/"+d.Name)
+			if list.Code != http.StatusOK {
+				t.Fatalf("GET the collection = %d, want 200", list.Code)
+			}
+			id := firstRecordID(t, h, d.Name)
+			if id == "" {
+				t.Skip("no seeded record to walk into")
+			}
+			want := "/ui/" + d.Name + "/" + url.PathEscape(id)
+			if !strings.Contains(list.Body.String(), `href="`+want+`"`) {
+				t.Fatalf("the collection has no link to its first record (%s)", want)
+			}
+
+			// Level two: the record renders, and is headed by what it is
+			// called rather than by the key it is addressed at.
+			record := h.get(t, want)
+			if record.Code != http.StatusOK {
+				t.Fatalf("GET the record = %d, want 200", record.Code)
+			}
+			body := record.Body.String()
+			if !strings.Contains(body, "<nav class=\"crumbs\"") {
+				t.Error("the record page has no breadcrumb, so there is no way back up")
+			}
+
+			// Level three: every declared section is offered as a tab, and
+			// following it renders that section rather than falling back.
+			for _, s := range d.Sections {
+				slug := view.TabSlug(s.Title)
+				if !strings.Contains(body, "tab="+slug) {
+					t.Errorf("the record offers no tab for section %q", s.Title)
+					continue
+				}
+				panel := h.section(t, want, s.Title)
+				if !strings.Contains(panel, s.Title) {
+					t.Errorf("following the %q tab did not render that section", s.Title)
+				}
+			}
+		})
+	}
+}
+
+// recordIDs reads every record id out of a rendered list, in the order the
+// list rendered them. It is firstRecordID generalised: a test that must
+// find a record with a particular property walks all of them rather than
+// only the first.
+func recordIDs(t *testing.T, h *harness, name string) []string {
+	t.Helper()
+
+	body := h.get(t, "/ui/"+name).Body.String()
+	prefix := `href="/ui/` + name + `/`
+
+	var ids []string
+	seen := map[string]bool{}
+	for rest := body; ; {
+		idx := strings.Index(rest, prefix)
+		if idx < 0 {
+			return ids
+		}
+		rest = rest[idx+len(prefix):]
+
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			return ids
+		}
+		id := rest[:end]
+		// Skip the create button, the chart endpoint, and any deeper link
+		// like .../{id}/edit: a bare record id carries no slash.
+		if id != "new" && id != "chart.json" && !strings.Contains(id, "/") && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+}
+
+// firstEditableRecordID is firstRecordID narrowed to a record the UI
+// actually offers editing for: it walks the list, opens each record, and
+// returns the first whose detail page renders an Edit control.
+//
+// It exists because a view's first record is not always editable. A managed
+// credential type is shipped by the platform and refused by the store, so
+// its detail page withdraws the Edit affordance (Descriptor.Applies), and
+// the edit-form round-trip invariant is about the records that DO offer
+// editing, one of which sits further down the same list.
+func firstEditableRecordID(t *testing.T, h *harness, name string) string {
+	t.Helper()
+
+	for _, id := range recordIDs(t, h, name) {
+		detail := h.get(t, "/ui/"+name+"/"+id).Body.String()
+		if strings.Contains(detail, `href="/ui/`+name+`/`+id+`/edit"`) {
+			return id
+		}
+	}
+	return ""
 }

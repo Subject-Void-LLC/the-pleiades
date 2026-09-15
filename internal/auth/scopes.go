@@ -79,6 +79,27 @@ const (
 	ScopeAccessRead  Scope = "access:read"
 	ScopeAccessWrite Scope = "access:write"
 
+	// ScopeSettingsRead and ScopeSettingsWrite cover the deployment's own
+	// configuration: how people authenticate, what every run inherits, how
+	// long records are kept, where logs go.
+	//
+	// Its own pair rather than folded into access:*, and the split is worth
+	// stating. access:write decides who may reach what inside this
+	// deployment; settings:write decides what this deployment IS -- which
+	// directory authenticates it, which callback URLs it hands to an
+	// identity provider, how long an audit record survives before it is
+	// purged. Somebody who administers role bindings does not thereby
+	// acquire the ability to point authentication at a directory they
+	// control, and that is exactly the escalation folding them together
+	// would allow.
+	//
+	// Read is separate from write for the same reason it is everywhere else
+	// here, and carries more weight on this surface than most: a settings
+	// page names an LDAP bind account, an aggregator endpoint and a base
+	// URL, which is a map of the estate even with every secret redacted.
+	ScopeSettingsRead  Scope = "settings:read"
+	ScopeSettingsWrite Scope = "settings:write"
+
 	// ScopeTemplateRead and ScopeTemplateWrite cover Templates: the saved,
 	// reusable definitions of what this platform runs, where, and how.
 	//
@@ -160,4 +181,25 @@ const (
 	// engineer may own the definitions while an operations team owns the
 	// calendar.
 	ScopeScheduleWrite Scope = "schedule:write"
+
+	// ScopeProjectRead grants the right to see which source repositories a
+	// deployment runs automation out of, and what state each one's checkout
+	// is in.
+	//
+	// Appended at the end of this block rather than filed beside the
+	// credential scopes it reads next to, which is worth one sentence
+	// because it looks like carelessness. gosec-waivers.json waives two
+	// G101 findings in this file by exact line number, and those two lines
+	// have already moved once when settings:read and settings:write were
+	// inserted above them. Appending costs nothing and moves nothing.
+	ScopeProjectRead Scope = "project:read"
+
+	// ScopeProjectWrite grants create, update, delete and sync of projects.
+	//
+	// Sync is a write rather than a read even though it fetches: it runs a
+	// network operation as the deployment, against an address the project
+	// names, and writes the result to local disk. Somebody who may only
+	// look at a project should not be able to make the controller reach
+	// out to an arbitrary host.
+	ScopeProjectWrite Scope = "project:write"
 )

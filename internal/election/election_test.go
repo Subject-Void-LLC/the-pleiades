@@ -65,48 +65,22 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	ctx3, cancel3 := context.WithCancel(context.Background())
 
+	electors := []*election.LeaderElector{e1, e2, e3}
+	cancels := []context.CancelFunc{cancel1, cancel2, cancel3}
+
 	go e1.Run(ctx1)
 	go e2.Run(ctx2)
 	go e3.Run(ctx3)
 
-	time.Sleep(3 * time.Second)
-
-	leaders := 0
-	var leaderCancel context.CancelFunc
-	if e1.IsLeader() {
-		leaders++
-		leaderCancel = cancel1
-	}
-	if e2.IsLeader() {
-		leaders++
-		leaderCancel = cancel2
-	}
-	if e3.IsLeader() {
-		leaders++
-		leaderCancel = cancel3
-	}
-	if leaders != 1 {
-		t.Fatalf("expected exactly 1 leader, got %d. SPLIT BRAIN DETECTED!", leaders)
-	}
+	first := awaitSingleLeader(t, "initial election", electors, noExclusion)
 	t.Log("replica correctly acquired initial leadership")
 
 	t.Log("simulating a graceful shutdown (SIGTERM) on the leader")
-	leaderCancel()
+	cancels[first]()
 
-	time.Sleep(3 * time.Second)
-
-	leaders = 0
-	if e1.IsLeader() {
-		leaders++
-	}
-	if e2.IsLeader() {
-		leaders++
-	}
-	if e3.IsLeader() {
-		leaders++
-	}
-	if leaders != 1 {
-		t.Fatalf("expected exactly 1 new leader after graceful handover, got %d. ELECTION FAILED!", leaders)
+	second := awaitSingleLeader(t, "graceful handover", electors, first)
+	if second == first {
+		t.Fatal("awaitSingleLeader returned the replica it was told to exclude")
 	}
 	t.Log("graceful handover and failover successful")
 
@@ -115,6 +89,73 @@ func TestLeaderElection_ThreeReplicas_OnlyOneLeaderAndGracefulHandover(t *testin
 	cancel3()
 
 	time.Sleep(500 * time.Millisecond)
+}
+
+// noExclusion is awaitSingleLeader's "any replica will do" argument, used
+// for the initial election where no replica is stepping down.
+const noExclusion = -1
+
+// leaderPollInterval and leaderPollTimeout drive awaitSingleLeader. The
+// timeout is deliberately generous, because it bounds a LIVENESS wait:
+// making it long costs only how long a genuinely broken run takes to
+// fail, while making it tight costs a false failure every time this
+// package shares a machine with the rest of the suite.
+const (
+	leaderPollInterval = 50 * time.Millisecond
+	leaderPollTimeout  = 20 * time.Second
+)
+
+// awaitSingleLeader polls electors until exactly one reports leadership
+// and returns its index. A non-negative excluding names a replica that is
+// stepping down, whose own leadership does not count as the answer.
+//
+// It separates two properties this test conflated until 2026-09-15, when
+// internal/election was the one genuinely production-relevant entry in
+// flaky-packages.json:
+//
+//   - SAFETY, that no two replicas ever lead at once, is checked at every
+//     sample. That is strictly STRONGER than what this test did before,
+//     which was to sleep three seconds and sample once, and so could not
+//     observe a transient double leader at all.
+//   - LIVENESS, that somebody leads, is checked only at the deadline and
+//     is reported as itself. Under full-suite parallel load a count of
+//     zero means no replica has been scheduled yet, and the old code
+//     announced that as "SPLIT BRAIN DETECTED!", which made the loudest
+//     failure in the suite also its least accurate one.
+//
+// The per-sample safety check is only sound because Run clears isLeader
+// BEFORE releasing the lease at each of its three step-down sites.
+// Releasing first would leave a window where the outgoing leader still
+// reports true and its successor has already acquired, and this check
+// would report that legitimate handover as a split brain.
+func awaitSingleLeader(t *testing.T, what string, electors []*election.LeaderElector, excluding int) int {
+	t.Helper()
+
+	deadline := time.Now().Add(leaderPollTimeout)
+	for {
+		var held []int
+		for i, e := range electors {
+			if e.IsLeader() {
+				held = append(held, i)
+			}
+		}
+
+		if len(held) > 1 {
+			t.Fatalf("%s: %d of %d replicas report leadership at once (indices %v). SPLIT BRAIN DETECTED!",
+				what, len(held), len(electors), held)
+		}
+		if len(held) == 1 && held[0] != excluding {
+			return held[0]
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: no replica took the lease within %s. This is a LIVENESS failure and NOT a split brain: "+
+				"no two replicas were ever seen leading at once during the wait. Under full-suite parallel load "+
+				"the usual cause is CPU starvation or a slow broker, and this package passes when run alone.",
+				what, leaderPollTimeout)
+		}
+		time.Sleep(leaderPollInterval)
+	}
 }
 
 // mockLease is a lock.Lease test double whose KeepAlive and Release

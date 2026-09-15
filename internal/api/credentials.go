@@ -629,6 +629,96 @@ func (h *CredentialHandler) TestCredentialType(w http.ResponseWriter, r *http.Re
 	Respond(w, r, http.StatusOK, &out)
 }
 
+// SetCredentialTypeInputs serves PUT /credential-types/{id}/inputs.
+//
+// It replaces the type's input schema and nothing else. The store's own
+// UpdateType writes the whole type, so this reads the stored one first and
+// carries its metadata and injectors forward, which is what keeps a schema
+// edit from blanking the injector document beside it. Every rule the store
+// enforces on a full update -- a valid identifier, no duplicate, no secret
+// carrying a default, no injector left referencing an input this removes,
+// no managed type -- still applies, because it is the same update.
+func (h *CredentialHandler) SetCredentialTypeInputs(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathID(w, r, "credential type")
+	if !ok {
+		return
+	}
+
+	var body credentialTypeInputsDTO
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	stored, err := h.store.GetType(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	updated := stored.CredentialType
+	updated.Inputs = body.Inputs
+
+	ct, err := h.store.UpdateType(r.Context(), id, updated)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	dto := credentialTypeToDTO(ct)
+	Respond(w, r, http.StatusOK, &dto)
+}
+
+// credentialTypeInputsDTO is the body PUT /credential-types/{id}/inputs
+// accepts: the new input schema, on its own.
+type credentialTypeInputsDTO struct {
+	Inputs credtype.InputSchema `json:"inputs"`
+}
+
+// SetCredentialTypeInjectors serves PUT /credential-types/{id}/injectors.
+//
+// It replaces the injector document and nothing else, reading the stored
+// type first so the metadata and input schema beside it are carried
+// forward. It is the injector twin of SetCredentialTypeInputs, and the same
+// whole-type validation applies: every template is compiled against the
+// type's own inputs and a dangerous environment variable name is refused,
+// so a miswritten or hostile injector is caught here rather than inside a
+// customer's run.
+func (h *CredentialHandler) SetCredentialTypeInjectors(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathID(w, r, "credential type")
+	if !ok {
+		return
+	}
+
+	var body credentialTypeInjectorsDTO
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	stored, err := h.store.GetType(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	updated := stored.CredentialType
+	updated.Injectors = body.Injectors
+
+	ct, err := h.store.UpdateType(r.Context(), id, updated)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	dto := credentialTypeToDTO(ct)
+	Respond(w, r, http.StatusOK, &dto)
+}
+
+// credentialTypeInjectorsDTO is the body PUT /credential-types/{id}/injectors
+// accepts: the new injector document, on its own.
+type credentialTypeInjectorsDTO struct {
+	Injectors credtype.Injectors `json:"injectors"`
+}
+
 // credentialTestDTO is the preview request body.
 type credentialTestDTO struct {
 	// Inputs are dummy values, keyed by input id. They are never stored

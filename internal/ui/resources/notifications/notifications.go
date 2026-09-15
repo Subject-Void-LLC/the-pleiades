@@ -44,5 +44,16 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Deliveries",
+				"What this policy has sent, newest first, and whether it arrived.",
+				"Nothing sends notifications in this build, so there is no delivery history to read.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "on", Label: "ON", Kind: view.KindText, InList: true},
+					{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true},
+					{Name: "at", Label: "WHEN", Kind: view.KindTimestamp, InList: true},
+				}),
+		},
 	})
 }

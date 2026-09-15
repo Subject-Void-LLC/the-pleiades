@@ -93,6 +93,42 @@ func newTestCredentialStore(t *testing.T) credstore.Store {
 		t.Fatalf("CreateCredential() error = %v", err)
 	}
 
+	// A Source Control credential, so the Projects view's chooser has
+	// something it can legitimately offer. The conformance credential above
+	// is a cloud type carrying an api_token, which is exactly the kind of
+	// credential that chooser must REFUSE, so a suite holding only that one
+	// could not tell a working filter from a broken one.
+	scmType, err := store.GetTypeByNamespace(ctx, "scm")
+	if err != nil {
+		t.Fatalf("reading the shipped Source Control type: %v", err)
+	}
+	if _, err := store.CreateCredential(ctx, org.ID, scmType.ID,
+		"conformance scm credential", "clones a private repository",
+		map[string]string{"username": "git", "password": "ghp-conformance-token"},
+		nil); err != nil {
+		t.Fatalf("CreateCredential(scm) error = %v", err)
+	}
+
+	// A Machine credential carrying an SSH key, which is the sharpest test
+	// of the Projects chooser's rule. It holds exactly the material a git
+	// clone needs and must still be refused, because it was issued to open
+	// shells on managed devices rather than to read a repository. A suite
+	// whose only negative case was a cloud credential could not tell a
+	// filter keyed on KIND from one keyed on what a credential carries.
+	machineType, err := store.GetTypeByNamespace(ctx, "ssh")
+	if err != nil {
+		t.Fatalf("reading the shipped Machine type: %v", err)
+	}
+	if _, err := store.CreateCredential(ctx, org.ID, machineType.ID,
+		"conformance machine credential", "reaches managed devices",
+		map[string]string{
+			"username":     "ops",
+			"ssh_key_data": "-----BEGIN OPENSSH PRIVATE KEY-----\nconformance\n-----END OPENSSH PRIVATE KEY-----\n",
+		},
+		nil); err != nil {
+		t.Fatalf("CreateCredential(machine) error = %v", err)
+	}
+
 	// Bound to the first template the template fixture seeded, which is
 	// what makes the launch form's credential prompt reachable at all. The
 	// template fixture runs first because the Deps literal names Templates

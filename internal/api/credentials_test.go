@@ -85,6 +85,8 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 			apispec.UpdateCredentialType.Route(handler.UpdateCredentialType),
 			apispec.DeleteCredentialType.Route(handler.DeleteCredentialType),
 			apispec.TestCredentialType.Route(handler.TestCredentialType),
+			apispec.SetCredentialTypeInputs.Route(handler.SetCredentialTypeInputs),
+			apispec.SetCredentialTypeInjectors.Route(handler.SetCredentialTypeInjectors),
 			apispec.ListCredentials.Route(handler.ListCredentials),
 			apispec.GetCredential.Route(handler.GetCredential),
 			apispec.CreateCredential.Route(handler.CreateCredential),
@@ -680,6 +682,8 @@ func TestMalformedBodiesAnswerBadRequest(t *testing.T) {
 		{"creating a type", http.MethodPost, "/api/v1/credential-types"},
 		{"creating a credential", http.MethodPost, "/api/v1/credentials"},
 		{"binding", http.MethodPut, fmt.Sprintf("/api/v1/templates/%d/credentials", 1)},
+		{"setting inputs", http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID)},
+		{"setting injectors", http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID)},
 	}
 
 	for _, tt := range cases {
@@ -1132,5 +1136,155 @@ func TestAReadFailureAfterASuccessfulBindIsReported(t *testing.T) {
 	// as "the binding was cleared".
 	if rec.Code == http.StatusOK {
 		t.Error("the handler reported success after failing to read back what it bound")
+	}
+}
+
+// TestSetCredentialTypeInputsReplacesTheSchemaAndKeepsInjectors proves the
+// narrowed endpoint edits the schema without disturbing the injector
+// document beside it, which is the whole reason it reads the stored type
+// first rather than writing what the caller sent wholesale.
+func TestSetCredentialTypeInputsReplacesTheSchemaAndKeepsInjectors(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID), map[string]any{
+		"inputs": map[string]any{
+			"fields": []map[string]any{
+				{"id": "api_token", "label": "Token", "secret": true},
+				{"id": "api_url", "label": "URL"},
+				{"id": "api_region", "label": "Region"},
+			},
+			"required": []string{"api_token"},
+		},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("setting inputs answered %d: %s", status, body)
+	}
+
+	var decoded struct {
+		Inputs struct {
+			Fields []struct {
+				ID string `json:"id"`
+			} `json:"fields"`
+		} `json:"inputs"`
+		Injectors struct {
+			Env map[string]string `json:"env"`
+		} `json:"injectors"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	found := false
+	for _, fld := range decoded.Inputs.Fields {
+		if fld.ID == "api_region" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the new input api_region is not in the returned schema: %+v", decoded.Inputs.Fields)
+	}
+	if decoded.Injectors.Env["API_TOKEN"] == "" {
+		t.Error("replacing the inputs blanked the injector the edit never touched")
+	}
+}
+
+// TestSetCredentialTypeInputsRefusesRemovingAnInjectedInput proves the
+// endpoint inherits the store's whole-type validation: an injector that
+// would be left pointing at an input this removed is refused here rather
+// than at somebody's launch.
+func TestSetCredentialTypeInputsRefusesRemovingAnInjectedInput(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	// The seeded injector reads {{ api_token }}. Dropping api_token would
+	// leave it dangling, so the update must refuse.
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/inputs", f.typeID), map[string]any{
+		"inputs": map[string]any{
+			"fields": []map[string]any{{"id": "api_url", "label": "URL"}},
+		},
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("removing an injected input answered %d, want 400: %s", status, body)
+	}
+}
+
+// TestSetCredentialTypeInjectorsReplacesAndKeepsInputs is the injector twin
+// of the inputs test: the narrowed endpoint rewrites the injector document
+// and leaves the input schema beside it untouched.
+func TestSetCredentialTypeInjectorsReplacesAndKeepsInputs(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID), map[string]any{
+		"injectors": map[string]any{
+			"env": map[string]string{
+				"API_TOKEN": "{{ api_token }}",
+				"API_URL":   "{{ api_url }}",
+			},
+		},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("setting injectors answered %d: %s", status, body)
+	}
+
+	var decoded struct {
+		Inputs struct {
+			Fields []struct {
+				ID string `json:"id"`
+			} `json:"fields"`
+		} `json:"inputs"`
+		Injectors struct {
+			Env map[string]string `json:"env"`
+		} `json:"injectors"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if decoded.Injectors.Env["API_URL"] != "{{ api_url }}" {
+		t.Errorf("the new injector is not in the returned document: %+v", decoded.Injectors.Env)
+	}
+	if len(decoded.Inputs.Fields) != 2 {
+		t.Errorf("replacing the injectors changed the input schema: %+v", decoded.Inputs.Fields)
+	}
+}
+
+// TestSetCredentialTypeInjectorsRefusesADangerousEnvName proves the endpoint
+// inherits the store's refusal of an environment variable that would change
+// how the run executes, which is the reason this write exists at all.
+func TestSetCredentialTypeInjectorsRefusesADangerousEnvName(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID), map[string]any{
+		"injectors": map[string]any{
+			"env": map[string]string{"LD_PRELOAD": "{{ api_token }}"},
+		},
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("a code-execution env name answered %d, want 400: %s", status, body)
+	}
+}
+
+// TestSetCredentialTypeSchemaEndpointsRefuseBadTargets covers the two guard
+// branches the schema-setting endpoints share: a path id that is not a
+// positive integer, and a well-formed request for a type that does not
+// exist.
+func TestSetCredentialTypeSchemaEndpointsRefuseBadTargets(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	for _, path := range []string{"inputs", "injectors"} {
+		if status, body := f.do(t, http.MethodPut, "/api/v1/credential-types/not-a-number/"+path, map[string]any{}); status != http.StatusBadRequest {
+			t.Errorf("PUT .../%s with a non-numeric id = %d, want 400: %s", path, status, body)
+		}
+		if status, body := f.do(t, http.MethodPut, "/api/v1/credential-types/999999/"+path, map[string]any{}); status != http.StatusNotFound {
+			t.Errorf("PUT .../%s for a missing type = %d, want 404: %s", path, status, body)
+		}
 	}
 }

@@ -132,6 +132,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/localauth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/redact"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/render"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/schedule"
@@ -693,9 +694,9 @@ func main() {
 	// The Runner reads the same variable for the execution side
 	// (cmd/runner/main.go), the identical two-binary convention
 	// RUNBOOK_DIR already follows.
-	var playbooks *playbook.DirSource
+	var playbookDirSource *playbook.DirSource
 	if playbookDir := getenv("PLAYBOOK_DIR", ""); playbookDir != "" {
-		playbooks, err = playbook.NewDirSource(playbookDir)
+		playbookDirSource, err = playbook.NewDirSource(playbookDir)
 		if err != nil {
 			fatal("failed to init playbook source", err)
 		}
@@ -767,6 +768,50 @@ func main() {
 	}
 	credentialResolver := resolve.NewEntResolver(client, resolve.WithLookups(externalLookups))
 
+	// Source control, built after the credential resolver because a private
+	// clone authenticates as an ordinary Credential and the syncer resolves
+	// that itself.
+	//
+	// projectAuth is the bridge, and this is the only place it can live.
+	// internal/archtest asserts that internal/api never DEPENDS on the
+	// resolver, transitively, and the API's project handler holds a Syncer;
+	// a syncer that imported the resolver would put it in that graph. A
+	// composition root wiring a concrete implementation into an interface
+	// somebody else declared is exactly what a composition root is for.
+	//
+	// The syncer is rooted at a directory this process owns rather than
+	// anywhere a project names: a working tree's path is derived from
+	// numeric ids (internal/project's pathFor), so nothing an operator
+	// types reaches the filesystem.
+	projectStore := project.NewEntStore(client)
+	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver})
+
+	// projectRunner clones asynchronously, so a slow fetch no longer holds a
+	// page or an API call open while it runs. RecoverInterrupted, run once
+	// here at startup, clears any sync a previous process was killed
+	// mid-clone: a sync runs in memory, so such a row would otherwise stay
+	// running forever and refuse every future Sync of that project.
+	projectRunner := project.NewRunner(projectStore, projectSyncer, logger)
+	projectRunner.RecoverInterrupted(ctx)
+
+	// One list, for the reason the catalog comment further down states: a
+	// definition that can be CHOSEN has to be one that can be RUN, or a
+	// template saves and then fails at launch. The catalog and the worker
+	// both resolve through this same value, so the two cannot disagree
+	// about what exists.
+	//
+	// The playbook kind is now always available, which it was not before.
+	// It used to be registered only when PLAYBOOK_DIR was set, and that was
+	// decidable at startup because a mounted directory either exists or does
+	// not. A project is created at run time, so a deployment with no
+	// PLAYBOOK_DIR can acquire playbooks after boot, and refusing the kind
+	// on the strength of a startup check would make them permanently
+	// unreachable until a restart.
+	playbooks := playbook.NewMultiSource(
+		playbookDirSource,
+		project.NewPlaybookSource(projectStore, projectSyncer),
+	)
+
 	// injector renders a resolved credential into what a run executes with.
 	// It takes the same render engine the store validates writes with, so a
 	// credential type that saved successfully cannot fail to render for a
@@ -819,10 +864,8 @@ func main() {
 		dispatch.WithSetStore(sets),
 		dispatch.WithCredentials(credentialResolver, injector),
 	}
-	if playbooks != nil {
-		workerOpts = append(workerOpts,
-			dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
-	}
+	workerOpts = append(workerOpts,
+		dispatch.WithDefinitionSource("playbook", dispatch.NewPlaybookDefinitionSource(playbooks)))
 	worker := dispatch.NewWorker(jobStore, repo, runbooks, bus, deviceCredentials, workerOpts...)
 	// Subscribe launches its own goroutine and returns quickly
 	// (internal/event/consumer.go), so this call does not block startup;
@@ -855,10 +898,21 @@ func main() {
 	// from elector/schedulerLeaseKey below, sharing the same lockMgr:
 	// internal/election's own doc comment guarantees two LeaderElectors
 	// with different keys never contend with each other even against one
-	// Manager). Exactly one replica's Reaper.Run ever sees isLeader true at
-	// a time, bounding JobStore.ListStaleFanOuts's own query load to once
-	// per interval across the whole deployment regardless of replica
-	// count.
+	// Manager). The lease BOUNDS how many replicas sweep on a given tick,
+	// which is what keeps JobStore.ListStaleFanOuts's own query load to
+	// roughly once per interval across the whole deployment regardless of
+	// replica count.
+	//
+	// It does not promise that only one sweeps. electionTTL is two seconds
+	// with no fencing token, so a replica starved for longer than that can
+	// still report itself leader while another already holds the lease;
+	// internal/election's package doc states that in full. What makes a
+	// double sweep harmless is Reaper.republish's idempotency key of the
+	// job id, on a tick well inside the stream's duplicate window, so two
+	// leaders reaping one stale job collapse to a single job.requested.
+	// CORRECTED 2026-09-15: this comment used to say exactly one replica
+	// ever sees isLeader true at a time, which the lease cannot deliver and
+	// which a later consumer could have built on.
 	reaperElector := election.NewLeaderElector(lockMgr, fanOutReaperLeaseKey,
 		election.WithOnAcquired(func() {
 			slog.Info("Acquired Fan-Out Reaper Lease", slog.String("key", fanOutReaperLeaseKey))
@@ -914,19 +968,17 @@ func main() {
 			},
 		},
 	}
-	if playbooks != nil {
-		kindCatalogs["playbook"] = launch.KindCatalogFuncs{
-			ListFunc: playbooks.List,
-			VerifyFunc: func(ctx context.Context, definition string) error {
-				if _, err := playbooks.Get(ctx, definition); err != nil {
-					if errors.Is(err, playbook.ErrNotFound) {
-						return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
-					}
-					return fmt.Errorf("resolving playbook %q: %w", definition, err)
+	kindCatalogs["playbook"] = launch.KindCatalogFuncs{
+		ListFunc: playbooks.List,
+		VerifyFunc: func(ctx context.Context, definition string) error {
+			if _, err := playbooks.Get(ctx, definition); err != nil {
+				if errors.Is(err, playbook.ErrNotFound) {
+					return fmt.Errorf("%w: no playbook %q", launch.ErrDefinitionNotFound, definition)
 				}
-				return nil
-			},
-		}
+				return fmt.Errorf("resolving playbook %q: %w", definition, err)
+			}
+			return nil
+		},
 	}
 	launchCatalog := launch.NewSourceCatalog(kindCatalogs)
 
@@ -995,6 +1047,11 @@ func main() {
 	// here would be a second answer to "which Go type is a linux_server".
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	jobs := api.NewJobHandler(jobStore)
+	// The same store and syncer the playbook source above was built on, so
+	// what an operator syncs through the browser, what a caller syncs over
+	// the API, and what a dispatch resolves are one checkout rather than
+	// three.
+	projectsAPI := api.NewProjectHandler(projectStore, projectRunner, credentialStore, logger)
 	catalog := api.NewRunbookHandler(runbooks, logger)
 
 	// The two resources the web UI's navigation is built around: the
@@ -1107,19 +1164,21 @@ func main() {
 		// credentials (the credstore.Store projection) and never the
 		// resolver, so none of them can return a plaintext secret; that is
 		// enforced by internal/archtest rather than by this comment.
-		apispec.ListCredentialTypes.Name:      credentials.ListCredentialTypes,
-		apispec.GetCredentialType.Name:        credentials.GetCredentialType,
-		apispec.CreateCredentialType.Name:     credentials.CreateCredentialType,
-		apispec.UpdateCredentialType.Name:     credentials.UpdateCredentialType,
-		apispec.DeleteCredentialType.Name:     credentials.DeleteCredentialType,
-		apispec.TestCredentialType.Name:       credentials.TestCredentialType,
-		apispec.ListCredentials.Name:          credentials.ListCredentials,
-		apispec.GetCredential.Name:            credentials.GetCredential,
-		apispec.CreateCredential.Name:         credentials.CreateCredential,
-		apispec.UpdateCredential.Name:         credentials.UpdateCredential,
-		apispec.DeleteCredentialEndpoint.Name: credentials.DeleteCredential,
-		apispec.ListTemplateCredentials.Name:  credentials.ListTemplateCredentials,
-		apispec.SetTemplateCredentials.Name:   credentials.SetTemplateCredentials,
+		apispec.ListCredentialTypes.Name:        credentials.ListCredentialTypes,
+		apispec.GetCredentialType.Name:          credentials.GetCredentialType,
+		apispec.CreateCredentialType.Name:       credentials.CreateCredentialType,
+		apispec.UpdateCredentialType.Name:       credentials.UpdateCredentialType,
+		apispec.DeleteCredentialType.Name:       credentials.DeleteCredentialType,
+		apispec.TestCredentialType.Name:         credentials.TestCredentialType,
+		apispec.SetCredentialTypeInputs.Name:    credentials.SetCredentialTypeInputs,
+		apispec.SetCredentialTypeInjectors.Name: credentials.SetCredentialTypeInjectors,
+		apispec.ListCredentials.Name:            credentials.ListCredentials,
+		apispec.GetCredential.Name:              credentials.GetCredential,
+		apispec.CreateCredential.Name:           credentials.CreateCredential,
+		apispec.UpdateCredential.Name:           credentials.UpdateCredential,
+		apispec.DeleteCredentialEndpoint.Name:   credentials.DeleteCredential,
+		apispec.ListTemplateCredentials.Name:    credentials.ListTemplateCredentials,
+		apispec.SetTemplateCredentials.Name:     credentials.SetTemplateCredentials,
 
 		apispec.ListCredentialInputSources.Name: credentials.ListCredentialInputSources,
 		apispec.SetCredentialInputSources.Name:  credentials.SetCredentialInputSources,
@@ -1169,6 +1228,15 @@ func main() {
 		apispec.UpdateBinding.Name: accounts.UpdateBinding,
 		apispec.DeleteBinding.Name: accounts.DeleteBinding,
 
+		apispec.ListProjects.Name:          projectsAPI.List,
+		apispec.GetProject.Name:            projectsAPI.Get,
+		apispec.CreateProject.Name:         projectsAPI.Create,
+		apispec.UpdateProject.Name:         projectsAPI.Update,
+		apispec.DeleteProject.Name:         projectsAPI.Delete,
+		apispec.SyncProject.Name:           projectsAPI.Sync,
+		apispec.StreamProjectSyncLogs.Name: projectsAPI.StreamSyncLogs,
+		apispec.CancelProjectSync.Name:     projectsAPI.CancelSync,
+
 		apispec.ListActivity.Name:     activityLog.ListActivity,
 		apispec.GetActivityEntry.Name: activityLog.GetActivityEntry,
 
@@ -1202,6 +1270,13 @@ func main() {
 		Schedules:  scheduleStore,
 		Catalog:    launchCatalog,
 		Dispatcher: dispatcher,
+		// Source control. The syncer is rooted at a directory this process
+		// owns rather than anywhere a project names: a working tree's path
+		// is derived from numeric ids (internal/project's pathFor), so
+		// nothing an operator types reaches the filesystem.
+		Projects:      projectStore,
+		ProjectSync:   projectSyncer,
+		ProjectRunner: projectRunner,
 		// The redacted credential store, never the resolver: the UI's
 		// credential views hold a projection with no field a plaintext
 		// value could occupy, and internal/archtest fails the build if
@@ -1434,6 +1509,14 @@ func main() {
 		slog.Error("graceful shutdown failed", slog.String("error", err.Error()))
 	}
 
+	// Drain in-flight clones after the HTTP server stops accepting requests.
+	// A clone runs on the runner's own goroutine rather than a request's, so
+	// srv.Shutdown does not reach it; a clone that does not stop in time is
+	// abandoned and cleared by the next startup's RecoverInterrupted.
+	if err := projectRunner.Shutdown(shutdownCtx); err != nil {
+		slog.Error("draining project syncs failed", slog.String("error", err.Error()))
+	}
+
 	// Wait for both electors' own bounded release (internal/election's own
 	// releaseTimeout) to finish before closing lockMgr: closing the
 	// underlying NATS connection while either release call is still in
@@ -1516,4 +1599,56 @@ func installCryptoHooks(client *ent.Client, envelopeSvc *crypto.EnvelopeService)
 	// boundary.
 	client.MeshSigningKey.Use(crypto.MeshSigningKeySeedHook(envelopeSvc))
 	client.MeshSigningKey.Intercept(crypto.MeshSigningKeySeedInterceptor(envelopeSvc))
+}
+
+// projectRoot is the directory every project's working tree lives under.
+//
+// Overridable because the default is a system path a container may not have
+// written to, and a deployment that mounts a volume needs to say where. The
+// value is used as a prefix under which internal/project builds paths out
+// of numeric ids, so it is the only part of a checkout's location anybody
+// outside this process chooses.
+func projectRoot() string {
+	if dir := strings.TrimSpace(os.Getenv("PLEIADES_PROJECT_ROOT")); dir != "" {
+		return dir
+	}
+	return "/var/lib/pleiades/projects"
+}
+
+// projectAuth resolves a project's credential into the values one clone
+// needs.
+//
+// It maps AWX's Source Control input names, which is the vocabulary
+// internal/credtype/managed/types/scm.json declares and an AWX export
+// already uses. A credential of some other type is not rejected: an ssh
+// type carries the same ssh_key_data and username, and refusing it would
+// be this bridge inventing a rule the credential system does not have.
+type projectAuth struct{ resolver resolve.Resolver }
+
+// ResolveAuth reads one credential's real values.
+func (a projectAuth) ResolveAuth(ctx context.Context, credentialID int) (project.Auth, error) {
+	if credentialID == 0 {
+		return project.Auth{}, nil
+	}
+	found, err := a.resolver.Resolve(ctx, []int{credentialID})
+	if err != nil {
+		// Deliberately not wrapped: the resolver's error can name the
+		// credential and its inputs, and this string is on its way to a
+		// stored sync_error that an operator reads.
+		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
+	}
+	if len(found) != 1 {
+		return project.Auth{}, fmt.Errorf("the project's credential could not be read")
+	}
+
+	in := found[0].Inputs
+	auth := project.Auth{
+		Username:   in[project.InputUsername],
+		Password:   in[project.InputPassword],
+		Passphrase: in[project.InputPassphrase],
+	}
+	if key := in[project.InputPrivateKey]; key != "" {
+		auth.PrivateKey = []byte(key)
+	}
+	return auth, nil
 }

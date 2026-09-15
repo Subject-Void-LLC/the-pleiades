@@ -120,11 +120,51 @@ func TestAccountPage_IsNotShadowedByTheResourceRoutes(t *testing.T) {
 		t.Fatalf("GET /ui/account = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
+	// The settings page opens on appearance, so what proves this route is
+	// not a resource listing is the appearance control, not the password
+	// form. A resource listing renders neither.
+	if !strings.Contains(body, "Accessibility mode") {
+		t.Errorf("GET /ui/account did not render the settings page; it is shadowed by the resource routes: %s", body)
+	}
+	if !strings.Contains(body, "tab=password") {
+		t.Error("the settings page offers no way to reach the password section")
+	}
+
+	// And the password section itself is one navigation away, rather than
+	// being a tab that links nowhere.
+	rec = p.serve(p.authed(http.MethodGet, "/ui/account?tab=password", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ui/account?tab=password = %d, want 200", rec.Code)
+	}
+	body = rec.Body.String()
 	if !strings.Contains(body, "Change password") {
-		t.Error("GET /ui/account did not render the account page; it is shadowed by the resource routes")
+		t.Error("the password section did not render")
 	}
 	if !strings.Contains(body, `name="current_password"`) {
-		t.Error("the account page has no current-password field")
+		t.Error("the password section has no current-password field")
+	}
+}
+
+// TestSettingsPage_OffersNoPasswordSectionWithoutLocalCredentials is the
+// other half of that.
+//
+// A deployment federating against an external issuer holds no password to
+// change, so the section is not offered at all rather than offered and then
+// refused. An affordance that can only ever fail is worse than its absence:
+// it tells somebody this deployment works a way it does not.
+func TestSettingsPage_OffersNoPasswordSectionWithoutLocalCredentials(t *testing.T) {
+	p := newAccountProbe(t, nil)
+
+	rec := p.serve(p.authed(http.MethodGet, "/ui/account", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ui/account = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "tab=password") {
+		t.Error("a deployment with no local credentials still offered the password section")
+	}
+	if !strings.Contains(body, "Accessibility mode") {
+		t.Error("the settings page did not render its appearance section")
 	}
 }
 

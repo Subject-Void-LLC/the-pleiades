@@ -2946,6 +2946,545 @@
         "x-link-relation": "update"
       }
     },
+    "/credential-types/{id}/injectors": {
+      "put": {
+        "description": "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is compiled here against the type's own inputs, and an environment variable name that would change how the run executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused.",
+        "operationId": "set_credential_type_injectors",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "injectors": {
+                    "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                    "properties": {
+                      "env": {
+                        "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                        "type": "object"
+                      },
+                      "extra_vars": {
+                        "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                        "type": "object"
+                      },
+                      "file": {
+                        "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or an injector does not validate."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The type is managed and cannot be modified."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Replace a credential type's injector document",
+        "x-link-relation": "set-injectors"
+      }
+    },
+    "/credential-types/{id}/inputs": {
+      "put": {
+        "description": "Replaces the whole input schema, leaving the type's metadata and injectors as they are. It is the same store update PATCH performs, narrowed to the inputs so a client that only edits the schema does not round-trip the injector document. A managed type is refused, as is a schema an injector already depends on that this would remove.",
+        "operationId": "set_credential_type_inputs",
+        "parameters": [
+          {
+            "description": "The type's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "inputs": {
+                    "description": "What a credential of this type holds.",
+                    "properties": {
+                      "fields": {
+                        "description": "The inputs, in the order a form should show them.",
+                        "items": {
+                          "properties": {
+                            "ask_at_runtime": {
+                              "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                              "type": "boolean"
+                            },
+                            "choices": {
+                              "description": "An optional bounded value set.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                              "type": "string"
+                            },
+                            "format": {
+                              "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                              "type": "string"
+                            },
+                            "help_text": {
+                              "description": "Explanatory text a form shows beneath the control.",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What a form shows above the control.",
+                              "type": "string"
+                            },
+                            "multiline": {
+                              "description": "Whether a form should render a text area.",
+                              "type": "boolean"
+                            },
+                            "secret": {
+                              "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "\"string\" or \"boolean\". Absent means string.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "description": {
+                      "description": "",
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "injectors": {
+                      "description": "Where this type's values go at run time. Every VALUE is a template over the type's own input ids, for example \"{{ api_token }}\". No KEY is ever templated. Every template is compiled when the type is saved, and one naming an input the type does not declare is refused here rather than at somebody's launch.",
+                      "properties": {
+                        "env": {
+                          "description": "Environment variables. A name that would let an injector change how the run executes (PATH, LD_PRELOAD, PYTHONPATH, ANSIBLE_CONFIG and others) is refused: the customer's playbook runs inside the same container, so setting one of those is code execution inside the run the credential was meant to authenticate.",
+                          "type": "object"
+                        },
+                        "extra_vars": {
+                          "description": "Extra variables, which may nest. A leaf is a template; a literal number or boolean is passed through unrendered.",
+                          "type": "object"
+                        },
+                        "file": {
+                          "description": "Generated files. Either the single-file spelling, one entry keyed \"template\", addressed back as {{ tower.filename }}; or the multi-file spelling, entries keyed \"template.<label>\", addressed as {{ tower.filename.<label> }}. The two are mutually exclusive within one type.",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "inputs": {
+                      "description": "What a credential of this type holds.",
+                      "properties": {
+                        "fields": {
+                          "description": "The inputs, in the order a form should show them.",
+                          "items": {
+                            "properties": {
+                              "ask_at_runtime": {
+                                "description": "Whether this input is prompted at launch rather than stored. An answer to one is used for a single run and never persisted, which is also why a template binding such a credential cannot be relaunched.",
+                                "type": "boolean"
+                              },
+                              "choices": {
+                                "description": "An optional bounded value set.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "The value used when a credential omits this field. Refused on a secret field: a default secret is a credential stored in the type itself, readable by anybody who may edit the type.",
+                                "type": "string"
+                              },
+                              "format": {
+                                "description": "An optional content hint: ssh_private_key, url, or vault_id.",
+                                "type": "string"
+                              },
+                              "help_text": {
+                                "description": "Explanatory text a form shows beneath the control.",
+                                "type": "string"
+                              },
+                              "id": {
+                                "description": "The identifier an injector template references. Lowercase letters, digits and underscores, starting with a letter.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What a form shows above the control.",
+                                "type": "string"
+                              },
+                              "multiline": {
+                                "description": "Whether a form should render a text area.",
+                                "type": "boolean"
+                              },
+                              "secret": {
+                                "description": "Whether this field's value is a secret. It is the single most consequential flag here: it decides encryption at rest and whether the value reads back as a marker or as itself.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "\"string\" or \"boolean\". Absent means string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "required": {
+                          "description": "The input ids a credential must supply. An input with a default, or one prompted at launch, satisfies this without being stored.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "kind": {
+                      "description": "The coarse grouping: ssh, vault, net, scm, cloud, token, insights, external, kubernetes, galaxy, cryptography or registry. It is what the binding rule keys on.",
+                      "type": "string"
+                    },
+                    "managed": {
+                      "description": "Whether this platform ships the type. A managed type cannot be edited or deleted, which an import must respect rather than recreating the built-ins as custom types.",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "What a reader picks it by, unique within an organization.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "The stable identifier an import keys on to decide whether this type already exists. Immutable.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The owning tenant. Absent for a managed type, which belongs to nobody and is usable by everybody.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated type."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the schema does not validate."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The type is managed and cannot be modified."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No credential type with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "credential:write"
+            ]
+          }
+        ],
+        "summary": "Replace a credential type's input schema",
+        "x-link-relation": "set-inputs"
+      }
+    },
     "/credential-types/{id}/test": {
       "post": {
         "description": "Renders this type's injectors against values the caller supplies, and reports what it would produce with every value masked. No stored credential is read and nothing is written. It is how an author finds a miswritten injector before a run does.",
@@ -6526,6 +7065,948 @@
         ],
         "summary": "Attest an organization's ownership information",
         "x-link-relation": "execute"
+      }
+    },
+    "/projects": {
+      "get": {
+        "description": "Returns the source repositories this deployment runs automation out of.",
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "projects": {
+                      "items": {
+                        "properties": {
+                          "_links": {
+                            "description": "Hypermedia affordances available on this resource for the calling identity.",
+                            "items": {
+                              "properties": {
+                                "href": {
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "type": "string"
+                                },
+                                "rel": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "credential": {
+                            "description": "The credential the clone authenticates as, absent for a public repository.",
+                            "type": "integer"
+                          },
+                          "description": {
+                            "description": "What is in this repository.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "Stable numeric identifier.",
+                            "type": "integer"
+                          },
+                          "last_synced_at": {
+                            "description": "When the last sync ran, absent if none has.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "Unique within its organization, not globally.",
+                            "type": "string"
+                          },
+                          "organization": {
+                            "description": "The tenancy boundary this project belongs to.",
+                            "type": "integer"
+                          },
+                          "revision": {
+                            "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                            "type": "string"
+                          },
+                          "scm_branch": {
+                            "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                            "type": "string"
+                          },
+                          "scm_type": {
+                            "description": "How the content is reached. Only \"git\" is implemented.",
+                            "type": "string"
+                          },
+                          "scm_url": {
+                            "description": "The repository to clone.",
+                            "type": "string"
+                          },
+                          "sync_error": {
+                            "description": "Why the last sync failed, with credential material already stripped.",
+                            "type": "string"
+                          },
+                          "sync_status": {
+                            "description": "One of never, pending, running, succeeded or failed.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The projects."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "List projects",
+        "x-link-relation": "collection"
+      },
+      "post": {
+        "description": "Registers a source repository. Nothing is fetched until a sync runs.",
+        "operationId": "create_project",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project as stored."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required field is missing, or a git project carries no URL."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Create a project",
+        "x-link-relation": "create"
+      }
+    },
+    "/projects/{id}": {
+      "delete": {
+        "description": "Removes a project. Its working tree on disk is left in place.",
+        "operationId": "delete_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Delete a project",
+        "x-link-relation": "delete"
+      },
+      "get": {
+        "description": "Returns one project, including the state of its last sync.",
+        "operationId": "get_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "Get one project",
+        "x-link-relation": "self"
+      },
+      "patch": {
+        "description": "Changes a project's name, description or source. The checkout is not refetched until a sync runs.",
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project as stored."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A required field is missing, or a git project carries no URL."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The name is taken in that organization."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Update a project",
+        "x-link-relation": "update"
+      }
+    },
+    "/projects/{id}/sync": {
+      "post": {
+        "description": "Starts an asynchronous clone or fast-forward of the project's working tree and returns at once. The commit it ends up at, or why it failed, is recorded on the project, which a caller polls rather than waiting on this request.",
+        "operationId": "sync_project",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The sync was accepted and is running. The project is returned as it now stands, its sync_status moved to running; the clone happens off this request, so poll the project for the outcome, which lands in sync_status and sync_error."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The project has no fetchable source."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A sync is already running for this project. A second is refused rather than started, because two clones race on the one working tree a project keys by id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Sync a project",
+        "x-link-relation": "execute"
+      }
+    },
+    "/projects/{id}/sync/cancel": {
+      "post": {
+        "description": "Stops a clone that is in flight and returns at once; the goroutine running it records the outcome, so the project settles to failed with a reason naming the cancellation rather than whatever the transport said when its connection went away. A project with no sync running is a 409, because reporting success for having stopped nothing would tell a caller it had done something it had not. A clone runs on the controller that accepted the sync, so in a multi-replica deployment this reaches only the one it lands on.",
+        "operationId": "cancel_project_sync",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The running sync was told to stop. The project is returned as it stands; poll it for the recorded outcome."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No sync is running for this project."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Cancel a project's running sync",
+        "x-link-relation": "cancel"
+      }
+    },
+    "/projects/{id}/sync/logs": {
+      "get": {
+        "description": "Each frame's data is one line of the fetch's own output. A reader arriving while a clone is already running receives what it has printed so far before the live lines, and one arriving after it finished receives that tail and an immediate 'done' event, so neither is left watching a page that will never receive anything. The stream ends when the clone does. Output is held to the same rule the project's sync_error is: internal/project strips credential material from a transport's messages before they reach a reader. A clone runs on the controller that accepted the sync, so in a multi-replica deployment a reader whose request lands elsewhere sees only the closing event.",
+        "operationId": "stream_project_sync_logs",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An open SSE stream, closed when the sync finishes."
+          },
+          "400": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "Stream a project sync's live output over Server-Sent Events",
+        "x-link-relation": "logs"
       }
     },
     "/runbooks": {

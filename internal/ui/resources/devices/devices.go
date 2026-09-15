@@ -194,12 +194,57 @@ func Register(repo inventory.Repository, factory *inventory.ItemFactory) error {
 		// Directly after Inventories, because a device is what an inventory
 		// contains and reading the two in that order is how the containment
 		// actually runs.
-		NavOrder: 80,
-		NavGroup: view.NavGroupResources,
-		Summary:  "Every device this control plane knows about.",
-		Status:   view.StatusImplemented,
-		IDField:  "name",
-		Fields:   fields,
+		NavOrder:         80,
+		NavGroup:         view.NavGroupResources,
+		Summary:          "Every device this control plane knows about.",
+		Status:           view.StatusImplemented,
+		IDField:          "name",
+		StatusBadgeField: "state",
+		// AWX's host tabs, named for this platform's own vocabulary: a
+		// managed machine is a device here and a named set of them is an
+		// inventory, so AWX's "Groups" is "Inventories".
+		//
+		// Access is declared rather than implemented even though a device
+		// IS a grant target: bindings key on a numeric device id and this
+		// view addresses a device by its name, so the section would have
+		// filtered to nothing and rendered "no grants name this device" on
+		// every page, which is a wrong answer rather than a missing one.
+		Sections: []view.Section{
+			view.Planned("Inventories",
+				"The inventories this device belongs to, and therefore what may be dispatched against it.",
+				"Membership is resolved by numeric device id and this view addresses a device by name, so the lookup this needs is not wired here yet.",
+				[]view.Field{
+					{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true, References: "inventories"},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+					{Name: "via", Label: "MEMBER BY", Kind: view.KindText, InList: true},
+				}),
+			view.Planned("Facts",
+				"What this device last reported about itself.",
+				"Gathered facts are returned to the job that asked for them and are not stored, so there is nothing to read back between runs.",
+				[]view.Field{
+					{Name: "fact", Label: "FACT", Kind: view.KindText, InList: true, MobilePrimary: true},
+					{Name: "value", Label: "VALUE", Kind: view.KindText, InList: true},
+					{Name: "gathered", Label: "GATHERED", Kind: view.KindTimestamp, InList: true},
+				}),
+			view.Planned("Jobs",
+				"What has run against this device, newest first, and what it did.",
+				"Per-device outcomes are recorded against the job that produced them and are read by job id; there is no index from a device back to the jobs that touched it.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true},
+					{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
+					{Name: "created", Label: "WHEN", Kind: view.KindText, InList: true},
+				}),
+			view.Planned("Access",
+				"The role bindings that name this device directly.",
+				"A device is a grant target in the scope ladder, but bindings key on a numeric device id and this view addresses a device by name.",
+				[]view.Field{
+					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
+					{Name: "role", Label: "ROLE", Kind: view.KindText, InList: true},
+					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
+				}),
+		},
+		Fields: fields,
 		Ops: view.Ops{
 			List:   &apispec.ListDevices,
 			Get:    &apispec.GetDevice,

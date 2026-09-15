@@ -247,6 +247,28 @@ type Section struct {
 	// A declared section uses it as the panel's own sentence: what will be
 	// here, and what owns it.
 	Empty string
+
+	// Actions name RecordActions offered in this section's header, acting
+	// on the record the section hangs off rather than on any row of it:
+	// "Add input" on a credential type's Inputs section, "Add question" on
+	// a template's Survey. Each name must be one of the parent
+	// Descriptor's own Actions, so a section reuses the whole action path
+	// -- the shared form, its validation, its scope gate -- rather than
+	// inventing a second write surface. Register refuses a name that
+	// matches no declared action.
+	//
+	// A section reaches the collection page as well as a record page, and
+	// on the collection page there is no record for these to act on, so
+	// they render only where a parent id exists. That is a rendering
+	// decision rather than a validation one, because the same declaration
+	// is correct on both pages: act on the record when there is one, offer
+	// nothing when there is not.
+	//
+	// Only an implemented section may name them. A declared section reaches
+	// no port, so an action button on it would post to a write path its own
+	// panel says is not wired -- the contradiction StatusDeclared exists to
+	// remove.
+	Actions []string
 }
 
 // Implemented reports whether this section reaches a real port, the same
@@ -454,6 +476,56 @@ type Descriptor struct {
 	// IDField names the Field whose value identifies a record.
 	IDField string
 
+	// NameField is the field whose value titles a record's page.
+	//
+	// Separate from IDField because the two answer different questions. An
+	// identifier addresses a record; a name says what it is, and a page
+	// headed by a primary key has moved the join into the reader's head.
+	// Optional: a view whose identifier already is its name leaves this
+	// empty and TitleField falls back, which is why Devices and Templates
+	// need no declaration here and Jobs does.
+	NameField string
+
+	// DefaultTab is the part of a record that opens first, named by its
+	// section title or by the stream's title. Empty opens the record's own
+	// fields, which is the right answer for almost every view.
+	//
+	// Jobs is why it exists. A job's details are what it was asked to do
+	// and its output is what happened, and somebody opening a job has
+	// nearly always come for the second: AWX lands on Output for exactly
+	// this reason, and a reader who has to click through to it every time
+	// is a reader the page is getting in the way of.
+	//
+	// Named by title rather than by slug so a declaration reads as English
+	// and cannot drift from the section it points at: a title that matches
+	// nothing falls back to the record's fields, which ResolveDefaultTab
+	// is where that is decided.
+	DefaultTab string
+
+	// StatusBadgeField names the field whose value is this record's state,
+	// rendered as a badge beside its title. Empty means no badge.
+	//
+	// Declared rather than inferred, and the inference it replaced is why.
+	// Taking the first listed badge field looked reasonable and was wrong
+	// almost everywhere: a job's first badge is its KIND, so a failed job was
+	// headed "4821 runbook" rather than "4821 failed", and a runbook's only
+	// badge is INTERRUPTIBLE, so every runbook record was headed with the
+	// word "YES". A badge beside a title is a claim that this value is what
+	// the record currently IS, and most badge fields are properties rather
+	// than states. Nothing can tell the two apart by looking, so the
+	// descriptor says which.
+	StatusBadgeField string
+
+	// Empty is what a list with no rows says.
+	//
+	// Section has carried one of these since it existed, and uses it well:
+	// "this job has not recorded any per-device outcomes yet" and "this
+	// dispatched to nothing" are very different facts that a blank table
+	// renders identically. The collection view had no equivalent, so every
+	// one of them said "No records." -- which conflates a first-run
+	// install, a filtered-to-nothing search and a genuinely idle fleet.
+	Empty string
+
 	// Chart optionally adds one chart to this view.
 	Chart *ChartSpec
 
@@ -491,12 +563,21 @@ type Descriptor struct {
 	// generalised to the record's own form rather than a second one invented
 	// for it.
 	//
-	// It never applies to create: the record does not exist yet, so there is
-	// nothing to resolve a per-record field set from. A view that needs its
-	// dynamic fields at creation, too, has to resolve them some other way,
-	// because the mechanism here is deliberately the smallest thing that
-	// covers what an edit can know that a create cannot.
-	FieldsFor func(ctx context.Context, id string) ([]Field, error)
+	// It applies to create as well as edit, which it did not until
+	// Credentials needed it. The original seam took an id and refused a
+	// create outright, on the reasoning that there is nothing to resolve a
+	// per-record field set from before the record exists. That reasoning
+	// held only because Templates, its one caller, drives its dynamic
+	// fields off a kind the stored record already names.
+	//
+	// A credential does not work that way. Its fields are declared by the
+	// credential type the person is choosing right now, in the form, so
+	// what drives the resolution is a value in the submission rather than
+	// a value in the database, and it exists on a create exactly as much
+	// as on an edit. Resolve carries both: an id that is empty on a create,
+	// and the submission narrowed to the static fields. A caller that only
+	// wants the id keeps working by reading r.ID and ignoring r.Values.
+	FieldsFor func(ctx context.Context, r Resolve) ([]Field, error)
 
 	// Applies optionally withdraws an affordance for one particular
 	// record -- an archived device offers no delete to anyone, however
@@ -547,17 +628,87 @@ func (d Descriptor) FormFieldsFor(editing bool) []Field {
 // The merged result is what the render path, the submission narrower and
 // Validate all have to agree on, so it is computed once, here, rather than
 // separately by each of them.
-func (d Descriptor) ResolveFormFields(ctx context.Context, id string) ([]Field, error) {
-	editing := id != ""
-	fields := d.FormFieldsFor(editing)
-	if !editing || d.FieldsFor == nil {
+func (d Descriptor) ResolveFormFields(ctx context.Context, r Resolve) ([]Field, error) {
+	fields := d.FormFieldsFor(r.Editing())
+	if d.FieldsFor == nil {
 		return fields, nil
 	}
-	extra, err := d.FieldsFor(ctx, id)
+	extra, err := d.FieldsFor(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	return append(fields, extra...), nil
+}
+
+// Resolve is what a dynamic form field set is resolved against: which
+// record, and what the driving controls currently hold.
+//
+// Values is the submission narrowed to the STATIC fields only, which is the
+// answer to the ordering problem this type exists for. The set of declared
+// fields depends on a submitted value, and narrowing a submission requires
+// knowing the declared set, so one of the two has to go first. The static
+// set does: it is fixed, it is what a driving control belongs to, and
+// narrowing to it is enough to read the one value the resolution turns on.
+//
+// The narrowing that matters for safety is the SECOND one, which the caller
+// performs against the merged set this resolution returns. Nothing read
+// here reaches a domain object; it only decides which controls exist. That
+// is why this pass may read the query string while the second may not.
+type Resolve struct {
+	// ID is the record being edited, empty on a create.
+	ID string
+
+	// Values is the submission narrowed to the static form fields.
+	Values Values
+}
+
+// Editing reports whether this resolution is for an existing record.
+func (r Resolve) Editing() bool { return r.ID != "" }
+
+// TitleField is the field whose value titles a record page, empty when this
+// view has neither a declared name nor an identity field.
+//
+// The fallback to IDField is what lets most views declare nothing: a device
+// and a template are already addressed by their names, so the identifier is
+// the name. Only a view addressed by a generated key -- a job -- needs to say
+// which of its fields a reader would recognise.
+func (d Descriptor) TitleField() string {
+	if d.NameField != "" {
+		return d.NameField
+	}
+	return d.IDField
+}
+
+// StatusField is the field a record's state badge reads, and whether there is
+// one at all.
+//
+// Strictly what StatusBadgeField names, and nothing when it names nothing. A
+// view that wants a badge beside its title says so; a view that does not gets
+// no badge rather than the first one this package could find. It must be a
+// badge field and it must be listed, because a badge class comes from a
+// BadgeClass function and an unlisted field is one the view chose not to show.
+func (d Descriptor) StatusField() (Field, bool) {
+	if d.StatusBadgeField == "" {
+		return Field{}, false
+	}
+	for _, f := range d.Fields {
+		if f.Name == d.StatusBadgeField && f.Kind == KindBadge && f.listed() {
+			return f, true
+		}
+	}
+	return Field{}, false
+}
+
+// EmptyText is what a list with no rows says, never blank.
+//
+// The fallback names the view, because "No records." on a page whose heading
+// already says Jobs is a sentence that spends a line to say nothing. A view
+// that wants better declares Empty.
+func (d Descriptor) EmptyText() string {
+	if d.Empty != "" {
+		return d.Empty
+	}
+	return "No " + strings.ToLower(d.Title) + " to show."
 }
 
 // PrimaryField returns the field a narrow viewport uses as each card's
@@ -666,7 +817,7 @@ func Register(d Descriptor) error {
 	if err := validateStream(d.Name, d.Stream); err != nil {
 		return err
 	}
-	if err := validateSections(d.Name, d.Sections); err != nil {
+	if err := validateSections(d.Name, d.Sections, d.Actions); err != nil {
 		return err
 	}
 	if err := validateActions(d.Name, d.Actions); err != nil {
@@ -742,8 +893,12 @@ func validateChart(name string, chart *ChartSpec) error {
 }
 
 // validateSections refuses a section that would render as an unlabelled or
-// unexplained table.
-func validateSections(name string, sections []Section) error {
+// unexplained table, or one whose header actions name nothing.
+func validateSections(name string, sections []Section, actions []RecordAction) error {
+	declared := make(map[string]bool, len(actions))
+	for _, a := range actions {
+		declared[a.Name] = true
+	}
 	titles := make(map[string]bool, len(sections))
 	for _, s := range sections {
 		switch {
@@ -772,6 +927,22 @@ func validateSections(name string, sections []Section) error {
 
 		if err := validateFields(s.Fields); err != nil {
 			return fmt.Errorf("view %q detail section %q %s", name, s.Title, err)
+		}
+
+		if len(s.Actions) > 0 && !s.Implemented() {
+			// A declared section reaches no port, so a header action on it
+			// would post to a write path the same panel says is not wired.
+			return fmt.Errorf("view %q detail section %q is declared but declares header actions", name, s.Title)
+		}
+		for _, a := range s.Actions {
+			if !declared[a] {
+				// A section header action names one of the parent view's
+				// own actions, so it can reuse that action's form, scope
+				// and handler. A name matching none would render a button
+				// to a route nobody mounted -- the silent 404 the endpoint
+				// checks exist to convert into a startup refusal.
+				return fmt.Errorf("view %q detail section %q names header action %q, which is not a declared action", name, s.Title, a)
+			}
 		}
 	}
 	return nil

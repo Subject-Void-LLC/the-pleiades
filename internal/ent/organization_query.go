@@ -20,6 +20,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/predicate"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
@@ -39,6 +40,7 @@ type OrganizationQuery struct {
 	withSchedules       *ScheduleQuery
 	withCredentialTypes *CredentialTypeQuery
 	withCredentials     *CredentialQuery
+	withProjects        *ProjectQuery
 	withAnnouncements   *AnnouncementQuery
 	withContacts        *ContactQuery
 	// intermediate query (i.e. traversal path).
@@ -224,6 +226,28 @@ func (_q *OrganizationQuery) QueryCredentials() *CredentialQuery {
 			sqlgraph.From(organization.Table, organization.FieldID, selector),
 			sqlgraph.To(credential.Table, credential.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, organization.CredentialsTable, organization.CredentialsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryProjects chains the current query on the "projects" edge.
+func (_q *OrganizationQuery) QueryProjects() *ProjectQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(organization.Table, organization.FieldID, selector),
+			sqlgraph.To(project.Table, project.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, organization.ProjectsTable, organization.ProjectsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -474,6 +498,7 @@ func (_q *OrganizationQuery) Clone() *OrganizationQuery {
 		withSchedules:       _q.withSchedules.Clone(),
 		withCredentialTypes: _q.withCredentialTypes.Clone(),
 		withCredentials:     _q.withCredentials.Clone(),
+		withProjects:        _q.withProjects.Clone(),
 		withAnnouncements:   _q.withAnnouncements.Clone(),
 		withContacts:        _q.withContacts.Clone(),
 		// clone intermediate query.
@@ -556,6 +581,17 @@ func (_q *OrganizationQuery) WithCredentials(opts ...func(*CredentialQuery)) *Or
 		opt(query)
 	}
 	_q.withCredentials = query
+	return _q
+}
+
+// WithProjects tells the query-builder to eager-load the nodes that are connected to
+// the "projects" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *OrganizationQuery) WithProjects(opts ...func(*ProjectQuery)) *OrganizationQuery {
+	query := (&ProjectClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withProjects = query
 	return _q
 }
 
@@ -659,7 +695,7 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 	var (
 		nodes       = []*Organization{}
 		_spec       = _q.querySpec()
-		loadedTypes = [9]bool{
+		loadedTypes = [10]bool{
 			_q.withDevices != nil,
 			_q.withTeams != nil,
 			_q.withInventories != nil,
@@ -667,6 +703,7 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 			_q.withSchedules != nil,
 			_q.withCredentialTypes != nil,
 			_q.withCredentials != nil,
+			_q.withProjects != nil,
 			_q.withAnnouncements != nil,
 			_q.withContacts != nil,
 		}
@@ -735,6 +772,13 @@ func (_q *OrganizationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		if err := _q.loadCredentials(ctx, query, nodes,
 			func(n *Organization) { n.Edges.Credentials = []*Credential{} },
 			func(n *Organization, e *Credential) { n.Edges.Credentials = append(n.Edges.Credentials, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withProjects; query != nil {
+		if err := _q.loadProjects(ctx, query, nodes,
+			func(n *Organization) { n.Edges.Projects = []*Project{} },
+			func(n *Organization, e *Project) { n.Edges.Projects = append(n.Edges.Projects, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -967,6 +1011,37 @@ func (_q *OrganizationQuery) loadCredentials(ctx context.Context, query *Credent
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "organization_credentials" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *OrganizationQuery) loadProjects(ctx context.Context, query *ProjectQuery, nodes []*Organization, init func(*Organization), assign func(*Organization, *Project)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*Organization)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Project(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(organization.ProjectsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.organization_projects
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "organization_projects" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "organization_projects" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

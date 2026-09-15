@@ -21,6 +21,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/localcredential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/meshsigningkey"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/revision"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/rolebinding"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
@@ -29,6 +30,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schema"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/session"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/syncrun"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/team"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/user"
@@ -534,6 +536,75 @@ func init() {
 	organizationDescFrozen := organizationFields[4].Descriptor()
 	// organization.DefaultFrozen holds the default value on creation for the frozen field.
 	organization.DefaultFrozen = organizationDescFrozen.Default.(bool)
+	projectMixin := schema.Project{}.Mixin()
+	projectMixinFields0 := projectMixin[0].Fields()
+	_ = projectMixinFields0
+	projectFields := schema.Project{}.Fields()
+	_ = projectFields
+	// projectDescCreatedAt is the schema descriptor for created_at field.
+	projectDescCreatedAt := projectMixinFields0[0].Descriptor()
+	// project.DefaultCreatedAt holds the default value on creation for the created_at field.
+	project.DefaultCreatedAt = projectDescCreatedAt.Default.(func() time.Time)
+	// projectDescUpdatedAt is the schema descriptor for updated_at field.
+	projectDescUpdatedAt := projectMixinFields0[1].Descriptor()
+	// project.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	project.DefaultUpdatedAt = projectDescUpdatedAt.Default.(func() time.Time)
+	// project.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	project.UpdateDefaultUpdatedAt = projectDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// projectDescName is the schema descriptor for name field.
+	projectDescName := projectFields[0].Descriptor()
+	// project.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	project.NameValidator = func() func(string) error {
+		validators := projectDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// projectDescDescription is the schema descriptor for description field.
+	projectDescDescription := projectFields[1].Descriptor()
+	// project.DefaultDescription holds the default value on creation for the description field.
+	project.DefaultDescription = projectDescDescription.Default.(string)
+	// project.DescriptionValidator is a validator for the "description" field. It is called by the builders before save.
+	project.DescriptionValidator = projectDescDescription.Validators[0].(func(string) error)
+	// projectDescScmURL is the schema descriptor for scm_url field.
+	projectDescScmURL := projectFields[3].Descriptor()
+	// project.DefaultScmURL holds the default value on creation for the scm_url field.
+	project.DefaultScmURL = projectDescScmURL.Default.(string)
+	// project.ScmURLValidator is a validator for the "scm_url" field. It is called by the builders before save.
+	project.ScmURLValidator = projectDescScmURL.Validators[0].(func(string) error)
+	// projectDescScmBranch is the schema descriptor for scm_branch field.
+	projectDescScmBranch := projectFields[4].Descriptor()
+	// project.DefaultScmBranch holds the default value on creation for the scm_branch field.
+	project.DefaultScmBranch = projectDescScmBranch.Default.(string)
+	// project.ScmBranchValidator is a validator for the "scm_branch" field. It is called by the builders before save.
+	project.ScmBranchValidator = projectDescScmBranch.Validators[0].(func(string) error)
+	// projectDescLocalPath is the schema descriptor for local_path field.
+	projectDescLocalPath := projectFields[5].Descriptor()
+	// project.DefaultLocalPath holds the default value on creation for the local_path field.
+	project.DefaultLocalPath = projectDescLocalPath.Default.(string)
+	// project.LocalPathValidator is a validator for the "local_path" field. It is called by the builders before save.
+	project.LocalPathValidator = projectDescLocalPath.Validators[0].(func(string) error)
+	// projectDescRevision is the schema descriptor for revision field.
+	projectDescRevision := projectFields[6].Descriptor()
+	// project.DefaultRevision holds the default value on creation for the revision field.
+	project.DefaultRevision = projectDescRevision.Default.(string)
+	// project.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	project.RevisionValidator = projectDescRevision.Validators[0].(func(string) error)
+	// projectDescSyncError is the schema descriptor for sync_error field.
+	projectDescSyncError := projectFields[8].Descriptor()
+	// project.DefaultSyncError holds the default value on creation for the sync_error field.
+	project.DefaultSyncError = projectDescSyncError.Default.(string)
+	// project.SyncErrorValidator is a validator for the "sync_error" field. It is called by the builders before save.
+	project.SyncErrorValidator = projectDescSyncError.Validators[0].(func(string) error)
 	revisionMixin := schema.Revision{}.Mixin()
 	revisionMixinFields0 := revisionMixin[0].Fields()
 	_ = revisionMixinFields0
@@ -761,6 +832,33 @@ func init() {
 	surveyquestionDescDisplayOrder := surveyquestionFields[9].Descriptor()
 	// surveyquestion.DefaultDisplayOrder holds the default value on creation for the display_order field.
 	surveyquestion.DefaultDisplayOrder = surveyquestionDescDisplayOrder.Default.(int)
+	syncrunMixin := schema.SyncRun{}.Mixin()
+	syncrunMixinFields0 := syncrunMixin[0].Fields()
+	_ = syncrunMixinFields0
+	syncrunFields := schema.SyncRun{}.Fields()
+	_ = syncrunFields
+	// syncrunDescCreatedAt is the schema descriptor for created_at field.
+	syncrunDescCreatedAt := syncrunMixinFields0[0].Descriptor()
+	// syncrun.DefaultCreatedAt holds the default value on creation for the created_at field.
+	syncrun.DefaultCreatedAt = syncrunDescCreatedAt.Default.(func() time.Time)
+	// syncrunDescUpdatedAt is the schema descriptor for updated_at field.
+	syncrunDescUpdatedAt := syncrunMixinFields0[1].Descriptor()
+	// syncrun.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	syncrun.DefaultUpdatedAt = syncrunDescUpdatedAt.Default.(func() time.Time)
+	// syncrun.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	syncrun.UpdateDefaultUpdatedAt = syncrunDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// syncrunDescRevision is the schema descriptor for revision field.
+	syncrunDescRevision := syncrunFields[1].Descriptor()
+	// syncrun.DefaultRevision holds the default value on creation for the revision field.
+	syncrun.DefaultRevision = syncrunDescRevision.Default.(string)
+	// syncrun.RevisionValidator is a validator for the "revision" field. It is called by the builders before save.
+	syncrun.RevisionValidator = syncrunDescRevision.Validators[0].(func(string) error)
+	// syncrunDescError is the schema descriptor for error field.
+	syncrunDescError := syncrunFields[2].Descriptor()
+	// syncrun.DefaultError holds the default value on creation for the error field.
+	syncrun.DefaultError = syncrunDescError.Default.(string)
+	// syncrun.ErrorValidator is a validator for the "error" field. It is called by the builders before save.
+	syncrun.ErrorValidator = syncrunDescError.Validators[0].(func(string) error)
 	teamMixin := schema.Team{}.Mixin()
 	teamMixinFields0 := teamMixin[0].Fields()
 	_ = teamMixinFields0

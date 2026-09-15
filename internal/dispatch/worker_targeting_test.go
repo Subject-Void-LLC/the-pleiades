@@ -58,6 +58,11 @@ func (s fakeSetStore) Delete(context.Context, int) error           { return nil 
 func (s fakeSetStore) SetsForDevice(context.Context, int) ([]int, error) {
 	return nil, nil
 }
+
+// ListMembers is a form-chooser concern. Dispatch never asks.
+func (s fakeSetStore) ListMembers(context.Context, int) (inventory.Members, error) {
+	return inventory.Members{}, nil
+}
 func (s fakeSetStore) ListOrganizations(context.Context) ([]inventory.Organization, error) {
 	return nil, nil
 }

@@ -60,11 +60,15 @@ func TestViewConformance_AnEditFormsOwnFieldsAreAnAcceptableSubmission(t *testin
 			continue
 		}
 		t.Run(d.Name, func(t *testing.T) {
-			// The first record, reached the way a user does: list, open,
-			// edit.
-			id := firstRecordID(t, h, d.Name)
+			// The first record the UI actually offers editing for, reached
+			// the way a user does: list, open, edit. Not merely the first
+			// record, because a view can list rows it withdraws the edit
+			// affordance from -- a managed credential type the store
+			// refuses -- and the round-trip invariant is about the editable
+			// ones.
+			id := firstEditableRecordID(t, h, d.Name)
 			if id == "" {
-				t.Skip("no seeded record to edit")
+				t.Skip("no seeded editable record to edit")
 			}
 
 			form := h.get(t, "/ui/"+d.Name+"/"+id+"/edit")

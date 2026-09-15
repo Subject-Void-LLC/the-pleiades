@@ -67,8 +67,8 @@ var registerRecordViews = sync.OnceFunc(func() {
 		// This is Descriptor.FieldsFor, not the "vary" action's own
 		// per-action FieldsFor above -- the two are deliberately
 		// independent seams, and this view exercises both.
-		FieldsFor: func(_ context.Context, id string) ([]view.Field, error) {
-			if id == "broken" {
+		FieldsFor: func(_ context.Context, r view.Resolve) ([]view.Field, error) {
+			if r.ID == "broken" {
 				return nil, errors.New("deliberate record-field resolution failure")
 			}
 			return []view.Field{
@@ -214,12 +214,26 @@ const session_CSRFHeader = "X-CSRF-Token"
 // TestDetail_RendersFieldsAndSections proves the record page composes the
 // record's own fields with its related tables, and that a section receives
 // the parent identifier it was opened for.
+//
+// A section is reachable at its own tab rather than stacked under the
+// record's fields, so this asserts both halves of that: the tab is offered on
+// the record page, and following it renders the section. Asserting only the
+// first would pass for a tab strip that links nowhere, which is the failure
+// this arrangement could plausibly have.
 func TestDetail_RendersFieldsAndSections(t *testing.T) {
 	p := newRecordProbe(t)
 
 	rec := p.get(t, "/ui/"+gadgetView+"/alpha")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "tab=related-records") {
+		t.Fatalf("the record page offers no tab for its section: %s", rec.Body.String())
+	}
+
+	rec = p.get(t, "/ui/"+gadgetView+"/alpha?tab=related-records")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("section tab status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
 
@@ -233,6 +247,24 @@ func TestDetail_RendersFieldsAndSections(t *testing.T) {
 	}
 }
 
+// TestDetail_UnknownTabFallsBackToTheRecord proves a tab slug nobody
+// recognises renders the record rather than an empty page.
+//
+// The value arrives in a query parameter, which means it arrives from
+// whatever somebody pasted into an address bar or from a link made against a
+// section that has since been renamed. Neither should produce a blank page.
+func TestDetail_UnknownTabFallsBackToTheRecord(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha?tab=no-such-section")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "detail-list") {
+		t.Error("an unrecognised tab did not fall back to the record's own fields")
+	}
+}
+
 // TestDetail_SurvivesASectionThatCannotLoad is the deliberate degradation.
 // The record's own fields are the answer to "what is this", and losing them
 // because a related table could not be read would turn a partial outage into
@@ -241,7 +273,7 @@ func TestDetail_RendersFieldsAndSections(t *testing.T) {
 func TestDetail_SurvivesASectionThatCannotLoad(t *testing.T) {
 	p := newRecordProbe(t)
 
-	rec := p.get(t, "/ui/"+gadgetView+"/alpha")
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha?tab=broken-section")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 despite a failing section", rec.Code)
 	}
@@ -253,7 +285,9 @@ func TestDetail_SurvivesASectionThatCannotLoad(t *testing.T) {
 	if strings.Contains(body, sectionErr.Error()) {
 		t.Error("the section's error text leaked into the response")
 	}
-	if !strings.Contains(body, "parent=alpha") {
+	// A failing section must not take the rest of the record's navigation
+	// with it: the healthy section is still offered as a tab beside it.
+	if !strings.Contains(body, "tab=related-records") {
 		t.Error("one failing section suppressed a healthy one")
 	}
 }
@@ -341,13 +375,32 @@ func TestForms_RenderForCreateAndEdit(t *testing.T) {
 		}
 	})
 
-	t.Run("create never resolves the per-record dynamic fields", func(t *testing.T) {
+	// This asserted the opposite until the seam was widened for
+	// Credentials, whose fields are declared by the type being chosen in
+	// the form rather than by anything a stored record names. A view that
+	// only wants per-record fields, like Templates, gets the old behaviour
+	// by reading Resolve.ID and returning nothing when it is empty; that is
+	// a decision for the resolver now, not a rule the caller enforces.
+	t.Run("create resolves the dynamic fields too, with an empty id", func(t *testing.T) {
 		rec := p.get(t, "/ui/"+gadgetView+"/new")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 		}
-		if strings.Contains(rec.Body.String(), `name="extra"`) {
-			t.Error("the create form renders a control FieldsFor resolved, but no record exists yet to resolve one from")
+		if !strings.Contains(rec.Body.String(), `name="extra"`) {
+			t.Error("the create form does not render the control FieldsFor resolved for an empty id")
+		}
+	})
+
+	// The no-JavaScript half of a dependent form: a driving control's value
+	// arrives on the query string, and the form has to come back with that
+	// control still holding it or the choice has to be made twice.
+	t.Run("a create form prefills a declared field from the query string", func(t *testing.T) {
+		rec := p.get(t, "/ui/"+gadgetView+"/new?name=seeded-by-query")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "seeded-by-query") {
+			t.Error("the create form dropped a declared field's value from the query string")
 		}
 	})
 

@@ -52,6 +52,21 @@ templ Layout(page view.PageModel) {
 				// else, which is the same reason it is first visually.
 				<div class={ "env-banner", "env-banner-top", page.Banner.Class() }>{ page.Banner.Label() }</div>
 			}
+			if !page.SignedIn() {
+				// First in the document, and therefore the first thing a
+				// keyboard or screen reader user reaches, on every page
+				// reached without a session.
+				//
+				// It is ahead of the skip link deliberately. A skip link
+				// exists to get past navigation, and a signed-out page has
+				// none to get past; accessibility mode exists for somebody
+				// who cannot comfortably read what is in front of them,
+				// and on the sign-in page that is the only thing in front
+				// of them. Making them tab through a form they are
+				// struggling to read in order to reach the control that
+				// makes it readable is the wrong way round.
+				@accessibilityToggle(page, "a11y-bar")
+			}
 			<a class="skip-link" href="#main">Skip to main content</a>
 			// The live region exists empty on every page. A region
 			// inserted together with its text is never announced: the
@@ -106,21 +121,40 @@ templ sidebar(page view.PageModel) {
 						</ul>
 					}
 				}
+				// The deployment's own settings. Outside the group loop
+				// because it is a fixed route rather than a registered
+				// view, and last because that is where every comparable
+				// control plane puts it: it is the entry an operator uses
+				// least often and an administrator uses on the first day.
+				if page.ShowSettings {
+					<h2 class="nav-group" id="nav-group-settings">SETTINGS</h2>
+					<ul class="nav-list" aria-labelledby="nav-group-settings">
+						<li>
+							if page.SettingsCurrent() {
+								<a href={ templ.SafeURL(page.SettingsHref()) } aria-current="page">SETTINGS</a>
+							} else {
+								<a href={ templ.SafeURL(page.SettingsHref()) }>SETTINGS</a>
+							}
+						</li>
+					</ul>
+				}
 			</nav>
 		</details>
-		@appearanceControls(page)
-		@sessionControls(page)
+		if page.SignedIn() {
+			@sessionControls(page)
+			@accessibilityToggle(page, "a11y-toggle")
+		}
 	</aside>
 }
 
 // sessionControls name who is signed in and offer the way out.
 //
-// A POST rather than a link. Sign-out deletes the session row, and anything
-// reachable by GET is eventually reached by a link prefetcher, a corporate
-// scanner or somebody's accelerator extension -- all of which would sign
-// the user out of a page they were reading. Going through a form also means
-// sign-out carries the CSRF token like every other write in the
-// application, rather than being the one state change that does not.
+// The sign-out control is a POST rather than a link. Sign-out deletes the
+// session row, and anything reachable by GET is eventually reached by a link
+// prefetcher, a corporate scanner or somebody's accelerator extension, all of
+// which would sign the user out of a page they were reading. Going through a
+// form also means sign-out carries the CSRF token like every other write in
+// the application, rather than being the one state change that does not.
 templ sessionControls(page view.PageModel) {
 	if page.SignedIn() {
 		<div class="session">
@@ -128,62 +162,58 @@ templ sessionControls(page view.PageModel) {
 				<span class="session-label">Signed in as</span>
 				<span class="session-name">{ page.Subject }</span>
 			</p>
-			<form method="post" action={ page.LogoutAction() }>
-				<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
-				<button class="btn" type="submit">Sign out</button>
-			</form>
+			<p class="session-links">
+				<a href={ templ.SafeURL(page.AccountHref()) }>Preferences</a>
+				<form method="post" action={ page.LogoutAction() }>
+					<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+					<button class="linkish" type="submit">Sign out</button>
+				</form>
+			</p>
 		</div>
 	}
 }
 
-// appearanceControls are the three orthogonal appearance axes.
+// accessibilityToggle is the one appearance control that stays in the
+// sidebar.
 //
-// All three post real forms, so every one works with scripting disabled and
-// none needs client-side persistence. Each is its own <fieldset> with its
-// own <legend>, so a screen reader user hears what a group of buttons is
-// for before hearing the buttons.
-templ appearanceControls(page view.PageModel) {
-	<div class="appearance">
-		<form class="theme-switch" method="post" action={ page.SkinAction() }>
-			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
-			<fieldset>
-				<legend>Style</legend>
-				<div class="theme-options">
-					for _, opt := range page.SkinOptions() {
-						<button type="submit" name="skin" value={ opt.Value } aria-pressed={ opt.Pressed }>{ opt.Label }</button>
-					}
-				</div>
-			</fieldset>
-		</form>
-		// Three buttons, not a toggle: "follow the system" has to stay
-		// reachable after the user has expressed a preference, and a
-		// two-state control cannot express it.
-		<form class="theme-switch" method="post" action={ page.ThemeAction() }>
-			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
-			<fieldset>
-				<legend>Theme</legend>
-				<div class="theme-options">
-					for _, opt := range page.ThemeOptions() {
-						<button type="submit" name="theme" value={ opt.Value } aria-pressed={ opt.Pressed }>{ opt.Label }</button>
-					}
-				</div>
-			</fieldset>
-		</form>
-		// A prominent control rather than a buried preference: a mode
-		// nobody can find is a mode nobody uses. It is never a degraded
-		// mode -- every feature stays exactly where it was.
-		<form class="theme-switch" method="post" action={ page.A11yAction() }>
-			<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
-			<fieldset>
-				<legend>Accessibility</legend>
-				<div class="theme-options">
-					<button type="submit" name="a11y" value={ page.A11yNext() } aria-pressed={ page.A11yPressed() }>
-						High contrast
-					</button>
-				</div>
-			</fieldset>
-		</form>
-	</div>
+// Skin and theme moved to the settings page, because they are set once and
+// then cost 250 pixels of every sidebar forever. This one did not, and the
+// reason is not symmetry: accessibility mode is what somebody reaches for
+// when the page in front of them has become hard to read, and a control you
+// have to navigate away to find is a control you reach for by first coping
+// with the thing you could not read. One click, on every page, always in the
+// same place.
+//
+// It is a form, not a scripted switch. It works with scripting disabled, it
+// carries the CSRF token like every other write, and the browser owns the
+// button semantics. aria-pressed is what makes it a toggle rather than a
+// button that does something once.
+//
+// One component, two placements, because a mode that works only once you are
+// signed in is a mode that failed the person it exists for: the sign-in page
+// is a page, and somebody who cannot read it cannot get past it to reach the
+// control that would fix it. The placement class is the only difference; the
+// route, the token and the semantics are identical, and /a11y is deliberately
+// outside the session gate so both actually work. See web/preferences.go.
+templ accessibilityToggle(page view.PageModel, placement string) {
+	<form class={ placement } method="post" action={ page.A11yAction() }>
+		<input type="hidden" name="_csrf" value={ page.CSRFToken }/>
+		// Where to put the reader back. Without it a preference change
+		// returns them to whatever the Referer said, or to the index when a
+		// browser sent none, which is a control that loses your place.
+		<input type="hidden" name="_return" value={ page.ReturnTo }/>
+		<button type="submit" name="a11y" value={ page.A11yNext() } aria-pressed={ page.A11yPressed() }>
+			// Decorative: the button's own text is its accessible name,
+			// and announcing "half-filled circle" before it would add a
+			// word that means nothing to somebody who cannot see it.
+			<svg class="a11y-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+				<circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+				<path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"></path>
+			</svg>
+			<span class="a11y-label">Accessibility mode</span>
+			<span class="a11y-state" aria-hidden="true">{ page.A11yStateLabel() }</span>
+		</button>
+	</form>
 }
 
 // navItems renders one group's entries. Its own component so the labelled

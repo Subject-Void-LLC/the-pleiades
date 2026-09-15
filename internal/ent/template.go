@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/template"
 )
 
@@ -47,11 +48,14 @@ type Template struct {
 	Edges                  TemplateEdges `json:"edges"`
 	inventory_templates    *int
 	organization_templates *int
+	project_templates      *int
 	selectValues           sql.SelectValues
 }
 
 // TemplateEdges holds the relations/edges for other nodes in the graph.
 type TemplateEdges struct {
+	// Project holds the value of the project edge.
+	Project *Project `json:"project,omitempty"`
 	// Organization holds the value of the organization edge.
 	Organization *Organization `json:"organization,omitempty"`
 	// Inventory holds the value of the inventory edge.
@@ -66,7 +70,18 @@ type TemplateEdges struct {
 	Schedules []*Schedule `json:"schedules,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [6]bool
+	loadedTypes [7]bool
+}
+
+// ProjectOrErr returns the Project value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e TemplateEdges) ProjectOrErr() (*Project, error) {
+	if e.Project != nil {
+		return e.Project, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: project.Label}
+	}
+	return nil, &NotLoadedError{edge: "project"}
 }
 
 // OrganizationOrErr returns the Organization value or an error if the edge
@@ -74,7 +89,7 @@ type TemplateEdges struct {
 func (e TemplateEdges) OrganizationOrErr() (*Organization, error) {
 	if e.Organization != nil {
 		return e.Organization, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: organization.Label}
 	}
 	return nil, &NotLoadedError{edge: "organization"}
@@ -85,7 +100,7 @@ func (e TemplateEdges) OrganizationOrErr() (*Organization, error) {
 func (e TemplateEdges) InventoryOrErr() (*Inventory, error) {
 	if e.Inventory != nil {
 		return e.Inventory, nil
-	} else if e.loadedTypes[1] {
+	} else if e.loadedTypes[2] {
 		return nil, &NotFoundError{label: inventory.Label}
 	}
 	return nil, &NotLoadedError{edge: "inventory"}
@@ -94,7 +109,7 @@ func (e TemplateEdges) InventoryOrErr() (*Inventory, error) {
 // SurveyQuestionsOrErr returns the SurveyQuestions value or an error if the edge
 // was not loaded in eager-loading.
 func (e TemplateEdges) SurveyQuestionsOrErr() ([]*SurveyQuestion, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.SurveyQuestions, nil
 	}
 	return nil, &NotLoadedError{edge: "survey_questions"}
@@ -103,7 +118,7 @@ func (e TemplateEdges) SurveyQuestionsOrErr() ([]*SurveyQuestion, error) {
 // SavedConfigsOrErr returns the SavedConfigs value or an error if the edge
 // was not loaded in eager-loading.
 func (e TemplateEdges) SavedConfigsOrErr() ([]*SavedLaunchConfig, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.SavedConfigs, nil
 	}
 	return nil, &NotLoadedError{edge: "saved_configs"}
@@ -112,7 +127,7 @@ func (e TemplateEdges) SavedConfigsOrErr() ([]*SavedLaunchConfig, error) {
 // CredentialsOrErr returns the Credentials value or an error if the edge
 // was not loaded in eager-loading.
 func (e TemplateEdges) CredentialsOrErr() ([]*Credential, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[5] {
 		return e.Credentials, nil
 	}
 	return nil, &NotLoadedError{edge: "credentials"}
@@ -121,7 +136,7 @@ func (e TemplateEdges) CredentialsOrErr() ([]*Credential, error) {
 // SchedulesOrErr returns the Schedules value or an error if the edge
 // was not loaded in eager-loading.
 func (e TemplateEdges) SchedulesOrErr() ([]*Schedule, error) {
-	if e.loadedTypes[5] {
+	if e.loadedTypes[6] {
 		return e.Schedules, nil
 	}
 	return nil, &NotLoadedError{edge: "schedules"}
@@ -145,6 +160,8 @@ func (*Template) scanValues(columns []string) ([]any, error) {
 		case template.ForeignKeys[0]: // inventory_templates
 			values[i] = new(sql.NullInt64)
 		case template.ForeignKeys[1]: // organization_templates
+			values[i] = new(sql.NullInt64)
+		case template.ForeignKeys[2]: // project_templates
 			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -253,6 +270,13 @@ func (_m *Template) assignValues(columns []string, values []any) error {
 				_m.organization_templates = new(int)
 				*_m.organization_templates = int(value.Int64)
 			}
+		case template.ForeignKeys[2]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field project_templates", value)
+			} else if value.Valid {
+				_m.project_templates = new(int)
+				*_m.project_templates = int(value.Int64)
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -264,6 +288,11 @@ func (_m *Template) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *Template) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryProject queries the "project" edge of the Template entity.
+func (_m *Template) QueryProject() *ProjectQuery {
+	return NewTemplateClient(_m.config).QueryProject(_m)
 }
 
 // QueryOrganization queries the "organization" edge of the Template entity.

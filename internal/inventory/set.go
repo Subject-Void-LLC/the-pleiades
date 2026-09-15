@@ -176,6 +176,44 @@ type SetStore interface {
 	// a legitimate share, and getting it wrong in the widening direction
 	// silently grants one.
 	SetsForDevice(ctx context.Context, deviceID int) ([]int, error)
+
+	// ListMembers returns the devices and groups a membership control may
+	// offer, bounded by limit.
+	//
+	// It exists for the same reason ListOrganizations does: an inventory's
+	// membership is stored as numeric ids, and a form that asked somebody
+	// to type them would be a form nobody could fill in correctly. A wrong
+	// id here silently shares the wrong hosts with the wrong team, and
+	// nothing about the stored result looks wrong afterwards.
+	//
+	// Bounded rather than unpaged, which is the honest difference from
+	// ListOrganizations. Organizations are a handful per deployment; a
+	// fleet is not, and a select carrying every device in a large estate is
+	// a control nobody can use even when it renders. The bound is a real
+	// ceiling and the caller is told when it was hit, so a deployment that
+	// outgrows it gets a visible answer rather than a silently short list.
+	// What that deployment actually needs is a search control, which is
+	// view.Filter's job and is not built.
+	ListMembers(ctx context.Context, limit int) (Members, error)
+}
+
+// Members are the devices and groups an inventory can be given, projected
+// to what a chooser needs.
+type Members struct {
+	Devices []Member
+	Groups  []Member
+
+	// Truncated reports that the bound was reached and this is not the
+	// whole fleet. A caller renders it rather than hiding it: a chooser
+	// that quietly omits the host somebody is looking for is worse than
+	// one that says it is incomplete.
+	Truncated bool
+}
+
+// Member is one device or group, as a membership control sees it.
+type Member struct {
+	ID   int
+	Name string
 }
 
 // Organization is the tenancy boundary an inventory belongs to, projected

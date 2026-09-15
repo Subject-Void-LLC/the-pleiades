@@ -13,6 +13,7 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/credential"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/organization"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/savedlaunchconfig"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/schedule"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/surveyquestion"
@@ -130,6 +131,25 @@ func (_c *TemplateCreate) SetNillableAllowSimultaneous(v *bool) *TemplateCreate 
 		_c.SetAllowSimultaneous(*v)
 	}
 	return _c
+}
+
+// SetProjectID sets the "project" edge to the Project entity by ID.
+func (_c *TemplateCreate) SetProjectID(id int) *TemplateCreate {
+	_c.mutation.SetProjectID(id)
+	return _c
+}
+
+// SetNillableProjectID sets the "project" edge to the Project entity by ID if the given value is not nil.
+func (_c *TemplateCreate) SetNillableProjectID(id *int) *TemplateCreate {
+	if id != nil {
+		_c = _c.SetProjectID(*id)
+	}
+	return _c
+}
+
+// SetProject sets the "project" edge to the Project entity.
+func (_c *TemplateCreate) SetProject(v *Project) *TemplateCreate {
+	return _c.SetProjectID(v.ID)
 }
 
 // SetOrganizationID sets the "organization" edge to the Organization entity by ID.
@@ -380,6 +400,23 @@ func (_c *TemplateCreate) createSpec() (*Template, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowSimultaneous(); ok {
 		_spec.SetField(template.FieldAllowSimultaneous, field.TypeBool, value)
 		_node.AllowSimultaneous = value
+	}
+	if nodes := _c.mutation.ProjectIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   template.ProjectTable,
+			Columns: []string{template.ProjectColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(project.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.project_templates = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.OrganizationIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

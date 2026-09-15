@@ -44,6 +44,8 @@ type Tx struct {
 	MeshSigningKey *MeshSigningKeyClient
 	// Organization is the client for interacting with the Organization builders.
 	Organization *OrganizationClient
+	// Project is the client for interacting with the Project builders.
+	Project *ProjectClient
 	// Revision is the client for interacting with the Revision builders.
 	Revision *RevisionClient
 	// RoleBinding is the client for interacting with the RoleBinding builders.
@@ -58,6 +60,8 @@ type Tx struct {
 	Session *SessionClient
 	// SurveyQuestion is the client for interacting with the SurveyQuestion builders.
 	SurveyQuestion *SurveyQuestionClient
+	// SyncRun is the client for interacting with the SyncRun builders.
+	SyncRun *SyncRunClient
 	// Team is the client for interacting with the Team builders.
 	Team *TeamClient
 	// Template is the client for interacting with the Template builders.
@@ -211,6 +215,7 @@ func (tx *Tx) init() {
 	tx.LocalCredential = NewLocalCredentialClient(tx.config)
 	tx.MeshSigningKey = NewMeshSigningKeyClient(tx.config)
 	tx.Organization = NewOrganizationClient(tx.config)
+	tx.Project = NewProjectClient(tx.config)
 	tx.Revision = NewRevisionClient(tx.config)
 	tx.RoleBinding = NewRoleBindingClient(tx.config)
 	tx.SavedLaunchConfig = NewSavedLaunchConfigClient(tx.config)
@@ -218,6 +223,7 @@ func (tx *Tx) init() {
 	tx.ScheduleOccurrence = NewScheduleOccurrenceClient(tx.config)
 	tx.Session = NewSessionClient(tx.config)
 	tx.SurveyQuestion = NewSurveyQuestionClient(tx.config)
+	tx.SyncRun = NewSyncRunClient(tx.config)
 	tx.Team = NewTeamClient(tx.config)
 	tx.Template = NewTemplateClient(tx.config)
 	tx.User = NewUserClient(tx.config)

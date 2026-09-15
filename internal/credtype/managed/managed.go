@@ -333,11 +333,6 @@ var notImplemented = []NotImplemented{
 		Detail: "awx declares no injectors for it at all and consumes it through the satellite inventory plugin, which is an inventory source this platform does not have",
 	},
 	{
-		Namespace: "scm", Name: "Source Control", Kind: credtype.KindSCM,
-		Reason: ReasonNoSubsystem,
-		Detail: "it authenticates project source-control sync, which is Run tier",
-	},
-	{
 		Namespace: "terraform", Name: "Terraform backend configuration", Kind: credtype.KindCloud,
 		Reason: ReasonPythonInjectors,
 		Detail: "it writes one or two files depending on whether Google Cloud credentials were supplied, and it needs the file injector the native path refuses",

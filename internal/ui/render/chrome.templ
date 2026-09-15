@@ -1,0 +1,251 @@
+package render
+
+import "github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
+
+// pageChrome is every page's header.
+//
+// One component, six callers. Before it existed each page template wrote its
+// own <header> with an <h1> and whatever back-link its author thought of,
+// which is how one record page came to be titled with a name and another with
+// a primary key: there was no single place that decided. Everything here is
+// computed in view.Chrome, so this file contains no decisions at all -- it
+// renders what it is handed, and renders nothing for what it is not.
+templ pageChrome(c view.Chrome) {
+	<header class={ c.HeaderClass() }>
+		@breadcrumb(c.Crumbs)
+		<div class="title-row">
+			<h1>{ c.Title }</h1>
+			for _, b := range c.Badges {
+				<span class={ "badge", b.Class }>{ b.Label }</span>
+			}
+			if len(c.Actions) > 0 {
+				<div class="title-actions">
+					for _, a := range c.Actions {
+						@chromeAction(a)
+					}
+				</div>
+			}
+		</div>
+		if c.Summary != "" {
+			<p class="view-summary">{ c.Summary }</p>
+		}
+		if c.HasTabs() {
+			@tabStrip(c.Tabs)
+		}
+	</header>
+}
+
+// chromeAction renders one control on the title row.
+//
+// A link and a dialog trigger are different elements, not one element with a
+// different attribute: an anchor with no href is not focusable and a button
+// that navigates is a button that breaks middle-click. The model says which
+// this is by whether it names a dialog.
+templ chromeAction(a view.ChromeAction) {
+	if a.OpensDialog() {
+		<button class={ a.Class() } type="button" data-dialog-open={ a.Dialog }>{ a.Label }</button>
+	} else {
+		<a class={ a.Class() } href={ templ.SafeURL(a.Href) }>{ a.Label }</a>
+	}
+}
+
+// breadcrumb renders the trail.
+//
+// A real <nav> with an ordered list, because the order is the meaning: these
+// are steps from broadest to narrowest, not a set of related links. The
+// separators are CSS rather than text nodes, so a screen reader reads four
+// list items instead of "Views slash Jobs slash 4821".
+templ breadcrumb(crumbs []view.Crumb) {
+	if len(crumbs) > 0 {
+		<nav class="crumbs" aria-label="Breadcrumb">
+			<ol>
+				for _, c := range crumbs {
+					<li>
+						if c.Linked() {
+							<a href={ templ.SafeURL(c.Href) }>{ c.Label }</a>
+						} else if c.Current {
+							<span aria-current="page">{ c.Label }</span>
+						} else {
+							<span>{ c.Label }</span>
+						}
+					</li>
+				}
+			</ol>
+		</nav>
+	}
+}
+
+// tabStrip renders a record's parts.
+//
+// Links rather than scripted tabs, and therefore not the ARIA tab pattern:
+// each one is a real navigation to a real URL that renders that part
+// server-side. That is a deliberate choice over a tablist. The content
+// security policy carries no 'unsafe-inline', the pattern needs roving
+// tabindex and arrow-key handling to be correct, and a tab whose state lives
+// in the URL is a tab somebody can bookmark, link to and reload.
+templ tabStrip(tabs []view.Tab) {
+	<nav class="tabs" aria-label="Sections">
+		for _, t := range tabs {
+			<a class={ t.Class() } href={ templ.SafeURL(t.Href) } aria-current={ t.CurrentAttr() }>
+				{ t.Label }
+				if t.HasCount() {
+					<span class="tab-count">{ t.Count }</span>
+				}
+			</a>
+		}
+	</nav>
+}
+
+// zeroState is what a region with nothing in it says.
+//
+// The one component for every absence in the application: an empty
+// collection, an empty section, a view with no implementation behind it, and
+// authorization that could not be evaluated. They render the same shape and
+// differ only in tone and wording, which is exactly the thing that should be
+// data rather than four blocks of markup.
+//
+// role="status" because an absence arriving after a swap is worth announcing
+// and must not interrupt.
+templ zeroState(z view.ZeroState) {
+	<div class={ z.Class() } role="status">
+		<p class="zero-heading"><strong>{ z.Heading }</strong></p>
+		if z.Body != "" {
+			<p class="zero-body">{ z.Body }</p>
+		}
+		if z.HasActions() {
+			<div class="zero-actions">
+				for _, a := range z.Actions {
+					@chromeAction(a)
+				}
+			</div>
+		}
+	</div>
+}
+
+// dataTable is every table this application draws.
+//
+// The collection's rows and a record's related rows used to be two nearly
+// identical blocks here. Nearly identical was the problem: the section copy
+// had no reference links, so a job's device outcome could name a device and
+// not reach it. One component means a table gains a capability once.
+templ dataTable(t view.TableModel) {
+	if t.ShowsColumns() {
+		<div class="table-scroll">
+			<table class="table">
+				if t.Captioned() {
+					<caption class="visually-hidden">{ t.Caption }</caption>
+				}
+				<thead>
+					<tr>
+						for _, col := range t.Columns {
+							<th scope="col">{ col.Label }</th>
+						}
+					</tr>
+				</thead>
+				<tbody>
+					for _, row := range t.Rows {
+						<tr>
+							for _, col := range t.Columns {
+								// data-label is what a narrow viewport
+								// renders in place of the column header
+								// once the table becomes cards, so a
+								// cell still says what it is.
+								<td data-label={ col.Label } data-primary={ t.IsPrimary(col) }>
+									@tableCell(t, row, col)
+								</td>
+							}
+						</tr>
+					}
+					if !t.HasRows() {
+						// The zero state inside the table rather than
+						// after it, so the columns above it are read as
+						// this region's shape rather than as a separate
+						// thing that happens to be empty.
+						<tr class="zero-row">
+							<td colspan={ t.ColumnSpan() }>
+								@zeroState(t.Empty)
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	} else {
+		@zeroState(t.Empty)
+	}
+}
+
+// tableCell renders one value: a badge, a link, or text.
+//
+// Its own component so the ordering of those three cases is written once. A
+// badge is never a link -- a chip that navigates is a target nobody expects --
+// and the link decision itself lives in the model, so this asks one question
+// rather than branching over two kinds of link in whatever order it thought
+// of them.
+templ tableCell(t view.TableModel, row view.Row, col view.Field) {
+	if col.RendersBadge() {
+		<span class={ "badge", t.BadgeClass(row, col) }>{ t.Cell(row, col) }</span>
+	} else if href := t.CellHref(row, col); href != "" {
+		<a href={ templ.SafeURL(href) }>{ t.CellText(row, col) }</a>
+	} else {
+		{ t.CellText(row, col) }
+	}
+}
+
+// sectionPanel renders one related-record table under a record.
+//
+// It is the shared table plus a heading, and nothing else. Everything that
+// used to be special about a section -- its own empty text, its own declared
+// panel, its own badge handling -- is now either a zero state or the table
+// itself, which is why this is six lines rather than sixty.
+templ sectionPanel(s view.SectionView) {
+	<section class="detail-section" aria-labelledby={ s.HeadingID() }>
+		if s.HasActions() {
+			<div class="section-head">
+				<h2 id={ s.HeadingID() }>{ s.Spec.Title }</h2>
+				<div class="section-actions">
+					for _, a := range s.Actions {
+						@chromeAction(a)
+					}
+				</div>
+			</div>
+		} else {
+			<h2 id={ s.HeadingID() }>{ s.Spec.Title }</h2>
+		}
+		if s.Spec.Summary != "" {
+			<p class="view-summary">{ s.Spec.Summary }</p>
+		}
+		@dataTable(s.Table())
+	</section>
+}
+
+// settingsTile renders one page of the settings area.
+//
+// The controls are described rather than drawn as live inputs, and that is the
+// whole point of the rendering. Nothing here is editable -- there is no
+// settings store -- and a text box that looks ready to accept a client secret
+// and then silently discards it is worse than no text box at all. Each field
+// shows its label, the kind of value it takes, and what it is for, which is
+// what makes the shape reviewable without pretending it is functional.
+templ settingsTile(tile view.SettingsTile) {
+	for _, group := range tile.Groups {
+		<section class="settings-group" aria-labelledby={ group.ID() }>
+			<h2 id={ group.ID() }>{ group.Title }</h2>
+			if group.Summary != "" {
+				<p class="view-summary">{ group.Summary }</p>
+			}
+			if !group.Implemented() {
+				<p class="settings-reason"><strong>Not built.</strong> { group.Reason }</p>
+			}
+			<dl class="settings-fields">
+				for _, f := range group.Fields {
+					<dt>
+						{ f.Label }
+						<span class="settings-kind">{ string(f.Kind) }</span>
+					</dt>
+					<dd>{ f.Help }</dd>
+				}
+			</dl>
+		</section>
+	}
+}

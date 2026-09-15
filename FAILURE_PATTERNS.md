@@ -212,6 +212,10 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 209. A multi-device job silently lost every copy but one of a skipped task's journal row, because the row's identity assumed a field that only some rows carry
 210. One run recorded "no keys" two different ways, because a normalization was applied at one of the two sinks
 211. A stress test raced a fixed sleep, so the gate failed describing an empty buffer instead of an unbounded one
+212. A tab's title named a filter its query never applied, so "Completed jobs" listed every job whatever its state
+213. The stylesheet had no rule for two classes its own templates emitted, so every page's primary action rendered as an ordinary button
+214. Making a record's name its own row link produced anchors with no accessible name on any record whose name was empty
+215. The contrast gate measured a colour pair that was not on the screen, so a whole skin rendered its text on the wrong background at 1.5:1 while every test passed
 
 ---
 

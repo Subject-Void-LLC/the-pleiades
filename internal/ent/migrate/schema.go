@@ -545,6 +545,51 @@ var (
 		Columns:    OrganizationsColumns,
 		PrimaryKey: []*schema.Column{OrganizationsColumns[0]},
 	}
+	// ProjectsColumns holds the columns for the "projects" table.
+	ProjectsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "name", Type: field.TypeString, Size: 253},
+		{Name: "description", Type: field.TypeString, Size: 1024, Default: ""},
+		{Name: "scm_type", Type: field.TypeEnum, Enums: []string{"git", "archive", "manual"}, Default: "git"},
+		{Name: "scm_url", Type: field.TypeString, Size: 2048, Default: ""},
+		{Name: "scm_branch", Type: field.TypeString, Size: 255, Default: ""},
+		{Name: "local_path", Type: field.TypeString, Size: 4096, Default: ""},
+		{Name: "revision", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "sync_status", Type: field.TypeEnum, Enums: []string{"never", "pending", "running", "succeeded", "failed"}, Default: "never"},
+		{Name: "sync_error", Type: field.TypeString, Size: 2048, Default: ""},
+		{Name: "last_synced_at", Type: field.TypeTime, Nullable: true},
+		{Name: "credential_projects", Type: field.TypeInt, Nullable: true},
+		{Name: "organization_projects", Type: field.TypeInt},
+	}
+	// ProjectsTable holds the schema information for the "projects" table.
+	ProjectsTable = &schema.Table{
+		Name:       "projects",
+		Columns:    ProjectsColumns,
+		PrimaryKey: []*schema.Column{ProjectsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "projects_credentials_projects",
+				Columns:    []*schema.Column{ProjectsColumns[13]},
+				RefColumns: []*schema.Column{CredentialsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "projects_organizations_projects",
+				Columns:    []*schema.Column{ProjectsColumns[14]},
+				RefColumns: []*schema.Column{OrganizationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "project_name_organization_projects",
+				Unique:  true,
+				Columns: []*schema.Column{ProjectsColumns[3], ProjectsColumns[14]},
+			},
+		},
+	}
 	// RevisionsColumns holds the columns for the "revisions" table.
 	RevisionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -823,6 +868,39 @@ var (
 			},
 		},
 	}
+	// SyncRunsColumns holds the columns for the "sync_runs" table.
+	SyncRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"succeeded", "failed"}},
+		{Name: "revision", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "error", Type: field.TypeString, Size: 2048, Default: ""},
+		{Name: "started_at", Type: field.TypeTime},
+		{Name: "finished_at", Type: field.TypeTime},
+		{Name: "project_sync_runs", Type: field.TypeInt},
+	}
+	// SyncRunsTable holds the schema information for the "sync_runs" table.
+	SyncRunsTable = &schema.Table{
+		Name:       "sync_runs",
+		Columns:    SyncRunsColumns,
+		PrimaryKey: []*schema.Column{SyncRunsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "sync_runs_projects_sync_runs",
+				Columns:    []*schema.Column{SyncRunsColumns[8]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "syncrun_started_at_project_sync_runs",
+				Unique:  false,
+				Columns: []*schema.Column{SyncRunsColumns[6], SyncRunsColumns[8]},
+			},
+		},
+	}
 	// TeamsColumns holds the columns for the "teams" table.
 	TeamsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -864,6 +942,7 @@ var (
 		{Name: "allow_simultaneous", Type: field.TypeBool, Default: false},
 		{Name: "inventory_templates", Type: field.TypeInt},
 		{Name: "organization_templates", Type: field.TypeInt},
+		{Name: "project_templates", Type: field.TypeInt, Nullable: true},
 	}
 	// TemplatesTable holds the schema information for the "templates" table.
 	TemplatesTable = &schema.Table{
@@ -882,6 +961,12 @@ var (
 				Columns:    []*schema.Column{TemplatesColumns[13]},
 				RefColumns: []*schema.Column{OrganizationsColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "templates_projects_templates",
+				Columns:    []*schema.Column{TemplatesColumns[14]},
+				RefColumns: []*schema.Column{ProjectsColumns[0]},
+				OnDelete:   schema.SetNull,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -1078,6 +1163,7 @@ var (
 		LocalCredentialsTable,
 		MeshSigningKeysTable,
 		OrganizationsTable,
+		ProjectsTable,
 		RevisionsTable,
 		RoleBindingsTable,
 		SavedLaunchConfigsTable,
@@ -1085,6 +1171,7 @@ var (
 		ScheduleOccurrencesTable,
 		SessionsTable,
 		SurveyQuestionsTable,
+		SyncRunsTable,
 		TeamsTable,
 		TemplatesTable,
 		UsersTable,
@@ -1112,6 +1199,8 @@ func init() {
 	InventoriesTable.ForeignKeys[0].RefTable = OrganizationsTable
 	JobTasksTable.ForeignKeys[0].RefTable = JobsTable
 	LocalCredentialsTable.ForeignKeys[0].RefTable = UsersTable
+	ProjectsTable.ForeignKeys[0].RefTable = CredentialsTable
+	ProjectsTable.ForeignKeys[1].RefTable = OrganizationsTable
 	RevisionsTable.ForeignKeys[0].RefTable = DevicesTable
 	RoleBindingsTable.ForeignKeys[0].RefTable = TeamsTable
 	SavedLaunchConfigsTable.ForeignKeys[0].RefTable = TemplatesTable
@@ -1120,9 +1209,11 @@ func init() {
 	SchedulesTable.ForeignKeys[2].RefTable = TemplatesTable
 	ScheduleOccurrencesTable.ForeignKeys[0].RefTable = SchedulesTable
 	SurveyQuestionsTable.ForeignKeys[0].RefTable = TemplatesTable
+	SyncRunsTable.ForeignKeys[0].RefTable = ProjectsTable
 	TeamsTable.ForeignKeys[0].RefTable = OrganizationsTable
 	TemplatesTable.ForeignKeys[0].RefTable = InventoriesTable
 	TemplatesTable.ForeignKeys[1].RefTable = OrganizationsTable
+	TemplatesTable.ForeignKeys[2].RefTable = ProjectsTable
 	GroupDevicesTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupDevicesTable.ForeignKeys[1].RefTable = DevicesTable
 	GroupChildrenTable.ForeignKeys[0].RefTable = GroupsTable

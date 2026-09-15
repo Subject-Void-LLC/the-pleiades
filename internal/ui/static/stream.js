@@ -29,6 +29,97 @@
     }
   }
 
+  // The class suffix each published status maps to.
+  //
+  // A lookup table rather than the status interpolated straight into a
+  // class name, because event.data is remote input and
+  // "stream-line-" + arbitrary text is a class-injection seam: a publisher
+  // that ever sent "ok x" would write two classes, and one that sent a
+  // known utility class would borrow its styling. Only these words can
+  // reach the DOM.
+  //
+  // internal/adapters/legacy/stdout_parser.go folds "unreachable" into
+  // "failed" and "skipping" into "ok" before publishing, so the four live
+  // statuses are the first four here. The rest are carried because
+  // cmd/demo publishes "task.completed" as a status and a future adapter
+  // may stop folding, and a line whose status is not understood must
+  // still render.
+  var LINE_KINDS = {
+    started: "started",
+    ok: "ok",
+    changed: "changed",
+    failed: "failed",
+    skipped: "skipped",
+    skipping: "skipped",
+    unreachable: "failed",
+    "task.completed": "task"
+  };
+
+  // TIME_RE pulls HH:MM:SS out of an RFC 3339 timestamp.
+  //
+  // A regex over the string rather than Date parsing, because the only
+  // question being asked is what the publisher already wrote down. Passing
+  // it through Date would reinterpret it in the reader's own zone, so two
+  // people reading the same failure would quote different times to each
+  // other, and an unparseable value would render as "Invalid Date" instead
+  // of simply being left out.
+  var TIME_RE = /T(\d{2}:\d{2}:\d{2})/;
+
+  // formatEvent turns one published wire.JobEvent into the line a reader
+  // sees, and the class that colours it.
+  //
+  // Nothing here decides what a line MEANS. The status is a field the
+  // adapter that ran the task already set, so this reads a classification
+  // rather than inventing one, which is the whole difference between it
+  // and colouring log text by regex in the browser.
+  function formatEvent(raw) {
+    var evt;
+    try {
+      evt = JSON.parse(raw);
+    } catch (err) {
+      // Not a DTO. Render it verbatim rather than dropping it: an
+      // unparseable line is still something an operator needs to see, and
+      // swallowing it would make a publisher change look like an outage.
+      return { text: raw, kind: "" };
+    }
+    if (!evt || typeof evt !== "object") {
+      return { text: raw, kind: "" };
+    }
+
+    var status = typeof evt.status === "string" ? evt.status : "";
+    var parts = [];
+
+    var stamp = typeof evt.timestamp === "string" ? TIME_RE.exec(evt.timestamp) : null;
+    if (stamp) {
+      parts.push(stamp[1]);
+    }
+    if (status) {
+      // The status word is in the text, never only in the colour
+      // (WCAG SC 1.4.1). It is also what the filter box searches, so
+      // "failed" in the filter finds the failures.
+      parts.push(status.toUpperCase());
+    }
+    if (evt.host) {
+      parts.push(String(evt.host));
+    }
+    if (evt.task) {
+      parts.push(String(evt.task));
+    }
+
+    var message = evt.event_data && typeof evt.event_data.message === "string"
+      ? evt.event_data.message
+      : "";
+    if (message) {
+      parts.push(message);
+    }
+
+    // An event carrying nothing renderable still gets a line, showing what
+    // arrived. A blank row would read as a gap in the log rather than as a
+    // message this viewer did not understand.
+    var text = parts.length > 0 ? parts.join("  ") : raw;
+    return { text: text, kind: LINE_KINDS[status] || "" };
+  }
+
   function init(output) {
     var url = output.getAttribute("data-stream-url");
     if (!url || typeof window.EventSource !== "function") {
@@ -86,7 +177,8 @@
     });
 
     source.onmessage = function (event) {
-      append(event.data);
+      var line = formatEvent(event.data);
+      append(line.text, line.kind);
     };
 
     source.onopen = function () {

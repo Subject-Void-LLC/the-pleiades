@@ -40,12 +40,16 @@
 // mistake in this file cannot leak a secret, because the object it is
 // handed does not contain one.
 //
-// # Read-only here, for the reason the Credential Types view gives
+// # Writable, once the form seam could express a per-type field set
 //
-// Writes stay on the API and the import command. A credential's inputs are
-// per-type, so a create form would have to build its controls from the
-// selected type's schema before the record exists, which is the one thing
-// view.Descriptor.FieldsFor deliberately does not do.
+// This said writes stay on the API, because a credential's inputs are
+// per-type and a create form would have to build its controls from the
+// selected type's schema before the record exists, "which is the one thing
+// view.Descriptor.FieldsFor deliberately does not do". That was an accurate
+// description of the seam and not of the requirement. FieldsFor now takes a
+// view.Resolve carrying the submission as well as the record id, so the
+// controls can be resolved from the type being chosen. form.go is that
+// resolution; nothing about what this view refuses to render changed.
 //
 // It is reachable only because internal/ui/resources/registrars.go names
 // it (FAILURE_PATTERNS.md #52).
@@ -60,41 +64,97 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credstore"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // Name is this view's registration key and URL segment.
 const Name = "credentials"
 
-// fields declare the shape.
+// typeField names the control that drives the rest of the form.
+//
+// Deliberately not "type": that name is already this view's read-only
+// display column, which renders the type's NAME, while this carries its id.
+// One name for two different values in the same form is how a projector and
+// a binder end up disagreeing about what a field holds.
+const typeField = "credential_type"
+
+// declaredFields declare the shape.
 //
 // There is deliberately no field for a secret value, and there never will
 // be. A Field renders into a table, a form and a detail list, so declaring
 // one for a secret would be three separate places it could reach a page.
-var fields = []view.Field{
-	{Name: "name", Label: "NAME", Kind: view.KindText, InList: true, MobilePrimary: true},
-	{
-		Name: "type", Label: "TYPE", Kind: view.KindReadOnly, InList: true,
-		References: "credential-types",
-		Help:       "What this credential holds and where its values go at run time.",
-	},
-	{
-		Name: "kind", Label: "KIND", Kind: view.KindBadge, InList: true,
-		Help:       "The grouping the binding rule keys on: a template takes at most one credential per kind, with vault exempted.",
-		BadgeClass: func(string) string { return "badge-neutral" },
-	},
-	{
-		Name: "organization", Label: "ORGANIZATION", Kind: view.KindReadOnly, InList: true,
-		References: "organizations",
-	},
-	{
-		Name: "inputs", Label: "INPUTS", Kind: view.KindReadOnly, InList: true,
-		Help: "Which inputs this credential supplies, and where each one comes from. A secret's value is not readable here or through any other port.",
-	},
-	{
-		Name: "bound", Label: "BOUND TO", Kind: view.KindReadOnly, InList: true,
-		Help: "How many templates run as this credential. This is what a rotation has to plan around.",
-	},
+// The per-type inputs are not here either: they are resolved per submission
+// in form.go, because they are not knowable until a type is chosen.
+func declaredFields(store typeReader, orgs inventory.OrganizationLister) []view.Field {
+	return []view.Field{
+		{
+			Name: "name", Label: "NAME", Kind: view.KindText,
+			Required: true, MaxLen: 253, InList: true, InForm: true, MobilePrimary: true,
+			Autocomplete: "off",
+			Help:         "What this credential is called, within its organization.",
+		},
+		{
+			Name: "description", Label: "DESCRIPTION", Kind: view.KindLongText,
+			MaxLen: 1024, InForm: true,
+			Help: "What it is for, for somebody who did not create it.",
+		},
+		{
+			Name: typeField, Label: "CREDENTIAL TYPE", Kind: view.KindSelect,
+			Required: true, Immutable: true, InForm: true,
+			Options: typeOptions(store),
+			// Immutable because the type decides how every stored input is
+			// interpreted and where it is injected. Re-pointing a saved
+			// credential at a different schema is a replacement, and one
+			// that would leave values behind under names the new type never
+			// declared. Make a new credential instead.
+			Help: "What this credential holds and where its values go at run time. Fixed once saved.",
+		},
+		{
+			Name: "organization", Label: "ORGANIZATION", Kind: view.KindSelect,
+			Required: true, Immutable: true, InList: true, InForm: true,
+			References: "organizations",
+			// Immutable for the reason the Inventories view gives about its
+			// own: moving a credential between tenants silently re-scopes
+			// who can reach it, and the store's update has no parameter for
+			// it regardless, so offering the control would be offering a
+			// decision that could be submitted and reported as successful
+			// without happening.
+			Help: "The tenant that owns this credential. Fixed once saved.",
+			Options: func(ctx context.Context) ([]view.Option, error) {
+				found, err := orgs.ListOrganizations(ctx)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]view.Option, 0, len(found))
+				for _, org := range found {
+					out = append(out, view.Option{Label: org.Name, Value: strconv.Itoa(org.ID)})
+				}
+				return out, nil
+			},
+		},
+		{
+			// The read-only display column for the same fact typeField
+			// carries as an id, kept separate for the reason that const's
+			// comment gives.
+			Name: "type", Label: "TYPE", Kind: view.KindReadOnly, InList: true,
+			References: "credential-types",
+			Help:       "What this credential holds and where its values go at run time.",
+		},
+		{
+			Name: "kind", Label: "KIND", Kind: view.KindBadge, InList: true,
+			Help:       "The grouping the binding rule keys on: a template takes at most one credential per kind, with vault exempted.",
+			BadgeClass: func(string) string { return "badge-neutral" },
+		},
+		{
+			Name: "inputs", Label: "INPUTS", Kind: view.KindReadOnly, InList: true,
+			Help: "Which inputs this credential supplies, and where each one comes from. A secret's value is not readable here or through any other port.",
+		},
+		{
+			Name: "bound", Label: "BOUND TO", Kind: view.KindReadOnly, InList: true,
+			Help: "How many templates run as this credential. This is what a rotation has to plan around.",
+		},
+	}
 }
 
 // describeInputs says which inputs are supplied and where each comes from,
@@ -184,7 +244,8 @@ func (r reader) Get(ctx context.Context, id string) (credstore.Credential, error
 }
 
 // Register wires the Credentials view over the credential store.
-func Register(store credstore.Store) error {
+func Register(store credstore.Store, orgs inventory.OrganizationLister) error {
+	declared := declaredFields(store, orgs)
 	return view.Register(view.Descriptor{
 		Name:     Name,
 		Title:    "Credentials",
@@ -195,14 +256,65 @@ func Register(store credstore.Store) error {
 		NavOrder: 50,
 		NavGroup: view.NavGroupResources,
 		Summary:  "Which secrets exist and what runs as them. Never a value.",
-		Status:   view.StatusImplemented,
-		IDField:  "name",
-		Fields:   fields,
-		Ops: view.Ops{
-			List: &apispec.ListCredentials,
-			Get:  &apispec.GetCredential,
+		// AWX's credential tabs. Neither is backed: bindings have no
+		// credential-scoped level, and the credential store resolves
+		// template to credentials rather than the reverse.
+		Sections: []view.Section{
+			view.Planned("Templates",
+				"The templates this credential is bound to, and how it reaches each run.",
+				"The store answers which credentials a template binds, not which templates bind a credential, so this needs the inverse index.",
+				[]view.Field{
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
+					{Name: "injector", Label: "INJECTED AS", Kind: view.KindText, InList: true},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+				}),
+			view.Planned("Access",
+				"The role bindings that reach this credential.",
+				"auth.ScopeType has system, organization, inventory, group and device, and no credential: access to one is inherited from the organization that owns it.",
+				[]view.Field{
+					{Name: "team", Label: "TEAM", Kind: view.KindText, InList: true, MobilePrimary: true, References: "teams"},
+					{Name: "role", Label: "ROLE", Kind: view.KindText, InList: true},
+					{Name: "effect", Label: "EFFECT", Kind: view.KindBadge, InList: true},
+				}),
 		},
-		Handlers: view.MustBind[credstore.Credential](reader{store}, nil, view.Projector[credstore.Credential]{
+		Status:    view.StatusImplemented,
+		IDField:   "name",
+		Fields:    declared,
+		FieldsFor: inputFields(store),
+		Ops: view.Ops{
+			List:   &apispec.ListCredentials,
+			Get:    &apispec.GetCredential,
+			Create: &apispec.CreateCredential,
+			Update: &apispec.UpdateCredential,
+			Delete: &apispec.DeleteCredentialEndpoint,
+		},
+		Handlers: view.MustBind[credstore.Credential](reader{store}, writer{store}, view.Projector[credstore.Credential]{
+			Form: formValues,
+			Bind: func(v view.Values) (credstore.Credential, view.FieldErrors) {
+				errs := view.FieldErrors{}
+				c := credstore.Credential{
+					Name:        strings.TrimSpace(v.Get("name")),
+					Description: strings.TrimSpace(v.Get("description")),
+				}
+
+				// Both are immutable, so view.Values answers empty for them
+				// on an edit and the writer's Update ignores them: it reads
+				// the stored row for anything it must not change.
+				if !v.Editing() {
+					typeID, err := strconv.Atoi(strings.TrimSpace(v.Get(typeField)))
+					if err != nil || typeID <= 0 {
+						errs.Add(typeField, "Choose a credential type.")
+					}
+					orgID, err := strconv.Atoi(strings.TrimSpace(v.Get("organization")))
+					if err != nil || orgID <= 0 {
+						errs.Add("organization", "Choose an organization.")
+					}
+					c.TypeID, c.OrganizationID = typeID, orgID
+				}
+
+				c.Inputs = bindInputs(v)
+				return c, errs
+			},
 			Row: func(c credstore.Credential) view.Row {
 				return view.Row{
 					ID: strconv.Itoa(c.ID),

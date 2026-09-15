@@ -127,6 +127,9 @@ func (Organization) Edges() []ent.Edge {
 		// which is the kind of destruction that should require naming what
 		// is being destroyed.
 		edge.To("credentials", Credential.Type),
+
+		// The source repositories this tenant runs automation out of.
+		edge.To("projects", Project.Type),
 		// An Announcement optionally belongs to one Organization. The
 		// absence is meaningful: no organization means system-wide, shown
 		// to everybody, which is what a platform maintenance notice has to

@@ -50,6 +50,24 @@ func Register() error {
 		Status:   view.StatusDeclared,
 		IDField:  "name",
 		Fields:   fields,
+		Sections: []view.Section{
+			view.Planned("Templates",
+				"The templates carrying this label.",
+				"A template's labels are a launch-time field rather than an entity, so nothing indexes templates by label yet.",
+				[]view.Field{
+					{Name: "template", Label: "TEMPLATE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "templates"},
+					{Name: "kind", Label: "KIND", Kind: view.KindBadge, InList: true},
+					{Name: "organization", Label: "ORGANIZATION", Kind: view.KindText, InList: true, References: "organizations"},
+				}),
+			view.Planned("Jobs",
+				"What has run under this label, newest first.",
+				"Labels travel with a launch but are not recorded against the job, so a job cannot be found by one.",
+				[]view.Field{
+					{Name: "job", Label: "JOB", Kind: view.KindText, InList: true, MobilePrimary: true, References: "jobs"},
+					{Name: "state", Label: "STATE", Kind: view.KindBadge, InList: true},
+					{Name: "created", Label: "WHEN", Kind: view.KindText, InList: true},
+				}),
+		},
 		// No Ops. There is no endpoint to name, and naming one that does
 		// not exist is precisely what Register refuses.
 	})

@@ -41,26 +41,43 @@ func registrars() []Registrar {
 		func(d Deps) error { return activity.Register(d.Activity) },
 		func(Deps) error { return approvals.Register() },
 		func(d Deps) error { return contacts.Register(d.Access) },
-		func(d Deps) error { return credentials.Register(d.Credentials) },
-		func(d Deps) error { return credentialtypes.Register(d.Credentials, d.Render) },
+		func(d Deps) error { return credentials.Register(d.Credentials, d.Sets) },
+		func(d Deps) error { return credentialtypes.Register(d.Credentials, d.Sets, d.Render) },
 		func(d Deps) error { return dashboard.Register(d.Jobs, d.Announce) },
 		func(d Deps) error { return devices.Register(d.Inventory, d.Factory) },
 		func(Deps) error { return executionenvs.Register() },
 		func(Deps) error { return governance.Register() },
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
-		func(d Deps) error { return inventories.Register(d.Sets) },
-		func(d Deps) error { return jobs.Register(d.Jobs) },
+		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
+		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d)) },
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
-		func(Deps) error { return projects.Register() },
+		func(d Deps) error {
+			return projects.Register(d.Projects, d.ProjectSync, d.ProjectRunner, d.Sets, d.Credentials)
+		},
 		func(d Deps) error { return runbooks.Register(d.Runbooks, d.Templates, d.Sets) },
 		func(d Deps) error { return schedules.Register(d.Schedules, d.Templates) },
 		func(d Deps) error { return teams.Register(d.Access) },
 		func(d Deps) error {
-			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog, d.Credentials)
+			return templates.Register(d.Templates, d.Sets, d.Jobs, d.Dispatcher, d.Access, d.Catalog, d.Credentials, d.Schedules)
 		},
 		func(d Deps) error { return users.Register(d.Access) },
 	}
+}
+
+// jobRelauncher hands the Jobs view a relauncher, or an untyped nil.
+//
+// Deps.Dispatcher is a *api.Dispatcher, and passing a nil one straight into
+// an interface parameter produces a NON-nil interface holding a nil
+// pointer, so the view's own "is this wired" check would pass and the first
+// relaunch would dereference it. A deployment with no dispatcher is real
+// (the conformance harness is one), so this converts explicitly rather than
+// relying on every callee to know the difference.
+func jobRelauncher(d Deps) jobs.Relauncher {
+	if d.Dispatcher == nil {
+		return nil
+	}
+	return d.Dispatcher
 }

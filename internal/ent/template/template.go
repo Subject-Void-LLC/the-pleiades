@@ -36,6 +36,8 @@ const (
 	FieldSurveyEnabled = "survey_enabled"
 	// FieldAllowSimultaneous holds the string denoting the allow_simultaneous field in the database.
 	FieldAllowSimultaneous = "allow_simultaneous"
+	// EdgeProject holds the string denoting the project edge name in mutations.
+	EdgeProject = "project"
 	// EdgeOrganization holds the string denoting the organization edge name in mutations.
 	EdgeOrganization = "organization"
 	// EdgeInventory holds the string denoting the inventory edge name in mutations.
@@ -50,6 +52,13 @@ const (
 	EdgeSchedules = "schedules"
 	// Table holds the table name of the template in the database.
 	Table = "templates"
+	// ProjectTable is the table that holds the project relation/edge.
+	ProjectTable = "templates"
+	// ProjectInverseTable is the table name for the Project entity.
+	// It exists in this package in order to avoid circular dependency with the "project" package.
+	ProjectInverseTable = "projects"
+	// ProjectColumn is the table column denoting the project relation/edge.
+	ProjectColumn = "project_templates"
 	// OrganizationTable is the table that holds the organization relation/edge.
 	OrganizationTable = "templates"
 	// OrganizationInverseTable is the table name for the Organization entity.
@@ -113,6 +122,7 @@ var Columns = []string{
 var ForeignKeys = []string{
 	"inventory_templates",
 	"organization_templates",
+	"project_templates",
 }
 
 var (
@@ -203,6 +213,13 @@ func ByAllowSimultaneous(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAllowSimultaneous, opts...).ToFunc()
 }
 
+// ByProjectField orders the results by project field.
+func ByProjectField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProjectStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByOrganizationField orders the results by organization field.
 func ByOrganizationField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -271,6 +288,13 @@ func BySchedules(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newSchedulesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newProjectStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProjectInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, ProjectTable, ProjectColumn),
+	)
 }
 func newOrganizationStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

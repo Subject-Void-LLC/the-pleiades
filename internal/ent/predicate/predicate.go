@@ -54,6 +54,9 @@ type MeshSigningKey func(*sql.Selector)
 // Organization is the predicate function for organization builders.
 type Organization func(*sql.Selector)
 
+// Project is the predicate function for project builders.
+type Project func(*sql.Selector)
+
 // Revision is the predicate function for revision builders.
 type Revision func(*sql.Selector)
 
@@ -74,6 +77,9 @@ type Session func(*sql.Selector)
 
 // SurveyQuestion is the predicate function for surveyquestion builders.
 type SurveyQuestion func(*sql.Selector)
+
+// SyncRun is the predicate function for syncrun builders.
+type SyncRun func(*sql.Selector)
 
 // Team is the predicate function for team builders.
 type Team func(*sql.Selector)
