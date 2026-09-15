@@ -287,3 +287,28 @@ func TestProjectsView_SyncHistoryRecordsEachAttempt(t *testing.T) {
 		t.Errorf("the Sync history tab does not record the completed attempt:\n%s", after)
 	}
 }
+
+// TestProjectsView_CancelIsOfferedOnlyWhileASyncRuns proves the control is
+// withheld rather than drawn-and-refused. A Cancel button on a project doing
+// nothing could only report that it had stopped nothing, which is the
+// affordance this project withholds by design.
+func TestProjectsView_CancelIsOfferedOnlyWhileASyncRuns(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	orgID := optionValue(t, body(t, h, "/ui/projects/new"), "organization", "acme")
+	created := uniqueName(t, "idle-project")
+	if w := h.post(t, "/ui/projects", map[string]string{
+		"name":         created,
+		"organization": orgID,
+		"scm_type":     "git",
+		"scm_url":      "https://git.example.test/team/idle.git",
+	}); w.Code >= http.StatusBadRequest {
+		t.Fatalf("creating the project = %d: %s", w.Code, w.Body.String())
+	}
+	id := recordPath(t, body(t, h, "/ui/projects"), created)
+
+	// It has never synced, so nothing is running and no Cancel is offered.
+	if detail := body(t, h, id); strings.Contains(detail, "Cancel sync") {
+		t.Errorf("a project with no sync running offers a Cancel control:\n%s", detail)
+	}
+}

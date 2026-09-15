@@ -100,6 +100,17 @@ const (
 	// privilege.
 	RelSetInputs LinkRel = "set-inputs"
 
+	// RelCancel is the affordance that stops work already in flight.
+	//
+	// Its own relation rather than RelExecute or RelDelete, and the contrast
+	// with each is the reason. Execute STARTS the work this cancels, so a
+	// resource offering both under one relation would give a client no way
+	// to tell "run it" from "stop it", which are opposites. Delete retires
+	// the resource; this leaves the resource exactly where it was and ends
+	// only the attempt, so a client reading "delete" and inferring the
+	// record was gone would be inferring wrongly.
+	RelCancel LinkRel = "cancel"
+
 	// RelSetInjectors is the affordance that replaces a credential type's
 	// injector document, distinct from RelSetInputs and RelUpdate for the
 	// same reason each of those is its own: one relation, one endpoint, one

@@ -54,6 +54,11 @@ type Runner struct {
 	sem chan struct{}
 	wg  sync.WaitGroup
 
+	// mu guards running, which holds one cancel per clone in flight so a
+	// single sync can be stopped without disturbing the others.
+	mu      sync.Mutex
+	running map[int]context.CancelFunc
+
 	// progress is where a running clone's output goes so somebody can watch
 	// it. The Runner owns it because the Runner is what starts and ends a
 	// clone, which is exactly when a stream opens and closes.
@@ -88,6 +93,7 @@ func NewRunner(store syncStore, syncer Syncer, logger *slog.Logger, opts ...Runn
 		cancel:   cancel,
 		sem:      make(chan struct{}, defaultConcurrency),
 		progress: NewProgress(),
+		running:  map[int]context.CancelFunc{},
 	}
 	for _, o := range opts {
 		o(r)
@@ -138,13 +144,21 @@ func (r *Runner) run(p Project) {
 	}
 	defer func() { <-r.sem }()
 
+	// A context of this clone's own, derived from the Runner's, so Cancel
+	// can stop one sync without touching any other. Shutdown still reaches
+	// all of them, because they all descend from r.ctx.
+	ctx, cancel := context.WithCancel(r.ctx)
+	defer cancel()
+	r.track(p.ID, cancel)
+	defer r.untrack(p.ID)
+
 	// The clone reports into this project's stream, and the stream ends
 	// when the clone does however it ends, so a reader is never left
 	// watching a page that will receive nothing more.
 	out := r.progress.Writer(p.ID)
 	defer r.progress.Finish(p.ID)
 
-	result, err := r.syncer.Sync(r.ctx, p, out)
+	result, err := r.syncer.Sync(ctx, p, out)
 	if err != nil {
 		// The syncer reserves its error return for a failure to even
 		// attempt. BeginSync already refused an unsyncable project, so this
@@ -152,8 +166,58 @@ func (r *Runner) run(p Project) {
 		// rather than leaving it running.
 		result = Result{Status: SyncFailed, Err: err.Error(), At: time.Now()}
 	}
+
+	// A cancelled clone is recorded as cancelled rather than as whatever
+	// the transport said when its context went away, which is usually a
+	// message about a closed connection that reads like a network fault.
+	// The distinction that matters is WHOSE doing it was: a shutdown is the
+	// server's, and a cancel is a person's.
+	if ctx.Err() != nil {
+		result.Status = SyncFailed
+		result.Revision = ""
+		if r.ctx.Err() != nil {
+			result.Err = "the server was shutting down, so the sync was stopped; sync again"
+		} else {
+			result.Err = "the sync was cancelled"
+		}
+		if result.At.IsZero() {
+			result.At = time.Now()
+		}
+	}
+
 	result.StartedAt = started
 	r.record(p.ID, result)
+}
+
+// track remembers how to stop one clone while it runs.
+func (r *Runner) track(projectID int, cancel context.CancelFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.running[projectID] = cancel
+}
+
+// untrack forgets a clone that has finished, so a later Cancel of the same
+// project reports honestly that nothing was running rather than cancelling a
+// context nobody is waiting on.
+func (r *Runner) untrack(projectID int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.running, projectID)
+}
+
+// Cancel stops this project's running clone and reports whether there was
+// one. It returns as soon as the clone is told to stop: the outcome is
+// recorded by the goroutine that was running it, the same way every other
+// ending is.
+func (r *Runner) Cancel(projectID int) bool {
+	r.mu.Lock()
+	cancel, ok := r.running[projectID]
+	r.mu.Unlock()
+	if !ok {
+		return false
+	}
+	cancel()
+	return true
 }
 
 // record writes a sync outcome under a background context, because the

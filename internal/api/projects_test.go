@@ -63,14 +63,29 @@ type fakeSyncer struct {
 	// reported, standing in for a real clone's own chatter.
 	progress string
 
+	// started is closed when a clone begins and block holds it open, so a
+	// test can catch a sync in flight the way a slow repository would.
+	started chan struct{}
+	block   chan struct{}
+
 	seen []project.Project
 }
 
 // Sync records the request and returns the configured outcome.
-func (f *fakeSyncer) Sync(_ context.Context, p project.Project, progress io.Writer) (project.Result, error) {
+func (f *fakeSyncer) Sync(ctx context.Context, p project.Project, progress io.Writer) (project.Result, error) {
 	f.seen = append(f.seen, p)
 	if f.progress != "" && progress != nil {
 		_, _ = io.WriteString(progress, f.progress)
+	}
+	if f.started != nil {
+		close(f.started)
+	}
+	if f.block != nil {
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return project.Result{Status: project.SyncFailed, Err: "stopped"}, nil
+		}
 	}
 	if f.err != nil {
 		return project.Result{}, f.err
@@ -147,6 +162,7 @@ func newProjectFixture(t *testing.T) *projectFixture {
 			apispec.DeleteProject.Route(handler.Delete),
 			apispec.SyncProject.Route(handler.Sync),
 			apispec.StreamProjectSyncLogs.Route(handler.StreamSyncLogs),
+			apispec.CancelProjectSync.Route(handler.CancelSync),
 		},
 	})
 	if err != nil {
@@ -856,6 +872,7 @@ func routerOverStore(t *testing.T, store project.Store, syncer project.Syncer) h
 			apispec.DeleteProject.Route(handler.Delete),
 			apispec.SyncProject.Route(handler.Sync),
 			apispec.StreamProjectSyncLogs.Route(handler.StreamSyncLogs),
+			apispec.CancelProjectSync.Route(handler.CancelSync),
 		},
 	})
 	if err != nil {
@@ -1164,5 +1181,64 @@ func TestProjects_SyncLogStreamNeedsAFlushingWriter(t *testing.T) {
 
 	if w.code != http.StatusInternalServerError {
 		t.Errorf("status %d, want 500 when the writer cannot flush; body %s", w.code, w.body.String())
+	}
+}
+
+// TestProjects_CancelStopsARunningSync covers the control an operator needs
+// when a fetch is taking too long: the clone is stopped and the project
+// settles to a failed status naming the cancellation.
+func TestProjects_CancelStopsARunningSync(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "slow")
+	f.syncer.started = make(chan struct{})
+	f.syncer.block = make(chan struct{})
+
+	if status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil); status != http.StatusAccepted {
+		t.Fatalf("starting the sync = %d: %s", status, body)
+	}
+	<-f.syncer.started // the clone is in flight and will not finish on its own
+
+	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync/cancel", id), nil)
+	if status != http.StatusAccepted {
+		t.Fatalf("cancelling = %d, want 202; body %s", status, body)
+	}
+	f.runner.Wait()
+
+	_, polled := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d", id), nil)
+	var dto struct {
+		SyncStatus string `json:"sync_status"`
+		SyncError  string `json:"sync_error"`
+	}
+	if err := json.Unmarshal(polled, &dto); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if dto.SyncStatus != string(project.SyncFailed) {
+		t.Errorf("sync_status = %q, want failed after a cancel", dto.SyncStatus)
+	}
+	if !strings.Contains(dto.SyncError, "cancelled") {
+		t.Errorf("sync_error = %q, want it to name the cancellation", dto.SyncError)
+	}
+}
+
+// TestProjects_CancelWithNothingRunningIsAConflict keeps the endpoint honest:
+// reporting success for having stopped nothing would tell a caller it had
+// done something it had not.
+func TestProjects_CancelWithNothingRunningIsAConflict(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "idle")
+
+	if status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync/cancel", id), nil); status != http.StatusConflict {
+		t.Errorf("cancelling an idle project = %d, want 409; body %s", status, body)
+	}
+}
+
+// TestProjects_CancelAnUnknownProjectIsNotFound proves an unknown id is a 404
+// rather than a 409 that would read as "nothing is running" about a project
+// that does not exist.
+func TestProjects_CancelAnUnknownProjectIsNotFound(t *testing.T) {
+	f := newProjectFixture(t)
+
+	if status, _ := f.do(t, http.MethodPost, "/api/v1/projects/999999/sync/cancel", nil); status != http.StatusNotFound {
+		t.Errorf("cancelling an unknown project = %d, want 404", status)
 	}
 }

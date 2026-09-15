@@ -170,6 +170,35 @@ var SyncProject = Endpoint{
 	},
 }
 
+// CancelProjectSync is POST /projects/{id}/sync/cancel.
+//
+// A write scope, the same one starting a sync takes: stopping a fetch
+// changes what the controller is doing and what the project ends up
+// recording.
+var CancelProjectSync = Endpoint{
+	Name:    "cancel_project_sync",
+	Method:  http.MethodPost,
+	Pattern: "/projects/{id}/sync/cancel",
+	Scope:   auth.ScopeProjectWrite,
+	Rel:     auth.RelCancel,
+	Summary: "Cancel a project's running sync",
+	Description: "Stops a clone that is in flight and returns at once; the goroutine running it records the " +
+		"outcome, so the project settles to failed with a reason naming the cancellation rather than whatever the " +
+		"transport said when its connection went away. A project with no sync running is a 409, because reporting " +
+		"success for having stopped nothing would tell a caller it had done something it had not. A clone runs on " +
+		"the controller that accepted the sync, so in a multi-replica deployment this reaches only the one it " +
+		"lands on.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusAccepted, Description: "The running sync was told to stop. The project is returned as it stands; poll it for the recorded outcome.", Schema: projectSchema},
+		{Status: http.StatusBadRequest, Description: "id is not a positive integer.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "No sync is running for this project.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
+	},
+}
+
 // StreamProjectSyncLogs is GET /projects/{id}/sync/logs.
 //
 // A read scope rather than the write a sync itself takes: watching a fetch

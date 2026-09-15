@@ -28,11 +28,41 @@ import (
 // listing.
 const sectionLimit = 200
 
-// syncEnqueuer starts a project's clone in the background. It is
-// *project.Runner in a real controller; the action holds the interface so a
-// test can drive the button without a real clone.
+// syncEnqueuer is what the Sync and Cancel controls need from the project
+// runner: start a clone in the background, and stop one already running. It
+// is *project.Runner in a real controller; the actions hold the interface so
+// a test can drive the buttons without a real clone.
 type syncEnqueuer interface {
 	Enqueue(ctx context.Context, id int) error
+
+	// Cancel stops this project's running clone, reporting whether there
+	// was one to stop.
+	Cancel(projectID int) bool
+}
+
+// cancelAction stops a clone that is taking too long.
+//
+// It prompts for nothing for the same reason Sync does not: everything it
+// needs is on the record. Whether a clone was actually running is not
+// reported back as an error, because the page it lands on already answers
+// that: a sync that finished between the button being drawn and pressed is
+// not a mistake the person made.
+func cancelAction(runner syncEnqueuer) view.RecordAction {
+	return view.RecordAction{
+		Name:     "cancel-sync",
+		Label:    "Cancel sync",
+		Heading:  "Stop this project's running sync",
+		Endpoint: &apispec.CancelProjectSync,
+		Submit: func(_ context.Context, id string, _ view.Values) (string, view.FieldErrors, error) {
+			errs := view.FieldErrors{}
+			numeric, err := strconv.Atoi(id)
+			if err != nil {
+				return "", errs, project.ErrNotFound
+			}
+			runner.Cancel(numeric)
+			return "", errs, nil
+		},
+	}
 }
 
 // syncAction starts an asynchronous clone of the project's working tree.

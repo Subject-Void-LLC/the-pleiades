@@ -49,6 +49,10 @@ type syncEnqueuer interface {
 	// Subscribe returns a running clone's output, closed when it finishes.
 	// The returned func releases the subscription.
 	Subscribe(projectID int) (<-chan string, func())
+
+	// Cancel stops this project's running clone, reporting whether there
+	// was one to stop.
+	Cancel(projectID int) bool
 }
 
 // credentialLister reads the redacted credential projection, which is all
@@ -309,6 +313,42 @@ func (h *ProjectHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := toProjectDTO(claimed)
+	Respond(w, r, http.StatusAccepted, &dto)
+}
+
+// CancelSync stops a clone that is in flight.
+//
+// It answers 202 rather than 200: telling a clone to stop is not the same as
+// it having stopped, and the goroutine running it is what records the
+// outcome, exactly as it does for a sync that ends any other way. A project
+// with nothing running is a 409, because answering success for having
+// stopped nothing would tell a caller it had done something it had not.
+func (h *ProjectHandler) CancelSync(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseID(w, r)
+	if !ok {
+		return
+	}
+
+	// Read first, so an unknown project is a 404 rather than a 409 that
+	// would read as "nothing is running" about a project that does not
+	// exist.
+	p, err := h.projects.Get(r.Context(), id)
+	if err != nil {
+		h.respondStoreError(w, r, "read", err)
+		return
+	}
+
+	if !h.syncs.Cancel(id) {
+		RespondError(w, r, http.StatusConflict, "no sync is running for this project")
+		return
+	}
+
+	// The project as it was read a moment ago, not re-read after the
+	// cancel. Stopping a clone is asynchronous: the goroutine running it is
+	// what records the outcome, so a second read here would be a race
+	// against that write rather than a report of it, and the caller polls
+	// for the settled status either way.
+	dto := toProjectDTO(p)
 	Respond(w, r, http.StatusAccepted, &dto)
 }
 

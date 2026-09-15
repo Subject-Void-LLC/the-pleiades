@@ -1224,6 +1224,7 @@ func main() {
 		apispec.DeleteProject.Name:         projectsAPI.Delete,
 		apispec.SyncProject.Name:           projectsAPI.Sync,
 		apispec.StreamProjectSyncLogs.Name: projectsAPI.StreamSyncLogs,
+		apispec.CancelProjectSync.Name:     projectsAPI.CancelSync,
 
 		apispec.ListActivity.Name:     activityLog.ListActivity,
 		apispec.GetActivityEntry.Name: activityLog.GetActivityEntry,

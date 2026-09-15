@@ -768,6 +768,7 @@ var Endpoints = []Endpoint{
 	UpdateProject,
 	DeleteProject,
 	SyncProject,
+	CancelProjectSync,
 	StreamProjectSyncLogs,
 
 	ListCredentials,

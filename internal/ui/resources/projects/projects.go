@@ -32,6 +32,7 @@ import (
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/auth"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
@@ -240,7 +241,16 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 		Status:   view.StatusImplemented,
 		IDField:  "name",
 		Fields:   declaredFields(orgs, creds),
-		Actions:  []view.RecordAction{syncAction(runner)},
+		Actions:  []view.RecordAction{syncAction(runner), cancelAction(runner)},
+		// Cancel is offered only while a clone is actually in flight. A
+		// button that could only report "nothing was running" is the
+		// affordance this project withholds rather than draws.
+		Applies: func(row view.Row, rel auth.LinkRel) bool {
+			if rel == apispec.CancelProjectSync.Rel {
+				return project.SyncStatus(row.Cells["sync_status"]) == project.SyncRunning
+			}
+			return true
+		},
 		// Watching a fetch is what a large repository needs: a badge says
 		// how it ended, and this says what it is doing meanwhile. Built from
 		// the API's own prefix and the endpoint's own pattern, so a change

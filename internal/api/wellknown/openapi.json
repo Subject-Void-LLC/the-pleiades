@@ -7807,6 +7807,161 @@
         "x-link-relation": "execute"
       }
     },
+    "/projects/{id}/sync/cancel": {
+      "post": {
+        "description": "Stops a clone that is in flight and returns at once; the goroutine running it records the outcome, so the project settles to failed with a reason naming the cancellation rather than whatever the transport said when its connection went away. A project with no sync running is a 409, because reporting success for having stopped nothing would tell a caller it had done something it had not. A clone runs on the controller that accepted the sync, so in a multi-replica deployment this reaches only the one it lands on.",
+        "operationId": "cancel_project_sync",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "credential": {
+                      "description": "The credential the clone authenticates as, absent for a public repository.",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "description": "What is in this repository.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "last_synced_at": {
+                      "description": "When the last sync ran, absent if none has.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary this project belongs to.",
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "description": "The commit the working tree is at. Empty until a sync has succeeded once.",
+                      "type": "string"
+                    },
+                    "scm_branch": {
+                      "description": "The branch, tag or commit to check out. Empty means the remote's own default.",
+                      "type": "string"
+                    },
+                    "scm_type": {
+                      "description": "How the content is reached. Only \"git\" is implemented.",
+                      "type": "string"
+                    },
+                    "scm_url": {
+                      "description": "The repository to clone.",
+                      "type": "string"
+                    },
+                    "sync_error": {
+                      "description": "Why the last sync failed, with credential material already stripped.",
+                      "type": "string"
+                    },
+                    "sync_status": {
+                      "description": "One of never, pending, running, succeeded or failed.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The running sync was told to stop. The project is returned as it stands; poll it for the recorded outcome."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No sync is running for this project."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:write"
+            ]
+          }
+        ],
+        "summary": "Cancel a project's running sync",
+        "x-link-relation": "cancel"
+      }
+    },
     "/projects/{id}/sync/logs": {
       "get": {
         "description": "Each frame's data is one line of the fetch's own output. A reader arriving while a clone is already running receives what it has printed so far before the live lines, and one arriving after it finished receives that tail and an immediate 'done' event, so neither is left watching a page that will never receive anything. The stream ends when the clone does. Output is held to the same rule the project's sync_error is: internal/project strips credential material from a transport's messages before they reach a reader. A clone runs on the controller that accepted the sync, so in a multi-replica deployment a reader whose request lands elsewhere sees only the closing event.",

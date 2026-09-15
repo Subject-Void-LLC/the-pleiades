@@ -177,3 +177,83 @@ func TestRunner_ShutdownDrainsAnInFlightClone(t *testing.T) {
 		t.Errorf("after shutdown %d outcomes recorded, want the in-flight one written", len(got))
 	}
 }
+
+// TestRunner_CancelStopsOneCloneAndRecordsItAsCancelled proves a person can
+// stop a fetch that is taking too long, and that the record says who ended
+// it rather than reporting whatever the transport said when its context went
+// away.
+func TestRunner_CancelStopsOneCloneAndRecordsItAsCancelled(t *testing.T) {
+	store := &recordingStore{}
+	started := make(chan struct{})
+	syncer := &controllableSyncer{
+		result:  project.Result{Status: project.SyncSucceeded, Revision: "abc123"},
+		started: started,
+		// Never released: the clone ends only when it is cancelled.
+		release: make(chan struct{}),
+	}
+	r := project.NewRunner(store, syncer, nil)
+
+	if err := r.Enqueue(context.Background(), 7); err != nil {
+		t.Fatalf("Enqueue() = %v", err)
+	}
+	<-started
+
+	if !r.Cancel(7) {
+		t.Fatal("Cancel() reported nothing running while a clone was in flight")
+	}
+	r.Wait()
+
+	got := store.results()
+	if len(got) != 1 {
+		t.Fatalf("recorded %d outcomes, want the cancelled one", len(got))
+	}
+	if got[0].Status != project.SyncFailed {
+		t.Errorf("cancelled sync recorded as %q, want failed", got[0].Status)
+	}
+	if !strings.Contains(got[0].Err, "cancelled") {
+		t.Errorf("recorded reason %q, want it to say the sync was cancelled", got[0].Err)
+	}
+	// A cancelled clone did not land on a commit, so claiming one would be
+	// worse than saying nothing.
+	if got[0].Revision != "" {
+		t.Errorf("cancelled sync recorded revision %q, want none", got[0].Revision)
+	}
+}
+
+// TestRunner_CancelWithNothingRunningSaysSo keeps the control honest: a
+// button that reported success against a project doing nothing would tell a
+// reader it had stopped something it had not.
+func TestRunner_CancelWithNothingRunningSaysSo(t *testing.T) {
+	r := project.NewRunner(&recordingStore{}, &controllableSyncer{}, nil)
+	if r.Cancel(7) {
+		t.Error("Cancel() reported it stopped a clone with none running")
+	}
+}
+
+// TestRunner_CancelLeavesOtherClonesAlone is why each clone gets a context of
+// its own: cancelling one project must not stop everything in flight.
+func TestRunner_CancelLeavesOtherClonesAlone(t *testing.T) {
+	store := &recordingStore{}
+	startedSeven := make(chan struct{})
+	syncer := &controllableSyncer{
+		result:  project.Result{Status: project.SyncSucceeded},
+		started: startedSeven,
+		release: make(chan struct{}),
+	}
+	r := project.NewRunner(store, syncer, nil)
+
+	if err := r.Enqueue(context.Background(), 7); err != nil {
+		t.Fatalf("Enqueue() = %v", err)
+	}
+	<-startedSeven
+
+	// A project with no clone of its own: cancelling it must not disturb 7.
+	if r.Cancel(8) {
+		t.Error("Cancel(8) reported stopping a clone that belonged to another project")
+	}
+
+	if !r.Cancel(7) {
+		t.Error("Cancel(7) did not stop its own clone")
+	}
+	r.Wait()
+}
