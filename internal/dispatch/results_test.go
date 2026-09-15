@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,6 +170,36 @@ func TestResultConsumer_IsIdempotentUnderRedelivery(t *testing.T) {
 	}
 }
 
+// completedSignal wraps a JobStore to announce when the consumer has made
+// its final write, so a test can read the store once the handler has
+// finished instead of polling it while the handler is still writing.
+//
+// That distinction is the whole reason this type exists. An earlier version
+// of the test below polled store.Get every five milliseconds from the main
+// goroutine while the bus delivered to the handler on its own, and the two
+// contended for the same shared-cache in-memory SQLite database: about one
+// run in fourteen under -race, SQLite answered the handler's write with
+// "database table is locked: job_tasks". event.NewInProcessBus logs a
+// handler error and drops the delivery, so the result was lost and the job
+// never left "running".
+//
+// Nothing about that is a product defect, which is exactly why it had to be
+// removed rather than tolerated: the real bus is JetStream, where a handler
+// error is a negative acknowledgement and the message comes back. The
+// in-process adapter has no redelivery, so a test using it must not
+// manufacture contention the production path would simply retry through.
+type completedSignal struct {
+	dispatch.JobStore
+	done chan struct{}
+	once sync.Once
+}
+
+func (s *completedSignal) CompleteRunning(ctx context.Context, jobID string) error {
+	err := s.JobStore.CompleteRunning(ctx, jobID)
+	s.once.Do(func() { close(s.done) })
+	return err
+}
+
 // TestResultConsumer_SubscribesToTheSubjectRunnersPublishOn is the
 // end-to-end half, and it is the one that would have caught the gap this
 // consumer was built to close.
@@ -185,7 +216,8 @@ func TestResultConsumer_SubscribesToTheSubjectRunnersPublishOn(t *testing.T) {
 	jobID, _ := runningJob(t, store, "dev-1")
 
 	bus := event.NewInProcessBus()
-	consumer := dispatch.NewResultConsumer(store, quietLogger())
+	signal := &completedSignal{JobStore: store, done: make(chan struct{})}
+	consumer := dispatch.NewResultConsumer(signal, quietLogger())
 	if err := consumer.Subscribe(ctx, bus); err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -198,21 +230,23 @@ func TestResultConsumer_SubscribesToTheSubjectRunnersPublishOn(t *testing.T) {
 		t.Fatalf("Publish: %v", err)
 	}
 
-	// Polled rather than read once: event.Bus delivers to a handler on its
-	// own goroutine, so a single read here would be racing the delivery it
-	// is meant to be observing and would pass or fail on scheduling.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		got, _, err := store.Get(ctx, jobID)
-		if err != nil {
-			t.Fatalf("Get: %v", err)
-		}
-		if got.State == "completed" {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("State = %q, want %q: a result published on the subject a Runner uses did not reach the consumer", got.State, "completed")
-		}
-		time.Sleep(5 * time.Millisecond)
+	// Waited for rather than polled. The handler runs on the bus's own
+	// goroutine, so reading the store from here while it works is real
+	// concurrent access to one in-memory SQLite database, and this test
+	// used to lose deliveries to it (see completedSignal above). Waiting
+	// for the consumer's own final write means the read below happens
+	// after the handler is done, with nothing else touching the database.
+	select {
+	case <-signal.done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("a result published on the subject a Runner uses never reached the consumer")
+	}
+
+	got, _, err := store.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.State != "completed" {
+		t.Errorf("State = %q, want %q", got.State, "completed")
 	}
 }
