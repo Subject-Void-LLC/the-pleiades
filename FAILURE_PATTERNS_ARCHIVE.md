@@ -7507,3 +7507,48 @@ directly: ask who subscribes, by symbol reference rather than by reading the pro
 related trap is the one this pair produced together, that an optional durability wrapper quietly
 became an optional feature switch, so check whether an option gates the mechanism or only its
 resilience.
+
+## 218. `http.request`'s documented `timeout` could not raise the TLS handshake deadline, so a slow endpoint failed after ten seconds having been told it had sixty
+
+**Symptom:** surfaced as a test failure in this repository's own gate, not as a report from a
+user, and the first reading of it was wrong. `TestRequest_VerifiesCertificatesByDefault`
+(`internal/catalog/http`) failed under full parallel `-race` load with
+`net/http: TLS handshake timeout` where it expected an error naming the certificate, having
+taken 16.43 seconds for a handshake against a local `httptest` server. The package provisions no
+containers and passes `-count=5` in isolation in about a second, so it did not qualify for a
+`flaky-packages.json` entry and could not be dismissed as contention even though contention was
+what exposed it.
+
+**Root cause:** `requestSpec.client()` returned a bare `&http.Client{}` on the verifying path. A
+nil `Transport` means `http.DefaultTransport`, whose `TLSHandshakeTimeout` is a fixed ten seconds
+set in `net/http`'s own package initialization. The method bounds its request with
+`context.WithTimeout(ctx, spec.timeout)`, which is the number the `timeout` parameter documents
+as "how long to wait for the whole request including reading the body", and that context has no
+influence on the transport's separate handshake deadline. So there were two deadlines, an
+operator could set only one of them, and the one they could not set was the shorter. A task given
+`timeout: 60` against a device under load, or across a link with real latency, failed at ten
+seconds. The skip-verify path cloned `DefaultTransport` and therefore carried the identical cap,
+inheriting the defect while looking like it had its own configuration.
+
+A second, quieter fault sat in the same three lines. The function's own doc comment said "a fresh
+client each time rather than a shared one", and gave the reason: a pooled connection established
+without certificate verification must never be handed to a later task that asked for
+verification. The skip-verify branch honored that by cloning. The verifying branch returned the
+process-wide shared transport, so the stated property held only on the path that did not need it.
+
+**Fix:** both paths clone, both set `TLSHandshakeTimeout` to the task's own timeout, and only the
+skip-verify branch attaches a `tls.Config`. The request context and the handshake deadline are
+now the same number, so there is one budget and the operator sets it.
+`internal/catalog/http/client_internal_test.go` pins all three properties, and is an in-package
+test deliberately: proving the handshake budget behaviorally needs a server that stalls a
+handshake for longer than ten seconds, which is a test that asserts by waiting. Each of its three
+cases was run against the original code and fails there.
+
+**Lesson:** a timeout parameter is a promise about the whole operation, and a library default
+underneath it can quietly own a shorter one. When exposing a timeout, enumerate every deadline
+the call can hit rather than only the one being set, and note that a nil field is a configuration
+choice: `&http.Client{}` is not an unconfigured client, it is the shared default one. The
+diagnostic habit that found this is also worth keeping, and it is the same one
+`LESSONS_LEARNED.md` #181 records: the failure was under container load in a suite full of
+genuine container flakes, and what separated it from one was that the package provisions nothing
+and the timing was reproducible in kind rather than in occurrence.

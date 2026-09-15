@@ -481,22 +481,48 @@ func (s requestSpec) request(ctx context.Context) (*nethttp.Request, error) {
 
 // client returns the HTTP client this spec's request should be sent with.
 //
-// A fresh client each time rather than a shared one, because the only
-// thing that varies is certificate verification and a shared client
-// carrying a pooled connection that skipped verification could hand it to
-// a later task that asked for verification. One task's decision must not
-// leak into another's.
+// A fresh client and a fresh transport each time rather than a shared one,
+// because the only thing that varies is certificate verification and a
+// shared client carrying a pooled connection that skipped verification
+// could hand it to a later task that asked for verification. One task's
+// decision must not leak into another's.
+//
+// The verifying path used to return a bare &http.Client{}, which is not a
+// fresh transport at all: a nil Transport means http.DefaultTransport, the
+// process-wide shared one. That was wrong for a reason nothing here would
+// have shown. DefaultTransport caps a TLS handshake at ten seconds
+// (TLSHandshakeTimeout) and nothing in this method could raise it, so the
+// timeout parameter documented above as "how long to wait for the whole
+// request" silently could not buy a slow endpoint more than ten seconds to
+// complete its handshake. A task against a loaded device, or over a link
+// with real latency, failed at ten seconds having been told it had sixty.
+//
+// The handshake budget is the task's own now. The request context already
+// bounds the whole call at exactly the same value, so this removes a
+// second, hidden deadline rather than adding one: there is now one number
+// that decides how long a request may take, and it is the one the operator
+// set.
+//
+// The cost, stated rather than left to be discovered: a transport per
+// request is a connection pool per request, so two http.request tasks
+// against the same endpoint no longer reuse a connection and each pays its
+// own handshake. That is not a tradeoff this function can avoid while the
+// handshake budget varies per task, since a shared transport can carry only
+// one such deadline for everybody. It is also what the skip-verify path has
+// always done and what this function's own contract asks for: the point of
+// a fresh client is that one task's certificate decision cannot reach
+// another's connection.
 func (s requestSpec) client() *nethttp.Client {
-	if s.validateCerts {
-		return &nethttp.Client{}
-	}
-
 	transport := nethttp.DefaultTransport.(*nethttp.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		// Opt-in only, per task, never from a setting: see the
-		// validate_certs parameter's own documentation above.
-		InsecureSkipVerify: true, // #nosec G402 -- the task asked for it in its own text
-		MinVersion:         tls.VersionTLS12,
+	transport.TLSHandshakeTimeout = s.timeout
+
+	if !s.validateCerts {
+		transport.TLSClientConfig = &tls.Config{
+			// Opt-in only, per task, never from a setting: see the
+			// validate_certs parameter's own documentation above.
+			InsecureSkipVerify: true, // #nosec G402 -- the task asked for it in its own text
+			MinVersion:         tls.VersionTLS12,
+		}
 	}
 	return &nethttp.Client{Transport: transport}
 }

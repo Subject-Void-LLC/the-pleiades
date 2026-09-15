@@ -220,6 +220,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 ---
 216. `SubscribeCancel` returned before the broker registered the subscription, so a cancel racing the start of a run was dropped forever rather than delivered late
 217. Job results were published only when `RUNNER_WAL_DIR` was set, and nothing in the module ever consumed them
+218. `http.request`'s documented `timeout` could not raise the TLS handshake deadline, and the verifying path shared the process-wide transport its own comment said it must not
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
