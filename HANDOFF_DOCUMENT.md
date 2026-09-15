@@ -62,6 +62,18 @@ was RAISING the deadline: it then failed identically at thirty seconds.
    session out from under `ssh.Session.Run`); whether cancelling the legacy adapter's `runCtx`
    actually stops a running container is unchecked, so a playbook job's cancel may reach the
    Runner and not the work.
-3. A job whose every device's run failed still ends in `completed` with the tallies telling the
+3. **A job can now get stuck in `running`, and nothing reaps it.** This is the one real
+   gap this work introduces rather than inherits. A job leaves `running` only when every
+   dispatched device reports, so a dispatch that is dead-lettered after exhausting
+   `MaxDeliver` produces a result that never arrives and a job that waits forever. The
+   ordinary Runner death self-heals, because JetStream redelivers the dispatch to another
+   Runner after `AckWait` and that one reports; it is exhaustion, not a single crash, that
+   strands a job. `dispatch.Reaper` does not cover it: it looks only at `fanning_out`
+   (`ListStaleFanOuts`), which is correct for what it was built for and means a `running` job
+   is invisible to it. The shape of a fix already exists in that reaper, a leader-gated sweep
+   over jobs whose `updated_at` is older than a bound, and the honest question to answer
+   first is what a stranded job should become: `failed` naming the devices that never
+   reported is the obvious answer, and it should not be `completed`.
+4. A job whose every device's run failed still ends in `completed` with the tallies telling the
    story. That is unchanged from before this work rather than introduced by it, and it is worth
    a decision now that per-device results exist to base one on.
