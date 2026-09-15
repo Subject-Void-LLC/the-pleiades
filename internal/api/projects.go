@@ -385,10 +385,11 @@ func (h *ProjectHandler) StreamSyncLogs(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// The project id is this handler's own parsed integer rather than the
-	// caller's raw path text, so nothing caller-supplied is reflected into
-	// the body.
-	fmt.Fprintf(w, "event: init\ndata: watching the sync of project %d\n\n", id)
+	// Nothing derived from the request is echoed back, not even the parsed
+	// integer id: a reader already knows which project it asked to watch,
+	// so reflecting it buys nothing and reflecting request data into a
+	// response body is a habit worth not having.
+	fmt.Fprint(w, "event: init\ndata: watching this project's sync\n\n")
 	flusher.Flush()
 
 	ctx := r.Context()
