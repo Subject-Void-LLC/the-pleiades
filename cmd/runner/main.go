@@ -241,11 +241,19 @@ func main() {
 			event.NewNatsDedupStore(dedupKV), topology.DerivedDedupTTLFloor(outageBudget)))
 	}
 
-	// WAL result buffering (PLAN.md Section 16's State Desync
-	// Mitigation) is opt-in: only constructed, and only fail-closed at
-	// startup, when an operator actually asks for it via RUNNER_WAL_DIR.
-	// A Runner that never sets this env var behaves exactly as if
-	// WithResultWAL did not exist.
+	// WAL result buffering (PLAN.md Section 16's State Desync Mitigation)
+	// is opt-in: only constructed, and only fail-closed at startup, when
+	// an operator actually asks for it via RUNNER_WAL_DIR. What the env
+	// var buys is DURABILITY of a result that could not be published at
+	// the moment it happened, not the reporting itself.
+	// Reporting is unconditional. A job stays "running" until every device
+	// it dispatched to has reported back, so a Runner that publishes no
+	// results leaves every job it touches running forever. This used to be
+	// reachable only through the WAL option below, which meant a Runner
+	// started without RUNNER_WAL_DIR reported nothing at all; that was
+	// invisible for as long as nothing consumed results.
+	agentOpts = append(agentOpts, runner.WithResultReporting(bus))
+
 	if walDir := getenv("RUNNER_WAL_DIR", ""); walDir != "" {
 		wal, err := runner.NewFileWAL(walDir)
 		if err != nil {

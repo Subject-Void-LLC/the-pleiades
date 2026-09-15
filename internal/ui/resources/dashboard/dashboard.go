@@ -51,15 +51,10 @@ var buckets = []struct {
 	{"completed", "Completed", "badge-ok"},
 	{"failed", "Failed", "badge-failed"},
 	{"canceled", "Canceled", "badge-neutral"},
+	{"running", "Running", "badge-changed"},
 	{"fanning_out", "Fanning out", "badge-changed"},
 	{"pending", "Pending", "badge-skipped"},
 }
-
-// The job state "running" is deliberately absent from buckets. It is
-// declared in the schema but nothing writes it yet, so a bucket for it
-// could only ever render zero, and a category that can never be non-zero
-// tells a reader the platform measured something it did not. Add the row
-// in the same change that gives the state a writer.
 
 // summary aggregates recent job states.
 type summary struct{ jobs dispatch.JobStore }

@@ -894,6 +894,17 @@ func main() {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
 
+	// The job result consumer, by the same mechanism and fatal for a
+	// sharper reason than the journal above. A job now stays "running"
+	// until every device it dispatched to has reported back, and this is
+	// the only thing that hears those reports. A Controller that started
+	// without it would leave every job it launches running forever, with
+	// nothing in the system saying why.
+	resultConsumer := dispatch.NewResultConsumer(jobStore, logger)
+	if err := resultConsumer.Subscribe(ctx, bus); err != nil {
+		fatal("failed to subscribe the job result consumer", err)
+	}
+
 	// reaperElector is a second, independent LeaderElector (a distinct key
 	// from elector/schedulerLeaseKey below, sharing the same lockMgr:
 	// internal/election's own doc comment guarantees two LeaderElectors
