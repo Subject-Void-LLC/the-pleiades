@@ -338,11 +338,29 @@ func (w *Worker) HandleJobRequested(evt event.Event) error {
 		return nil
 	}
 
-	if err := w.store.Complete(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
+	// Which of the two endings this fan-out gets turns on one question:
+	// did anything reach a Runner. If nothing did, every device having
+	// been skipped or failed at dispatch, the run really is over and
+	// "completed" is the truth. If something did, the Controller has
+	// finished its work but the run has not, and reporting "completed"
+	// here would be the platform announcing the end of its OWN part as
+	// the end of the job. Those devices are executing, and the job stays
+	// "running" until each of them has reported back.
+	settle := w.store.Complete
+	if dispatched > 0 {
+		settle = w.store.SettleRunning
+	}
+	if err := settle(ctx, job.JobID, fence, dispatched, skipped, failed); err != nil {
 		if fenced(job.JobID, err) {
 			return nil
 		}
-		return fmt.Errorf("failed to complete job %s: %w", job.JobID, err)
+		// A job cancelled during the very last stretch of its fan-out
+		// leaves nothing to settle, and that is an ordinary ending rather
+		// than a failure worth redelivering.
+		if canceled(job.JobID, err) {
+			return nil
+		}
+		return fmt.Errorf("failed to settle job %s: %w", job.JobID, err)
 	}
 	return nil
 }

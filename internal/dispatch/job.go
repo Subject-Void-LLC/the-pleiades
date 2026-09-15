@@ -204,6 +204,66 @@ type JobTask struct {
 	// field comment: this is an audit trail, and a device's Properties()
 	// value is never safe to echo into it.
 	Reason string
+	// Result, ResultReason and FinishedAt record what the Runner made of
+	// this device once the runbook actually ran on it, which is a
+	// different fact from Outcome above: that one says whether the
+	// fan-out handed the device off, this one says what happened next.
+	//
+	// All three are the zero value until a result comes back, and stay
+	// that way forever for a device that was skipped or whose dispatch
+	// failed. ResultReason carries the same obligation Reason does: it
+	// crosses the mesh from a Runner into an audit trail, so it must
+	// never echo a device property or a raw internal error.
+	Result       Result
+	ResultReason string
+	FinishedAt   time.Time
+}
+
+// Result is the fixed set of execution outcomes a Runner reports back for
+// one device, as distinct from the Outcome the Controller recorded when it
+// dispatched.
+//
+// Named, parsed and rejected on an unrecognized value for the identical
+// reason Outcome is: silently coercing a value this build does not know
+// would be free to turn a failed run into a successful-looking one.
+type Result string
+
+// The two results a Runner can report, plus the empty value meaning it has
+// not reported yet.
+const (
+	// ResultPending is the zero value: this device has not reported back.
+	// A job with any task in this state is still running.
+	ResultPending Result = ""
+	// ResultSucceeded means the runbook ran on this device and finished
+	// without error.
+	ResultSucceeded Result = "succeeded"
+	// ResultFailed means the runbook ran on this device and did not
+	// finish successfully.
+	ResultFailed Result = "failed"
+)
+
+// String renders the result for storage and log lines.
+func (r Result) String() string {
+	return string(r)
+}
+
+// ParseResult is the inverse of String, for the result consumer hydrating
+// what a Runner put on the wire. It rejects an unrecognized value rather
+// than defaulting, mirroring ParseOutcome exactly.
+//
+// The empty string is deliberately NOT accepted here. A result arriving
+// over the mesh that names no outcome is malformed, and treating it as
+// "not reported yet" would let a bad message quietly leave a job running
+// forever while looking like it had been handled.
+func ParseResult(s string) (Result, error) {
+	switch Result(s) {
+	case ResultSucceeded:
+		return ResultSucceeded, nil
+	case ResultFailed:
+		return ResultFailed, nil
+	default:
+		return "", fmt.Errorf("unknown job task result: %q", s)
+	}
 }
 
 // Outcome is the fixed set of results a JobTask can record. It is a named
@@ -422,6 +482,46 @@ type JobStore interface {
 	// returned; see Complete's own doc comment for the identical
 	// state-plus-fence guard this write is conditioned on and why.
 	Fail(ctx context.Context, jobID string, fence int64, reason string) error
+
+	// SettleRunning ends a fan-out that dispatched to at least one device
+	// by moving jobID from "fanning_out" to "running" and stamping its
+	// tallies, rather than straight to "completed".
+	//
+	// It is Complete's sibling and takes the identical guard. Which of the
+	// two the worker calls is decided by one question: did anything get
+	// handed to a Runner. If nothing did, every device having been skipped
+	// or failed at dispatch, the job is genuinely over and Complete is
+	// right. If something did, the job is not over just because the
+	// Controller has stopped talking, and calling it completed would be
+	// the platform reporting the end of its OWN work as the end of the
+	// run.
+	SettleRunning(ctx context.Context, jobID string, fence int64, dispatched, skipped, failed int) error
+
+	// RecordResult records what a Runner made of one device, and reports
+	// whether that was the last device the job was waiting on.
+	//
+	// It is idempotent by construction: a redelivered result writes the
+	// same values again, and the "was that the last one" answer is taken
+	// from the stored rows rather than from a counter, so a duplicate
+	// cannot move a job to a terminal state twice or push a tally past
+	// what actually happened.
+	//
+	// A result for a device this job never dispatched to, or for an
+	// unknown job, returns ErrJobNotFound: both mean the same thing to the
+	// consumer, which is that there is nothing here to record and
+	// retrying will not change that.
+	RecordResult(ctx context.Context, jobID, deviceID string, result Result, reason string) (complete bool, err error)
+
+	// CompleteRunning moves jobID from "running" to "completed" once every
+	// dispatched device has reported. It is the only writer of that
+	// transition.
+	//
+	// Separate from RecordResult rather than folded into it, so that the
+	// decision to end a job is one conditional write that either matches a
+	// running job or does nothing at all. Two results arriving at once can
+	// therefore both believe they were last, and only one of them will
+	// actually end the job.
+	CompleteRunning(ctx context.Context, jobID string) error
 
 	// Cancel stops jobID, moving it from "pending" or "fanning_out" to
 	// "canceled" and stamping canceledBy and the current time. It is a

@@ -227,6 +227,14 @@ func (s *entJobStore) Get(ctx context.Context, jobID string) (*Job, []JobTask, e
 			DeviceName: t.DeviceName,
 			Outcome:    outcome,
 			Reason:     t.Reason,
+			// Read straight through rather than through ParseResult. The
+			// empty value is the ordinary case here, meaning this device
+			// has not reported back, and ParseResult deliberately refuses
+			// it: that parser guards what arrives off the mesh, where an
+			// empty result is malformed, not what this store itself wrote.
+			Result:       Result(t.Result),
+			ResultReason: t.ResultReason,
+			FinishedAt:   t.FinishedAt,
 		})
 	}
 

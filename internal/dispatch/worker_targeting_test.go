@@ -132,8 +132,8 @@ func TestWorker_StreamsTheInventoryMembershipAJobNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if job.State != "completed" {
-		t.Errorf("the job is %q, want completed: %s", job.State, job.FailureReason)
+	if job.State != "running" {
+		t.Errorf("the job is %q, want running (%s): %s", job.State, stateNote, job.FailureReason)
 	}
 }
 

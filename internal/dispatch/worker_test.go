@@ -34,6 +34,17 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// stateNote explains, in the one place these tests all point at, why a
+// successful fan-out no longer ends in "completed".
+//
+// Several assertions in this package used to read State == "completed" as
+// "the fan-out worked". That reading was only ever true because nothing
+// tracked what happened after a dispatch: "completed" meant the Controller
+// had stopped working, not that the run had ended. It now means every
+// dispatched device has reported back, so a fan-out that handed work to a
+// Runner ends in "running" instead.
+const stateNote = "a fan-out that dispatched to a device ends in running, not completed: the Controller has finished, the device has not"
+
 // fakeRepository is a small local Repository test double, mirroring
 // internal/api/dispatcher_test.go's own MockRepository/MockIterator shape
 // for consistency, but defined fresh here: that one lives in package
@@ -413,8 +424,8 @@ func TestWorker_HandleJobRequested_DispatchesHealthyDevice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if job.State != "completed" || job.DispatchedCount != 1 {
-		t.Fatalf("job = %+v, want completed with DispatchedCount=1", job)
+	if job.State != "running" || job.DispatchedCount != 1 {
+		t.Fatalf("job = %+v, want running with DispatchedCount=1 (%s)", job, stateNote)
 	}
 	if len(tasks) != 1 || tasks[0].Outcome != dispatch.OutcomeDispatched {
 		t.Fatalf("tasks = %+v, want one OutcomeDispatched task", tasks)
@@ -802,8 +813,11 @@ func TestWorker_HandleJobRequested_StaleFanOutIsReclaimed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if gotJob.State != "completed" {
-		t.Fatalf("job State after reclaim = %q, want %q (not stuck in fanning_out)", gotJob.State, "completed")
+	// What this proves is that the reclaim finished the fan-out rather
+	// than leaving it stuck in "fanning_out". It dispatched to a device,
+	// so the run itself continues.
+	if gotJob.State != "running" {
+		t.Fatalf("job State after reclaim = %q, want %q (not stuck in fanning_out)", gotJob.State, "running")
 	}
 	if gotJob.DispatchedCount != 1 {
 		t.Fatalf("DispatchedCount after reclaim = %d, want 1", gotJob.DispatchedCount)
@@ -865,8 +879,8 @@ func TestWorker_HandleJobRequested_StaleFanOutReclaimSkipsAlreadyRecordedDevices
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if gotJob.State != "completed" {
-		t.Fatalf("job State after reclaim = %q, want %q", gotJob.State, "completed")
+	if gotJob.State != "running" {
+		t.Fatalf("job State after reclaim = %q, want %q (%s)", gotJob.State, "running", stateNote)
 	}
 	if gotJob.DispatchedCount != 2 {
 		t.Fatalf("DispatchedCount after reclaim = %d, want 2 (1 pre-crash + 1 from the reclaim)", gotJob.DispatchedCount)

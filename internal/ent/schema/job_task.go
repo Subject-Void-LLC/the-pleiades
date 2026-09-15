@@ -51,6 +51,34 @@ func (JobTask) Fields() []ent.Field {
 		// effectively an audit trail, so a reason string that echoed a
 		// property value would leak a secret into it.
 		field.String("reason").Optional().Immutable(),
+
+		// result, result_reason and finished_at record what happened when
+		// the runbook actually RAN on this device, which is a different
+		// fact from outcome above and is why they are separate fields
+		// rather than more values on that enum.
+		//
+		// outcome answers "did the fan-out hand this device off", is
+		// decided by the Controller, and is immutable because it is
+		// history the moment it is written. These answer "what did the
+		// Runner make of it", are decided on the other side of the mesh
+		// and arrive later, and so cannot be immutable. Folding the two
+		// together would also destroy information: a device whose
+		// dispatch succeeded and whose run then failed would become
+		// indistinguishable from one that was never dispatched at all.
+		//
+		// All three are empty until a result arrives, and stay empty
+		// forever for a device that was skipped or never dispatched to.
+		// A job whose tasks all carry a result is one every device has
+		// reported back on, which is what moves it out of "running".
+		field.Enum("result").
+			Values("succeeded", "failed").
+			Optional(),
+		// result_reason explains a failed result. It carries the same
+		// obligation reason above does and for the identical reason: it
+		// crosses the mesh from a Runner and lands in an audit trail, so
+		// it must never echo a device property or a raw internal error.
+		field.String("result_reason").Optional(),
+		field.Time("finished_at").Optional(),
 	}
 }
 

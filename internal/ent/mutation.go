@@ -11510,6 +11510,9 @@ type JobTaskMutation struct {
 	device_name   *string
 	outcome       *jobtask.Outcome
 	reason        *string
+	result        *jobtask.Result
+	result_reason *string
+	finished_at   *time.Time
 	clearedFields map[string]struct{}
 	job           *int
 	clearedjob    bool
@@ -11845,6 +11848,153 @@ func (m *JobTaskMutation) ResetReason() {
 	delete(m.clearedFields, jobtask.FieldReason)
 }
 
+// SetResult sets the "result" field.
+func (m *JobTaskMutation) SetResult(j jobtask.Result) {
+	m.result = &j
+}
+
+// Result returns the value of the "result" field in the mutation.
+func (m *JobTaskMutation) Result() (r jobtask.Result, exists bool) {
+	v := m.result
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResult returns the old "result" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldResult(ctx context.Context) (v jobtask.Result, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResult is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResult requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResult: %w", err)
+	}
+	return oldValue.Result, nil
+}
+
+// ClearResult clears the value of the "result" field.
+func (m *JobTaskMutation) ClearResult() {
+	m.result = nil
+	m.clearedFields[jobtask.FieldResult] = struct{}{}
+}
+
+// ResultCleared returns if the "result" field was cleared in this mutation.
+func (m *JobTaskMutation) ResultCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldResult]
+	return ok
+}
+
+// ResetResult resets all changes to the "result" field.
+func (m *JobTaskMutation) ResetResult() {
+	m.result = nil
+	delete(m.clearedFields, jobtask.FieldResult)
+}
+
+// SetResultReason sets the "result_reason" field.
+func (m *JobTaskMutation) SetResultReason(s string) {
+	m.result_reason = &s
+}
+
+// ResultReason returns the value of the "result_reason" field in the mutation.
+func (m *JobTaskMutation) ResultReason() (r string, exists bool) {
+	v := m.result_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResultReason returns the old "result_reason" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldResultReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResultReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResultReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResultReason: %w", err)
+	}
+	return oldValue.ResultReason, nil
+}
+
+// ClearResultReason clears the value of the "result_reason" field.
+func (m *JobTaskMutation) ClearResultReason() {
+	m.result_reason = nil
+	m.clearedFields[jobtask.FieldResultReason] = struct{}{}
+}
+
+// ResultReasonCleared returns if the "result_reason" field was cleared in this mutation.
+func (m *JobTaskMutation) ResultReasonCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldResultReason]
+	return ok
+}
+
+// ResetResultReason resets all changes to the "result_reason" field.
+func (m *JobTaskMutation) ResetResultReason() {
+	m.result_reason = nil
+	delete(m.clearedFields, jobtask.FieldResultReason)
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (m *JobTaskMutation) SetFinishedAt(t time.Time) {
+	m.finished_at = &t
+}
+
+// FinishedAt returns the value of the "finished_at" field in the mutation.
+func (m *JobTaskMutation) FinishedAt() (r time.Time, exists bool) {
+	v := m.finished_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinishedAt returns the old "finished_at" field's value of the JobTask entity.
+// If the JobTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobTaskMutation) OldFinishedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinishedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinishedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinishedAt: %w", err)
+	}
+	return oldValue.FinishedAt, nil
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (m *JobTaskMutation) ClearFinishedAt() {
+	m.finished_at = nil
+	m.clearedFields[jobtask.FieldFinishedAt] = struct{}{}
+}
+
+// FinishedAtCleared returns if the "finished_at" field was cleared in this mutation.
+func (m *JobTaskMutation) FinishedAtCleared() bool {
+	_, ok := m.clearedFields[jobtask.FieldFinishedAt]
+	return ok
+}
+
+// ResetFinishedAt resets all changes to the "finished_at" field.
+func (m *JobTaskMutation) ResetFinishedAt() {
+	m.finished_at = nil
+	delete(m.clearedFields, jobtask.FieldFinishedAt)
+}
+
 // SetJobID sets the "job" edge to the Job entity by id.
 func (m *JobTaskMutation) SetJobID(id int) {
 	m.job = &id
@@ -11918,7 +12068,7 @@ func (m *JobTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobTaskMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 9)
 	if m.created_at != nil {
 		fields = append(fields, jobtask.FieldCreatedAt)
 	}
@@ -11936,6 +12086,15 @@ func (m *JobTaskMutation) Fields() []string {
 	}
 	if m.reason != nil {
 		fields = append(fields, jobtask.FieldReason)
+	}
+	if m.result != nil {
+		fields = append(fields, jobtask.FieldResult)
+	}
+	if m.result_reason != nil {
+		fields = append(fields, jobtask.FieldResultReason)
+	}
+	if m.finished_at != nil {
+		fields = append(fields, jobtask.FieldFinishedAt)
 	}
 	return fields
 }
@@ -11957,6 +12116,12 @@ func (m *JobTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.Outcome()
 	case jobtask.FieldReason:
 		return m.Reason()
+	case jobtask.FieldResult:
+		return m.Result()
+	case jobtask.FieldResultReason:
+		return m.ResultReason()
+	case jobtask.FieldFinishedAt:
+		return m.FinishedAt()
 	}
 	return nil, false
 }
@@ -11978,6 +12143,12 @@ func (m *JobTaskMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldOutcome(ctx)
 	case jobtask.FieldReason:
 		return m.OldReason(ctx)
+	case jobtask.FieldResult:
+		return m.OldResult(ctx)
+	case jobtask.FieldResultReason:
+		return m.OldResultReason(ctx)
+	case jobtask.FieldFinishedAt:
+		return m.OldFinishedAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -12029,6 +12200,27 @@ func (m *JobTaskMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetReason(v)
 		return nil
+	case jobtask.FieldResult:
+		v, ok := value.(jobtask.Result)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResult(v)
+		return nil
+	case jobtask.FieldResultReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResultReason(v)
+		return nil
+	case jobtask.FieldFinishedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinishedAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)
 }
@@ -12062,6 +12254,15 @@ func (m *JobTaskMutation) ClearedFields() []string {
 	if m.FieldCleared(jobtask.FieldReason) {
 		fields = append(fields, jobtask.FieldReason)
 	}
+	if m.FieldCleared(jobtask.FieldResult) {
+		fields = append(fields, jobtask.FieldResult)
+	}
+	if m.FieldCleared(jobtask.FieldResultReason) {
+		fields = append(fields, jobtask.FieldResultReason)
+	}
+	if m.FieldCleared(jobtask.FieldFinishedAt) {
+		fields = append(fields, jobtask.FieldFinishedAt)
+	}
 	return fields
 }
 
@@ -12078,6 +12279,15 @@ func (m *JobTaskMutation) ClearField(name string) error {
 	switch name {
 	case jobtask.FieldReason:
 		m.ClearReason()
+		return nil
+	case jobtask.FieldResult:
+		m.ClearResult()
+		return nil
+	case jobtask.FieldResultReason:
+		m.ClearResultReason()
+		return nil
+	case jobtask.FieldFinishedAt:
+		m.ClearFinishedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask nullable field %s", name)
@@ -12104,6 +12314,15 @@ func (m *JobTaskMutation) ResetField(name string) error {
 		return nil
 	case jobtask.FieldReason:
 		m.ResetReason()
+		return nil
+	case jobtask.FieldResult:
+		m.ResetResult()
+		return nil
+	case jobtask.FieldResultReason:
+		m.ResetResultReason()
+		return nil
+	case jobtask.FieldFinishedAt:
+		m.ResetFinishedAt()
 		return nil
 	}
 	return fmt.Errorf("unknown JobTask field %s", name)

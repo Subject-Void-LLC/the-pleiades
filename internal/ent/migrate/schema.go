@@ -398,6 +398,9 @@ var (
 		{Name: "device_name", Type: field.TypeString},
 		{Name: "outcome", Type: field.TypeEnum, Enums: []string{"dispatched", "skipped", "failed"}},
 		{Name: "reason", Type: field.TypeString, Nullable: true},
+		{Name: "result", Type: field.TypeEnum, Nullable: true, Enums: []string{"succeeded", "failed"}},
+		{Name: "result_reason", Type: field.TypeString, Nullable: true},
+		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "job_tasks", Type: field.TypeInt},
 	}
 	// JobTasksTable holds the schema information for the "job_tasks" table.
@@ -408,7 +411,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "job_tasks_jobs_tasks",
-				Columns:    []*schema.Column{JobTasksColumns[7]},
+				Columns:    []*schema.Column{JobTasksColumns[10]},
 				RefColumns: []*schema.Column{JobsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -417,7 +420,7 @@ var (
 			{
 				Name:    "jobtask_outcome_job_tasks",
 				Unique:  false,
-				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[7]},
+				Columns: []*schema.Column{JobTasksColumns[5], JobTasksColumns[10]},
 			},
 		},
 	}

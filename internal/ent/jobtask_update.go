@@ -35,6 +35,66 @@ func (_u *JobTaskUpdate) SetUpdatedAt(v time.Time) *JobTaskUpdate {
 	return _u
 }
 
+// SetResult sets the "result" field.
+func (_u *JobTaskUpdate) SetResult(v jobtask.Result) *JobTaskUpdate {
+	_u.mutation.SetResult(v)
+	return _u
+}
+
+// SetNillableResult sets the "result" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableResult(v *jobtask.Result) *JobTaskUpdate {
+	if v != nil {
+		_u.SetResult(*v)
+	}
+	return _u
+}
+
+// ClearResult clears the value of the "result" field.
+func (_u *JobTaskUpdate) ClearResult() *JobTaskUpdate {
+	_u.mutation.ClearResult()
+	return _u
+}
+
+// SetResultReason sets the "result_reason" field.
+func (_u *JobTaskUpdate) SetResultReason(v string) *JobTaskUpdate {
+	_u.mutation.SetResultReason(v)
+	return _u
+}
+
+// SetNillableResultReason sets the "result_reason" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableResultReason(v *string) *JobTaskUpdate {
+	if v != nil {
+		_u.SetResultReason(*v)
+	}
+	return _u
+}
+
+// ClearResultReason clears the value of the "result_reason" field.
+func (_u *JobTaskUpdate) ClearResultReason() *JobTaskUpdate {
+	_u.mutation.ClearResultReason()
+	return _u
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (_u *JobTaskUpdate) SetFinishedAt(v time.Time) *JobTaskUpdate {
+	_u.mutation.SetFinishedAt(v)
+	return _u
+}
+
+// SetNillableFinishedAt sets the "finished_at" field if the given value is not nil.
+func (_u *JobTaskUpdate) SetNillableFinishedAt(v *time.Time) *JobTaskUpdate {
+	if v != nil {
+		_u.SetFinishedAt(*v)
+	}
+	return _u
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (_u *JobTaskUpdate) ClearFinishedAt() *JobTaskUpdate {
+	_u.mutation.ClearFinishedAt()
+	return _u
+}
+
 // SetJobID sets the "job" edge to the Job entity by ID.
 func (_u *JobTaskUpdate) SetJobID(id int) *JobTaskUpdate {
 	_u.mutation.SetJobID(id)
@@ -95,6 +155,11 @@ func (_u *JobTaskUpdate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *JobTaskUpdate) check() error {
+	if v, ok := _u.mutation.Result(); ok {
+		if err := jobtask.ResultValidator(v); err != nil {
+			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -118,6 +183,24 @@ func (_u *JobTaskUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ReasonCleared() {
 		_spec.ClearField(jobtask.FieldReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.Result(); ok {
+		_spec.SetField(jobtask.FieldResult, field.TypeEnum, value)
+	}
+	if _u.mutation.ResultCleared() {
+		_spec.ClearField(jobtask.FieldResult, field.TypeEnum)
+	}
+	if value, ok := _u.mutation.ResultReason(); ok {
+		_spec.SetField(jobtask.FieldResultReason, field.TypeString, value)
+	}
+	if _u.mutation.ResultReasonCleared() {
+		_spec.ClearField(jobtask.FieldResultReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.FinishedAt(); ok {
+		_spec.SetField(jobtask.FieldFinishedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinishedAtCleared() {
+		_spec.ClearField(jobtask.FieldFinishedAt, field.TypeTime)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -171,6 +254,66 @@ type JobTaskUpdateOne struct {
 // SetUpdatedAt sets the "updated_at" field.
 func (_u *JobTaskUpdateOne) SetUpdatedAt(v time.Time) *JobTaskUpdateOne {
 	_u.mutation.SetUpdatedAt(v)
+	return _u
+}
+
+// SetResult sets the "result" field.
+func (_u *JobTaskUpdateOne) SetResult(v jobtask.Result) *JobTaskUpdateOne {
+	_u.mutation.SetResult(v)
+	return _u
+}
+
+// SetNillableResult sets the "result" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableResult(v *jobtask.Result) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetResult(*v)
+	}
+	return _u
+}
+
+// ClearResult clears the value of the "result" field.
+func (_u *JobTaskUpdateOne) ClearResult() *JobTaskUpdateOne {
+	_u.mutation.ClearResult()
+	return _u
+}
+
+// SetResultReason sets the "result_reason" field.
+func (_u *JobTaskUpdateOne) SetResultReason(v string) *JobTaskUpdateOne {
+	_u.mutation.SetResultReason(v)
+	return _u
+}
+
+// SetNillableResultReason sets the "result_reason" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableResultReason(v *string) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetResultReason(*v)
+	}
+	return _u
+}
+
+// ClearResultReason clears the value of the "result_reason" field.
+func (_u *JobTaskUpdateOne) ClearResultReason() *JobTaskUpdateOne {
+	_u.mutation.ClearResultReason()
+	return _u
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (_u *JobTaskUpdateOne) SetFinishedAt(v time.Time) *JobTaskUpdateOne {
+	_u.mutation.SetFinishedAt(v)
+	return _u
+}
+
+// SetNillableFinishedAt sets the "finished_at" field if the given value is not nil.
+func (_u *JobTaskUpdateOne) SetNillableFinishedAt(v *time.Time) *JobTaskUpdateOne {
+	if v != nil {
+		_u.SetFinishedAt(*v)
+	}
+	return _u
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (_u *JobTaskUpdateOne) ClearFinishedAt() *JobTaskUpdateOne {
+	_u.mutation.ClearFinishedAt()
 	return _u
 }
 
@@ -247,6 +390,11 @@ func (_u *JobTaskUpdateOne) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *JobTaskUpdateOne) check() error {
+	if v, ok := _u.mutation.Result(); ok {
+		if err := jobtask.ResultValidator(v); err != nil {
+			return &ValidationError{Name: "result", err: fmt.Errorf(`ent: validator failed for field "JobTask.result": %w`, err)}
+		}
+	}
 	if _u.mutation.JobCleared() && len(_u.mutation.JobIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "JobTask.job"`)
 	}
@@ -287,6 +435,24 @@ func (_u *JobTaskUpdateOne) sqlSave(ctx context.Context) (_node *JobTask, err er
 	}
 	if _u.mutation.ReasonCleared() {
 		_spec.ClearField(jobtask.FieldReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.Result(); ok {
+		_spec.SetField(jobtask.FieldResult, field.TypeEnum, value)
+	}
+	if _u.mutation.ResultCleared() {
+		_spec.ClearField(jobtask.FieldResult, field.TypeEnum)
+	}
+	if value, ok := _u.mutation.ResultReason(); ok {
+		_spec.SetField(jobtask.FieldResultReason, field.TypeString, value)
+	}
+	if _u.mutation.ResultReasonCleared() {
+		_spec.ClearField(jobtask.FieldResultReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.FinishedAt(); ok {
+		_spec.SetField(jobtask.FieldFinishedAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinishedAtCleared() {
+		_spec.ClearField(jobtask.FieldFinishedAt, field.TypeTime)
 	}
 	if _u.mutation.JobCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -97,8 +97,13 @@ func TestReaper_EndToEnd_ReclaimsAndCompletesStaleJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
-	if gotJob.State != "completed" {
-		t.Fatalf("job State after reaper-triggered reclaim = %q, want %q (not left in fanning_out)", gotJob.State, "completed")
+	// "running" rather than "completed", and the distinction is the point
+	// of this assertion rather than a relaxation of it: what the reaper
+	// has to prove is that the job did not stay stuck in "fanning_out".
+	// The reclaimed fan-out dispatched to a device, so the run continues
+	// until that device reports back.
+	if gotJob.State != "running" {
+		t.Fatalf("job State after reaper-triggered reclaim = %q, want %q (not left in fanning_out)", gotJob.State, "running")
 	}
 	if gotJob.DispatchedCount != 1 {
 		t.Fatalf("DispatchedCount after reclaim = %d, want 1", gotJob.DispatchedCount)
