@@ -6013,11 +6013,28 @@
                           "device_name": {
                             "type": "string"
                           },
+                          "finished_at": {
+                            "description": "When this device reported back. Absent until it does.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
                           "outcome": {
                             "type": "string"
                           },
                           "reason": {
                             "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          },
+                          "result": {
+                            "description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on.",
+                            "enum": [
+                              "succeeded",
+                              "failed"
+                            ],
+                            "type": "string"
+                          },
+                          "result_reason": {
+                            "description": "Present only for a failed result.",
                             "type": "string"
                           }
                         },
@@ -6168,11 +6185,28 @@
                           "device_name": {
                             "type": "string"
                           },
+                          "finished_at": {
+                            "description": "When this device reported back. Absent until it does.",
+                            "format": "date-time",
+                            "type": "string"
+                          },
                           "outcome": {
                             "type": "string"
                           },
                           "reason": {
                             "description": "Present only for a skipped or failed outcome.",
+                            "type": "string"
+                          },
+                          "result": {
+                            "description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on.",
+                            "enum": [
+                              "succeeded",
+                              "failed"
+                            ],
+                            "type": "string"
+                          },
+                          "result_reason": {
+                            "description": "Present only for a failed result.",
                             "type": "string"
                           }
                         },

@@ -108,6 +108,20 @@ type jobTaskDTO struct {
 	// "no reason recorded" apart from "recorded as the empty string"
 	// without special-casing the dispatched case itself.
 	Reason string `json:"reason,omitempty"`
+
+	// Result, ResultReason and FinishedAt are what the Runner reported
+	// once the runbook actually ran on this device, as distinct from
+	// Outcome above, which is whether the fan-out handed it off.
+	//
+	// All three are omitempty and all three are absent together, which is
+	// the ordinary state for two different reasons a client must be able
+	// to tell apart from a failure: a device that was skipped never ran,
+	// and a dispatched device with no result has not reported back yet.
+	// The second is exactly what a job still in "running" is waiting on,
+	// so a client polling a job can see which devices it is waiting for.
+	Result       string `json:"result,omitempty"`
+	ResultReason string `json:"result_reason,omitempty"`
+	FinishedAt   string `json:"finished_at,omitempty"`
 }
 
 // jobResponse is the wire projection of a dispatch.Job together with
@@ -166,12 +180,18 @@ type jobResponse struct {
 func toJobResponse(job *dispatch.Job, tasks []dispatch.JobTask) jobResponse {
 	dtos := make([]jobTaskDTO, 0, len(tasks))
 	for _, t := range tasks {
-		dtos = append(dtos, jobTaskDTO{
-			DeviceID:   t.DeviceID,
-			DeviceName: t.DeviceName,
-			Outcome:    t.Outcome.String(),
-			Reason:     t.Reason,
-		})
+		dto := jobTaskDTO{
+			DeviceID:     t.DeviceID,
+			DeviceName:   t.DeviceName,
+			Outcome:      t.Outcome.String(),
+			Reason:       t.Reason,
+			Result:       t.Result.String(),
+			ResultReason: t.ResultReason,
+		}
+		if !t.FinishedAt.IsZero() {
+			dto.FinishedAt = t.FinishedAt.UTC().Format(time.RFC3339)
+		}
+		dtos = append(dtos, dto)
 	}
 
 	return jobResponse{

@@ -139,6 +139,10 @@ var jobTaskSchema = map[string]any{
 		"device_name": map[string]any{"type": "string"},
 		"outcome":     map[string]any{"type": "string"},
 		"reason":      map[string]any{"type": "string", "description": "Present only for a skipped or failed outcome."},
+		"result": map[string]any{"type": "string", "enum": []string{"succeeded", "failed"},
+			"description": "What the Runner reported once the runbook ran on this device, as distinct from outcome above, which is whether the fan-out handed it off. Absent for a device that was skipped, and absent for a dispatched device that has not reported back yet, which is what a job still in \"running\" is waiting on."},
+		"result_reason": map[string]any{"type": "string", "description": "Present only for a failed result."},
+		"finished_at":   map[string]any{"type": "string", "format": "date-time", "description": "When this device reported back. Absent until it does."},
 	},
 }
 

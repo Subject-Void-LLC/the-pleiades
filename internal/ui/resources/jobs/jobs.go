@@ -179,7 +179,29 @@ var taskFields = []view.Field{
 	// list by hand.
 	{Name: "device", Label: "DEVICE", Kind: view.KindText, InList: true, MobilePrimary: true, References: "devices"},
 	{Name: "outcome", Label: "OUTCOME", Kind: view.KindBadge, InList: true, BadgeClass: taskBadge},
+	// Result is a second column rather than more values in OUTCOME,
+	// because the two answer different questions and an operator needs
+	// both. Outcome says whether this device was handed to a Runner;
+	// result says what the Runner made of it. A device reading
+	// "dispatched" with an empty result has not reported back yet, which
+	// is exactly what a job sitting in "running" is waiting for.
+	{Name: "result", Label: "RESULT", Kind: view.KindBadge, InList: true, BadgeClass: resultBadge},
 	{Name: "reason", Label: "REASON", Kind: view.KindText, InList: true},
+}
+
+// resultBadge colours what the Runner reported for one device.
+//
+// The empty value is the common case and reads neutral rather than
+// failed: a device that has not reported yet has not gone wrong.
+func resultBadge(result string) string {
+	switch result {
+	case string(dispatch.ResultSucceeded):
+		return "badge-ok"
+	case string(dispatch.ResultFailed):
+		return "badge-failed"
+	default:
+		return "badge-neutral"
+	}
 }
 
 // deviceOutcomes is the drill-down section: one row per device this job
@@ -207,7 +229,14 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 					Cells: view.Cells{
 						"device":  t.DeviceName,
 						"outcome": t.Outcome.String(),
-						"reason":  t.Reason,
+						"result":  t.Result.String(),
+						// The Runner's own sentence when it has one,
+						// falling back to the Controller's reason for a
+						// device that never ran. One column, because a
+						// reader wants to know why this device is in the
+						// state it is in, and only one of the two is ever
+						// populated for a given device.
+						"reason": firstNonEmpty(t.ResultReason, t.Reason),
 					},
 					// The stored device id, which is what the link is
 					// built from. The cell shows the name: a cell showing
@@ -302,6 +331,18 @@ func Register(jobs dispatch.JobStore, runner Relauncher) error {
 		},
 		Handlers: view.MustBind[*dispatch.Job](reader{jobs}, nil, projector),
 	})
+}
+
+// firstNonEmpty returns the first of its arguments that is not empty, or
+// the empty string. It exists so the reason column can prefer the Runner's
+// own explanation without a caller writing the same conditional inline.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // formatTime renders a timestamp in the one format this UI uses.
