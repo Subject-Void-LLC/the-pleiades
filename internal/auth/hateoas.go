@@ -99,6 +99,15 @@ const (
 	// separation is about identifying the affordance, not about a different
 	// privilege.
 	RelSetInputs LinkRel = "set-inputs"
+
+	// RelSetInjectors is the affordance that replaces a credential type's
+	// injector document, distinct from RelSetInputs and RelUpdate for the
+	// same reason each of those is its own: one relation, one endpoint, one
+	// control per resource. It is the highest-consequence write a credential
+	// type has, since an injector decides what a customer's run executes
+	// with, and it still carries credential:write; the store is what refuses
+	// a dangerous injector, not the relation.
+	RelSetInjectors LinkRel = "set-injectors"
 )
 
 // Affordance is one candidate action, described purely in authorization

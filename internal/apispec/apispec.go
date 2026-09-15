@@ -761,6 +761,7 @@ var Endpoints = []Endpoint{
 	DeleteCredentialType,
 	TestCredentialType,
 	SetCredentialTypeInputs,
+	SetCredentialTypeInjectors,
 	ListProjects,
 	GetProject,
 	CreateProject,

@@ -86,6 +86,7 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 			apispec.DeleteCredentialType.Route(handler.DeleteCredentialType),
 			apispec.TestCredentialType.Route(handler.TestCredentialType),
 			apispec.SetCredentialTypeInputs.Route(handler.SetCredentialTypeInputs),
+			apispec.SetCredentialTypeInjectors.Route(handler.SetCredentialTypeInjectors),
 			apispec.ListCredentials.Route(handler.ListCredentials),
 			apispec.GetCredential.Route(handler.GetCredential),
 			apispec.CreateCredential.Route(handler.CreateCredential),
@@ -1205,5 +1206,64 @@ func TestSetCredentialTypeInputsRefusesRemovingAnInjectedInput(t *testing.T) {
 	})
 	if status != http.StatusBadRequest {
 		t.Fatalf("removing an injected input answered %d, want 400: %s", status, body)
+	}
+}
+
+// TestSetCredentialTypeInjectorsReplacesAndKeepsInputs is the injector twin
+// of the inputs test: the narrowed endpoint rewrites the injector document
+// and leaves the input schema beside it untouched.
+func TestSetCredentialTypeInjectorsReplacesAndKeepsInputs(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID), map[string]any{
+		"injectors": map[string]any{
+			"env": map[string]string{
+				"API_TOKEN": "{{ api_token }}",
+				"API_URL":   "{{ api_url }}",
+			},
+		},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("setting injectors answered %d: %s", status, body)
+	}
+
+	var decoded struct {
+		Inputs struct {
+			Fields []struct {
+				ID string `json:"id"`
+			} `json:"fields"`
+		} `json:"inputs"`
+		Injectors struct {
+			Env map[string]string `json:"env"`
+		} `json:"injectors"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if decoded.Injectors.Env["API_URL"] != "{{ api_url }}" {
+		t.Errorf("the new injector is not in the returned document: %+v", decoded.Injectors.Env)
+	}
+	if len(decoded.Inputs.Fields) != 2 {
+		t.Errorf("replacing the injectors changed the input schema: %+v", decoded.Inputs.Fields)
+	}
+}
+
+// TestSetCredentialTypeInjectorsRefusesADangerousEnvName proves the endpoint
+// inherits the store's refusal of an environment variable that would change
+// how the run executes, which is the reason this write exists at all.
+func TestSetCredentialTypeInjectorsRefusesADangerousEnvName(t *testing.T) {
+	t.Parallel()
+
+	f := newCredentialFixture(t)
+
+	status, body := f.do(t, http.MethodPut, fmt.Sprintf("/api/v1/credential-types/%d/injectors", f.typeID), map[string]any{
+		"injectors": map[string]any{
+			"env": map[string]string{"LD_PRELOAD": "{{ api_token }}"},
+		},
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("a code-execution env name answered %d, want 400: %s", status, body)
 	}
 }

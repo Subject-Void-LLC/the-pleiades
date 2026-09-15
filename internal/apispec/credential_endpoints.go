@@ -648,3 +648,31 @@ var SetCredentialTypeInputs = Endpoint{
 		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
 	},
 }
+
+// SetCredentialTypeInjectors is PUT /credential-types/{id}/injectors.
+var SetCredentialTypeInjectors = Endpoint{
+	Name:    "set_credential_type_injectors",
+	Method:  http.MethodPut,
+	Pattern: "/credential-types/{id}/injectors",
+	Scope:   auth.ScopeCredentialWrite,
+	Rel:     auth.RelSetInjectors,
+	Summary: "Replace a credential type's injector document",
+	Description: "Replaces the injectors, leaving the type's metadata and input schema as they are. Every template is " +
+		"compiled here against the type's own inputs, and an environment variable name that would change how the run " +
+		"executes (PATH, LD_PRELOAD and their relatives) is refused, because the customer's playbook runs in the same " +
+		"container. It is the same store update PATCH performs, narrowed to the injectors. A managed type is refused.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The type's numeric id."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"injectors": injectorsSchema},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated type.", Schema: credentialTypeSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or an injector does not validate.", Schema: errorSchema("")},
+		{Status: http.StatusForbidden, Description: "The type is managed and cannot be modified.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No credential type with that id.", Schema: errorSchema("")},
+	},
+}
