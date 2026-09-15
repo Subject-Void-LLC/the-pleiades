@@ -342,7 +342,7 @@ func init() {
 	// job.DefaultFailedCount holds the default value on creation for the failed_count field.
 	job.DefaultFailedCount = jobDescFailedCount.Default.(int)
 	// jobDescFence is the schema descriptor for fence field.
-	jobDescFence := jobFields[15].Descriptor()
+	jobDescFence := jobFields[17].Descriptor()
 	// job.DefaultFence holds the default value on creation for the fence field.
 	job.DefaultFence = jobDescFence.Default.(int64)
 	jobtaskMixin := schema.JobTask{}.Mixin()

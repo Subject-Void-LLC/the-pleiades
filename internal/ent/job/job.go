@@ -49,6 +49,10 @@ const (
 	FieldFailedCount = "failed_count"
 	// FieldFailureReason holds the string denoting the failure_reason field in the database.
 	FieldFailureReason = "failure_reason"
+	// FieldCanceledAt holds the string denoting the canceled_at field in the database.
+	FieldCanceledAt = "canceled_at"
+	// FieldCanceledBy holds the string denoting the canceled_by field in the database.
+	FieldCanceledBy = "canceled_by"
 	// FieldFence holds the string denoting the fence field in the database.
 	FieldFence = "fence"
 	// FieldFields holds the string denoting the fields field in the database.
@@ -90,6 +94,8 @@ var Columns = []string{
 	FieldSkippedCount,
 	FieldFailedCount,
 	FieldFailureReason,
+	FieldCanceledAt,
+	FieldCanceledBy,
 	FieldFence,
 	FieldFields,
 	FieldExtraVars,
@@ -141,8 +147,10 @@ const DefaultState = StatePending
 const (
 	StatePending    State = "pending"
 	StateFanningOut State = "fanning_out"
+	StateRunning    State = "running"
 	StateCompleted  State = "completed"
 	StateFailed     State = "failed"
+	StateCanceled   State = "canceled"
 )
 
 func (s State) String() string {
@@ -152,7 +160,7 @@ func (s State) String() string {
 // StateValidator is a validator for the "state" field enum values. It is called by the builders before save.
 func StateValidator(s State) error {
 	switch s {
-	case StatePending, StateFanningOut, StateCompleted, StateFailed:
+	case StatePending, StateFanningOut, StateRunning, StateCompleted, StateFailed, StateCanceled:
 		return nil
 	default:
 		return fmt.Errorf("job: invalid enum value for state field: %q", s)
@@ -250,6 +258,16 @@ func ByFailedCount(opts ...sql.OrderTermOption) OrderOption {
 // ByFailureReason orders the results by the failure_reason field.
 func ByFailureReason(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFailureReason, opts...).ToFunc()
+}
+
+// ByCanceledAt orders the results by the canceled_at field.
+func ByCanceledAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCanceledAt, opts...).ToFunc()
+}
+
+// ByCanceledBy orders the results by the canceled_by field.
+func ByCanceledBy(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCanceledBy, opts...).ToFunc()
 }
 
 // ByFence orders the results by the fence field.

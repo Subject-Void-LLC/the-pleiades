@@ -174,8 +174,27 @@ func (Job) Fields() []ent.Field {
 		// genuinely different outcomes indistinguishable to a caller
 		// polling the job resource. "failed" plus failure_reason keeps
 		// them distinguishable.
+		// "canceled" and "running" were added together by Item I (job
+		// cancel). "canceled" is a person's decision to stop a run and is
+		// terminal: a job reaches it only from "pending" or "fanning_out",
+		// through JobStore.Cancel's own compare-and-swap, and nothing moves
+		// it out again. It is its own state rather than "failed" carrying a
+		// reason, because an operator scanning a job list needs to tell a
+		// run somebody stopped from one that broke on its own, and because
+		// AWX, which this platform targets parity with, carries the same
+		// distinction.
+		//
+		// "running" is declared here but nothing writes it yet, and that is
+		// deliberate rather than an oversight. "completed" today means the
+		// fan-out finished, NOT that the devices finished: no consumer folds
+		// per-device execution results back onto this row, so there is no
+		// moment at which this Controller could honestly say a job is still
+		// running. Declaring the value now costs nothing (neither dialect
+		// constrains this column, so widening the enum is a Go-side change
+		// with no migration) and saves widening it a second time when that
+		// consumer is built.
 		field.Enum("state").
-			Values("pending", "fanning_out", "completed", "failed").
+			Values("pending", "fanning_out", "running", "completed", "failed", "canceled").
 			Default("pending"),
 		// dispatched_count, skipped_count, and failed_count are the
 		// terminal tallies a GET on this job resource reports. They start
@@ -194,6 +213,23 @@ func (Job) Fields() []ent.Field {
 		// storage-layer detail a job-resource reader has no business
 		// seeing.
 		field.String("failure_reason").Optional(),
+		// canceled_at and canceled_by record who stopped this job and when.
+		// Both are empty for every state other than "canceled".
+		//
+		// Separate from failure_reason rather than folded into it: that
+		// column answers "why could the worker not proceed", which is a
+		// fact about the platform, and these answer "who decided to stop
+		// this", which is a fact about a person. An audit trail that
+		// conflated the two would make a deliberate stop indistinguishable
+		// from a fault at exactly the moment somebody is asking which it
+		// was.
+		//
+		// canceled_by holds the actor's subject, the same value actor above
+		// carries for whoever launched the job. The two differ often: a
+		// scheduled job is launched by the scheduler and stopped by a
+		// person, and that difference is the point of recording it.
+		field.Time("canceled_at").Optional(),
+		field.String("canceled_by").Optional(),
 		// fence is the fan-out lease's fencing token: a monotonically
 		// increasing counter bumped by exactly 1, atomically, every time
 		// BeginFanOut successfully claims or reclaims ownership of this

@@ -9402,6 +9402,8 @@ type JobMutation struct {
 	failed_count         *int
 	addfailed_count      *int
 	failure_reason       *string
+	canceled_at          *time.Time
+	canceled_by          *string
 	fence                *int64
 	addfence             *int64
 	fields               *map[string]interface{}
@@ -10362,6 +10364,104 @@ func (m *JobMutation) ResetFailureReason() {
 	delete(m.clearedFields, job.FieldFailureReason)
 }
 
+// SetCanceledAt sets the "canceled_at" field.
+func (m *JobMutation) SetCanceledAt(t time.Time) {
+	m.canceled_at = &t
+}
+
+// CanceledAt returns the value of the "canceled_at" field in the mutation.
+func (m *JobMutation) CanceledAt() (r time.Time, exists bool) {
+	v := m.canceled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCanceledAt returns the old "canceled_at" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldCanceledAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCanceledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCanceledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCanceledAt: %w", err)
+	}
+	return oldValue.CanceledAt, nil
+}
+
+// ClearCanceledAt clears the value of the "canceled_at" field.
+func (m *JobMutation) ClearCanceledAt() {
+	m.canceled_at = nil
+	m.clearedFields[job.FieldCanceledAt] = struct{}{}
+}
+
+// CanceledAtCleared returns if the "canceled_at" field was cleared in this mutation.
+func (m *JobMutation) CanceledAtCleared() bool {
+	_, ok := m.clearedFields[job.FieldCanceledAt]
+	return ok
+}
+
+// ResetCanceledAt resets all changes to the "canceled_at" field.
+func (m *JobMutation) ResetCanceledAt() {
+	m.canceled_at = nil
+	delete(m.clearedFields, job.FieldCanceledAt)
+}
+
+// SetCanceledBy sets the "canceled_by" field.
+func (m *JobMutation) SetCanceledBy(s string) {
+	m.canceled_by = &s
+}
+
+// CanceledBy returns the value of the "canceled_by" field in the mutation.
+func (m *JobMutation) CanceledBy() (r string, exists bool) {
+	v := m.canceled_by
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCanceledBy returns the old "canceled_by" field's value of the Job entity.
+// If the Job object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *JobMutation) OldCanceledBy(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCanceledBy is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCanceledBy requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCanceledBy: %w", err)
+	}
+	return oldValue.CanceledBy, nil
+}
+
+// ClearCanceledBy clears the value of the "canceled_by" field.
+func (m *JobMutation) ClearCanceledBy() {
+	m.canceled_by = nil
+	m.clearedFields[job.FieldCanceledBy] = struct{}{}
+}
+
+// CanceledByCleared returns if the "canceled_by" field was cleared in this mutation.
+func (m *JobMutation) CanceledByCleared() bool {
+	_, ok := m.clearedFields[job.FieldCanceledBy]
+	return ok
+}
+
+// ResetCanceledBy resets all changes to the "canceled_by" field.
+func (m *JobMutation) ResetCanceledBy() {
+	m.canceled_by = nil
+	delete(m.clearedFields, job.FieldCanceledBy)
+}
+
 // SetFence sets the "fence" field.
 func (m *JobMutation) SetFence(i int64) {
 	m.fence = &i
@@ -10669,7 +10769,7 @@ func (m *JobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *JobMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 23)
 	if m.created_at != nil {
 		fields = append(fields, job.FieldCreatedAt)
 	}
@@ -10720,6 +10820,12 @@ func (m *JobMutation) Fields() []string {
 	}
 	if m.failure_reason != nil {
 		fields = append(fields, job.FieldFailureReason)
+	}
+	if m.canceled_at != nil {
+		fields = append(fields, job.FieldCanceledAt)
+	}
+	if m.canceled_by != nil {
+		fields = append(fields, job.FieldCanceledBy)
 	}
 	if m.fence != nil {
 		fields = append(fields, job.FieldFence)
@@ -10775,6 +10881,10 @@ func (m *JobMutation) Field(name string) (ent.Value, bool) {
 		return m.FailedCount()
 	case job.FieldFailureReason:
 		return m.FailureReason()
+	case job.FieldCanceledAt:
+		return m.CanceledAt()
+	case job.FieldCanceledBy:
+		return m.CanceledBy()
 	case job.FieldFence:
 		return m.Fence()
 	case job.FieldFields:
@@ -10826,6 +10936,10 @@ func (m *JobMutation) OldField(ctx context.Context, name string) (ent.Value, err
 		return m.OldFailedCount(ctx)
 	case job.FieldFailureReason:
 		return m.OldFailureReason(ctx)
+	case job.FieldCanceledAt:
+		return m.OldCanceledAt(ctx)
+	case job.FieldCanceledBy:
+		return m.OldCanceledBy(ctx)
 	case job.FieldFence:
 		return m.OldFence(ctx)
 	case job.FieldFields:
@@ -10961,6 +11075,20 @@ func (m *JobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetFailureReason(v)
+		return nil
+	case job.FieldCanceledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCanceledAt(v)
+		return nil
+	case job.FieldCanceledBy:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCanceledBy(v)
 		return nil
 	case job.FieldFence:
 		v, ok := value.(int64)
@@ -11140,6 +11268,12 @@ func (m *JobMutation) ClearedFields() []string {
 	if m.FieldCleared(job.FieldFailureReason) {
 		fields = append(fields, job.FieldFailureReason)
 	}
+	if m.FieldCleared(job.FieldCanceledAt) {
+		fields = append(fields, job.FieldCanceledAt)
+	}
+	if m.FieldCleared(job.FieldCanceledBy) {
+		fields = append(fields, job.FieldCanceledBy)
+	}
 	if m.FieldCleared(job.FieldFields) {
 		fields = append(fields, job.FieldFields)
 	}
@@ -11183,6 +11317,12 @@ func (m *JobMutation) ClearField(name string) error {
 		return nil
 	case job.FieldFailureReason:
 		m.ClearFailureReason()
+		return nil
+	case job.FieldCanceledAt:
+		m.ClearCanceledAt()
+		return nil
+	case job.FieldCanceledBy:
+		m.ClearCanceledBy()
 		return nil
 	case job.FieldFields:
 		m.ClearFields()
@@ -11251,6 +11391,12 @@ func (m *JobMutation) ResetField(name string) error {
 		return nil
 	case job.FieldFailureReason:
 		m.ResetFailureReason()
+		return nil
+	case job.FieldCanceledAt:
+		m.ResetCanceledAt()
+		return nil
+	case job.FieldCanceledBy:
+		m.ResetCanceledBy()
 		return nil
 	case job.FieldFence:
 		m.ResetFence()

@@ -249,6 +249,8 @@ func toJob(row *ent.Job) *Job {
 		SkippedCount:    row.SkippedCount,
 		FailedCount:     row.FailedCount,
 		FailureReason:   row.FailureReason,
+		CanceledAt:      row.CanceledAt,
+		CanceledBy:      row.CanceledBy,
 		CreatedAt:       row.CreatedAt,
 	}
 
@@ -400,6 +402,20 @@ func (s *entJobStore) RecordTask(ctx context.Context, jobID string, fence int64,
 	}
 	if row.Fence != fence {
 		return fmt.Errorf("job %s: %w", jobID, ErrFenced)
+	}
+	// Somebody stopped this job while its fan-out was in flight. Checked
+	// here, on a row this method has already read for the fence, so it
+	// costs no extra query: the fan-out loop learns of a cancel on its
+	// next device rather than by polling, and the devices it has not
+	// reached are never dispatched to. This is the durable half of what
+	// Cancel promises.
+	//
+	// It is checked AFTER the fence, deliberately. A superseded worker is
+	// superseded whatever the job's state is, and telling it the job was
+	// canceled would send it to the wrong conclusion about why it must
+	// stop.
+	if row.State == job.StateCanceled {
+		return fmt.Errorf("job %s: %w", jobID, ErrCanceled)
 	}
 
 	create := s.client.JobTask.Create().

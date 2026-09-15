@@ -52,6 +52,10 @@ type Job struct {
 	FailedCount int `json:"failed_count,omitempty"`
 	// FailureReason holds the value of the "failure_reason" field.
 	FailureReason string `json:"failure_reason,omitempty"`
+	// CanceledAt holds the value of the "canceled_at" field.
+	CanceledAt time.Time `json:"canceled_at,omitempty"`
+	// CanceledBy holds the value of the "canceled_by" field.
+	CanceledBy string `json:"canceled_by,omitempty"`
 	// Fence holds the value of the "fence" field.
 	Fence int64 `json:"fence,omitempty"`
 	// Fields holds the value of the "fields" field.
@@ -93,9 +97,9 @@ func (*Job) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case job.FieldID, job.FieldInventoryID, job.FieldTemplateID, job.FieldLaunchConfigID, job.FieldOrganizationID, job.FieldDispatchedCount, job.FieldSkippedCount, job.FieldFailedCount, job.FieldFence:
 			values[i] = new(sql.NullInt64)
-		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason:
+		case job.FieldJobID, job.FieldRunbookID, job.FieldGroupName, job.FieldTemplateName, job.FieldKind, job.FieldActor, job.FieldState, job.FieldFailureReason, job.FieldCanceledBy:
 			values[i] = new(sql.NullString)
-		case job.FieldCreatedAt, job.FieldUpdatedAt:
+		case job.FieldCreatedAt, job.FieldUpdatedAt, job.FieldCanceledAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -223,6 +227,18 @@ func (_m *Job) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field failure_reason", values[i])
 			} else if value.Valid {
 				_m.FailureReason = value.String
+			}
+		case job.FieldCanceledAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field canceled_at", values[i])
+			} else if value.Valid {
+				_m.CanceledAt = value.Time
+			}
+		case job.FieldCanceledBy:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field canceled_by", values[i])
+			} else if value.Valid {
+				_m.CanceledBy = value.String
 			}
 		case job.FieldFence:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -353,6 +369,12 @@ func (_m *Job) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("failure_reason=")
 	builder.WriteString(_m.FailureReason)
+	builder.WriteString(", ")
+	builder.WriteString("canceled_at=")
+	builder.WriteString(_m.CanceledAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	builder.WriteString("canceled_by=")
+	builder.WriteString(_m.CanceledBy)
 	builder.WriteString(", ")
 	builder.WriteString("fence=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Fence))

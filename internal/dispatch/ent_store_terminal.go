@@ -1,14 +1,19 @@
-// Package dispatch: entJobStore's two terminal writes, Complete and Fail,
-// split into their own sibling file, following job.go/worker.go/
+// Package dispatch: entJobStore's terminal writes, Complete, Fail and
+// Cancel, split into their own sibling file, following job.go/worker.go/
 // worker_devices.go's existing file-per-concern shape, once ent_store.go
 // itself grew past AGENTS.md's ~300-line soft cap on logic files (the
 // fencing-token fix added a state-plus-fence guard, shared via
-// terminalWriteRejected, to both of these methods).
+// terminalWriteRejected, to Complete and Fail).
+//
+// Cancel sits here because it writes a terminal state like the other two,
+// but it is not their shape: it presents no fence, because the person
+// stopping a job holds no fan-out claim. See its own doc comment.
 package dispatch
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ent/job"
 )
@@ -82,4 +87,64 @@ func (s *entJobStore) terminalWriteRejected(ctx context.Context, jobID string) e
 		return fmt.Errorf("job %s: %w", jobID, ErrJobNotFound)
 	}
 	return fmt.Errorf("job %s: %w", jobID, ErrFenced)
+}
+
+// Cancel transitions jobID to "canceled". See JobStore.Cancel.
+func (s *entJobStore) Cancel(ctx context.Context, jobID string, canceledBy string) error {
+	// Conditioned on the state being one a job can still be stopped from,
+	// named positively rather than as "not completed and not failed". The
+	// positive list is what makes this safe to widen: a state added later
+	// is not cancelable until somebody decides it is, where a negative
+	// list would silently make every future state cancelable, including
+	// ones that are terminal. internal/ui/resources/jobs's own
+	// terminalStates map is written the same way round for the same
+	// reason.
+	//
+	// No fence guard, unlike Complete and Fail immediately above. Those
+	// two are written by the worker that owns the fan-out and must prove
+	// it still does; this is written by a person, who never held a claim.
+	// Requiring one here would mean a job could only be stopped by the
+	// very worker that is busy running it.
+	affected, err := s.client.Job.Update().
+		Where(
+			job.JobIDEQ(jobID),
+			job.Or(
+				job.StateEQ(job.StatePending),
+				job.StateEQ(job.StateFanningOut),
+				job.StateEQ(job.StateRunning),
+			),
+		).
+		SetState(job.StateCanceled).
+		SetCanceledAt(time.Now()).
+		SetCanceledBy(canceledBy).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to cancel job %s: %w", jobID, err)
+	}
+	if affected > 0 {
+		return nil
+	}
+	return s.cancelRejected(ctx, jobID)
+}
+
+// cancelRejected is Cancel's own counterpart to terminalWriteRejected,
+// telling apart the two reasons its conditioned update can match no row:
+// jobID names no job at all (ErrJobNotFound), or it names one that has
+// already stopped (ErrNotCancelable).
+//
+// It is separate from terminalWriteRejected rather than shared, because
+// that function's "real job, wrong state" answer is ErrFenced, which would
+// be a lie here: nothing has reclaimed anything, the job simply already
+// finished. Telling a caller its claim was superseded when what actually
+// happened is that the run completed a second earlier would send an
+// operator looking for a second worker that does not exist.
+func (s *entJobStore) cancelRejected(ctx context.Context, jobID string) error {
+	exists, err := s.client.Job.Query().Where(job.JobIDEQ(jobID)).Exist(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check job %s exists: %w", jobID, err)
+	}
+	if !exists {
+		return fmt.Errorf("job %s: %w", jobID, ErrJobNotFound)
+	}
+	return fmt.Errorf("job %s: %w", jobID, ErrNotCancelable)
 }

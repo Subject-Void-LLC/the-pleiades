@@ -135,6 +135,16 @@ func FailureReason(v string) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldFailureReason, v))
 }
 
+// CanceledAt applies equality check predicate on the "canceled_at" field. It's identical to CanceledAtEQ.
+func CanceledAt(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldCanceledAt, v))
+}
+
+// CanceledBy applies equality check predicate on the "canceled_by" field. It's identical to CanceledByEQ.
+func CanceledBy(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldCanceledBy, v))
+}
+
 // Fence applies equality check predicate on the "fence" field. It's identical to FenceEQ.
 func Fence(v int64) predicate.Job {
 	return predicate.Job(sql.FieldEQ(FieldFence, v))
@@ -1043,6 +1053,131 @@ func FailureReasonEqualFold(v string) predicate.Job {
 // FailureReasonContainsFold applies the ContainsFold predicate on the "failure_reason" field.
 func FailureReasonContainsFold(v string) predicate.Job {
 	return predicate.Job(sql.FieldContainsFold(FieldFailureReason, v))
+}
+
+// CanceledAtEQ applies the EQ predicate on the "canceled_at" field.
+func CanceledAtEQ(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldCanceledAt, v))
+}
+
+// CanceledAtNEQ applies the NEQ predicate on the "canceled_at" field.
+func CanceledAtNEQ(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldCanceledAt, v))
+}
+
+// CanceledAtIn applies the In predicate on the "canceled_at" field.
+func CanceledAtIn(vs ...time.Time) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldCanceledAt, vs...))
+}
+
+// CanceledAtNotIn applies the NotIn predicate on the "canceled_at" field.
+func CanceledAtNotIn(vs ...time.Time) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldCanceledAt, vs...))
+}
+
+// CanceledAtGT applies the GT predicate on the "canceled_at" field.
+func CanceledAtGT(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldCanceledAt, v))
+}
+
+// CanceledAtGTE applies the GTE predicate on the "canceled_at" field.
+func CanceledAtGTE(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldCanceledAt, v))
+}
+
+// CanceledAtLT applies the LT predicate on the "canceled_at" field.
+func CanceledAtLT(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldCanceledAt, v))
+}
+
+// CanceledAtLTE applies the LTE predicate on the "canceled_at" field.
+func CanceledAtLTE(v time.Time) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldCanceledAt, v))
+}
+
+// CanceledAtIsNil applies the IsNil predicate on the "canceled_at" field.
+func CanceledAtIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldCanceledAt))
+}
+
+// CanceledAtNotNil applies the NotNil predicate on the "canceled_at" field.
+func CanceledAtNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldCanceledAt))
+}
+
+// CanceledByEQ applies the EQ predicate on the "canceled_by" field.
+func CanceledByEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldEQ(FieldCanceledBy, v))
+}
+
+// CanceledByNEQ applies the NEQ predicate on the "canceled_by" field.
+func CanceledByNEQ(v string) predicate.Job {
+	return predicate.Job(sql.FieldNEQ(FieldCanceledBy, v))
+}
+
+// CanceledByIn applies the In predicate on the "canceled_by" field.
+func CanceledByIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldIn(FieldCanceledBy, vs...))
+}
+
+// CanceledByNotIn applies the NotIn predicate on the "canceled_by" field.
+func CanceledByNotIn(vs ...string) predicate.Job {
+	return predicate.Job(sql.FieldNotIn(FieldCanceledBy, vs...))
+}
+
+// CanceledByGT applies the GT predicate on the "canceled_by" field.
+func CanceledByGT(v string) predicate.Job {
+	return predicate.Job(sql.FieldGT(FieldCanceledBy, v))
+}
+
+// CanceledByGTE applies the GTE predicate on the "canceled_by" field.
+func CanceledByGTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldGTE(FieldCanceledBy, v))
+}
+
+// CanceledByLT applies the LT predicate on the "canceled_by" field.
+func CanceledByLT(v string) predicate.Job {
+	return predicate.Job(sql.FieldLT(FieldCanceledBy, v))
+}
+
+// CanceledByLTE applies the LTE predicate on the "canceled_by" field.
+func CanceledByLTE(v string) predicate.Job {
+	return predicate.Job(sql.FieldLTE(FieldCanceledBy, v))
+}
+
+// CanceledByContains applies the Contains predicate on the "canceled_by" field.
+func CanceledByContains(v string) predicate.Job {
+	return predicate.Job(sql.FieldContains(FieldCanceledBy, v))
+}
+
+// CanceledByHasPrefix applies the HasPrefix predicate on the "canceled_by" field.
+func CanceledByHasPrefix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasPrefix(FieldCanceledBy, v))
+}
+
+// CanceledByHasSuffix applies the HasSuffix predicate on the "canceled_by" field.
+func CanceledByHasSuffix(v string) predicate.Job {
+	return predicate.Job(sql.FieldHasSuffix(FieldCanceledBy, v))
+}
+
+// CanceledByIsNil applies the IsNil predicate on the "canceled_by" field.
+func CanceledByIsNil() predicate.Job {
+	return predicate.Job(sql.FieldIsNull(FieldCanceledBy))
+}
+
+// CanceledByNotNil applies the NotNil predicate on the "canceled_by" field.
+func CanceledByNotNil() predicate.Job {
+	return predicate.Job(sql.FieldNotNull(FieldCanceledBy))
+}
+
+// CanceledByEqualFold applies the EqualFold predicate on the "canceled_by" field.
+func CanceledByEqualFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldEqualFold(FieldCanceledBy, v))
+}
+
+// CanceledByContainsFold applies the ContainsFold predicate on the "canceled_by" field.
+func CanceledByContainsFold(v string) predicate.Job {
+	return predicate.Job(sql.FieldContainsFold(FieldCanceledBy, v))
 }
 
 // FenceEQ applies the EQ predicate on the "fence" field.
