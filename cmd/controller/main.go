@@ -1048,7 +1048,13 @@ func main() {
 	devices := api.NewDeviceHandler(repo, inventory.NewItemFactory(), logger)
 	// jobStore satisfies both the read port and the cancel one; the split
 	// lives in internal/api so a read-only handler cannot stop a run.
-	jobs := api.NewJobHandler(jobStore, jobStore)
+	//
+	// The cancel signal rides nc, the connection the log streamer already
+	// holds, because it is core NATS and needs no JetStream handle of its
+	// own. It carries the operator's decision to a Runner that is already
+	// executing the job; the record and the fan-out are settled by
+	// jobStore above and do not depend on it.
+	jobs := api.NewJobHandler(jobStore, jobStore, api.WithCancelSignals(event.NewNATSControl(nc)))
 	// The same store and syncer the playbook source above was built on, so
 	// what an operator syncs through the browser, what a caller syncs over
 	// the API, and what a dispatch resolves are one checkout rather than

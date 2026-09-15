@@ -299,12 +299,56 @@ func TestControllerGrantCoversEveryEnumeratedOperation(t *testing.T) {
 		"$JS.API.CONSUMER.INFO.PLEIADES.abc123":                          "and probes it",
 		"$JS.API.CONSUMER.MSG.NEXT.PLEIADES.abc123":                      "and pulls from it",
 		"$JS.API.CONSUMER.DELETE.PLEIADES.abc123":                        "and deletes it when the viewer disconnects",
+		topology.ControlSubject("job-1"):                                 "signals a cancel to whichever Runner is executing that job",
 	}
 
 	for subject, why := range required {
 		if !permits(g.Pub, subject) {
 			t.Errorf("ControllerGrant does not permit %q, which the Controller needs because it %s\ngrant was %v", subject, why, g.Pub)
 		}
+	}
+}
+
+// TestFleetRunnerGrantCoversEverySubscription is the SUBSCRIBE half, and
+// it did not need to exist until job cancel: before it, a Runner
+// subscribed to nothing but its own reply inbox.
+//
+// It is separate from the publish table above rather than folded into it,
+// because the two permission sets are genuinely different lists and NATS
+// checks them separately. Getting a subscribe wrong is also the quieter
+// failure of the two: a denied publish comes back to the publisher, while
+// a denied subscription produces no error anywhere at all. A Runner
+// missing this entry would connect, pull work, execute normally, and
+// simply never stop when somebody cancelled a job, with every log line
+// and every in-process test still reporting success.
+func TestFleetRunnerGrantCoversEverySubscription(t *testing.T) {
+	g := meshid.FleetRunnerGrant("runner-1")
+
+	required := map[string]string{
+		"_INBOX.abc.123":                 "every JetStream reply, including the dispatch it pulls, arrives on an inbox",
+		topology.ControlSubject("job-1"): "listens for a cancel of the one job it is currently executing",
+	}
+
+	for subject, why := range required {
+		if !permits(g.Sub, subject) {
+			t.Errorf("FleetRunnerGrant does not permit SUBSCRIBING to %q, which the Runner needs because it %s\ngrant was %v", subject, why, g.Sub)
+		}
+	}
+}
+
+// TestRunnerCannotPublishACancel proves the control channel only runs one
+// way.
+//
+// The Runner's subscribe grant names the whole control space, because a
+// grant cannot know which job that Runner will be given. Its publish grant
+// must not: a Runner that could publish on this subject could stop any job
+// anywhere in the fleet, which is a privilege nothing in its work needs
+// and a real escalation from a single compromised worker.
+func TestRunnerCannotPublishACancel(t *testing.T) {
+	g := meshid.FleetRunnerGrant("runner-1")
+
+	if permits(g.Pub, topology.ControlSubject("job-1")) {
+		t.Errorf("FleetRunnerGrant permits PUBLISHING a cancel, so one Runner could stop every job in the fleet\ngrant was %v", g.Pub)
 	}
 }
 

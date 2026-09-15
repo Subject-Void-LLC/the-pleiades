@@ -61,6 +61,13 @@ const (
 	// outcome, and a journal entry is a per-task audit record with its
 	// own durable consumer and its own table.
 	journalSubjectPrefix = "pleiades.jobs.journal."
+	// controlSubjectPrefix carries per-job control signals, of which there
+	// is one today: stop. It sits beside the log, result and journal
+	// prefixes rather than under any of them because it is the only
+	// subject in this package that travels the other way, from the
+	// Controller to a Runner already working, and the only one that is
+	// not JetStream. See ControlSubject.
+	controlSubjectPrefix = "pleiades.jobs.control."
 	dlqSubjectPrefix     = "pleiades.dlq."
 	// jobRequestedSubject is the one subject a Job launch (a later stage
 	// in this session, replacing internal/api/dispatcher.go's synchronous
@@ -285,6 +292,45 @@ func JournalSubject(jobID string) string {
 // see its doc comment for why these are declared rather than derived.
 func JournalSubjectAll() string {
 	return journalSubjectPrefix + ">"
+}
+
+// ControlSubject returns the subject a running job's control signals are
+// published on and subscribed to. There is one signal today: a cancel.
+//
+// This subject is deliberately CORE NATS rather than JetStream, and it is
+// the only one in this package that is. Two reasons, and the first is
+// decisive. event.Bus.Subscribe creates a DURABLE consumer named after the
+// topic, so every subscriber to a subject joins one consumer group and
+// exactly one of them receives each message; a cancel delivered to one
+// arbitrary Runner instead of the one holding the job is worse than no
+// cancel at all. Second, at-least-once redelivery is the wrong promise
+// here: a control signal means something only to whoever is listening at
+// the moment it is sent, and a cancel redelivered later would be a
+// cancellation arriving for a job that has long since ended.
+//
+// It still falls under StreamSubjectRoot, so the single stream captures a
+// copy and holds it for MaxAge. That is deliberate and harmless rather than
+// an oversight: the body carries a job id and nothing else, and core
+// subscribers never replay what the stream retained. What it buys is that
+// this subject needs no exception anywhere else, in a package whose whole
+// premise is that every subject lives under one root.
+//
+// The job id goes through SubjectToken for the reason LogSubject's own
+// comment gives.
+func ControlSubject(jobID string) string {
+	return controlSubjectPrefix + SubjectToken(jobID)
+}
+
+// ControlSubjectAll is LogSubjectAll's sibling for the control subject;
+// see its doc comment for why these are declared rather than derived.
+//
+// A Runner subscribes to ONE job's control subject at a time, never this
+// wildcard: it knows which job it is executing. This exists because a
+// permission grant cannot know that in advance, so the Runner's subscribe
+// grant has to name the whole space even though the subscription never
+// does.
+func ControlSubjectAll() string {
+	return controlSubjectPrefix + ">"
 }
 
 // JobRequestedSubject returns the one subject a persisted Job's launch

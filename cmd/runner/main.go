@@ -254,6 +254,19 @@ func main() {
 		agentOpts = append(agentOpts, runner.WithResultWAL(wal, bus))
 	}
 
+	// Per-job cancel signals, over the same connection the dispatch
+	// consumer already uses. Core NATS rather than JetStream, for the
+	// reasons internal/event's control channel documents, so this adds a
+	// subscription and no consumer.
+	//
+	// ON by default, unlike the WAL above, because the failure it covers
+	// is one an operator experiences directly: a run they have decided to
+	// stop carrying on against real devices. A Runner whose subscribe
+	// permission is withheld degrades silently to the old behaviour rather
+	// than refusing to start, which is why internal/meshid's Runner grant
+	// names the control space explicitly.
+	agentOpts = append(agentOpts, runner.WithCancelSignals(event.NewNATSControl(nc)))
+
 	// The liveness heartbeat (internal/runner/heartbeat.go), which is
 	// what `runner healthcheck` reads and therefore what an orchestrator
 	// probe really asks. ON by default, unlike the WAL above, because a

@@ -33,6 +33,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/event"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/lock"
 	"github.com/Subject-Void-LLC/the-pleiades/pkg/wire"
 )
@@ -57,6 +58,21 @@ const (
 	// WithHeartbeatInterval.
 	heartbeatInterval = 1 * time.Minute
 )
+
+// WithCancelSignals lets an execution be stopped by an operator cancelling
+// its job, by subscribing to that job's control subject for exactly as long
+// as it is running (see executeWithLease).
+//
+// Optional, and omitting it is not a broken Runner: the durable half of a
+// cancel, the job's record and every device its fan-out has not yet
+// reached, is settled entirely by the Controller and does not involve this
+// at all. What an Agent without it cannot do is stop work already running
+// on a device, which will instead finish and report normally.
+func WithCancelSignals(control event.CancelSubscriber) AgentOption {
+	return func(a *Agent) {
+		a.control = control
+	}
+}
 
 // executeWithLease acquires an exclusive lock.Manager lease on
 // payload.DeviceID (PLAN.md Section 13: "a device can only have one
@@ -122,6 +138,34 @@ func (a *Agent) executeWithLease(ctx context.Context, payload wire.DispatchPaylo
 			case <-execCtx.Done():
 			}
 		}()
+
+		// The third trigger: an operator cancelled this job. Gated on the
+		// same payload.Interruptible flag as the outer-shutdown watcher
+		// above and heartbeat's own KeepAlive-failure branch below, so all
+		// three honour PLAN.md Section 16's exception consistently. A task
+		// declaring itself un-abortable finishes whatever asks it to stop,
+		// and the Controller's own record still says canceled: the record
+		// is what a person decided, and this signal is only how far that
+		// decision can reach into work already running.
+		//
+		// Subscribing here rather than in handleMessage keeps it bounded
+		// by exactly the window where cancelling means anything: from just
+		// before Execute begins to just after it returns. A subscription
+		// held any longer would be a Runner listening for the cancellation
+		// of a job it is no longer running.
+		if a.control != nil {
+			unsubscribe, err := a.control.SubscribeCancel(ctx, payload.JobID, cancelExec)
+			if err != nil {
+				// Logged, never fatal. A Runner that cannot hear
+				// cancellations still executes correctly, and refusing the
+				// dispatch would turn a degraded best-effort channel into
+				// a refusal to do any work at all.
+				a.logger.Warn("could not subscribe to cancel signals for this job; it will run to completion if canceled",
+					slog.String("job_id", payload.JobID), slog.String("error", err.Error()))
+			} else {
+				defer unsubscribe()
+			}
+		}
 	}
 
 	done := make(chan struct{})

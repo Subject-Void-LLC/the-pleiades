@@ -114,7 +114,25 @@ func FleetRunnerGrant(name string) Grant {
 			// to the reply subject JetStream stamped on the delivery.
 			ackSpace(topology.StreamName, topology.DispatchDurableName),
 		},
-		Sub: []string{inboxPattern},
+		Sub: []string{
+			inboxPattern,
+
+			// The per-job cancel signal, and the only pleiades subject a
+			// Runner subscribes to at all. It has to be the whole control
+			// space rather than one job: a grant is minted long before
+			// this Runner knows which job it will be given, and the
+			// subscription it actually opens names exactly one job.
+			//
+			// Withholding this is silent, which is why it is here rather
+			// than deferred. A denied core subscription produces no error
+			// the Runner can act on, so cancellation would simply never
+			// reach a running execution while every log line and every
+			// test still said the feature worked. Reading the whole space
+			// discloses nothing worth withholding: a control message
+			// carries a job id and nothing else, deliberately, for exactly
+			// this reason.
+			topology.ControlSubjectAll(),
+		},
 	}
 }
 
@@ -133,6 +151,13 @@ func ControllerGrant(name string) Grant {
 			topology.DispatchSubjectAll(),
 			topology.JobRequestedSubject(),
 			topology.EventSubject(">"),
+
+			// The per-job cancel signal the Runner grant above subscribes
+			// to. Core NATS, so a denied publish IS reported here, unlike
+			// the denied subscribe on the other side, which is not. The
+			// two halves of a cancel therefore fail independently: a job
+			// can settle to canceled with nothing having stopped.
+			topology.ControlSubjectAll(),
 			kvSubjectSpace(topology.LockBucketName),
 
 			// The Controller's own dead letter path. Its absence was
