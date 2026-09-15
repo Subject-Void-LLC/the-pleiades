@@ -786,6 +786,14 @@ func main() {
 	projectStore := project.NewEntStore(client)
 	projectSyncer := project.NewGitSyncer(projectRoot(), projectAuth{credentialResolver})
 
+	// projectRunner clones asynchronously, so a slow fetch no longer holds a
+	// page or an API call open while it runs. RecoverInterrupted, run once
+	// here at startup, clears any sync a previous process was killed
+	// mid-clone: a sync runs in memory, so such a row would otherwise stay
+	// running forever and refuse every future Sync of that project.
+	projectRunner := project.NewRunner(projectStore, projectSyncer, logger)
+	projectRunner.RecoverInterrupted(ctx)
+
 	// One list, for the reason the catalog comment further down states: a
 	// definition that can be CHOSEN has to be one that can be RUN, or a
 	// template saves and then fails at launch. The catalog and the worker
@@ -1032,7 +1040,7 @@ func main() {
 	// what an operator syncs through the browser, what a caller syncs over
 	// the API, and what a dispatch resolves are one checkout rather than
 	// three.
-	projectsAPI := api.NewProjectHandler(projectStore, projectSyncer, credentialStore, logger)
+	projectsAPI := api.NewProjectHandler(projectStore, projectRunner, credentialStore, logger)
 	catalog := api.NewRunbookHandler(runbooks, logger)
 
 	// The two resources the web UI's navigation is built around: the
@@ -1485,6 +1493,14 @@ func main() {
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", slog.String("error", err.Error()))
+	}
+
+	// Drain in-flight clones after the HTTP server stops accepting requests.
+	// A clone runs on the runner's own goroutine rather than a request's, so
+	// srv.Shutdown does not reach it; a clone that does not stop in time is
+	// abandoned and cleared by the next startup's RecoverInterrupted.
+	if err := projectRunner.Shutdown(shutdownCtx); err != nil {
+		slog.Error("draining project syncs failed", slog.String("error", err.Error()))
 	}
 
 	// Wait for both electors' own bounded release (internal/election's own

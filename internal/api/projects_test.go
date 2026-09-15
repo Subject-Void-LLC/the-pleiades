@@ -102,6 +102,7 @@ type projectFixture struct {
 	client *ent.Client
 	store  project.Store
 	syncer *fakeSyncer
+	runner *project.Runner
 	creds  *fakeCredentials
 	router http.Handler
 
@@ -118,8 +119,13 @@ func newProjectFixture(t *testing.T) *projectFixture {
 
 	store := project.NewEntStore(client)
 	syncer := &fakeSyncer{}
+	// The real runner over the fake syncer, so the sync endpoint exercises
+	// the genuine async path: the handler enqueues, the runner claims and
+	// clones in the background, and a test waits on runner.Wait() for the
+	// outcome the way a caller waits on a poll.
+	runner := project.NewRunner(store, syncer, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	creds := &fakeCredentials{}
-	handler := api.NewProjectHandler(store, syncer, creds, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	handler := api.NewProjectHandler(store, runner, creds, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -140,7 +146,7 @@ func newProjectFixture(t *testing.T) *projectFixture {
 	}
 
 	return &projectFixture{
-		client: client, store: store, syncer: syncer,
+		client: client, store: store, syncer: syncer, runner: runner,
 		creds: creds, router: router, orgID: org.ID,
 	}
 }
@@ -596,9 +602,10 @@ func TestProjects_DeleteRemovesTheProject(t *testing.T) {
 	}
 }
 
-// TestProjects_SyncRecordsItsOutcome covers the success path and, more
-// importantly, that the handler passes the STORED project to the syncer.
-func TestProjects_SyncRecordsItsOutcome(t *testing.T) {
+// TestProjects_SyncEnqueuesAndRecordsItsOutcome covers the async happy path:
+// the request is accepted at once, the clone runs in the background over the
+// STORED project, and the outcome a caller polls for is persisted.
+func TestProjects_SyncEnqueuesAndRecordsItsOutcome(t *testing.T) {
 	f := newProjectFixture(t)
 	id := f.createProject(t, "syncable")
 	f.syncer.result = project.Result{
@@ -608,24 +615,28 @@ func TestProjects_SyncRecordsItsOutcome(t *testing.T) {
 	}
 
 	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
-	if status != http.StatusOK {
-		t.Fatalf("status %d, body %s", status, body)
+	if status != http.StatusAccepted {
+		t.Fatalf("status %d, want 202 Accepted; body %s", status, body)
 	}
+
+	// The clone runs off the request; wait for it the way a caller polls.
+	f.runner.Wait()
 
 	if len(f.syncer.seen) != 1 {
 		t.Fatalf("the syncer was asked %d times, want once", len(f.syncer.seen))
 	}
-	// The record the handler read, not one rebuilt from the request. A
-	// sync must fetch the URL that was saved, whatever the caller posted.
+	// The record the runner read, not one rebuilt from the request. A sync
+	// must fetch the URL that was saved, whatever the caller posted.
 	if got := f.syncer.seen[0]; got.ID != id || got.SCMURL != "https://example.invalid/automation.git" {
 		t.Errorf("the syncer was handed %+v, want the stored project", got)
 	}
 
+	_, polled := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d", id), nil)
 	var dto struct {
 		Revision   string `json:"revision"`
 		SyncStatus string `json:"sync_status"`
 	}
-	if err := json.Unmarshal(body, &dto); err != nil {
+	if err := json.Unmarshal(polled, &dto); err != nil {
 		t.Fatalf("decoding: %v", err)
 	}
 	if dto.SyncStatus != string(project.SyncSucceeded) || dto.Revision != f.syncer.result.Revision {
@@ -633,11 +644,12 @@ func TestProjects_SyncRecordsItsOutcome(t *testing.T) {
 	}
 }
 
-// TestProjects_AFailedSyncIsStillASuccessfulRequest is the distinction the
-// handler's own comment makes, and it is worth a test because getting it
-// wrong sends an operator to look at the controller when the actual problem
-// is somebody's repository.
-func TestProjects_AFailedSyncIsStillASuccessfulRequest(t *testing.T) {
+// TestProjects_AFailedSyncBecomesAFailedStatus is the distinction that used
+// to be "a failed sync is still a 200": under the async path the request is
+// accepted regardless, and the failure lands in the status a caller polls,
+// which is worth a test because getting it wrong sends an operator to look
+// at the controller when the actual problem is somebody's repository.
+func TestProjects_AFailedSyncBecomesAFailedStatus(t *testing.T) {
 	f := newProjectFixture(t)
 	id := f.createProject(t, "unreachable")
 	f.syncer.result = project.Result{
@@ -646,15 +658,17 @@ func TestProjects_AFailedSyncIsStillASuccessfulRequest(t *testing.T) {
 	}
 
 	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
-	if status != http.StatusOK {
-		t.Fatalf("status %d, want 200 for a sync that ran and failed; body %s", status, body)
+	if status != http.StatusAccepted {
+		t.Fatalf("status %d, want 202 for an accepted sync; body %s", status, body)
 	}
+	f.runner.Wait()
 
+	_, polled := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d", id), nil)
 	var dto struct {
 		SyncStatus string `json:"sync_status"`
 		SyncError  string `json:"sync_error"`
 	}
-	if err := json.Unmarshal(body, &dto); err != nil {
+	if err := json.Unmarshal(polled, &dto); err != nil {
 		t.Fatalf("decoding: %v", err)
 	}
 	if dto.SyncStatus != string(project.SyncFailed) {
@@ -665,16 +679,41 @@ func TestProjects_AFailedSyncIsStillASuccessfulRequest(t *testing.T) {
 	}
 }
 
-// TestProjects_AnUnsyncableProjectIsRefused covers the other error return,
-// where the syncer declines to attempt anything at all.
+// TestProjects_AnUnsyncableProjectIsRefused covers the synchronous refusal:
+// a project with no fetchable source is a 400 at claim time rather than a
+// background failure nobody is watching.
 func TestProjects_AnUnsyncableProjectIsRefused(t *testing.T) {
 	f := newProjectFixture(t)
-	id := f.createProject(t, "not fetchable")
-	f.syncer.err = errSyncerRefused
+	// A manual project has no source to fetch, so BeginSync refuses it.
+	p, err := f.store.Create(context.Background(), project.Project{
+		Name: "manual-only", SCMType: project.SCMManual, OrganizationID: f.orgID,
+	})
+	if err != nil {
+		t.Fatalf("creating an unsyncable project: %v", err)
+	}
 
-	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
+	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", p.ID), nil)
 	if status != http.StatusBadRequest {
 		t.Errorf("status %d, want 400 for a project with no fetchable source; body %s", status, body)
+	}
+}
+
+// TestProjects_ASyncAlreadyRunningIsRefused covers the 409: a second sync of
+// a project whose first is still running is refused rather than started, so
+// two clones never race on the one working tree.
+func TestProjects_ASyncAlreadyRunningIsRefused(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "busy")
+
+	// Claim it directly, so it is running when the request arrives and is
+	// never completed for the duration of the test.
+	if _, err := f.store.BeginSync(context.Background(), id); err != nil {
+		t.Fatalf("claiming the project: %v", err)
+	}
+
+	status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil)
+	if status != http.StatusConflict {
+		t.Errorf("status %d, want 409 when a sync is already running; body %s", status, body)
 	}
 }
 
@@ -694,7 +733,8 @@ func TestNewProjectHandler_DefaultsItsLogger(t *testing.T) {
 func TestProjects_ANilCredentialListerAcceptsAnyCredential(t *testing.T) {
 	client := newSerializedSQLiteClient(t, fmt.Sprintf("projects-nilcreds-%d", projectFixtureSeq.Add(1)))
 	org := client.Organization.Create().SetName("network").SaveX(context.Background())
-	handler := api.NewProjectHandler(project.NewEntStore(client), &fakeSyncer{}, nil, nil)
+	store := project.NewEntStore(client)
+	handler := api.NewProjectHandler(store, project.NewRunner(store, &fakeSyncer{}, nil), nil, nil)
 
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -779,11 +819,22 @@ func (f *failingStore) Delete(context.Context, int) error { return f.err }
 // RecordSync fails.
 func (f *failingStore) RecordSync(context.Context, int, project.Result) error { return f.err }
 
+// BeginSync fails, which is how a broken store surfaces on the sync path now
+// that the clone and its recording happen in the background: the one thing a
+// request still owns is whether the sync could be claimed at all.
+func (f *failingStore) BeginSync(context.Context, int) (project.Project, error) {
+	return project.Project{}, f.err
+}
+
+// ResetInterruptedSyncs fails.
+func (f *failingStore) ResetInterruptedSyncs(context.Context) (int, error) { return 0, f.err }
+
 // routerOverStore mounts every project route over the given store.
 func routerOverStore(t *testing.T, store project.Store, syncer project.Syncer) http.Handler {
 	t.Helper()
 
-	handler := api.NewProjectHandler(store, syncer, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	runner := project.NewRunner(store, syncer, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	handler := api.NewProjectHandler(store, runner, nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	router, err := api.NewRouter(api.RouterConfig{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Auth:      alwaysAuthenticated,
@@ -830,10 +881,11 @@ func TestProjects_AnUnexpectedStoreFailureIsAServerError(t *testing.T) {
 			body:  map[string]any{"name": "x", "organization": 1, "scm_url": "https://example.invalid/a.git"},
 			getOK: true,
 		},
-		// The sync ran; recording where it got to is what failed. That is
-		// a broken deployment rather than a broken repository, so it is
-		// the one sync outcome that is NOT a 200.
-		{name: "recording a sync", method: http.MethodPost, path: "/api/v1/projects/1/sync", getOK: true},
+		// Claiming the sync is what failed. The clone and its recording
+		// happen off the request now, so the one sync outcome a request
+		// still owns is whether it could be started, and a broken store
+		// there is a 500 rather than a repository problem.
+		{name: "claiming a sync", method: http.MethodPost, path: "/api/v1/projects/1/sync"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &failingStore{err: errStoreBroken, getOK: tc.getOK}
@@ -976,24 +1028,29 @@ func TestProjects_ListHonoursItsLimit(t *testing.T) {
 	}
 }
 
-// syncThenBlindStore reads a project once, records a sync, and then cannot
-// read the result back.
+// syncThenBlindStore claims a sync successfully and then cannot read the
+// project back, which is the one place the asynchronous sync handler still
+// owes a caller a 500: the read after the claim.
 type syncThenBlindStore struct {
 	project.Store
-
-	reads int
 }
 
-// Get succeeds the first time and fails afterwards.
-func (s *syncThenBlindStore) Get(_ context.Context, id int) (project.Project, error) {
-	s.reads++
-	if s.reads == 1 {
-		return project.Project{ID: id, Name: "readable", SCMType: project.SCMGit, SCMURL: "https://example.invalid/a.git"}, nil
-	}
+// BeginSync claims the project, so the handler reaches the read-back.
+func (s *syncThenBlindStore) BeginSync(_ context.Context, id int) (project.Project, error) {
+	return project.Project{
+		ID: id, Name: "readable", SCMType: project.SCMGit,
+		SCMURL: "https://example.invalid/a.git", SyncStatus: project.SyncRunning,
+	}, nil
+}
+
+// Get always fails, standing in for a store that claimed the sync but cannot
+// read the project the handler returns.
+func (s *syncThenBlindStore) Get(context.Context, int) (project.Project, error) {
 	return project.Project{}, errStoreBroken
 }
 
-// RecordSync succeeds.
+// RecordSync succeeds, so the background clone's own write is not the failure
+// under test.
 func (s *syncThenBlindStore) RecordSync(context.Context, int, project.Result) error { return nil }
 
 // TestProjects_ASyncThatCannotBeReadBackIsAServerError covers the read

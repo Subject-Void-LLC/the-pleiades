@@ -1,7 +1,7 @@
 // This file serves the project surface: the source repositories a
 // deployment runs automation out of.
 //
-// It holds a project.Store and a project.Syncer and nothing else. In
+// It holds a project.Store and a sync enqueuer and nothing else. In
 // particular it holds no credential resolver, so a handler here cannot read
 // a decrypted secret even by accident, which is the same boundary the
 // credential handlers are held to.
@@ -15,6 +15,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -30,9 +31,17 @@ import (
 // ProjectHandler serves projects.
 type ProjectHandler struct {
 	projects project.Store
-	syncer   project.Syncer
+	syncs    syncEnqueuer
 	creds    credentialLister
 	logger   *slog.Logger
+}
+
+// syncEnqueuer starts a project's clone in the background and returns once it
+// is under way, rather than blocking the request on the network. It is
+// *project.Runner in a real controller; the handler holds the interface so a
+// test can drive the sync surface without a real clone.
+type syncEnqueuer interface {
+	Enqueue(ctx context.Context, id int) error
 }
 
 // credentialLister reads the redacted credential projection, which is all
@@ -51,11 +60,11 @@ type credentialLister interface {
 // A nil creds accepts any credential id, which is the behaviour a
 // deployment with no credential store gets rather than a refusal of
 // everything.
-func NewProjectHandler(store project.Store, syncer project.Syncer, creds credentialLister, logger *slog.Logger) *ProjectHandler {
+func NewProjectHandler(store project.Store, syncs syncEnqueuer, creds credentialLister, logger *slog.Logger) *ProjectHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ProjectHandler{projects: store, syncer: syncer, creds: creds, logger: logger}
+	return &ProjectHandler{projects: store, syncs: syncs, creds: creds, logger: logger}
 }
 
 // checkCredential refuses a credential that cannot authenticate a clone.
@@ -260,45 +269,56 @@ func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Sync fetches the project's source and records where it got to.
+// Sync starts an asynchronous clone and returns at once.
 //
-// It answers 200 for a sync that ran and failed, because the request
-// succeeded: the outcome is in sync_status and sync_error, which is the
-// same shape a caller polling a project already reads. A 5xx here would say
-// the controller broke, when what actually happened is that somebody's
-// repository was unreachable.
+// It answers 202 with the project as it now stands, its sync_status moved to
+// running: the clone happens off this request, so the outcome is not known
+// yet and lands in sync_status and sync_error, which a caller polls the
+// project for. This is the shape a slow clone needs; blocking the request on
+// the network was the limit this replaced.
+//
+// No credential is passed or held. The runner's syncer resolves the
+// project's own credential id internally, so this handler cannot leak a
+// secret it was never given, the boundary internal/archtest asserts over
+// this whole package.
 func (h *ProjectHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.parseID(w, r)
 	if !ok {
 		return
 	}
-	p, err := h.projects.Get(r.Context(), id)
+
+	if err := h.syncs.Enqueue(r.Context(), id); err != nil {
+		h.respondSyncError(w, r, err)
+		return
+	}
+
+	// The project as claimed, so a caller has the id and the running status
+	// to start polling from. It may already read a terminal status if the
+	// clone was fast, which is fine: a poll of a done project is a done
+	// project.
+	claimed, err := h.projects.Get(r.Context(), id)
 	if err != nil {
 		h.respondStoreError(w, r, "read", err)
 		return
 	}
+	dto := toProjectDTO(claimed)
+	Respond(w, r, http.StatusAccepted, &dto)
+}
 
-	// No credential is passed or held. The syncer resolves the project's
-	// own credential id internally, so this handler cannot leak a secret it
-	// was never given, which is the same boundary internal/archtest asserts
-	// over this whole package.
-	result, err := h.syncer.Sync(r.Context(), p)
-	if err != nil {
+// respondSyncError maps a claim refusal onto the status that names it: a
+// project with no fetchable source is a 400, one whose sync is already
+// running a 409, an unknown id a 404. Anything else is a storage failure.
+func (h *ProjectHandler) respondSyncError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, project.ErrNotFound):
+		RespondError(w, r, http.StatusNotFound, "no project with that id")
+	case errors.Is(err, project.ErrNotSyncable):
 		RespondError(w, r, http.StatusBadRequest, err.Error())
-		return
+	case errors.Is(err, project.ErrSyncInProgress):
+		RespondError(w, r, http.StatusConflict, err.Error())
+	default:
+		h.respondStoreError(w, r, "sync", err)
 	}
-	if err := h.projects.RecordSync(r.Context(), id, result); err != nil {
-		h.respondStoreError(w, r, "record a sync for", err)
-		return
-	}
-
-	synced, err := h.projects.Get(r.Context(), id)
-	if err != nil {
-		h.respondStoreError(w, r, "read", err)
-		return
-	}
-	dto := toProjectDTO(synced)
-	Respond(w, r, http.StatusOK, &dto)
 }
 
 // fromBody validates a write body into a domain project.

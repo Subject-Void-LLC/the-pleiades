@@ -159,11 +159,12 @@ var SyncProject = Endpoint{
 	Rel:     auth.RelExecute,
 	Summary: "Sync a project",
 	Responses: []Response{
-		{Status: http.StatusOK, Description: "The project after the attempt. A sync that RAN AND FAILED is also a 200: the outcome is in sync_status and sync_error, because the request succeeded and somebody else's repository did not.", Schema: projectSchema},
+		{Status: http.StatusAccepted, Description: "The sync was accepted and is running. The project is returned as it now stands, its sync_status moved to running; the clone happens off this request, so poll the project for the outcome, which lands in sync_status and sync_error.", Schema: projectSchema},
 		{Status: http.StatusBadRequest, Description: "The project has no fetchable source.", Schema: errorSchema("")},
+		{Status: http.StatusConflict, Description: "A sync is already running for this project. A second is refused rather than started, because two clones race on the one working tree a project keys by id.", Schema: errorSchema("")},
 		{Status: http.StatusNotFound, Description: "No project with that id.", Schema: errorSchema("")},
 	},
-	Description: "Clones or fast-forwards the project's working tree and records the commit it ended up at.",
+	Description: "Starts an asynchronous clone or fast-forward of the project's working tree and returns at once. The commit it ends up at, or why it failed, is recorded on the project, which a caller polls rather than waiting on this request.",
 	Params: []Param{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
 	},

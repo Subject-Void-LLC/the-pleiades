@@ -7654,7 +7654,7 @@
     },
     "/projects/{id}/sync": {
       "post": {
-        "description": "Clones or fast-forwards the project's working tree and records the commit it ended up at.",
+        "description": "Starts an asynchronous clone or fast-forward of the project's working tree and returns at once. The commit it ends up at, or why it failed, is recorded on the project, which a caller polls rather than waiting on this request.",
         "operationId": "sync_project",
         "parameters": [
           {
@@ -7668,7 +7668,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -7745,7 +7745,7 @@
                 }
               }
             },
-            "description": "The project after the attempt. A sync that RAN AND FAILED is also a 200: the outcome is in sync_status and sync_error, because the request succeeded and somebody else's repository did not."
+            "description": "The sync was accepted and is running. The project is returned as it now stands, its sync_status moved to running; the clone happens off this request, so poll the project for the outcome, which lands in sync_status and sync_error."
           },
           "400": {
             "content": {
@@ -7778,6 +7778,22 @@
               }
             },
             "description": "No project with that id."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A sync is already running for this project. A second is refused rather than started, because two clones race on the one working tree a project keys by id."
           }
         },
         "security": [
