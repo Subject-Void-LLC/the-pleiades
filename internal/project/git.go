@@ -16,6 +16,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -85,7 +86,7 @@ func (s *GitSyncer) pathFor(p Project) string {
 }
 
 // Sync clones the project or fast-forwards an existing checkout.
-func (s *GitSyncer) Sync(ctx context.Context, p Project) (Result, error) {
+func (s *GitSyncer) Sync(ctx context.Context, p Project, progress io.Writer) (Result, error) {
 	if !p.Syncable() {
 		return Result{}, ErrNotSyncable
 	}
@@ -107,7 +108,7 @@ func (s *GitSyncer) Sync(ctx context.Context, p Project) (Result, error) {
 		return result, nil
 	}
 
-	repo, openErr := s.open(ctx, dir, p, auth)
+	repo, openErr := s.open(ctx, dir, p, auth, progress)
 	if openErr != nil {
 		result.Status = SyncFailed
 		result.Err = scrubURL(openErr.Error(), p.SCMURL)
@@ -138,7 +139,7 @@ func (s *GitSyncer) Sync(ctx context.Context, p Project) (Result, error) {
 // reported. It is this package's own working area, keyed by a numeric id
 // nothing else writes to, so anything unexpected there is debris from an
 // interrupted clone rather than somebody's data.
-func (s *GitSyncer) open(ctx context.Context, dir string, p Project, auth Auth) (*gogit.Repository, error) {
+func (s *GitSyncer) open(ctx context.Context, dir string, p Project, auth Auth, progress io.Writer) (*gogit.Repository, error) {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
 		return nil, fmt.Errorf("preparing the project directory: %w", err)
 	}
@@ -148,21 +149,22 @@ func (s *GitSyncer) open(ctx context.Context, dir string, p Project, auth Auth) 
 		if rmErr := os.RemoveAll(dir); rmErr != nil {
 			return nil, fmt.Errorf("clearing a stale project directory: %w", rmErr)
 		}
-		return s.clone(ctx, dir, p, auth)
+		return s.clone(ctx, dir, p, auth, progress)
 	}
-	return repo, s.fetch(ctx, repo, p, auth)
+	return repo, s.fetch(ctx, repo, p, auth, progress)
 }
 
 // clone makes the first checkout.
-func (s *GitSyncer) clone(ctx context.Context, dir string, p Project, auth Auth) (*gogit.Repository, error) {
+func (s *GitSyncer) clone(ctx context.Context, dir string, p Project, auth Auth, progress io.Writer) (*gogit.Repository, error) {
 	method, err := authMethod(auth)
 	if err != nil {
 		return nil, err
 	}
 	opts := &gogit.CloneOptions{
-		URL:   p.SCMURL,
-		Auth:  method,
-		Depth: 1,
+		URL:      p.SCMURL,
+		Auth:     method,
+		Depth:    1,
+		Progress: progress,
 	}
 	// An empty branch means the remote's own default, which is not assumed
 	// to be "main": a repository whose default is "master" or "trunk" is
@@ -175,14 +177,15 @@ func (s *GitSyncer) clone(ctx context.Context, dir string, p Project, auth Auth)
 }
 
 // fetch fast-forwards an existing checkout.
-func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project, auth Auth) error {
+func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project, auth Auth, progress io.Writer) error {
 	method, err := authMethod(auth)
 	if err != nil {
 		return err
 	}
 	if err := repo.FetchContext(ctx, &gogit.FetchOptions{
-		Auth:  method,
-		Force: true,
+		Auth:     method,
+		Force:    true,
+		Progress: progress,
 	}); err != nil && !isUpToDate(err) {
 		return err
 	}
@@ -191,7 +194,7 @@ func (s *GitSyncer) fetch(ctx context.Context, repo *gogit.Repository, p Project
 	if err != nil {
 		return err
 	}
-	pull := &gogit.PullOptions{Auth: method}
+	pull := &gogit.PullOptions{Auth: method, Progress: progress}
 	if p.SCMBranch != "" {
 		pull.ReferenceName = plumbing.NewBranchReferenceName(p.SCMBranch)
 	}

@@ -116,7 +116,7 @@ func TestGitSyncer_ResolvesTheProjectsCredential(t *testing.T) {
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 		SCMURL: origin, CredentialID: 42,
 	}
-	if _, err := syncer.Sync(t.Context(), p); err != nil {
+	if _, err := syncer.Sync(t.Context(), p, nil); err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}
 	if len(auth.calls) != 1 || auth.calls[0] != 42 {
@@ -132,7 +132,7 @@ func TestGitSyncer_APublicProjectAsksForNoCredential(t *testing.T) {
 	syncer := project.NewGitSyncer(t.TempDir(), auth)
 
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
-	if _, err := syncer.Sync(t.Context(), p); err != nil {
+	if _, err := syncer.Sync(t.Context(), p, nil); err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}
 	if len(auth.calls) != 0 {
@@ -167,7 +167,7 @@ func TestGitSyncer_AnEncryptedKeyNeedsItsPassphrase(t *testing.T) {
 				ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 				SCMURL: origin, CredentialID: 1,
 			}
-			got, err := syncer.Sync(t.Context(), p)
+			got, err := syncer.Sync(t.Context(), p, nil)
 			if err != nil {
 				t.Fatalf("Sync() = %v, want the outcome in the Result", err)
 			}
@@ -213,7 +213,7 @@ func TestGitSyncer_AResolverFailureIsRecordedWithoutDetail(t *testing.T) {
 		ID: 1, OrganizationID: 1, SCMType: project.SCMGit,
 		SCMURL: origin, CredentialID: 7,
 	}
-	got, err := syncer.Sync(t.Context(), p)
+	got, err := syncer.Sync(t.Context(), p, nil)
 	if err != nil {
 		t.Fatalf("Sync() = %v, want the failure in the Result", err)
 	}

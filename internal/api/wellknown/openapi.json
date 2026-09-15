@@ -7807,6 +7807,53 @@
         "x-link-relation": "execute"
       }
     },
+    "/projects/{id}/sync/logs": {
+      "get": {
+        "description": "Each frame's data is one line of the fetch's own output. A reader arriving while a clone is already running receives what it has printed so far before the live lines, and one arriving after it finished receives that tail and an immediate 'done' event, so neither is left watching a page that will never receive anything. The stream ends when the clone does. Output is held to the same rule the project's sync_error is: internal/project strips credential material from a transport's messages before they reach a reader. A clone runs on the controller that accepted the sync, so in a multi-replica deployment a reader whose request lands elsewhere sees only the closing event.",
+        "operationId": "stream_project_sync_logs",
+        "parameters": [
+          {
+            "description": "The project's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An open SSE stream, closed when the sync finishes."
+          },
+          "400": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "id is not a positive integer."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "project:read"
+            ]
+          }
+        ],
+        "summary": "Stream a project sync's live output over Server-Sent Events",
+        "x-link-relation": "logs"
+      }
+    },
     "/runbooks": {
       "get": {
         "description": "Returns every runbook id this control plane can resolve, sorted. Ids only: compiling the whole library to render a list of names would make opening the catalog cost more the more automation an organization has written. Read GET /runbooks/{id} for one runbook's requirements.",

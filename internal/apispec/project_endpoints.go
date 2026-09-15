@@ -169,3 +169,31 @@ var SyncProject = Endpoint{
 		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
 	},
 }
+
+// StreamProjectSyncLogs is GET /projects/{id}/sync/logs.
+//
+// A read scope rather than the write a sync itself takes: watching a fetch
+// discloses what the fetch prints and changes nothing.
+var StreamProjectSyncLogs = Endpoint{
+	Name:    "stream_project_sync_logs",
+	Method:  http.MethodGet,
+	Pattern: "/projects/{id}/sync/logs",
+	Scope:   auth.ScopeProjectRead,
+	Rel:     auth.RelLogs,
+	Summary: "Stream a project sync's live output over Server-Sent Events",
+	Description: "Each frame's data is one line of the fetch's own output. A reader arriving while a clone is " +
+		"already running receives what it has printed so far before the live lines, and one arriving after it " +
+		"finished receives that tail and an immediate 'done' event, so neither is left watching a page that will " +
+		"never receive anything. The stream ends when the clone does. Output is held to the same rule the " +
+		"project's sync_error is: internal/project strips credential material from a transport's messages before " +
+		"they reach a reader. A clone runs on the controller that accepted the sync, so in a multi-replica " +
+		"deployment a reader whose request lands elsewhere sees only the closing event.",
+	ResponseContentType: "text/event-stream",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The project's numeric id."},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "An open SSE stream, closed when the sync finishes."},
+		{Status: http.StatusBadRequest, Description: "id is not a positive integer.", Schema: errorSchema("")},
+	},
+}

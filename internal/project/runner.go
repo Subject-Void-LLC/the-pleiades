@@ -53,6 +53,11 @@ type Runner struct {
 
 	sem chan struct{}
 	wg  sync.WaitGroup
+
+	// progress is where a running clone's output goes so somebody can watch
+	// it. The Runner owns it because the Runner is what starts and ends a
+	// clone, which is exactly when a stream opens and closes.
+	progress *Progress
 }
 
 // RunnerOption configures a Runner.
@@ -76,12 +81,13 @@ func NewRunner(store syncStore, syncer Syncer, logger *slog.Logger, opts ...Runn
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Runner{
-		store:  store,
-		syncer: syncer,
-		logger: logger,
-		ctx:    ctx,
-		cancel: cancel,
-		sem:    make(chan struct{}, defaultConcurrency),
+		store:    store,
+		syncer:   syncer,
+		logger:   logger,
+		ctx:      ctx,
+		cancel:   cancel,
+		sem:      make(chan struct{}, defaultConcurrency),
+		progress: NewProgress(),
 	}
 	for _, o := range opts {
 		o(r)
@@ -132,7 +138,13 @@ func (r *Runner) run(p Project) {
 	}
 	defer func() { <-r.sem }()
 
-	result, err := r.syncer.Sync(r.ctx, p)
+	// The clone reports into this project's stream, and the stream ends
+	// when the clone does however it ends, so a reader is never left
+	// watching a page that will receive nothing more.
+	out := r.progress.Writer(p.ID)
+	defer r.progress.Finish(p.ID)
+
+	result, err := r.syncer.Sync(r.ctx, p, out)
 	if err != nil {
 		// The syncer reserves its error return for a failure to even
 		// attempt. BeginSync already refused an unsyncable project, so this
@@ -191,3 +203,14 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 // Wait blocks until every enqueued sync has finished. It exists so a test
 // can make an enqueue deterministic without reaching into the pool.
 func (r *Runner) Wait() { r.wg.Wait() }
+
+// Subscribe returns this project's live clone output: the lines already
+// written, then new ones, with the channel closed when the clone finishes.
+// The returned func releases the subscription and must be called.
+//
+// It is a passthrough to the Runner's own Progress rather than an exposed
+// field, so a caller serving a reader depends on the Runner it already has
+// instead of on a second value wired beside it.
+func (r *Runner) Subscribe(projectID int) (<-chan string, func()) {
+	return r.progress.Subscribe(projectID)
+}

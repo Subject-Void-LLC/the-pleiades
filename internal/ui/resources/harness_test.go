@@ -3,6 +3,7 @@ package resources_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -893,7 +894,12 @@ func (s *fakeProjectStore) ResetInterruptedSyncs(_ context.Context) (int, error)
 // testing somebody else's uptime.
 type fakeProjectSyncer struct{}
 
-func (fakeProjectSyncer) Sync(_ context.Context, p project.Project) (project.Result, error) {
+func (fakeProjectSyncer) Sync(_ context.Context, p project.Project, progress io.Writer) (project.Result, error) {
+	if progress != nil {
+		// A real clone reports as it goes, so the stream has something to
+		// carry when the log page is opened.
+		_, _ = io.WriteString(progress, "Counting objects: 12, done.\n")
+	}
 	if !p.Syncable() {
 		return project.Result{}, project.ErrNotSyncable
 	}

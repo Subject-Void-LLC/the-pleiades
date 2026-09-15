@@ -8,6 +8,7 @@
 package project_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,7 +71,7 @@ func TestGitSyncer_ClonesAndListsPlaybooks(t *testing.T) {
 	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
 
-	got, err := syncer.Sync(t.Context(), p)
+	got, err := syncer.Sync(t.Context(), p, nil)
 	if err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}
@@ -109,10 +110,10 @@ func TestGitSyncer_SyncingTwiceIsFine(t *testing.T) {
 	syncer := project.NewGitSyncer(t.TempDir(), nil)
 	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
 
-	if _, err := syncer.Sync(t.Context(), p); err != nil {
+	if _, err := syncer.Sync(t.Context(), p, nil); err != nil {
 		t.Fatalf("first Sync() = %v", err)
 	}
-	got, err := syncer.Sync(t.Context(), p)
+	got, err := syncer.Sync(t.Context(), p, nil)
 	if err != nil {
 		t.Fatalf("second Sync() = %v", err)
 	}
@@ -135,7 +136,7 @@ func TestGitSyncer_AFailedSyncIsAResultNotAnError(t *testing.T) {
 		SCMURL: filepath.Join(t.TempDir(), "no-such-repository"),
 	}
 
-	got, err := syncer.Sync(t.Context(), p)
+	got, err := syncer.Sync(t.Context(), p, nil)
 	if err != nil {
 		t.Fatalf("Sync() = %v, want the failure reported in the Result", err)
 	}
@@ -156,7 +157,7 @@ func TestGitSyncer_AnUnsyncableProjectIsRefusedOutright(t *testing.T) {
 		{ID: 1, SCMType: project.SCMGit},                              // no URL
 		{ID: 2, SCMType: project.SCMManual, SCMURL: "https://x.test"}, // not implemented
 	} {
-		if _, err := syncer.Sync(t.Context(), p); err == nil {
+		if _, err := syncer.Sync(t.Context(), p, nil); err == nil {
 			t.Errorf("Sync(%+v) = nil, want ErrNotSyncable", p)
 		}
 	}
@@ -178,7 +179,7 @@ func TestGitSyncer_NeverStoresACredentialInTheFailureReason(t *testing.T) {
 		SCMURL: "https://someone:" + token + "@git.invalid/private/repo.git",
 	}
 
-	got, err := syncer.Sync(t.Context(), p)
+	got, err := syncer.Sync(t.Context(), p, nil)
 	if err != nil {
 		t.Fatalf("Sync() = %v", err)
 	}
@@ -190,5 +191,46 @@ func TestGitSyncer_NeverStoresACredentialInTheFailureReason(t *testing.T) {
 	}
 	if strings.Contains(got.Err, "someone:") {
 		t.Errorf("the recorded failure carries the userinfo:\n%s", got.Err)
+	}
+}
+
+// TestGitSyncer_ReportsProgressToTheWriter proves the clone's own output
+// reaches the writer a caller hands over, which is what makes watching a slow
+// fetch possible. A local origin transfers almost nothing, so this asserts
+// that SOMETHING was reported rather than matching git's wording, which is
+// the library's to change.
+func TestGitSyncer_ReportsProgressToTheWriter(t *testing.T) {
+	origin, _ := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
+
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
+	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
+
+	var progress bytes.Buffer
+	got, err := syncer.Sync(t.Context(), p, &progress)
+	if err != nil {
+		t.Fatalf("Sync() = %v", err)
+	}
+	if got.Status != project.SyncSucceeded {
+		t.Fatalf("Sync() status = %q, err %q; want succeeded", got.Status, got.Err)
+	}
+	if progress.Len() == 0 {
+		t.Error("the clone reported nothing to the progress writer, so a reader would watch an empty page")
+	}
+}
+
+// TestGitSyncer_ANilProgressWriterIsNotAFailure covers the ordinary case of
+// nobody watching: a sync with no reader must clone exactly as well.
+func TestGitSyncer_ANilProgressWriterIsNotAFailure(t *testing.T) {
+	origin, want := newRepo(t, map[string]string{"site.yml": "- hosts: all\n"})
+
+	syncer := project.NewGitSyncer(t.TempDir(), nil)
+	p := project.Project{ID: 1, OrganizationID: 1, SCMType: project.SCMGit, SCMURL: origin}
+
+	got, err := syncer.Sync(t.Context(), p, nil)
+	if err != nil {
+		t.Fatalf("Sync() = %v", err)
+	}
+	if got.Status != project.SyncSucceeded || got.Revision != want {
+		t.Errorf("Sync() = %q/%q, want a clean clone at %s", got.Status, got.Revision, want)
 	}
 }

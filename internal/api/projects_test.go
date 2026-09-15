@@ -59,12 +59,19 @@ type fakeSyncer struct {
 	result project.Result
 	err    error
 
+	// progress is written to the runner's stream before the outcome is
+	// reported, standing in for a real clone's own chatter.
+	progress string
+
 	seen []project.Project
 }
 
 // Sync records the request and returns the configured outcome.
-func (f *fakeSyncer) Sync(_ context.Context, p project.Project) (project.Result, error) {
+func (f *fakeSyncer) Sync(_ context.Context, p project.Project, progress io.Writer) (project.Result, error) {
 	f.seen = append(f.seen, p)
+	if f.progress != "" && progress != nil {
+		_, _ = io.WriteString(progress, f.progress)
+	}
 	if f.err != nil {
 		return project.Result{}, f.err
 	}
@@ -139,6 +146,7 @@ func newProjectFixture(t *testing.T) *projectFixture {
 			apispec.UpdateProject.Route(handler.Update),
 			apispec.DeleteProject.Route(handler.Delete),
 			apispec.SyncProject.Route(handler.Sync),
+			apispec.StreamProjectSyncLogs.Route(handler.StreamSyncLogs),
 		},
 	})
 	if err != nil {
@@ -847,6 +855,7 @@ func routerOverStore(t *testing.T, store project.Store, syncer project.Syncer) h
 			apispec.UpdateProject.Route(handler.Update),
 			apispec.DeleteProject.Route(handler.Delete),
 			apispec.SyncProject.Route(handler.Sync),
+			apispec.StreamProjectSyncLogs.Route(handler.StreamSyncLogs),
 		},
 	})
 	if err != nil {
@@ -1065,5 +1074,95 @@ func TestProjects_ASyncThatCannotBeReadBackIsAServerError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status %d, want 500 when a recorded sync cannot be read back", rec.Code)
+	}
+}
+
+// TestProjects_SyncLogStreamEndsWhenThereIsNothingRunning covers the reader
+// who opens the page when no clone is in flight: they must be told the
+// stream is over rather than left holding a connection that will never
+// deliver anything.
+func TestProjects_SyncLogStreamEndsWhenThereIsNothingRunning(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "quiet")
+
+	status, body := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d/sync/logs", id), nil)
+	if status != http.StatusOK {
+		t.Fatalf("status %d, want 200 for an SSE stream; body %s", status, body)
+	}
+	got := string(body)
+	if !strings.Contains(got, "event: init") {
+		t.Errorf("the stream never opened: %s", got)
+	}
+	if !strings.Contains(got, "event: done") {
+		t.Errorf("the stream did not say it had finished, so a reader waits forever: %s", got)
+	}
+}
+
+// TestProjects_SyncLogStreamCarriesTheClonesOutput proves the fetch's own
+// lines reach a reader, which is the whole point of the endpoint.
+func TestProjects_SyncLogStreamCarriesTheClonesOutput(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "chatty")
+	f.syncer.result = project.Result{Status: project.SyncSucceeded, Revision: "abc123"}
+	f.syncer.progress = "Counting objects: 12, done.\n"
+
+	if status, body := f.do(t, http.MethodPost, fmt.Sprintf("/api/v1/projects/%d/sync", id), nil); status != http.StatusAccepted {
+		t.Fatalf("starting the sync = %d: %s", status, body)
+	}
+	f.runner.Wait()
+
+	// The clone has finished, so this reader gets the replayed tail and an
+	// immediate close, which is the late-arrival path.
+	status, body := f.do(t, http.MethodGet, fmt.Sprintf("/api/v1/projects/%d/sync/logs", id), nil)
+	if status != http.StatusOK {
+		t.Fatalf("status %d, want 200; body %s", status, body)
+	}
+	if got := string(body); !strings.Contains(got, "Counting objects: 12, done.") {
+		t.Errorf("the stream did not carry the clone's output:\n%s", got)
+	}
+}
+
+// TestProjects_SyncLogStreamRefusesAMalformedId keeps the guard every
+// id-taking endpoint shares on the streaming one too.
+func TestProjects_SyncLogStreamRefusesAMalformedId(t *testing.T) {
+	f := newProjectFixture(t)
+
+	if status, _ := f.do(t, http.MethodGet, "/api/v1/projects/not-a-number/sync/logs", nil); status != http.StatusBadRequest {
+		t.Errorf("a malformed id on the log stream = %d, want 400", status)
+	}
+}
+
+// nonFlushingWriter is an http.ResponseWriter that deliberately does NOT
+// implement http.Flusher, which is the one thing an SSE handler cannot work
+// without.
+type nonFlushingWriter struct {
+	header http.Header
+	code   int
+	body   bytes.Buffer
+}
+
+func (w *nonFlushingWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = http.Header{}
+	}
+	return w.header
+}
+func (w *nonFlushingWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
+func (w *nonFlushingWriter) WriteHeader(code int)        { w.code = code }
+
+// TestProjects_SyncLogStreamNeedsAFlushingWriter proves the handler refuses
+// rather than streaming into a writer that cannot flush. Without a flush,
+// every frame would sit in a buffer until the response ended, which for a
+// stream that ends when the clone does is the same as sending nothing.
+func TestProjects_SyncLogStreamNeedsAFlushingWriter(t *testing.T) {
+	f := newProjectFixture(t)
+	id := f.createProject(t, "unflushable")
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/projects/%d/sync/logs", id), nil)
+	w := &nonFlushingWriter{}
+	f.router.ServeHTTP(w, req)
+
+	if w.code != http.StatusInternalServerError {
+		t.Errorf("status %d, want 500 when the writer cannot flush; body %s", w.code, w.body.String())
 	}
 }

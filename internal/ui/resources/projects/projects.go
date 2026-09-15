@@ -14,10 +14,12 @@
 // succeeded or failed. A repository large enough to take a while no longer
 // holds the page open while it fetches.
 //
-// A log stream, a run history, and a cancel are the parts of AWX's "a
-// project update is a Job" this does not yet have. They are follow-on work;
-// the async fetch is the part that unblocks the page, and the view did not
-// have to change to get it, which is what the Refresh spec was there for.
+// The parts of AWX's "a project update is a Job" that mattered are here
+// without the project having to become one: the fetch runs in the
+// background, its output streams live to a Sync output page, and every
+// completed attempt is kept as a Sync history tab. What a job's machinery
+// would have added beyond that is a relaunch, which for a sync is just
+// pressing Sync again.
 //
 // It is reachable only because internal/ui/resources/registrars.go names it
 // (FAILURE_PATTERNS.md #52).
@@ -28,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/inventory"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/project"
@@ -238,6 +241,15 @@ func Register(store project.Store, syncer project.Syncer, runner syncEnqueuer, o
 		IDField:  "name",
 		Fields:   declaredFields(orgs, creds),
 		Actions:  []view.RecordAction{syncAction(runner)},
+		// Watching a fetch is what a large repository needs: a badge says
+		// how it ended, and this says what it is doing meanwhile. Built from
+		// the API's own prefix and the endpoint's own pattern, so a change
+		// to either moves this with it rather than leaving a hardcoded path
+		// that still parses and no longer resolves.
+		Stream: &view.StreamSpec{
+			Title:       "Sync output",
+			PathPattern: api.APIVersionPrefix + apispec.StreamProjectSyncLogs.Pattern,
+		},
 		Sections: []view.Section{playbooksSection(syncer, store), historySection(store)},
 		Ops: view.Ops{
 			List:   &apispec.ListProjects,

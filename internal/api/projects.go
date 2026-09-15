@@ -16,6 +16,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -36,12 +37,18 @@ type ProjectHandler struct {
 	logger   *slog.Logger
 }
 
-// syncEnqueuer starts a project's clone in the background and returns once it
-// is under way, rather than blocking the request on the network. It is
-// *project.Runner in a real controller; the handler holds the interface so a
-// test can drive the sync surface without a real clone.
+// syncEnqueuer is what this handler needs from the project runner: start a
+// clone in the background rather than blocking the request on the network,
+// and watch one that is running.
+//
+// It is *project.Runner in a real controller; the handler holds the interface
+// so a test can drive the sync surface without a real clone.
 type syncEnqueuer interface {
 	Enqueue(ctx context.Context, id int) error
+
+	// Subscribe returns a running clone's output, closed when it finishes.
+	// The returned func releases the subscription.
+	Subscribe(projectID int) (<-chan string, func())
 }
 
 // credentialLister reads the redacted credential projection, which is all
@@ -303,6 +310,68 @@ func (h *ProjectHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	}
 	dto := toProjectDTO(claimed)
 	Respond(w, r, http.StatusAccepted, &dto)
+}
+
+// StreamSyncLogs serves a running clone's output as server-sent events.
+//
+// It answers the question a badge cannot: not "did it work" but "what is it
+// doing", which on a large repository is the difference between a page that
+// looks hung and one that is visibly fetching. A reader arriving mid-clone
+// gets what it has already printed before the live lines, and one arriving
+// after it finished gets the tail and an immediate close, so neither sees an
+// empty page that looks like an outage.
+//
+// The output is git's own, and git's own is held to the same rule every
+// other project string here is: internal/project scrubs credential material
+// out of a transport's messages before they reach anybody.
+func (h *ProjectHandler) StreamSyncLogs(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.parseID(w, r)
+	if !ok {
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		RespondError(w, r, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	// Subscribed before anything is written, because a Write commits the
+	// response to a 200 and no honest error status could be sent after it.
+	lines, release := h.syncs.Subscribe(id)
+	defer release()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// The project id is this handler's own parsed integer rather than the
+	// caller's raw path text, so nothing caller-supplied is reflected into
+	// the body.
+	fmt.Fprintf(w, "event: init\ndata: watching the sync of project %d\n\n", id)
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				// Said rather than merely closed: a reader that is told the
+				// sync ended can stop waiting, where a silent close looks
+				// the same as a dropped connection.
+				fmt.Fprint(w, "event: done\ndata: the sync has finished\n\n")
+				flusher.Flush()
+				return
+			}
+			// One line per event. internal/project's own writer split on
+			// newlines and carriage returns already, so nothing here can
+			// carry the blank line that would end an event early.
+			fmt.Fprintf(w, "data: %s\n\n", line)
+			flusher.Flush()
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // respondSyncError maps a claim refusal onto the status that names it: a

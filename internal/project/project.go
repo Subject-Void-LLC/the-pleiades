@@ -25,6 +25,7 @@ package project
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/Subject-Void-LLC/the-pleiades/internal/credtype"
@@ -219,7 +220,15 @@ type Syncer interface {
 	// implementation, from the id the project already carries, so a caller
 	// asking for a sync never holds a secret and cannot leak one it was
 	// handed.
-	Sync(ctx context.Context, p Project) (Result, error)
+	//
+	// progress receives the fetch's own output as it happens, so somebody
+	// can watch a slow clone rather than only learn how it ended. A nil
+	// writer means nobody is watching, which an implementation must treat
+	// as "report nothing" rather than as a reason to fail. Whatever reaches
+	// it is shown to an operator, so it is held to the same rule Result.Err
+	// is: no credential material, which is why a transport's own URL never
+	// goes here unscrubbed.
+	Sync(ctx context.Context, p Project, progress io.Writer) (Result, error)
 
 	// Playbooks lists the runnable files in a synced working tree, as
 	// paths relative to its root.

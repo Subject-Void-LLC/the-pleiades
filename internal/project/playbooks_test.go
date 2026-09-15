@@ -9,6 +9,7 @@ package project_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func (s stubStore) ListSyncRuns(context.Context, int, int) ([]project.SyncRun, e
 // stubSyncer lists what is actually on disk under the project's path.
 type stubSyncer struct{}
 
-func (stubSyncer) Sync(context.Context, project.Project) (project.Result, error) {
+func (stubSyncer) Sync(context.Context, project.Project, io.Writer) (project.Result, error) {
 	return project.Result{}, nil
 }
 func (stubSyncer) Playbooks(_ context.Context, p project.Project) ([]string, error) {

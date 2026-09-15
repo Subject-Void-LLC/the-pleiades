@@ -7,6 +7,7 @@ package project_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -62,7 +63,12 @@ type controllableSyncer struct {
 	release chan struct{}
 }
 
-func (c *controllableSyncer) Sync(ctx context.Context, _ project.Project) (project.Result, error) {
+func (c *controllableSyncer) Sync(ctx context.Context, _ project.Project, progress io.Writer) (project.Result, error) {
+	if progress != nil {
+		// Real syncers report as they go; writing one line proves the
+		// runner hands over a usable stream rather than a nil.
+		_, _ = io.WriteString(progress, "cloning\n")
+	}
 	if c.started != nil {
 		close(c.started)
 	}
