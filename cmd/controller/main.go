@@ -898,10 +898,21 @@ func main() {
 	// from elector/schedulerLeaseKey below, sharing the same lockMgr:
 	// internal/election's own doc comment guarantees two LeaderElectors
 	// with different keys never contend with each other even against one
-	// Manager). Exactly one replica's Reaper.Run ever sees isLeader true at
-	// a time, bounding JobStore.ListStaleFanOuts's own query load to once
-	// per interval across the whole deployment regardless of replica
-	// count.
+	// Manager). The lease BOUNDS how many replicas sweep on a given tick,
+	// which is what keeps JobStore.ListStaleFanOuts's own query load to
+	// roughly once per interval across the whole deployment regardless of
+	// replica count.
+	//
+	// It does not promise that only one sweeps. electionTTL is two seconds
+	// with no fencing token, so a replica starved for longer than that can
+	// still report itself leader while another already holds the lease;
+	// internal/election's package doc states that in full. What makes a
+	// double sweep harmless is Reaper.republish's idempotency key of the
+	// job id, on a tick well inside the stream's duplicate window, so two
+	// leaders reaping one stale job collapse to a single job.requested.
+	// CORRECTED 2026-09-15: this comment used to say exactly one replica
+	// ever sees isLeader true at a time, which the lease cannot deliver and
+	// which a later consumer could have built on.
 	reaperElector := election.NewLeaderElector(lockMgr, fanOutReaperLeaseKey,
 		election.WithOnAcquired(func() {
 			slog.Info("Acquired Fan-Out Reaper Lease", slog.String("key", fanOutReaperLeaseKey))
