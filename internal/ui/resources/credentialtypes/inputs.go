@@ -62,7 +62,7 @@ func inputsSection(store credstore.Store) view.Section {
 		// The row half, added after the header half had shipped alone for
 		// a while. An Add with no Remove is a one-way door, and the first
 		// typo through it is permanent.
-		RowActions: []view.RowAction{removeInputAction(store)},
+		RowActions: []view.RowAction{editInputAction(store), removeInputAction(store)},
 	}
 }
 
@@ -132,6 +132,55 @@ func inputTypeOptions(context.Context) ([]view.Option, error) {
 	}, nil
 }
 
+// inputFormFields are the controls an input's form offers, and one slice
+// serves both the add form and the edit form.
+//
+// The id is Immutable, which is what makes that work: an add form renders
+// it because a new input needs a name, and an edit form withholds it
+// because an injector references an input BY id, so renaming one in place
+// would break every template that used it while looking like a spelling
+// correction. On an edit the URL is what says which input, and it is the
+// only thing that does.
+func inputFormFields() []view.Field {
+	return []view.Field{
+		{
+			Name: "id", Label: "ID", Kind: view.KindText, Required: true, InForm: true,
+			Immutable:    true,
+			Autocomplete: "off",
+			Help:         "The identifier an injector references. Lowercase letters, digits and underscores, starting with a letter.",
+		},
+		{
+			Name: "label", Label: "LABEL", Kind: view.KindText, Required: true, InForm: true,
+			Help: "What a credential's own form shows for this field.",
+		},
+		{
+			Name: "type", Label: "TYPE", Kind: view.KindSelect, InForm: true,
+			Options: inputTypeOptions,
+			Help:    "A string value, or a true/false flag.",
+		},
+		{
+			Name: "secret", Label: "SECRET", Kind: view.KindBool, InForm: true,
+			Help: "Whether the value is encrypted at rest and never shown again. The most consequential choice here.",
+		},
+		{
+			Name: "required", Label: "REQUIRED", Kind: view.KindBool, InForm: true,
+			Help: "Whether a credential of this type must supply it.",
+		},
+		{
+			Name: "multiline", Label: "MULTILINE", Kind: view.KindBool, InForm: true,
+			Help: "Whether a credential's form renders it as a text area rather than one line.",
+		},
+		{
+			Name: "help", Label: "HELP", Kind: view.KindLongText, InForm: true,
+			Help: "Explanatory text shown beneath the control on a credential's form.",
+		},
+		{
+			Name: "default", Label: "DEFAULT", Kind: view.KindText, InForm: true,
+			Help: "The value used when a credential omits this input. A secret input may not carry one.",
+		},
+	}
+}
+
 // addInputAction appends one input to a type's schema.
 //
 // It carries the type's own set-inputs endpoint, whose relation is distinct
@@ -150,42 +199,7 @@ func addInputAction(store credstore.Store) view.RecordAction {
 		Label:    "Add input",
 		Heading:  "Add an input to this credential type",
 		Endpoint: &apispec.SetCredentialTypeInputs,
-		Fields: []view.Field{
-			{
-				Name: "id", Label: "ID", Kind: view.KindText, Required: true, InForm: true,
-				Autocomplete: "off",
-				Help:         "The identifier an injector references. Lowercase letters, digits and underscores, starting with a letter.",
-			},
-			{
-				Name: "label", Label: "LABEL", Kind: view.KindText, Required: true, InForm: true,
-				Help: "What a credential's own form shows for this field.",
-			},
-			{
-				Name: "type", Label: "TYPE", Kind: view.KindSelect, InForm: true,
-				Options: inputTypeOptions,
-				Help:    "A string value, or a true/false flag.",
-			},
-			{
-				Name: "secret", Label: "SECRET", Kind: view.KindBool, InForm: true,
-				Help: "Whether the value is encrypted at rest and never shown again. The most consequential choice here.",
-			},
-			{
-				Name: "required", Label: "REQUIRED", Kind: view.KindBool, InForm: true,
-				Help: "Whether a credential of this type must supply it.",
-			},
-			{
-				Name: "multiline", Label: "MULTILINE", Kind: view.KindBool, InForm: true,
-				Help: "Whether a credential's form renders it as a text area rather than one line.",
-			},
-			{
-				Name: "help", Label: "HELP", Kind: view.KindLongText, InForm: true,
-				Help: "Explanatory text shown beneath the control on a credential's form.",
-			},
-			{
-				Name: "default", Label: "DEFAULT", Kind: view.KindText, InForm: true,
-				Help: "The value used when a credential omits this input. A secret input may not carry one.",
-			},
-		},
+		Fields:   inputFormFields(),
 		Submit: func(ctx context.Context, id string, v view.Values) (string, view.FieldErrors, error) {
 			numeric, err := strconv.Atoi(id)
 			if err != nil {
