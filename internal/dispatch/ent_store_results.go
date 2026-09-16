@@ -41,10 +41,62 @@ func (s *entJobStore) SettleRunning(ctx context.Context, jobID string, fence int
 	if err != nil {
 		return fmt.Errorf("failed to settle job %s as running: %w", jobID, err)
 	}
-	if affected > 0 {
+	if affected == 0 {
+		return s.terminalWriteRejected(ctx, jobID)
+	}
+
+	// The lost wakeup, closed here because this is the only place that can
+	// close it.
+	//
+	// A result can arrive and be recorded while the fan-out loop is still
+	// running, because the task row is written inside the loop and this
+	// runs after it. If the LAST outstanding result lands in that window,
+	// RecordResult correctly reports the job is waiting on nothing, and
+	// CompleteRunning then matches no row because the job is still
+	// "fanning_out" -- which is not an error and is deliberately treated
+	// as one of the ordinary no-op endings. The line above then parks the
+	// job in "running" with zero outstanding tasks and nothing left in the
+	// system that would ever end it. Nothing sweeps "running", so that is
+	// permanent.
+	//
+	// It is not a narrow window in practice: a runbook that finishes in
+	// microseconds against a device that answers immediately reports back
+	// well before a fan-out over the rest of its group has finished
+	// walking.
+	//
+	// Re-asking rather than tracking, for the reason RecordResult counts
+	// rows instead of keeping a counter: two parties may reach this
+	// conclusion at once, and CompleteRunning's own "running" guard makes
+	// the second one a no-op rather than a double write.
+	outstanding, err := s.outstandingDevices(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if outstanding > 0 {
 		return nil
 	}
-	return s.terminalWriteRejected(ctx, jobID)
+	return s.CompleteRunning(ctx, jobID)
+}
+
+// outstandingDevices counts the devices this job handed to a Runner that
+// have not reported back.
+//
+// Dispatched tasks with no result, which is deliberately not "every task":
+// a skipped device never ran and a device whose dispatch failed never
+// reached a Runner, so neither will ever report and counting either would
+// leave the job waiting forever on something that cannot arrive.
+func (s *entJobStore) outstandingDevices(ctx context.Context, jobID string) (int, error) {
+	outstanding, err := s.client.JobTask.Query().
+		Where(
+			jobtask.HasJobWith(job.JobIDEQ(jobID)),
+			jobtask.OutcomeEQ(jobtask.OutcomeDispatched),
+			jobtask.ResultIsNil(),
+		).
+		Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count outstanding devices on job %s: %w", jobID, err)
+	}
+	return outstanding, nil
 }
 
 // RecordResult records one device's execution outcome and reports whether
@@ -88,15 +140,13 @@ func (s *entJobStore) RecordResult(ctx context.Context, jobID, deviceID string, 
 	// what makes a redelivered result harmless: writing the same result
 	// twice leaves this count unchanged, where a decrementing counter
 	// would run past zero and end the job early.
-	outstanding, err := s.client.JobTask.Query().
-		Where(
-			jobtask.HasJobWith(job.IDEQ(row.ID)),
-			jobtask.OutcomeEQ(jobtask.OutcomeDispatched),
-			jobtask.ResultIsNil(),
-		).
-		Count(ctx)
+	//
+	// The same question SettleRunning asks, through the same helper, so
+	// the two cannot drift into disagreeing about what "outstanding"
+	// means.
+	outstanding, err := s.outstandingDevices(ctx, jobID)
 	if err != nil {
-		return false, fmt.Errorf("failed to count outstanding devices on job %s: %w", jobID, err)
+		return false, err
 	}
 	return outstanding == 0, nil
 }

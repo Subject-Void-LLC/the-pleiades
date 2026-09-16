@@ -338,3 +338,99 @@ func TestParseResult(t *testing.T) {
 		})
 	}
 }
+
+// TestEntJobStore_SettleRunning_CompletesAJobEveryDeviceAlreadyReported is
+// the lost wakeup, and it is a permanent hang rather than a delay.
+//
+// The task rows are written INSIDE the fan-out loop and SettleRunning runs
+// after it, so a result can be recorded while the loop is still going. If
+// the last outstanding result lands in that window, RecordResult correctly
+// says the job is waiting on nothing, and the CompleteRunning that follows
+// matches no row because the job is still "fanning_out" -- which is one of
+// the ordinary no-op endings, not an error. Without the re-check in
+// SettleRunning the job is then parked in "running" with zero outstanding
+// tasks and nothing in the system that would ever end it, and nothing
+// sweeps "running".
+//
+// The window is not narrow. The e2e suite's runbook is a noop that finishes
+// in microseconds, which is exactly the shape that reports back before a
+// fan-out over the rest of a group has finished walking.
+func TestEntJobStore_SettleRunning_CompletesAJobEveryDeviceAlreadyReported(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newTestStore(t)
+
+	job := &dispatch.Job{RunbookID: "pb-1", GroupName: "routers", Actor: "launcher"}
+	if err := store.Create(ctx, job); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, fence, err := store.BeginFanOut(ctx, job.JobID, time.Hour)
+	if err != nil {
+		t.Fatalf("BeginFanOut: %v", err)
+	}
+	if err := store.RecordTask(ctx, job.JobID, fence, dispatch.JobTask{
+		DeviceID: "dev-1", DeviceName: "dev-1", Outcome: dispatch.OutcomeDispatched,
+	}); err != nil {
+		t.Fatalf("RecordTask: %v", err)
+	}
+
+	// The result beats the end of the fan-out. The job is still
+	// "fanning_out" here, which is the whole point.
+	complete, err := store.RecordResult(ctx, job.JobID, "dev-1", dispatch.ResultSucceeded, "")
+	if err != nil {
+		t.Fatalf("RecordResult: %v", err)
+	}
+	if !complete {
+		t.Fatal("RecordResult said the job was still waiting on something, with its only device reported")
+	}
+	// What the consumer does next, and what does nothing because the job
+	// has not reached "running" yet.
+	if err := store.CompleteRunning(ctx, job.JobID); err != nil {
+		t.Fatalf("CompleteRunning: %v", err)
+	}
+	if got, _, getErr := store.Get(ctx, job.JobID); getErr != nil {
+		t.Fatalf("Get: %v", getErr)
+	} else if got.State != "fanning_out" {
+		t.Fatalf("State = %q before settling, want %q: this test no longer exercises the window it exists for",
+			got.State, "fanning_out")
+	}
+
+	// Now the fan-out finishes.
+	if err := store.SettleRunning(ctx, job.JobID, fence, 1, 0, 0); err != nil {
+		t.Fatalf("SettleRunning: %v", err)
+	}
+
+	got, _, err := store.Get(ctx, job.JobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.State != "completed" {
+		t.Errorf("State = %q, want %q: the job is parked in a state nothing sweeps, with nothing left to end it",
+			got.State, "completed")
+	}
+}
+
+// TestEntJobStore_SettleRunning_LeavesAJobStillWaitingInRunning is the
+// negative control for the test above.
+//
+// Without it, SettleRunning could complete every job unconditionally and
+// the lost-wakeup test would still pass -- which would end a run the moment
+// its fan-out finished and throw away the whole point of the "running"
+// state.
+func TestEntJobStore_SettleRunning_LeavesAJobStillWaitingInRunning(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newTestStore(t)
+
+	// Two devices, one reported. The job is still waiting on the other.
+	jobID, _ := runningJob(t, store, "dev-1", "dev-2")
+	if _, err := store.RecordResult(ctx, jobID, "dev-1", dispatch.ResultSucceeded, ""); err != nil {
+		t.Fatalf("RecordResult: %v", err)
+	}
+
+	got, _, err := store.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.State != "running" {
+		t.Errorf("State = %q, want %q: a job with a device still executing was ended early", got.State, "running")
+	}
+}
