@@ -93,6 +93,7 @@ func newTemplateFixture(t *testing.T) *templateFixture {
 			apispec.GetTemplate.Route(handler.Get),
 			apispec.CreateTemplate.Route(handler.Create),
 			apispec.UpdateTemplate.Route(handler.Update),
+			apispec.SetTemplateSurvey.Route(handler.SetSurvey),
 			apispec.DeleteTemplate.Route(handler.Delete),
 			apispec.CopyTemplate.Route(handler.Copy),
 			apispec.LaunchTemplate.Route(dispatcher.LaunchFromTemplate),
@@ -692,4 +693,200 @@ func launchPath(templateID int) string {
 
 func configsPath(templateID int) string {
 	return "/api/v1/templates/" + strconv.Itoa(templateID) + "/configs"
+}
+
+// TestTemplateAPI_SetSurveyReplacesTheSurveyAndKeepsTheRest is the narrowed
+// endpoint's own carry-forward guarantee.
+//
+// PUT /survey writes through the store's whole-template Update, so a
+// handler that built the template from the body alone would blank the
+// metadata, the defaults and the prompts beside the survey. That is the
+// failure the credential-type twin already had a test for, and it is the
+// reason this endpoint reads the stored template first.
+func TestTemplateAPI_SetSurveyReplacesTheSurveyAndKeepsTheRest(t *testing.T) {
+	f := newTemplateFixture(t)
+	tmpl := f.createTemplate(t, f.gateTemplateBody("survey endpoint"))
+
+	rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID), `{
+		"survey": {"enabled": true, "questions": [
+			{"variable": "version", "label": "Version", "type": "text", "required": true},
+			{"variable": "hostlist", "label": "Host list", "type": "file"}
+		]}
+	}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT survey: status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var got decodedTemplate
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding the updated template: %v", err)
+	}
+	if got.Survey == nil || len(got.Survey.Questions) != 2 {
+		t.Fatalf("the survey came back as %+v, want two questions", got.Survey)
+	}
+	// Stored in the order given, which is the order the launch form asks.
+	if got.Survey.Questions[0].Variable != "version" || got.Survey.Questions[1].Variable != "hostlist" {
+		t.Errorf("the questions came back in order %q, %q, want the order the body gave",
+			got.Survey.Questions[0].Variable, got.Survey.Questions[1].Variable)
+	}
+	if got.Survey.Questions[1].Type != "file" {
+		t.Errorf("the file question came back as type %q", got.Survey.Questions[1].Type)
+	}
+
+	// The carry-forward. None of these was in the body.
+	if got.Name != "survey endpoint" {
+		t.Errorf("name = %q, want it carried forward: a survey edit blanked the metadata", got.Name)
+	}
+	if len(got.Prompts) != 3 {
+		t.Errorf("prompts = %v, want the three the template was created with", got.Prompts)
+	}
+	if got.Defaults["limit"] != "edge-*" {
+		t.Errorf("defaults = %v, want them carried forward", got.Defaults)
+	}
+}
+
+// TestTemplateAPI_SetSurveyRefusesASurveyNobodyCouldAnswer proves the
+// store's validation reaches this endpoint rather than being a property of
+// the whole-template PATCH alone, and that a refusal leaves the stored
+// survey untouched.
+func TestTemplateAPI_SetSurveyRefusesASurveyNobodyCouldAnswer(t *testing.T) {
+	f := newTemplateFixture(t)
+	tmpl := f.createTemplate(t, f.gateTemplateBody("survey refusals"))
+
+	// One good survey first, so the refusals below have something to fail
+	// to overwrite.
+	if rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID),
+		`{"survey":{"enabled":true,"questions":[{"variable":"keep","label":"Keep","type":"text"}]}}`); rec.Code != http.StatusOK {
+		t.Fatalf("seeding the survey: status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"two questions writing to one variable",
+			`{"survey":{"enabled":true,"questions":[{"variable":"v","label":"A","type":"text"},{"variable":"v","label":"B","type":"text"}]}}`},
+		{"a password carrying a default",
+			`{"survey":{"enabled":true,"questions":[{"variable":"pw","label":"PW","type":"password","default":"hunter2"}]}}`},
+		{"a file question carrying a default",
+			`{"survey":{"enabled":true,"questions":[{"variable":"f","label":"F","type":"file","default":"-----BEGIN"}]}}`},
+		{"program content marked on a question that cannot carry it",
+			`{"survey":{"enabled":true,"questions":[{"variable":"t","label":"T","type":"text","allow_program_content":true}]}}`},
+		{"an unknown question type",
+			`{"survey":{"enabled":true,"questions":[{"variable":"q","label":"Q","type":"colour"}]}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID), tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+
+			// The stored survey is unchanged. A refusal that had already
+			// written is worse than one that failed silently.
+			read := doJSON(t, f.router, http.MethodGet, "/api/v1/templates/"+strconv.Itoa(tmpl.ID), "")
+			var got decodedTemplate
+			if err := json.Unmarshal(read.Body.Bytes(), &got); err != nil {
+				t.Fatalf("re-reading the template: %v", err)
+			}
+			if got.Survey == nil || len(got.Survey.Questions) != 1 || got.Survey.Questions[0].Variable != "keep" {
+				t.Errorf("a refused survey write changed the stored survey to %+v", got.Survey)
+			}
+		})
+	}
+}
+
+// TestTemplateAPI_SetSurveyOnAMissingTemplateIs404 covers the read-first
+// branch, which is what makes a survey write to a template somebody else
+// deleted a 404 rather than an opaque store error.
+func TestTemplateAPI_SetSurveyOnAMissingTemplateIs404(t *testing.T) {
+	f := newTemplateFixture(t)
+	rec := doJSON(t, f.router, http.MethodPut, surveyPath(999999),
+		`{"survey":{"enabled":false,"questions":[]}}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestTemplateAPI_SetSurveyWithAnEmptyBodyClearsTheSurvey pins the reading
+// of "replace the survey with this" when there is no survey in the body.
+//
+// A nil survey is a survey with no questions, disabled, which is how a
+// template's last question is removed. Refusing it would leave no way to
+// clear one through this endpoint.
+func TestTemplateAPI_SetSurveyWithAnEmptyBodyClearsTheSurvey(t *testing.T) {
+	f := newTemplateFixture(t)
+	tmpl := f.createTemplate(t, f.gateTemplateBody("survey clearing"))
+
+	if rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID),
+		`{"survey":{"enabled":true,"questions":[{"variable":"doomed","label":"D","type":"text"}]}}`); rec.Code != http.StatusOK {
+		t.Fatalf("seeding the survey: status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID), `{}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clearing the survey: status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var got decodedTemplate
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got.Survey != nil && len(got.Survey.Questions) != 0 {
+		t.Errorf("the survey still holds %d question(s) after being cleared", len(got.Survey.Questions))
+	}
+}
+
+// TestTemplateAPI_SetSurveyRejectsABadRequest covers the two guards before
+// the store is ever reached: a path id that is not one, and a body that is
+// not decodable.
+//
+// Worth its own test rather than assumed, because the handler reads the
+// stored template BEFORE writing, so a decode failure that fell through
+// would read a template and then write it back with a zero survey -- which
+// is a silent survey deletion dressed as a malformed request.
+func TestTemplateAPI_SetSurveyRejectsABadRequest(t *testing.T) {
+	f := newTemplateFixture(t)
+	tmpl := f.createTemplate(t, f.gateTemplateBody("survey bad requests"))
+
+	if rec := doJSON(t, f.router, http.MethodPut, surveyPath(tmpl.ID),
+		`{"survey":{"enabled":true,"questions":[{"variable":"keep","label":"Keep","type":"text"}]}}`); rec.Code != http.StatusOK {
+		t.Fatalf("seeding the survey: status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name string
+		path string
+		body string
+		want int
+	}{
+		{"a path id that is not a number", api.APIVersionPrefix + "/templates/not-a-number/survey", `{}`, http.StatusBadRequest},
+		{"a body that is not JSON", surveyPath(tmpl.ID), `{not json`, http.StatusBadRequest},
+		{"a body naming a field the endpoint does not declare", surveyPath(tmpl.ID), `{"surveys": {}}`, http.StatusBadRequest},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if rec := doJSON(t, f.router, http.MethodPut, tc.path, tc.body); rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+
+	// The survey the seed wrote is still there. A guard that returned
+	// without writing is the whole point of this test.
+	read := doJSON(t, f.router, http.MethodGet, "/api/v1/templates/"+strconv.Itoa(tmpl.ID), "")
+	var got decodedTemplate
+	if err := json.Unmarshal(read.Body.Bytes(), &got); err != nil {
+		t.Fatalf("re-reading: %v", err)
+	}
+	if got.Survey == nil || len(got.Survey.Questions) != 1 {
+		t.Errorf("a refused request changed the stored survey to %+v", got.Survey)
+	}
+}
+
+// surveyPath is PUT /templates/{id}/survey, built from the spec's own
+// pattern so a renamed route breaks here rather than 404ing quietly.
+func surveyPath(id int) string {
+	return api.APIVersionPrefix + strings.Replace(apispec.SetTemplateSurvey.Pattern, "{id}", strconv.Itoa(id), 1)
 }

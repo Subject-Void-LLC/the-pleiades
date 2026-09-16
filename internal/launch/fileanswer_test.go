@@ -67,6 +67,51 @@ func TestClassifyFileContent(t *testing.T) {
 	}
 }
 
+// TestFileContentClassString covers the names a class renders under, which
+// nothing in the product calls.
+//
+// It is reached only through %v in the table test above, and only when that
+// test FAILS, so a passing run never executes it. That is exactly why it
+// needs a test of its own: the method exists to make the most important
+// failure message in this file legible, and a bare int in that message
+// would say "= 0, want 2" about a rule nobody could then diagnose.
+func TestFileContentClassString(t *testing.T) {
+	cases := map[launch.FileContentClass]string{
+		launch.FileBinary:      "binary",
+		launch.FileProgramText: "program text",
+		launch.FileInertText:   "text",
+	}
+	for class, want := range cases {
+		if got := class.String(); got != want {
+			t.Errorf("FileContentClass(%d).String() = %q, want %q", class, got, want)
+		}
+	}
+	// An unknown class reads as the refusing one, matching the zero value.
+	if got := launch.FileContentClass(99).String(); got != "binary" {
+		t.Errorf("an unrecognised class names itself %q, want %q", got, "binary")
+	}
+}
+
+// TestFileAnswer_ANonStringAnswerIsRefused covers the type assertion a JSON
+// caller can reach: the API decodes answers into map[string]any, so a file
+// question answered with a number or an object arrives as neither a string
+// nor anything coercible.
+func TestFileAnswer_ANonStringAnswerIsRefused(t *testing.T) {
+	survey := launch.Survey{Enabled: true, Questions: []launch.Question{
+		{Variable: "cert", Label: "Cert", Type: launch.QuestionFile},
+	}}
+	for _, answer := range []any{42, true, map[string]any{"a": 1}} {
+		_, err := survey.Resolve(map[string]any{"cert": answer}, launch.FilePolicy{})
+		if err == nil {
+			t.Errorf("Resolve accepted %T as a file answer", answer)
+			continue
+		}
+		if !errors.Is(err, launch.ErrSurveyAnswer) {
+			t.Errorf("Resolve(%T) error = %v, want ErrSurveyAnswer", answer, err)
+		}
+	}
+}
+
 // TestFileContentClassZeroValueRefuses is the fail-closed invariant, and it
 // is worth its own test because it is a property of a constant declaration
 // that no other test would notice being changed.
