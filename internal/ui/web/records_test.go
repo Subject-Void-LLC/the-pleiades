@@ -135,7 +135,7 @@ var registerRecordViews = sync.OnceFunc(func() {
 					Label:    "Detach",
 					Endpoint: &apispec.SetCredentialTypeInputs,
 					Confirm:  "This removes the row. It cannot be undone from here.",
-					Applies:  func(row view.Row) bool { return row.ID != pinnedRow },
+					Applies:  func(row view.Row, _ view.RowPosition) bool { return row.ID != pinnedRow },
 					Submit: func(_ context.Context, parentID, rowID string, _ view.Values) (string, view.FieldErrors, error) {
 						if rowID == failingRow {
 							return "", nil, errors.New("deliberate row action failure")

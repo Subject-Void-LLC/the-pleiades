@@ -775,6 +775,7 @@ var Endpoints = []Endpoint{
 	GetTemplate,
 	CreateTemplate,
 	UpdateTemplate,
+	SetTemplateSurvey,
 	DeleteTemplate,
 	CopyTemplate,
 	LaunchTemplate,

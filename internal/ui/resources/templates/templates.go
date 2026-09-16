@@ -389,11 +389,13 @@ func (w writer) Update(ctx context.Context, id string, tmpl launch.Template) err
 	}
 
 	// The survey is carried forward from storage rather than from the
-	// submission, because this form does not author one: a survey is an
-	// ordered list of typed questions, which the shared form machinery has
-	// no control for, and submitting an empty one would delete the
-	// questions somebody wrote. The kind, definition and inventory are
-	// carried forward by the store itself for a stronger reason.
+	// submission, because this form does not author one and submitting an
+	// empty one would delete the questions somebody wrote. The survey is
+	// authored by its own section's controls instead, one question at a
+	// time against a list you can see, which is what an ordered list of
+	// typed questions needs and what a flat record form cannot be. The
+	// kind, definition and inventory are carried forward by the store
+	// itself for a stronger reason.
 	existing, err := w.store.Get(ctx, numeric)
 	if err != nil {
 		return err
@@ -590,6 +592,7 @@ func Register(store launch.Store, sets inventory.SetStore, jobs dispatch.JobStor
 			launchAction(store, dispatcher, creds),
 			bindCredentialsAction(creds),
 			copyAction(store),
+			addQuestionAction(store),
 		},
 		Sections: []view.Section{
 			surveySection(store),

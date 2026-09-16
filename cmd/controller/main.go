@@ -1177,6 +1177,7 @@ func main() {
 		apispec.GetTemplate.Name:             templates.Get,
 		apispec.CreateTemplate.Name:          templates.Create,
 		apispec.UpdateTemplate.Name:          templates.Update,
+		apispec.SetTemplateSurvey.Name:       templates.SetSurvey,
 		apispec.DeleteTemplate.Name:          templates.Delete,
 		apispec.CopyTemplate.Name:            templates.Copy,
 		apispec.LaunchTemplate.Name:          dispatcher.LaunchFromTemplate,

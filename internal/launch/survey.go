@@ -41,16 +41,45 @@ const (
 	QuestionMultiSelect QuestionType = "multiselect"
 )
 
-// validQuestionTypes is the membership test a survey is validated against.
-var validQuestionTypes = map[QuestionType]bool{
-	QuestionText:        true,
-	QuestionTextarea:    true,
-	QuestionPassword:    true,
-	QuestionInteger:     true,
-	QuestionFloat:       true,
-	QuestionChoice:      true,
-	QuestionMultiSelect: true,
+// questionTypes is every type a survey may ask, in the order a form offers
+// them: the free-text ones, then the numeric ones, then the bounded ones.
+//
+// An ordered slice rather than a set literal, because there are now two
+// consumers and they need different things from one declaration. Validate
+// needs membership; the authoring form needs a list to render as options,
+// in an order that is the same on every page load, which ranging over a map
+// is not. Deriving the membership test from the slice is what keeps a type
+// from being offered by a form that the resolver would then refuse.
+var questionTypes = []QuestionType{
+	QuestionText,
+	QuestionTextarea,
+	QuestionPassword,
+	QuestionInteger,
+	QuestionFloat,
+	QuestionChoice,
+	QuestionMultiSelect,
 }
+
+// QuestionTypes returns every type a survey may ask, in a stable order.
+//
+// A copy, because the caller is a form builder and a slice handed out of a
+// package is a slice the caller can sort in place. The cost is one small
+// allocation per rendered form.
+func QuestionTypes() []QuestionType {
+	out := make([]QuestionType, len(questionTypes))
+	copy(out, questionTypes)
+	return out
+}
+
+// validQuestionTypes is the membership test a survey is validated against,
+// derived from the list above so the two cannot disagree.
+var validQuestionTypes = func() map[QuestionType]bool {
+	m := make(map[QuestionType]bool, len(questionTypes))
+	for _, t := range questionTypes {
+		m[t] = true
+	}
+	return m
+}()
 
 // Secret reports whether an answer to this question must never be stored or
 // rendered in plaintext.

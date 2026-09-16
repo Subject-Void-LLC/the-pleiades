@@ -798,7 +798,11 @@ func renderedFormValues(tb testing.TB, body string) map[string]string {
 			out[m[1]] = "true"
 		}
 	}
-	for _, m := range regexp.MustCompile(`<input type="text" id="f-[^"]*" name="([^"]+)" value="([^"]*)"`).FindAllStringSubmatch(body, -1) {
+	// Text and number together: they render as the same shape with a
+	// different type attribute, and a helper that read only one of them
+	// would report a numeric control as missing from a form that draws it,
+	// which reads as a prefill bug that is not there.
+	for _, m := range regexp.MustCompile(`<input type="(?:text|number)" id="f-[^"]*" name="([^"]+)" value="([^"]*)"`).FindAllStringSubmatch(body, -1) {
 		out[m[1]] = html.UnescapeString(m[2])
 	}
 	for _, m := range regexp.MustCompile(`(?s)<select id="f-[^"]*" name="([^"]+)".*?</select>`).FindAllStringSubmatch(body, -1) {

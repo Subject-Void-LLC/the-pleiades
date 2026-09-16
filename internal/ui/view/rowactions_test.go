@@ -34,7 +34,7 @@ func rowActionDescriptor(rows ...view.Row) view.Descriptor {
 			Label:    "Remove",
 			Endpoint: &apispec.SetCredentialTypeInputs,
 			Confirm:  "This removes the input.",
-			Applies:  func(r view.Row) bool { return r.Cells["outcome"] != "locked" },
+			Applies:  func(r view.Row, _ view.RowPosition) bool { return r.Cells["outcome"] != "locked" },
 			Submit: func(context.Context, string, string, view.Values) (string, view.FieldErrors, error) {
 				return "", nil, nil
 			},

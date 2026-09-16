@@ -305,6 +305,34 @@ type Section struct {
 // question Descriptor.Implemented answers and defaulted the same way.
 func (s Section) Implemented() bool { return s.Status == StatusImplemented }
 
+// RowPosition is where a row sits in the list a control is drawn on.
+//
+// It exists so RowAction.Applies can withhold a control whose only possible
+// outcome on this row is a refusal, which for an ordered list means the two
+// ends: "move up" on the first row, "move down" on the last. A Row cannot
+// answer that itself. Its Cells are display strings a section author chose
+// and its ID is author data, so reading an ordinal back out of either would
+// be parsing a label, and a section that happened not to render an order
+// column could not be reordered at all.
+//
+// Zero-based, matching the slice the resolver is walking. Count is how many
+// rows that section LOADED rather than how many the store holds, which is
+// the honest bound: a control can only move a row past one the page is
+// showing.
+type RowPosition struct {
+	Index int
+	Count int
+}
+
+// First reports whether this row is the first of its list.
+func (p RowPosition) First() bool { return p.Index <= 0 }
+
+// Last reports whether this row is the last of its list.
+//
+// A single-row list is both First and Last, which is the correct reading:
+// neither direction moves it anywhere, so both controls are withheld.
+func (p RowPosition) Last() bool { return p.Index >= p.Count-1 }
+
 // RowAction is a control on one row of a section.
 //
 // The header half of the section write path shipped first: a section names
@@ -314,14 +342,16 @@ func (s Section) Implemented() bool { return s.Status == StatusImplemented }
 // type and never removed, an injector added and never removed, and the only
 // route back was the JSON API or the database.
 //
-// Submit takes two ids and no Values, which is the whole of what this type
-// is for and also the whole of what it is not. A row action does not
-// prompt: removing a row needs no form, and reordering one needs no form,
-// while EDITING a row in place needs a form prefilled from that row, which
-// is a seam RecordAction does not have (its own doc comment records that
-// its form prefills nothing). Adding a prompt here before that seam exists
-// would mean a form that renders a row's current values as empty boxes and
-// silently blanks whichever the operator did not retype.
+// It began as two ids and no Values, on the reasoning that a row control
+// never prompts: removing a row needs no form and reordering one needs no
+// form, while editing a row in place needs a form prefilled from that row,
+// which RecordAction has no seam for (its own doc comment records that its
+// form prefills nothing). That reasoning was right about the hazard and
+// wrong about the conclusion. The seam was built here instead, because a
+// row is the one thing on the page that already exists and can therefore be
+// read back: Fields and Form arrive together or not at all, and Register
+// refuses one without the other precisely so the empty-boxes-that-blank-the
+// -row failure cannot be reintroduced by declaring half of it.
 type RowAction struct {
 	// Name is the URL segment: /{resource}/{id}/{name}/{row}. It shares
 	// one namespace with the parent's RecordActions, because both occupy
@@ -396,11 +426,18 @@ type RowAction struct {
 	// same job Descriptor.Applies does for a record. Nil offers it on
 	// every row.
 	//
+	// It takes the row's position as well as the row, because the first
+	// control that needed this could not be written without it: "move up"
+	// on the first row of an ordered list is a button whose only possible
+	// outcome is a refusal. A Row carries no ordinal -- its Cells are
+	// display strings and its ID is author data -- so the position comes
+	// from the resolver, which is counting the rows anyway.
+	//
 	// Gating here is about not drawing a dead control and never about
 	// safety: the row may stop qualifying between the page rendering and
 	// the button being pressed, so Submit is still the authority and still
 	// has to refuse.
-	Applies func(row Row) bool
+	Applies func(row Row, at RowPosition) bool
 
 	// Submit performs the action and returns where to send the caller
 	// afterwards. An empty redirect returns them to the parent record.

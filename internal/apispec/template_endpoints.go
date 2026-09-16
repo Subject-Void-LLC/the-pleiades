@@ -248,6 +248,36 @@ var UpdateTemplate = Endpoint{
 	},
 }
 
+// SetTemplateSurvey is PUT /templates/{id}/survey.
+var SetTemplateSurvey = Endpoint{
+	Name:    "set_template_survey",
+	Method:  http.MethodPut,
+	Pattern: "/templates/{id}/survey",
+	Scope:   auth.ScopeTemplateWrite,
+	Rel:     auth.RelSetSurvey,
+	Summary: "Replace a template's survey",
+	Description: "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. " +
+		"It is the same store update PATCH performs, narrowed to the survey so a client that edits only the " +
+		"questions does not round-trip the rest of the template. The questions are stored in the order given, " +
+		"which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a " +
+		"question writing to no variable, two questions writing to one variable, a choice question offering " +
+		"nothing, a default that is not one of the choices, a password question carrying a default, or a " +
+		"minimum above its maximum.",
+	Params: []Param{
+		{Name: "id", In: "path", Required: true, Type: "integer", Description: "The template's numeric id."},
+	},
+	RequestContentType: "application/json",
+	RequestSchema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"survey": surveySchema},
+	},
+	Responses: []Response{
+		{Status: http.StatusOK, Description: "The updated template.", Schema: templateSchema},
+		{Status: http.StatusBadRequest, Description: "The body is malformed, or the survey is not answerable.", Schema: errorSchema("")},
+		{Status: http.StatusNotFound, Description: "No template with that id.", Schema: errorSchema("")},
+	},
+}
+
 // DeleteTemplate is DELETE /templates/{id}.
 var DeleteTemplate = Endpoint{
 	Name:    "delete_template",

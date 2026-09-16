@@ -12454,6 +12454,282 @@
         "x-link-relation": "execute"
       }
     },
+    "/templates/{id}/survey": {
+      "put": {
+        "description": "Replaces the whole survey, leaving the template's metadata, defaults and prompts as they are. It is the same store update PATCH performs, narrowed to the survey so a client that edits only the questions does not round-trip the rest of the template. The questions are stored in the order given, which is the order the launch form asks them in. A survey nobody could answer correctly is refused: a question writing to no variable, two questions writing to one variable, a choice question offering nothing, a default that is not one of the choices, a password question carrying a default, or a minimum above its maximum.",
+        "operationId": "set_template_survey",
+        "parameters": [
+          {
+            "description": "The template's numeric id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "survey": {
+                    "properties": {
+                      "enabled": {
+                        "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                        "type": "boolean"
+                      },
+                      "questions": {
+                        "items": {
+                          "properties": {
+                            "choices": {
+                              "description": "The permitted values for the two choice types.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "default": {
+                              "description": "Used when an answer is absent and the question is not required.",
+                              "type": "string"
+                            },
+                            "help": {
+                              "description": "The line under the label.",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "What the form asks.",
+                              "type": "string"
+                            },
+                            "max": {
+                              "description": "See min.",
+                              "type": "integer"
+                            },
+                            "min": {
+                              "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                              "type": "integer"
+                            },
+                            "required": {
+                              "description": "Refuses a launch that leaves it blank.",
+                              "type": "boolean"
+                            },
+                            "type": {
+                              "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                              "type": "string"
+                            },
+                            "variable": {
+                              "description": "The extra-variable name the answer is written to.",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "_links": {
+                      "description": "Hypermedia affordances available on this resource for the calling identity.",
+                      "items": {
+                        "properties": {
+                          "href": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "rel": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "allow_simultaneous": {
+                      "description": "Permits more than one job from this template to run at once.",
+                      "type": "boolean"
+                    },
+                    "defaults": {
+                      "description": "How to run it: the values this template was saved with, keyed by launch field name.",
+                      "type": "object"
+                    },
+                    "definition": {
+                      "description": "The reference the kind resolves: a runbook id, a playbook path.",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "What this template is for.",
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "Stable numeric identifier.",
+                      "type": "integer"
+                    },
+                    "inventory": {
+                      "description": "The device set this runs against.",
+                      "type": "integer"
+                    },
+                    "inventory_name": {
+                      "description": "That inventory's name, carried so a list does not render a bare foreign key.",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "description": "The registry key of what this runs: runbook, playbook.",
+                      "type": "string"
+                    },
+                    "kind_label": {
+                      "description": "That kind's display label. Absent when this controller no longer registers the kind.",
+                      "type": "string"
+                    },
+                    "name": {
+                      "description": "Unique within its organization, not globally.",
+                      "type": "string"
+                    },
+                    "organization": {
+                      "description": "The tenancy boundary, derived from the inventory and never submitted.",
+                      "type": "integer"
+                    },
+                    "organization_name": {
+                      "description": "That organization's name.",
+                      "type": "string"
+                    },
+                    "prompts": {
+                      "description": "The fields a launch may override. Everything else is locked to what defaults says, and a launch supplying a locked field is told so by name rather than having it applied or dropped.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "required_capabilities": {
+                      "description": "A plan-time hint recorded when the template was saved. The executor acquires capabilities for real at run time.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "survey": {
+                      "properties": {
+                        "enabled": {
+                          "description": "Whether the survey prompts. Separate from having no questions: a survey written and turned off says something different from no survey at all.",
+                          "type": "boolean"
+                        },
+                        "questions": {
+                          "items": {
+                            "properties": {
+                              "choices": {
+                                "description": "The permitted values for the two choice types.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "default": {
+                                "description": "Used when an answer is absent and the question is not required.",
+                                "type": "string"
+                              },
+                              "help": {
+                                "description": "The line under the label.",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "What the form asks.",
+                                "type": "string"
+                              },
+                              "max": {
+                                "description": "See min.",
+                                "type": "integer"
+                              },
+                              "min": {
+                                "description": "Bounds a numeric answer, or the length of a text one. Zero means unbounded.",
+                                "type": "integer"
+                              },
+                              "required": {
+                                "description": "Refuses a launch that leaves it blank.",
+                                "type": "boolean"
+                              },
+                              "type": {
+                                "description": "One of text, textarea, password, integer, float, multiplechoice, multiselect. Ansible's own question types, so a survey imported from AWX means the same thing here.",
+                                "type": "string"
+                              },
+                              "variable": {
+                                "description": "The extra-variable name the answer is written to.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The updated template."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The body is malformed, or the survey is not answerable."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No template with that id."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "template:write"
+            ]
+          }
+        ],
+        "summary": "Replace a template's survey",
+        "x-link-relation": "set-survey"
+      }
+    },
     "/users": {
       "get": {
         "description": "Returns users, keyset-paged. Each is an identity, joined to a token's subject by its email address.",

@@ -419,6 +419,64 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	Respond(w, r, http.StatusOK, &dto)
 }
 
+// SetSurvey serves PUT /templates/{id}/survey.
+//
+// It replaces the template's survey and nothing else. The store's own
+// Update writes the whole template, so this reads the stored one first and
+// carries its name, description, defaults, prompts and flags forward, which
+// is what keeps a survey edit from blanking the fields beside it. Every
+// rule the store enforces on a full update still applies, because it is the
+// same update: a question writing to no variable, two questions writing to
+// one, a choice question offering nothing, a password carrying a default.
+//
+// The questions are stored in the order the body gives them. A survey's
+// order is authored -- a question that only makes sense after another has
+// been answered has to render after it -- so a client that reorders the
+// array has reordered the form, and that is the only reorder operation
+// there is.
+func (h *TemplateHandler) SetSurvey(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseTemplateID(w, r)
+	if !ok {
+		return
+	}
+
+	var body templateSurveyDTO
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	stored, err := h.templates.Get(r.Context(), id)
+	if err != nil {
+		h.respondStoreError(w, r, "read", id, err)
+		return
+	}
+
+	stored.Survey = fromSurveyDTO(body.Survey)
+	if err := h.templates.Update(r.Context(), stored); err != nil {
+		h.respondStoreError(w, r, "update", id, err)
+		return
+	}
+
+	updated, err := h.templates.Get(r.Context(), id)
+	if err != nil {
+		h.respondStoreError(w, r, "read", id, err)
+		return
+	}
+	dto := toTemplateDTO(updated, true)
+	Respond(w, r, http.StatusOK, &dto)
+}
+
+// templateSurveyDTO is the body PUT /templates/{id}/survey accepts: the new
+// survey, on its own.
+//
+// A nil survey is a survey with no questions and disabled, which
+// fromSurveyDTO already returns, so an empty body clears the survey rather
+// than being refused. That is the honest reading of "replace the survey
+// with this" and it is how a template's last question gets removed.
+type templateSurveyDTO struct {
+	Survey *surveyDTO `json:"survey"`
+}
+
 // Delete removes a template.
 func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseTemplateID(w, r)

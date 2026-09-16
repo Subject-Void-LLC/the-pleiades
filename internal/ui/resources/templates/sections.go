@@ -36,10 +36,24 @@ const sectionLimit = 50
 func surveySection(store launch.Store) view.Section {
 	return view.Section{
 		Status:  view.StatusImplemented,
-		Title:   "Survey",
+		Title:   surveyTitle,
 		Summary: "What a launching operator is asked, in the order they are asked it. Answers merge into extra variables.",
 		Empty:   "This template asks nothing at launch. Every value it runs with is the one it was saved with, or one a launch may override.",
+		Actions: []string{addQuestionName},
+		// Edit and remove, then the two move controls. The order they are
+		// declared in is the order they render in, so the destructive one
+		// does not sit between the two an operator presses repeatedly.
+		RowActions: []view.RowAction{
+			editQuestionAction(store),
+			removeQuestionAction(store),
+			moveQuestionUpAction(store),
+			moveQuestionDownAction(store),
+		},
 		Fields: []view.Field{
+			// The position, rendered because the order is the authored
+			// thing this section is about: a reader who cannot see which
+			// question is third cannot tell what "move up" would do.
+			{Name: "order", Label: "#", Kind: view.KindText, InList: true},
 			{Name: "variable", Label: "VARIABLE", Kind: view.KindText, InList: true, MobilePrimary: true},
 			{Name: "label", Label: "QUESTION", Kind: view.KindText, InList: true},
 			{Name: "type", Label: "TYPE", Kind: view.KindText, InList: true},
@@ -61,10 +75,13 @@ func surveySection(store launch.Store) view.Section {
 			}
 
 			rows := make([]view.Row, 0, len(tmpl.Survey.Questions))
-			for _, q := range tmpl.Survey.Questions {
+			for i, q := range tmpl.Survey.Questions {
 				rows = append(rows, view.Row{
 					ID: q.Variable,
 					Cells: view.Cells{
+						// One-based, because this column is read by a person
+						// counting down a form, not by the resolver.
+						"order":    strconv.Itoa(i + 1),
 						"variable": q.Variable,
 						"label":    q.Label,
 						"type":     string(q.Type),

@@ -526,8 +526,14 @@ func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff 
 			// segment, which is a 404 at best.
 			continue
 		}
+		// The position is over every row the section loaded, including any
+		// skipped above for having no id. Counting only the addressable
+		// ones would make the ordinal disagree with the order the table
+		// renders, and a "move up" withheld from the wrong row is worse
+		// than one withheld from none.
+		at := RowPosition{Index: i, Count: len(s.Rows)}
 		for _, a := range offered {
-			if a.Applies != nil && !a.Applies(row) {
+			if a.Applies != nil && !a.Applies(row, at) {
 				continue
 			}
 			control := RowControl{
