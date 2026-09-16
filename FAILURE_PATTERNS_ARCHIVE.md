@@ -7887,3 +7887,48 @@ never observed by anything.
 to check rather than a place to trust, and four independent authors producing the same mistake
 says the default was not obvious enough. Assert the `Location` header, not just the 303: a
 redirect nobody follows in a test is a redirect nobody has tested.
+
+---
+
+## 228. Two doc comments asserted a two-place safety check that had one place, and one of them described a security control that does not exist
+
+**Symptom:** none, which is the point. Both comments read as reassurance and both were believed:
+a design panel working from them proposed building on the enforcement they described, and this
+session very nearly cited one of them as precedent for a new rule.
+
+`internal/credstore/ent_store_credentials.go` said of `credtype.CheckBinding`: "The handler runs
+it too, so a caller gets a conflict naming both credentials rather than an opaque store error,
+and this one exists so a second writer cannot skip it. Two callers, one implementation."
+`go_symbol_references` reports one production caller, the store itself. `internal/api` never
+calls it.
+
+`internal/credtype/inputs.go` said `launch.Survey.SecretVariables` and
+`InputSchema.SecretFields` "both feed redact.Literals". Only the credential half does. The sole
+`Literals().Add` in production is `internal/adapters/legacy/inject.go:83`, from a credential
+artifact. `SecretVariables` has three callers and none is the masker, so a survey password
+answer's VALUE is never added to the log scrubber and a task that echoes one lands it in the job
+log in the clear.
+
+**Root cause:** both comments described an intended arrangement rather than an observed one, and
+nothing re-reads a comment when the code beside it moves. The second is worse than a stale
+comment because it names a security control by the identifier that implements it, which is
+exactly the shape that survives review.
+
+**Fix:** both corrected to say what is true. The `CheckBinding` one now records that being the
+single gate is the STRONGER arrangement, since every writer reaches the store including the
+server-rendered UI's own binding action, which does not go through `internal/api` at all. The
+masker one now states the gap plainly and says why it is not being closed by adding survey
+answers to `redact.Literals`: a 32 KiB file answer in the process-wide literal set would scrub
+enormous unrelated substrings out of every later log line.
+
+**Related, found in the same sweep and NOT fixed:** `routing.CheckInjectable`, the bind-time half
+of the Section 29.4 rule, also has exactly one production caller (`internal/api/credentials.go`),
+while the UI's credential-binding action writes straight to `credstore.Store`. A binding made
+through `/ui` is caught only by the run-time backstop. The secret still never reaches the native
+path; what is lost is the refusal arriving at bind time instead of as a failed job.
+
+**Lesson:** a comment claiming enforcement is a claim to CHECK, never a claim to cite.
+`go_symbol_references` settles it in one call and is cheaper than reading the file. When placing
+a new two-place rule, put the load-bearing half where every writer must pass -- the store -- and
+not in a handler, because this repository has two examples of a handler-side check that one of
+its own UIs walks past.

