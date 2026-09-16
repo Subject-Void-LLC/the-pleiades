@@ -227,6 +227,7 @@ Lesson) before debugging anything new, per `.AGENTS/AGENTS.md`.
 222. Two publishers on one stream minted the same message id, so every job result was discarded as a duplicate of the dispatch that caused it
 223. A job whose devices all reported before its fan-out finished was parked in a state nothing sweeps
 224. The flake waiver tolerated a whole package, so a total regression printed "passed" five times
+225. A test harness decoded every poll into one reused value, so one device's skip reason appeared on another device's row
 
 Each line above is a failure pattern's title only. Full Symptom / Root cause / Fix / Lesson detail lives in [`FAILURE_PATTERNS_ARCHIVE.md`](FAILURE_PATTERNS_ARCHIVE.md), same entry numbers. Scan the index above before debugging anything new; open the matching archive entry only if a title looks relevant.
 

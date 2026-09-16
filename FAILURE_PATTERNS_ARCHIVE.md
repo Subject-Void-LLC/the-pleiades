@@ -7769,3 +7769,56 @@ decisions rather than improvised.
 evidence in prose beside a broader machine-readable rule means the rule is what runs and the
 prose is what gets read during review, and the two drift the moment something new fails in the
 same package. If an entry can say which test, it must say which test.
+
+---
+
+## 225. A test harness decoded every poll into one reused value, so one device's skip reason appeared on another device's row
+
+**Symptom:** `tests/e2e`'s `TestGrandIntegration` failed with `device rtr1 was dispatched but
+carries the reason "device \"rtr5\" has no host property"`. A skipped device's reason text on a
+dispatched device's row. Three separate investigations went looking in the fan-out, which is
+where the assertion's own wording pointed, and none of them found anything, because nothing is
+wrong there.
+
+**Root cause:** the leak is introduced inside the harness, after the HTTP bytes arrive. The API
+never emitted a wrong `reason`; a fresh decode of the identical response body is clean.
+
+`pollJobUntilTerminal` declared its decode target once, outside the poll loop, and unmarshalled
+every poll into it. `encoding/json` MERGES into what it is handed: it reuses an existing slice's
+elements rather than allocating new ones, and it leaves a struct field untouched when the incoming
+JSON carries no key for it.
+
+Three things had to be true together, and removing any one hides it:
+
+1. The reused target.
+2. `reason` is the only `omitempty` field the harness decoded, so a dispatched task emits no
+   `reason` key and the decoder cannot overwrite the slot's previous occupant. That is exactly
+   why `device_id` and `device_name` never disagreed and only `reason` went stale.
+3. The task list had no stable order. Earlier polls returned `[rtr1, rtr2, rtr5]`; the terminal
+   poll returned `[rtr5, rtr2, rtr1]`. Slot 2 held rtr5's decoded struct, received rtr1's three
+   non-omitempty fields, and kept rtr5's reason.
+
+**Provenance, and why it is worth separating the two halves.** The harness defect is on `main`
+verbatim: `git diff main..HEAD -- tests/e2e/` is empty. What made it fire is new. Before this
+branch a job went `fanning_out` to `completed` with no state in between, so exactly ONE poll ever
+carried task rows and there was nothing to merge into. And `job_tasks` was insert-only, so its
+scan order could not move. The branch removed both protections at once, in the same commit.
+
+**Fix:** decode each poll into a fresh value. Separately and on its own merits, the store now
+orders the eager load, because an endpoint whose array reorders between identical reads is a trap
+for any client written the obvious way, not only for this harness.
+
+Two further things came out of it. The poller's failure messages all rendered the DECODED view,
+so a harness corrupting its own decode reported that corruption as though the server had sent it,
+and no diagnostic in the suite could tell the two apart; it now keeps the last raw body and prints
+it. And the harness decoded only the Controller's fan-out decisions (`device_id`, `device_name`,
+`outcome`, `reason`) and nothing the Runner reported, so the entire result pipeline was reaching
+this test unexamined; it now asserts `result` and `finished_at`.
+
+**Lesson:** `json.Unmarshal` into a reused value is a merge, not a replacement, and `omitempty`
+is what turns that from a curiosity into a data-corruption bug: an absent key leaves the previous
+value in place, so the fields that go stale are exactly the ones a server omits when they are
+empty. The pairing to watch for is a reused decode target, an `omitempty` field, and a collection
+with no guaranteed order. The second lesson is about diagnostics: a failure message built from a
+value the test itself derived cannot distinguish "the server sent this" from "we corrupted it",
+and when a harness can be wrong, its error messages have to carry what actually arrived.

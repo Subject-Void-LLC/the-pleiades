@@ -4356,3 +4356,36 @@ mechanism doing its job and a caller retrying a publish it already made should n
 failure. But a publisher that believes it is sending something new wants to know, and the wrapper
 is the only place that can tell it. Before choosing `Debug` for a failure path, check what level
 the binary that runs it actually emits.
+
+---
+
+## 187. Unmarshalling into a reused value is a merge, and `omitempty` is what makes that a corruption bug
+
+**The rule.** `json.Unmarshal` into an already-populated value does not replace it. It reuses an
+existing slice's elements rather than allocating new ones, and it leaves a struct field untouched
+when the incoming JSON carries no key for it. Decode each response into a fresh value. The
+combination to watch for is a reused decode target, an `omitempty` field, and a collection with no
+guaranteed order: any two of those are harmless and all three silently move one record's data onto
+another.
+
+**The incident.** An e2e poller declared `var last jobResponse` outside its loop and unmarshalled
+every poll into it. A dispatched task's `reason` is `omitempty` and therefore absent from the JSON,
+so the decoder could not overwrite whatever occupied that slice slot before. The task list had no
+`ORDER BY`, and once results began landing the updates moved rows around, so a skipped device's
+reason ended up on a dispatched device's row. The assertion reported it as a fan-out defect and
+three investigations searched the write path, which was correct throughout.
+
+**Why `omitempty` is the load-bearing part.** The three fields beside it were plain-tagged, always
+present, and therefore always overwritten. They never went stale and never disagreed, which is
+also the signature that identifies this bug: if some fields of a record are consistent and one is
+not, the inconsistent one is the one the server omits.
+
+**The diagnostic half, which cost more than the bug.** Every failure message in that poller was
+built from the decoded value. A harness that corrupts its own decode then reports the corruption
+as though the server sent it, and nothing in the suite could tell the two apart. When a harness
+can be wrong about what arrived, its failure messages have to carry what actually arrived: keep
+the raw body and print it.
+
+**The API side.** An endpoint returning an array with no guaranteed order is a trap for any client
+written the obvious way, not only for a test harness. If a collection has a natural order, give it
+one.
