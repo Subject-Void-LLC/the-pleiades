@@ -168,3 +168,114 @@ func entOutcome(outcome engine.Outcome) (entjournal.Outcome, error) {
 		return "", fmt.Errorf("journal: unknown outcome %q, which this store has no column value for: %w", outcome, ErrUnstorable)
 	}
 }
+
+// MaxEntriesPerRead bounds one ForJob call.
+//
+// A number rather than a page, because nothing above this can page: a
+// view.Section has no cursor vocabulary and a download is one response.
+// The bound exists because journal rows scale as devices times nodes, so a
+// fan-out to a thousand devices running a twenty-node runbook is twenty
+// thousand rows for a page that renders a table. The Jobs view already
+// refuses the far smaller per-device task load on exactly this reasoning
+// (internal/ui/resources/jobs/jobs.go's reader.Get), and a read here that
+// ignored the problem would contradict a decision this product has already
+// made.
+//
+// Two thousand covers every run anybody reads end to end and is an order of
+// magnitude under the shape that would hurt.
+const MaxEntriesPerRead = 2000
+
+// ForJob returns one job's journal entries, oldest first per device.
+//
+// Ordered by (device_id, attempt, sequence), which is the index the schema
+// already declares for this query rather than a sort chosen here. Sequence
+// alone would interleave two devices that ran the same runbook, because
+// each device's run numbers its own nodes from zero; device first is what
+// makes the result read as one device's run after another's.
+//
+// It returns engine.JournalEntry, the same type Save accepts, rather than a
+// projection of its own. A second shape for the same fact is a second place
+// to get the mapping wrong, and this store is the only thing that knows how
+// the columns and the fields line up.
+//
+// truncated is returned rather than logged, and that is the load-bearing
+// part of the signature. A caller that silently rendered the first two
+// thousand rows of a larger run would be showing a partial record of what
+// happened while looking exactly like a complete one, which on an audit
+// trail is the worst available outcome. Whoever renders this has to say so.
+func (s *EntStore) ForJob(ctx context.Context, jobID string, limit int) (entries []engine.JournalEntry, truncated bool, err error) {
+	if limit <= 0 || limit > MaxEntriesPerRead {
+		limit = MaxEntriesPerRead
+	}
+
+	// One more than asked for, so "there were more" is answered by the
+	// same query rather than by a second COUNT that could disagree with it
+	// under a concurrent write.
+	rows, err := s.client.JournalEntry.Query().
+		Where(entjournal.JobIDEQ(jobID)).
+		Order(
+			ent.Asc(entjournal.FieldDeviceID),
+			ent.Asc(entjournal.FieldAttempt),
+			ent.Asc(entjournal.FieldSequence),
+		).
+		Limit(limit + 1).
+		All(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("journal: reading the entries of job %q: %w", jobID, err)
+	}
+
+	if len(rows) > limit {
+		rows, truncated = rows[:limit], true
+	}
+
+	entries = make([]engine.JournalEntry, 0, len(rows))
+	for _, row := range rows {
+		entries = append(entries, hydrateEntry(row))
+	}
+	return entries, truncated, nil
+}
+
+// hydrateEntry projects a stored row back onto the domain type.
+//
+// The inverse of saveOne's field list, deliberately written out in the same
+// order so the two can be read side by side: a field added to one and
+// forgotten in the other is then a visible gap rather than something to
+// discover when a column renders empty.
+//
+// Outcome, FailureStage and SkipKind are cast rather than validated on the
+// way out. The write path is what refuses a value no column can hold
+// (saveOne returns ErrUnstorable for exactly that), so a row that is in the
+// database has already passed that gate, and re-deciding it here would be a
+// second authority on the same question.
+func hydrateEntry(row *ent.JournalEntry) engine.JournalEntry {
+	return engine.JournalEntry{
+		JobID:                       row.JobID,
+		DeviceID:                    row.DeviceID,
+		Attempt:                     row.Attempt,
+		NodeID:                      row.NodeID,
+		RunID:                       row.RunID,
+		Sequence:                    row.Sequence,
+		DAGID:                       row.DagID,
+		DAGVersion:                  row.DagVersion,
+		FQCN:                        row.Fqcn,
+		FQCNUnresolved:              row.FqcnUnresolved,
+		TaskName:                    row.TaskName,
+		Register:                    row.Register,
+		StartedAt:                   row.StartedAt,
+		FinishedAt:                  row.FinishedAt,
+		Outcome:                     engine.Outcome(row.Outcome),
+		FailureStage:                engine.FailureStage(row.FailureStage),
+		SkipKind:                    engine.SkipKind(row.SkipKind),
+		SkipOrdinal:                 row.SkipOrdinal,
+		SkipTotal:                   row.SkipTotal,
+		StatKeys:                    row.StatKeys,
+		UndeclaredStatCount:         row.UndeclaredStatCount,
+		ParamKeys:                   row.ParamKeys,
+		UndeclaredParamCount:        row.UndeclaredParamCount,
+		InverseFQCN:                 row.InverseFqcn,
+		InverseFQCNUnresolved:       row.InverseFqcnUnresolved,
+		InverseParamKeys:            row.InverseParamKeys,
+		UndeclaredInverseParamCount: row.UndeclaredInverseParamCount,
+		DiffRecorded:                row.DiffRecorded,
+	}
+}

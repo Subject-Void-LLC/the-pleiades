@@ -418,3 +418,278 @@ func TestEntStoreStoresAnEmptyKeyVectorAsAnEmptyArray(t *testing.T) {
 		}
 	}
 }
+
+// TestEntStoreForJobOrdersByDeviceThenSequence is the ordering the index
+// exists for, and the case that proves sequence alone is not enough.
+//
+// Every device numbers its own run's nodes from zero, so two devices
+// running one runbook produce two rows at sequence 1, two at sequence 2 and
+// so on. Ordered by sequence alone they interleave, and a reader sees one
+// device's step 1, another's step 1, then back again -- which reads as a
+// single confused run rather than as two runs. Device first is what makes
+// the result one device's run after another's.
+func TestEntStoreForJobOrdersByDeviceThenSequence(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+
+	// Written deliberately out of order, and interleaved, so a passing
+	// result cannot be insertion order wearing a sort's clothes.
+	if _, err := store.Save(ctx, []engine.JournalEntry{
+		walkEntry("job-1", "device-b", 0, 2, "tasks[1]"),
+		walkEntry("job-1", "device-a", 0, 2, "tasks[1]"),
+		walkEntry("job-1", "device-b", 0, 1, "tasks[0]"),
+		walkEntry("job-1", "device-a", 0, 1, "tasks[0]"),
+		// A different job, to prove the filter is doing something.
+		walkEntry("job-2", "device-a", 0, 1, "tasks[0]"),
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, truncated, err := store.ForJob(ctx, "job-1", 0)
+	if err != nil {
+		t.Fatalf("ForJob: %v", err)
+	}
+	if truncated {
+		t.Error("four entries were reported as truncated")
+	}
+
+	var got []string
+	for _, e := range entries {
+		got = append(got, fmt.Sprintf("%s/%d", e.DeviceID, e.Sequence))
+	}
+	want := []string{"device-a/1", "device-a/2", "device-b/1", "device-b/2"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ForJob returned %v, want %v", got, want)
+	}
+}
+
+// TestEntStoreForJobOrdersAttemptsWithinADevice covers the middle key.
+//
+// A redelivered dispatch is a new attempt and a new set of rows for the
+// same device, so without attempt in the ordering a retry's step 1 would
+// sort beside the original's step 1 and the two runs would be shuffled
+// together. The attempt is why the schema records it at all.
+func TestEntStoreForJobOrdersAttemptsWithinADevice(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+
+	if _, err := store.Save(ctx, []engine.JournalEntry{
+		walkEntry("job-1", "device-a", 1, 1, "tasks[0]"),
+		walkEntry("job-1", "device-a", 0, 2, "tasks[1]"),
+		walkEntry("job-1", "device-a", 1, 2, "tasks[1]"),
+		walkEntry("job-1", "device-a", 0, 1, "tasks[0]"),
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, _, err := store.ForJob(ctx, "job-1", 0)
+	if err != nil {
+		t.Fatalf("ForJob: %v", err)
+	}
+
+	var got []string
+	for _, e := range entries {
+		got = append(got, fmt.Sprintf("%d/%d", e.Attempt, e.Sequence))
+	}
+	want := []string{"0/1", "0/2", "1/1", "1/2"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ForJob returned attempt/sequence %v, want %v", got, want)
+	}
+}
+
+// TestEntStoreForJobReportsTruncationRatherThanHidingIt is the property the
+// signature exists for.
+//
+// A caller that rendered a capped list without knowing it was capped would
+// show a partial record of what happened while looking exactly like a
+// complete one. On an audit trail that is the worst available outcome, so
+// the bound is reported rather than logged.
+func TestEntStoreForJobReportsTruncationRatherThanHidingIt(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+
+	batch := make([]engine.JournalEntry, 0, 5)
+	for i := 1; i <= 5; i++ {
+		batch = append(batch, walkEntry("job-1", "device-a", 0, i, fmt.Sprintf("tasks[%d]", i)))
+	}
+	if _, err := store.Save(ctx, batch); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, truncated, err := store.ForJob(ctx, "job-1", 3)
+	if err != nil {
+		t.Fatalf("ForJob: %v", err)
+	}
+	if !truncated {
+		t.Error("a read capped at 3 of 5 entries did not report itself truncated")
+	}
+	if len(entries) != 3 {
+		t.Fatalf("ForJob returned %d entries, want the 3 it was asked for", len(entries))
+	}
+	// The cap keeps the FIRST rows, not an arbitrary three: a truncated
+	// run has to be readable from its beginning.
+	if entries[0].Sequence != 1 || entries[2].Sequence != 3 {
+		t.Errorf("the capped read returned sequences %d..%d, want 1..3",
+			entries[0].Sequence, entries[2].Sequence)
+	}
+
+	// Exactly at the bound is not truncated. An off-by-one here would
+	// make every complete run of exactly the limit claim to be partial.
+	if _, atLimit, err := store.ForJob(ctx, "job-1", 5); err != nil || atLimit {
+		t.Errorf("a read of exactly 5 of 5 reported truncated=%v (err %v), want false", atLimit, err)
+	}
+}
+
+// TestEntStoreForJobRoundTripsEveryField guards the half of the mapping
+// nothing else touches.
+//
+// Save's field list and hydrateEntry's are inverses written out by hand, so
+// a field added to one and forgotten in the other is silent: the column is
+// written and read back as a zero value, and the only symptom is an empty
+// cell in a table nobody has built yet. This compares against what the test
+// itself wrote rather than against a re-read, which is the only comparison
+// that can see a field lost in both directions.
+func TestEntStoreForJobRoundTripsEveryField(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+
+	// Every field set to something distinguishable, because a struct at
+	// its zero values round-trips perfectly through a mapping that drops
+	// everything.
+	want := engine.JournalEntry{
+		JobID: "job-1", DeviceID: "device-a", Attempt: 2, NodeID: "tasks[3]",
+		RunID: "run-7", Sequence: 4,
+		DAGID: "the-runbook", DAGVersion: "v9",
+		FQCN: "svc.systemd.restart", FQCNUnresolved: true,
+		TaskName: "restart the thing", Register: "restart_result",
+		StartedAt:   time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC),
+		FinishedAt:  time.Date(2026, 9, 12, 10, 0, 5, 0, time.UTC),
+		Outcome:     engine.OutcomeFailed,
+		SkipOrdinal: 3, SkipTotal: 7,
+		StatKeys: []string{"rc", "stderr"}, UndeclaredStatCount: 2,
+		ParamKeys: []string{"name", "state"}, UndeclaredParamCount: 1,
+		InverseFQCN: "svc.systemd.stop", InverseFQCNUnresolved: true,
+		InverseParamKeys: []string{"name"}, UndeclaredInverseParamCount: 5,
+		DiffRecorded: true,
+	}
+	if _, err := store.Save(ctx, []engine.JournalEntry{want}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, _, err := store.ForJob(ctx, "job-1", 0)
+	if err != nil {
+		t.Fatalf("ForJob: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ForJob returned %d entries, want 1", len(entries))
+	}
+	got := entries[0]
+
+	// Compared field by field rather than with reflect.DeepEqual, so a
+	// failure names the field that was lost instead of printing two
+	// thirty-field structs and leaving the reader to diff them.
+	checks := []struct {
+		field     string
+		got, want any
+	}{
+		{"JobID", got.JobID, want.JobID},
+		{"DeviceID", got.DeviceID, want.DeviceID},
+		{"Attempt", got.Attempt, want.Attempt},
+		{"NodeID", got.NodeID, want.NodeID},
+		{"RunID", got.RunID, want.RunID},
+		{"Sequence", got.Sequence, want.Sequence},
+		{"DAGID", got.DAGID, want.DAGID},
+		{"DAGVersion", got.DAGVersion, want.DAGVersion},
+		{"FQCN", got.FQCN, want.FQCN},
+		{"FQCNUnresolved", got.FQCNUnresolved, want.FQCNUnresolved},
+		{"TaskName", got.TaskName, want.TaskName},
+		{"Register", got.Register, want.Register},
+		{"Outcome", got.Outcome, want.Outcome},
+		{"SkipOrdinal", got.SkipOrdinal, want.SkipOrdinal},
+		{"SkipTotal", got.SkipTotal, want.SkipTotal},
+		{"UndeclaredStatCount", got.UndeclaredStatCount, want.UndeclaredStatCount},
+		{"UndeclaredParamCount", got.UndeclaredParamCount, want.UndeclaredParamCount},
+		{"InverseFQCN", got.InverseFQCN, want.InverseFQCN},
+		{"InverseFQCNUnresolved", got.InverseFQCNUnresolved, want.InverseFQCNUnresolved},
+		{"UndeclaredInverseParamCount", got.UndeclaredInverseParamCount, want.UndeclaredInverseParamCount},
+		{"DiffRecorded", got.DiffRecorded, want.DiffRecorded},
+		{"StatKeys", strings.Join(got.StatKeys, ","), strings.Join(want.StatKeys, ",")},
+		{"ParamKeys", strings.Join(got.ParamKeys, ","), strings.Join(want.ParamKeys, ",")},
+		{"InverseParamKeys", strings.Join(got.InverseParamKeys, ","), strings.Join(want.InverseParamKeys, ",")},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v: the read path lost it", c.field, c.got, c.want)
+		}
+	}
+	if !got.StartedAt.Equal(want.StartedAt) {
+		t.Errorf("StartedAt = %v, want %v", got.StartedAt, want.StartedAt)
+	}
+	if !got.FinishedAt.Equal(want.FinishedAt) {
+		t.Errorf("FinishedAt = %v, want %v", got.FinishedAt, want.FinishedAt)
+	}
+}
+
+// TestEntStoreForJobOnAJobWithNoEntries covers the shape a playbook job
+// always has, and every job has before its first level lands.
+//
+// Empty and no error, never an error: a job with no journal is the ordinary
+// state of half the launch kinds this platform registers, since only the
+// native adapter publishes journal batches.
+func TestEntStoreForJobOnAJobWithNoEntries(t *testing.T) {
+	store, _ := newEntStore(t)
+	entries, truncated, err := store.ForJob(context.Background(), "job-that-never-ran", 0)
+	if err != nil {
+		t.Fatalf("ForJob on a job with no entries = %v, want nil", err)
+	}
+	if len(entries) != 0 || truncated {
+		t.Errorf("ForJob returned %d entries (truncated=%v), want none", len(entries), truncated)
+	}
+}
+
+// TestEntStoreForJobClampsAnAbsurdLimit proves the cap is the store's and
+// not the caller's to raise.
+func TestEntStoreForJobClampsAnAbsurdLimit(t *testing.T) {
+	store, _ := newEntStore(t)
+	ctx := context.Background()
+	if _, err := store.Save(ctx, []engine.JournalEntry{
+		walkEntry("job-1", "device-a", 0, 1, "tasks[0]"),
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	for _, limit := range []int{-1, 0, journal.MaxEntriesPerRead * 100} {
+		entries, _, err := store.ForJob(ctx, "job-1", limit)
+		if err != nil {
+			t.Fatalf("ForJob(limit=%d): %v", limit, err)
+		}
+		if len(entries) != 1 {
+			t.Errorf("ForJob(limit=%d) returned %d entries, want 1", limit, len(entries))
+		}
+	}
+}
+
+// TestEntStoreForJobReportsAReadFailure covers the branch that turns a
+// database problem into an error naming the job.
+//
+// A cancelled context rather than a broken client, because it is the
+// failure this read will actually meet: the caller is an HTTP handler
+// rendering a page, and a reader who navigates away cancels the request
+// mid-query. The wrapped message has to name the job, since the alternative
+// is a log line saying a query failed with nothing to correlate it to.
+func TestEntStoreForJobReportsAReadFailure(t *testing.T) {
+	store, _ := newEntStore(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entries, truncated, err := store.ForJob(ctx, "job-1", 0)
+	if err == nil {
+		t.Fatal("ForJob on a cancelled context returned no error")
+	}
+	if entries != nil || truncated {
+		t.Errorf("a failed read returned %d entries (truncated=%v), want nothing", len(entries), truncated)
+	}
+	if !strings.Contains(err.Error(), "job-1") {
+		t.Errorf("the read failure does not name the job: %v", err)
+	}
+}
