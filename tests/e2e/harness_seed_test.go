@@ -300,6 +300,17 @@ type jobResponse struct {
 		DeviceName string `json:"device_name"`
 		Outcome    string `json:"outcome"`
 		Reason     string `json:"reason"`
+
+		// What the Runner reported back, as against what the Controller
+		// decided at fan-out. Decoded because the two are different
+		// facts and this suite asserted only the first: "dispatched"
+		// means a message was handed to a Runner, and said nothing about
+		// whether the device ever ran anything. A job could not even
+		// REACH a terminal state without these until recently, so the
+		// whole result pipeline was reaching this test unexamined.
+		Result       string `json:"result"`
+		ResultReason string `json:"result_reason"`
+		FinishedAt   string `json:"finished_at"`
 	} `json:"tasks"`
 }
 
@@ -315,23 +326,41 @@ func (h *harness) pollJobUntilTerminal(tb testing.TB, bearer, jobID string) jobR
 
 	deadline := time.Now().Add(30 * time.Second * raceTimeScale)
 	var last jobResponse
+	// The last response as it arrived, kept separately from the decoded
+	// view. Every failure message here rendered the DECODED value, so a
+	// harness that corrupted its own decode reported that corruption as
+	// though the server had sent it, and no diagnostic in the suite could
+	// tell the two apart. That cost three investigations.
+	var lastBody []byte
 
 	for time.Now().Before(deadline) {
 		status, body := h.do(tb, http.MethodGet, "/api/v1/jobs/"+jobID, bearer)
 		if status != http.StatusOK {
 			tb.Fatalf("GET /api/v1/jobs/%s returned status %d, body %s", jobID, status, body)
 		}
-		if err := json.Unmarshal(body, &last); err != nil {
+		// A FRESH value per poll, which is not tidiness. Unmarshal MERGES
+		// into whatever it is handed: it reuses an existing slice's
+		// elements rather than allocating new ones, and it leaves a struct
+		// field untouched when the incoming JSON carries no key for it. A
+		// dispatched task's "reason" is omitempty, so it carries no key,
+		// and the task list is not returned in a stable order. Decoding
+		// every poll into one long-lived value therefore left a skipped
+		// device's reason sitting on whichever dispatched device landed in
+		// its slot next, and the assertion that caught it blamed the
+		// fan-out. FAILURE_PATTERNS.md #225.
+		var current jobResponse
+		if err := json.Unmarshal(body, &current); err != nil {
 			tb.Fatalf("decoding the job view: %v (body %s)", err, body)
 		}
+		last, lastBody = current, body
 		if last.State == "completed" || last.State == "failed" {
 			return last
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	tb.Fatalf("job %s did not reach a terminal state within its budget; last observed state %q\n%s",
-		jobID, last.State, h.controller.output())
+	tb.Fatalf("job %s did not reach a terminal state within its budget; last observed state %q\nlast response body: %s\n%s",
+		jobID, last.State, lastBody, h.controller.output())
 	return last
 }
 
@@ -354,7 +383,8 @@ func requireStringField(tb testing.TB, body []byte, field string) string {
 func describeTasks(job jobResponse) string {
 	parts := make([]string, 0, len(job.Tasks))
 	for _, task := range job.Tasks {
-		parts = append(parts, fmt.Sprintf("%s=%s(%s)", task.DeviceName, task.Outcome, task.Reason))
+		parts = append(parts, fmt.Sprintf("%s=%s(%s) result=%s(%s)",
+			task.DeviceName, task.Outcome, task.Reason, task.Result, task.ResultReason))
 	}
 	return strings.Join(parts, " ")
 }
