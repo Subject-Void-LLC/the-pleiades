@@ -135,17 +135,17 @@ var registerRecordViews = sync.OnceFunc(func() {
 					Endpoint: &apispec.SetCredentialTypeInputs,
 					Confirm:  "This removes the row. It cannot be undone from here.",
 					Applies:  func(row view.Row) bool { return row.ID != pinnedRow },
-					Submit: func(_ context.Context, parentID, rowID string) (string, error) {
+					Submit: func(_ context.Context, parentID, rowID string, _ view.Values) (string, view.FieldErrors, error) {
 						if rowID == failingRow {
-							return "", errors.New("deliberate row action failure")
+							return "", nil, errors.New("deliberate row action failure")
 						}
 						if rowID == refusedRow {
-							return "", view.Refuse(errors.New(refusalText))
+							return "", nil, view.Refuse(errors.New(refusalText))
 						}
 						rowActionCalls.Lock()
 						rowActionCalls.parentID, rowActionCalls.rowID = parentID, rowID
 						rowActionCalls.Unlock()
-						return "", nil
+						return "", nil, nil
 					},
 				}},
 			},

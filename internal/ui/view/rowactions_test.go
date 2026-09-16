@@ -35,7 +35,9 @@ func rowActionDescriptor(rows ...view.Row) view.Descriptor {
 			Endpoint: &apispec.SetCredentialTypeInputs,
 			Confirm:  "This removes the input.",
 			Applies:  func(r view.Row) bool { return r.Cells["outcome"] != "locked" },
-			Submit:   func(context.Context, string, string) (string, error) { return "", nil },
+			Submit: func(context.Context, string, string, view.Values) (string, view.FieldErrors, error) {
+				return "", nil, nil
+			},
 		}},
 	}}
 	return d
@@ -240,7 +242,9 @@ func TestRegister_RefusesAnUnreachableRowAction(t *testing.T) {
 			Name:     "remove",
 			Label:    "Remove",
 			Endpoint: &apispec.SetCredentialTypeInputs,
-			Submit:   func(context.Context, string, string) (string, error) { return "", nil },
+			Submit: func(context.Context, string, string, view.Values) (string, view.FieldErrors, error) {
+				return "", nil, nil
+			},
 		}
 	}
 
@@ -382,7 +386,9 @@ func TestRegister_AcceptsARowActionBesideTheHeaderHalf(t *testing.T) {
 			// shape: adding to a document and removing from it are one API
 			// operation and one affordance question.
 			Name: "remove-input", Label: "Remove", Endpoint: &apispec.SetCredentialTypeInputs,
-			Submit: func(context.Context, string, string) (string, error) { return "", nil },
+			Submit: func(context.Context, string, string, view.Values) (string, view.FieldErrors, error) {
+				return "", nil, nil
+			},
 		}},
 	}}
 

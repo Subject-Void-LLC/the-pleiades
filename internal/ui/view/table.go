@@ -345,6 +345,16 @@ type RowControl struct {
 	// DialogID is the element id the confirmation dialog carries, unique
 	// within the page. Empty when there is no dialog.
 	DialogID string
+
+	// Prompts says this control opens a form rather than acting at once,
+	// which makes it the one row control that is a LINK.
+	//
+	// Every other one posts, because it changes state and a GET that
+	// changes state is one a prefetcher eventually runs. This one changes
+	// nothing until its form is submitted, and the form posts back to the
+	// same address, so the GET is safe and is the only way to reach a page
+	// that has to be drawn before anything happens.
+	Prompts bool
 }
 
 // Confirms reports whether this control opens a dialog before posting.
@@ -524,6 +534,7 @@ func (d Descriptor) rowControls(s LoadedSection, prefix string, parent Row, aff 
 				Label:   a.Label,
 				Href:    path.Join(prefix, d.Name, url.PathEscape(parent.ID), a.Name, url.PathEscape(row.ID)),
 				Confirm: a.Confirm,
+				Prompts: a.Prompts(),
 			}
 			if a.Confirms() {
 				// The row's index rather than its id. An id is author

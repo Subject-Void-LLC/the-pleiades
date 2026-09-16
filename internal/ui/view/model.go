@@ -254,11 +254,17 @@ func NewValues(fields []Field, raw url.Values, editing bool) (Values, []string) 
 // stays possible: what is refused is prefilling a secret, not offering the
 // control.
 //
-// fields must already be the set this form renders. A control the form does
-// not draw is not a control a prefill may name.
-func NarrowPrefill(fields []Field, values map[string]string) error {
+// editing selects the mode the form renders in, and is taken rather than
+// assumed so a caller cannot check a prefill against a control set the form
+// does not draw. An edit form withholds an Immutable control, so on an edit
+// a prefill naming one is a value nothing renders, which is the case this
+// function exists to catch.
+func NarrowPrefill(fields []Field, editing bool, values map[string]string) error {
 	declared := make(map[string]Field, len(fields))
 	for _, f := range fields {
+		if !f.WritableOn(editing) {
+			continue
+		}
 		declared[f.Name] = f
 	}
 

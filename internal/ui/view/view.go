@@ -337,13 +337,60 @@ type RowAction struct {
 	// operation, and the affordance question has one answer for both.
 	Endpoint *apispec.Endpoint
 
+	// Heading is the form's own title when this control prompts.
+	Heading string
+
 	// Confirm is what a confirmation dialog asks before the control posts.
 	// Empty posts straight through.
 	//
 	// Setting it also renders the control as a destructive one, because
 	// the only reason to interrupt somebody on their way to a button is
 	// that what is behind it is hard to undo.
+	//
+	// Refused beside Fields. A confirming control posts from inside a
+	// dialog whose only content is the CSRF token, so on a prompting
+	// control that submission would reach Submit with every control blank
+	// and look like a deliberate save: the silent blanking this whole seam
+	// exists to prevent, arriving through the one door nobody is watching.
+	// A form is already the interruption.
 	Confirm string
+
+	// Fields prompt before the action runs. Empty means no prompt, which
+	// is what Remove wants: removing a row needs no form, and neither does
+	// moving one.
+	//
+	// There is deliberately no FieldsFor. A record action has one because
+	// a launch form is not the same form twice; a row control's fields are
+	// the same for every row of its section and only the VALUES differ, so
+	// one field set per control is the whole truth and a per row
+	// resolution would be a second answer that could disagree.
+	//
+	// The form is an EDIT form, because a row is a thing that already
+	// exists. Immutable therefore means what it means everywhere else: the
+	// control naming the row is offered by the add form beside this one
+	// and withheld here, so one field slice serves both.
+	Fields []Field
+
+	// Form produces the values that prefill this row's controls, and is
+	// required exactly when Fields is present.
+	//
+	// Prompting and prefilling are one decision on a row, not two, and
+	// Register enforces it. A prompt with no prefill renders the row's
+	// current values as empty boxes and silently blanks whichever ones the
+	// operator does not retype, which is precisely the failure this seam
+	// was built to remove; allowing the combination would leave the trap
+	// open at the one place it is most likely to be sprung.
+	//
+	// It re-reads the row rather than being handed the Row the table drew,
+	// and that is not redundancy. A Row's Cells are display strings and a
+	// form value is a submission token, the same disagreement
+	// Projector.Row and Projector.Form already have one level up. A
+	// credential type's input renders "yes" in its REQUIRED column where a
+	// checkbox reads only the literal "true", renders "string" in TYPE
+	// where the select posts its own value, and its MULTILINE, HELP and
+	// DEFAULT never appear in a column at all. A prefill built from cells
+	// would be wrong in three controls and blank in three more.
+	Form func(ctx context.Context, parentID, rowID string) (map[string]string, error)
 
 	// Applies withholds this control from a row it could not work on, the
 	// same job Descriptor.Applies does for a record. Nil offers it on
@@ -357,7 +404,38 @@ type RowAction struct {
 
 	// Submit performs the action and returns where to send the caller
 	// afterwards. An empty redirect returns them to the parent record.
-	Submit func(ctx context.Context, parentID, rowID string) (redirect string, err error)
+	//
+	// It receives both identities and adjudicates neither. rowID is the row
+	// the URL named; v carries what the form was told, narrowed to the
+	// controls that form actually offered. A resource whose identity column
+	// is also an editable control decides for itself whether the two
+	// disagreeing is a rename or a refusal, because only it knows.
+	//
+	// v is the zero Values for a control that does not prompt: it declares
+	// nothing, so it can read nothing. A FieldErrors result redisplays the
+	// form with the message on the control that caused it; a Refused
+	// reaches the notice page, which is where a control with no form has
+	// always sent one.
+	Submit func(ctx context.Context, parentID, rowID string, v Values) (redirect string, errs FieldErrors, err error)
+}
+
+// Prompts reports whether this control renders a form before it runs.
+func (a RowAction) Prompts() bool { return len(a.Fields) > 0 }
+
+// ResolveValues returns this row's prefill, and an empty map for a control
+// that does not prompt.
+func (a RowAction) ResolveValues(ctx context.Context, parentID, rowID string) (map[string]string, error) {
+	if a.Form == nil {
+		return map[string]string{}, nil
+	}
+	values, err := a.Form(ctx, parentID, rowID)
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return map[string]string{}, nil
+	}
+	return values, nil
 }
 
 // Confirms reports whether this control interrupts before it posts.
@@ -1255,6 +1333,27 @@ func validateRowActions(name string, sections []Section, actions []RecordAction)
 					name, s.Title, a.Name)
 			case a.Submit == nil:
 				return fmt.Errorf("view %q section %q row action %q has no Submit function", name, s.Title, a.Name)
+			case a.Prompts() && a.Form == nil:
+				// The whole point of the seam. A prompt with no prefill
+				// renders the row's current values as empty boxes and
+				// blanks whichever ones the operator does not retype, and
+				// nothing on the page shows it happening.
+				return fmt.Errorf("view %q section %q row action %q prompts but declares no prefill, so its form would blank the row", name, s.Title, a.Name)
+			case a.Form != nil && !a.Prompts():
+				return fmt.Errorf("view %q section %q row action %q declares a prefill but no fields, so nothing renders it", name, s.Title, a.Name)
+			case a.Prompts() && strings.TrimSpace(a.Heading) == "":
+				return fmt.Errorf("view %q section %q row action %q prompts but has no heading", name, s.Title, a.Name)
+			case a.Prompts() && a.Confirms():
+				// A confirming control posts from a dialog carrying only
+				// the CSRF token, so on a prompting control that
+				// submission reaches Submit with every field blank and
+				// looks like a deliberate save. The form is already the
+				// interruption.
+				return fmt.Errorf("view %q section %q row action %q both prompts and confirms, so the dialog would submit a blank form", name, s.Title, a.Name)
+			}
+
+			if err := validateFields(a.Fields); err != nil {
+				return fmt.Errorf("view %q section %q row action %q %s", name, s.Title, a.Name, err)
 			}
 			seen[a.Name] = fmt.Sprintf("a row action on section %q", s.Title)
 		}

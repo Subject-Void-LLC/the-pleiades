@@ -221,7 +221,13 @@ templ tableCell(t view.TableModel, row view.Row, col view.Field) {
 // instead of from the cell, so what is submitted is identical either way
 // and there is no second submission path to keep in step.
 templ rowControl(t view.TableModel, c view.RowControl) {
-	if c.Confirms() {
+	if c.Prompts {
+		// A link, and the only row control that is one. It changes
+		// nothing: it opens a form, and the form posts back to this same
+		// address. Every other control here posts directly, so a link
+		// would be a state change on a GET.
+		<a class="btn" href={ templ.SafeURL(c.Href) }>{ c.Label }</a>
+	} else if c.Confirms() {
 		<button class="btn btn-danger" type="button" data-dialog-open={ c.DialogID }>{ c.Label }</button>
 		<dialog id={ c.DialogID } aria-labelledby={ c.DialogID + "-heading" }>
 			<div class="block">

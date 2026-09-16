@@ -562,6 +562,15 @@ type ActionModel struct {
 	// ID is the record this action runs against.
 	ID string
 
+	// Row is the row this action runs against, empty for a record action.
+	//
+	// It is also what makes a row prompt an EDIT form and a record prompt
+	// not one, with no second mode flag that could disagree: a row is a
+	// thing that already exists, so Immutable has a referent there, while
+	// a record action's prompt is a set of arguments to an operation
+	// (launch, copy, add an input) where it has none.
+	Row string
+
 	// Fields is the prompt as resolved for this record, which is not
 	// always the action's own declaration: a launch form renders only the
 	// fields the template being launched actually opened.
@@ -591,6 +600,12 @@ func (m ActionModel) Form() FormModel {
 			// controls differ per record renders the record's own.
 			Fields: m.Fields,
 		},
+		// The ROW, not the record. FormModel reads this only to decide
+		// Editing(), and that is exactly the decision wanted: a row prompt
+		// edits something that exists, so it drops the Immutable controls
+		// the add form beside it offers, and a record prompt keeps them
+		// because there is nothing yet for them to be immutable about.
+		ID:      m.Row,
 		Values:  m.Values,
 		Errors:  m.Errors,
 		Options: m.Options,
@@ -598,7 +613,12 @@ func (m ActionModel) Form() FormModel {
 }
 
 // Heading names the action and the record it will run against.
-func (m ActionModel) Heading() string { return m.Action.Heading + ": " + m.ID }
+func (m ActionModel) Heading() string {
+	if m.Row != "" {
+		return m.Action.Heading + ": " + m.Row
+	}
+	return m.Action.Heading + ": " + m.ID
+}
 
 // SubmitLabel is the button text, the action's own label rather than
 // "Save": what this does is run something, not store something.
@@ -606,7 +626,14 @@ func (m ActionModel) SubmitLabel() string { return m.Action.Label }
 
 // Action is where the form posts, and CancelHref returns to the record.
 func (m ActionModel) ActionHref() string {
-	return path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+	target := path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID), m.Action.Name)
+	if m.Row == "" {
+		return target
+	}
+	// The form posts to the same four segment address the control linked
+	// to, so the GET that drew it and the POST that runs it name the same
+	// row and cannot drift apart.
+	return path.Join(target, url.PathEscape(m.Row))
 }
 
 func (m ActionModel) CancelHref() string {

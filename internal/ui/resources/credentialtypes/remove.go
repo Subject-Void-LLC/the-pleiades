@@ -49,10 +49,11 @@ func removeInputAction(store credstore.Store) view.RowAction {
 		Confirm: "Any credential of this type that stores a value for this input can no longer be saved, " +
 			"because the value it holds will name an input the type no longer declares. " +
 			"An injector that references it refuses the change outright.",
-		Submit: func(ctx context.Context, parentID, rowID string) (string, error) {
-			return withType(ctx, store, parentID, inputsTitle, func(ct *credstore.CredentialType) error {
+		Submit: func(ctx context.Context, parentID, rowID string, _ view.Values) (string, view.FieldErrors, error) {
+			redirect, err := withType(ctx, store, parentID, inputsTitle, func(ct *credstore.CredentialType) error {
 				return removeInput(&ct.Inputs, rowID)
 			})
+			return redirect, nil, err
 		},
 	}
 }
@@ -70,10 +71,11 @@ func removeInjectorAction(store credstore.Store) view.RowAction {
 		Endpoint: &apispec.SetCredentialTypeInjectors,
 		Confirm: "Credentials of this type stop reaching a run through this injector. " +
 			"Nothing about the credentials themselves changes, so adding it back restores the behaviour.",
-		Submit: func(ctx context.Context, parentID, rowID string) (string, error) {
-			return withType(ctx, store, parentID, injectorsTitle, func(ct *credstore.CredentialType) error {
+		Submit: func(ctx context.Context, parentID, rowID string, _ view.Values) (string, view.FieldErrors, error) {
+			redirect, err := withType(ctx, store, parentID, injectorsTitle, func(ct *credstore.CredentialType) error {
 				return removeInjector(&ct.Injectors, rowID)
 			})
+			return redirect, nil, err
 		},
 	}
 }

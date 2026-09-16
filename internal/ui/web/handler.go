@@ -209,9 +209,11 @@ func (h *Handler) Routes() http.Handler {
 		r.Get("/{resource}/{id}/{action}", h.actionForm)
 		r.Post("/{resource}/{id}/{action}", h.runAction)
 		// A row action, acting on one row of one of the record's sections.
-		// POST only: it prompts for nothing, so there is no form to render,
-		// and a GET that changes state is one a link prefetcher or a
-		// corporate scanner eventually runs for somebody.
+		// The GET draws its form, when it has one, and answers 404 when it
+		// does not: a control with no form is a button, never a link, so
+		// nothing on any page draws a GET to that address. The POST runs
+		// it either way, because a state change never happens on a GET.
+		r.Get("/{resource}/{id}/{action}/{row}", h.rowActionForm)
 		r.Post("/{resource}/{id}/{action}/{row}", h.runRowAction)
 	})
 
