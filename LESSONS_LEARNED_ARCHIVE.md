@@ -4427,3 +4427,50 @@ merely exercises it. The final version was checked against all seven controls in
 a shared fixture and broke an unrelated conformance test, because every credential of that type
 then had an unanswered required input. A test that mutates shared fixture state is a test that
 fails somebody else's assertion later; it built its own record instead.
+
+---
+
+## 189. A diagnostic that probes for a secret must be incapable of printing one, because the safe-looking half of `${VAR:+x}${VAR:-y}` is the half that leaks
+
+**The rule.** When checking whether a secret is present, use a construct that cannot emit its
+value under any branch. `[ -n "$VAR" ]` and `${#VAR}` cannot. `${VAR:-default}` can and will,
+because it substitutes the VALUE whenever the variable is non-empty, which is exactly the case
+a presence check is written to detect.
+
+**The incident.** A LocalStack auth token was needed by a coverage gate. Checking whether it
+had reached the shell, the probe was written as:
+
+```sh
+echo "TOKEN: ${VAR:+<set, length ${#VAR}>}${VAR:-<still unset>}"
+```
+
+It reads as "print a safe summary if set, otherwise print unset", and it is not that. Both
+expansions are evaluated and concatenated. When the variable is set, `${VAR:+...}` gives the
+safe summary and `${VAR:-<still unset>}` gives **the token**, so the one branch written to
+handle absence is the branch that printed the secret. The token went into the session
+transcript and through a model provider's context.
+
+**Why the usual defences did not apply.** Nothing was committed, and a later check confirmed
+zero occurrences across tracked files, the working tree, and the full history of every branch.
+The repository's own protections are aimed at secrets reaching the repo; this one never went
+near it. `gosec` does not read shell written at a prompt, and `commitgate` inspects the index.
+The exposure was a diagnostic, and diagnostics are the one category of code that exists
+precisely to print what you are unsure about.
+
+**The near miss worth naming.** The probe ran before a push rather than after, and the token
+lived in `~/.bashrc` rather than in a file under the working directory. Had it been in a
+`.env` the build sourced, the same carelessness would have put it somewhere a commit could
+sweep up. The outcome was better than the reasoning that produced it.
+
+**What to do.** Probe for presence with a construct that has no value-emitting branch:
+
+```sh
+[ -n "$VAR" ] && echo set || echo unset        # cannot print it
+echo "length: ${#VAR}"                          # cannot print it
+```
+
+And when a secret must be moved between shells, carry it by assignment rather than through
+anything that echoes: a command substitution feeding a variable prints nothing, while the same
+pipeline written to inspect the result prints everything. Rotation, not care, is the remedy
+once a secret has been displayed, because a transcript and a provider's logs are not files you
+can delete.
