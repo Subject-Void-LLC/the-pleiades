@@ -1047,10 +1047,20 @@ func validateOps(name string, ops Ops, actions []RecordAction) error {
 		if e.Rel == "" {
 			return fmt.Errorf("view %q names endpoint %q, which declares no link relation", name, e.Name)
 		}
-		if prev, dup := seenRel[e.Rel]; dup {
-			// Two operations sharing a relation makes a permitted
-			// result ambiguous: a template asking Can(rel) could not
-			// tell which of the two it was told about.
+		if prev, dup := seenRel[e.Rel]; dup && prev != e.Name {
+			// Two DIFFERENT operations sharing a relation makes a
+			// permitted result ambiguous: a template asking Can(rel)
+			// could not tell which of the two it was told about.
+			//
+			// One endpoint named twice is a different thing and is
+			// allowed. Two controls can be two affordances onto a single
+			// API operation -- adding an input to a credential type and
+			// removing one are both its set-inputs endpoint -- and there
+			// the single answer Can(rel) gives is not ambiguous but
+			// correct, because the caller either may set that document or
+			// may not. Refusing it forced a second endpoint to exist for
+			// no reason but this check, which is a relation invented to
+			// satisfy a validator rather than to describe the API.
 			return fmt.Errorf("view %q uses relation %q for both %s and %s", name, e.Rel, prev, e.Name)
 		}
 		seenRel[e.Rel] = e.Name
