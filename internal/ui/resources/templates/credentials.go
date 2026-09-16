@@ -192,7 +192,23 @@ func bindCredentialsAction(creds credentials) view.RecordAction {
 		Label:    "Credentials",
 		Heading:  "What this template runs as",
 		Endpoint: &apispec.SetTemplateCredentials,
-		FieldsFor: func(ctx context.Context, id string) ([]view.Field, error) {
+		// What the template is bound to NOW, which is what makes this a
+		// replace rather than a blanking.
+		//
+		// This control resolved exactly these ids before the prefill seam
+		// existed, sorted them, and dropped them on the floor, because
+		// there was nowhere for a record action to put a form value. So
+		// the multi-select rendered with nothing selected on a template
+		// that was bound to three credentials, and pressing the button as
+		// drawn replaced those three with none: the template silently
+		// stopped authenticating as anything. The help text below says
+		// replacing this list replaces what the template runs as, and it
+		// was telling the truth.
+		//
+		// Comma joined because that is how a multi-select prefill travels
+		// in this UI, and sorted so the rendering does not reshuffle
+		// between reads.
+		Form: func(ctx context.Context, id string) (map[string]string, error) {
 			templateID, err := strconv.Atoi(id)
 			if err != nil {
 				return nil, nil
@@ -206,7 +222,9 @@ func bindCredentialsAction(creds credentials) view.RecordAction {
 				selected = append(selected, strconv.Itoa(c.ID))
 			}
 			sort.Strings(selected)
-
+			return map[string]string{"credentials": strings.Join(selected, ",")}, nil
+		},
+		FieldsFor: func(ctx context.Context, id string) ([]view.Field, error) {
 			return []view.Field{{
 				Name: "credentials", Label: "CREDENTIALS", Kind: view.KindLookup, InForm: true,
 				Help: "At most one credential per kind, except vault credentials, which may repeat when each names a distinct identifier. Replacing this list replaces what the template authenticates as.",

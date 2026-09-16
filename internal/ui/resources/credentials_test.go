@@ -143,3 +143,30 @@ func TestTemplateCredentialsActionIsGatedByTheCredentialScope(t *testing.T) {
 		t.Errorf("GET the credentials action as a viewer = %d, want %d", w.Code, http.StatusForbidden)
 	}
 }
+
+// TestTemplateCredentialsFormRendersWhatIsAlreadyBound is a data-loss
+// regression guard, and the loss it guards against was live.
+//
+// The control replaces a template's whole credential list, which its own
+// help text says. It resolved the currently bound ids, sorted them, and
+// dropped them, because a record action had nowhere to put a form value
+// before the prefill seam existed. So a template bound to a credential
+// rendered a multi-select with nothing selected, and pressing the button as
+// drawn replaced that binding with none: the template silently stopped
+// authenticating as anything, and nothing on the page suggested it would.
+//
+// The fixture binds template 1 to one credential, so "selected" appearing
+// against that option is the whole assertion.
+func TestTemplateCredentialsFormRendersWhatIsAlreadyBound(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	body := h.get(t, "/ui/templates/1/credentials").Body.String()
+
+	const bound = "conformance credential (Conformance API)"
+	if !strings.Contains(body, bound) {
+		t.Fatalf("the bound credential is not offered at all, so this proves nothing:\n%s", body)
+	}
+	if !strings.Contains(body, "selected>"+bound) {
+		t.Errorf("the credential this template is bound to rendered unselected, so saving the form as drawn would unbind it:\n%s", body)
+	}
+}
