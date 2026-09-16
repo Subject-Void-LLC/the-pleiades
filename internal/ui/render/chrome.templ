@@ -271,6 +271,9 @@ templ sectionPanel(s view.SectionView) {
 		if s.Spec.Summary != "" {
 			<p class="view-summary">{ s.Spec.Summary }</p>
 		}
+		if s.Note != "" {
+			<p class="view-summary section-note">{ s.Note }</p>
+		}
 		@dataTable(s.Table())
 	</section>
 }

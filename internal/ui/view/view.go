@@ -252,6 +252,22 @@ type Section struct {
 	// registered as one.
 	Rows func(ctx context.Context, parentID string) ([]Row, error)
 
+	// Note is an optional line rendered under the heading, resolved per
+	// RECORD rather than declared once, which is the whole distinction
+	// from Summary above.
+	//
+	// It exists because a section had no way to say anything true of the
+	// rows it just loaded. The first thing that needed one is a bounded
+	// read: a table capped at five hundred rows of a larger run shows a
+	// partial record of what happened while looking exactly like a
+	// complete one, and on an audit trail that is the worst available
+	// outcome. Logging the cap tells the operator nothing, because the
+	// operator is not reading the log.
+	//
+	// It is prose, not markup, and it is escaped like any other text. A
+	// section that wants to say something structural wants a column.
+	Note func(ctx context.Context, parentID string) string
+
 	// Empty is what renders when there are none. It is required for the
 	// same reason StatusDeclared exists: an empty table and a thing that
 	// has not happened yet look identical, and "no devices have reported

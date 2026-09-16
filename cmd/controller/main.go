@@ -960,7 +960,11 @@ func main() {
 	// replica. Fatal on failure for the same reason the fan-out worker
 	// above is: a controller that silently stopped recording an audit
 	// trail is worse than one that refuses to start.
-	journalSubscriber := journal.NewSubscriber(journal.NewEntStore(client), logger)
+	// Named rather than inlined, because the UI's Tasks tab reads the same
+	// store the subscriber writes. One value, so a deployment cannot end
+	// up recording into one database and reading from another.
+	journalStore := journal.NewEntStore(client)
+	journalSubscriber := journal.NewSubscriber(journalStore, logger)
 	if err := journalSubscriber.Subscribe(ctx, bus); err != nil {
 		fatal("failed to subscribe the run journal consumer", err)
 	}
@@ -1361,6 +1365,7 @@ func main() {
 		Factory:      inventory.NewItemFactory(),
 		Jobs:         jobStore,
 		JobCanceller: jobCanceller,
+		JobJournal:   journalStore,
 		Runbooks:     runbooks,
 		Templates:    templateStore,
 		// The same store value the Scanner above runs on, so what the

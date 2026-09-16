@@ -22,12 +22,38 @@ import (
 	"github.com/Subject-Void-LLC/the-pleiades/internal/api"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/apispec"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/dispatch"
+	"github.com/Subject-Void-LLC/the-pleiades/internal/engine"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/launch"
 	"github.com/Subject-Void-LLC/the-pleiades/internal/ui/view"
 )
 
 // Name is this view's registration key and URL segment.
 const Name = "jobs"
+
+// JournalReader is the sliver of the run journal this view needs.
+//
+// A narrow port rather than *journal.EntStore, matching the Interface
+// Segregation this package already applies to the Dispatcher: a view that
+// took the store whole would gain the ability to WRITE journal entries as a
+// side effect of being able to show them, and a journal a UI can write to
+// is not an audit trail.
+//
+// It is optional at the composition root and a nil one draws no section at
+// all, which is the honest rendering for a deployment that has not wired
+// the journal rather than a tab that is permanently empty for everybody.
+type JournalReader interface {
+	// ForJob returns the job's entries oldest first per device, and
+	// reports whether the read was capped. The bound belongs to the
+	// implementation; this port only carries the answer.
+	ForJob(ctx context.Context, jobID string, limit int) ([]engine.JournalEntry, bool, error)
+}
+
+// journalLimit is what the Tasks section asks for.
+//
+// Below internal/journal's own cap, deliberately: this is a table on a
+// detail page, and a reader who needs twenty thousand rows is doing an
+// export rather than reading a page. The section says when it has capped.
+const journalLimit = 500
 
 // fields drive the table, the dispatch form, the detail list, validation
 // and the mobile card layout from one declaration.
@@ -257,7 +283,7 @@ func deviceOutcomes(jobs dispatch.JobStore) view.Section {
 // which is where AWX puts it too, and where an operator looks for it. A
 // "new job" form here would ask somebody to type a runbook id they just
 // came from a page listing.
-func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler) error {
+func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler, entries JournalReader) error {
 	projector := view.Projector[*dispatch.Job]{
 		Row: func(j *dispatch.Job) view.Row {
 			if j == nil {
@@ -315,7 +341,7 @@ func Register(jobs dispatch.JobStore, runner Relauncher, canceller Canceler) err
 		// construction, since both read the same terminalStates map from
 		// opposite sides, so a record never offers both at once.
 		Applies:  applies,
-		Sections: []view.Section{deviceOutcomes(jobs)},
+		Sections: sections(jobs, entries),
 		// AWX's job page opens on Output, and this one does too. Somebody
 		// opening a job has nearly always come to see what happened rather
 		// than to re-read what it was asked to do, and the details are one

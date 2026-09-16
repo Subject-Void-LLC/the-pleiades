@@ -729,7 +729,13 @@ func (h *Handler) loadSections(r *http.Request, d view.Descriptor, id string) []
 				slog.String("error", err.Error()))
 			rows = nil
 		}
-		out = append(out, view.LoadedSection{Spec: spec, Rows: rows})
+		// Resolved after the rows, because the only thing a note has to
+		// say so far is about the rows that were just loaded.
+		var note string
+		if spec.Note != nil {
+			note = spec.Note(r.Context(), id)
+		}
+		out = append(out, view.LoadedSection{Spec: spec, Rows: rows, Note: note})
 	}
 	return out
 }

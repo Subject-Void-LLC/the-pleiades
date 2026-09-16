@@ -1337,11 +1337,30 @@ func sectionPanel(s view.SectionView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
+		if s.Note != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "<p class=\"view-summary section-note\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var71 string
+			templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(s.Note)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 275, Col: 48}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
 		templ_7745c5c3_Err = dataTable(s.Table()).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "</section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1373,83 +1392,64 @@ func settingsTile(tile view.SettingsTile) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var71 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var71 == nil {
-			templ_7745c5c3_Var71 = templ.NopComponent
+		templ_7745c5c3_Var72 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var72 == nil {
+			templ_7745c5c3_Var72 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		for _, group := range tile.Groups {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<section class=\"settings-group\" aria-labelledby=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var72 string
-			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.ResolveAttributeValue(group.ID())
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 288, Col: 62}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var72)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "\"><h2 id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "<section class=\"settings-group\" aria-labelledby=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var73 string
 			templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.ResolveAttributeValue(group.ID())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 289, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 291, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var73)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "\"><h2 id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var74 string
-			templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(group.Title)
+			templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.ResolveAttributeValue(group.ID())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 289, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 292, Col: 22}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var74)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var75 string
+			templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(group.Title)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 292, Col: 38}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if group.Summary != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<p class=\"view-summary\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var75 string
-				templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(group.Summary)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 291, Col: 43}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "</p>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			if !group.Implemented() {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<p class=\"settings-reason\"><strong>Not built.</strong> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<p class=\"view-summary\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var76 string
-				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(group.Reason)
+				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(group.Summary)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 294, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 294, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 				if templ_7745c5c3_Err != nil {
@@ -1460,56 +1460,75 @@ func settingsTile(tile view.SettingsTile) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "<dl class=\"settings-fields\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			for _, f := range group.Fields {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "<dt>")
+			if !group.Implemented() {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "<p class=\"settings-reason\"><strong>Not built.</strong> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var77 string
-				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(f.Label)
+				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(group.Reason)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 299, Col: 15}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 297, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, " <span class=\"settings-kind\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<dl class=\"settings-fields\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			for _, f := range group.Fields {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "<dt>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var78 string
-				templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(string(f.Kind))
+				templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(f.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 300, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 302, Col: 15}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "</span></dt><dd>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, " <span class=\"settings-kind\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var79 string
-				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(f.Help)
+				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(string(f.Kind))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 302, Col: 17}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 303, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "</dd>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</span></dt><dd>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var80 string
+				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(f.Help)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/ui/render/chrome.templ`, Line: 305, Col: 17}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "</dd>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</dl></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "</dl></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -50,7 +50,7 @@ func registrars() []Registrar {
 		func(d Deps) error { return grants.Register(d.Access) },
 		func(Deps) error { return instancegroups.Register() },
 		func(d Deps) error { return inventories.Register(d.Sets, d.Access) },
-		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d)) },
+		func(d Deps) error { return jobs.Register(d.Jobs, jobRelauncher(d), jobCanceller(d), jobJournal(d)) },
 		func(Deps) error { return labels.Register() },
 		func(Deps) error { return notifications.Register() },
 		func(d Deps) error { return organizations.Register(d.Access) },
@@ -75,6 +75,20 @@ func registrars() []Registrar {
 // alone can settle the record, and the browser using it directly is exactly
 // the bug this exists to prevent: a Cancel button that stopped the job on
 // paper and left the runbook running on the device.
+// jobJournal hands the Jobs view a journal reader, or an untyped nil.
+//
+// The same explicit conversion jobRelauncher makes, for the same reason: a
+// nil *journal.EntStore in an interface parameter is a NON-nil interface
+// holding a nil pointer, so the view's "is this wired" check would pass and
+// it would draw a Tasks tab that panics on the first read. A deployment
+// with no journal reader is real -- the conformance harness is one.
+func jobJournal(d Deps) jobs.JournalReader {
+	if d.JobJournal == nil {
+		return nil
+	}
+	return d.JobJournal
+}
+
 func jobCanceller(d Deps) jobs.Canceler {
 	if d.JobCanceller == nil {
 		return nil

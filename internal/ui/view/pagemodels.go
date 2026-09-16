@@ -219,6 +219,12 @@ type DetailModel struct {
 type LoadedSection struct {
 	Spec Section
 	Rows []Row
+
+	// Note is what Section.Note returned for this record, already
+	// resolved. Held here rather than called from the template, because a
+	// template that called a hook would be doing IO during rendering, and
+	// a failure there has nowhere to go: the response has already begun.
+	Note string
 }
 
 // ID is the section's DOM identifier, derived from its title so the
