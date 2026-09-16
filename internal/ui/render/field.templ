@@ -31,12 +31,23 @@ templ field(m view.FormModel, f view.Field) {
 		}
 		switch f.Kind {
 			case view.KindLongText:
+				// maxlength here as well as on the single-line control. A
+				// survey file question is the first long-text field that
+				// declares a bound, and without this the only sign of it is
+				// a 422 after the paste. It stays advice to a cooperating
+				// browser, and a loose one: a browser counts UTF-16 code
+				// units where the server counts bytes, so multi-byte text
+				// is still refused server-side at a length the browser
+				// allowed. view.Validate is the check that holds.
 				<textarea
 					id={ m.ControlID(f) }
 					name={ f.Name }
 					rows="4"
 					aria-invalid={ m.Invalid(f) }
 					aria-describedby={ m.DescribedBy(f) }
+					if m.MaxLen(f) != "" {
+						maxlength={ m.MaxLen(f) }
+					}
 					if f.Required {
 						required
 					}

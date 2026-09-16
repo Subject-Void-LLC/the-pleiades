@@ -377,3 +377,58 @@ func TestTemplatesSurvey_SectionTabIsReachable(t *testing.T) {
 		t.Error("the Survey section does not offer Add question")
 	}
 }
+
+// TestTemplatesSurvey_FileQuestionIsAuthoredAndRendered covers the file
+// type through the real router, as far as this harness can take it.
+//
+// It proves the authoring and rendering half: a file question can be
+// written through the survey builder, the launch form draws it with its
+// bound and says what it refuses, and the program-content control is
+// withheld on a deployment that would not honour it. The REFUSAL half is
+// proved in internal/api against a real dispatcher instead, because this
+// harness wires Deps.Dispatcher as nil on purpose (harness_test.go:142) and
+// no launch can complete through it.
+func TestTemplatesSurvey_FileQuestionIsAuthoredAndRendered(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+	id := ownTemplateForSurvey(t, h)
+
+	if w := h.post(t, "/ui/templates/"+id+"/add-question", map[string]string{
+		"variable": "hostlist",
+		"label":    "Host list",
+		"type":     "file",
+	}); w.Code != http.StatusSeeOther {
+		t.Fatalf("adding a file question = %d: %s", w.Code, w.Body.String())
+	}
+
+	// The deployment does not consent in this harness, which is the state
+	// almost every deployment is in, so the authoring form must not draw a
+	// control that would change nothing.
+	editForm := h.get(t, "/ui/templates/"+id+"/edit-question/hostlist").Body.String()
+	if strings.Contains(editForm, `name="allow_program_content"`) {
+		t.Error("the authoring form offers the program-content control on a deployment that refuses program content")
+	}
+
+	section := h.section(t, "/ui/templates/"+id, "Survey")
+	if !strings.Contains(section, "PROGRAM CONTENT") {
+		t.Error("the Survey section has no program-content column, so an armed question is invisible to a reviewer")
+	}
+
+	launchForm := h.get(t, "/ui/templates/"+id+"/launch").Body.String()
+	if !strings.Contains(launchForm, `name="answer_hostlist"`) {
+		t.Fatal("the launch form does not ask the file question")
+	}
+	// A bound the browser can see. The textarea carried no maxlength
+	// attribute at all until the file type declared one, so a 40 KB paste
+	// was answered only by a 422 after the fact.
+	if !strings.Contains(launchForm, `maxlength="32768"`) {
+		t.Error("the file control renders no maxlength, so nothing signals the bound before the paste")
+	}
+	if !strings.Contains(launchForm, "A file opening with an interpreter line is refused.") {
+		t.Error("the file control does not say what it refuses")
+	}
+	// The secrecy consequence, said where the operator is deciding whether
+	// to paste a private key rather than in a document.
+	if !strings.Contains(launchForm, "never replayed by a relaunch or a schedule") {
+		t.Error("the file control does not say the answer is treated as secret")
+	}
+}

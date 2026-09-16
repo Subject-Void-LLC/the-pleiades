@@ -278,7 +278,7 @@ plainly rather than implying a rough match exists.
 | Credential | A Credential of a declared type, bound to a template | `beta`: types, the injector engine, binding and injection at dispatch are all real. Six AWX types ship under their own namespaces; sixteen more are recognised and not implemented. See [Migrating credentials](#migrating-credentials) below |
 | Credential type | A Credential Type, defined as data over the API or imported from an AWX export | `beta`: an AWX export decodes with no translation layer. `env` and `file` injectors run on the Ansible path only |
 | Workflow (a DAG of job templates) | A single runbook's own `block`/`parallel` DAG | `experimental`: a runbook is itself a DAG, but chaining multiple independent runbooks the way an AWX workflow chains job templates does not exist |
-| Survey | none | `design`, not built |
+| Survey | A Survey on a Template, authored from its Survey section | `beta`: AWX's seven question types, character for character, with per-type validation, an authored order, and encrypted answers. One addition AWX has no name for: a `file` question carrying a text file's content, bounded at 32 KiB, treated as secret, and refused if it opens with an interpreter line unless both the deployment and the question permit program content |
 | Approval node | none | `design`, not built |
 | Schedule (RRULE) | A Schedule, attached to a template | `beta`: RFC 5545 recurrence with exclusion rules, time zones and a preview endpoint, proven against AWX's own recurrence library. See [Migrating schedules](#migrating-schedules) below |
 | Notification template | none | `design`, not built |

