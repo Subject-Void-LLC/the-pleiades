@@ -4,12 +4,38 @@ Rewrite the "Current Status" section when stopping mid-task or handing off, per 
 
 ## Current Status (this session)
 
-**Branch `feature/survey-builder`, 3 commits, stacked on `feature/section-row-actions`
-(pushed, `17e240c`), which is stacked on `feature/job-cancel`, off `main` at `227fc9e`.
-NOT pushed.**
+**Branch `feature/survey-builder`, 9 commits, stacked on `feature/section-row-actions`
+(pushed, `17e240c`), which is stacked on `feature/job-cancel`, off `main` at `227fc9e`.**
 
-Item C is done, and it grew a second half the list did not have: **a `file` survey question**,
-asked for directly, with the executable-content policy that has to come with it.
+Items C and E are both done. C grew a second half the list did not have -- **a `file` survey
+question**, with the executable-content policy that has to come with it -- and E turned out to
+rest on a **structural asymmetry nobody had written down**, which is the finding to read first.
+
+### The finding: neither record covers every job
+
+This platform keeps two records of a run and they are COMPLEMENTARY, not alternative.
+
+| | runbook job | playbook job | after the broker's window |
+|---|---|---|---|
+| Run journal | per-node, rich | **none, ever** | still there |
+| Log output | 2 events per device | per-task, rich | **gone** |
+
+`engine.WithJournal` is attached in exactly two places and neither is the legacy adapter, so a
+playbook job produces zero journal rows permanently. The mirror image is that the native adapter
+publishes exactly two job-log events per dispatch, `started` and one completion summary, so
+per-task LIVE output exists only for a playbook job.
+
+Every piece of item E follows from that. The Tasks tab's empty state has to say which kind of
+job this is and where the other kind's detail lives. The Download control has to be a chooser
+resolved per record, because a fixed pair of links hands an operator an empty file about half the
+time. Done that way, every job gets exactly one useful download.
+
+There is a tempting fix in reach and it is NOT free: `internal/engine` already emits a per-node
+event field-for-field identical to `wire.JobEvent`, and `internal/adapters/native` hands the
+executor an in-process bus and drops them. That is deliberate, with a stated reason (collision
+with the job.log stream), so forwarding them is overturning a recorded decision rather than
+picking up free money. It would give native jobs real per-task live output and make a log
+download worth having for them.
 
 ### Item C: the survey builder
 
@@ -93,35 +119,77 @@ A fourth, recorded as FAILURE_PATTERNS #228: `routing.CheckInjectable` has one p
 caller, and the UI's own credential-binding action writes straight to the store, so an env/file
 binding made through `/ui` is caught only by the run-time backstop.
 
+### Item E: the Tasks tab and Download
+
+The run journal had been WRITE-ONLY since it shipped: a table with migrations in both dialects,
+an index declared with a doc comment naming exactly this query, a subscriber the Controller
+refuses to start without, and no reader anywhere. `journal.EntStore.ForJob` is its first.
+
+Both halves of the recorded sizing were wrong. "No API endpoint exposes it" is true and
+irrelevant -- a `view.Section` reads its port directly and needs no endpoint, no `auth.LinkRel`
+and no handler, which the Device outcomes section on the same page already proved. "Download has
+no route shape to reuse" is false twice: `/{resource}/chart.json` is already a non-HTML UI route
+with its own scope check, and `/{resource}/{id}/logs` already proves a per-record static segment
+coexists with the `/{id}/{action}` wildcard.
+
+What it actually cost was the honesty work, and that produced two new seams:
+
+- **`Section.Note`**, a line resolved per RECORD rather than declared once. The journal scales as
+  devices times nodes, so the read is bounded, and a table capped at 500 rows of a longer run
+  shows a partial record looking exactly like a complete one.
+- **`view.DownloadSpec`**, a list resolved per record, with `Available` checked twice -- when the
+  control is drawn and again when the link is followed, because a log window expires in between.
+  Removing the second check made a record with nothing to give serve a 200.
+
+Two format decisions worth not re-litigating. The journal downloads as **CSV** because it is a
+flat table someone sorts and pastes into a ticket, and it carries no secret by construction. The
+log downloads as **NDJSON** rather than a JSON array, because an array needs its closing bracket
+written after the last message, which a drain that fails partway cannot do.
+
+The log download is withheld while a job is RUNNING. The subject has no end-of-stream marker, so
+a drain stops at whatever had arrived, and a file that silently ends mid-run is indistinguishable
+from a run that ended there.
+
 ### The list
 
 | Item | What it is | First sized | State |
 |---|---|---|---|
 | B | Section write path, row half | S | **DONE.** Add, edit in place and remove on a credential type's inputs. |
 | C | Survey builder | S add / M edit | **DONE**, plus the `file` question type and its two gates. |
-| E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
+| E | Tasks tab and Download | M | **DONE.** The journal's first reader, a Tasks tab, and a per-job download chooser. |
 | F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
 | G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
 | H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
 
 ### Decisions left, not improvised
 
-1. **The file picker.** Real upload means the repo's first multipart parse. It is contained --
-   one branch in `runAction` on the request's content type, plus an `enctype` on forms that
-   declare a file field -- but its failure mode is silent and total: a form that gains `enctype`
-   while still being parsed by `ParseForm` returns EMPTY values for every field with no error.
-   That wants its own change with its own test, not a rider on this one.
-2. **A template can store an armed flag a deployment refuses.** `Survey.Validate` accepts
+1. **Forwarding the engine's per-node events**, described above. It would give native jobs real
+   per-task live output and make their log download worth having, and it overturns a recorded
+   decision, so it is a judgement rather than a task.
+2. **The file picker**, and it is DEARER than this document first said. The CSRF token is a
+   hidden input, which in a multipart form lives inside the body, and `h.csrf` runs before the
+   handler and reads it through `ParseForm` -- which yields nothing for a multipart body. So the
+   MIDDLEWARE has to parse the whole body before it can verify the token, and `r.MultipartReader`
+   is no escape hatch because it permanently disables `ParseMultipartForm` downstream. Add the
+   eleven other `ParseForm` sites, each of which silently blanks every control when handed a
+   multipart body today, and this is a change to the write path rather than to one handler.
+3. **A template can store an armed flag a deployment refuses.** `Survey.Validate` accepts
    `allow_program_content` whatever the deployment says, so a template copied to a consenting
    deployment keeps its author's intent. The authoring form withholds the checkbox where it
    would do nothing and the Survey section's PROGRAM CONTENT column reads "refused here", but
    the stricter reading of "don't offer choices that can only fail" would refuse the save. A
    judgement call; the opposite call is defensible.
-3. **The three defects above.** Each is the user's to schedule. (3) is one line.
-4. Everything the previous entry left open is still open: the `running` watchdog, the
+4. **The three defects above.** Each is the user's to schedule. (3) is one line.
+5. Everything the previous entry left open is still open: the `running` watchdog, the
    result-before-row ordering, the eighteen unnarrowed flaky entries, the two proposed gate
    rules, the DLQ consumer and the dogfood pass. See `HANDOFF_ARCHIVE.md`.
 
 ### Next step
 
-Item E, F, G or H. E is the smallest and `internal/journal` already holds the data.
+F, G or H, and the scouts found two of the three are not what the list says. **F**'s premise
+question is answered: this platform DOES own local auth, which
+`tests/e2e/localauth_release_gate_test.go` exercises, so the password half is real work rather
+than somebody else's. **G** is likely cheaper than "a new entity plus both dialects'
+migrations", because `internal/inventory/syncplugin` already has a real four-stage plugin
+contract with a conformance suite, and an inventory source may be little more than a stored
+configuration pointing at one. **H** is the only one nobody has re-sized.
