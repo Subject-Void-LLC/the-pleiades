@@ -46,6 +46,7 @@ var rowActionCalls struct {
 	sync.Mutex
 	parentID string
 	rowID    string
+	label    string
 }
 
 // pinnedRow is the row the gadget view's row action withholds itself from,
@@ -144,6 +145,44 @@ var registerRecordViews = sync.OnceFunc(func() {
 						}
 						rowActionCalls.Lock()
 						rowActionCalls.parentID, rowActionCalls.rowID = parentID, rowID
+						rowActionCalls.Unlock()
+						return "", nil, nil
+					},
+				}, {
+					// A PROMPTING row control, which is the other half of
+					// the row path: it draws a form prefilled from the row
+					// and submits back to the same address.
+					Name:     "relabel",
+					Label:    "Relabel",
+					Heading:  "Relabel row",
+					Endpoint: &apispec.SetCredentialTypeInjectors,
+					Fields: []view.Field{
+						{Name: "label", Label: "LABEL", Kind: view.KindText,
+							Required: true, MaxLen: 12, Autocomplete: "off", InForm: true},
+						// A select, so the prompt's option resolution runs
+						// on this path too: a row form fetches its choices
+						// before rendering, exactly as a record action's
+						// does, and no template performs I/O.
+						{Name: "tier", Label: "TIER", Kind: view.KindSelect, InForm: true,
+							Options: func(context.Context) ([]view.Option, error) {
+								return []view.Option{{Label: "Primary", Value: "primary"}}, nil
+							}},
+					},
+					Form: func(_ context.Context, _, rowID string) (map[string]string, error) {
+						if rowID == failingRow {
+							return nil, errors.New("deliberate row prefill failure")
+						}
+						return map[string]string{"label": "stored-" + rowID}, nil
+					},
+					Submit: func(_ context.Context, parentID, rowID string, v view.Values) (string, view.FieldErrors, error) {
+						if v.Get("label") == "taken" {
+							errs := view.FieldErrors{}
+							errs.Add("label", "That label is already used.")
+							return "", errs, nil
+						}
+						rowActionCalls.Lock()
+						rowActionCalls.parentID, rowActionCalls.rowID = parentID, rowID
+						rowActionCalls.label = v.Get("label")
 						rowActionCalls.Unlock()
 						return "", nil, nil
 					},
@@ -990,5 +1029,146 @@ func TestRecordAction_AnUnprefilledPromptStaysEmpty(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `name="group"`) {
 		t.Fatal("the unprefilled prompt did not render at all, so this proves nothing")
+	}
+}
+
+// TestRowAction_PromptIsDrawnAtTheAddressItPostsTo covers the row path's
+// prompting half at the handler, which the resource-level suite reaches
+// only through one concrete resource.
+//
+// The GET and the POST share an address deliberately: the form is drawn
+// where it submits, so the row the operator was shown and the row the write
+// lands on cannot drift apart.
+func TestRowAction_PromptIsDrawnAtTheAddressItPostsTo(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.get(t, "/ui/"+gadgetView+"/alpha/relabel/r1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="stored-r1"`) {
+		t.Errorf("the prompt did not render the row's stored value:\n%s", body)
+	}
+	if !strings.Contains(body, `action="/ui/`+gadgetView+`/alpha/relabel/r1"`) {
+		t.Errorf("the form does not post back to the address it was drawn at:\n%s", body)
+	}
+}
+
+// TestRowAction_PromptSubmissionCarriesBothIdsAndTheValues is the write
+// half: a prompting control has to reach Submit with the record, the row
+// AND what the form was told, or it is an edit that does not know what it
+// is editing.
+func TestRowAction_PromptSubmissionCarriesBothIdsAndTheValues(t *testing.T) {
+	p := newRecordProbe(t)
+
+	rec := p.post(t, "/ui/"+gadgetView+"/alpha/relabel/r1", "label=renamed")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
+	}
+
+	rowActionCalls.Lock()
+	defer rowActionCalls.Unlock()
+	if rowActionCalls.parentID != "alpha" || rowActionCalls.rowID != "r1" {
+		t.Errorf("Submit received (%q, %q), want (alpha, r1)", rowActionCalls.parentID, rowActionCalls.rowID)
+	}
+	if rowActionCalls.label != "renamed" {
+		t.Errorf("Submit received label %q, want %q", rowActionCalls.label, "renamed")
+	}
+}
+
+// TestRowAction_AFailedPromptRedisplaysWhatWasTyped covers both ways a
+// prompting row control can come back with the form still on screen, and
+// the property that matters is the same for both.
+//
+// A redisplay that cleared the controls would make somebody retype a form to
+// find out what was wrong with it, which is its own accessibility problem
+// and is why every other form in this UI echoes the submission back.
+func TestRowAction_AFailedPromptRedisplaysWhatWasTyped(t *testing.T) {
+	p := newRecordProbe(t)
+
+	t.Run("the shared validation refuses it", func(t *testing.T) {
+		// Over MaxLen, which the declaration sets to 12.
+		rec := p.post(t, "/ui/"+gadgetView+"/alpha/relabel/r1", "label=far-too-long-to-accept")
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "far-too-long-to-accept") {
+			t.Error("the redisplay cleared what was typed")
+		}
+	})
+
+	t.Run("the resource itself refuses it", func(t *testing.T) {
+		rec := p.post(t, "/ui/"+gadgetView+"/alpha/relabel/r1", "label=taken")
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "That label is already used.") {
+			t.Error("the field error from the resource did not reach the form")
+		}
+		if !strings.Contains(body, `value="taken"`) {
+			t.Error("the redisplay cleared what was typed")
+		}
+	})
+}
+
+// TestRowAction_PromptRefusesWhatItCannotDraw covers the edges of the
+// prompting path.
+func TestRowAction_PromptRefusesWhatItCannotDraw(t *testing.T) {
+	p := newRecordProbe(t)
+
+	t.Run("a prefill that fails", func(t *testing.T) {
+		// Rendering the form anyway is the one answer that must not
+		// happen: an empty control and a control holding nothing look
+		// identical, and the next save cannot tell either.
+		if rec := p.get(t, "/ui/"+gadgetView+"/alpha/relabel/"+failingRow); rec.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", rec.Code)
+		}
+	})
+
+	t.Run("a GET on a control with no form", func(t *testing.T) {
+		// 404 rather than a redirect, unlike the record action path: a row
+		// control with no form is a button and never a link, so nothing on
+		// any page draws a GET here.
+		if rec := p.get(t, "/ui/"+gadgetView+"/alpha/detach/r1"); rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("a control the form never offered", func(t *testing.T) {
+		rec := p.post(t, "/ui/"+gadgetView+"/alpha/relabel/r1", "label=fine&smuggled=x")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400: a submission may not carry a control the form did not draw", rec.Code)
+		}
+	})
+}
+
+// TestRowAction_OnADeclaredViewSaysSoRatherThan404 keeps the row path
+// consistent with every other handler here.
+//
+// A registered-but-unimplemented view answers with the panel that says so,
+// because 404 is the one reply that makes a declared view indistinguishable
+// from a view that does not exist, and being able to tell those apart is the
+// entire reason a declared view is registered.
+func TestRowAction_OnADeclaredViewSaysSoRatherThan404(t *testing.T) {
+	p := newRecordProbe(t)
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			target := "/ui/" + declaredView + "/alpha/relabel/r1"
+			var rec *httptest.ResponseRecorder
+			if method == http.MethodGet {
+				rec = p.get(t, target)
+			} else {
+				rec = p.post(t, target, "")
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 with the declared panel", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), "not implemented") {
+				t.Errorf("the reply is not the declared panel:\n%s", rec.Body.String())
+			}
+		})
 	}
 }
