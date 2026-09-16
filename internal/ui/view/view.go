@@ -363,6 +363,43 @@ type RowAction struct {
 // Confirms reports whether this control interrupts before it posts.
 func (a RowAction) Confirms() bool { return strings.TrimSpace(a.Confirm) != "" }
 
+// Refused is a refusal a row action's Submit returns when the reason is one
+// the operator can act on, as against a failure that is nobody's doing.
+//
+// The two must not be answered the same way. "An injector depends on this
+// input" is a rule the person who pressed the button can satisfy by
+// removing the injector first; a store that could not be reached is not.
+// Without this distinction both reach serverError, which logs the real
+// reason where the operator cannot see it and answers them with the words
+// "internal error", so a fixable refusal reads as a fault in the product.
+//
+// Wrap the store's error rather than restating it: Unwrap keeps errors.Is
+// working for whatever is above, and the message shown is the store's own
+// words, because the store is the authority on why it refused.
+type Refused struct {
+	// Message is what the operator is told. The store's own sentence.
+	Message string
+
+	// Err is the refusal being carried, kept reachable for errors.Is.
+	Err error
+}
+
+// Error makes Refused an error carrying the message it shows.
+func (r Refused) Error() string { return r.Message }
+
+// Unwrap keeps errors.Is and errors.As working through the wrapper.
+func (r Refused) Unwrap() error { return r.Err }
+
+// Refuse wraps an error as a refusal shown to the operator in its own
+// words. A nil error refuses nothing and returns nil, so a caller can hand
+// it a store result without first asking whether there was one.
+func Refuse(err error) error {
+	if err == nil {
+		return nil
+	}
+	return Refused{Message: err.Error(), Err: err}
+}
+
 // RowAction finds a row action by name across every section that declares
 // one.
 //

@@ -57,6 +57,14 @@ const pinnedRow = "pinned"
 // failure branch has something to reach.
 const failingRow = "boom"
 
+// refusedRow is the row whose Submit refuses for a reason the operator can
+// act on, which the handler must answer differently from failingRow.
+const refusedRow = "depended-on"
+
+// refusalText is the store's own sentence, which the refusal page shows and
+// the fault page must not.
+const refusalText = "an injector depends on this input"
+
 var registerRecordViews = sync.OnceFunc(func() {
 	view.MustRegister(view.Descriptor{
 		Name:     gadgetView,
@@ -113,6 +121,7 @@ var registerRecordViews = sync.OnceFunc(func() {
 						{ID: "r1", Cells: view.Cells{"label": "parent=" + parentID}},
 						{ID: pinnedRow, Cells: view.Cells{"label": "withheld"}},
 						{ID: failingRow, Cells: view.Cells{"label": "fails"}},
+						{ID: refusedRow, Cells: view.Cells{"label": "refused"}},
 					}, nil
 				},
 				// The row half of the section write path. Its endpoint is
@@ -129,6 +138,9 @@ var registerRecordViews = sync.OnceFunc(func() {
 					Submit: func(_ context.Context, parentID, rowID string) (string, error) {
 						if rowID == failingRow {
 							return "", errors.New("deliberate row action failure")
+						}
+						if rowID == refusedRow {
+							return "", view.Refuse(errors.New(refusalText))
 						}
 						rowActionCalls.Lock()
 						rowActionCalls.parentID, rowActionCalls.rowID = parentID, rowID
@@ -852,5 +864,39 @@ func TestRowAction_IsNotReachableByGET(t *testing.T) {
 	defer rowActionCalls.Unlock()
 	if rowActionCalls.rowID != "" {
 		t.Errorf("a GET reached Submit with row %q", rowActionCalls.rowID)
+	}
+}
+
+// TestRowAction_TellsTheOperatorWhatTheStoreRefused separates the two
+// failures a row action has, which is the whole reason view.Refused exists.
+//
+// "An injector depends on this input" is a rule the person who pressed the
+// button can satisfy by removing the injector first. A store that could not
+// be reached is not. Answering both with the words "internal error" tells
+// the first person nothing and tells them it was not their doing, and hides
+// the sentence that would have resolved it in a log they cannot read.
+func TestRowAction_TellsTheOperatorWhatTheStoreRefused(t *testing.T) {
+	p := newRecordProbe(t)
+
+	refused := p.post(t, "/ui/"+gadgetView+"/alpha/detach/"+refusedRow, "")
+	if refused.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a refusal = %d, want 422: %s", refused.Code, refused.Body.String())
+	}
+	if !strings.Contains(refused.Body.String(), refusalText) {
+		t.Error("the refusal page does not carry the store's own reason")
+	}
+	if !strings.Contains(refused.Body.String(), "/ui/"+gadgetView+"/alpha") {
+		t.Error("the refusal page offers no way back to the record")
+	}
+
+	// The other half. A fault must not borrow the refusal's rendering: its
+	// message is not for the operator and may carry whatever the failure
+	// happened to be holding.
+	fault := p.post(t, "/ui/"+gadgetView+"/alpha/detach/"+failingRow, "")
+	if fault.Code != http.StatusInternalServerError {
+		t.Errorf("a fault = %d, want 500", fault.Code)
+	}
+	if strings.Contains(fault.Body.String(), "deliberate row action failure") {
+		t.Error("a fault's own message reached the response body")
 	}
 }

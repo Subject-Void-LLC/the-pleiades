@@ -556,6 +556,17 @@ func (m StreamModel) Chrome() Chrome {
 }
 
 // Chrome assembles a declared view's header.
+// Chrome assembles the refusal page's header. The trail leads back through
+// the record, because that is where the operator was and where the thing
+// they tried to change still is.
+func (m NoticeModel) Chrome() Chrome {
+	return Chrome{
+		Crumbs:  recordCrumbs(m.Page.Prefix, m.Descriptor, m.ID, "", false),
+		Title:   m.Heading,
+		Summary: m.Descriptor.Summary,
+	}
+}
+
 func (m DeclaredModel) Chrome() Chrome {
 	return Chrome{
 		Crumbs:  listCrumbs(m.Page.Prefix, m.Descriptor, true),

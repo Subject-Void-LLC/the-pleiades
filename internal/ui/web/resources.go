@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -443,7 +444,16 @@ func (h *Handler) runRowAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	redirect, err := action.Submit(r.Context(), id, row)
-	if err != nil {
+	var refused view.Refused
+	switch {
+	case errors.As(err, &refused):
+		// A rule the operator can satisfy, answered in the store's own
+		// words rather than logged where they cannot see it. 422 rather
+		// than 500, the same status a form's validation failure carries,
+		// because that is what this is with no form to carry it.
+		h.renderNotice(w, r, d, id, action.Label+" was refused", refused.Message)
+		return
+	case err != nil:
 		h.serverError(w, r, "run "+d.Name+"/"+action.Name, err)
 		return
 	}
@@ -451,6 +461,23 @@ func (h *Handler) runRowAction(w http.ResponseWriter, r *http.Request) {
 		redirect = resourcePath(h.cfg.Prefix, d.Name, id)
 	}
 	h.redirect(w, r, redirect)
+}
+
+// renderNotice answers a refused write with the reason, in the operator's
+// own terms and on a page they can get back from.
+func (h *Handler) renderNotice(w http.ResponseWriter, r *http.Request, d view.Descriptor, id, heading, body string) {
+	model := view.NoticeModel{
+		Page:       h.page(r, d.Title, d.Name),
+		Descriptor: d,
+		ID:         id,
+		Heading:    heading,
+		Body:       body,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	if err := render.Notice(model).Render(r.Context(), w); err != nil {
+		h.serverError(w, r, "render notice", err)
+	}
 }
 
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {

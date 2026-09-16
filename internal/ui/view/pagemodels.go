@@ -619,6 +619,53 @@ func (m ActionModel) CancelHref() string {
 // template renders this from Status alone, which is the same guardrail
 // pkg/collection applies when it refuses to let a declared method pretend
 // to be implemented.
+// NoticeModel is what a write path says when it was refused for a reason
+// the operator can act on.
+//
+// It exists because the alternative already in the tree is worse than it
+// looks. A refusal that reaches serverError is logged in full and answered
+// with the words "internal error", which tells the person who caused it
+// nothing and tells them it was not their doing, when removing an input two
+// injectors depend on is precisely their doing and precisely fixable.
+//
+// The message is the store's own words rather than a restatement, for the
+// reason every other refusal in this UI shows the store's: the store is the
+// authority on why it refused, and a paraphrase drifts from the rule it
+// paraphrases.
+//
+// Deliberately a page rather than a flash on the record it came from. A
+// flash has to survive a redirect, which means either server-side state
+// keyed per session or a message reflected out of the URL, and a
+// server-generated sentence that arrives through a query parameter is a
+// sentence anybody can put there.
+type NoticeModel struct {
+	Page       PageModel
+	Descriptor Descriptor
+
+	// ID is the record this was refused on, for the trail and the way back.
+	ID string
+
+	// Heading is the fact in a few words, and Body is the store's own
+	// explanation.
+	Heading string
+	Body    string
+}
+
+// Zero is the refusal as the shared zero-state component renders it, so a
+// refusal looks like every other problem state in the application rather
+// than like a page of its own.
+func (m NoticeModel) Zero() ZeroState {
+	return ZeroState{
+		Heading: m.Heading,
+		Body:    m.Body,
+		Tone:    ZoneProblem,
+		Actions: []ChromeAction{{
+			Label: "Back to the record",
+			Href:  path.Join(m.Page.Prefix, m.Descriptor.Name, url.PathEscape(m.ID)),
+		}},
+	}
+}
+
 type DeclaredModel struct {
 	Page       PageModel
 	Descriptor Descriptor
