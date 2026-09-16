@@ -14,13 +14,17 @@ import (
 type ResultEntry struct {
 	// ID identifies this entry. Assigned by Append if left empty, but a
 	// caller that can derive a stable, natural key (agent_wal.go's
-	// reportResult sets this to payload.JobID+":"+payload.DeviceID,
-	// mirroring internal/dispatch/worker_devices.go's own identical key)
-	// should always do so: ID also doubles as the outgoing publish's own
-	// idempotency key (agent_wal.go's flushOne), so a redundant retry of
-	// an already-delivered entry dedups server-side via the shared
-	// event.Bus idempotency mechanism instead of reporting the same
-	// outcome twice. A fresh random ID per Append call (Append's own
+	// reportResult sets this to payload.JobID+":"+payload.DeviceID)
+	// should always do so, so that a redundant retry of an
+	// already-delivered entry is recognizable as the same outcome rather
+	// than reported twice.
+	//
+	// It is NOT the key the entry is published under. That one is
+	// namespaced by agent_wal.go's resultPublishKey, because JetStream
+	// dedups per stream rather than per subject and this id is by
+	// construction the same string the Controller already used for the
+	// dispatch. This comment previously described the two agreeing as the
+	// mechanism; it was the defect. FAILURE_PATTERNS #222. A fresh random ID per Append call (Append's own
 	// fallback for a caller with no natural key available) can only dedup
 	// same-process retries of the identical already-Appended entry
 	// (Pending returns it with its own already-assigned ID unchanged); it

@@ -111,9 +111,16 @@ func (a *Agent) reportResult(ctx context.Context, payload wire.DispatchPayload, 
 		// redelivered job publish as an entirely distinct job.result
 		// event that no idempotency-key dedup (event.Bus's own
 		// IdempotencyKey mechanism) could ever collapse back down to one,
-		// since dedup only recognizes a key it has seen before. Mirrors
-		// internal/dispatch/worker_devices.go's own identical
-		// JobID+":"+DeviceID key exactly, for the identical reason.
+		// since dedup only recognizes a key it has seen before.
+		//
+		// It is deliberately the same SHAPE as the key
+		// internal/dispatch/worker_devices.go derives for the DISPATCH,
+		// because both name the same (job, device) pair. It must never be
+		// published under that key: see resultPublishKey.
+		//
+		// This comment used to say that the two keys agreeing "exactly,
+		// for the identical reason" was the point. That was the bug,
+		// written down as a safety property.
 		ID:        payload.JobID + ":" + payload.DeviceID,
 		JobID:     payload.JobID,
 		DeviceID:  payload.DeviceID,
@@ -168,18 +175,45 @@ func (a *Agent) publishResult(ctx context.Context, entry ResultEntry) bool {
 		return false
 	}
 
-	// entry.ID as the idempotency key: it is derived from
-	// (JobID, DeviceID), so a redundant retry of an already-delivered
-	// outcome dedups server-side via the shared event.Bus mechanism
-	// instead of reporting the same job outcome twice.
-	pubCtx := event.WithIdempotencyKey(ctx, entry.ID)
+	// entry.ID NAMESPACED, not entry.ID itself, and the namespace is the
+	// whole point rather than decoration.
+	//
+	// JetStream's producer-side dedup window is scoped to the STREAM, not
+	// to the subject. Every subject in this system lives in one stream
+	// ("pleiades.>", internal/topology/stream.go), so a message id is
+	// global across dispatches, results, journals and everything else.
+	// entry.ID is byte-identical to the idempotency key the Controller
+	// stamped on the DISPATCH that caused this execution
+	// (internal/dispatch/worker_devices.go), and that dispatch went into
+	// the same stream seconds earlier, inside the same window. Publishing
+	// the result under it collapsed the result onto the dispatch: the
+	// broker answered PubAck{Duplicate:true} with a NIL error, so every
+	// layer above read a silent discard as a success.
+	//
+	// internal/adapters/native/journal.go already namespaces its own key
+	// the same way, for the same reason. FAILURE_PATTERNS #222.
+	pubCtx := event.WithIdempotencyKey(ctx, resultPublishKey(entry.ID))
 	if err := a.bus.Publish(pubCtx, topology.ResultSubject(entry.JobID), *evt); err != nil {
-		a.logger.Debug("failed to publish result entry",
+		// Warn, not Debug. cmd/runner/main.go builds its logger at
+		// LevelInfo, so a Debug here is not quiet, it is invisible: a
+		// result that genuinely failed to publish leaves a job unable to
+		// finish and said nothing anywhere.
+		a.logger.Warn("failed to publish result entry",
 			slog.String("id", entry.ID), slog.String("job_id", entry.JobID), slog.String("error", err.Error()))
 		return false
 	}
 	return true
 }
+
+// resultPublishKey namespaces a WAL entry's id for publication.
+//
+// The id the WAL files an entry under and the id the message is published
+// under are two different things, and conflating them is what
+// FAILURE_PATTERNS #222 was. The WAL needs (JobID, DeviceID) so that a
+// redelivered dispatch re-reports as the same entry rather than a new one.
+// The STREAM needs a key no other publisher can mint, because JetStream
+// dedups per stream and this module puts every subject in one.
+func resultPublishKey(id string) string { return "result:" + id }
 
 // flushWAL retries delivering every entry still Pending in the WAL. It is
 // called from fetchLoop's own idle-backoff branch: an idle fetch tick has
@@ -215,7 +249,7 @@ func (a *Agent) flushOne(ctx context.Context, entry ResultEntry) {
 	if err := a.wal.Acknowledge(ctx, entry.ID); err != nil {
 		// Flushed but not locally acknowledged: the next flushWAL call
 		// will republish it, deduped server-side by the identical
-		// IdempotencyKey above, not silently dropped or double-counted.
+		// resultPublishKey above, not silently dropped or double-counted.
 		a.logger.Error("flushed wal entry but failed to acknowledge it locally; a future retry will redeliver a deduped duplicate",
 			slog.String("id", entry.ID), slog.String("error", err.Error()))
 	}
