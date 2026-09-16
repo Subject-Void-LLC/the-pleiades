@@ -47,16 +47,45 @@ and #224, LESSONS_LEARNED #185 and #186.
 5. **A task list that reshuffled between identical reads** (`b697279`).
 6. Item B's own three, recorded as FAILURE_PATTERNS #219, #220 and #221.
 
-### Item B: the section write path's row half
+### The list this is working through
 
-`view.RowAction`, declared on a Section and addressed at `/{resource}/{id}/{action}/{row}`, with
-the credential type as its consumer: an input and an injector can now be taken back out, where
-both tabs were one-way doors and the only route back was the JSON API or the database.
+| Item | What it is | First sized | State |
+|---|---|---|---|
+| B | Section write path, row half | S | **DONE.** Both halves. Add, edit in place and remove on a credential type's inputs. |
+| C | Survey builder | S add / M edit | **NEXT.** Model is complete and persisted, UI is read-only. The seam its edit half waited on now exists; only reorder needs anything new. |
+| E | Tasks tab and Download | M | `internal/journal` is real and no API endpoint exposes it. Download has no route shape to reuse. |
+| F | Users: password reset, team display | M | `internal/apispec` declares no password endpoint of any kind. No team-member port. |
+| G | Inventory Sources | M | New entity plus both dialects' migrations. D's runner and history pattern is reusable. |
+| H | Execution envs, instance groups, max hosts | L | Both UI resources exist at `view.StatusDeclared`. The heartbeat is a file, not a registration. |
 
-**What it deliberately does not do, which is the rest of item B.** A row action does not prompt.
-Removing needs no form; EDITING a row in place needs a form prefilled from that row, and
-`RecordAction`'s form prefills nothing. **Item C's edit half waits on the same seam**, so it is
-worth doing once, and it is the next piece of work.
+### Item B: DONE, both halves
+
+`view.RowAction`, declared on a Section and addressed at `/{resource}/{id}/{action}/{row}`. A row
+control can act at once (Remove) or prompt (Edit), and the credential type is the consumer that
+proves it: an input can be added, edited in place and removed, where both tabs were one-way doors
+whose only route back was the JSON API or the database.
+
+**Prompting and prefilling are ONE decision, enforced at registration** rather than tested for. A
+row action declaring `Fields` must declare `Form`. A prompt with no prefill renders the row's
+current values as empty boxes and blanks whichever the operator does not retype, which is the
+exact failure the seam exists to remove, so the combination is refused outright.
+
+**A row prompt is an edit form and a record prompt is not, with no new mode flag.** `ActionModel`
+carries the row, and a form has a row exactly when it edits something that already exists.
+`Immutable` then means what it means everywhere else, so ONE field slice serves the add form and
+the edit form: the control naming the row is offered by the first and withheld by the second.
+
+**The seam found two live bugs before it had a consumer**, FAILURE_PATTERNS #226 and #227, and
+the first is the one to read. `bindCredentialsAction` resolved a template's bound credentials,
+sorted them, and dropped them, because there was nowhere to put a form value. The multi-select
+rendered with nothing selected on a template bound to three credentials, and pressing the button
+as drawn replaced those three with none: the template silently stopped authenticating as
+anything. A variable built with care and never read is a question, not dead code.
+
+**Item C's edit half no longer waits on anything.** A survey question's edit and its delete land
+directly on this. Reorder needs one addition: `RowAction.Applies` sees only the Row, and "Move up"
+on the first row is a control that can only fail, so it needs the row's position. That was
+deliberately not added speculatively, because the shape of reorder is not yet known.
 
 ### Where the gate stands
 
@@ -112,4 +141,20 @@ Nothing suggests a regression, and nothing has verified its absence either.
 
 ### Next step
 
-The action-form prefill seam, which finishes item B and unblocks item C's edit half.
+Item C, the survey builder. Add, edit and delete a question all land on the seam that now exists;
+reorder needs `RowAction.Applies` to see the row's position.
+
+### One thing this machine cannot currently verify
+
+`make ci` was run three times today and its remaining red is the Docker daemon rather than the
+diff. The last run's only failure was `tests/e2e`: one postgres container failed to start against
+`/var/run/docker.sock` after 560 retries, and `goleak` then failed ELEVEN unrelated tests in the
+same package on the testcontainers reaper goroutine the failed setup left behind. Every one
+passes in isolation, and the cascade is the shape `flaky-packages.json`'s own
+`internal/transport/ssh` entry already describes.
+
+Two things follow. The goleak cascade is a diagnostic defect worth its own look: one provisioning
+failure produces eleven whose message, "found unexpected goroutines", names neither the container
+nor the cause. And the narrowed `tests/e2e` waiver correctly made these HARD rather than warning,
+which is the rule working as intended: a test nobody has seen flake before should stop the gate
+and make a human look. A human looked. It was the daemon.

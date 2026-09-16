@@ -4389,3 +4389,41 @@ the raw body and print it.
 **The API side.** An endpoint returning an array with no guaranteed order is a trap for any client
 written the obvious way, not only for a test harness. If a collection has a natural order, give it
 one.
+
+---
+
+## 188. A round-trip test must compare against what the test put in, never against how the page looked beforehand
+
+**The rule.** When testing that a read-modify-write cycle preserves data, the expectation has
+to come from OUTSIDE the cycle. Comparing the state before to the state after looks like the
+natural invariant and is blind to the most important failure: a value that the read never
+produced is missing from the "before" and the "after" alike, so the comparison holds while the
+data is destroyed.
+
+**The incident.** The test was "render the edit form, post back exactly what it offered, and
+nothing should change". It took four attempts to make it capable of failing, and each failed
+version would have shipped looking thorough:
+
+1. **It posted a hardcoded body.** A literal request body posts the right values whatever the
+   form rendered, so deleting the prefill entirely left it green. Fixed by reading the values
+   back off the rendered HTML, which is also what an operator pressing Save without touching
+   anything actually sends.
+2. **It compared the section's table.** That table renders five of the input's eight
+   properties, so `multiline`, `help` and `default` could be destroyed invisibly. Fixed by
+   comparing the form, which renders all of them.
+3. **It compared before to after.** This is the subtle one and the reason for the rule. A
+   dropped prefill is absent from both renders, so equality holds while the stored value is
+   overwritten with blank. Fixed by comparing against the literal values the test itself had
+   written in.
+4. **Its data was at the zero value.** A stored value equal to the type's zero round-trips
+   correctly even with its prefill deleted, so controls had to be given values that differ
+   from their zeros, across two records where one record could not hold them all.
+
+Each step was found the same way: delete one prefill, run the test, watch it pass. That loop
+is cheap and it is the only thing that distinguishes a test of a property from a test that
+merely exercises it. The final version was checked against all seven controls individually.
+
+**A fifth thing, worth its own sentence.** The first working version added a REQUIRED input to
+a shared fixture and broke an unrelated conformance test, because every credential of that type
+then had an unanswered required input. A test that mutates shared fixture state is a test that
+fails somebody else's assertion later; it built its own record instead.

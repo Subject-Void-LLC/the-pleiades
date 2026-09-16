@@ -7822,3 +7822,68 @@ empty. The pairing to watch for is a reused decode target, an `omitempty` field,
 with no guaranteed order. The second lesson is about diagnostics: a failure message built from a
 value the test itself derived cannot distinguish "the server sent this" from "we corrupted it",
 and when a harness can be wrong, its error messages have to carry what actually arrived.
+
+---
+
+## 226. A form's prefill was computed, sorted, and dropped, so saving it as drawn unbound every credential a template ran as
+
+**Symptom:** none reported, which is the point. Found by a design review asking what the
+prefill seam was for. The control looked and behaved like a working form.
+
+**Root cause:** `bindCredentialsAction` sets what a template authenticates as. It is a
+multi-select whose own help text says "Replacing this list replaces what the template
+authenticates as", and its `Submit` does exactly that: whatever is selected becomes the whole
+binding.
+
+Its `FieldsFor` resolved the template's currently bound credential ids into a slice, sorted
+them, and never referred to them again. A record action's form had no prefill hook, so there
+was nowhere to put them. The form therefore rendered with **nothing selected** on a template
+bound to three credentials, and pressing the button as drawn replaced those three with none.
+The template silently stopped authenticating as anything.
+
+The discarded slice is the diagnostic worth remembering. Somebody wrote exactly the value the
+form needed and had nowhere to put it, which is what a missing seam looks like from inside a
+call site. A variable that is built with care and never read is a question, not dead code.
+
+**Why nothing caught it.** The existing test opened the form and asserted the choices were
+offered with their type names, which is true and insufficient: an empty multi-select offers
+every choice exactly as a prefilled one does. Nothing asserted that what the record already
+held was selected, and an empty control and a control holding nothing are the same rendering.
+
+**Fix:** `RecordAction.Form`, the same name and signature as `Handlers.Form`, the edit form's
+own prefill, so there is one answer to "where do a form's existing values come from" rather
+than two to keep in step. A prefill naming a control the form does not render is refused
+rather than dropped, and so is a value for a password control, since `field.templ` writes a
+password into a value attribute.
+
+**Lesson:** a form that REPLACES a collection is a different animal from one that adds to it,
+and the difference is invisible in the markup. Whenever a Submit's semantics are "what you see
+is what it becomes", the form that draws it must be able to show what it currently is, and a
+test for it has to assert the current state is SELECTED rather than merely offered.
+
+---
+
+## 227. Four action redirects left off the UI's mount prefix, so a successful write answered with a 404
+
+**Symptom:** binding a template's credentials, attesting an organization or a team, and testing
+a credential type each redirected to `/templates/1` rather than `/ui/templates/1`. The write had
+already succeeded; the operator saw a 404, which reads as though it had not.
+
+**Root cause:** each of the four built its redirect path by hand and each omitted the prefix the
+UI is mounted at. The handler passes a non-empty redirect through verbatim, and the prefix is
+configuration (`Config.Prefix`), so a hand-built path is wrong at the default and wrong again for
+any deployment that changes it.
+
+**Fix:** all four wanted exactly the record they had just written, which is what the handler
+already builds when a `Submit` returns an EMPTY redirect, through the configured prefix. So the
+fix is to delete the path rather than correct it. The handler knows the prefix; a call site does
+not.
+
+**Why nothing caught it.** Every test of these actions asserted the status code and the stored
+result. None followed the redirect or looked at the `Location` header, so the destination was
+never observed by anything.
+
+**Lesson:** when a handler offers a correct default, a call site that reimplements it is a place
+to check rather than a place to trust, and four independent authors producing the same mistake
+says the default was not obvious enough. Assert the `Location` header, not just the 303: a
+redirect nobody follows in a test is a redirect nobody has tested.
