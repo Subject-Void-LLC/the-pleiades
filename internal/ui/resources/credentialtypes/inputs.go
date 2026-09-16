@@ -59,6 +59,10 @@ func inputsSection(store credstore.Store) view.Section {
 		Empty:   "This credential type has no inputs yet.",
 		Rows:    inputRows(store),
 		Actions: []string{addInputName},
+		// The row half, added after the header half had shipped alone for
+		// a while. An Add with no Remove is a one-way door, and the first
+		// typo through it is permanent.
+		RowActions: []view.RowAction{removeInputAction(store)},
 	}
 }
 

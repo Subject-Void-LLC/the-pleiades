@@ -53,13 +53,14 @@ var injectorColumns = []view.Field{
 // time, with an Add control in the header.
 func injectorsSection(store credstore.Store) view.Section {
 	return view.Section{
-		Title:   injectorsTitle,
-		Summary: "Where this type's inputs reach a run. Every template renders over the type's own input ids, for example {{ api_token }}.",
-		Status:  view.StatusImplemented,
-		Fields:  injectorColumns,
-		Empty:   "This credential type injects nothing yet. A machine or vault type reaches a run directly and needs none.",
-		Rows:    injectorRows(store),
-		Actions: []string{addInjectorName},
+		Title:      injectorsTitle,
+		Summary:    "Where this type's inputs reach a run. Every template renders over the type's own input ids, for example {{ api_token }}.",
+		Status:     view.StatusImplemented,
+		Fields:     injectorColumns,
+		Empty:      "This credential type injects nothing yet. A machine or vault type reaches a run directly and needs none.",
+		Rows:       injectorRows(store),
+		Actions:    []string{addInjectorName},
+		RowActions: []view.RowAction{removeInjectorAction(store)},
 	}
 }
 

@@ -313,13 +313,26 @@ func Register(store credstore.Store, orgs inventory.OrganizationLister, eng rend
 			Update: &apispec.UpdateCredentialType,
 			Delete: &apispec.DeleteCredentialType,
 		},
-		// A managed type is refused by the store on both an edit and a
-		// delete, so the affordance is withdrawn rather than offered and
-		// then refused. It is keyed on the relation because a predicate
-		// that ignored it would withdraw every affordance, leaving the
-		// page looking as though the caller could do nothing at all.
+		// A managed type is refused by the store on every write, so the
+		// affordance is withdrawn rather than offered and then refused. It
+		// is keyed on the relation because a predicate that ignored it
+		// would withdraw every affordance, leaving the page looking as
+		// though the caller could do nothing at all.
+		//
+		// The two set-* relations belong here for the same reason the edit
+		// and delete ones do, and were missing: the schema and injector
+		// controls reach UpdateType, which refuses a managed type in its
+		// second statement, so every one of them was being offered on a
+		// platform type and answered with a refusal.
 		Applies: func(r view.Row, rel auth.LinkRel) bool {
-			if managedRow(r) && (rel == apispec.UpdateCredentialType.Rel || rel == apispec.DeleteCredentialType.Rel) {
+			if !managedRow(r) {
+				return true
+			}
+			switch rel {
+			case apispec.UpdateCredentialType.Rel,
+				apispec.DeleteCredentialType.Rel,
+				apispec.SetCredentialTypeInputs.Rel,
+				apispec.SetCredentialTypeInjectors.Rel:
 				return false
 			}
 			return true

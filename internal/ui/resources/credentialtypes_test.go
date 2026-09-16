@@ -359,3 +359,197 @@ func TestCredentialTypesForm_AddInjectorRejectsADangerousEnvName(t *testing.T) {
 		t.Fatalf("a code-execution env name = %d, want 422 with a field error: %s", w.Code, w.Body.String())
 	}
 }
+
+// removeInputForm is the row control the Inputs tab renders for one input,
+// and removeInjectorForm the same on the Injectors tab. Both are matched as
+// the form's action, because that is the one thing the button, its dialog
+// and the route all have to agree about.
+func removeInputForm(id, input string) string {
+	return `action="/ui/credential-types/` + id + `/remove-input/` + input + `"`
+}
+
+func removeInjectorForm(id, row string) string {
+	return `action="/ui/credential-types/` + id + `/remove-injector/` + row + `"`
+}
+
+// TestCredentialTypes_RemoveInputTakesItOutOfTheSchema is the row half's
+// central case on a real resource: an input added through the header control
+// can be taken back out through the row one.
+//
+// The type's injector document is checked afterwards for the same reason the
+// add test checks it: set-inputs and set-injectors are two narrowings of one
+// store update, and a removal built from the schema alone would blank the
+// document beside it.
+func TestCredentialTypes_RemoveInputTakesItOutOfTheSchema(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+	inputID := strings.ReplaceAll(uniqueName(t, "region"), "-", "_")
+
+	added := h.post(t, "/ui/credential-types/"+id+"/add-input", map[string]string{
+		"id": inputID, "label": "Region", "type": "string",
+	})
+	if added.Code != http.StatusSeeOther {
+		t.Fatalf("adding the input to remove = %d, want a redirect: %s", added.Code, added.Body.String())
+	}
+
+	// The control has to be on the page before it is posted to. A test that
+	// only posted would pass against a route with no button above it, which
+	// is a feature nobody can reach.
+	tab := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if !strings.Contains(tab, removeInputForm(id, inputID)) {
+		t.Fatalf("the Inputs tab renders no Remove control for %q:\n%s", inputID, tab)
+	}
+
+	removed := h.post(t, "/ui/credential-types/"+id+"/remove-input/"+inputID, nil)
+	if removed.Code != http.StatusSeeOther {
+		t.Fatalf("removing the input = %d, want a redirect: %s", removed.Code, removed.Body.String())
+	}
+
+	after := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if strings.Contains(after, inputID) {
+		t.Errorf("the removed input %q is still on the Inputs tab", inputID)
+	}
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String(), "CONFORMANCE_TOKEN") {
+		t.Error("removing an input blanked the type's injector document")
+	}
+}
+
+// TestCredentialTypes_RemoveInputAnInjectorNeedsIsRefusedInTheStoresWords is
+// the case the whole refusal path was built for.
+//
+// The fixture's injector renders {{ api_token }}, so removing api_token
+// leaves a document referencing an input the type no longer declares, and
+// credtype refuses it. What matters is that the person who pressed the
+// button is told which rule stopped them, on a page they can act on, rather
+// than being shown the words "internal error" while the reason goes to a log
+// they cannot read.
+func TestCredentialTypes_RemoveInputAnInjectorNeedsIsRefusedInTheStoresWords(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	w := h.post(t, "/ui/credential-types/"+id+"/remove-input/api_token", nil)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("removing an input an injector needs = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "api_token") {
+		t.Errorf("the refusal does not name the input that caused it:\n%s", w.Body.String())
+	}
+
+	// Refused means nothing changed, not merely that the response said so.
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String(), "api_token") {
+		t.Error("the input was removed despite the refusal")
+	}
+}
+
+// TestCredentialTypes_RemoveInjectorTakesItOutOfTheDocument is the other
+// tab's row control, which addresses a row id the section itself invented
+// ("env-NAME") rather than one the stored document carries.
+func TestCredentialTypes_RemoveInjectorTakesItOutOfTheDocument(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	added := h.post(t, "/ui/credential-types/"+id+"/add-injector", map[string]string{
+		"target": "env", "name": "API_URL", "template": "{{ api_url }}",
+	})
+	if added.Code != http.StatusSeeOther {
+		t.Fatalf("adding the injector to remove = %d, want a redirect: %s", added.Code, added.Body.String())
+	}
+
+	tab := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if !strings.Contains(tab, removeInjectorForm(id, "env-API_URL")) {
+		t.Fatalf("the Injectors tab renders no Remove control for env-API_URL:\n%s", tab)
+	}
+
+	removed := h.post(t, "/ui/credential-types/"+id+"/remove-injector/env-API_URL", nil)
+	if removed.Code != http.StatusSeeOther {
+		t.Fatalf("removing the injector = %d, want a redirect: %s", removed.Code, removed.Body.String())
+	}
+
+	after := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if strings.Contains(after, "API_URL") {
+		t.Errorf("the removed injector is still on the Injectors tab:\n%s", after)
+	}
+	// The one the removal never named must survive, or this is a document
+	// being replaced rather than an entry being taken out of it.
+	if !strings.Contains(after, "CONFORMANCE_TOKEN") {
+		t.Error("removing one injector took the others with it")
+	}
+	if !strings.Contains(h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String(), "api_token") {
+		t.Error("removing an injector blanked the type's input schema")
+	}
+}
+
+// TestCredentialTypes_RemoveRefusesARowThatNamesNothing proves a stale page
+// is answered rather than redirected.
+//
+// A redirect would render the tab again, the row would be absent, and the
+// reader would conclude their click worked. On a page left open while
+// somebody else edited the type, that reading is false.
+func TestCredentialTypes_RemoveRefusesARowThatNamesNothing(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstEditableRecordID(t, h, "credential-types")
+	if id == "" {
+		t.Fatal("no editable credential type in the fixture")
+	}
+
+	cases := map[string]string{
+		"an input that is not in the schema":    "/ui/credential-types/" + id + "/remove-input/never_existed",
+		"an injector row with no target prefix": "/ui/credential-types/" + id + "/remove-injector/bare",
+		"an injector that is not in the document": "/ui/credential-types/" + id +
+			"/remove-injector/env-NEVER_EXISTED",
+	}
+	for name, target := range cases {
+		t.Run(name, func(t *testing.T) {
+			if w := h.post(t, target, nil); w.Code != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestCredentialTypes_ManagedTypeWithdrawsTheRemoveControls is the managed
+// case one level down from the record's own.
+//
+// UpdateType refuses a managed type in its second statement, so every schema
+// and injector control on one could only ever fail. The record's edit and
+// delete were already withdrawn for exactly this reason; the set-inputs and
+// set-injectors relations were missing from that predicate, so the add
+// controls were being offered on a platform type and answered with a
+// refusal, and the remove controls would have inherited it.
+func TestCredentialTypes_ManagedTypeWithdrawsTheRemoveControls(t *testing.T) {
+	h := newHarness(t, adminIdentity)
+
+	id := firstManagedTypeID(t, h)
+	if id == "" {
+		t.Skip("no managed credential type in the fixture")
+	}
+
+	inputs := h.get(t, "/ui/credential-types/"+id+"?tab=inputs").Body.String()
+	if strings.Contains(inputs, "/remove-input/") {
+		t.Error("a managed type offers a Remove control on its inputs, which the store would refuse")
+	}
+	if strings.Contains(inputs, "/add-input") {
+		t.Error("a managed type offers Add input, which the store would refuse")
+	}
+
+	injectors := h.get(t, "/ui/credential-types/"+id+"?tab=injectors").Body.String()
+	if strings.Contains(injectors, "/remove-injector/") {
+		t.Error("a managed type offers a Remove control on its injectors, which the store would refuse")
+	}
+	if strings.Contains(injectors, "/add-injector") {
+		t.Error("a managed type offers Add injector, which the store would refuse")
+	}
+}
